@@ -204,7 +204,7 @@ function Crumbs({ current }: { readonly current: string }) {
   );
 }
 
-function List({ role }: { readonly role: Role }) {
+function List() {
   return (
     <Page
       title="프로필"
@@ -401,9 +401,7 @@ function NewCeiling({
   }));
   return (
     <Page
-      breadcrumb={
-        <Crumbs current={next ? "wide 새 버전" : "프로필 만들기"} />
-      }
+      breadcrumb={<Crumbs current={next ? "wide 새 버전" : "프로필 만들기"} />}
       title={next ? "wide 새 버전" : "프로필 만들기"}
       description="에이전트가 쓸 모델·도구·실행 방식을 정합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다."
     >
@@ -546,7 +544,7 @@ function NewCeiling({
   );
 }
 
-function NewWorkspace({ role }: { readonly role: Role }) {
+function NewWorkspace() {
   return (
     <Page
       breadcrumb={<Crumbs current="프로필 만들기" />}
@@ -572,9 +570,7 @@ function NewWorkspace({ role }: { readonly role: Role }) {
           <Field>
             <FieldLabel>이름</FieldLabel>
             <Input defaultValue="strict" />
-            <FieldDescription>
-              저장할 버전의 id: op_strict_v4
-            </FieldDescription>
+            <FieldDescription>저장할 버전의 id: op_strict_v4</FieldDescription>
           </Field>
           <FieldSet className="gap-3">
             <FieldLegend variant="label" className="mb-2">
@@ -638,11 +634,11 @@ function ProfilesScreen({
   return (
     <ScreenShell current="profiles" crumb={["프로필"]} role={role}>
       {view === "list" ? (
-        <List role={role} />
+        <List />
       ) : view === "detail" || view === "detailNewTools" ? (
         <Detail role={role} newTools={view === "detailNewTools"} />
       ) : view === "newWorkspace" ? (
-        <NewWorkspace role={role} />
+        <NewWorkspace />
       ) : (
         <NewCeiling refused={view === "refused"} next={view === "newVersion"} />
       )}
