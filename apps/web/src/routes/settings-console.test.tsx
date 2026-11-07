@@ -235,7 +235,7 @@ describe("모델 연결", () => {
     const imported = rowOf(table, "anthropic");
     expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
     // Both ceilings run over it.
-    expect(imported.textContent).toContain("설치 프로필 2개");
+    expect(imported.textContent).toContain("프로필 2개");
     expect(imported.textContent).not.toContain("파일");
 
     const stored = rowOf(table, "console-key");
@@ -583,7 +583,7 @@ describe("설정의 모델 연결", () => {
         .getAllByRole("heading", { name: "모델 연결" })
         .map((h) => h.tagName),
     ).toEqual(["H1"]);
-    expect(rowOf(table, "anthropic").textContent).toContain("설치 프로필 2개");
+    expect(rowOf(table, "anthropic").textContent).toContain("프로필 2개");
     expect(
       within(screen.getByRole("navigation", { name: "설정" }))
         .getByRole("link", { name: "모델 연결" })

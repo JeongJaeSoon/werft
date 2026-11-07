@@ -394,7 +394,6 @@ const CEILING_REQUEST = {
   models: ["claude-sonnet-5"],
   tools: ["Read"],
   permission_mode: "default",
-  repository_ids: ["sample-app"],
 };
 
 describe("GET /v1/installation-profiles/options", () => {
@@ -484,6 +483,10 @@ describe("POST /v1/installation-profiles", () => {
       { ...CEILING_REQUEST, tools: undefined },
       { ...CEILING_REQUEST, accept_added_tools: ["Bash"] },
       { ...toolless, deny: [""] },
+      // A profile names no repository: the old fields are unknown keys.
+      { ...CEILING_REQUEST, repository_ids: ["sample-app"] },
+      { ...CEILING_REQUEST, repository_mode: "required" },
+      { ...CEILING_REQUEST, github_app_repositories: "installed" },
     ]) {
       expect((await onInstallation({}, "POST", path, bad)).status).toBe(400);
     }

@@ -70,37 +70,54 @@ export type CatalogSeedResult = {
   migrated: string[];
 };
 
-/** A console ceiling to save as the next version of `name`. */
+/**
+ * Where a new version belongs. `installation`: an owner's, named `name`.
+ * `workspace`: an admin's (or an owner's for one workspace), keyed by the
+ * author's `displayName`; the server makes the lineage key `wl_<uuid>`.
+ */
+export type CreateInstallationProfileScope =
+  | { kind: "installation" }
+  | {
+      kind: "workspace";
+      workspaceId: string;
+      /** The version a new lineage narrows; a later version keeps its previous one's. */
+      derivedFrom: string | null;
+    };
+
+/** A console profile to save as the next version of `name`. */
 export type CreateInstallationProfileInput = {
   actor: TeamActor;
   receiptId: string;
+  /** The author's name for it. */
   name: string;
-  /** What the caller says it replaces: the latest version of `name`, if any. */
+  scope: CreateInstallationProfileScope;
+  /** What the caller says it replaces: the latest version of the lineage, if any. */
   previousId: string | null;
-  /** Its `catalogProfileConfigSchema` output, provider copied from the connection. */
+  /** Its `catalogProfileConfigSchema` output, without a `repository` key. */
   definition: unknown;
   permission_mode: PermissionMode;
   fingerprint: string;
-  repository_ids: string[];
-  /** Null: `previousId`'s value, or `listed` without one. */
-  github_app_repositories: GitHubAppRepositories | null;
-  /** Both null for a ceiling made from an allow list. */
+  /** Both null for a profile made from an allow list. */
   deny: string[] | null;
   toolCatalogId: string | null;
   /** Named in the receipt. */
-  connectionId: string;
+  connectionId: string | null;
   /** Named in the receipt: the previous version's deny column read otherwise. */
   previousDenyDrift?: boolean;
 };
 
 export type CreateInstallationProfileResult =
   | { outcome: "created"; record: InstallationProfileRecord }
+  /** Same execution form as the lineage's latest: nothing was written. */
+  | { outcome: "unchanged"; record: InstallationProfileRecord }
   | { outcome: "actor_inactive" }
-  /** `op_<name>_v<n>` is already a row: an imported id of that shape. */
+  /** `op_<name>_v<n>` is already a row, twice for a generated key. */
   | { outcome: "id_taken"; id: string }
-  /** `previousId` is not the latest version of `name`, which is `latestId`. */
+  /** `previousId` is not the latest version of the lineage, which is `latestId`. */
   | { outcome: "stale_previous"; latestId: string | null }
-  /** A first version names a `previousId` that is no row. */
+  /** A new lineage's display name is one this workspace already sees. */
+  | { outcome: "name_taken" }
+  /** `previousId` or `derivedFrom` is no row, or one of another workspace. */
   | { outcome: "unknown_previous" };
 
 export type RetireInstallationProfileResult =

@@ -3,15 +3,10 @@ export const profilesKo = {
   "nav.profiles": "프로필",
   "profiles.title": "프로필",
   "profiles.description":
-    "에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다.",
+    "에이전트가 쓸 모델과 도구를 정합니다. 소유자는 연결과 실행 방식까지 정하고, 관리자는 기존 프로필을 복제해 모델·지시·막을 도구를 정합니다.",
   "profiles.create": "프로필 만들기",
-  "profiles.createCeiling": "설치 프로필 만들기",
-  "profiles.kind.installation": "설치 프로필",
-  "profiles.kind.workspace": "워크스페이스 프로필",
-  "profiles.option": "{name} v{version} · {model} ({kind})",
-  "profiles.optionKind.installation": "설치",
-  "profiles.optionKind.workspace": "워크스페이스",
-  "profiles.optionUnnamed": "{kind} 프로필 · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "프로필 · {model}",
   "profiles.workspace.description":
     "수정하면 새 버전으로 저장됩니다. 이전 버전을 쓰던 에이전트는 그대로 동작합니다.",
   "profiles.locked": "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
@@ -22,7 +17,6 @@ export const profilesKo = {
   "profiles.column.base": "바탕 프로필",
   "profiles.column.model": "기본 모델",
   "profiles.column.state": "상태",
-  "profiles.narrowKind": "{kind} · v{version}",
   "profiles.repository.required": "저장소 필요",
   "profiles.repository.optional": "저장소 선택",
   "profiles.repository.none": "저장소 쓰지 않음",
@@ -72,18 +66,12 @@ export const profilesKo = {
   "profiles.newVersion": "새 버전",
   "profiles.remake": "다시 만들기",
   "profiles.retire": "사용 중지",
-  "profiles.baseChanged.title": "{name}의 바탕 프로필이 바뀌었습니다",
-  "profiles.baseChanged.text":
-    "{base}가 바뀌었습니다. {id}로는 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
-  "profiles.baseMissing.title": "{name}의 바탕 프로필이 없어졌습니다",
-  "profiles.baseMissing.text":
-    "{base}가 없어졌습니다. {id}로는 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다른 설치 프로필로 새로 만드세요.",
   "profiles.editor.versionTitle": "{name} 새 버전",
   "profiles.editor.remakeTitle": "{name} 다시 만들기",
   "profiles.editor.description":
-    "바탕이 되는 설치 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다.",
+    "바탕 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다.",
   "profiles.editor.base": "바탕 프로필",
-  "profiles.editor.baseHeading": "설치 프로필 {id}",
+  "profiles.editor.baseHeading": "프로필 {id}",
   "profiles.editor.engineModel": "엔진 · 모델",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "권한 모드",
@@ -103,7 +91,7 @@ export const profilesKo = {
   "profiles.editor.autoClosed":
     "auto는 바탕 프로필이 auto나 bypassPermissions일 때만 고를 수 있습니다.",
   "profiles.editor.bypassClosed":
-    "bypassPermissions는 바탕 프로필이 bypassPermissions일 때만 고를 수 있습니다. 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 켜져 있고 owner가 그런 설치 프로필을 만들어야 합니다.",
+    "bypassPermissions는 바탕 프로필이 bypassPermissions일 때만 고를 수 있습니다. 설치 설정 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 켜져 있고 owner가 그런 프로필을 만들어야 합니다.",
   "profiles.editor.bypassRisk":
     "bypassPermissions는 모든 도구 호출을 아무 판정 없이 실행합니다. 파일 쓰기·셸 명령·git commit도 사람이나 분류기가 확인하지 않고, 막는 것은 컨테이너·외부 접속 허용 목록·도구 목록·비용 한도뿐입니다. 위험한 호출을 분류기가 막게 하려면 auto를 고르세요.",
   "profiles.editor.scriptCeiling": "스크립트 상한",
@@ -130,25 +118,22 @@ export const profilesKo = {
     "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
   "profiles.error.versionTaken":
     "같은 이름의 새 버전이 방금 저장됐습니다. 다시 저장하면 그다음 버전이 됩니다.",
+  "profiles.error.nameTaken": "같은 이름의 프로필이 이미 있습니다.",
+  "profiles.unchanged": "바뀐 내용이 없어 새 버전을 만들지 않았습니다.",
   "profiles.review.title": "검토",
   "profiles.review.text": "{id}와 달라진 칸입니다.",
   "profiles.review.none": "{id}와 달라진 칸이 없습니다.",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "설치 프로필 만들기",
+  "profiles.new.ceilingTitle": "프로필 만들기",
   "profiles.new.ceilingVersionTitle": "{name} 새 버전",
   "profiles.new.ceilingDescription":
-    "설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 워크스페이스 프로필은 이 범위를 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다.",
-  "profiles.new.kind": "종류",
-  "profiles.new.kindHint.workspace":
-    "설치 프로필 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.",
-  "profiles.new.kindHint.installation":
-    "연결 하나 위에서 런타임·모델·도구·권한 모드·저장소를 정합니다. owner만 만듭니다.",
+    "에이전트가 쓸 모델·도구·실행 방식을 정합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다.",
   "profiles.new.fromMissing": "{id} 프로필이 없습니다. 빈 양식에서 시작합니다.",
   "profiles.new.cannotMake": "지금은 만들 수 없습니다",
   "profiles.new.noConnections":
     "이 설치에 연결이 없습니다. 모델 연결에서 연결을 더한 뒤 다시 여세요.",
   "profiles.new.noRuntimes": "이 설치의 worker가 받는 런타임이 없습니다.",
-  "profiles.new.noBase": "바탕으로 쓸 수 있는 설치 프로필이 없습니다.",
+  "profiles.new.noBase": "바탕으로 쓸 수 있는 프로필이 없습니다.",
   "profiles.ceiling.connection": "연결",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
@@ -181,7 +166,7 @@ export const profilesKo = {
     "저장한 버전은 바뀌지 않습니다. 고치려면 새 버전을 만듭니다.",
   "profiles.ceiling.save": "저장",
   "profiles.ceiling.ownerOnly":
-    "설치 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+    "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
   "profiles.ceiling.error.unknownConnection":
     "그 연결이 이 설치에 없습니다. 다시 불러와 연결을 고르세요.",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -206,41 +191,41 @@ export const profilesKo = {
   "profiles.retireText":
     "이미 이 버전을 쓰는 릴리스와 세션은 계속 동작합니다. 새 릴리스와 세션은 이 버전을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retireCeilingText":
-    "이미 이 프로필을 쓰는 릴리스와 세션, 그 위의 워크스페이스 프로필은 계속 동작합니다. 새 릴리스·세션·워크스페이스 프로필은 이 프로필을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
+    "이미 이 프로필을 쓰는 릴리스와 세션, 이 프로필을 바탕으로 범위를 줄인 프로필은 계속 동작합니다. 새 릴리스·세션·프로필은 이 프로필을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
   "profiles.retireRow": "이 버전 사용 중지",
   "profiles.retireRowHint":
     "새 릴리스와 세션이 이 버전을 고를 수 없게 됩니다. 되돌릴 수 없습니다.",
-  "profiles.blockRow": "이 설치 프로필 차단",
+  "profiles.blockRow": "이 프로필 차단",
   "profiles.blockRowHint":
     "이 프로필을 쓰는 세션도 다음 턴에서 멈춥니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
   "profiles.block": "차단",
   "profiles.unblock": "차단 해제",
-  "profiles.blockTitle": "설치 프로필 {id}을(를) 차단할까요?",
-  "profiles.unblockTitle": "설치 프로필 {id}의 차단을 해제할까요?",
+  "profiles.blockTitle": "프로필 {id}을(를) 차단할까요?",
+  "profiles.unblockTitle": "프로필 {id}의 차단을 해제할까요?",
   "profiles.blockText":
-    "이 프로필과 그 위의 워크스페이스 프로필로는 새 릴리스와 세션을 만들 수 없습니다. 이미 쓰는 세션도 다음 턴에서 멈추고, 지금 도는 턴은 모델·저장소 요청이 1초 남짓 안에 끊깁니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
+    "이 프로필과 이 프로필을 바탕으로 범위를 줄인 프로필로는 새 릴리스와 세션을 만들 수 없습니다. 이미 쓰는 세션도 다음 턴에서 멈추고, 지금 도는 턴은 모델·저장소 요청이 1초 남짓 안에 끊깁니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
   "profiles.unblockText":
     "이 프로필을 다시 고를 수 있습니다. 차단 중에 멈춘 세션과 턴은 저절로 다시 돌지 않으니, 필요한 세션에는 새 메시지를 보내세요.",
   "profiles.blocking": "차단하는 중…",
   "profiles.unblocking": "차단을 해제하는 중…",
-  "profiles.blockDone": "설치 프로필 {id}을(를) 차단했습니다.",
-  "profiles.unblockDone": "설치 프로필 {id}의 차단을 해제했습니다.",
+  "profiles.blockDone": "프로필 {id}을(를) 차단했습니다.",
+  "profiles.unblockDone": "프로필 {id}의 차단을 해제했습니다.",
   "profiles.blockOwnerOnly":
-    "설치 프로필은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
+    "프로필은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
   "profiles.open": "{name} 자세히 보기",
   "profiles.detail.notFound.title": "프로필을 찾을 수 없습니다",
   "profiles.detail.notFound.text":
     "{id} 프로필이 없습니다. 주소가 잘못됐을 수 있습니다.",
   "profiles.detail.back": "프로필 목록으로",
   "profiles.detail.workspaceDescription":
-    "설치 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
+    "다른 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
   "profiles.detail.ceilingDescription":
     "이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다.",
   "profiles.detail.ownerOnly":
-    "설치 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
-  "profiles.detail.createFrom": "이 프로필로 워크스페이스 프로필 만들기",
+    "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
+  "profiles.detail.createFrom": "이 프로필을 복제해 만들기",
   "profiles.detail.settings": "설정",
   "profiles.detail.id": "id",
   "profiles.detail.models": "고를 수 있는 모델",
@@ -260,15 +245,15 @@ export const profilesKo = {
   "profiles.detail.audit.you": "{id} (나)",
   "profiles.detail.history.title": "버전 기록",
   "profiles.detail.history.ceilingDescription":
-    "앞 버전으로 이어진 설치 프로필입니다. 이전 버전을 쓰던 릴리스는 그대로 동작합니다.",
+    "앞 버전으로 이어진 프로필입니다. 이전 버전을 쓰던 릴리스는 그대로 동작합니다.",
   "profiles.detail.history.version": "버전",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "지금 보는 버전",
-  "profiles.detail.narrowings.title": "이 프로필로 만든 워크스페이스 프로필",
+  "profiles.detail.narrowings.title": "이 프로필로 만든 프로필",
   "profiles.detail.narrowings.description":
     "이 프로필을 바탕으로 줄여 만든 프로필입니다.",
   "profiles.detail.narrowings.empty":
-    "이 프로필을 바탕으로 만든 워크스페이스 프로필이 없습니다.",
+    "이 프로필을 바탕으로 만든 프로필이 없습니다.",
   "profiles.detail.agents.title": "이 프로필을 쓰는 에이전트",
   "profiles.detail.agents.description":
     "지금 활성 릴리스가 이 프로필(버전)을 쓰는 에이전트입니다. 이전 릴리스는 세지 않습니다.",
@@ -352,15 +337,10 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "nav.profiles": "Profiles",
   "profiles.title": "Profiles",
   "profiles.description":
-    "The models and tools an agent uses. An installation profile sets the widest range every workspace on this installation can use; a workspace profile narrows one installation profile.",
+    "The models and tools an agent uses. Owners also set the connection and how it runs; admins clone an existing profile and set its models, instructions and blocked tools.",
   "profiles.create": "Create profile",
-  "profiles.createCeiling": "Create installation profile",
-  "profiles.kind.installation": "Installation profile",
-  "profiles.kind.workspace": "Workspace profile",
-  "profiles.option": "{name} v{version} · {model} ({kind})",
-  "profiles.optionKind.installation": "installation",
-  "profiles.optionKind.workspace": "workspace",
-  "profiles.optionUnnamed": "{kind} profile · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "Profile · {model}",
   "profiles.workspace.description":
     "Editing saves a new version. Agents on an earlier version keep working as they are.",
   "profiles.locked": "To change these, ask a workspace owner or admin",
@@ -371,7 +351,6 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.column.base": "Based on",
   "profiles.column.model": "Default model",
   "profiles.column.state": "Status",
-  "profiles.narrowKind": "{kind} · v{version}",
   "profiles.repository.required": "Repository required",
   "profiles.repository.optional": "Repository optional",
   "profiles.repository.none": "No repository",
@@ -421,18 +400,12 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.newVersion": "New version",
   "profiles.remake": "Recreate",
   "profiles.retire": "Turn off",
-  "profiles.baseChanged.title": "The base profile of {name} changed",
-  "profiles.baseChanged.text":
-    "{base} changed. No new release can use {id}, and releases that use it cannot start new sessions. Recreate it and move to the new version.",
-  "profiles.baseMissing.title": "The base profile of {name} was removed",
-  "profiles.baseMissing.text":
-    "{base} is gone. No new release can use {id}, and releases that use it cannot start new sessions. Create a new one from another installation profile.",
   "profiles.editor.versionTitle": "New version of {name}",
   "profiles.editor.remakeTitle": "Recreate {name}",
   "profiles.editor.description":
-    "From the installation profile it is based on, you can only remove models and tools or make the permission mode stricter.",
+    "From the profile it is based on, you can only remove models and tools or make the permission mode stricter.",
   "profiles.editor.base": "Base profile",
-  "profiles.editor.baseHeading": "Installation profile {id}",
+  "profiles.editor.baseHeading": "Profile {id}",
   "profiles.editor.engineModel": "Engine · model",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "Permission mode",
@@ -452,7 +425,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.autoClosed":
     "auto is available only when the base profile uses auto or bypassPermissions.",
   "profiles.editor.bypassClosed":
-    "bypassPermissions can be picked only over a base profile in bypassPermissions. The installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS has to be on and an owner has to make such an installation profile.",
+    "bypassPermissions can be picked only over a base profile in bypassPermissions. The installation setting PLATFORM_ALLOW_UNATTENDED_PERMISSIONS has to be on and an owner has to make such a profile.",
   "profiles.editor.bypassRisk":
     "bypassPermissions runs every tool call with nothing judging it. File writes, shell commands and git commits run with no person or classifier checking them; only the container, the egress allowlist, the tool list and the cost limit bound it. Pick auto to have a classifier stop risky calls.",
   "profiles.editor.scriptCeiling": "Script ceiling",
@@ -478,27 +451,23 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "The base profile does not allow a value you picked. Reload the list and check the base profile.",
   "profiles.error.versionTaken":
     "A new version of this name was just saved. Save again to make the one after it.",
+  "profiles.error.nameTaken": "A profile with this name already exists.",
+  "profiles.unchanged": "Nothing changed, so no new version was created.",
   "profiles.review.title": "Review",
   "profiles.review.text": "What differs from {id}.",
   "profiles.review.none": "Nothing differs from {id}.",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "Create installation profile",
+  "profiles.new.ceilingTitle": "Create profile",
   "profiles.new.ceilingVersionTitle": "New version of {name}",
   "profiles.new.ceilingDescription":
-    "An installation profile sets the widest range every workspace on this installation can use. Workspace profiles can only narrow it. Connections and credentials are set under Model connections, cost limits in the server settings.",
-  "profiles.new.kind": "Kind",
-  "profiles.new.kindHint.workspace":
-    "Narrows the models, tools and permission mode of one installation profile.",
-  "profiles.new.kindHint.installation":
-    "Sets the runtime, models, tools, permission mode and repositories on one connection. Only an owner makes one.",
+    "Sets the models, tools and how an agent runs. Connections and credentials are set under Model connections, cost limits in the server settings.",
   "profiles.new.fromMissing":
     "There is no profile {id}. Starting from an empty form.",
   "profiles.new.cannotMake": "Nothing can be made now",
   "profiles.new.noConnections":
     "This installation has no connection. Add one under Model connections, then open this again.",
   "profiles.new.noRuntimes": "No worker on this installation takes a runtime.",
-  "profiles.new.noBase":
-    "There is no usable installation profile to start from.",
+  "profiles.new.noBase": "There is no usable profile to start from.",
   "profiles.ceiling.connection": "Connection",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
@@ -533,7 +502,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "A saved version never changes. To change it, make a new version.",
   "profiles.ceiling.save": "Save",
   "profiles.ceiling.ownerOnly":
-    "Only a workspace owner makes and turns off installation profiles.",
+    "Only a workspace owner makes or turns off a profile that sets its own connection and runtime.",
   "profiles.ceiling.error.unknownConnection":
     "That connection is not on this installation. Reload and pick a connection.",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -558,41 +527,41 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.retireText":
     "Releases and sessions that already use it keep running. New releases and sessions cannot pick it. Turning it off cannot be undone.",
   "profiles.retireCeilingText":
-    "Releases, sessions and workspace profiles already using this one keep running. New releases, sessions and workspace profiles cannot pick it. Turning it off cannot be undone.",
+    "Releases, sessions and profiles already using this one keep running. New releases, sessions and profiles cannot pick it. Turning it off cannot be undone.",
   "profiles.retiring": "Turning off…",
   "profiles.retired": "Turned off version {id}.",
   "profiles.retireRow": "Turn off this version",
   "profiles.retireRowHint":
     "New releases and sessions can no longer pick it. This cannot be undone.",
-  "profiles.blockRow": "Block this installation profile",
+  "profiles.blockRow": "Block this profile",
   "profiles.blockRowHint":
     "Sessions on it stop at their next turn. You can unblock it, but a stopped turn does not run again.",
   "profiles.block": "Block",
   "profiles.unblock": "Unblock",
-  "profiles.blockTitle": "Block installation profile {id}?",
-  "profiles.unblockTitle": "Unblock installation profile {id}?",
+  "profiles.blockTitle": "Block profile {id}?",
+  "profiles.unblockTitle": "Unblock profile {id}?",
   "profiles.blockText":
-    "No new release or session can use this profile or the workspace profiles over it. Sessions already on it stop at their next turn, and a running turn loses its model and repository requests within about a second. You can unblock it, but a stopped turn does not run again.",
+    "No new release or session can use this profile or the profiles narrowed from it. Sessions already on it stop at their next turn, and a running turn loses its model and repository requests within about a second. You can unblock it, but a stopped turn does not run again.",
   "profiles.unblockText":
     "This profile can be picked again. Sessions and turns stopped while it was blocked do not run again on their own: send those sessions a new message.",
   "profiles.blocking": "Blocking…",
   "profiles.unblocking": "Unblocking…",
-  "profiles.blockDone": "Blocked installation profile {id}.",
-  "profiles.unblockDone": "Unblocked installation profile {id}.",
+  "profiles.blockDone": "Blocked profile {id}.",
+  "profiles.unblockDone": "Unblocked profile {id}.",
   "profiles.blockOwnerOnly":
-    "Only a workspace owner blocks and unblocks installation profiles.",
+    "Only a workspace owner blocks and unblocks profiles.",
   "profiles.open": "Open {name}",
   "profiles.detail.notFound.title": "Profile not found",
   "profiles.detail.notFound.text":
     "There is no profile {id}. The address may be wrong.",
   "profiles.detail.back": "Back to profiles",
   "profiles.detail.workspaceDescription":
-    "Made in this workspace from an installation profile. Editing saves a new version; this version stays as it is.",
+    "Made in this workspace from another profile. Editing saves a new version; this version stays as it is.",
   "profiles.detail.ceilingDescription":
     "Sets the widest range every workspace on this installation can use. A saved version never changes; editing makes a new one.",
   "profiles.detail.ownerOnly":
-    "Only a workspace owner changes installation profiles",
-  "profiles.detail.createFrom": "Create a workspace profile from this one",
+    "Only a workspace owner changes a profile that sets its own connection and runtime",
+  "profiles.detail.createFrom": "Clone this profile",
   "profiles.detail.settings": "Settings",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "Models to choose from",
@@ -612,15 +581,14 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.you": "{id} (you)",
   "profiles.detail.history.title": "Versions",
   "profiles.detail.history.ceilingDescription":
-    "Installation profiles linked by their previous version. Releases on an earlier one keep running.",
+    "Profiles linked by their previous version. Releases on an earlier one keep running.",
   "profiles.detail.history.version": "Version",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "Viewing",
-  "profiles.detail.narrowings.title": "Workspace profiles made from this one",
+  "profiles.detail.narrowings.title": "Profiles made from this one",
   "profiles.detail.narrowings.description":
     "Profiles made by narrowing this one.",
-  "profiles.detail.narrowings.empty":
-    "No workspace profile is made from this one.",
+  "profiles.detail.narrowings.empty": "No profile is made from this one.",
   "profiles.detail.agents.title": "Agents using this profile",
   "profiles.detail.agents.description":
     "Agents whose active release uses this profile (version). Earlier releases are not counted.",
@@ -704,15 +672,10 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "nav.profiles": "プロファイル",
   "profiles.title": "プロファイル",
   "profiles.description":
-    "エージェントが使うモデルとツールを決めます。インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはインストールのプロファイルを 1 つ絞って作ります。",
+    "エージェントが使うモデルとツールを決めます。オーナーは接続と実行方法まで決め、管理者は既存のプロファイルを複製してモデル・指示・ブロックするツールを決めます。",
   "profiles.create": "プロファイルを作成",
-  "profiles.createCeiling": "インストールのプロファイルを作成",
-  "profiles.kind.installation": "インストールのプロファイル",
-  "profiles.kind.workspace": "ワークスペースのプロファイル",
-  "profiles.option": "{name} v{version} · {model}（{kind}）",
-  "profiles.optionKind.installation": "インストール",
-  "profiles.optionKind.workspace": "ワークスペース",
-  "profiles.optionUnnamed": "{kind}プロファイル · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "プロファイル · {model}",
   "profiles.workspace.description":
     "編集すると新しいバージョンとして保存されます。前のバージョンを使っていたエージェントはそのまま動きます。",
   "profiles.locked":
@@ -724,7 +687,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.column.base": "ベースプロファイル",
   "profiles.column.model": "既定のモデル",
   "profiles.column.state": "状態",
-  "profiles.narrowKind": "{kind} · v{version}",
   "profiles.repository.required": "リポジトリ必須",
   "profiles.repository.optional": "リポジトリ任意",
   "profiles.repository.none": "リポジトリを使わない",
@@ -774,18 +736,12 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.newVersion": "新しいバージョン",
   "profiles.remake": "作り直す",
   "profiles.retire": "使用停止",
-  "profiles.baseChanged.title": "{name} のベースプロファイルが変わりました",
-  "profiles.baseChanged.text":
-    "{base} が変わりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
-  "profiles.baseMissing.title": "{name} のベースプロファイルがなくなりました",
-  "profiles.baseMissing.text":
-    "{base} がなくなりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。別のインストールのプロファイルから新しく作成してください。",
   "profiles.editor.versionTitle": "{name} の新しいバージョン",
   "profiles.editor.remakeTitle": "{name} を作り直す",
   "profiles.editor.description":
-    "ベースのインストールのプロファイルから、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
+    "ベースのプロファイルから、モデル・ツールを減らすか、権限モードをより厳しくすることだけができます。",
   "profiles.editor.base": "ベースプロファイル",
-  "profiles.editor.baseHeading": "インストールのプロファイル {id}",
+  "profiles.editor.baseHeading": "プロファイル {id}",
   "profiles.editor.engineModel": "エンジン・モデル",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "権限モード",
@@ -805,7 +761,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.autoClosed":
     "auto はベースプロファイルが auto か bypassPermissions のときだけ選べます。",
   "profiles.editor.bypassClosed":
-    "bypassPermissions はベースプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなインストールのプロファイルを作成する必要があります。",
+    "bypassPermissions はベースプロファイルが bypassPermissions のときだけ選べます。インストール設定 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が有効で、オーナーがそのようなプロファイルを作成する必要があります。",
   "profiles.editor.bypassRisk":
     "bypassPermissions はすべてのツール呼び出しを判定なしで実行します。ファイルの書き込み・シェルコマンド・git commit も人や分類器が確認せず、制限はコンテナ・外部接続の許可リスト・ツール一覧・コスト上限だけです。危険な呼び出しを分類器に止めさせるには auto を選んでください。",
   "profiles.editor.scriptCeiling": "スクリプト上限",
@@ -832,19 +788,17 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "ベースプロファイルが許可しない値です。一覧を再読み込みしてベースプロファイルを確認してください。",
   "profiles.error.versionTaken":
     "同じ名前の新しいバージョンがいま保存されました。もう一度保存するとその次のバージョンになります。",
+  "profiles.error.nameTaken": "同じ名前のプロファイルがすでにあります。",
+  "profiles.unchanged":
+    "変更がないため、新しいバージョンは作成しませんでした。",
   "profiles.review.title": "確認",
   "profiles.review.text": "{id} と異なる項目です。",
   "profiles.review.none": "{id} と異なる項目はありません。",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "インストールのプロファイルを作成",
+  "profiles.new.ceilingTitle": "プロファイルを作成",
   "profiles.new.ceilingVersionTitle": "{name} の新しいバージョン",
   "profiles.new.ceilingDescription":
-    "インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続と認証情報はモデル接続で、コスト上限はサーバー設定で決めます。",
-  "profiles.new.kind": "種類",
-  "profiles.new.kindHint.workspace":
-    "インストールのプロファイル 1 つをもとに、モデル・ツール・権限モードを絞ります。",
-  "profiles.new.kindHint.installation":
-    "接続 1 つの上で、ランタイム・モデル・ツール・権限モード・リポジトリを決めます。オーナーだけが作れます。",
+    "エージェントが使うモデル・ツール・実行方法を決めます。接続と認証情報はモデル接続で、コスト上限はサーバー設定で決めます。",
   "profiles.new.fromMissing":
     "プロファイル {id} はありません。空のフォームから始めます。",
   "profiles.new.cannotMake": "いまは作れません",
@@ -852,7 +806,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このインストールに接続がありません。モデル接続で接続を追加してから開き直してください。",
   "profiles.new.noRuntimes":
     "このインストールの worker が受け付けるランタイムがありません。",
-  "profiles.new.noBase": "もとにできるインストールのプロファイルがありません。",
+  "profiles.new.noBase": "もとにできるプロファイルがありません。",
   "profiles.ceiling.connection": "接続",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
@@ -888,7 +842,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "保存したバージョンは変わりません。変更するには新しいバージョンを作ります。",
   "profiles.ceiling.save": "保存",
   "profiles.ceiling.ownerOnly":
-    "インストールのプロファイルはワークスペースのオーナーだけが作成・使用停止できます。",
+    "接続と実行方式を自分で決めるプロファイルは、ワークスペースのオーナーだけが作成・使用停止できます。",
   "profiles.ceiling.error.unknownConnection":
     "その接続はこのインストールにありません。再読み込みして接続を選んでください。",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -914,7 +868,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.retireText":
     "すでにこのバージョンを使っているリリースとセッションは動き続けます。新しいリリースとセッションではこのバージョンを選べません。使用停止は元に戻せません。",
   "profiles.retireCeilingText":
-    "すでにこのプロファイルを使っているリリース・セッションと、その上のワークスペースのプロファイルは動き続けます。新しいリリース・セッション・ワークスペースのプロファイルではこのプロファイルを選べません。使用停止は元に戻せません。",
+    "すでにこのプロファイルを使っているリリース・セッションと、これをもとに範囲を絞ったプロファイルは動き続けます。新しいリリース・セッション・プロファイルではこのプロファイルを選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
   "profiles.retireRow": "このバージョンを使用停止",
@@ -925,32 +879,30 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このプロファイルを使うセッションも次のターンで止まります。解除できますが、止まったターンは再実行されません。",
   "profiles.block": "ブロック",
   "profiles.unblock": "ブロック解除",
-  "profiles.blockTitle": "インストールのプロファイル {id} をブロックしますか?",
-  "profiles.unblockTitle":
-    "インストールのプロファイル {id} のブロックを解除しますか?",
+  "profiles.blockTitle": "プロファイル {id} をブロックしますか?",
+  "profiles.unblockTitle": "プロファイル {id} のブロックを解除しますか?",
   "profiles.blockText":
-    "このプロファイルとその上のワークスペースのプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
+    "このプロファイルと、これをもとに範囲を絞ったプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
   "profiles.unblockText":
     "このプロファイルを再び選べるようになります。ブロック中に止まったセッションとターンは自動では再実行されません。必要なセッションには新しいメッセージを送ってください。",
   "profiles.blocking": "ブロックしています…",
   "profiles.unblocking": "ブロックを解除しています…",
-  "profiles.blockDone": "インストールのプロファイル {id} をブロックしました。",
-  "profiles.unblockDone":
-    "インストールのプロファイル {id} のブロックを解除しました。",
+  "profiles.blockDone": "プロファイル {id} をブロックしました。",
+  "profiles.unblockDone": "プロファイル {id} のブロックを解除しました。",
   "profiles.blockOwnerOnly":
-    "インストールのプロファイルはワークスペースのオーナーだけがブロック・解除できます。",
+    "プロファイルはワークスペースのオーナーだけがブロック・解除できます。",
   "profiles.open": "{name} の詳細を見る",
   "profiles.detail.notFound.title": "プロファイルが見つかりません",
   "profiles.detail.notFound.text":
     "プロファイル {id} はありません。アドレスが誤っている可能性があります。",
   "profiles.detail.back": "プロファイル一覧へ",
   "profiles.detail.workspaceDescription":
-    "インストールのプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
+    "別のプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
   "profiles.detail.ceilingDescription":
     "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
-    "インストールのプロファイルはワークスペースのオーナーだけが変更できます",
-  "profiles.detail.createFrom": "ワークスペースのプロファイルを作成",
+    "接続と実行方式を自分で決めるプロファイルは、ワークスペースのオーナーだけが変更できます",
+  "profiles.detail.createFrom": "このプロファイルを複製して作成",
   "profiles.detail.settings": "設定",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "選べるモデル",
@@ -970,16 +922,15 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.you": "{id} (自分)",
   "profiles.detail.history.title": "バージョン履歴",
   "profiles.detail.history.ceilingDescription":
-    "前のバージョンでつながったインストールのプロファイルです。前のバージョンを使うリリースはそのまま動きます。",
+    "前のバージョンでつながったプロファイルです。前のバージョンを使うリリースはそのまま動きます。",
   "profiles.detail.history.version": "バージョン",
   "profiles.detail.history.named": "{name} v{version}",
   "profiles.detail.history.current": "表示中",
-  "profiles.detail.narrowings.title":
-    "このプロファイルから作ったワークスペースのプロファイル",
+  "profiles.detail.narrowings.title": "このプロファイルから作ったプロファイル",
   "profiles.detail.narrowings.description":
     "このプロファイルを絞って作ったプロファイルです。",
   "profiles.detail.narrowings.empty":
-    "このプロファイルから作ったワークスペースのプロファイルはありません。",
+    "このプロファイルから作ったプロファイルはありません。",
   "profiles.detail.agents.title": "このプロファイルを使うエージェント",
   "profiles.detail.agents.description":
     "有効なリリースでこのプロファイル（バージョン）を使用しているエージェントです。以前のリリースは含みません。",

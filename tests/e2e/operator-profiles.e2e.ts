@@ -17,7 +17,6 @@ import {
   e2eEnv,
   firstOwnerCookie,
   passwordOf,
-  REPOSITORY_ID,
   scripted,
 } from "./client.ts";
 
@@ -86,7 +85,6 @@ const CEILING = {
   tools: ["Read", "Write", "Bash"],
   permission_mode: "default",
   project_settings: { claude_md: true },
-  repository_ids: [REPOSITORY_ID],
 };
 
 const started: string[] = [];
@@ -109,7 +107,6 @@ async function sessionTurn(start: {
     "/v1/sessions",
     {
       ...start,
-      repository_id: REPOSITORY_ID,
       message: scripted(id, [], `${id} done`),
     },
   );
@@ -121,7 +118,6 @@ const releaseOn = (profileId: string) =>
   owner<{ release: { id: string } }>("POST", `/v1/agents/${agentId}/releases`, {
     version_id: versionId,
     runtime_profile_id: profileId,
-    repository_id: REPOSITORY_ID,
   });
 
 beforeAll(async () => {
@@ -200,7 +196,7 @@ afterAll(async () => {
 
 describe("installation ceilings from the API", () => {
   test(
-    "options name the connections without their endpoint, and only the owner sees them",
+    "options name the connections without their endpoint, to the owner and an admin",
     async () => {
       const options = await owner<{
         connections: { id: string }[];
@@ -211,20 +207,29 @@ describe("installation ceilings from the API", () => {
       expect(ids).toContain(CONNECTION);
       expect(options.body.unattended_allowed).toBe(false);
       expect(JSON.stringify(options.body)).not.toContain("fake-messages:4010");
-      const denied = await admin("GET", "/v1/installation-profiles/options");
-      expect(denied.status).toBe(403);
+      const byAdmin = await admin("GET", "/v1/installation-profiles/options");
+      expect(byAdmin.status).toBe(200);
+      expect(JSON.stringify(byAdmin.body)).not.toContain("fake-messages:4010");
+      const byKey = await api.request(
+        "GET",
+        "/v1/installation-profiles/options",
+      );
+      expect(byKey.status).toBe(403);
       console.log(
-        `options: connections=${ids.join(",")} unattended_allowed=${options.body.unattended_allowed}; admin ${denied.status}`,
+        `options: connections=${ids.join(",")} unattended_allowed=${options.body.unattended_allowed}; admin ${byAdmin.status}, api key ${byKey.status}`,
       );
     },
     TIMEOUT,
   );
 
   test(
-    "the owner saves v1 and a release on it runs; an admin and an API key cannot save",
+    "the owner saves v1 and a release on it runs; an admin cannot name the runtime and an API key cannot save",
     async () => {
       const byAdmin = await admin("POST", "/v1/installation-profiles", CEILING);
-      expect(byAdmin.status).toBe(403);
+      expect([byAdmin.status, reasonOf(byAdmin.body)]).toEqual([
+        400,
+        "source_field",
+      ]);
       const byKey = await api.request(
         "POST",
         "/v1/installation-profiles",
@@ -251,14 +256,11 @@ describe("installation ceilings from the API", () => {
   );
 
   test(
-    "v2 must name v1 as previous_id; an admin's workspace profile on v2 runs a session",
+    "v2 names v1 as previous_id, else the name is taken; an admin's workspace profile on v2 runs a session",
     async () => {
       const v2 = { ...CEILING, tools: [...CEILING.tools, "Edit"] };
       const stale = await owner("POST", "/v1/installation-profiles", v2);
-      expect([stale.status, reasonOf(stale.body)]).toEqual([
-        409,
-        "stale_previous",
-      ]);
+      expect([stale.status, reasonOf(stale.body)]).toEqual([409, "name_taken"]);
       const saved = await owner<{ profile: { id: string } }>(
         "POST",
         "/v1/installation-profiles",
@@ -350,7 +352,6 @@ describe("installation ceilings from the API", () => {
       expect(newRelease.status).toBeGreaterThanOrEqual(400);
       const bare = await api.request("POST", "/v1/sessions", {
         profile_id: V1,
-        repository_id: REPOSITORY_ID,
         message: scripted("ceiling-bare", [], "ceiling-bare done"),
       });
       expect(bare.status).toBeGreaterThanOrEqual(400);
@@ -379,7 +380,6 @@ describe("installation ceilings from the API", () => {
         "/v1/sessions",
         {
           profile_id: narrowedId,
-          repository_id: REPOSITORY_ID,
           message: scripted("ceiling-running", [], "ceiling-running done"),
         },
       );
@@ -400,13 +400,18 @@ describe("installation ceilings from the API", () => {
       const again = await owner<Change>("POST", path("block"), {});
       expect(again.body.receipt_id).toBeNull();
 
-      const listed = await owner<{
-        items: { id: string; workspace?: { state: string } }[];
-      }>("GET", "/v1/profiles");
-      const narrowedState = listed.body.items.find(
+      // An old `ws_` version is no longer listed; its block shows in the
+      // refusals below.
+      const listed = await owner<{ items: { id: string }[] }>(
+        "GET",
+        "/v1/profiles",
+      );
+      const narrowedState = listed.body.items.some(
         (profile) => profile.id === narrowedId,
-      )?.workspace?.state;
-      expect(narrowedState).toBe("base_blocked");
+      )
+        ? "listed"
+        : "not listed";
+      expect(narrowedState).toBe("not listed");
       const newRelease = await releaseOn(V2);
       expect([newRelease.status, reasonOf(newRelease.body)]).toEqual([
         409,
@@ -414,13 +419,11 @@ describe("installation ceilings from the API", () => {
       ]);
       const bare = await api.request("POST", "/v1/sessions", {
         profile_id: narrowedId,
-        repository_id: REPOSITORY_ID,
         message: scripted("ceiling-blocked", [], "ceiling-blocked done"),
       });
       expect([bare.status, reasonOf(bare.body)]).toEqual([409, "base_blocked"]);
       const onRelease = await api.request("POST", "/v1/sessions", {
         agent_release_id: releasedV2.body.release.id,
-        repository_id: REPOSITORY_ID,
         message: scripted("ceiling-release", [], "ceiling-release done"),
       });
       expect([

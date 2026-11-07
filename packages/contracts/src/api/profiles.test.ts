@@ -75,7 +75,6 @@ describe("profile deny", () => {
       models: ["claude-sonnet-5"],
       tools: ["Read"],
       permission_mode: "default",
-      repository_ids: [],
     };
     const version = {
       name: "strict",

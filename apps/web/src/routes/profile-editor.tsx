@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, type components, unwrap } from "@werft-ai/client";
 import type {
   CreateWorkspaceProfileRequest,
   DerivedFields,
@@ -61,6 +61,9 @@ export type EditorStart =
       readonly base: ProfileSummary;
     };
 
+// The one write path's body: an admin sends none of the owner's fields.
+type ProfileRequest = components["schemas"]["CreateInstallationProfileRequest"];
+
 type Draft = Omit<
   CreateWorkspaceProfileRequest,
   "name" | "tools" | "deny" | "accept_added_tools"
@@ -97,7 +100,7 @@ const fromBase = (base: ProfileSummary, name: string): Draft =>
 const fromVersion = (from: ProfileSummary, base: ProfileSummary): Draft =>
   draftOf(
     base,
-    from.workspace?.name ?? "",
+    from.installation?.name ?? "",
     WORKSPACE_PROFILE_POLICY.carry(from, base),
   );
 
@@ -108,15 +111,12 @@ export const allowsAuto = (base: ProfileSummary): boolean =>
 export function ProfileEditor({
   start,
   operators,
-  nextId,
   latest,
   onSaved,
   onCancel,
 }: {
   readonly start: EditorStart;
   readonly operators: readonly ProfileSummary[];
-  /** The id a save under `name` would get. */
-  readonly nextId: (name: string) => string;
   /** The latest version under `name`, which the server weighs new tools against. */
   readonly latest: (name: string) => ProfileSummary | undefined;
   readonly onSaved: (id: string) => void;
@@ -133,6 +133,7 @@ export function ProfileEditor({
       : fromVersion(start.from, start.base),
   );
   const [submitted, setSubmitted] = useState(false);
+  const [unchanged, setUnchanged] = useState(false);
   const [error, setError] = useState<{
     readonly field: EditorField | null;
     readonly text: string;
@@ -167,15 +168,23 @@ export function ProfileEditor({
   const save = useMutation<
     WorkspaceProfileChangeResponse,
     ApiError,
-    CreateWorkspaceProfileRequest
+    ProfileRequest
   >({
     mutationFn: (body) =>
-      unwrap(client.POST("/v1/workspace-profiles", { body })),
-    onMutate: () => setError(null),
-    onSuccess: async ({ profile }) => {
+      unwrap(client.POST("/v1/installation-profiles", { body })),
+    onMutate: () => {
+      setError(null);
+      setUnchanged(false);
+    },
+    onSuccess: async ({ profile, receipt_id }) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).profiles,
       });
+      // Nothing was written: the latest version already runs this.
+      if (receipt_id === null) {
+        setUnchanged(true);
+        return;
+      }
       onSaved(profile.id);
     },
     onError: async (failure) => {
@@ -227,6 +236,8 @@ export function ProfileEditor({
       return { field, text: t("profiles.error.widens") };
     if (field === "base_profile_id")
       return { field, text: t("profiles.error.baseUnusable") };
+    if (details.reason_code === "name_taken")
+      return { field: null, text: t("profiles.error.nameTaken") };
     if (failure.code === "REVISION_CONFLICT")
       return { field: null, text: t("profiles.error.versionTaken") };
     return {
@@ -245,8 +256,9 @@ export function ProfileEditor({
           : choices !== undefined;
   const beside = (field: EditorField) =>
     error?.field === field && drawn(field) ? error.text : undefined;
-  const banner =
-    error !== null && (error.field === null || !drawn(error.field))
+  const banner = unchanged
+    ? t("profiles.unchanged")
+    : error !== null && (error.field === null || !drawn(error.field))
       ? error.text
       : null;
 
@@ -289,7 +301,15 @@ export function ProfileEditor({
       });
       return;
     }
-    save.mutate(request.data);
+    // A new profile names the one it narrows; a new version of one names
+    // the version before it, whose source the server keeps.
+    const { base_profile_id, ...rest } = request.data;
+    save.mutate({
+      ...rest,
+      ...(start.mode === "new"
+        ? { derived_from: base_profile_id }
+        : { previous_id: start.from.id }),
+    });
   };
 
   const toggle = (list: readonly string[], item: string, on: boolean) =>
@@ -348,13 +368,7 @@ export function ProfileEditor({
           readOnly={fixed || save.isPending}
           onChange={(event) => setDraft({ ...draft, name: event.target.value })}
         />
-        <FieldDescription>
-          {name.success
-            ? t("profiles.editor.preview", {
-                id: nextId(name.data),
-              })
-            : t("profiles.editor.nameHint")}
-        </FieldDescription>
+        <FieldDescription>{t("profiles.editor.nameHint")}</FieldDescription>
         <FieldError>{submitted ? nameError : undefined}</FieldError>
       </Field>
 

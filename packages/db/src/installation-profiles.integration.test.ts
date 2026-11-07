@@ -337,20 +337,21 @@ integration("installation profiles on PostgreSQL", () => {
     actor: TeamActor,
     name: string,
     previousId: string | null,
+    tools: string[] = ["Read"],
+    scope: CreateInstallationProfileInput["scope"] = { kind: "installation" },
   ): CreateInstallationProfileInput {
-    const made = definition({ permission_mode: "acceptEdits" });
+    const made = definition({ permission_mode: "acceptEdits", tools });
     const [entry] = catalogImports({ x: made });
     if (!entry) throw new Error("no entry");
     return {
       actor,
       receiptId: randomUUID(),
       name,
+      scope,
       previousId,
       definition: made,
       permission_mode: "acceptEdits",
       fingerprint: entry.fingerprint,
-      repository_ids: ["app"],
-      github_app_repositories: null,
       deny: null,
       toolCatalogId: null,
       connectionId: "main",
@@ -370,15 +371,14 @@ integration("installation profiles on PostgreSQL", () => {
         origin: "console",
         previous_id: null,
         created_by: owner.userId,
-        repository_ids: ["app"],
+        repository_ids: null,
         permission_mode: "acceptEdits",
       },
     });
     expect(await store.create(save(owner, name, null))).toEqual({
-      outcome: "stale_previous",
-      latestId: `op_${name}_v1`,
+      outcome: "name_taken",
     });
-    const input = save(owner, name, `op_${name}_v1`);
+    const input = save(owner, name, `op_${name}_v1`, ["Read", "Edit"]);
     const v2 = await store.create(input);
     expect(v2.outcome === "created" && v2.record.previous_id).toBe(
       `op_${name}_v1`,
@@ -432,37 +432,244 @@ integration("installation profiles on PostgreSQL", () => {
       tool_catalog_id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
       previous_deny_drift: true,
     });
-    const listedOnly = await store.create(save(owner, name, `op_${name}_v1`));
+    const listedOnly = await store.create(
+      save(owner, name, `op_${name}_v1`, ["Read", "Edit"]),
+    );
     expect(listedOnly).toMatchObject({
       outcome: "created",
       record: { deny: null, tool_catalog_id: null },
     });
   });
 
-  test("github_app_repositories starts listed and a version without one keeps the one before", async () => {
+  test("a new row names no repository: no definition key, three NULL columns, and nothing inherited from the version before", async () => {
     const owner = await person(await workspace(), "owner");
     const store = createPostgresInstallationProfileStore(db);
-    const name = `apps${ids()}`;
-    const v1 = await store.create(save(owner, name, null));
-    expect(v1.outcome === "created" && v1.record.github_app_repositories).toBe(
-      "listed",
-    );
-    const v2 = await store.create({
-      ...save(owner, name, `op_${name}_v1`),
-      github_app_repositories: "installed",
-    });
-    expect(v2.outcome === "created" && v2.record.github_app_repositories).toBe(
-      "installed",
-    );
-    const v3 = await store.create(save(owner, name, `op_${name}_v2`));
-    expect(v3.outcome === "created" && v3.record.github_app_repositories).toBe(
-      "installed",
-    );
+    const name = `norepo${ids()}`;
+    await store.create(save(owner, name, null));
+    // An older row that does hold values, as the rows written before U2 do.
+    await db
+      .update(installationProfiles)
+      .set({
+        repositoryIds: ["app"],
+        githubAppRepositories: "installed",
+        repositoryScope: "profile",
+      })
+      .where(eq(installationProfiles.id, `op_${name}_v1`));
+    const second = save(owner, name, `op_${name}_v1`, ["Read", "Edit"]);
+    await store.create(second);
     const [held] = await db
-      .select({ value: installationProfiles.githubAppRepositories })
+      .select()
       .from(installationProfiles)
-      .where(eq(installationProfiles.id, `op_${name}_v3`));
-    expect(held?.value).toBe("installed");
+      .where(eq(installationProfiles.id, `op_${name}_v2`));
+    expect(held).toMatchObject({
+      repositoryIds: null,
+      githubAppRepositories: null,
+      repositoryScope: null,
+    });
+    expect(Object.keys(held?.definition ?? {})).not.toContain("repository");
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, second.receiptId));
+    expect(Object.keys(receipt?.result as object)).not.toContain(
+      "repository_ids",
+    );
+  });
+
+  test("a save that runs the same writes nothing and leaves the latest row alone; a retired or blocked latest takes a new version", async () => {
+    const owner = await person(await workspace(), "owner");
+    const store = createPostgresInstallationProfileStore(db);
+    const name = `same${ids()}`;
+    await store.create(save(owner, name, null));
+    const before = await rowsOf(`op_${name}`);
+    const again = save(owner, name, `op_${name}_v1`);
+    const unchanged = await store.create(again);
+    expect(unchanged).toMatchObject({
+      outcome: "unchanged",
+      record: { id: `op_${name}_v1`, version: 1 },
+    });
+    expect(await rowsOf(`op_${name}`)).toEqual(before);
+    const written = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, again.receiptId));
+    expect(written).toEqual([]);
+    // Another spelling of the same form (the models in another order) too.
+    const reordered = save(owner, name, `op_${name}_v1`);
+    reordered.definition = {
+      ...(reordered.definition as object),
+      models: ["claude-haiku", "claude-sonnet"],
+    };
+    expect((await store.create(reordered)).outcome).toBe("unchanged");
+    // A new profile under a name that has versions does not slip through as unchanged.
+    expect((await store.create(save(owner, name, null))).outcome).toBe(
+      "name_taken",
+    );
+    // Set by hand: the retire and block writes have receipts that other
+    // tests in this file count.
+    await db
+      .update(installationProfiles)
+      .set({ retiredAt: new Date(), retiredBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${name}_v1`));
+    const revived = await store.create(save(owner, name, `op_${name}_v1`));
+    expect(revived).toMatchObject({
+      outcome: "created",
+      record: { id: `op_${name}_v2` },
+    });
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${name}_v2`));
+    expect(
+      (await store.create(save(owner, name, `op_${name}_v2`))).outcome,
+    ).toBe("created");
+  });
+
+  test("an admin's profile is a wl_ lineage of one workspace, shown by its display name, and its versions keep the key", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const admin = await person(workspaceId, "admin");
+    const store = createPostgresInstallationProfileStore(db);
+    const source = `src${ids()}`;
+    await store.create(save(owner, source, null));
+    const narrow = (previousId: string | null, tools: string[]) =>
+      save(admin, `Mine ${source}`, previousId, tools, {
+        kind: "workspace",
+        workspaceId,
+        derivedFrom: `op_${source}_v1`,
+      });
+    const v1 = await store.create(narrow(null, ["Read"]));
+    expect(v1).toMatchObject({
+      outcome: "created",
+      record: {
+        version: 1,
+        workspace_id: workspaceId,
+        display_name: `Mine ${source}`,
+        derived_from: `op_${source}_v1`,
+        repository_ids: null,
+      },
+    });
+    if (v1.outcome !== "created") throw new Error("not created");
+    expect(v1.record.name).toMatch(/^wl_[0-9a-f-]{36}$/);
+    expect(v1.record.id).toBe(`op_${v1.record.name}_v1`);
+    const v2 = await store.create(narrow(v1.record.id, ["Read", "Edit"]));
+    expect(v2).toMatchObject({
+      outcome: "created",
+      record: {
+        name: v1.record.name,
+        version: 2,
+        derived_from: `op_${source}_v1`,
+        workspace_id: workspaceId,
+      },
+    });
+    expect(await store.create(narrow(null, ["Read"]))).toMatchObject({
+      outcome: "name_taken",
+    });
+    // A new lineage cannot take a name the workspace already sees.
+    expect(
+      await store.create({ ...narrow(null, ["Read"]), name: source }),
+    ).toEqual({ outcome: "name_taken" });
+    // An owner's installation-wide name cannot take a workspace's display name.
+    expect(await store.create(save(owner, `Mine ${source}`, null))).toEqual({
+      outcome: "name_taken",
+    });
+    // A source retired meanwhile, on another replica, ends the lineage's writes.
+    await db
+      .update(installationProfiles)
+      .set({ retiredAt: new Date(), retiredBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${source}_v1`));
+    expect(
+      await store.create(
+        narrow(v2.outcome === "created" ? v2.record.id : "", ["Read"]),
+      ),
+    ).toEqual({ outcome: "unknown_previous" });
+    expect(
+      await store.create({
+        ...narrow(null, ["Read"]),
+        name: `Other ${source}`,
+      }),
+    ).toEqual({ outcome: "unknown_previous" });
+  });
+
+  test("an admin writes only its own workspace, and sees nothing of another's versions", async () => {
+    const mine = await workspace();
+    const theirs = await workspace();
+    const admin = await person(mine, "admin");
+    const other = await person(theirs, "admin");
+    const owner = await person(theirs, "owner");
+    const store = createPostgresInstallationProfileStore(db);
+    const source = `iso${ids()}`;
+    await store.create(save(owner, source, null));
+    const foreign = await store.create(
+      save(other, `Theirs ${source}`, null, ["Read"], {
+        kind: "workspace",
+        workspaceId: theirs,
+        derivedFrom: `op_${source}_v1`,
+      }),
+    );
+    if (foreign.outcome !== "created") throw new Error("not created");
+    const scoped = (derivedFrom: string, name: string) =>
+      save(admin, name, null, ["Read"], {
+        kind: "workspace",
+        workspaceId: mine,
+        derivedFrom,
+      });
+    // Another workspace's version is unknown, not forbidden or taken.
+    expect(await store.create(scoped(foreign.record.id, "Any"))).toEqual({
+      outcome: "unknown_previous",
+    });
+    // The same display name in another workspace is free.
+    expect(
+      (await store.create(scoped(`op_${source}_v1`, `Theirs ${source}`)))
+        .outcome,
+    ).toBe("created");
+    // An admin names neither another workspace's scope nor an installation-wide one.
+    expect(
+      await store.create(
+        save(admin, "Wide", null, ["Read"], {
+          kind: "workspace",
+          workspaceId: theirs,
+          derivedFrom: `op_${source}_v1`,
+        }),
+      ),
+    ).toEqual({ outcome: "actor_inactive" });
+    expect(await store.create(save(admin, "Wide", null))).toEqual({
+      outcome: "actor_inactive",
+    });
+  });
+
+  test("a block on an ancestor of an admin's source refuses the save, not only one on the source", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const admin = await person(workspaceId, "admin");
+    const store = createPostgresInstallationProfileStore(db);
+    const root = `root${ids()}`;
+    await store.create(save(owner, root, null));
+    const scope = (derivedFrom: string) => ({
+      kind: "workspace" as const,
+      workspaceId,
+      derivedFrom,
+    });
+    const child = await store.create(
+      save(admin, `Child ${root}`, null, ["Read"], scope(`op_${root}_v1`)),
+    );
+    if (child.outcome !== "created") throw new Error("not created");
+    // Set by hand: the block write has a receipt other tests count.
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${root}_v1`));
+    expect(
+      await store.create(
+        save(
+          admin,
+          `Grandchild ${root}`,
+          null,
+          ["Read"],
+          scope(child.record.id),
+        ),
+      ),
+    ).toEqual({ outcome: "unknown_previous" });
   });
 
   test("a first version replaces an existing row or nothing, and never takes an imported id", async () => {
@@ -512,7 +719,7 @@ integration("installation profiles on PostgreSQL", () => {
     );
     expect(results.map((r) => r.outcome).sort()).toEqual([
       "created",
-      "stale_previous",
+      "name_taken",
     ]);
     expect((await rowsOf(`op_${name}`)).map((row) => row.id)).toEqual([
       `op_${name}_v1`,
