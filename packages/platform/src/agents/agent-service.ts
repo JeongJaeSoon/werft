@@ -17,6 +17,7 @@ import {
   type AgentRelease,
   type AgentVersion,
   type BehaviorValues,
+  canonicalJson,
   GITHUB_CEILING_NONE,
   type GitHubRefusal,
   githubFeaturesOverCeiling,
@@ -133,6 +134,16 @@ export async function resolveAgentRelease(
     );
   }
   return release;
+}
+
+function sameRuntime(a: unknown, b: unknown): boolean {
+  const form = (snapshot: unknown) => {
+    const { tools, ...rest } = (snapshot ?? {}) as {
+      tools?: readonly string[];
+    };
+    return canonicalJson({ ...rest, tools: [...(tools ?? [])].sort() });
+  };
+  return form(a) === form(b);
 }
 
 /** The agent a session of this release introduces itself as, read now. */
@@ -381,6 +392,11 @@ export function createAgentService(deps: {
     ).slice(0, 128);
   }
 
+  type MigrationStep =
+    | { status: "applied"; releaseId: string }
+    | { status: "already" | "stale" }
+    | { status: "failed"; reason: string };
+
   type ReleaseOutcome =
     | { status: "applied"; releaseId: string }
     | { status: "superseded" }
@@ -406,6 +422,7 @@ export function createAgentService(deps: {
       intent: Exclude<ActivationIntent, { kind: "direct" }>;
       reason: ReleaseReason;
       requireRoles?: readonly WorkspaceRole[];
+      equivalentTo?: AgentRelease;
     },
   ): Promise<ReleaseOutcome> {
     const { version, profileId, active } = input;
@@ -467,6 +484,15 @@ export function createAgentService(deps: {
             ? "tool_not_in_profile"
             : "release_refused",
       );
+    }
+    if (
+      input.equivalentTo !== undefined &&
+      !sameRuntime(
+        input.equivalentTo.runtime_config_snapshot,
+        resolved.content.runtime_config_snapshot,
+      )
+    ) {
+      return failed("not_equivalent");
     }
     const identity = {
       agent_id: version.agent_id,
@@ -1053,9 +1079,155 @@ export function createAgentService(deps: {
     }
   }
 
+  const MIGRATION_ROLES: readonly WorkspaceRole[] = ["owner"];
+
+  const migrationPrincipal = (
+    workspaceId: string,
+    actorUserId: string,
+  ): Principal => ({
+    ownerId: workspaceId,
+    actor: {
+      principal: { kind: "user", id: actorUserId },
+      userId: actorUserId,
+      workspaceId,
+      apiKeyId: null,
+    },
+  });
+
+  async function migrateAgent(input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string;
+    targetProfileId: string;
+    migrationId: string;
+    expected: {
+      activeReleaseId: string;
+      activationRevision: number;
+      behaviorRevision: number;
+      tracking: "follow" | "pinned";
+      modelSource: ModelSource;
+    };
+    tracking: "follow" | "pinned";
+  }): Promise<MigrationStep> {
+    const { workspaceId, agentId, actorUserId, expected } = input;
+    const principal = migrationPrincipal(workspaceId, actorUserId);
+    try {
+      const record = await store.get(workspaceId, agentId);
+      const active = record?.active_release ?? null;
+      if (!record || !active) return { status: "stale" };
+      if (active.runtime_profile_id === input.targetProfileId) {
+        return { status: "already" };
+      }
+      if (
+        active.id !== expected.activeReleaseId ||
+        record.agent.activation_revision !== expected.activationRevision
+      ) {
+        return { status: "stale" };
+      }
+      const version = record.versions.find(
+        (candidate) => candidate.id === active.version_id,
+      );
+      if (!version) return { status: "failed", reason: "release_refused" };
+      const outcome = await releaseAgent(principal, actorUserId, {
+        agentId,
+        version,
+        profileId: input.targetProfileId,
+        active,
+        expectedActivationRevision: expected.activationRevision,
+        intent: {
+          kind: "migrate",
+          migrationId: input.migrationId,
+          expected,
+          tracking: input.tracking,
+        },
+        reason: "profile_migration",
+        requireRoles: MIGRATION_ROLES,
+        equivalentTo: active,
+      });
+      if (outcome.status === "applied") {
+        return { status: "applied", releaseId: outcome.releaseId };
+      }
+      if (outcome.status === "failed") {
+        return { status: "failed", reason: outcome.reason };
+      }
+      return { status: "stale" };
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        if (error.code === "FORBIDDEN") {
+          return { status: "failed", reason: "actor_inactive" };
+        }
+        if (error.code === "NOT_FOUND") return { status: "stale" };
+      }
+      throw error;
+    }
+  }
+
+  async function revertMigration(input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string;
+    migrationId: string;
+    previousReleaseId: string;
+    expected: {
+      activeReleaseId: string;
+      activationRevision: number;
+      behaviorRevision: number;
+      tracking: "follow" | "pinned";
+      modelSource: ModelSource;
+    };
+    tracking: "follow" | "pinned";
+  }): Promise<MigrationStep> {
+    const { workspaceId, agentId, actorUserId, expected } = input;
+    const principal = migrationPrincipal(workspaceId, actorUserId);
+    try {
+      const missing = await credentials.unboundRefs(
+        workspaceId,
+        input.previousReleaseId,
+      );
+      if (missing.length > 0) {
+        return { status: "failed", reason: "credential_unbound" };
+      }
+      const result = await store.activate({
+        principal,
+        workspaceId,
+        agentId,
+        releaseId: input.previousReleaseId,
+        expectedRevision: expected.activationRevision,
+        approvedBy: actorUserId,
+        managerRoles: AGENT_MANAGERS,
+        requireRoles: MIGRATION_ROLES,
+        intent: {
+          kind: "migrate",
+          migrationId: input.migrationId,
+          expected,
+          tracking: input.tracking,
+        },
+        reason: "profile_migration",
+      });
+      switch (result.outcome) {
+        case "activated":
+          return { status: "applied", releaseId: input.previousReleaseId };
+        case "unchanged":
+          return { status: "already" };
+        case "actor_inactive":
+        case "outranked":
+          return { status: "failed", reason: "actor_inactive" };
+        default:
+          return { status: "stale" };
+      }
+    } catch (error) {
+      if (error instanceof SessionServiceError && error.code === "NOT_FOUND") {
+        return { status: "stale" };
+      }
+      throw error;
+    }
+  }
+
   return {
     resolveRelease,
     rolloutRelease,
+    migrateAgent,
+    revertMigration,
     promptIdentity: (workspaceId: string, releaseId: string) =>
       agentPromptIdentity(store, workspaceId, releaseId),
 

@@ -92,6 +92,7 @@ export type ReleaseReason =
   | "card_saved"
   | "profile_changed"
   | "profile_rollout"
+  | "profile_migration"
   | "direct";
 
 /**
@@ -125,6 +126,18 @@ export type ActivationIntent =
       kind: "raise";
       behaviorRevision: number;
       targetProfileId: string;
+    }
+  | {
+      kind: "migrate";
+      migrationId: string;
+      expected: {
+        activeReleaseId: string;
+        activationRevision: number;
+        behaviorRevision: number;
+        tracking: "follow" | "pinned";
+        modelSource: ModelSource;
+      };
+      tracking: "follow" | "pinned";
     }
   | {
       kind: "direct";
