@@ -435,7 +435,7 @@ describe("프로필 상세", () => {
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     expect(
       await within(dialog).findByText(
-        "프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+        "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
       ),
     ).toBeDefined();
   });
@@ -510,7 +510,9 @@ describe("프로필 상세", () => {
     await screen.findByRole("heading", { level: 1, name: "wide" });
     expect(actions()).toEqual(["이 프로필을 복제해 만들기"]);
     expect(
-      screen.getByText("프로필은 워크스페이스 owner만 바꿀 수 있습니다"),
+      screen.getByText(
+        "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
+      ),
     ).toBeDefined();
   });
 

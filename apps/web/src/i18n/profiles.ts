@@ -166,7 +166,7 @@ export const profilesKo = {
     "저장한 버전은 바뀌지 않습니다. 고치려면 새 버전을 만듭니다.",
   "profiles.ceiling.save": "저장",
   "profiles.ceiling.ownerOnly":
-    "프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+    "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
   "profiles.ceiling.error.unknownConnection":
     "그 연결이 이 설치에 없습니다. 다시 불러와 연결을 고르세요.",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -223,7 +223,8 @@ export const profilesKo = {
     "다른 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
   "profiles.detail.ceilingDescription":
     "이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다.",
-  "profiles.detail.ownerOnly": "프로필은 워크스페이스 owner만 바꿀 수 있습니다",
+  "profiles.detail.ownerOnly":
+    "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
   "profiles.detail.createFrom": "이 프로필을 복제해 만들기",
   "profiles.detail.settings": "설정",
   "profiles.detail.id": "id",
@@ -501,7 +502,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "A saved version never changes. To change it, make a new version.",
   "profiles.ceiling.save": "Save",
   "profiles.ceiling.ownerOnly":
-    "Only a workspace owner makes and turns off profiles.",
+    "Only a workspace owner makes or turns off a profile that sets its own connection and runtime.",
   "profiles.ceiling.error.unknownConnection":
     "That connection is not on this installation. Reload and pick a connection.",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -558,7 +559,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Made in this workspace from another profile. Editing saves a new version; this version stays as it is.",
   "profiles.detail.ceilingDescription":
     "Sets the widest range every workspace on this installation can use. A saved version never changes; editing makes a new one.",
-  "profiles.detail.ownerOnly": "Only a workspace owner changes profiles",
+  "profiles.detail.ownerOnly":
+    "Only a workspace owner changes a profile that sets its own connection and runtime",
   "profiles.detail.createFrom": "Clone this profile",
   "profiles.detail.settings": "Settings",
   "profiles.detail.id": "ID",
@@ -840,7 +842,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "保存したバージョンは変わりません。変更するには新しいバージョンを作ります。",
   "profiles.ceiling.save": "保存",
   "profiles.ceiling.ownerOnly":
-    "プロファイルはワークスペースのオーナーだけが作成・使用停止できます。",
+    "接続と実行方式を自分で決めるプロファイルは、ワークスペースのオーナーだけが作成・使用停止できます。",
   "profiles.ceiling.error.unknownConnection":
     "その接続はこのインストールにありません。再読み込みして接続を選んでください。",
   "profiles.ceiling.error.runtimeNotInstalled":
@@ -899,7 +901,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.ceilingDescription":
     "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
-    "プロファイルはワークスペースのオーナーだけが変更できます",
+    "接続と実行方式を自分で決めるプロファイルは、ワークスペースのオーナーだけが変更できます",
   "profiles.detail.createFrom": "このプロファイルを複製して作成",
   "profiles.detail.settings": "設定",
   "profiles.detail.id": "ID",
