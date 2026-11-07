@@ -26,22 +26,18 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
-  RadioGroup,
-  RadioGroupItem,
   Section,
   Textarea,
 } from "@werft-ai/ui";
-import { useId } from "react";
 import { expect } from "storybook/test";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * Run profiles as apps/web draws them (routes/profiles.tsx, profile-detail.tsx,
- * profile-new.tsx, profile-ceiling-form.tsx): installation ceilings and
- * workspace profiles in one list, a ceiling's detail with its record, and the
- * dedicated creation page. Every value is a field of GET /v1/profiles or
- * GET /v1/installation-profiles/options.
+ * profile-new.tsx, profile-ceiling-form.tsx): one list of profiles, a
+ * profile's detail with its record, and the dedicated creation page. Every
+ * value is a field of GET /v1/profiles or GET /v1/installation-profiles/options.
  */
 
 type View =
@@ -58,7 +54,6 @@ type Row = {
   readonly id: string;
   readonly name: string;
   readonly version: number;
-  readonly kind: "설치 프로필" | "워크스페이스 프로필";
   readonly base: string;
   readonly model: string;
   readonly mode: string;
@@ -157,7 +152,6 @@ const ROWS: readonly Row[] = [
     id: "claude-coding",
     name: "claude-coding",
     version: 1,
-    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "acceptEdits",
@@ -168,7 +162,6 @@ const ROWS: readonly Row[] = [
     id: "op_wide_v2",
     name: "wide",
     version: 2,
-    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "auto",
@@ -179,7 +172,6 @@ const ROWS: readonly Row[] = [
     id: "op_free_v1",
     name: "free",
     version: 1,
-    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "bypassPermissions",
@@ -187,10 +179,9 @@ const ROWS: readonly Row[] = [
     state: ["이 설치에서 꺼짐", "red"],
   },
   {
-    id: "ws_acme_strict_v3",
+    id: "op_strict_v3",
     name: "strict",
     version: 3,
-    kind: "워크스페이스 프로필",
     base: "op_wide_v2",
     model: "claude-sonnet-5",
     mode: "default",
@@ -200,7 +191,7 @@ const ROWS: readonly Row[] = [
 ];
 
 const COLUMNS = [
-  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
+  "minmax(0,1.6fr) 64px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
   "minmax(0,1fr) 128px",
 ] as const;
 
@@ -217,15 +208,8 @@ function List({ role }: { readonly role: Role }) {
   return (
     <Page
       title="프로필"
-      description="에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다."
-      actions={
-        <div className="flex flex-wrap gap-2">
-          {role === "owner" ? (
-            <Button variant="outline">설치 프로필 만들기</Button>
-          ) : null}
-          <Button>프로필 만들기</Button>
-        </div>
-      }
+      description="에이전트가 쓸 모델과 도구를 정합니다. 소유자는 연결과 실행 방식까지 정하고, 관리자는 기존 프로필을 복제해 모델·지시·막을 도구를 정합니다."
+      actions={<Button>프로필 만들기</Button>}
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         <div className="rounded-card border bg-card">
@@ -238,7 +222,6 @@ function List({ role }: { readonly role: Role }) {
             <GridTableHeader>
               <GridTableColumnHeader>이름</GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>버전</GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>종류</GridTableColumnHeader>
               <GridTableColumnHeader hideNarrow>
                 바탕 프로필
               </GridTableColumnHeader>
@@ -262,12 +245,11 @@ function List({ role }: { readonly role: Role }) {
                       {row.id}
                     </div>
                     <div className="hidden wrap-anywhere text-caption text-muted-foreground leading-4 [@container(max-width:860px)]:block">
-                      {row.kind} · v{row.version}
+                      v{row.version}
                     </div>
                   </div>
                 </GridTableCell>
                 <GridTableCell hideNarrow>v{row.version}</GridTableCell>
-                <GridTableCell hideNarrow>{row.kind}</GridTableCell>
                 <GridTableCell hideNarrow>{row.base}</GridTableCell>
                 <GridTableCell hideNarrow>{row.model}</GridTableCell>
                 <GridTableCell hideNarrow>{row.mode}</GridTableCell>
@@ -312,12 +294,10 @@ function Detail({
       breadcrumb={<Crumbs current="op_wide_v2" />}
       title="wide"
       titleAside={<Badge variant="green">사용 가능</Badge>}
-      description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다."
+      description="저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다. 이전 버전을 쓰던 릴리스는 그대로 동작합니다."
       actions={
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline">
-            이 프로필로 워크스페이스 프로필 만들기
-          </Button>
+          <Button variant="outline">이 프로필을 복제해 만들기</Button>
           {role === "owner" ? (
             <>
               <Button>새 버전</Button>
@@ -348,7 +328,6 @@ function Detail({
           <KeyValueList
             items={[
               { id: "id", label: "id", value: "op_wide_v2" },
-              { id: "kind", label: "종류", value: "설치 프로필" },
               { id: "connection", label: "연결", value: "anthropic" },
               {
                 id: "runtime",
@@ -406,38 +385,6 @@ function Detail({
   );
 }
 
-function KindPicker({ kind }: { readonly kind: "workspace" | "installation" }) {
-  const legend = useId();
-  return (
-    <FieldSet className="gap-3">
-      <FieldLegend id={legend} variant="label" className="mb-2">
-        종류
-      </FieldLegend>
-      <RadioGroup value={kind} aria-labelledby={legend}>
-        <Field orientation="horizontal">
-          <RadioGroupItem value="workspace" />
-          <FieldContent>
-            <FieldLabel>워크스페이스 프로필</FieldLabel>
-            <FieldDescription>
-              설치 프로필 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.
-            </FieldDescription>
-          </FieldContent>
-        </Field>
-        <Field orientation="horizontal">
-          <RadioGroupItem value="installation" />
-          <FieldContent>
-            <FieldLabel>설치 프로필</FieldLabel>
-            <FieldDescription>
-              연결 하나 위에서 런타임·모델·도구·권한 모드·저장소를 정합니다.
-              owner만 만듭니다.
-            </FieldDescription>
-          </FieldContent>
-        </Field>
-      </RadioGroup>
-    </FieldSet>
-  );
-}
-
 function NewCeiling({
   refused,
   next,
@@ -455,13 +402,12 @@ function NewCeiling({
   return (
     <Page
       breadcrumb={
-        <Crumbs current={next ? "wide 새 버전" : "설치 프로필 만들기"} />
+        <Crumbs current={next ? "wide 새 버전" : "프로필 만들기"} />
       }
-      title={next ? "wide 새 버전" : "설치 프로필 만들기"}
-      description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 워크스페이스 프로필은 이 값을 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다."
+      title={next ? "wide 새 버전" : "프로필 만들기"}
+      description="에이전트가 쓸 모델·도구·실행 방식을 정합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다."
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
-        {next ? null : <KindPicker kind="installation" />}
         <form className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4">
           <Field>
             <FieldLabel>이름</FieldLabel>
@@ -605,10 +551,9 @@ function NewWorkspace({ role }: { readonly role: Role }) {
     <Page
       breadcrumb={<Crumbs current="프로필 만들기" />}
       title="프로필 만들기"
-      description="바탕이 되는 설치 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다."
+      description="바탕 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다."
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
-        {role === "owner" ? <KindPicker kind="workspace" /> : null}
         <form className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4">
           <Field className="w-auto max-w-full">
             <FieldLabel>바탕 프로필</FieldLabel>
@@ -628,7 +573,7 @@ function NewWorkspace({ role }: { readonly role: Role }) {
             <FieldLabel>이름</FieldLabel>
             <Input defaultValue="strict" />
             <FieldDescription>
-              저장할 버전의 id: ws_acme_strict_v4
+              저장할 버전의 id: op_strict_v4
             </FieldDescription>
           </Field>
           <FieldSet className="gap-3">
@@ -732,7 +677,7 @@ type Story = StoryObj<typeof meta>;
 
 export const ProfilesList: Story = { name: "Owner · list" };
 export const ProfilesListAdmin: Story = {
-  name: "Admin · list (no ceiling button)",
+  name: "Admin · list",
   args: { role: "admin" },
 };
 export const ProfilesListMobile: Story = {
@@ -740,24 +685,24 @@ export const ProfilesListMobile: Story = {
   globals: MOBILE,
 };
 export const ProfileCeilingDetail: Story = {
-  name: "Owner · ceiling detail",
+  name: "Owner · detail",
   args: { view: "detail" },
 };
 export const ProfileCeilingDetailAdmin: Story = {
-  name: "Admin · ceiling detail (narrow only)",
+  name: "Admin · detail (clone only)",
   args: { view: "detail", role: "admin" },
 };
 export const ProfileCeilingDetailNewTools: Story = {
-  name: "Owner · ceiling detail (blocked new tools)",
+  name: "Owner · detail (blocked new tools)",
   args: { view: "detailNewTools" },
 };
 export const ProfileCeilingDetailNewToolsDark: Story = {
-  name: "Owner · ceiling detail (blocked new tools, dark)",
+  name: "Owner · detail (blocked new tools, dark)",
   args: { view: "detailNewTools" },
   globals: { theme: "dark" },
 };
 export const ProfileCeilingDetailNewToolsMobile: Story = {
-  name: "Owner · ceiling detail (blocked new tools, 390px)",
+  name: "Owner · detail (blocked new tools, 390px)",
   args: { view: "detailNewTools" },
   globals: MOBILE,
 };
@@ -793,42 +738,42 @@ const groupLabelsSitLikeFieldLabels =
   };
 
 export const ProfileNewCeiling: Story = {
-  name: "Owner · new ceiling",
+  name: "Owner · new profile",
   args: { view: "newCeiling" },
-  // The kind, built-in tool and allowed-repository groups.
-  play: groupLabelsSitLikeFieldLabels(3),
+  // The built-in tool and allowed-repository groups.
+  play: groupLabelsSitLikeFieldLabels(2),
 };
 export const ProfileNewCeilingVersion: Story = {
-  name: "Owner · new ceiling version (catalog diff)",
+  name: "Owner · new version (catalog diff)",
   args: { view: "newVersion" },
 };
 export const ProfileNewCeilingVersionDark: Story = {
-  name: "Owner · new ceiling version (catalog diff, dark)",
+  name: "Owner · new version (catalog diff, dark)",
   args: { view: "newVersion" },
   globals: { theme: "dark" },
 };
 export const ProfileNewCeilingVersionMobile: Story = {
-  name: "Owner · new ceiling version (catalog diff, 390px)",
+  name: "Owner · new version (catalog diff, 390px)",
   args: { view: "newVersion" },
   globals: MOBILE,
 };
 export const ProfileNewCeilingRefused: Story = {
-  name: "Owner · new ceiling refused",
+  name: "Owner · new profile refused",
   args: { view: "refused" },
 };
 export const ProfileNewCeilingDark: Story = {
-  name: "Owner · new ceiling (dark)",
+  name: "Owner · new profile (dark)",
   args: { view: "newCeiling" },
   globals: { theme: "dark" },
 };
 export const ProfileNewWorkspaceAdmin: Story = {
-  name: "Admin · new workspace profile (no kind)",
+  name: "Admin · clone to narrow",
   args: { view: "newWorkspace", role: "admin" },
 };
 export const ProfileNewWorkspaceMobile: Story = {
-  name: "Owner · new workspace profile (390px)",
+  name: "Owner · clone to narrow (390px)",
   args: { view: "newWorkspace" },
   globals: MOBILE,
-  // The kind group, the model group with its one choice, and the tool group.
-  play: groupLabelsSitLikeFieldLabels(3),
+  // The model group with its one choice, and the tool group.
+  play: groupLabelsSitLikeFieldLabels(2),
 };

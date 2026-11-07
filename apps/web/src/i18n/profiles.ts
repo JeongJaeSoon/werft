@@ -222,7 +222,7 @@ export const profilesKo = {
   "profiles.detail.workspaceDescription":
     "다른 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
   "profiles.detail.ceilingDescription":
-    "이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다.",
+    "저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다. 이전 버전을 쓰던 릴리스는 그대로 동작합니다.",
   "profiles.detail.ownerOnly":
     "연결과 실행 방식을 직접 정하는 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
   "profiles.detail.createFrom": "이 프로필을 복제해 만들기",
@@ -558,7 +558,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.workspaceDescription":
     "Made in this workspace from another profile. Editing saves a new version; this version stays as it is.",
   "profiles.detail.ceilingDescription":
-    "Sets the widest range every workspace on this installation can use. A saved version never changes; editing makes a new one.",
+    "A saved version never changes; editing makes a new one. Releases on an earlier version keep running.",
   "profiles.detail.ownerOnly":
     "Only a workspace owner changes a profile that sets its own connection and runtime",
   "profiles.detail.createFrom": "Clone this profile",
@@ -899,7 +899,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.workspaceDescription":
     "別のプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
   "profiles.detail.ceilingDescription":
-    "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
+    "保存したバージョンは変わらず、編集すると新しいバージョンになります。前のバージョンを使うリリースはそのまま動きます。",
   "profiles.detail.ownerOnly":
     "接続と実行方式を自分で決めるプロファイルは、ワークスペースのオーナーだけが変更できます",
   "profiles.detail.createFrom": "このプロファイルを複製して作成",
