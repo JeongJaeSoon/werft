@@ -53,14 +53,14 @@ daemon 관리 권한과 유지보수 시간, 현재 네트워크·설치 id·slo
 
 같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 주고, egress proxy도 설치마다 따로 두어 각자의 id로 label을 단다. worker 네트워크 이름·label에 설치 id가 들어가므로 설치 A의 worker 네트워크에는 A의 proxy만 붙는다. 하나의 proxy를 두 설치가 쓰면 두 설치의 worker가 같은 allowlist를 쓰게 된다.
 
-compose의 proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 돈다. 소스가 이미지에 들어 있으므로 checkout을 옮겨도 떠 있는 proxy는 바뀌지 않고, 새 코드는 `up -d --build egress-proxy`로 다시 빌드해야 반영된다.
-- proxy는 기동할 때 자기 소스(`src`의 테스트 아닌 `.ts`)의 sha256을 로그(`Egress proxy listening`의 `source`)와 `/healthz`(`ok source=<hex>`)로 알린다. 어떤 코드가 도는지는 이 값으로 확인한다.
-- compose healthcheck(`src/healthcheck.ts`)는 이 값을 `/app/src`의 현재 소스와 비교하고, 다르면 `unhealthy`로 떨어진다. 이미지로 돌 때는 둘이 늘 같다. 누군가 소스 트리를 mount해 덮어쓴 뒤 그 checkout을 옮겼을 때만 이 검사가 발동한다. 다만 Docker는 연속 실패 12회(약 60초)가 쌓여야 상태를 바꾼다.
+proxy 코드 교체는 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)를 따른다. 주소 풀 변경 뒤에는 이번 설치의 실행 중 proxy를 status와 project label로 확인하고 그 컨테이너에서 healthcheck를 실행한다. source hash는 proxy의 실행 코드와 healthcheck 대상이 같은지 대조하는 값이다.
 
 ```bash
-docker compose -f infra/compose.yml up -d --wait --build egress-proxy   # after moving the checkout
-docker compose -f infra/compose.yml exec -T egress-proxy bun run /app/src/healthcheck.ts
+PROXY_CONTAINER='<this-installation-egress-proxy-container-id>'
+INSTALLATION_ID='<this-installation-id>'
+docker exec "$PROXY_CONTAINER" bun run /app/src/healthcheck.ts
 docker network ls --filter label=werft.worker-network=true \
+  --filter "label=werft.installation=$INSTALLATION_ID" \
   --format '{{.Name}} {{.Labels}}'
 ```
 

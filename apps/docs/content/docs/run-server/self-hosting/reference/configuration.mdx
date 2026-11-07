@@ -86,7 +86,7 @@ worker는 claim 때 자기 이미지가 실제로 싣는 조합을 보낸다. �
 | 변수 | 기본값 | 의미 |
 |---|---|---|
 | `WORKER_CPUS` | 1 | worker 하나의 CPU 몫. 0.01 이상 |
-| `WORKER_MEMORY_MB` | 4608 | worker 하나의 메모리 한도(MiB). 압축 없는 512MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다 |
+| `WORKER_MEMORY_MB` | 4608 | worker 하나의 메모리 한도(MiB). 압축 없는 512MiB transcript를 resume한 엔진이 한도의 절반 아래에 들도록 잡은 값이다. 개발용 `.env.example`의 2048은 이 기준을 충족하지 않으므로 큰 transcript 복원 시험에서는 그 줄을 지우거나 4608로 바꾼다 |
 | `WORKER_PIDS_LIMIT` | 512 | worker 하나의 PID 한도. compose는 넘기지 않는다 |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | worker의 숫자 `uid[:gid]`. uid나 gid가 0이면 기동을 거부한다. worker 이미지의 `/workspace` 소유자와 같아야 한다 |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs로 마운트하는 HOME. 절대 경로 |
@@ -249,7 +249,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `secrets.externalSecret` | External Secrets Operator가 Secrets Manager의 `remoteKey`(JSON, 위 Secret 키 전부. IRSA면 AWS key 둘은 뺀다)로 Secret을 쓴다. 운영자 CRD가 필요하다 |
 | `ingress` | ALB Ingress. `scheme`은 `internal`이다(위). `healthcheck-path: /readyz`, SSE를 위해 idle timeout 300초. 공개 경로(`/v1`·`/docs`·`/healthz`·`/readyz`)만 route하고 `/internal`과 authorizer(3100)는 열지 않는다 |
 | `ingress.console.enabled` | 기본 `false`. 켜면 웹 콘솔 `/`와 `/internal` 404 규칙을 더한다. 켜는 조건은 [접속 경로](/run-server/self-hosting/access) |
-| `config.egress.credentialAllowlist` | provider host에 checkpoint bucket의 virtual-hosted endpoint를 더한다. worker의 checkpoint upload·restore가 credential route로 나간다 |
+| `config.egress.credentialAllowlist` | 값이 기본값을 통째로 대체하므로 GitHub·checkpoint bucket host를 넣을 때 provider와 패키지 registry 등 필요한 항목을 모두 다시 적는다. worker의 checkpoint upload·restore가 credential route로 나간다 |
 | `worker.storageClass`, `worker.nodeSelector`, `worker.tolerations` | worker 전용 node group과 workspace PVC의 StorageClass(gp3) |
 | `networkPolicy.enabled` | VPC CNI의 network policy agent가 켜져 있어야 효력이 있다 |
 

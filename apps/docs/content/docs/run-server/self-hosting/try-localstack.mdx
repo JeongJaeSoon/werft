@@ -25,7 +25,7 @@ Linux 시험 서버에 LocalStack을 쓰는 Compose 설치를 만든다. object�
 
 설치에는 저장소 checkout이 필요하다. compose 파일과 `scripts/test-ops.sh`를 checkout에서 읽기 때문이다. 이미지는 checkout에서 빌드하지 않는다.
 
-운영 데이터와 분리된 Linux 서버에서 [XFS 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. 시험 전용 project·설치 id·포트·상태/비밀 디렉터리를 선택한다. 다음 예시의 기본 경로가 기존 설치에 쓰이면 다른 경로와 `TEST_OPS_*` 값을 지정한다.
+운영 데이터와 분리된 Linux 서버에서 [XFS 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. 시험 전용 project·설치 id·포트·상태/비밀 디렉터리를 선택한다. test-ops의 기본 project 이름은 `werft-test-ops`이며 `TEST_OPS_PROJECT`로 바꾼다. 다음 예시의 기본 경로가 기존 설치에 쓰이면 다른 경로와 `TEST_OPS_*` 값을 지정한다.
 
 ## 단계
 
@@ -132,7 +132,7 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
-이 연속 절차와 checkpoint가 있는 재부팅은 실행 확인하지 않았다. `reseed`는 원본 project/bucket/checksum과 빈 bucket, 마지막 백업 이후 checkpoint 변화가 없음을 검사한다. 조건을 만족하지 않으면 거부한다. object를 잃은 뒤 pending upgrade가 남으면 reseed도 거부될 수 있으므로 무조건 reset으로 해결하지 않는다.
+이 연속 절차와 checkpoint가 있는 재부팅은 실행 확인하지 않았다. `reseed`는 원본 project/bucket/checksum과 빈 bucket, 마지막 백업 이후 checkpoint 변화가 없음을 검사한다. 조건을 만족하지 않으면 거부한다. object를 잃고 API 기동 실패와 pending upgrade가 남은 상태에서는 `reseed`가 거부된다. `backup --stop`으로 남긴 백업이 있어도 이 차단은 풀리지 않는다. 이 상태에서 `reset`을 고르면 DB·세션·checkpoint를 버리며, 일반적인 재부팅의 복구 명령으로 사용하지 않는다.
 
 ## 되돌리기
 

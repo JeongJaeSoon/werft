@@ -21,6 +21,8 @@ outcome: "복원 여유를 계산하고 지원되는 자원 크기를 바꾼다"
 
 기준: **compaction이 없는 transcript를 resume할 때의 최악 peak이 worker 메모리 한도의 절반 이하**여야 한다. 나머지 절반은 첫 turn의 작업, 측정하지 않은 transcript 모양, 엔진 버전 차이에 쓰는 여유다.
 
+개발용 `.env.example`은 `WORKER_MEMORY_MB=2048`을 둔다. 그대로 쓰면 위의 절반 기준이 지켜지지 않는다. 큰 transcript를 resume하는 시험에서는 그 줄을 지우거나 `WORKER_MEMORY_MB=4608`로 바꾼다. 실제 배포 입력에서 적용되는 값도 함께 확인한다.
+
 #### 측정 방법
 
 비교 조건은 fake model·cgroup v2 Compose 환경이다. source worker가 합성 transcript를 mirror에 넣고 checkpoint한 뒤 pause한다. 이어서 새 worker가 그 checkpoint를 복원하고 첫 resume turn을 돈다. 그동안 0.5초마다 worker 컨테이너의 cgroup(`memory.peak`, anon, file, shmem, swap, oom_kill)과 프로세스별 VmHWM을 기록했다. `memory.peak`에는 회수 가능한 page cache(file)도 들어간다. 그래도 기준에는 포함했다. worker 이미지는 claude-agent-sdk 0.3.270, Claude Code CLI 2.1.270이다.

@@ -52,7 +52,7 @@ Object Lock을 켜면 versioning도 켜진다.
 
 API용 권한은 bucket의 `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, `s3:GetEncryptionConfiguration`과 객체의 `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, `s3:DeleteObjectVersion`이다. 리소스 ARN은 이 설치 bucket과 허용된 훈련 bucket 범위로 제한한다. `s3:DeleteObject`는 GC에 필요하지 않다.
 
-`EGRESS_CREDENTIAL_ALLOWLIST`에 virtual-hosted bucket endpoint를 추가한다. 점이 든 bucket은 리전의 path-style endpoint를 쓴다. worker에 AWS key를 전달하지 않는다.
+`EGRESS_CREDENTIAL_ALLOWLIST` 값은 기본값을 통째로 대체하므로 virtual-hosted bucket endpoint를 넣을 때 provider와 패키지 registry, Git host 등 필요한 항목을 모두 다시 적는다. 점이 든 bucket은 리전의 path-style endpoint를 쓴다. worker에 AWS key를 전달하지 않는다.
 
 ## 확인
 
