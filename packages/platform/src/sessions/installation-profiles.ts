@@ -211,6 +211,7 @@ export function createInstallationProfileService(deps: {
   async function toolsOf(
     request: CreateInstallationProfileRequest,
     runtime: { kind: RuntimeKind; version: string },
+    base?: { readonly tools: readonly string[]; readonly sameCatalog: boolean },
   ) {
     if (request.deny === undefined) {
       return { tools: [...new Set(request.tools ?? [])], denied: undefined };
@@ -231,6 +232,9 @@ export function createInstallationProfileService(deps: {
       catalog: catalog.tool_catalogs?.for(runtime.kind, runtime.version),
       deny: request.deny,
       accept: request.accept_added_tools,
+      // An admin's profile may not open what its source blocks, under the
+      // names the runtime knows them by (`Task` is `Agent`).
+      ...(base === undefined ? {} : { base }),
       previous: previousRead,
     });
     return {
@@ -372,10 +376,9 @@ export function createInstallationProfileService(deps: {
         "derived_from",
       );
     }
-    // This replica may not have read a version made a moment ago.
-    if (!catalog.installation?.get(sourceId)) {
-      await catalog.workspace_profiles.refresh();
-    }
+    // Read again: a source retired on another replica must not pass here,
+    // and a version made a moment ago may not be read yet.
+    await catalog.workspace_profiles.refresh();
     const entry = catalog.installation?.get(sourceId);
     const other = entry?.record?.workspace_id;
     const base = Object.hasOwn(catalog.profiles, sourceId)
@@ -442,10 +445,17 @@ export function createInstallationProfileService(deps: {
     ): Promise<WorkspaceProfileChangeResponse> {
       const { actor, owner } = await definer(caller);
       // The owner names the runtime; an admin narrows a version it may see.
-      const admin = owner
-        ? undefined
-        : await adminSource(request, actor.workspaceId);
-      const own = owner ? ownerFixed(request) : undefined;
+      // A new version of a workspace profile is written that way by either
+      // role, as it keeps its source.
+      const ofWorkspace =
+        owner &&
+        request.previous_id !== undefined &&
+        (await previousOf(request.previous_id)).workspace_id != null;
+      const admin =
+        owner && !ofWorkspace
+          ? undefined
+          : await adminSource(request, actor.workspaceId);
+      const own = admin ? undefined : ownerFixed(request);
       const fixed: Fixed = admin
         ? {
             runtime_kind: admin.definition.runtime_kind,
@@ -458,10 +468,21 @@ export function createInstallationProfileService(deps: {
       const connectionId = admin
         ? admin.connectionId
         : (own as NonNullable<typeof own>).connectionId;
-      const { tools, denied } = await toolsOf(request, {
-        kind: fixed.runtime_kind,
-        version: fixed.runtime_version,
-      });
+      const { tools, denied } = await toolsOf(
+        request,
+        { kind: fixed.runtime_kind, version: fixed.runtime_version },
+        admin && {
+          tools: admin.base.tools,
+          // An allow-list source names no catalog: only its tools bound it.
+          sameCatalog:
+            catalog.installation?.get(admin.sourceId)?.record
+              ?.tool_catalog_id ===
+            catalog.tool_catalogs?.for(
+              fixed.runtime_kind,
+              fixed.runtime_version,
+            )?.id,
+        },
+      );
       const definition = definitionOf(request, fixed, tools);
       if (admin) {
         const refusal = derivationPolicyOf(catalog).refusal(admin.base, {

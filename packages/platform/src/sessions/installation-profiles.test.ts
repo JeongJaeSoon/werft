@@ -411,6 +411,47 @@ describe("saving an installation ceiling", () => {
     }
   });
 
+  test("the owner saves a new version of an admin's profile as the admin does: the source's runtime stays, the owner's fields are 400", async () => {
+    const { service, rows } = setup();
+    const first = await service.create(caller("admin"), {
+      name: "narrow",
+      derived_from: "seed",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read"],
+      permission_mode: "default",
+    });
+    const next = await service.create(caller("owner"), {
+      name: "narrow",
+      previous_id: first.profile.id,
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read", "Edit"],
+      permission_mode: "default",
+    });
+    expect(next.profile.id).toBe(first.profile.id.replace(/_v1$/, "_v2"));
+    expect(rows.at(-1)).toMatchObject({
+      workspace_id: WORKSPACE,
+      display_name: "narrow",
+      derived_from: "seed",
+    });
+    const refused = await refusal(
+      service.create(caller("owner"), {
+        name: "narrow",
+        previous_id: next.profile.id,
+        connection_id: "main",
+        model: "claude-sonnet-5",
+        models: ["claude-sonnet-5"],
+        tools: ["Read"],
+        permission_mode: "default",
+      }),
+    );
+    expect([refused.code, refused.reason]).toEqual([
+      "BAD_REQUEST",
+      "source_field",
+    ]);
+  });
+
   test("an admin cannot widen the source, name none, or reach another workspace's version; the owner must name the runtime", async () => {
     const { service, writes } = setup();
     const base = {

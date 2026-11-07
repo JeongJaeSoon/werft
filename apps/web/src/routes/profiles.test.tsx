@@ -120,7 +120,7 @@ describe("프로필", () => {
     await user.click(screen.getByRole("link", { name: "프로필 만들기" }));
     await screen.findByRole("heading", {
       level: 1,
-      name: "설치 프로필 만들기",
+      name: "프로필 만들기",
     });
     expect(history.location.pathname).toBe("/profiles/new");
     expect(history.location.search).toBe("");

@@ -60,7 +60,13 @@ export function ProfileNewScreen() {
       ? undefined
       : items.find((item) => item.id === search.from);
   // An owner writes the whole profile; an admin clones one and narrows it.
-  const kind = operates ? "installation" : "workspace";
+  // A new version of a profile that narrows another is the admin's form
+  // for either role, as its runtime and connection stay its source's.
+  const kind =
+    operates &&
+    !(search.mode === "version" && from?.installation?.derived_from != null)
+      ? "installation"
+      : "workspace";
   const options = useQuery({
     ...installationOptionsQuery(client),
     enabled: kind === "installation",

@@ -576,6 +576,22 @@ integration("installation profiles on PostgreSQL", () => {
     expect(await store.create(save(owner, `Mine ${source}`, null))).toEqual({
       outcome: "name_taken",
     });
+    // A source retired meanwhile, on another replica, ends the lineage's writes.
+    await db
+      .update(installationProfiles)
+      .set({ retiredAt: new Date(), retiredBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${source}_v1`));
+    expect(
+      await store.create(
+        narrow(v2.outcome === "created" ? v2.record.id : "", ["Read"]),
+      ),
+    ).toEqual({ outcome: "unknown_previous" });
+    expect(
+      await store.create({
+        ...narrow(null, ["Read"]),
+        name: `Other ${source}`,
+      }),
+    ).toEqual({ outcome: "unknown_previous" });
   });
 
   test("an admin writes only its own workspace, and sees nothing of another's versions", async () => {

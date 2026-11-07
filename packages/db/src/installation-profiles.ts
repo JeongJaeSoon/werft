@@ -234,6 +234,19 @@ export function createPostgresInstallationProfileStore(
             return { outcome: "unknown_previous" as const };
           }
         }
+        // The source is read again here: one retired or blocked on another
+        // replica after the service looked is refused like one that is gone.
+        if (derivedFrom !== null) {
+          const [source] = await tx
+            .select({
+              retiredAt: installationProfiles.retiredAt,
+              blockedAt: installationProfiles.blockedAt,
+            })
+            .from(installationProfiles)
+            .where(eq(installationProfiles.id, derivedFrom));
+          if (!source || source.retiredAt !== null || source.blockedAt !== null)
+            return { outcome: "unknown_previous" as const };
+        }
         // A named row must exist, and an admin's lineage sees nothing of
         // another workspace.
         for (const named of [

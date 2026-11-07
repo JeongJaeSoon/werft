@@ -419,7 +419,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
     renderAt("/profiles/new", catalog().routes);
     await screen.findByRole("heading", {
       level: 1,
-      name: "설치 프로필 만들기",
+      name: "프로필 만들기",
     });
     expect(screen.queryAllByRole("radiogroup").length).toBe(0);
     const connection = (await screen.findByLabelText(
@@ -513,7 +513,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
     const { api, history } = renderAt("/profiles/new", catalog().routes);
     await screen.findByRole("heading", {
       level: 1,
-      name: "설치 프로필 만들기",
+      name: "프로필 만들기",
     });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "wide");
