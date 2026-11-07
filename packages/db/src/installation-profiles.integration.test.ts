@@ -641,6 +641,40 @@ integration("installation profiles on PostgreSQL", () => {
     });
   });
 
+  test("a block on an ancestor of an admin's source refuses the save, not only one on the source", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const admin = await person(workspaceId, "admin");
+    const store = createPostgresInstallationProfileStore(db);
+    const root = `root${ids()}`;
+    await store.create(save(owner, root, null));
+    const scope = (derivedFrom: string) => ({
+      kind: "workspace" as const,
+      workspaceId,
+      derivedFrom,
+    });
+    const child = await store.create(
+      save(admin, `Child ${root}`, null, ["Read"], scope(`op_${root}_v1`)),
+    );
+    if (child.outcome !== "created") throw new Error("not created");
+    // Set by hand: the block write has a receipt other tests count.
+    await db
+      .update(installationProfiles)
+      .set({ blockedAt: new Date(), blockedBy: owner.userId })
+      .where(eq(installationProfiles.id, `op_${root}_v1`));
+    expect(
+      await store.create(
+        save(
+          admin,
+          `Grandchild ${root}`,
+          null,
+          ["Read"],
+          scope(child.record.id),
+        ),
+      ),
+    ).toEqual({ outcome: "unknown_previous" });
+  });
+
   test("a first version replaces an existing row or nothing, and never takes an imported id", async () => {
     const owner = await person(await workspace(), "owner");
     const store = createPostgresInstallationProfileStore(db);

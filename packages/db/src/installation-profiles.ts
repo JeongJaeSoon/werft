@@ -236,16 +236,29 @@ export function createPostgresInstallationProfileStore(
         }
         // The source is read again here: one retired or blocked on another
         // replica after the service looked is refused like one that is gone.
-        if (derivedFrom !== null) {
+        // A block on any ancestor stops everything below it, so the whole
+        // chain is read, not only the direct source.
+        for (
+          let next: string | null = derivedFrom, depth = 0;
+          next !== null;
+          depth += 1
+        ) {
           const [source] = await tx
             .select({
               retiredAt: installationProfiles.retiredAt,
               blockedAt: installationProfiles.blockedAt,
+              derivedFrom: installationProfiles.derivedFrom,
             })
             .from(installationProfiles)
-            .where(eq(installationProfiles.id, derivedFrom));
-          if (!source || source.retiredAt !== null || source.blockedAt !== null)
+            .where(eq(installationProfiles.id, next));
+          if (
+            !source ||
+            depth >= 16 ||
+            (depth === 0 && source.retiredAt !== null) ||
+            source.blockedAt !== null
+          )
             return { outcome: "unknown_previous" as const };
+          next = source.derivedFrom;
         }
         // A named row must exist, and an admin's lineage sees nothing of
         // another workspace.
