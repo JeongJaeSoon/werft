@@ -6,6 +6,7 @@ import {
   type ProfileSummary,
   type RetryProfileRolloutResponse,
   RUNTIME_KIND_VALUES,
+  type RuntimeKind,
   runtimeKindSchema,
   type WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
@@ -20,6 +21,7 @@ import type { TeamActor } from "../ports/team-store.ts";
 import {
   type CatalogProfileConfig,
   catalogProfileConfigSchema,
+  derivationPolicyOf,
   describeConfigError,
   type SessionCatalogView,
   type WorkspaceProfiles,
@@ -115,6 +117,49 @@ export function createInstallationProfileService(deps: {
     return { principal: caller, workspaceId, userId };
   }
 
+  /**
+   * Who may define a profile (`profile.define`: owner and admin), and
+   * whether this one is the owner, who alone sets the runtime, connection
+   * and billing.
+   */
+  async function definer(
+    caller: Caller,
+  ): Promise<{ actor: TeamActor; owner: boolean }> {
+    await requirePermitted(authorization, caller, "profile.define", {
+      kind: "workspace",
+      id: caller.ownerId,
+    });
+    const userId = caller.actor?.userId;
+    const workspaceId = caller.actor?.workspaceId;
+    if (caller.subject.principal?.kind !== "user" || !userId || !workspaceId) {
+      throw new SessionServiceError(
+        "FORBIDDEN",
+        "Only a signed-in person defines a profile",
+        undefined,
+        { reason_code: "role" },
+      );
+    }
+    const decision = await authorization
+      .authorize(
+        {
+          subject: caller.subject,
+          action: "profile.installation.manage",
+          resource: {
+            kind: "workspace",
+            id: caller.ownerId,
+            owner_scope: caller.ownerId,
+          },
+          request_id: caller.requestId,
+        },
+        { record: false },
+      )
+      .catch(() => null);
+    return {
+      actor: { principal: caller, workspaceId, userId },
+      owner: decision?.outcome === "allow",
+    };
+  }
+
   // After a write has committed, a failed read must not report it failed.
   async function reread(): Promise<void> {
     await catalog.workspace_profiles.refresh().catch(() => undefined);
@@ -163,7 +208,11 @@ export function createInstallationProfileService(deps: {
     return record;
   }
 
-  async function toolsOf(request: CreateInstallationProfileRequest) {
+  async function toolsOf(
+    request: CreateInstallationProfileRequest,
+    runtime: { kind: RuntimeKind; version: string },
+    base?: { readonly tools: readonly string[]; readonly sameCatalog: boolean },
+  ) {
     if (request.deny === undefined) {
       return { tools: [...new Set(request.tools ?? [])], denied: undefined };
     }
@@ -180,12 +229,12 @@ export function createInstallationProfileService(deps: {
           [],
       );
     const denied = deniedTools({
-      catalog: catalog.tool_catalogs?.for(
-        request.runtime_kind,
-        request.runtime_version,
-      ),
+      catalog: catalog.tool_catalogs?.for(runtime.kind, runtime.version),
       deny: request.deny,
       accept: request.accept_added_tools,
+      // An admin's profile may not open what its source blocks, under the
+      // names the runtime knows them by (`Task` is `Agent`).
+      ...(base === undefined ? {} : { base }),
       previous: previousRead,
     });
     return {
@@ -194,18 +243,62 @@ export function createInstallationProfileService(deps: {
     };
   }
 
-  function definitionOf(
-    request: CreateInstallationProfileRequest,
-    tools: readonly string[],
-  ): CatalogProfileConfig {
-    const connections = deps.connections();
-    if (!Object.hasOwn(connections, request.connection_id)) {
+  /** What an owner names, or an admin's source version already holds. */
+  type Fixed = {
+    runtime_kind: RuntimeKind;
+    runtime_version: string;
+    provider: CatalogProfileConfig["provider"];
+    title_model?: string | undefined;
+    project_settings?: CatalogProfileConfig["project_settings"] | undefined;
+  };
+
+  /** The owner's runtime and connection, from the request. */
+  function ownerFixed(request: CreateInstallationProfileRequest): {
+    fixed: Fixed;
+    connectionId: string;
+  } {
+    for (const field of [
+      "connection_id",
+      "runtime_kind",
+      "runtime_version",
+    ] as const) {
+      if (request[field] === undefined) {
+        throw badRequest(`${field} is required`, "missing_field", field);
+      }
+    }
+    if (request.derived_from !== undefined) {
       throw badRequest(
-        `Unknown connection ${request.connection_id}`,
+        "Only an admin's profile names the one it narrows",
+        "not_allowed",
+        "derived_from",
+      );
+    }
+    const connections = deps.connections();
+    const connectionId = request.connection_id as string;
+    if (!Object.hasOwn(connections, connectionId)) {
+      throw badRequest(
+        `Unknown connection ${connectionId}`,
         "unknown_connection",
         "connection_id",
       );
     }
+    return {
+      connectionId,
+      fixed: {
+        runtime_kind: request.runtime_kind as RuntimeKind,
+        runtime_version: request.runtime_version as string,
+        provider: connections[connectionId] as Fixed["provider"],
+        title_model: request.title_model,
+        project_settings: request.project_settings,
+      },
+    };
+  }
+
+  function definitionOf(
+    request: CreateInstallationProfileRequest,
+    fixed: Fixed,
+    tools: readonly string[],
+  ): CatalogProfileConfig {
     if (!request.models.includes(request.model)) {
       throw badRequest(
         "model must be one of models",
@@ -213,39 +306,117 @@ export function createInstallationProfileService(deps: {
         "model",
       );
     }
+    // No `repository` key: a profile names no repository.
     const parsed = catalogProfileConfigSchema.safeParse({
-      runtime_kind: request.runtime_kind,
-      runtime_version: request.runtime_version,
+      runtime_kind: fixed.runtime_kind,
+      runtime_version: fixed.runtime_version,
       model: request.model,
       models: [...new Set(request.models)],
-      ...(request.title_model === undefined
+      ...(fixed.title_model === undefined
         ? {}
-        : { title_model: request.title_model }),
+        : { title_model: fixed.title_model }),
       tools: [...tools],
       permission_mode: request.permission_mode,
-      provider: connections[request.connection_id],
-      ...(request.project_settings === undefined
+      provider: fixed.provider,
+      ...(fixed.project_settings === undefined
         ? {}
-        : { project_settings: request.project_settings }),
-      ...(request.repository_mode === undefined
-        ? {}
-        : { repository: request.repository_mode }),
+        : { project_settings: fixed.project_settings }),
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      const path = issue?.path.join(".") ?? "";
       throw badRequest(
         `The profile is invalid: ${describeConfigError(parsed.error)}`,
         "invalid_profile",
-        path === "repository" ? "repository_mode" : path,
+        issue?.path.join(".") ?? "",
       );
     }
     return parsed.data;
   }
 
+  /**
+   * An admin's profile narrows a version it may see: the previous version's
+   * source, or `derived_from` for a first one. Runtime, connection, billing
+   * and title model are the source's, never the request's.
+   */
+  async function adminSource(
+    request: CreateInstallationProfileRequest,
+    workspaceId: string,
+  ) {
+    for (const field of [
+      "connection_id",
+      "runtime_kind",
+      "runtime_version",
+      "title_model",
+      "project_settings",
+    ] as const) {
+      if (request[field] !== undefined) {
+        throw badRequest(
+          `${field} is the source profile's: only the owner sets it`,
+          "source_field",
+          field,
+        );
+      }
+    }
+    let sourceId = request.derived_from;
+    if (request.previous_id !== undefined) {
+      const previous = await previousOf(request.previous_id);
+      if (previous.workspace_id !== workspaceId || !previous.derived_from) {
+        throw badRequest(
+          `Unknown profile ${request.previous_id}`,
+          "unknown_previous",
+          "previous_id",
+        );
+      }
+      sourceId = previous.derived_from;
+    }
+    if (sourceId === undefined) {
+      throw badRequest(
+        "A new profile names the one it narrows",
+        "missing_field",
+        "derived_from",
+      );
+    }
+    // Read again: a source retired on another replica must not pass here,
+    // and a version made a moment ago may not be read yet.
+    await catalog.workspace_profiles.refresh();
+    const entry = catalog.installation?.get(sourceId);
+    const other = entry?.record?.workspace_id;
+    const base = Object.hasOwn(catalog.profiles, sourceId)
+      ? catalog.profiles[sourceId]
+      : undefined;
+    // Another workspace's version reads as unknown whatever its state.
+    if (
+      !entry ||
+      !entry.definition ||
+      !base ||
+      (other != null && other !== workspaceId)
+    ) {
+      throw badRequest(
+        `Unknown profile ${sourceId}`,
+        "unknown_base",
+        "derived_from",
+      );
+    }
+    if (entry.state !== "usable") {
+      throw badRequest(
+        entry.state === "retired"
+          ? `Profile ${sourceId} is retired: pick a newer version`
+          : `Profile ${sourceId} does not run here (${entry.state}): pick a usable one`,
+        entry.state,
+        "derived_from",
+      );
+    }
+    return {
+      sourceId,
+      base,
+      definition: entry.definition,
+      connectionId: entry.connection_id ?? null,
+    };
+  }
+
   return {
     async options(caller: Caller): Promise<InstallationProfileOptionsResponse> {
-      await operator(caller);
+      await definer(caller);
       return {
         connections: Object.entries(deps.connections())
           .map(([id, provider]) => ({
@@ -261,9 +432,6 @@ export function createInstallationProfileService(deps: {
           runtime_kind: kind,
           permission_modes: modesOf(kind),
         })).filter((runtime) => runtime.permission_modes.length > 0),
-        repositories: Object.keys(catalog.repositories)
-          .sort()
-          .map((id) => ({ id })),
         ...(catalog.tool_catalogs === undefined
           ? {}
           : { tool_catalogs: optionCatalogs(catalog.tool_catalogs) }),
@@ -275,9 +443,58 @@ export function createInstallationProfileService(deps: {
       caller: Caller,
       request: CreateInstallationProfileRequest,
     ): Promise<WorkspaceProfileChangeResponse> {
-      const actor = await operator(caller);
-      const { tools, denied } = await toolsOf(request);
-      const definition = definitionOf(request, tools);
+      const { actor, owner } = await definer(caller);
+      // The owner names the runtime; an admin narrows a version it may see.
+      // A new version of a workspace profile is written that way by either
+      // role, as it keeps its source.
+      const ofWorkspace =
+        owner &&
+        request.previous_id !== undefined &&
+        (await previousOf(request.previous_id)).workspace_id != null;
+      const admin =
+        owner && !ofWorkspace
+          ? undefined
+          : await adminSource(request, actor.workspaceId);
+      const own = admin ? undefined : ownerFixed(request);
+      const fixed: Fixed = admin
+        ? {
+            runtime_kind: admin.definition.runtime_kind,
+            runtime_version: admin.definition.runtime_version,
+            provider: admin.definition.provider,
+            title_model: admin.definition.title_model,
+            project_settings: admin.definition.project_settings,
+          }
+        : (own as NonNullable<typeof own>).fixed;
+      const connectionId = admin
+        ? admin.connectionId
+        : (own as NonNullable<typeof own>).connectionId;
+      const { tools, denied } = await toolsOf(
+        request,
+        { kind: fixed.runtime_kind, version: fixed.runtime_version },
+        admin && {
+          tools: admin.base.tools,
+          // An allow-list source names no catalog: only its tools bound it.
+          sameCatalog:
+            catalog.installation?.get(admin.sourceId)?.record
+              ?.tool_catalog_id ===
+            catalog.tool_catalogs?.for(
+              fixed.runtime_kind,
+              fixed.runtime_version,
+            )?.id,
+        },
+      );
+      const definition = definitionOf(request, fixed, tools);
+      if (admin) {
+        const refusal = derivationPolicyOf(catalog).refusal(admin.base, {
+          model: request.model,
+          models: [...new Set(request.models)],
+          tools,
+          permission_mode: request.permission_mode,
+        });
+        if (refusal !== null) {
+          throw badRequest(refusal.message, "widens_base", refusal.field);
+        }
+      }
       if (
         (OPT_IN_PERMISSION_MODES as readonly string[]).includes(
           definition.permission_mode,
@@ -294,44 +511,39 @@ export function createInstallationProfileService(deps: {
       if (refusal !== null) {
         throw badRequest(refusal, "runtime_not_installed", "runtime_kind");
       }
-      const repositoryIds = [...new Set(request.repository_ids)].sort();
-      const unknown = repositoryIds.find(
-        (id) => !Object.hasOwn(catalog.repositories, id),
-      );
-      if (unknown !== undefined) {
-        throw badRequest(
-          `Unknown repository ${unknown}`,
-          "unknown_repository",
-          "repository_ids",
-        );
-      }
-      if (definition.repository === "none" && repositoryIds.length > 0) {
-        throw badRequest(
-          "A profile whose repository mode is none names no repository",
-          "invalid_profile",
-          "repository_ids",
-        );
-      }
       const receiptId = newId();
       const result = await store.create({
         actor,
         receiptId,
         name: request.name,
+        scope: admin
+          ? {
+              kind: "workspace",
+              workspaceId: actor.workspaceId,
+              derivedFrom: admin.sourceId,
+            }
+          : { kind: "installation" },
         previousId: request.previous_id ?? null,
         definition,
         permission_mode: definition.permission_mode,
         fingerprint: definitionFingerprint(request.name, definition),
-        repository_ids: repositoryIds,
-        github_app_repositories:
-          definition.repository === "none"
-            ? "listed"
-            : (request.github_app_repositories ?? null),
         deny: denied?.deny ?? null,
         toolCatalogId: denied?.toolCatalogId ?? null,
-        connectionId: request.connection_id,
+        connectionId,
         ...(denied?.previousDrift ? { previousDenyDrift: true } : {}),
       });
       switch (result.outcome) {
+        case "name_taken":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            `A profile named ${request.name} already exists`,
+            undefined,
+            { reason_code: "name_taken", field: "name" },
+          );
+        case "unchanged":
+          // Nothing was written: the latest version already runs this.
+          await reread();
+          return changed(result.record, null, connectionId);
         case "actor_inactive":
           throw OUTRANKED();
         case "stale_previous":
@@ -358,7 +570,7 @@ export function createInstallationProfileService(deps: {
           );
         default:
           await reread();
-          return changed(result.record, receiptId, request.connection_id);
+          return changed(result.record, receiptId, connectionId);
       }
     },
 

@@ -214,6 +214,9 @@ export const profileSummarySchema = z
         title_model: z.string().min(1).nullable(),
         project_settings: projectSettingsSchema,
         previous_id: z.string().min(1).nullable(),
+        // The catalog profile a workspace profile narrows; optional like the
+        // fields below, null for a ceiling.
+        derived_from: z.string().min(1).nullable().optional(),
         created_by: userIdSchema.nullable(),
         created_at: timestampSchema,
         retired_by: userIdSchema.nullable(),
@@ -327,9 +330,11 @@ export const workspaceProfileChangeResponseSchema = z
 export const createInstallationProfileRequestSchema = z
   .object({
     name: workspaceProfileNameSchema,
-    connection_id: z.string().min(1).max(200),
-    runtime_kind: runtimeKindSchema,
-    runtime_version: z.string().min(1).max(200),
+    // Owner: required. Admin: the server copies the source's, so sending
+    // `connection_id`, `runtime_kind`, `runtime_version` or `title_model` is 400.
+    connection_id: z.string().min(1).max(200).optional(),
+    runtime_kind: runtimeKindSchema.optional(),
+    runtime_version: z.string().min(1).max(200).optional(),
     // The default model, one of `models`.
     model: z.string().min(1).max(200),
     models: z.array(z.string().min(1).max(200)).min(1).max(32),
@@ -337,11 +342,10 @@ export const createInstallationProfileRequestSchema = z
     ...toolChoiceFields,
     permission_mode: permissionModeSchema,
     project_settings: projectSettingsSchema.optional(),
-    repository_mode: repositoryModeSchema.optional(),
-    repository_ids: z.array(z.string().min(1).max(200)).max(256),
-    // Absent: the previous version's value, or `listed` for a first version.
-    github_app_repositories: githubAppRepositoriesSchema.optional(),
     previous_id: z.string().min(1).max(200).optional(),
+    // Admin only: the version a new profile narrows. A later version of the
+    // same profile keeps the source of the one before.
+    derived_from: z.string().min(1).max(200).optional(),
   })
   .strict()
   .refine(namesOneToolChoice, ONE_TOOL_CHOICE);

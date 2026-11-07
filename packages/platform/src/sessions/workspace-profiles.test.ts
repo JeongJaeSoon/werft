@@ -32,6 +32,7 @@ import {
   createWorkspaceProfileService,
   createWorkspaceProfiles,
   listCatalogProfiles,
+  workspaceSummary,
 } from "./workspace-profiles.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
@@ -254,7 +255,7 @@ describe("a workspace version in the catalog", () => {
 });
 
 describe("listing", () => {
-  test("the operator's, then this workspace's versions, each with its state", () => {
+  test("only the operator-kind profiles are listed: an old ws_ version is not, in any workspace", () => {
     const catalog = catalogWith([
       version(),
       version({ id: "ws_other_strict_v1", workspace_id: OTHER_WORKSPACE }),
@@ -262,25 +263,27 @@ describe("listing", () => {
     const listed = listCatalogProfiles(catalog, WORKSPACE).items;
     expect(listed.map((p) => [p.id, p.source, p.workspace?.state])).toEqual([
       ["coding", "operator", undefined],
-      ["ws_acme_strict_v1", "workspace", "usable"],
     ]);
     expect(listCatalogProfiles(catalog, null).items.map((p) => p.id)).toEqual([
       "coding",
     ]);
   });
 
-  test("a version over a removed base still lists its default model first", () => {
+  test("a version over a removed base still describes its default model first", () => {
     const catalog = catalogWith(
       [version({ models: ["claude-haiku-5", "claude-sonnet-5"] })],
       { other: base },
     );
-    const [, listed] = listCatalogProfiles(catalog, WORKSPACE).items;
+    const listed = workspaceSummary(
+      catalog,
+      version({ models: ["claude-haiku-5", "claude-sonnet-5"] }),
+    );
     expect(listed?.models).toEqual(["claude-sonnet-5", "claude-haiku-5"]);
   });
 
-  test("a version over a removed base is listed as the base was", () => {
+  test("a version over a removed base is described as the base was", () => {
     const catalog = catalogWith([version()], { other: base });
-    const [, listed] = listCatalogProfiles(catalog, WORKSPACE).items;
+    const listed = workspaceSummary(catalog, version());
     expect(listed).toMatchObject({
       id: "ws_acme_strict_v1",
       runtime_version: "0.3.270",
@@ -697,7 +700,7 @@ describe("the derivation policy", () => {
       "WebFetch",
       "MarkedByPolicy",
     ]);
-    const [, listed] = listCatalogProfiles(swapped, WORKSPACE).items;
+    const listed = workspaceSummary(swapped, wider);
     expect(listed?.tools).toEqual(["Read", "WebFetch", "MarkedByPolicy"]);
 
     const writes: unknown[] = [];

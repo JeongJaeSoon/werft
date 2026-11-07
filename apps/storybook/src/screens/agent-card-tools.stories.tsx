@@ -25,12 +25,12 @@ import { useState } from "react";
 const PROFILES = [
   {
     id: "claude-coding-local",
-    label: "claude-coding-local v1 · claude-sonnet-5 (설치)",
+    label: "claude-coding-local v1 · claude-sonnet-5",
     tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
   },
   {
     id: "general",
-    label: "general v1 · claude-sonnet-5 (설치)",
+    label: "general v1 · claude-sonnet-5",
     tools: ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
   },
 ] as const;

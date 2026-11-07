@@ -2,7 +2,6 @@ import type {
   InstallationProfileOptionsResponse,
   InstallationProfileState,
   ProfileSummary,
-  WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { USER_ID } from "./fake-api.ts";
 
@@ -104,27 +103,34 @@ export function ceiling(
   };
 }
 
-/** Version `n` of the workspace profile `strict`, narrowing `base`. */
+/**
+ * Version `n` of the workspace profile `strict`, an admin's narrowing of
+ * `base`: a lineage row (`op_wl_<name>_v<n>`) that carries the profile it
+ * was derived from, listed like any other profile.
+ */
 export function version(
   n: number,
-  state: WorkspaceProfileState,
+  state: InstallationProfileState,
   narrowed: Partial<ProfileSummary> = {},
   base = "coding-claude",
+  name = "strict",
 ): ProfileSummary {
-  const { installation: _, deny: _deny, ...over } = imported(base);
+  const { installation: source, deny: _deny, ...over } = imported(base);
   return withDeny({
     ...over,
-    id: `ws_acme_strict_v${n}`,
-    source: "workspace",
+    id: `op_wl_${name}_v${n}`,
     models: ["claude-sonnet-5"],
     tools: ["Read"],
     permission_mode: "default",
     ...narrowed,
-    workspace: {
-      name: "strict",
+    installation: {
+      ...(source as Installation),
+      name,
       version: n,
-      base_profile_id: base,
+      origin: "console",
       state,
+      derived_from: base,
+      previous_id: n === 1 ? null : `op_wl_${name}_v${n - 1}`,
       created_by: USER_ID,
       created_at: `2026-10-2${n}T00:00:00.000Z`,
       retired_by: state === "retired" ? USER_ID : null,

@@ -116,8 +116,9 @@ function stores(rows: InstallationProfileRecord[]) {
         definition: JSON.parse(JSON.stringify(input.definition)),
         permission_mode: input.permission_mode,
         fingerprint: input.fingerprint,
-        repository_ids: input.repository_ids,
+        repository_ids: null,
         github_app_repositories: "listed",
+        repository_scope: null,
         deny: input.deny,
         tool_catalog_id: input.toolCatalogId,
         previous_id: input.previousId,
@@ -248,8 +249,6 @@ const { tools: _tools, ...CEILING } = {
   models: ["claude-sonnet-5"],
   tools: [] as string[],
   permission_mode: "acceptEdits",
-  repository_mode: "none",
-  repository_ids: [],
 } satisfies CreateInstallationProfileRequest;
 
 const VERSION = {
