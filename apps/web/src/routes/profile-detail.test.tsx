@@ -405,7 +405,9 @@ describe("프로필 상세", () => {
       name: "op_wide_v2 버전을 사용 중지할까요?",
     });
     expect(
-      within(dialog).getByText(/그 프로필로 만든 프로필은 계속 동작합니다/),
+      within(dialog).getByText(
+        /이 프로필을 바탕으로 범위를 줄인 프로필은 계속 동작합니다/,
+      ),
     ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     await screen.findByText("op_wide_v2 버전을 사용 중지했습니다.");

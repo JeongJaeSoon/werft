@@ -1969,7 +1969,7 @@ describe("새 에이전트: 첫 릴리스", () => {
     await toJobStep(user);
     await pickModel(user);
     await profileSelect();
-    expect(document.body.textContent).toContain(`설치 프로필 · ${CARD.model}`);
+    expect(document.body.textContent).toContain(`프로필 · ${CARD.model}`);
     expect(document.body.textContent).not.toContain("imported-ceiling-7");
   });
 });

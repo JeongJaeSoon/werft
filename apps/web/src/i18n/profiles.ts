@@ -5,10 +5,8 @@ export const profilesKo = {
   "profiles.description":
     "에이전트가 쓸 모델과 도구를 정합니다. 소유자는 연결과 실행 방식까지 정하고, 관리자는 기존 프로필을 복제해 모델·지시·막을 도구를 정합니다.",
   "profiles.create": "프로필 만들기",
-  "profiles.option": "{name} v{version} · {model} ({kind})",
-  "profiles.optionKind.installation": "설치",
-  "profiles.optionKind.workspace": "워크스페이스",
-  "profiles.optionUnnamed": "{kind} 프로필 · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "프로필 · {model}",
   "profiles.workspace.description":
     "수정하면 새 버전으로 저장됩니다. 이전 버전을 쓰던 에이전트는 그대로 동작합니다.",
   "profiles.locked": "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
@@ -193,7 +191,7 @@ export const profilesKo = {
   "profiles.retireText":
     "이미 이 버전을 쓰는 릴리스와 세션은 계속 동작합니다. 새 릴리스와 세션은 이 버전을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retireCeilingText":
-    "이미 이 프로필을 쓰는 릴리스와 세션, 그 프로필로 만든 프로필은 계속 동작합니다. 새 릴리스·세션·프로필은 이 프로필을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
+    "이미 이 프로필을 쓰는 릴리스와 세션, 이 프로필을 바탕으로 범위를 줄인 프로필은 계속 동작합니다. 새 릴리스·세션·프로필은 이 프로필을 고를 수 없습니다. 사용 중지는 되돌릴 수 없습니다.",
   "profiles.retiring": "사용 중지하는 중…",
   "profiles.retired": "{id} 버전을 사용 중지했습니다.",
   "profiles.retireRow": "이 버전 사용 중지",
@@ -207,7 +205,7 @@ export const profilesKo = {
   "profiles.blockTitle": "프로필 {id}을(를) 차단할까요?",
   "profiles.unblockTitle": "프로필 {id}의 차단을 해제할까요?",
   "profiles.blockText":
-    "이 프로필과 그 프로필로 만든 프로필로는 새 릴리스와 세션을 만들 수 없습니다. 이미 쓰는 세션도 다음 턴에서 멈추고, 지금 도는 턴은 모델·저장소 요청이 1초 남짓 안에 끊깁니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
+    "이 프로필과 이 프로필을 바탕으로 범위를 줄인 프로필로는 새 릴리스와 세션을 만들 수 없습니다. 이미 쓰는 세션도 다음 턴에서 멈추고, 지금 도는 턴은 모델·저장소 요청이 1초 남짓 안에 끊깁니다. 해제할 수 있지만 멈춘 턴은 다시 돌지 않습니다.",
   "profiles.unblockText":
     "이 프로필을 다시 고를 수 있습니다. 차단 중에 멈춘 세션과 턴은 저절로 다시 돌지 않으니, 필요한 세션에는 새 메시지를 보내세요.",
   "profiles.blocking": "차단하는 중…",
@@ -340,10 +338,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.description":
     "The models and tools an agent uses. Owners also set the connection and how it runs; admins clone an existing profile and set its models, instructions and blocked tools.",
   "profiles.create": "Create profile",
-  "profiles.option": "{name} v{version} · {model} ({kind})",
-  "profiles.optionKind.installation": "installation",
-  "profiles.optionKind.workspace": "workspace",
-  "profiles.optionUnnamed": "{kind} profile · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "Profile · {model}",
   "profiles.workspace.description":
     "Editing saves a new version. Agents on an earlier version keep working as they are.",
   "profiles.locked": "To change these, ask a workspace owner or admin",
@@ -544,7 +540,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.blockTitle": "Block profile {id}?",
   "profiles.unblockTitle": "Unblock profile {id}?",
   "profiles.blockText":
-    "No new release or session can use this profile or the profiles made from it. Sessions already on it stop at their next turn, and a running turn loses its model and repository requests within about a second. You can unblock it, but a stopped turn does not run again.",
+    "No new release or session can use this profile or the profiles narrowed from it. Sessions already on it stop at their next turn, and a running turn loses its model and repository requests within about a second. You can unblock it, but a stopped turn does not run again.",
   "profiles.unblockText":
     "This profile can be picked again. Sessions and turns stopped while it was blocked do not run again on their own: send those sessions a new message.",
   "profiles.blocking": "Blocking…",
@@ -676,10 +672,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.description":
     "エージェントが使うモデルとツールを決めます。オーナーは接続と実行方法まで決め、管理者は既存のプロファイルを複製してモデル・指示・ブロックするツールを決めます。",
   "profiles.create": "プロファイルを作成",
-  "profiles.option": "{name} v{version} · {model}（{kind}）",
-  "profiles.optionKind.installation": "インストール",
-  "profiles.optionKind.workspace": "ワークスペース",
-  "profiles.optionUnnamed": "{kind}プロファイル · {model}",
+  "profiles.option": "{name} v{version} · {model}",
+  "profiles.optionUnnamed": "プロファイル · {model}",
   "profiles.workspace.description":
     "編集すると新しいバージョンとして保存されます。前のバージョンを使っていたエージェントはそのまま動きます。",
   "profiles.locked":
@@ -872,7 +866,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.retireText":
     "すでにこのバージョンを使っているリリースとセッションは動き続けます。新しいリリースとセッションではこのバージョンを選べません。使用停止は元に戻せません。",
   "profiles.retireCeilingText":
-    "すでにこのプロファイルを使っているリリース・セッションと、そこから作ったプロファイルは動き続けます。新しいリリース・セッション・プロファイルではこのプロファイルを選べません。使用停止は元に戻せません。",
+    "すでにこのプロファイルを使っているリリース・セッションと、これをもとに範囲を絞ったプロファイルは動き続けます。新しいリリース・セッション・プロファイルではこのプロファイルを選べません。使用停止は元に戻せません。",
   "profiles.retiring": "使用停止しています…",
   "profiles.retired": "バージョン {id} を使用停止しました。",
   "profiles.retireRow": "このバージョンを使用停止",
@@ -886,7 +880,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.blockTitle": "プロファイル {id} をブロックしますか?",
   "profiles.unblockTitle": "プロファイル {id} のブロックを解除しますか?",
   "profiles.blockText":
-    "このプロファイルとそこから作ったプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
+    "このプロファイルと、これをもとに範囲を絞ったプロファイルでは、新しいリリースとセッションを作成できません。すでに使っているセッションも次のターンで止まり、いま動いているターンは 1 秒ほどでモデルとリポジトリへのリクエストが切れます。解除できますが、止まったターンは再実行されません。",
   "profiles.unblockText":
     "このプロファイルを再び選べるようになります。ブロック中に止まったセッションとターンは自動では再実行されません。必要なセッションには新しいメッセージを送ってください。",
   "profiles.blocking": "ブロックしています…",
