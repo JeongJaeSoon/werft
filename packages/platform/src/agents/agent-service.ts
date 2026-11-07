@@ -865,7 +865,14 @@ export function createAgentService(deps: {
         agentId,
         actorUserId: userId,
         targetProfileId: seen.latest.id,
-        raise: { principal: caller },
+        raise: {
+          principal: caller,
+          // What the lineage check above was judged on.
+          seen: {
+            activationRevision: record.agent.activation_revision,
+            behaviorRevision: record.behavior_revision,
+          },
+        },
       });
       release =
         outcome.status === "applied"
@@ -950,7 +957,11 @@ export function createAgentService(deps: {
     actorUserId: string | null;
     targetProfileId: string;
     /** A person's own request: their principal and agent-manager rights, not a rollout's. */
-    raise?: { principal: Principal };
+    raise?: {
+      principal: Principal;
+      /** The revisions the caller decided on; a rollback since then must not be overwritten. */
+      seen: { activationRevision: number; behaviorRevision: number };
+    };
   }): Promise<ReleaseOutcome> {
     const { workspaceId, agentId, actorUserId, targetProfileId, raise } = input;
     if (actorUserId === null)
@@ -969,6 +980,13 @@ export function createAgentService(deps: {
       const record = await store.get(workspaceId, agentId);
       const active = record?.active_release ?? null;
       if (!record || !active) return { status: "superseded" };
+      if (
+        raise &&
+        (record.agent.activation_revision !== raise.seen.activationRevision ||
+          record.behavior_revision !== raise.seen.behaviorRevision)
+      ) {
+        return { status: "retry" };
+      }
       const activeVersion = record.versions.find(
         (version) => version.id === active.version_id,
       );
@@ -1013,10 +1031,12 @@ export function createAgentService(deps: {
         version,
         profileId: targetProfileId,
         active,
-        expectedActivationRevision: record.agent.activation_revision,
+        expectedActivationRevision:
+          raise?.seen.activationRevision ?? record.agent.activation_revision,
         intent: {
           kind: raise ? "raise" : "rollout",
-          behaviorRevision: record.behavior_revision,
+          behaviorRevision:
+            raise?.seen.behaviorRevision ?? record.behavior_revision,
           targetProfileId,
         },
         reason: "profile_rollout",

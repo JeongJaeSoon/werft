@@ -3192,7 +3192,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await waitFor(() => expect(cardProfile.value).toBe("claude-coding-backup"));
   });
 
-  test("모델 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
+  test("모델 안내는 모델을 돌리는 프로필만 고를 수 있다고 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
@@ -3203,7 +3203,10 @@ describe("편집 중 다른 곳의 저장", () => {
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
     expect(describedBy(await screen.findByLabelText("모델"))).toContain(
-      "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
+      "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
+    );
+    expect(describedBy(await screen.findByLabelText("모델"))).not.toContain(
+      "릴리스",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });
