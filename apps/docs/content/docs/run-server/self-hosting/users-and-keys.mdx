@@ -34,6 +34,8 @@ SDK와 HTTP API는 이 서버 주소와 key로 붙는다([SDK 설치](/getting-s
 
 Kubernetes에서는 다음을 사용한다.
 
+먼저 [설치의 context·namespace·fullname 확인](/run-server/self-hosting/kubernetes#준비물)을 따른다. 아래 `werft`는 그 예시 설치 이름이다.
+
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
   bun run apps/control-host/src/api/keys.ts create <owner_id> \

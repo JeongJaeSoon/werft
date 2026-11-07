@@ -61,6 +61,8 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 게시 chart는 세 이미지 digest와 worker runtime을 담는다. 설치별 values에 이 값을 다시 적거나 `--reuse-values`를 쓰면 다음 chart의 새 값을 덮는다. worker runtime은 engine·SDK·CLI·profile digest 방식으로 구성되며 이미지 digest 자체와는 다르다.
 
+`unverifiedSources`가 남아 있으면 해당 Debian 소스가 실제로 보관되지 않았을 가능성도 있다. 공식 릴리스 수준의 소스 보관 보증으로 간주하지 않는다. multi-arch 게시 도입 전의 오래된 `main-<12>`는 amd64만 담을 수 있으므로 ARM 서버에서는 index의 platform 목록도 확인한다. 게시가 일부만 끝났거나 조회가 실패한 세 digest를 한 배포 세트로 사용하지 않는다.
+
 ## checkout 없이 설치하기: 릴리스 번들
 
 `v*` 릴리스의 GitHub Release에는 compose 파일, `scripts/test-ops.sh`, 예시 설정을 담은 `werft-test-ops-<tag>.tar.gz`가 붙는다. 이미지는 담지 않고, 릴리스 `release-manifest.json`의 digest로 이미 게시된 이미지를 받는다. 번들을 쓰면 [단일 서버 설치](/run-server/self-hosting/single-server)의 checkout 준비와 호스트 bun이 필요 없다. 다운로드부터 `deploy`까지의 명령은 저장소의 `docs/operator/test-ops.md`("릴리스 번들로 설치")에 있다.

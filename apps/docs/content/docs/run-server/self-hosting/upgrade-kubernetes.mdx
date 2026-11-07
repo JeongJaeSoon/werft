@@ -19,6 +19,8 @@ outcome: "지원 창과 worker pin을 보존하며 chart를 교체한다"
 
 [공통 실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)의 활성화 순서와 롤백 하한을 먼저 대조한다. Compose 전용 검사 명령 대신 아래 Helm hook과 직접 검사를 사용한다.
 
+[설치의 context·namespace·fullname](/run-server/self-hosting/kubernetes#준비물)을 확인한다. 새 control-host·직전 worker 조합은 시험 설치에서 turn 1 완료 → worker Pod 제거 → checkpoint에서 turn 2 완료와 API의 worker 요청 400 부재를 확인한다. `deploy/kind/up.sh`는 `images.worker`를 `--set`으로 덮으므로 `EXTRA_VALUES`로 직전 worker 이미지를 시험하지 말고 직접 `helm upgrade`한다.
+
 ## 단계
 
 ### 1. 대상 chart와 제어 영역 우선 교체

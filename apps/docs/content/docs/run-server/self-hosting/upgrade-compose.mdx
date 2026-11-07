@@ -51,6 +51,8 @@ scripts/test-ops.sh upgrade release-new.json
 
 status의 적용 release·서비스 health·ready를 확인한다. 기존 세션을 새 worker에서 재개하고 context·최종 checkpoint·turn 완료를 대조한다. 지표 이름 변경이 있으면 Datadog 정의·쿼리·필터와 Prometheus 규칙을 새 이름으로 바꿔 실제 series를 확인한다.
 
+덮어쓴 CSS 이름도 변경 기록의 운영자 작업과 대조해 새 이름으로 바꾼다. 옛 지표·CSS 이름의 별칭이 있다고 가정하지 않는다.
+
 ## 자주 막히는 곳
 
 pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다. 원인을 고친 뒤 pending과 동일한 대상 release로 다시 upgrade한다. 영향 세션 목록이 바뀌면 예전 승인 파일을 재사용하지 않는다. start_fresh는 이전 context를 버린다.

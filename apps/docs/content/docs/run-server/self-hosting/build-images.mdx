@@ -27,7 +27,9 @@ PREFIX=werft
 TAG=rc
 export API_IMAGE="$REGISTRY/$PREFIX-control-host:$TAG" WORKER_IMAGE="$REGISTRY/$PREFIX-worker:$TAG" \
   EGRESS_PROXY_IMAGE="$REGISTRY/$PREFIX-egress-proxy:$TAG"
-docker compose -f infra/compose.yml --profile apps --profile worker build api worker egress-proxy
+docker build -f apps/control-host/Dockerfile --target release \
+  --build-arg APT_UPGRADE_KEY="$(date -u +%F)" -t "$API_IMAGE" .
+docker compose -f infra/compose.yml --profile worker build worker egress-proxy
 for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
   docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
 done
@@ -35,6 +37,10 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 ```
 
 자기 registry 이름과 세 repository 이름을 정해 모든 build·push·digest 조회에 같은 값을 사용한다. 공식 ghcr 주소에서 다시 digest를 읽으면 직접 빌드한 이미지를 배포하지 않게 된다.
+
+control-host는 저장소 루트를 context로 `release` target을 빌드한다. `infra/compose.yml`의 api 빌드는 개발용 `local` target이며 testkit과 데모 도구를 포함하므로 운영 이미지로 배포하지 않는다. 같은 control-host 이미지를 api·scheduler·reconciler·slack이 함께 사용한다. 게시 이미지에는 데모 CLI가 없어 `DEMO_ACCOUNTS=local`로 부르면 실패한다.
+
+base digest를 고정해도 Debian 보안 갱신은 빌드 시점에 따라 달라질 수 있으므로 실제 배포 digest를 기록한다. `APT_UPGRADE_KEY`는 갱신 layer의 cache를 나눈다. 위 control-host 빌드는 UTC 날짜를 넘기며, worker의 Compose 빌드도 새 보안 수정을 받으려면 `--build-arg APT_UPGRADE_KEY="$(date -u +%F)"` 또는 `--no-cache`를 준다.
 
 ### 2. 배포 입력에 같은 digest 유지
 

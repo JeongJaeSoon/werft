@@ -25,6 +25,10 @@ chart와 패키지의 선택 방법은 [배포 패키지 계약](/run-server/sel
 
 chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
 
+Git 서버도 chart가 만들지 않는다. 설정 문서의 저장소 URL은 worker가 egress proxy로 닿을 수 있어야 한다. kind의 시험 Git 서버는 운영 저장소가 아니다.
+
+아래 예시는 namespace와 release가 모두 `werft`인 설치다. 실행 전에 `kubectl config current-context`와 `KUBECONFIG`가 이번 설치의 클러스터를 고르는지 확인한다. 다른 설치는 모든 `-n`·`--namespace`·release 이름과 `deploy/werft-*`·`svc/werft-*`를 실제 fullname으로 바꾼다. release 이름에 `werft`가 없으면 fullname은 `<release>-werft`다.
+
 [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)과 [workspace 저장소 계약](/run-server/self-hosting/reference/storage)을 먼저 확인한다. 설치 id는 backend가 받는 **32자 이하 소문자 DNS label**이어야 한다. chart가 더 넓게 허용해도 이 제약을 따른다. 원격 bootstrap 전 [접속 경로](/run-server/self-hosting/access)를 준비한다.
 
 ## 단계

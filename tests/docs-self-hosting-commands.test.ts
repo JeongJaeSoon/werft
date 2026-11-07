@@ -78,6 +78,30 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  test("deployment builds keep the control host on the release target", () => {
+    const block = blocks("build-images", "bash").find((block) =>
+      block.includes("export API_IMAGE="),
+    );
+    expect(block).toBeDefined();
+    const result = spawnSync("bash", [], {
+      input: [
+        'docker() { printf "%s\\n" "$*"; }',
+        block?.replace(/<[^>\n]+>/g, "fixture"),
+      ].join("\n"),
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(
+      "build -f apps/control-host/Dockerfile --target release",
+    );
+    expect(result.stdout).toContain("-t fixture/werft-control-host:rc .");
+    expect(result.stdout).toContain(
+      "compose -f infra/compose.yml --profile worker build worker egress-proxy",
+    );
+    expect(result.stdout).not.toMatch(/compose[^\n]*build[^\n]*\bapi\b/);
+  });
+
   test("kind dependencies must be ready before Helm can start", () => {
     const block = blocks("try-kind", "bash").find((block) =>
       block.includes("apply -f deploy/kind/deps.yaml"),

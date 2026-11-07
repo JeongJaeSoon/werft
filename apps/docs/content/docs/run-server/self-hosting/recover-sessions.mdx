@@ -32,6 +32,8 @@ docker exec -e RECONCILER_DRY_RUN=false "$RECONCILER_CONTAINER" \
 
 컨테이너는 이번 설치의 status와 project label로 확인한다. 컨테이너의 실제 설치 env를 사용하며 개발용 DB 주소를 넣지 않는다. 두 번째 명령은 DB를 실제로 바꾸므로 첫 명령 결과를 검토한 뒤에만 실행한다.
 
+최근 결과는 같은 컨테이너의 `/tmp/reconciler-status.json`과 `Reconciler pass completed`·`Reconciler pass failed` 로그로 본다. reconciler에는 Docker socket이 없고 epoch fence와 `desired_state = terminated`를 DB에 기록한다. 실제 컨테이너 제거·부재 확인은 scheduler가 하므로 reconciler pass 성공을 컨테이너 제거 완료로 판단하지 않는다. 겹친 pass의 각 쓰기는 row lock 아래에서 다시 판정하여 같은 lease·interrupt·orphan을 두 번 처리하지 않는다.
+
 ### 격리 계약 변경을 적용할 때
 
 Docker daemon을 먼저 28 이상으로 올린 뒤 격리 계약을 바꾼 서버 이미지를 적용한다. 옛 daemon에서는 preflight가 pass 전체를 막아 기존 worker도 교체하지 못한다. claim된 worker는 최대 `MAX_TURN_SECONDS` + 5분 동안 drain하므로 그동안 옛 계약 컨테이너와 대기 입력이 남는다. 즉시 끊어야 하는 격리 결함이면 영향 세션을 terminate한다. 롤백으로 컨테이너가 current가 되어도 drain 요청은 남고 새 turn 없이 종료한 뒤 다음 launch로 이어진다.

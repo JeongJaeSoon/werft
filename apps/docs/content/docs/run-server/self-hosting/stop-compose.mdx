@@ -46,6 +46,7 @@ DB와 workspace volume은 남는다. LocalStack은 volume 없이 메모리에 �
 - api·scheduler·reconciler 로그와 디스크·inode·quota를 확인한다. 디스크 여유 20% 아래로 내려가기 전에 대응한다.
 - 자동 백업과 실패 알림을 시험하고 [GC dry-run](/run-server/self-hosting/backup-and-restore)을 별도 일정에 둔다.
 - [key 폐기 연락](/run-server/self-hosting/users-and-keys)과 [비용·토큰 상한](/run-server/self-hosting/reference/configuration#설치-상한)(Compose·chart의 `SESSION_COST_LIMIT_USD` 기본값 25 USD)을 사용자에게 안내한다.
+- Anthropic 등 제공자 콘솔에 월 한도를 걸고, 세션당 상한과 플랫폼의 추정 비용을 제공자의 실제 비용과 함께 대조한다.
 - [Datadog 기준](/run-server/self-hosting/operate/monitoring-datadog)에 맞춰 감시한다.
 
 ### 설치 전체 삭제를 선택한 경우

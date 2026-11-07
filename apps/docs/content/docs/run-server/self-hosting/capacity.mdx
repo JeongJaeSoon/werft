@@ -99,6 +99,8 @@ local Docker 실행 기반에서는 한 머신의 메모리를 `EXECUTION_SLOT_L
 
 메모리 값은 다음 launch부터 적용되고 실행 중 worker는 교체되지 않는다. 상한을 바꾸는 직접 빌드는 API와 worker의 같은 릴리스가 필요하므로 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 따른다.
 
+API만 더 작은 transcript 상한을 쓰면 worker에서 상한 안인 checkpoint도 finalize가 거절하고 `transcript_too_large`를 기록해 새 turn을 막을 수 있다. API와 worker의 상한을 함께 맞춘다. 새 transcript reason을 모르는 옛 API는 보고를 400으로 거절하므로 migration → API 모든 인스턴스 → worker 순서를 지키고, 그 reason을 아는 빌드까지만 rollback한다.
+
 ### 4. provider 비용과 상한 대조
 
 [사용량과 비용 계측](/run-server/self-hosting/reference/configuration#사용량과-비용-계측)의 추정·fallback 단가·재인가 경계를 보고 실제 provider 청구와 비교한다. [설치 상한](/run-server/self-hosting/reference/configuration#설치-상한)을 바꾸고 적용할 때는 [모델 연결](/run-server/self-hosting/model-connections)과 backend별 업그레이드 절차를 따른다.

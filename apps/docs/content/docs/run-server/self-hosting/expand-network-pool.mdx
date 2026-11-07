@@ -68,6 +68,8 @@ docker network ls --filter label=werft.worker-network=true \
 
 ## 확인
 
+직접 실행한 healthcheck의 실패와 Docker 상태 표시는 시점이 다르다. Compose healthcheck는 연속 실패 12회(약 60초)가 쌓여야 Docker 상태를 unhealthy로 바꾼다.
+
 변경 뒤 새 worker 네트워크가 선택한 대역에서 생성되는지 확인한다. 기존 네트워크는 자동으로 새 풀로 바뀌지 않는다. network inspect로 worker와 이번 설치의 실행 중 proxy만 붙는지 확인하고 scheduler 로그의 networksFailed/networkScanFailed가 없는지 본다.
 
 ## 자주 막히는 곳
