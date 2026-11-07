@@ -1,0 +1,35 @@
+---
+title: "업그레이드 호환성"
+description: "checkpoint와 runtime과 schema 지원 창을 이해한다"
+pageId: "P30"
+docType: "설명"
+audience: "배포 운영자"
+outcome: "checkpoint와 runtime과 schema 지원 창을 이해한다"
+---
+
+## 개요
+
+업그레이드의 안전성은 API 준비 응답 하나로 판정할 수 없다. DB schema, worker protocol, engine·SDK·CLI·profile digest 방식, checkpoint 형식이 함께 맞아야 세션이 이어진다. 실행 순서와 금지 조건은 [공통 실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 따른다.
+
+## 현재·직전 이미지의 지원 창
+
+scheduler는 checkpoint에 기록한 runtime 조합에 맞는 이미지를 현재·직전 순서로 고른다. digest가 다른 재빌드도 runtime 조합은 같을 수 있다. 두 이미지 어느 쪽도 맞지 않으면 recovery_required가 된다. 직전 이미지로 돌아가는 worker가 남아 있으면 검사 이후에도 옛 조합의 checkpoint를 만들 수 있다.
+
+## rolling update가 중요한 이유
+
+새 필드를 모르는 strict API는 worker 보고를 거절한다. 그래서 migration과 제어 영역이 worker보다 앞서야 한다. billing:none, session prompt, transcript reason, outputs 같은 의미는 활성화 뒤 데이터를 남기므로 설정을 끄는 것과 옛 바이너리로 되돌리는 것이 같지 않다.
+
+## checkpoint와 복원
+
+incremental bundle 사슬, profile 도구 목록, release 도구 목록도 복원 계약에 속한다. 이전 빌드가 모르는 형식은 그 빌드의 ready가 성공해도 읽히지 않는다. start_fresh는 이전 context를 버리는 복구 결정이지 호환성 유지가 아니다.
+
+## schema와 실행 중 worker
+
+Helm migrate는 rollout보다 먼저 돈다. 옛 API와 worker가 새 schema에서 함께 사는 기간이 있으므로 확장 → 전환 → 정리 순서가 필요하다. worker 이미지 변경은 이미 실행 중인 Pod를 즉시 교체하지 않는다. 격리 stamp가 바뀐 worker는 turn 경계까지 drain하며 기한을 넘으면 outcome_unknown으로 남을 수 있다.
+
+| 바뀌는 것 | 실행 중인 worker Pod | 세션이 이어지는 방법 |
+|---|---|---|
+| worker 이미지(`images.worker`) | 끝날 때까지 옛 이미지로 돈다 | 다음 launch가 checkpoint 포인터의 engine·SDK·CLI·profile digest 방식과 같은 이미지를 새 이미지(`images.worker`), 직전 이미지(`images.workerPrevious`) 순으로 골라 복원한다. 둘 다 맞지 않으면 launch 전에 `recovery_required`로 멈춘다. 그런 세션은 [Kubernetes 사전 검사](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)가 upgrade 전에 보여 준다 |
+| 격리 설정(stamp에 든 값: egress proxy 주소, 저장 용량, worker ServiceAccount, 한도 등) | stale이 된다. claim된 Pod는 turn 경계까지 drain한 뒤 내려간다 | 마지막으로 끝난 turn까지 checkpoint가 덮으면 새 Pod가 PostgreSQL 포인터와 S3 checkpoint에서 이어 간다. checkpoint 없이 끝난 turn이 있으면 세션은 `recovery_required`로 멈춘다(`CONTEXT_GAP`). drain 기한(`MAX_TURN_SECONDS` + 5분)을 넘긴 turn은 `outcome_unknown`이 되고, 그 세션은 `recovery_required`로 멈춰 운영자의 결정을 기다린다([claim된 worker의 drain](/run-server/self-hosting/explanation/isolation#계약이-오를-때-claim된-worker의-drain)) |
+| 노드 교체, Kubernetes 업그레이드 | Pod가 사라진다. SIGTERM을 받으면 drain으로 release하고, 받지 못하면 heartbeat가 끊긴다 | release됐으면 바로, 아니면 scheduler가 Pod가 사라진 것을 확인하거나 lease가 끝난 뒤 회수된다. 돌던 turn이 없고 마지막으로 끝난 turn까지 checkpoint가 덮으면 다음 launch가 그 checkpoint에서 이어 간다. checkpoint가 뒤처졌으면 세션은 `recovery_required`로 멈춘다(세션 상세 attention `CONTEXT_GAP`). 확정되지 않은 turn이 있었으면 그 turn은 `outcome_unknown`이 되고 세션은 `recovery_required`로 멈춘다([실행 기반과 worker 격리](/run-server/self-hosting/explanation/isolation)) |
+| checkpoint bucket(`config.checkpoints.bucket`) | bucket이 stamp에 있어 stale로 교체된다 | 자동으로 이어지지 않는다. 옛 bucket의 객체는 새 bucket에 없다. 미수거 checkpoint 행이 있는데 새 bucket에 object version이 하나도 없으면 api가 기동하지 않는다([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)). Kubernetes 설치에는 checkpoint를 다른 bucket으로 옮기는 절차가 없다. 복원도 같은 bucket의 version을 가리킨다([backup-restore.md § Kubernetes 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)). 미수거 checkpoint가 있는 동안에는 bucket을 바꾸지 않는다 |

@@ -1,0 +1,707 @@
+{
+  "commit": "81102f096",
+  "pages": [
+    {
+      "locale": "en",
+      "page": "",
+      "fragments": [
+        "choose-an-install-method",
+        "published-packages",
+        "verification-status",
+        "read-the-release-manifest",
+        "connect-to-the-server",
+        "operating-after-the-install"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "",
+      "fragments": [
+        "設置方法を選ぶ",
+        "公開されたパッケージ",
+        "実測の状態",
+        "リリース-manifest-を読む",
+        "サーバーに接続する",
+        "設置後の運用"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "",
+      "fragments": [
+        "설치-방식-고르기",
+        "게시된-패키지",
+        "실측-상태",
+        "릴리스-manifest-읽기",
+        "서버에-붙기",
+        "설치-뒤-운영"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "kubernetes",
+      "fragments": [
+        "requirements",
+        "workspace-storage-and-its-limits",
+        "1-choose-a-version",
+        "2-create-the-namespace-and-secret",
+        "3-write-the-values-file",
+        "4-install",
+        "5-check",
+        "6-first-owner-and-api-key",
+        "try-it-on-kind-first",
+        "upgrade-and-remove",
+        "next"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "kubernetes",
+      "fragments": [
+        "必要なもの",
+        "workspace-のストレージと上限",
+        "1-バージョンを決める",
+        "2-namespace-と-secret-を作る",
+        "3-values-ファイルを作る",
+        "4-設置する",
+        "5-確認する",
+        "6-最初の-owner-と-api-key",
+        "まず-kind-で試す",
+        "アップグレードと削除",
+        "次のステップ"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "kubernetes",
+      "fragments": [
+        "준비물",
+        "workspace-저장소와-상한",
+        "1-버전-정하기",
+        "2-namespace와-secret-만들기",
+        "3-values-파일-만들기",
+        "4-설치하기",
+        "5-확인하기",
+        "6-첫-owner와-api-key",
+        "kind에서-먼저-해-보기",
+        "업그레이드와-제거",
+        "다음-단계"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/capacity",
+      "fragments": [
+        "at-a-glance",
+        "transcript-limit",
+        "80-warning",
+        "when-the-limit-is-exceeded",
+        "worker-memory-and-transcript-size-measured",
+        "how-it-was-measured",
+        "4608-mib-limit-the-current-default",
+        "6144-mib-limit-measured-for-comparison",
+        "how-to-read-it",
+        "why-512-mib--4608-mib",
+        "concurrent-sessions-per-node",
+        "how-to-adjust-and-the-cost",
+        "index-limits-for-results-out",
+        "deployment-order",
+        "related-pages"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/capacity",
+      "fragments": [
+        "全体像",
+        "transcriptの上限",
+        "80の警告",
+        "上限を超えたとき",
+        "workerメモリとtranscriptサイズ実測",
+        "測定方法",
+        "4608-mib上限現在の既定",
+        "6144-mib上限比較のための測定",
+        "読み方",
+        "512-mib--4608-mibを選んだ理由",
+        "ノードあたりの同時セッション数",
+        "調整方法と代償",
+        "成果物outの索引上限",
+        "デプロイ順序",
+        "関連ページ"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/capacity",
+      "fragments": [
+        "한눈에",
+        "transcript-상한",
+        "80-경고",
+        "상한을-넘으면",
+        "worker-메모리와-transcript-크기-실측",
+        "측정-방법",
+        "4608mib-한도-현재-기본값",
+        "6144mib-한도-비교-측정",
+        "읽는-법",
+        "512mib--4608mib를-고른-이유",
+        "노드당-동시-세션-수",
+        "조정-방법과-대가",
+        "결과물out-색인-상한",
+        "배포-순서",
+        "관련-문서"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/configuration",
+      "fragments": [
+        "installation-limits",
+        "profiles-without-billing-billing-none",
+        "api-settings",
+        "scheduler-worker-container-and-egress-settings"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/configuration",
+      "fragments": [
+        "インストール上限",
+        "課金のないprofilebilling-none",
+        "api設定",
+        "schedulerworkerコンテナegressの設定"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/configuration",
+      "fragments": [
+        "설치-상한",
+        "과금-없는-profile-billing-none",
+        "api-설정",
+        "schedulerworker-컨테이너egress-설정"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/database",
+      "fragments": [
+        "connections-per-role",
+        "session-settings-on-every-connection",
+        "finding-slow-queries-and-lock-waits",
+        "compose",
+        "helm-your-own-database",
+        "how-long-a-migration-locks"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/database",
+      "fragments": [
+        "ロールごとの接続数",
+        "接続ごとに設定するセッション設定",
+        "遅いクエリとロック待ちの見方",
+        "compose",
+        "helm運用者のdb",
+        "migrationがロックする時間"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/database",
+      "fragments": [
+        "역할별-연결-수",
+        "연결마다-거는-세션-설정",
+        "느린-쿼리와-잠금-대기-보기",
+        "compose",
+        "helm-운영자-db",
+        "migration이-잠그는-시간"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/execution",
+      "fragments": [
+        "reconciler-scheduler-and-worker-isolation",
+        "github-packages-private-npm-and-gem",
+        "draining-claimed-workers-when-the-contract-is-raised",
+        "sessions-whose-checkpoint-restore-keeps-failing",
+        "sessions-that-keep-dying-at-startup",
+        "a-turn-whose-outcome-is-unknown-after-an-interrupt",
+        "worker-workspace-limit-and-reclamation",
+        "legacy-workspace-migration",
+        "worker-network-address-pool-slot-limit-reclamation"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/execution",
+      "fragments": [
+        "reconcilerschedulerとworkerの隔離",
+        "github-packagesプライベートnpmgem",
+        "契約が上がるときのclaimされたworkerのdrain",
+        "checkpointの復元が失敗し続けるセッション",
+        "起動の段階で死に続けるセッション",
+        "interruptのあと結果が分からないturn",
+        "workerのworkspaceの上限と回収",
+        "legacy-workspaceのマイグレーション",
+        "workerネットワーク-アドレスプールslot-limit回収"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/execution",
+      "fragments": [
+        "reconcilerscheduler와-worker-격리",
+        "github-packages사설-npmgem",
+        "계약이-오를-때-claim된-worker의-drain",
+        "checkpoint-복원이-계속-실패하는-세션",
+        "시작-단계에서-계속-죽는-세션",
+        "interrupt-뒤-결과를-알-수-없는-turn",
+        "worker-workspace의-상한과-회수",
+        "legacy-workspace-마이그레이션",
+        "worker-네트워크-주소-풀-slot-limit-회수"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/images-and-supply-chain",
+      "fragments": [
+        "images-and-the-compose-apps-profile",
+        "images-published-on-every-main-merge",
+        "repository-maintainers-publishing-with-a-v-tag",
+        "repository-maintainers-releasing-by-merging-a-release-prep-pr",
+        "reading-the-release-manifest",
+        "publishing-the-helm-chart",
+        "author-of-commits-made-inside-the-worker",
+        "github-cli-inside-the-worker",
+        "package-tools-inside-the-worker",
+        "worker-image-upgrade-and-checkpoint-compatibility",
+        "worker-and-control-host-rollback-and-incremental-checkpoints",
+        "control-host-rollback-floor-running-with-release-tools",
+        "order-for-removing-worker-protocol-fields",
+        "order-for-changing-the-db-schema",
+        "supply-chain-vulnerability-policy"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/images-and-supply-chain",
+      "fragments": [
+        "イメージとcompose-apps-profile",
+        "mainへのマージごとに公開されるイメージ",
+        "リポジトリ管理者-vタグで公開",
+        "リポジトリ管理者-リリース準備prのマージでリリースする",
+        "リリースmanifestを読む",
+        "helm-chartの公開",
+        "worker内で作ったcommitの作成者",
+        "worker内のgithub-cli",
+        "worker内のパッケージツール",
+        "workerイメージのアップグレードとcheckpointの互換性",
+        "workercontrol-hostのロールバックとincremental-checkpoint",
+        "control-hostのロールバック下限-releaseのツールで実行",
+        "worker-protocolのフィールドを取り除く順序",
+        "dbスキーマを変える順序",
+        "サプライチェーンの脆弱性ポリシー"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/images-and-supply-chain",
+      "fragments": [
+        "이미지와-compose-apps-profile",
+        "main-머지마다-게시되는-이미지",
+        "저장소-관리자-v-태그로-게시",
+        "저장소-관리자-릴리스-준비-pr을-머지해-릴리스",
+        "릴리스-manifest-읽기",
+        "helm-chart-게시",
+        "worker-안에서-만든-commit의-작성자",
+        "worker-안의-github-cli",
+        "worker-안의-패키지-도구",
+        "worker-이미지-업그레이드와-checkpoint-호환",
+        "workercontrol-host-롤백과-incremental-checkpoint",
+        "control-host-롤백-하한-release-도구로-실행",
+        "worker-protocol-필드를-걷어내는-순서",
+        "db-스키마를-바꾸는-순서",
+        "공급망-취약점-정책"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/kubernetes-backend",
+      "fragments": [
+        "values-the-chart-sets",
+        "probes",
+        "one-scheduler-replica-recreate",
+        "worker-networkpolicy",
+        "api-server-authentication"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/kubernetes-backend",
+      "fragments": [
+        "chartが入れる値",
+        "probe",
+        "schedulerはreplica-1recreate",
+        "worker-networkpolicy",
+        "api-serverの認証"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/kubernetes-backend",
+      "fragments": [
+        "chart가-넣는-값",
+        "probe",
+        "scheduler는-replica-1-recreate",
+        "worker-networkpolicy",
+        "api-server-인증"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/kubernetes-deployment",
+      "fragments": [
+        "what-the-chart-creates",
+        "prerequisites",
+        "install-order",
+        "kind-local",
+        "install-from-the-published-chart",
+        "direct-install",
+        "adding-aws-values",
+        "the-web-console-and-internal",
+        "health-checks",
+        "api-keys-run-permissions-and-the-settings-document",
+        "upgrade-and-rollback",
+        "rollout-order",
+        "upgrading-the-published-chart",
+        "upgrading-from-the-file-catalog",
+        "how-sessions-continue-by-what-changes",
+        "pre-upgrade-check",
+        "mapping-to-the-10-single-server-steps",
+        "uninstall"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/kubernetes-deployment",
+      "fragments": [
+        "chartが作るもの",
+        "準備",
+        "インストール順序",
+        "kindローカル",
+        "公開chartでインストール",
+        "直接インストール",
+        "awsの値を入れる",
+        "webコンソールとinternal",
+        "healthの確認",
+        "api-key実行権限設定ドキュメント",
+        "アップグレードとロールバック",
+        "デプロイ順序",
+        "公開chartのアップグレード",
+        "ファイルカタログからのアップグレード",
+        "変わるものごとのセッション継続方法",
+        "アップグレード前の検査",
+        "単一サーバー10ステップとの対応",
+        "削除"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/kubernetes-deployment",
+      "fragments": [
+        "chart가-만드는-것",
+        "준비",
+        "설치-순서",
+        "kind-로컬",
+        "게시-chart로-설치",
+        "직접-설치",
+        "aws-값-넣기",
+        "웹-콘솔과-internal",
+        "health-확인",
+        "api-key-실행-권한-설정-문서",
+        "업그레이드와-롤백",
+        "배포-순서",
+        "게시-chart를-올리기",
+        "파일-카탈로그에서-올리기",
+        "바뀌는-것별로-세션이-이어지는-방법",
+        "업그레이드-전-검사",
+        "단일-서버-배포-10단계와의-대응",
+        "제거"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/metrics",
+      "fragments": [
+        "turning-it-on",
+        "how-a-collector-reads-it",
+        "how-the-values-are-made",
+        "metrics",
+        "session-state-table",
+        "tool-results-and-denials",
+        "cost-and-tokens",
+        "queues",
+        "label-rules",
+        "mapping-to-the-compose-metrics"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/metrics",
+      "fragments": [
+        "有効にする",
+        "コレクターの読み方",
+        "値の作り方",
+        "メトリクス",
+        "セッション状態表",
+        "ツールの結果と拒否",
+        "コストとトークン",
+        "待機キュー",
+        "ラベルの規則",
+        "composeのメトリクスとの対応"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/metrics",
+      "fragments": [
+        "켜기",
+        "수집기가-읽는-법",
+        "값을-만드는-방식",
+        "지표",
+        "세션-상태표",
+        "도구-결과와-거절",
+        "비용과-토큰",
+        "대기열",
+        "라벨-규칙",
+        "compose-지표와의-대응"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/monitoring-datadog",
+      "fragments": [
+        "startup-and-secret-handling",
+        "signals-and-initial-monitors",
+        "db-check-query-contract",
+        "applying-and-verifying-the-definitions"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/monitoring-datadog",
+      "fragments": [
+        "起動とシークレットの管理",
+        "シグナルと初期monitor",
+        "db点検queryの契約",
+        "定義の適用と検証"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/monitoring-datadog",
+      "fragments": [
+        "시작과-비밀-관리",
+        "신호와-초기-monitor",
+        "db-점검-query-계약",
+        "정의-적용과-검증"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "operate/sdk-sample",
+      "fragments": []
+    },
+    {
+      "locale": "ja",
+      "page": "operate/sdk-sample",
+      "fragments": []
+    },
+    {
+      "locale": "ko",
+      "page": "operate/sdk-sample",
+      "fragments": []
+    },
+    {
+      "locale": "en",
+      "page": "operate/session-data-flow",
+      "fragments": [
+        "at-a-glance",
+        "the-events-table",
+        "content-capture-and-secret-masking",
+        "what-it-holds",
+        "where-secrets-are-masked",
+        "who-can-read-the-content",
+        "retention",
+        "starting-the-langfuse-example-collector",
+        "starting-and-stopping",
+        "sending-a-test-span",
+        "creating-a-langfuse-project-key",
+        "finding-it-on-screen"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "operate/session-data-flow",
+      "fragments": [
+        "全体像",
+        "eventsテーブル",
+        "内容の収集と秘密値のマスキング",
+        "何を持つか",
+        "秘密値をどこで隠すか",
+        "誰が内容を読めるか",
+        "保存期間",
+        "langfuseのサンプルコレクターを起動する",
+        "起動と停止",
+        "テストspanを送る",
+        "langfuseのプロジェクトキーを作る",
+        "画面で探す"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "operate/session-data-flow",
+      "fragments": [
+        "한눈에",
+        "events-표",
+        "내용-수집과-비밀값-마스킹",
+        "무엇을-담나",
+        "비밀값을-어디서-가리나",
+        "누가-내용을-보나",
+        "보존-기간",
+        "langfuse-예제-수집기-띄우기",
+        "띄우고-내리기",
+        "테스트-span-보내기",
+        "langfuse-프로젝트-키-만들기",
+        "화면에서-찾기"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "single-server",
+      "fragments": [
+        "decisions",
+        "requirements",
+        "disk-setup-xfs-prjquota",
+        "install-without-a-checkout-the-release-bundle",
+        "1-read-the-image-digests",
+        "when-you-build-the-images-yourself",
+        "2-get-the-checkout",
+        "3-write-the-configuration",
+        "4-write-the-release-file",
+        "5-install",
+        "6-check",
+        "7-first-owner-and-api-key",
+        "8-enter-the-model-key",
+        "alternative-put-the-model-key-in-an-environment-variable",
+        "take-it-down",
+        "operations",
+        "access-path",
+        "dedicated-s3-bucket",
+        "backup-and-restore",
+        "reboot",
+        "day-1",
+        "next"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "single-server",
+      "fragments": [
+        "配備の判断",
+        "必要なもの",
+        "ディスクの準備-xfs-prjquota",
+        "checkout-なしでインストールする-リリースバンドル",
+        "1-イメージの-digest-を読む",
+        "イメージを自分でビルドするとき",
+        "2-checkout-を取得する",
+        "3-設定ファイルを作る",
+        "4-release-ファイルを作る",
+        "5-設置する",
+        "6-確認する",
+        "7-最初の-owner-と-api-key",
+        "8-モデルキーを入れる",
+        "代替手段モデルキーを環境変数で渡す",
+        "片付ける",
+        "運用する",
+        "アクセス経路",
+        "専用の-s3-bucket",
+        "バックアップと復元",
+        "再起動",
+        "初日の運用",
+        "次のステップ"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "single-server",
+      "fragments": [
+        "배포-결정",
+        "준비물",
+        "디스크-준비-xfs-prjquota",
+        "checkout-없이-설치하기-릴리스-번들",
+        "1-이미지-digest-읽기",
+        "이미지를-직접-빌드할-때",
+        "2-checkout-받기",
+        "3-설정-파일-만들기",
+        "4-release-파일-만들기",
+        "5-설치하기",
+        "6-확인하기",
+        "7-첫-owner와-api-key",
+        "8-모델-키-넣기",
+        "대안-모델-키를-환경-변수로-넣기",
+        "내리기",
+        "운영하기",
+        "접근-경로",
+        "전용-s3-bucket",
+        "백업과-복원",
+        "재부팅",
+        "첫날-운영",
+        "다음-단계"
+      ]
+    },
+    {
+      "locale": "en",
+      "page": "upgrade",
+      "fragments": [
+        "kubernetes",
+        "1-pick-the-new-version",
+        "2-upgrade",
+        "3-read-the-pre-upgrade-check",
+        "4-check",
+        "roll-back",
+        "single-server-docker-compose",
+        "renamed-names-and-what-operators-do"
+      ]
+    },
+    {
+      "locale": "ja",
+      "page": "upgrade",
+      "fragments": [
+        "kubernetes",
+        "1-新しいバージョンを決める",
+        "2-上げる",
+        "3-アップグレード前の検査を読む",
+        "4-確認する",
+        "戻す",
+        "単一サーバー-docker-compose",
+        "変わった名前と運用担当者のすること"
+      ]
+    },
+    {
+      "locale": "ko",
+      "page": "upgrade",
+      "fragments": [
+        "kubernetes",
+        "1-새-버전-정하기",
+        "2-올리기",
+        "3-업그레이드-전-검사-읽기",
+        "4-확인하기",
+        "되돌리기",
+        "단일-서버-docker-compose",
+        "바뀐-이름과-운영자가-할-일"
+      ]
+    }
+  ]
+}

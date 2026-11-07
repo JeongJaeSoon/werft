@@ -1,0 +1,109 @@
+---
+title: "사용자 registry 이미지 빌드"
+description: "자기 registry의 digest로 배포 입력을 만든다"
+pageId: "P21"
+docType: "작업"
+audience: "배포 이미지 제작자"
+outcome: "자기 registry의 digest로 배포 입력을 만든다"
+---
+
+## 무엇을 하게 되나
+
+게시 이미지를 쓸 수 없거나 별도 패키지 runtime이 필요할 때 자기 registry에 이미지를 만들고 그 digest로 배포 입력을 만든다.
+
+## 준비물
+
+소스 commit·Buildx·대상 registry 쓰기 권한과 아키텍처가 필요하다. 코드와 의존성을 바꾼 이미지는 별도의 안전성·라이선스·취약점 검증이 필요하다. worker의 engine·SDK·CLI 조합을 임의로 바꾸지 않는다.
+
+## 단계
+
+### 1. registry에 빌드
+
+게시된 이미지를 받을 수 없을 때(게시되지 않은 commit)의 경로다. 지원하는 아키텍처는 `amd64`와 `arm64`뿐이다. 설치할 commit의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 2단계의 release 파일에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다. 이 경로는 실행 확인하지 않았다.
+
+```bash
+REGISTRY=<your-registry>
+PREFIX=werft
+TAG=rc
+export API_IMAGE="$REGISTRY/$PREFIX-control-host:$TAG" WORKER_IMAGE="$REGISTRY/$PREFIX-worker:$TAG" \
+  EGRESS_PROXY_IMAGE="$REGISTRY/$PREFIX-egress-proxy:$TAG"
+docker build -f apps/control-host/Dockerfile --target release \
+  --build-arg APT_UPGRADE_KEY="$(date -u +%F)" -t "$API_IMAGE" .
+docker compose -f infra/compose.yml --profile worker build worker egress-proxy
+for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
+done
+unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+```
+
+자기 registry 이름과 세 repository 이름을 정해 모든 build·push·digest 조회에 같은 값을 사용한다. 공식 ghcr 주소에서 다시 digest를 읽으면 직접 빌드한 이미지를 배포하지 않게 된다.
+
+control-host는 저장소 루트를 context로 `release` target을 빌드한다. `infra/compose.yml`의 api 빌드는 개발용 `local` target이며 testkit과 데모 도구를 포함하므로 운영 이미지로 배포하지 않는다. 같은 control-host 이미지를 api·scheduler·reconciler·slack이 함께 사용한다. 게시 이미지에는 데모 CLI가 없어 `DEMO_ACCOUNTS=local`로 부르면 실패한다.
+
+base digest를 고정해도 Debian 보안 갱신은 빌드 시점에 따라 달라질 수 있으므로 실제 배포 digest를 기록한다. `APT_UPGRADE_KEY`는 갱신 layer의 cache를 나눈다. 위 control-host 빌드는 UTC 날짜를 넘기며, worker의 Compose 빌드도 새 보안 수정을 받으려면 `--build-arg APT_UPGRADE_KEY="$(date -u +%F)"` 또는 `--no-cache`를 준다.
+
+### 2. 배포 입력에 같은 digest 유지
+
+```bash
+CONTROL_IMAGE="$REGISTRY/$PREFIX-control-host@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-control-host:$TAG" --format '{{.Manifest.Digest}}')"
+WORKER_IMAGE="$REGISTRY/$PREFIX-worker@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-worker:$TAG" --format '{{.Manifest.Digest}}')"
+EGRESS_IMAGE="$REGISTRY/$PREFIX-egress-proxy@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-egress-proxy:$TAG" --format '{{.Manifest.Digest}}')"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
+jq -n --arg commit "$(git rev-parse HEAD)" --arg control "$CONTROL_IMAGE" \
+  --arg worker "$WORKER_IMAGE" --arg egress "$EGRESS_IMAGE" --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit:$commit,images:{control_host:$control,worker:$worker,egress_proxy:$egress},settings_digest:$settings}' \
+  > /var/lib/werft/test-ops/release.json
+```
+
+위 registry/prefix/tag는 1단계에 실제 사용한 값과 같아야 한다. Kubernetes는 `images.registry`와 각 `images.*.repository`·digest, worker runtime을 같은 자체 이미지 값으로 설정한다. runtime 추출은 [패키지 계약](/run-server/self-hosting/reference/packages#직접-빌드한-이미지의-runtime)을 따른다.
+
+### 3. 패키지 runtime을 추가하는 파생 worker
+
+출하 worker 이미지에는 Bun(Node 호환 shim 포함)과 engine만 있다. npm·pnpm·yarn·Ruby·Bundler·Go는 없다. 세션에서 이 도구로 의존 패키지를 설치하려면 운영자가 `WORKER_IMAGE`를 이 이미지에서 파생한 이미지로 바꾼다. 파생 이미지는 `/workspace` 외의 `VOLUME`을 선언하지 않아야 하고(실행 기반 문서의 이미지 계약), engine·SDK·CLI 조합을 바꾸지 않아야 한다. 레지스트리 접근은 이미지와 상관없이 egress proxy의 `packages` route로만 된다([실행 기반 § egress](/run-server/self-hosting/explanation/isolation)). worker가 claim 때 HOME에 npm·Bundler·Go user 설정을 쓰므로 파생 이미지에 레지스트리 설정을 넣을 필요는 없다.
+
+worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `registry=`를 정하면 그쪽이 이긴다. 그 레지스트리 host에는 forward proxy로 닿지 않으므로 설치가 `403`으로 실패한다. 파생 이미지의 `config get registry` 우선순위는 아래와 같다(저장소 `.npmrc`에 `registry=https://registry.npmjs.org/`, user 설정에 route).
+
+| 도구 | user 설정만 | `npm_config_registry` 환경 변수 | CLI `--registry` | 비고 |
+|---|---|---|---|---|
+| npm 10.9.9 | 저장소 값이 이김 | 환경 변수가 이김 | CLI가 이김 | 저장소 `.npmrc`가 없으면 user 설정(route)을 쓴다 |
+| pnpm 9.15.0 | 저장소 값이 이김 | 환경 변수가 이김 | `config get`은 옵션을 받지 않음 | npm과 같은 순서 |
+| yarn 1.22.22 | npm user 설정을 읽지 않음(`registry.yarnpkg.com`) | 읽지 않음 | CLI가 이김 | `YARN_REGISTRY`가 이김. `registry.yarnpkg.com`은 목록에 없다 |
+
+그래서 저장소가 registry를 고정했으면 세션에서 `npm ci --registry <route>/packages/npm/`처럼 CLI로 덮는다. worker는 engine 환경 변수를 정해진 목록만 넘기므로 `npm_config_registry`를 넣지 않는다. yarn 1은 `--registry` 또는 `YARN_REGISTRY`를 써야 한다.
+
+npm 캐시가 없는 세션에서도 같은 제약이 적용된다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
+
+Go는 공식 릴리스 tarball을 checksum으로 고정해 파생 이미지의 `/usr/local/go`에 풀고 `PATH`에 더한다. `GOTOOLCHAIN=local`을 함께 둔다. 그러지 않으면 `go.mod`의 `go` 줄이 이미지보다 새로울 때 Go가 새 툴체인을 받으러 나간다. 사용자는 이미지의 원래 사용자(`USER 1000:1000`)로 되돌린다. local-docker 실행 기반의 worker `/tmp`는 tmpfs 옵션에 `exec`가 없어 Docker가 `noexec`로 올린다. 그래서 `go run`과 `go test`가 `/tmp`에 만든 실행 파일을 띄우지 못하고 `fork/exec /tmp/go-build…: permission denied`로 실패한다. HOME도 같은 tmpfs라 `go install`이 `~/go/bin`에 둔 파일도 실행되지 않는다. `go test`는 `GOTMPDIR`를 workspace 안의 이미 있는 디렉터리로 지정하면 통과한다. `go run`은 실행 파일을 `GOCACHE`(기본값은 HOME 아래)에서 띄우므로 `GOCACHE`도 workspace로 옮겨야 한다(예: `mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`). 실행 파일은 `go build -o`로 workspace에 만든다.
+
+```dockerfile
+FROM <shipped worker image>
+USER root
+ADD --checksum=sha256:<release sha256> https://go.dev/dl/go<version>.linux-<arch>.tar.gz /tmp/go.tar.gz
+RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+USER 1000:1000
+```
+
+출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다. npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
+
+#### 사설 패키지 registry 허용
+
+1. `EGRESS_CREDENTIAL_ALLOWLIST`에 `npm.pkg.github.com:443,rubygems.pkg.github.com:443`을 포함해 필요한 기본 항목까지 모두 다시 적는다. 빠져 있으면 등록해 둔 token이 있어도 요청이 `403 egress denied`다.
+2. `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`에 `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443`을 더한다. GitHub는 tarball과 `.gem`을 이 host로 302 redirect한다. proxy는 이 redirect를 token 없이 따라간다.
+3. GitHub Enterprise Server라면 `GITHUB_PACKAGES_*_URL`을 설정한다([설정 레퍼런스](/run-server/self-hosting/reference/configuration)).
+
+## 확인
+
+각 digest를 target 아키텍처에서 pull하고 image smoke·의존성 검사와 설치 준비 검사를 통과해야 한다. release 입력이나 helm template의 최종 이미지가 자기 registry의 정확한 digest인지 대조한다. 이미지가 pull된 것과 실제 세션 실행은 별도 검사다.
+
+## 자주 막히는 곳
+
+출하 Bun은 metadata의 tarball URL을 직접 요청해 proxy에서 403이 날 수 있다. npm·pnpm·yarn의 registry 우선순위는 다르다. Go의 실행 캐시는 tmpfs noexec 경로를 피하고 workspace로 옮긴다. 자세한 경계는 [격리 설명](/run-server/self-hosting/explanation/isolation)을 따른다.
+
+## 되돌리기
+
+대상 digest를 적용하기 전이면 배포 입력을 이전 것으로 되돌린다. 이미 적용했으면 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)의 runtime·checkpoint 지원 창을 확인한 뒤 되돌린다.
+
+## 다음에 읽을 곳
+
+[단일 서버 설치](/run-server/self-hosting/single-server), [Kubernetes 설치](/run-server/self-hosting/kubernetes), [패키지 계약](/run-server/self-hosting/reference/packages).

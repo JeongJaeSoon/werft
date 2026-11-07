@@ -1,0 +1,80 @@
+---
+title: "첫 owner와 사용자 key 발급"
+description: "사용자별 인증 수단과 실행 권한을 발급한다"
+pageId: "P09"
+docType: "작업"
+audience: "설치 관리자"
+outcome: "사용자별 인증 수단과 실행 권한을 발급한다"
+---
+
+## 무엇을 하게 되나
+
+첫 owner와 workspace를 만들고 사용자별 API key를 발급한다. API key 폐기와 세션 실행 권한 회수를 구분한다.
+
+## 준비물
+
+[설치](/run-server/self-hosting)와 [접속 경로](/run-server/self-hosting/access)가 준비돼 있어야 한다. bootstrap 토큰과 로그는 운영자만 읽는다. Kubernetes는 여러 replica가 동일한 BOOTSTRAP_TOKEN을 받도록 Secret과 catalogEnv를 구성한다.
+
+## 단계
+
+### 1. 첫 owner 만들기
+
+브라우저의 `/bootstrap`에 고정한 BOOTSTRAP_TOKEN, owner 정보, workspace 이름을 넣는다. 토큰을 설정하지 않은 단일 API 설치에서는 이번 설치의 API 컨테이너 시작 로그(`docker logs <this-installation-api-container-id>`)를 운영자만 확인해 자동 생성된 토큰을 찾는다. 컨테이너는 status와 project label로 확인한다. 기본 replica 2개인 Kubernetes에서는 자동 생성에 의존하지 말고 Secret의 고정 토큰을 사용한다. 첫 owner가 생긴 뒤 같은 토큰을 재사용하면 `409 BOOTSTRAP_DONE`이다. `/login`으로 로그인한다.
+
+### 2. 사용자별 key 발급
+
+```bash
+KEY="$(scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
+```
+
+`<owner_id>`는 이 key의 세션을 묶는 이름이다. 사용자마다 다른 값을 정한다. 웹 콘솔 계정과는 별개이며, workspace id는 쓰지 않는다.
+
+SDK와 HTTP API는 이 서버 주소와 key로 붙는다([SDK 설치](/getting-started/install)).
+
+Kubernetes에서는 다음을 사용한다.
+
+먼저 [설치의 context·namespace·fullname 확인](/run-server/self-hosting/kubernetes#준비물)을 따른다. 아래 `werft`는 그 예시 설치 이름이다.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+stdout에 평문 key가 한 번만 나오고 stderr에는 key id가 나온다. 평문은 공개 로그에 저장하지 않고 해당 사용자에게 안전하게 전달한다. 사용자별 key 소유자 식별자와 웹 콘솔 계정은 별개다. API key의 scope를 작업에 필요한 범위로 줄인다.
+
+### 3. 폐기 연락과 실행 권한
+
+사용자에게 key를 폐기할 연락 경로를 전달한다. checkout의 운영자 CLI는 다음과 같다.
+
+```bash
+scripts/test-ops.sh key revoke <key_id>
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts restore <session_id> --reason <text>
+```
+
+API_CONTAINER는 이 설치의 status와 Docker project label로 확인한 API 컨테이너 id로 바꾼다. Kubernetes에서는 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 준비하고 `keys:k8s`와 `grants:k8s`를 사용한다. `NAMESPACE`와 `RELEASE`의 기본값은 둘 다 werft다.
+
+| 작업 | 효과 |
+| --- | --- |
+| key revoke | 그 key의 후속 API 인증을 막는다. 이미 시작한 세션 실행을 중지하는 명령이 아니다 |
+| grants revoke | 지정한 세션의 실행 권한과 자격 증명을 회수하고 실행 종료를 요청한다 |
+| grants restore | execution 부재가 확인된 뒤 실행 권한을 복원한다. 폐기한 API key를 되살리지 않는다 |
+
+## 확인
+
+각 사용자의 key로 `/v1/sessions`를 읽으면 허용 범위의 응답이 와야 하고, key 없이 요청하면 401이어야 한다. 폐기한 key는 인증되지 않아야 한다. grants 출력의 receipt와 execution 상태를 확인하여 수락과 실제 종료를 구분한다.
+
+## 자주 막히는 곳
+
+replica별 자동 bootstrap 토큰이 다르면 요청이 다른 Pod에 닿아 401이 날 수 있다. 고정 토큰을 모든 Pod에 전달한다. Secret에 이름이 빠져 있으면 Pod가 시작하지 않는다. CLI의 owner id에 workspace id를 넣지 않는다.
+
+## 되돌리기
+
+이미 만든 첫 owner를 지우기 위해 설치를 reset하지 않는다. 잘못 발급한 key를 revoke하고 올바른 scope로 새 key를 만든다. grants restore는 옛 실행이 사라진 뒤에만 한다.
+
+## 다음에 읽을 곳
+
+[모델 연결](/run-server/self-hosting/model-connections), [SDK 설치](/getting-started/install).

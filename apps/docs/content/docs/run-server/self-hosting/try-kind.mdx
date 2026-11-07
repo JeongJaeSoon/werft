@@ -1,0 +1,114 @@
+---
+title: "kind에서 시험 설치"
+description: "시험 chart를 설치하고 정리한다"
+pageId: "P04"
+docType: "설치"
+audience: "로컬 시험 담당자"
+outcome: "시험 chart를 설치하고 정리한다"
+---
+
+## 무엇을 하게 되나
+
+노트북의 격리된 kind 클러스터에서 chart와 API 준비 상태를 시험한 뒤 제거한다. 이 PostgreSQL·LocalStack은 운영 데이터 저장소가 아니다.
+
+## 준비물
+
+Docker, kind, Helm 3, kubectl, git, Bun 1.3.14와 저장소 checkout이 필요하다. 설치·제거할 클러스터 이름과 registry 포트가 다른 작업과 겹치지 않아야 한다. NetworkPolicy를 강제하는 kind 버전을 사용한다.
+
+## 단계
+
+### 1. checkout의 시험 harness
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+CLUSTER_NAME=werft-try REGISTRY_PORT=15001 deploy/kind/up.sh
+export KUBECONFIG=~/.cache/werft/kind/werft-try/kubeconfig
+```
+
+스크립트는 cluster·registry·이미지·namespace·DB·LocalStack·Secret·chart를 준비하고 rollout과 ready/docs를 확인한다. 생성된 kubeconfig만 사용한다. `EXTRA_VALUES`로 설치별 값을 덮을 수 있지만 harness의 worker 이미지 `--set` 값은 바뀌지 않는다.
+
+### 2. 게시 chart를 직접 시험하는 경우
+
+harness 대신 게시 패키지를 시험하려면 별도의 클러스터를 만들고 아래 의존성을 준비한다. `VERSION`은 [패키지 계약](/run-server/self-hosting/reference/packages)에서 선택한 정확한 게시 chart 버전이다.
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
+kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
+SECRETS="$(mktemp -d)"
+```
+
+다음 명령의 `read -rs`는 프롬프트 없이 입력을 기다린다. 입력할 값은 `deploy/kind/deps.yaml`의 `POSTGRES_PASSWORD`이고, 값을 명령줄에 쓰지 않으려고 터미널에서 읽는다. 터미널 없이 실행하는 스크립트에서는 같은 값을 표준 입력으로 넘겨 이 줄을 채운다. Secret 값은 모두 이 kind 시험용이다. 실서버에는 [Kubernetes 설치의 2. namespace와 Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret)에서 직접 만든 값을 쓴다. Secret을 만든 뒤에는 변수와 임시 디렉터리를 지운다.
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+```
+
+Secret 디렉터리는 생성 뒤 접근 권한을 0700으로 확인하고, 터미널 없이 실행할 때는 DB 비밀번호를 표준 입력으로 전달한다. 실제 운영 자격 증명을 이 시험에 넣지 않는다. 위 Secret 블록과 fixture chart 시험의 성공을 게시 chart 시험 전체의 성공으로 혼동하지 않는다.
+
+## 확인
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+ready 200과 docs 200은 빈 설치의 준비 상태다. 세션과 worker Pod를 시작해 checkpoint 복원까지 확인한 결과가 아니다. kind의 PVC Bound만으로 byte 상한 강제를 증명하지 않는다.
+
+## 자주 막히는 곳
+
+직접 설치에서 Secret의 필수 키가 빠지면 Pod가 시작하지 않는다. 게시 chart를 못 받으면 fixture 렌더로 성공 처리하지 말고 해당 게시 패키지 설치 실패로 남긴다. 클러스터 밖 DB·S3 주소와 시험 의존성 주소를 섞지 않는다.
+
+## 되돌리기
+
+harness로 만든 경우:
+
+```bash
+CLUSTER_NAME=werft-try deploy/kind/up.sh down
+```
+
+직접 만든 `werft-try` 클러스터는 `kind delete cluster --name werft-try`로 제거한다. 실패했을 때도 이번 시험 클러스터만 정리하고 다른 context의 리소스는 건드리지 않는다.
+
+## 다음에 읽을 곳
+
+운영 환경은 [Kubernetes 설치](/run-server/self-hosting/kubernetes), 버전 교체 시험은 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes).

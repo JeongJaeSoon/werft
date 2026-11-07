@@ -1,0 +1,143 @@
+---
+title: "LocalStack으로 시험 설치"
+description: "비영속 시험 서버를 설치하고 정리한다"
+pageId: "P05"
+docType: "설치"
+audience: "로컬 시험 담당자"
+outcome: "비영속 시험 서버를 설치하고 정리한다"
+---
+
+## 무엇을 하게 되나
+
+Linux 시험 서버에 LocalStack을 쓰는 Compose 설치를 만든다. object가 호스트·Docker 재시작에서 사라질 수 있는 비영속 시험 경로다.
+
+## 준비물
+
+| 항목 | 요구 |
+| --- | --- |
+| 운영체제 | Linux. `x86_64`와 `arm64` 모두 된다 |
+| Docker Engine | 28 이상 |
+| Docker Compose | 2.24.6 이상 |
+| 디스크 | Docker 데이터 루트가 XFS이고 `prjquota`로 mount돼 있다. `preflight`는 이것을 보지 않는다. 아니면 `deploy`에서 scheduler의 quota 검사가 실패해 설치가 멈춘다. ext4 서버는 [XFS 디스크 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. Docker Desktop에서는 쓸 수 없다 |
+| 시간 | NTP 동기화. 재부팅 뒤 Docker가 자동으로 시작한다 |
+| 도구 | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx 플러그인. Docker daemon에 접근할 수 있는 계정 |
+| 외부 | `ghcr.io`와 Docker Hub에서 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다. 세션은 `api.anthropic.com`과 `github.com`에 나간다 |
+
+설치에는 저장소 checkout이 필요하다. compose 파일과 `scripts/test-ops.sh`를 checkout에서 읽기 때문이다. 이미지는 checkout에서 빌드하지 않는다.
+
+운영 데이터와 분리된 Linux 서버에서 [XFS 준비](/run-server/self-hosting/prepare-xfs)를 먼저 끝낸다. 시험 전용 project·설치 id·포트·상태/비밀 디렉터리를 선택한다. test-ops의 기본 project 이름은 `werft-test-ops`이며 `TEST_OPS_PROJECT`로 바꾼다. 다음 예시의 기본 경로가 기존 설치에 쓰이면 다른 경로와 `TEST_OPS_*` 값을 지정한다.
+
+## 단계
+
+### 1. 이미지와 소스
+
+```bash
+TAG='<published-image-tag>'
+SOURCE_REF='<matching-source-commit-or-release-tag>'
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout "$SOURCE_REF"
+bun install --frozen-lockfile
+```
+
+세 이미지가 모두 digest를 돌려주고 같은 source commit을 checkout했는지 확인한다.
+
+### 2. 시험 설정
+
+비밀 값은 저장소 밖의 env 파일에만 둔다. 파일은 운영자만 읽을 수 있어야 한다. group이나 other에 권한이 있으면 스크립트가 거부한다.
+
+```bash
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+```
+
+`/etc/werft/test-ops.env`를 편집기로 열어 다음을 채운다. `sed -i`처럼 임시 파일을 만드는 도구는 `/etc/werft`에서 `Permission denied`로 실패하니 제자리에 쓰는 편집기를 쓴다.
+
+| 변수 | 값 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | 무작위 값. 영문, 숫자, `.` `_` `~` `-`만 쓴다 |
+| `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값 |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 잃으면 저장한 자격 증명을 읽지 못한다 |
+| `BOOTSTRAP_TOKEN` | 주석을 풀고 32–256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
+
+`EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, `EXECUTION_WORKSPACE_QUOTA=on`을 사용한다. credential allowlist는 `api.anthropic.com:443,github.com:443`, private credential allowlist는 `localstack:4566`이다. AWS key·region·bucket 변수는 예시처럼 비워 둔다. LocalStack은 고정 시험 key와 `claude-sessions` bucket을 사용한다.
+
+설정 문서는 `/etc/werft/settings.json`에 둔다. 세션이 쓸 GitHub 저장소를 적는다. 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+
+migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": { "kind": "github_app" }
+    }
+  },
+  "mcp_servers": {}
+}
+```
+
+### 3. release 입력과 설치
+
+release 생성은 [단일 서버의 3단계](/run-server/self-hosting/single-server#3-release-입력-생성)와 같다. 생성 위치는 checkout 밖의 `/var/lib/werft/test-ops/release.json`으로 한다. 이 단계는 S3용 preflight를 실행하지 않고 다음을 사용한다.
+
+```bash
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh preflight /var/lib/werft/test-ops/release.json
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh deploy /var/lib/werft/test-ops/release.json
+```
+
+quota 검사와 서비스 health가 성공해야 한다. 모델 key는 설치 뒤 콘솔에 넣는다.
+
+## 확인
+
+`scripts/test-ops.sh status`, ready 본문과 200, docs 200을 확인한다. [첫 owner와 key](/run-server/self-hosting/users-and-keys)에서 인증을 확인한다. 운영 AWS S3 권한과 데이터가 있는 복원은 이 시험으로 증명하지 않는다.
+
+## 자주 막히는 곳
+
+첫 `deploy`가 실패하면 시작된 컨테이너는 남아 있고 `current.json`이 없어 `stop`을 쓸 수 없다. 실패 로그에서 quota·네트워크·Secret 등 원인을 확인하고, 이번 설치의 project 이름을 확인한 뒤 다음처럼 내린다. `-v`는 붙이지 않는다.
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+원인을 고친 뒤 같은 release 파일과 같은 환경으로 `deploy`를 다시 실행한다. 이미 성공한 설치를 다시 시작할 때는 `start`를 쓴다.
+
+처음 restart policy가 바뀌는 업그레이드에서 LocalStack 컨테이너를 재생성하면 객체를 잃을 수 있다. `status`가 미수거 checkpoint 0개임을 확인하지 못하면 업그레이드를 미룬다. API 기동 실패와 `pending.json`이 겹치면 `reseed`도 거부되며, `reset`은 모든 데이터를 버린다. `backup --stop`은 이 차단을 해제하지 않는다.
+
+LocalStack은 컨테이너가 재생성되면 메모리의 object를 잃는다. DB에 미수거 checkpoint가 남아 bucket이 비면 API가 기동을 거부한다. 자동 재시작과 수동 start의 조건은 [Compose 수명주기](/run-server/self-hosting/stop-compose)를 따른다.
+
+계획 재시작은 미리 백업하고 writer를 중지한다.
+
+```bash
+# Back up, leave the writers stopped, restart the host, then restore the objects
+scripts/test-ops.sh backup --stop
+sudo reboot
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
+```
+
+이 연속 절차와 checkpoint가 있는 재부팅은 실행 확인하지 않았다. `reseed`는 원본 project/bucket/checksum과 빈 bucket, 마지막 백업 이후 checkpoint 변화가 없음을 검사한다. 조건을 만족하지 않으면 거부한다. object를 잃고 API 기동 실패와 pending upgrade가 남은 상태에서는 `reseed`가 거부된다. `backup --stop`으로 남긴 백업이 있어도 이 차단은 풀리지 않는다. 이 상태에서 `reset`을 고르면 DB·세션·checkpoint를 버리며, 일반적인 재부팅의 복구 명령으로 사용하지 않는다.
+
+## 되돌리기
+
+[Compose 중지·제거](/run-server/self-hosting/stop-compose)를 따른다. 성공한 설치는 `scripts/test-ops.sh stop`으로 이번 project를 내리고 volume을 보존한다. 첫 deploy 실패는 위의 명시 project와 stdin compose model을 쓰는 정리 절차를 따른다. checkpoint가 없는 시험이라는 이유로 운영 bucket이나 다른 설치를 정리하지 않는다. reset은 삭제 범위를 확인한 별도 선택이다.
+
+## 다음에 읽을 곳
+
+[운영용 단일 서버 설치](/run-server/self-hosting/single-server), [백업과 복원](/run-server/self-hosting/backup-and-restore).

@@ -1,16 +1,4 @@
 {
-  "title": "운영 참고",
-  "pages": [
-    "configuration",
-    "capacity",
-    "database",
-    "execution",
-    "kubernetes-deployment",
-    "kubernetes-backend",
-    "metrics",
-    "session-data-flow",
-    "images-and-supply-chain",
-    "monitoring-datadog",
-    "sdk-sample"
-  ]
+  "title": "기존 운영 문서",
+  "pages": ["session-data-flow", "monitoring-datadog"]
 }

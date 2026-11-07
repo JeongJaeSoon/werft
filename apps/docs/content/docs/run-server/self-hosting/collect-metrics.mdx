@@ -1,0 +1,84 @@
+---
+title: "Kubernetes 지표 수집"
+description: "지표를 켜고 수집기의 scrape 성공을 확인한다"
+pageId: "P17"
+docType: "작업"
+audience: "감시 운영자"
+outcome: "지표를 켜고 수집기의 scrape 성공을 확인한다"
+---
+
+## 무엇을 하게 되나
+
+Kubernetes metrics 역할을 켜고 Prometheus 형식의 지표가 수집기에 도착하는지 확인한다.
+
+## 준비물
+
+설치별 values, helm·kubectl, 수집기 namespace와 scrape 설정이 필요하다. endpoint는 설치 전체의 합을 내는 단일 target이다. CPU·메모리·Pod 로그는 클러스터 수집기로 따로 수집한다.
+
+## 단계
+
+### 1. 수집기 접근 범위와 values
+
+```yaml
+metrics:
+  enabled: true
+  podAnnotations:          # how the collector finds the Pod; the install chooses
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9464"
+networkPolicy:
+  metrics:
+    ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
+```
+
+`ingressFrom: []`는 9464를 모든 source에 열므로 실제 수집기 namespace selector로 좁힌다. 설치한 정확한 chart 버전과 설치별 values로 Helm upgrade를 적용한다. 다른 chart로 올릴 때는 [Kubernetes 업그레이드](/run-server/self-hosting/upgrade-kubernetes)를 따른다.
+
+chart 리소스는 `<fullname>-metrics`다. release 이름에 werft가 있으면 fullname은 release 이름이고, 아니면 `<release>-werft`다. 예를 들어 release가 team이면 `team-werft-metrics`이며 team-metrics가 아니다.
+
+### 2. 수집기 연결
+
+| 수집기 | 방법 |
+|---|---|
+| Prometheus | `metrics.podAnnotations`의 `prometheus.io/*` annotation, 또는 운영자의 ServiceMonitor가 Service `<fullname>-metrics`의 `metrics` 포트를 가리킨다 |
+| Datadog Agent(Helm) | Autodiscovery `openmetrics` 체크. `metrics.podAnnotations`에 `ad.datadoghq.com/metrics.checks`를 넣는다. Datadog에 어떤 이름(점 표기 등)으로 저장할지는 수집기 쪽 설정이다 |
+| OpenTelemetry Collector | `prometheus` receiver로 같은 엔드포인트를 scrape해 OTLP로 보낸다 |
+
+플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스는 아직 내보내지 않는다. [관측 (OTel)](/observability)을 본다.
+
+### 3. endpoint 확인
+
+```bash
+FULLNAME=werft
+kubectl -n werft port-forward "svc/$FULLNAME-metrics" 19464:9464 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+SCRAPED=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS http://127.0.0.1:19464/metrics; then SCRAPED=1; break; fi
+  sleep 1
+done
+kill "$PF" 2>/dev/null || true
+trap - EXIT INT TERM
+test "$SCRAPED" = 1
+```
+
+port-forward는 백그라운드에서 실행하고 이번 PID만 정리한다. curl이 성공하지 못하면 마지막 test가 실패한다.
+
+### 4. 기존 규칙 갱신
+
+지표 이름이 바뀌면 옛 별칭을 기대하지 말고 Datadog 정의·쿼리·필터와 Prometheus 규칙을 [지표 계약](/run-server/self-hosting/reference/metrics)의 이름으로 바꾼다. 변경한 rules가 실제 새 series를 읽는지 확인한다.
+
+## 확인
+
+본문에 werft_ 지표가 있고 수집기의 scrape가 성공해야 한다. healthz 200은 DB 읽기 성공이 아니다. DB 읽기가 실패하면 endpoint는 503이고 이전 값을 내지 않는다. 수집 시간이 간격의 절반을 넘으면 scrape 간격을 늘려 DB 부하를 낮춘다.
+
+## 자주 막히는 곳
+
+리소스를 못 찾으면 fullname부터 확인한다. NetworkPolicy가 수집기 namespace를 허용하는지 확인한다. replica를 늘리면 설치 전체 합을 중복 수집하므로 metrics replica는 하나로 유지한다.
+
+## 되돌리기
+
+values에서 metrics.enabled를 false로 되돌려 적용한다. 이번에 추가한 scrape target을 제거하되 기존 운영 감시 규칙은 대상 변경을 확인하고 정리한다.
+
+## 다음에 읽을 곳
+
+[플랫폼 지표 계약](/run-server/self-hosting/reference/metrics), [DB 지연 진단](/run-server/self-hosting/diagnose-database).

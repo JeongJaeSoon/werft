@@ -1,0 +1,97 @@
+---
+title: "사용자 접속 경로 구성"
+description: "콘솔과 SSE가 안전한 경로로 닿는지 확인한다"
+pageId: "P08"
+docType: "작업"
+audience: "네트워크 운영자"
+outcome: "콘솔과 SSE가 안전한 경로로 닿는지 확인한다"
+---
+
+## 무엇을 하게 되나
+
+원격 bootstrap 전에 SSH tunnel 또는 TLS·제한된 네트워크의 접속 경로를 구성하고 콘솔·API·SSE를 확인한다.
+
+## 준비물
+
+서버 설치, SSH 권한 또는 조직의 TLS 인증서·VPN/IP allowlist가 필요하다. PostgreSQL과 Docker socket을 외부에 열지 않는다. 사설 CA는 클라이언트가 신뢰해야 하며 curl의 `-k`로 우회하지 않는다.
+
+## 단계
+
+### Compose: SSH tunnel
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+이 터미널을 유지하고 다른 터미널/브라우저에서 `http://127.0.0.1:3000`으로 접속한다.
+
+### Compose: TLS reverse proxy
+
+API(기본 3000)와 PostgreSQL(기본 5432)은 호스트 loopback에만 열린다. 사용자는 SSH tunnel로 들어오고, PostgreSQL은 운영자가 서버 안에서만 쓴다. 방화벽은 SSH와 선택한 TLS endpoint만 허용한다.
+
+내부 DNS 이름으로 API를 내보내려면 reverse proxy를 앞에 둔다. upstream은 계속 `127.0.0.1:3000`이다. 접속 주소는 VPN 대역이나 IP allowlist로 좁히고, TLS 연결은 proxy에서 처리한다. proxy는 브라우저가 보낸 `Host`를 그대로 upstream에 넘긴다. API는 상태를 바꾸는 브라우저 요청에서 `Origin`의 host와 `Host`가 다르면 거부하므로, upstream host로 바꿔 넘기면 웹 콘솔의 변경 요청이 실패한다. 이벤트 스트림(SSE)은 연결을 오래 유지하므로 `proxy_buffering`과 요청 buffering을 끄고 read, send timeout을 1시간처럼 길게 둔다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy나 방화벽 밖으로 열지 않는다. Docker socket은 scheduler가 worker를 관리할 때만 쓰며 호스트 TCP socket을 켜지 않는다.
+
+인증서 경로, 내부 DNS 이름, 허용 대역은 조직 환경 값으로 정한다. 같은 서버의 시험 요청도 허용하려면 loopback을 명시한다. `Host`와 브라우저 `Origin`을 일치시키고 SSE buffering을 끈다.
+
+### Kubernetes: 내부망 ALB
+
+`values-aws.example.yaml`을 설치별 파일로 복사해 placeholder(account id, ARN, host, digest)를 채우고, `values.yaml` 위에 얹는다. 아래 render는 로컬에서 돌지만, 그 결과를 적용하는 일은 **AWS 전용**이다.
+
+**AWS 예제는 내부망 전용 ALB를 전제로 한다.** 그래서 예제의 Ingress annotation `scheme`은 이미 `internal`이다. 설치별 파일에서도 `internet-facing`으로 바꾸지 않는다. `render-check`가 예제 render에서 `internet-facing`을 거부한다. 적용 뒤에는 ALB가 내부망 subnet에 생겼는지 확인한다(**AWS 전용**).
+
+### 웹 콘솔과 `/internal`
+
+웹 콘솔은 api가 3000번에서 서빙한다. `ingress.console.enabled: true`(기본 `false`)면 Ingress가 `/`(Prefix)를 api Service로 보낸다. 같은 포트에 worker용 `/internal`도 있고, `/` Prefix는 `/internal`까지 맞는다. 그래서 chart는 `/` 앞에 `/internal`(Prefix) 규칙을 두고, 그 규칙은 api가 아니라 annotation `alb.ingress.kubernetes.io/actions.block-internal`의 fixed-response(404, `text/plain`)로 보낸다. AWS Load Balancer Controller는 긴 Prefix를 짧은 Prefix보다 먼저 평가하므로 `/internal`과 그 아래 경로는 ALB가 404로 답한다. `render-check`가 이 규칙이 `/`보다 앞에 있는지, 404 action을 가리키는지, 나머지 경로가 api Service의 `http`(3000) 포트로 가는지 검사한다.
+
+이 규칙은 ALB에서만 효과가 있다. 다른 controller는 `block-internal`이라는 Service가 없는 경로를 건너뛰고 `/`로 `/internal`을 열 수 있으므로, `ingress.className`이 `alb`가 아니면 chart가 render를 거부한다. `/internal` 요청을 404 규칙 밖으로 보낼 수 있는 annotation(`alb.ingress.kubernetes.io/`의 `actions.*`·`conditions.*`·`transforms.*`·`group.*`, `kubernetes.io/ingress.class`)이 `ingress.annotations`에 있어도 render를 거부한다. IngressClass의 `IngressClassParams`가 이 Ingress를 다른 Ingress와 같은 group에 넣으면 앞선 Ingress의 규칙이 먼저 평가되므로, 콘솔을 켤 때는 `alb` IngressClass가 group을 강제하지 않는지 확인한다(**AWS 전용**).
+
+**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route한다. ALB path pattern에는 `%`를 쓸 수 없으므로 `/%69nternal/…`처럼 인코딩한 경로는 `/internal` 규칙에 걸리지 않고 `/` 규칙을 타고 api에 닿는다. api는 디코드하지 않은 경로가 `/internal`로 시작할 때만 worker 라우트로 보내고, 인코딩한 변형에는 404 `NOT_FOUND`로 답한다. 이 동작이 들어간 api 이미지를 쓸 때만 `ingress.console.enabled`를 켠다.
+
+dot segment(`/x/../internal/…`, `/%2e/internal/…`)와 역슬래시(`/internal\…`, `/x/..\internal/…`)는 Bun이 요청을 api에 넘기기 전에 `/internal/…`로 정리하므로, api는 이 경로를 그냥 `/internal/…`과 구분하지 못한다. 이 경로를 막는 것은 ALB다. ALB는 URI를 정규화한 뒤 규칙을 평가하지만, 문서에는 무엇을 정규화하는지 나와 있지 않다. 그래서 콘솔을 켠 뒤에는 내부망에서 아래 요청을 보내 확인한다(**AWS 전용**). `/%69nternal/x`는 api의 404(`application/json`)가 기대값이다(ALB가 이것까지 정규화해 `text/plain` 404로 답해도 안전하다). 나머지 경로는 모두 ALB의 404(`text/plain`)가 기대값이다. api의 `/internal` 라우트는 상태와 상관없이 `application/json`으로 답한다. 그래서 dot segment나 역슬래시 경로에 `application/json` 응답이 오면 ALB가 그 경로를 api로 보낸 것이므로 콘솔을 다시 끈다(ALB가 400 같은 자기 오류로 거절하는 것은 안전하다).
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+켤 때는 설치별 파일에 다음을 둔다. 끄면 `/`와 `/internal` 규칙이 함께 빠지고 `/v1`·`/docs`·`/healthz`·`/readyz`는 그대로다.
+
+```yaml
+ingress:
+  className: alb
+  console:
+    enabled: true
+```
+
+적용 뒤 내부망에서 확인한다(**AWS 전용**). `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/`는 200이다. `curl -si -X POST https://<host>/internal/worker/x`는 404이고, 응답 헤더가 `content-type: text/plain`이며 api가 붙이는 `x-request-id`가 없어야 한다. api의 404는 `application/json`에 `x-request-id`가 붙으므로, 상태 코드만으로는 ALB가 막았는지 알 수 없다.
+
+```bash
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # render only
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # render only
+helm upgrade --install werft deploy/helm/werft \
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # requires AWS resources
+```
+
+## 확인
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+선택한 경로에서 `/readyz`, `/docs`, `/docs/scalar.js`와 콘솔을 확인한다. 인증한 이벤트 스트림은 `curl -sSN --max-time 5`로 내용이 오는지 보고, 제한 시간 종료는 지속 연결을 관찰한 결과와 구분한다. allowlist 밖에서는 차단돼야 한다. 로그인 cookie와 변경 요청의 Origin 검사도 확인한다. 실제 내부 DNS·VPN·AWS ALB 경로는 이 문서의 로컬 확인으로 증명되지 않는다.
+
+## 자주 막히는 곳
+
+TLS 인증서가 신뢰되지 않으면 브라우저가 연결을 차단한다. Host를 upstream 값으로 바꾸면 콘솔 변경 요청이 거부된다. ALB 정규화 시험에서 내부 경로가 API로 전달되면 콘솔 Ingress를 즉시 끈다.
+
+## 되돌리기
+
+터널은 그 터미널에서 종료한다. reverse proxy의 이번 설정을 백업본으로 되돌린다. Kubernetes는 설치별 values의 `ingress.console.enabled`를 false로 되돌려 적용하고 `/internal`과 authorizer가 외부에 열리지 않았는지 확인한다.
+
+## 다음에 읽을 곳
+
+[첫 owner와 key](/run-server/self-hosting/users-and-keys).

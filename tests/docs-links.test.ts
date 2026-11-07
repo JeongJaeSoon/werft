@@ -453,7 +453,7 @@ describe("Operator settings", () => {
   test("every setting the code reads is in docs/operator/", () => {
     const operator = [
       ...scan("docs/operator/*.md"),
-      ...scan("apps/docs/content/docs/run-server/self-hosting/operate/*.mdx"),
+      ...scan("apps/docs/content/docs/run-server/self-hosting/**/*.mdx"),
     ]
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");
@@ -477,7 +477,7 @@ describe("Operator settings", () => {
   test("every value compose or a script takes from the shell is in docs/", () => {
     const docs = [
       ...scan("docs/**/*.md"),
-      ...scan("apps/docs/content/docs/run-server/self-hosting/operate/*.mdx"),
+      ...scan("apps/docs/content/docs/run-server/self-hosting/**/*.mdx"),
     ]
       .map((file) => readFileSync(join(root, file), "utf8"))
       .join("\n");

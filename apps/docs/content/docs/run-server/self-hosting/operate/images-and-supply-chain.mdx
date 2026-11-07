@@ -1,285 +1,74 @@
 ---
-title: "이미지와 공급망"
-description: 앱 이미지 셋과 Compose apps profile, 게시와 릴리스 manifest, worker 이미지 업그레이드·롤백, 공급망 취약점 정책
+title: "이미지와 공급망: 이전 문서 안내"
+description: "목적별로 나눈 새 문서로 이동한다"
 ---
 
-앱 이미지 셋과 compose `apps` profile, worker 이미지의 업그레이드·롤백, 공급망 취약점 정책을 적는다. 이미지를 빌드·게시하는 workflow는 [ci.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/ci.md)에 있다.
-
-## 이미지와 Compose `apps` profile
-
-앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다. 셋 다 저장소 루트를 context로 `oven/bun:1.3.14`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다.
-
-게시하는 target은 `release`이고 Dockerfile의 마지막 stage라 기본 target이다. images.yml이 `target: release`로 빌드한다. 게시 이미지에는 테스트 소스(`*.test.ts(x)`, `*.stories.*`, `src/testing`, `src/test-support`, `__fixtures__`, `bench`), `apps/storybook`, `packages/testkit`, 데모 계정 CLI(`demo-accounts.ts`·`demo-data.ts`)가 없다. 설치(`bun install --frozen-lockfile`)가 끝난 뒤 `scripts/image-prune.sh --delete`가 지우므로 workspace manifest는 그대로 고정된다. `image-smoke.sh`가 이미지를 열어 같은 목록과 이름 목록을 세고, 하나라도 있으면 실패한다. control-host에는 `local` target이 따로 있다. `release`에 testkit과 데모 CLI를 다시 얹은 것이고, 게시하지 않는다. `scripts/local.sh`(compose)와 `deploy/kind/up.sh`가 이 target으로 빌드한다. 게시 이미지에서 `DEMO_ACCOUNTS=local`로 데모 CLI를 부르면 파일이 없어 `Module not found`로 실패한다.
-
-digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-25 기준 `oven/bun:1.3.14`의 마지막 빌드는 2026-05-13이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다. Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
-
-| 이미지 | 내용 | 실행 주체 |
-|---|---|---|
-| `werft-control-host` | `apps/control-host` 실행물 하나로 api·scheduler·reconciler role을 모두 돌린다. `--filter`로 그 앱의 closure만 설치하며 Agent SDK·Claude Code executable을 담지 않는다(빌드가 `node_modules/@anthropic-ai` 부재를 확인). 기본 uid 1000, scheduler role만 compose `user: "0:0"`로 root가 되어 Docker socket을 쥔다 | `bun run apps/control-host/src/main.ts <role>` (CMD 기본은 `api`) |
-| `werft-worker` | `--filter ./apps/worker`로 worker와 그것이 의존하는 workspace의 closure만 설치한다(pg·drizzle·웹 콘솔 패키지는 없다). SDK 0.3.270과 번들 Claude Code 2.1.270, git, non-root(uid 1000), `/workspace`를 1000 소유로 미리 생성(LocalDockerBackend의 volume 계약). 빌드 시 `resolvePinnedClaudeExecutable()`로 executable 경로를 확정해 `/usr/local/bin/claude`로 걸고 `claude --version`을 실행한다 | `bun run apps/worker/src/main.ts` — scheduler가 env로 넘긴 bootstrap identity로 세션 하나를 claim하고 WorkerHost 루프를 돈다 |
-| (scheduler role) | Docker socket을 mount하는 유일한 서비스이며 root로 실행한다(socket 소유자는 어차피 daemon host의 root와 같고, socket gid는 daemon마다 달라 고정 uid가 이식성을 깎기만 한다) | compose에서는 감독 루프(`main.ts scheduler`)가 `SCHEDULER_INTERVAL_SEC`(기본 5초)마다 자식 프로세스(`--serve`)에 pass 하나를 요청한다. 실패하거나 kill된 pass는 자식과 함께 끝나고 다음 pass는 새 자식에서 돈다([실행](/run-server/self-hosting/operate/execution)). 실패 pass가 `SCHEDULER_MAX_CONSECUTIVE_FAILURES`(3)번 이어지면(degraded exit 76은 세지 않는다) 루프가 exit 1 해 `restart: unless-stopped`가 재시작하고(`compose ps`에 드러남), `SCHEDULER_HEALTH_STALE_SEC`(200초) 동안 완료 pass(성공 또는 degraded)가 없으면 healthcheck(`main.ts scheduler --health`)가 unhealthy가 된다. DB가 멈추면 pass가 스스로 exit 1로 끝난다: scheduler·reconciler pool은 API와 같은 timeout(connect 5초·statement 10초·read 20초, `packages/db/src/pool.ts`의 `JOB_POOL_TIMEOUTS`)을 쓰고, 연결을 한 번 잃은 뒤의 store 호출은 기다리지 않고 바로 실패하므로 DB 대기는 실패한 statement(5+20초)와 pass lock 해제(20초)를 합친 약 45초가 상한이다(실측: pass 전 정지 5초, pass 중 정지 약 40초). `SCHEDULER_PASS_TIMEOUT_SEC`(180초)는 이 45초와 worker 정지 한 번(stop timeout 120초 + request timeout 30초)보다 크게 두는 바깥 watchdog이며, 그 밖의 hang을 kill해 실패로 센다(unhealthy만으로는 Docker가 재시작하지 않는다). pool timeout을 늘리면 이 값도 `connect + 2 × read`보다 크게 올린다 |
-| `werft-egress-proxy` | `apps/egress-proxy`의 소스만(의존성 없음, 한 stage). 코드는 root 소유로 두고 uid 1000으로 실행해 proxy가 다음 기동의 코드를 고치지 못한다 | `bun run src/main.ts` — compose `egress-proxy`, 모든 worker 네트워크에 붙는 유일한 바깥 경로 |
-
-```bash
-docker compose -f infra/compose.yml --profile worker build          # WORKER_IMAGE(werft-worker:dev)
-docker compose -f infra/compose.yml --profile worker run --rm worker claude --version
-docker compose -f infra/compose.yml --profile apps up -d --build      # migrate → api(/readyz) → worker image smoke → scheduler loop, reconciler loop
-curl -s http://127.0.0.1:3000/readyz
-```
-
-compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.restore.yml`이다.
-`apps` profile의 값은 전부 기본값이 있어 환경 파일 없이 뜬다. 모델 key도 필수가 아니다. 기본 경로는 띄운 뒤 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**에서 넣는 것이다. `scripts/local.sh up`이 가져오는 설정 문서(`tests/fixtures/settings/real-model.json`)는 API 프로세스의 `ANTHROPIC_API_KEY`도 `value_env`로 읽을 수 있고, 셸이나 `.env`에 있으면 그 값을 쓰는 대안이다. 없으면 `up`은 fake로 바꾸지 않고 모델 연결이 없는 채로 뜨며, 연결을 넣기 전까지 그 profile의 세션은 화면 경로를 알리는 오류로 거절된다. overlay 없는 `docker compose`는 설정 문서를 가져오지 않는다. 모델 계정 없이 띄우려면 `scripts/local.sh up --fake-model`로 fake 설정 문서를 쓴다. 이때 API 컨테이너에는 key가 넘어가지 않는다. `PLATFORM_SECRET_KEY`는 셸이나 `.env`에 없으면 `up`이 만들어 프로젝트별로 간직한다. `DATABASE_URL`만은 예외로 항상 compose의 postgres를 가리킨다 — `up`이 migrate를 실행하므로 셸이나 환경 파일에 있는 다른 DSN이 로컬 스택 기동만으로 migrate되면 안 된다. `AUTH_MODE` 기본값은 `api-key`다 — 워커가 proxy 경유로 `api:3000`에 닿으므로 `none`이면 워커 안의 코드가 `X-Owner-Id`로 아무 owner 행세를 할 수 있다(`/internal` 워커 라우트는 자체 인증). 키는 `bun run keys create <owner> --scopes …`(compose `api` 컨테이너 안에서 key CLI를 실행)로 발급한다. 발급한 key의 id는 stderr에 `key_id <uuid>`로 나온다(stdout은 평문 key 한 줄 그대로다). 폐기는 `bun run keys revoke <key_id>`다. 폐기된 key는 다음 요청부터 401을 받고, 열려 있던 SSE는 keepalive 주기 안에 끊긴다. 같은 owner가 진행 중인 작업은 취소하지 않는다. 세션의 실행 권한을 거두는 것은 별도 운영 명령 `bun run grants revoke <session_id> --reason <text>`다([세션 실행 권한 회수와 복구](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#세션-실행-권한-회수와-복구)). 이 명령은 한 transaction 안에서 auth_revision과 epoch를 올리고, worker token을 폐기하고, kill intent를 남기고, dispatch를 차단한다. owner의 resume과 start_fresh도 거부된다(403). 차단은 `bun run grants restore <session_id> --reason <text>`로만 풀리며, 풀 수 있는 시점은 이전 execution이 사라진 것이 확인된 뒤다. API 포트는 `127.0.0.1:3000`에만 바인드한다. `EXECUTION_WORKSPACE_QUOTA`는 compose에서 기본 `off`다 — Docker Desktop은 project quota를 감당하지 못하므로 로컬 스택은 무제한 workspace를 감수하고 scheduler pass마다 경고 1건이 남는다; xfs+prjquota daemon이면 `on`으로 되돌린다. 나머지 값은 `.env` 없이 뜬다. `.env`가 있으면 읽되(`required: false`) 만들거나 덮어쓰지 않는다. `secrets`(API 전용 Secrets Manager, 호스트 `127.0.0.1:4567`)와 `fake-messages`는 `infra/compose.fake-model.yml`을 얹을 때만 뜬다. `secret_id`를 읽는 설정 문서가 fake 문서뿐이어서다. worker 컨테이너는 compose 서비스가 아니라 scheduler가 세션마다 띄운다. compose의 `worker` 항목은 그 이미지를 빌드하고 `claude --version`으로 한 번 확인한 뒤 끝나는 one-shot이다(`network_mode: none`). scheduler가 이것의 성공을 기다리므로 `apps` profile의 `up`이 worker 이미지까지 빌드한다. 워커는 forward proxy로 `api:3000`(`EGRESS_PRIVATE_ALLOWLIST` 기본값)에만 닿고, `fake-git:3000`·`fake-messages:4010`·`localstack:4566`에는 credential route로만 닿는다(`secrets`에는 닿지 않는다). 직접 연결과 metadata 주소는 internal 네트워크가 막는다.
-
-같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
-
-`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 `linux/amd64`와 `linux/arm64`로, 아키텍처마다 그 아키텍처의 runner에서 빌드한다. worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>-<arch>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다(릴리스 준비 PR을 머지하는 릴리스도 그 머지의 `main` push run 안에서 일어난다. [릴리스 준비 PR을 머지해 릴리스](#저장소-관리자-릴리스-준비-pr을-머지해-릴리스)). `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`index`·`promote` job이 `ghcr.io/jeongjaesoon/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 세 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지·아키텍처마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시킨다. `sources`는 여섯 이미지의 Debian 소스가 snapshot.debian.org에 있는지 묻는다. package write도 environment도 없다. `index`는 이미지마다 두 digest를 index 하나로 묶어 run 전용 staging tag에 올리고, index가 정확히 그 두 digest를 가리키는지 확인한다. `promote`는 세 index가 준비된 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged index digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish·index job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 담는 소비자용 기록은 태그의 GitHub Release에 붙는 [`release-manifest.json`](#릴리스-manifest-읽기)이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
-
-### main 머지마다 게시되는 이미지
-
-`main` push run의 `publish-main`·`index-main`·`promote-main` job이 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `<12>`는 commit SHA의 앞 12자다. namespace는 `github.repository_owner`에서 나온다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
-
-- **검사.** 이 job들과 `sources-main`은 태그 경로의 `publish`·`sources`·`index`·`promote`와 같은 step을 돈다. `build`와 `supply-chain`이 통과한 뒤 이미지·아키텍처마다 다시 빌드해 run 전용 staging tag로 push하고, 그 digest로 smoke, 라이선스 대조, Grype 검사를 돌린다. 여섯 digest가 모두 통과하고 `sources-main`이 끝나야 index를 묶어 `main-<12>`로 retag한다(재빌드 없음). `release` 승인은 받지 않는다. 머지가 리뷰이기 때문이다.
-- **`main-<12>`는 digest로 쓴다.** 태그는 commit을 찾는 데만 쓰고, 배포에는 `name@sha256:…`를 적는다. 움직이는 태그는 없다. `sha-<12>`는 `v*` 게시의 태그이고 main 게시는 쓰지 않는다.
-- **digest를 읽는다.** 공개 패키지는 GitHub 로그인 없이 태그에서 읽는다. 세 태그는 저장소별로 차례로 쓰이므로, 세 조회가 모두 성공해야 한 세트다.
-
-```bash
-TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # from a checkout of the commit to deploy
-for app in control-host worker egress-proxy; do
-  digest="$(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{.Manifest.Digest}}')"
-  echo "werft-${app}@${digest}"
-done
-```
-
-이 digest는 두 아키텍처를 담는 index의 digest다. `main` 머지는 Release를 만들지 않는다. 릴리스(`v*` 태그)의 세 digest는 [릴리스 manifest](#릴리스-manifest-읽기)에서 읽는다.
-
-- **덮어쓰지 않는다.** 쓰기 전에 세 태그를 모두 조회해, 태그가 이미 다른 digest를 가리키면 아무 태그도 쓰지 않고 실패한다. 같은 digest면 재실행으로 보고 통과한다. 조회가 "없음" 외의 이유로 실패하면 중단한다. 같은 run을 전체 재실행하면 다시 빌드하므로 digest가 달라질 수 있고, 그때는 거부되어 먼저 올린 이미지가 그대로 남는다. 세트가 반만 태그됐을 때는 staged artifact가 남아 있는 동안 "Re-run failed jobs"로 같은 digest를 채운다.
-- **`main-<12>`는 릴리스가 아니다.** 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. `sources-main`은 여섯 이미지의 소스를 합쳐 한 번만 묻고, 답을 못 받은 소스를 10분까지 다시 묻는다. 그래도 답하지 않은 소스는 경고로 넘기고, 그 목록을 run의 job summary와 `image-digests-published` JSON의 `unverifiedSources`에 남긴다. 빈 배열은 모두 확인됐다는 뜻이고, 필드가 없는 옛 JSON은 기록이 없다는 뜻이다. 답하지 않은 소스가 실제로 없을 가능성은 남는다. 공식 릴리스(`v*` 태그)는 모든 소스의 보관을 확인해야 게시된다. `sources`는 30분까지 묻고, 그래도 남으면 실패한다. 이때는 서비스가 돌아온 뒤 "Re-run failed jobs"로 그 job만 다시 돌린다. 같은 run의 앞선 시도가 확인한 소스는 `held-sources-*` artifact로 이어받아 다시 묻지 않는다(artifact 저장·복원에 성공했을 때). 서비스가 새로 답하는 만큼 재실행마다 남는 소스가 줄어든다. 판정은 그대로 엄격하다.
-- **게시되지 않는 commit이 있다.** 재검사에서 수정판 있는 high·critical이 나오거나, 취약점 검사가 답을 못 받거나, snapshot.debian.org가 소스가 없다고 답하면 그 commit은 게시되지 않고 Images run이 빨갛게 끝난다. 필수 check는 아니므로 머지는 막지 않고, 다음 머지가 새 세트를 올린다. 머지가 1초 안에 이어져 한 push로 묶인 commit은 run이 없어서 태그도 없다.
-- **아키텍처.** 태그 경로와 같이 `linux/amd64`와 `linux/arm64`를 담는 index로 게시한다. 두 아키텍처가 모두 smoke, 라이선스 대조, Grype 검사를 통과해야 하고, 한쪽이 실패하면 그 commit은 게시되지 않는다. 이 방식 이전의 `main-<12>`는 `linux/amd64`뿐이다.
-- **받기.** index의 digest로 받으면 Docker가 호스트의 아키텍처를 고른다. 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
-
-```bash
-docker pull "ghcr.io/jeongjaesoon/werft-worker@<digest read above>"
-```
-
-### 저장소 관리자: `v*` 태그로 게시
-
-이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [단일 서버 설치](/run-server/self-hosting/single-server)나 [Kubernetes 설치](/run-server/self-hosting/kubernetes)에서 게시된 이미지를 쓴다.
-
-이 경로는 `v0.1.0`으로 처음 실행됐다. [Images run 42163099605](https://github.com/JeongJaeSoon/werft/actions/runs/42163099605)는 `sources`, `publish`(6개), `index`, `promote`, `chart`, `chart-publish`, `release`가 모두 success였고 `release` environment 승인은 4회였다. 승인을 `publish` 앞 한 번으로 줄인 변경([JeongJaeSoon/werft#1275](https://github.com/JeongJaeSoon/werft/pull/1275)) 뒤의 태그 run은 아직 없다.
-
-1. `main`의 검증된 commit에 `vX.Y.Z` 또는 `vX.Y.Z-<프리릴리스>` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다. 다른 꼴의 태그(`v1`, `v1.2.3+build`)는 이미지만 나가고 `chart` job에서 실패한다.
-2. `publish` job이 `release` environment 승인을 받고, 이어서 `index`·`promote`·`chart-publish`가 승인 없이 끝나는지 본다. 승인은 `publish` 앞에서 한 번만 요청된다. 뒤 job은 `publish`가 성공해야 돌므로 그 승인이 모두를 지킨다. `publish`와 `index` 사이의 `sources`는 30분까지 걸릴 수 있다.
-3. `chart-publish`가 끝나면 `release` job이 태그의 GitHub Release를 만들고 `release-manifest.json`을 붙인다. 이 job은 승인을 따로 받지 않는다. `publish` 앞의 승인이 이미 지났고, `contents: write`는 이 job만 가진다. Release는 draft로 만들어 manifest를 올리고 다시 읽어 본 뒤에야 공개한다. 본문은 GitHub이 자동 생성한 노트(`.github/release.yml`로 분류)이고, 맨 앞에 manifest 안내 한 줄이 붙는다. 보안과 운영자가 할 일은 자동 노트에 없으니 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에 쓴 뒤 태그를 만든다. [릴리스 manifest 읽기](#릴리스-manifest-읽기)의 명령으로 digest와 chart 버전을 확인한다.
-4. 같은 태그를 "Re-run failed jobs"로 다시 돌려도 안전하다. 이미 붙은 manifest와 내용이 같으면 통과하고, 다르면 실패하며 덮어쓰지 않는다. Release 생성이나 업로드가 중간에 끊겼으면 같은 방법으로 마저 채운다. 이미지가 같은 태그로 다시 빌드돼 digest가 달라지는 경우는 `promote`가 먼저 거부한다.
-
-릴리스 뒤에는 `Chart.yaml`의 `version`을 다음 버전으로 올린다. `main` chart 버전은 이 값 뒤에 붙으므로, 그래야 프리릴리스가 방금 낸 릴리스보다 뒤로 정렬된다.
-
-### 저장소 관리자: 릴리스 준비 PR을 머지해 릴리스
-
-태그를 직접 만들지 않는 경로다. 변경 기록의 `## 미출시` 내용을 새 `## vX.Y.Z` 절로 옮기는 PR을 머지하면, 그 머지의 `main` push `Images` run이 이어서 릴리스한다. 사람이 하는 일은 `release` 승인 한 번이다. 이 경로는 아직 실행된 적이 없다. 첫 실측은 다음 릴리스에서 한다.
-
-1. 릴리스 준비 PR에서 `CHANGELOG.md`의 `## 미출시` 아래 내용을 새 `## vX.Y.Z` 절로 옮기고(새 `## 미출시`는 위에 둔다) 머지한다. 버전은 이 제목에서 읽는다.
-2. `release-detect`가 push 전후의 `## v…` 제목 집합을 비교한다. 새 제목이 없으면(일반 머지, 제목 이동) 아무것도 하지 않는다. 새 제목이 둘 이상이거나, 이름이 바뀐 제목이거나, 형식이 어긋나거나(`v1.2`, `v1.2.3+build`), 같은 제목이 두 번 있거나, 그 버전의 태그나 Release(draft 포함)가 이미 있거나, 이전 commit이 없는 push·다시 쓴 history면 건너뛰지 않고 run을 실패시킨다.
-3. `release-gate`가 `main` 경로 전체(`chart-publish-main`까지)와 `ci.yml`의 push run이 그 commit에서 초록이 되기를 기다린다(최대 90분). 같은 때 `sources-release`가 Debian source를 하나도 빠짐없이 확인한다. `main` 게시가 경고로 넘기는 미확인 source를 여기서는 실패로 본다.
-4. 둘이 끝나면 `release-approve`가 `release` environment 승인을 요청한다. 이 run에서 승인 요청은 이 하나뿐이다. 승인 전에는 태그도 `vX` 이미지도 chart도 Release도 없다.
-5. 승인 뒤 `promote-release`가 `main`이 이미 빌드하고 smoke와 검사를 마친 **같은 digest**에 `vX`와 `sha-<12>` 태그를 붙이고 읽어 확인한다. `chart-release`와 `chart-publish-release`가 chart를 게시하고, 다 끝난 뒤 `release-tag`가 승인된 commit에 annotated tag를 만든다. 마지막으로 `release-publish`가 manifest를 붙여 Release를 공개한다. `GITHUB_TOKEN`으로 만든 태그는 다른 run을 시작하지 않으므로 같은 버전이 두 번 게시되지 않는다.
-
-| | 사람이 태그를 push | 릴리스 준비 PR 머지 |
-|---|---|---|
-| 이미지 | 태그 run이 다시 빌드해 검사한 digest | `main`이 빌드·smoke·검사한 같은 digest를 승격 |
-| `main-<12>`와 | 다를 수 있다 | 같다 |
-| 승인 | `publish` 앞 한 번 | `release-approve` 한 번 |
-| 태그가 생기는 때 | 사람이 먼저 만든다 | 승인과 게시가 끝난 뒤 마지막 |
-
-두 경로는 따로 돈다. 사람이 태그를 push하는 경로는 위 절차 그대로이고, 여전히 이미지를 다시 빌드한다.
-
-**알아 둘 것.**
-- **이미지에 버전 label이 없다.** 이 pipeline의 이미지는 OCI `version` label을 달지 않는다. 승격한 이미지는 `main` 빌드 그대로이므로 이미지 안에서는 릴리스 버전을 알 수 없다. 버전은 태그, Release, manifest에서 읽는다. label을 달려고 다시 빌드하지 않는다.
-- **provenance·SBOM attestation은 만들지 않는다.** 빌드가 `provenance: false`이고 SBOM도 없어서, 승격 전에 확인할 attestation이 없다. 승격하는 digest에 걸린 보증은 `supply-chain` 판정과 `publish-main`이 게시 digest에 다시 돌린 라이선스·취약점 검사다.
-- **승인을 거절하거나 놓치면.** 거절하거나 30일 안에 누르지 않으면 run이 실패한다. 태그, `vX` 이미지, chart, Release는 만들어지지 않는다. `main-<12>`는 이미 나가 있다. 다시 하려면 이 run을 "Re-run failed jobs"로 승인 job부터 다시 돌린다. 새 승인이 필요하다. 전체 재실행은 하지 않는다.
-- **중간에 실패하면.** `promote-release` 뒤에 실패하면 `vX` 태그가 일부 있을 수 있다. 같은 run의 "Re-run failed jobs"는 `staged-digests` artifact가 남아 있는 동안 이어간다. 같은 digest면 통과하고, 다른 digest를 가리키는 태그는 거부한다. `release-tag`는 이 run이 만든 태그만 자기 것으로 인정하므로, 마지막에 실패해도 같은 run의 재시도가 마친다. 다른 run이 같은 버전의 태그를 만들었으면 거부한다.
-- **릴리스가 겹치면.** 사람 태그 경로와 이 경로가 `images-promote` 잠금을 같이 쓰므로 `vX` 태그의 쓰기는 한 번에 하나다. 같은 버전을 두 번 머지하면 `release-detect`와 `release-tag` 직전 재검사가 두 번째를 거부한다.
-- 태그 생성을 ruleset으로 제한했다면 이 run의 태그도 막힐 수 있다. 첫 실행에서 확인한다.
-
-### 릴리스 manifest 읽기
-
-`v*` 태그마다 GitHub Release가 하나 생기고, 파일 `release-manifest.json`이 붙는다. 운영자는 run이나 artifact를 찾지 않는다. 저장소 checkout도 필요 없고 `gh`와 `jq`면 된다. 첫 Release는 `v0.1.0`이다(asset은 `release-manifest.json`, 기록된 commit은 `9e2098e5`). 아래 `TAG`에 읽으려는 Release의 태그를 넣는다.
-
-```bash
-TAG=v0.1.0   # the release tag to read
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
-jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
-helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
-```
-
-저장소가 공개이므로 `gh` 없이 `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`으로도 받는다. 레지스트리와 대조하려면 digest 하나를 `docker buildx imagetools inspect <이미지>@<digest>`에 넣는다.
-
-| 필드 | 값 |
-|---|---|
-| `schema` | manifest 형식 버전. 지금은 `1` |
-| `tag`, `commit` | 릴리스 태그와 그 commit(40자 hex) |
-| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`. `<app>`은 `control-host`, `worker`, `egress-proxy` |
-| `images.<app>.digest` | 두 아키텍처를 담는 index의 digest. 배포는 이 값으로 고정한다 |
-| `images.<app>.platforms.amd64`, `.arm64` | 그 아키텍처의 manifest digest |
-| `workerRuntime` | worker 이미지가 담은 Claude 실행 환경(`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
-| `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | 같은 run이 게시한 chart. `chart.ref`는 `oci://` 위치 |
-
-값은 `promote`가 레지스트리에서 다시 읽어 확인한 digest와, `chart-publish`가 로그인 없이 읽어 확인한 chart에서 온다. manifest를 만들 때 chart 패키지의 `Chart.yaml`·`values.yaml`이 같은 digest와 버전을 담는지도 대조한다. 한번 붙은 manifest는 바뀌지 않는다. 같은 태그를 다시 돌려 다른 내용이 나오면 job이 실패한다.
-
-설치하는 운영자는 이 manifest에서 [단일 서버 설치](/run-server/self-hosting/single-server)에 넣을 이미지 줄을 얻는다.
-
-### Helm chart 게시
-
-이미지 promote가 끝나면 같은 run이 chart `werft`를 `oci://ghcr.io/jeongjaesoon/werft`로 게시한다. 경로는 `main` push(`chart-main`, `chart-publish-main`)와 `v*` 태그 push(`chart`, `chart-publish`) 둘이고 step은 같다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
-
-- **버전.** 태그 `v1.2.3`은 chart `1.2.3`, appVersion `v1.2.3`이다. `main`은 `<Chart.yaml version>-main-<12>`, appVersion `main-<12>`다. `-main.<12>`가 아닌 이유는 12자리가 전부 숫자이고 0으로 시작하면 semver가 아니어서 helm이 거부하기 때문이다.
-- **값.** `.github/scripts/chart-package.ts`가 그 run의 `image-digests-published`에서 세 digest와 worker runtime을 읽어 패키지 안 `values.yaml`에 넣는다. 세 앱이 정확히 한 번씩, 이 commit의 promote된 이미지이고 repository가 chart 기본값과 같아야 한다. 저장소의 `values.yaml`은 그대로다. 같은 값을 `chart` artifact의 `werft-<version>.values.yaml`에도 남긴다. 운영자는 artifact 없이 `helm show values`로 읽는다. digest는 index의 digest다. worker runtime은 아키텍처와 무관한 값이고, 두 아키텍처의 값이 다르면 `index`가 멈춘다. worker 비교는 digest가 아니라 이 값을 보므로, 단일 manifest로 게시된 chart에서 index chart로 올려도 digest 값만 바뀌고 재설치 동작은 그대로다.
-- **검사.** `chart` job은 세 index와 그 아키텍처별 manifest를 로그인 없이 조회하고, 패키지를 amd64 kind에 설치해 `/readyz`와 `/docs`가 200일 때만 패키지를 넘긴다. arm64는 `publish`의 smoke와 이 조회까지 확인하고, kind 설치는 하지 않는다. 빈 설치는 worker를 띄우지 않으므로 worker는 조회까지만 확인한다. package write 권한은 없다. pull request에서는 `helm-chart` job의 `render-check.ts`가 fixture digest로 패키지를 만들어 렌더한다.
-- **게시.** package write는 `chart-publish`·`chart-publish-main`만 가진다. `release` environment 승인은 태그 경로의 `publish` 한 곳에만 있고, `chart-publish`는 그 뒤에서 승인 없이 돈다. `main` 경로에는 승인이 없다. 이미지 게시가 실패한 run에서는 chart 단계가 돌지 않는다.
-- **덮어쓰지 않는다.** `.github/scripts/chart-push.sh`는 같은 버전이 이미 있으면 받아서 풀린 파일을 후보와 비교한다. 같으면 재실행으로 보고 push하지 않고, 다르면 실패한다. 조회가 "없음"을 확인하지 못하면 중단한다. `denied`는 없는 패키지에 ghcr가 줄 수 있는 답이라, 로그인 없는 조회도 `denied`일 때만 없음으로 본다.
-- **읽기 확인.** push 뒤 Helm과 Docker의 로그인 정보를 모두 비운 상태로 받아 후보와 비교하고 `helm show chart`를 찍는다. 패키지가 비공개로 생겼으면 여기서 run이 빨갛게 끝난다. 공개 범위는 패키지 설정에서 저장소 관리자가 바꾼다.
-- **라이선스.** chart는 저장소와 같은 PolyForm Small Business License 1.0.0을 따른다.
-
-### worker 안에서 만든 commit의 작성자
-
-worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=Werft`, `user.email=noreply@werft.invalid`를 둔다. 그래서 Claude가 workspace에서 만든 commit은 저장소나 세션이 따로 정하지 않는 한 author와 committer가 모두 `Werft <noreply@werft.invalid>`다. 이 값이 없으면 git이 commit을 거부하고, Claude는 사용자에게 이름과 주소를 묻는다. `.invalid`는 어디에도 배달되지 않는 예약 도메인이라 실제 사람의 주소와 겹치지 않는다. checkpoint의 내부 commit은 이 값을 쓰지 않는다(`checkpoint@werft.invalid`). 같은 system 설정은 그 뒤에 `include.path=~/.werft/git-identity`를 둔다. 세션 저장소가 콘솔의 작성용 GitHub App을 쓰면 worker가 그 파일에 App bot 계정(`<slug>[bot]`)을 써서 기본값을 덮는다([GitHub 계정 연결](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#github-계정-연결)의 "commit 작성자"). 파일이 없으면 include는 건너뛴다.
-
-system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
-
-### worker 안의 GitHub CLI
-
-worker 이미지에는 GitHub CLI(`gh`, `/usr/local/bin/gh`)가 있다. 세션 안에서 `gh` 명령이 없어 헤매지 않게 하려는 것이고, GitHub에 닿는 경로를 늘리지 않는다. 이미지에 GitHub 로그인이나 token이 없고, `api.github.com`은 egress proxy의 기본 목록 어디에도 없다. 그래서 출하 이미지와 기본 egress 설정에서는 `gh --version`·`gh help`처럼 네트워크를 쓰지 않는 명령만 되고, GitHub를 부르는 명령은 읽기든 쓰기든 실패한다. 로그인이 없으면 `gh`가 요청 전에 `gh auth login` 안내와 함께 exit 4로 끝나고, 세션이 `GH_TOKEN`을 넣어도 proxy가 `api.github.com:443` CONNECT를 `destination is not allowlisted`로 거부해 `Forbidden`으로 끝난다(2026-11-03 fake model 세션에서 확인). 운영자가 `EGRESS_ALLOWLIST`에 `api.github.com:443`을 더하면 이 차단은 사라진다. 그때는 세션이 스스로 가진 token으로 `gh`가 GitHub API를 부를 수 있고, 플랫폼의 push 승인·브랜치 제한은 그 호출에 걸리지 않는다. GitHub 쓰기를 내장 `github` MCP 서버로만 보내려면 이 host를 목록에 넣지 않는다. 버전은 worker Dockerfile의 `GH_VERSION`과 arch별 sha256(릴리스의 checksums 파일 값)으로 고정하고, 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 손으로 올린다. 바이너리 하나가 이미지를 약 38MB 늘린다.
-
-### worker 안의 패키지 도구
-
-출하 worker 이미지에는 Bun(Node 호환 shim 포함)과 engine만 있다. npm·pnpm·yarn·Ruby·Bundler·Go는 없다. 세션에서 이 도구로 의존 패키지를 설치하려면 운영자가 `WORKER_IMAGE`를 이 이미지에서 파생한 이미지로 바꾼다. 파생 이미지는 `/workspace` 외의 `VOLUME`을 선언하지 않아야 하고(실행 기반 문서의 이미지 계약), engine·SDK·CLI 조합을 바꾸지 않아야 한다. 레지스트리 접근은 이미지와 상관없이 egress proxy의 `packages` route로만 된다([실행 기반 § egress](/run-server/self-hosting/operate/execution)). worker가 claim 때 HOME에 npm·Bundler·Go user 설정을 쓰므로 파생 이미지에 레지스트리 설정을 넣을 필요는 없다.
-
-worker가 쓰는 npm 설정은 user 수준이라, 저장소의 `.npmrc`가 `registry=`를 정하면 그쪽이 이긴다. 그 레지스트리 host에는 forward proxy로 닿지 않으므로 설치가 `403`으로 실패한다. 2026-11-01에 파생 이미지에서 `config get registry`로 잰 우선순위는 아래와 같다(저장소 `.npmrc`에 `registry=https://registry.npmjs.org/`, user 설정에 route).
-
-| 도구 | user 설정만 | `npm_config_registry` 환경 변수 | CLI `--registry` | 비고 |
-|---|---|---|---|---|
-| npm 10.9.9 | 저장소 값이 이김 | 환경 변수가 이김 | CLI가 이김 | 저장소 `.npmrc`가 없으면 user 설정(route)을 쓴다 |
-| pnpm 9.15.0 | 저장소 값이 이김 | 환경 변수가 이김 | `config get`은 옵션을 받지 않음 | npm과 같은 순서 |
-| yarn 1.22.22 | npm user 설정을 읽지 않음(`registry.yarnpkg.com`) | 읽지 않음 | CLI가 이김 | `YARN_REGISTRY`가 이김. `registry.yarnpkg.com`은 목록에 없다 |
-
-그래서 저장소가 registry를 고정했으면 세션에서 `npm ci --registry <route>/packages/npm/`처럼 CLI로 덮는다. worker는 engine 환경 변수를 정해진 목록만 넘기므로 `npm_config_registry`를 넣지 않는다. yarn 1은 `--registry` 또는 `YARN_REGISTRY`를 써야 한다.
-
-같은 날 실제 세션(npm 캐시를 비운 상태)에서 설치까지 돌린 결과도 같다. 저장소가 공개 registry를 고정한 프로젝트에서 `npm ci`는 `403 Forbidden - GET https://registry.npmjs.org/...`로 실패했다. `pnpm install`은 저장소 registry로 가면서 route 주소에만 걸린 token을 찾지 못해 `No authorization header was set for the request`로 실패했다. 고정하지 않은 프로젝트의 `npm ci`·`bundle install`은 route로 받았다.
-
-Go는 공식 릴리스 tarball을 checksum으로 고정해 파생 이미지의 `/usr/local/go`에 풀고 `PATH`에 더한다. `GOTOOLCHAIN=local`을 함께 둔다. 그러지 않으면 `go.mod`의 `go` 줄이 이미지보다 새로울 때 Go가 새 툴체인을 받으러 나간다. 사용자는 이미지의 원래 사용자(`USER 1000:1000`)로 되돌린다. local-docker 실행 기반의 worker `/tmp`는 tmpfs 옵션에 `exec`가 없어 Docker가 `noexec`로 올린다. 그래서 `go run`과 `go test`가 `/tmp`에 만든 실행 파일을 띄우지 못하고 `fork/exec /tmp/go-build…: permission denied`로 실패한다(2026-11-02 실측). HOME도 같은 tmpfs라 `go install`이 `~/go/bin`에 둔 파일도 실행되지 않는다. `go test`는 `GOTMPDIR`를 workspace 안의 이미 있는 디렉터리로 지정하면 통과한다. `go run`은 실행 파일을 `GOCACHE`(기본값은 HOME 아래)에서 띄우므로 `GOCACHE`도 workspace로 옮겨야 한다(예: `mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`, 같은 날 실측). 실행 파일은 `go build -o`로 workspace에 만든다.
-
-```dockerfile
-FROM <shipped worker image>
-USER root
-ADD --checksum=sha256:<release sha256> https://go.dev/dl/go<version>.linux-<arch>.tar.gz /tmp/go.tar.gz
-RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
-ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
-USER 1000:1000
-```
-
-2026-11-02에 이 형태의 파생 이미지(go1.27.3)로 실제 GitHub sandbox 세션을 돌렸다. 세션의 사설 저장소에 있는 모듈은 저장소 route로, 공개 모듈은 `packages` route로 받았다([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 "LFS·submodule·Go 모듈" 항목).
-
-출하 이미지의 `bun install`은 user `.npmrc`의 registry와 token으로 metadata를 route에서 받는다. 하지만 tarball은 metadata의 `dist.tarball`에 적힌 `https://registry.npmjs.org/...` 주소로 직접 받으려 해서 forward proxy가 `403`으로 막는다(2026-11-01 실측). npm은 `replace-registry-host` 기본값(`npmjs`)으로 그 host를 설정한 registry로 바꿔 받는다. Bun에는 그런 설정이 없어 지금은 Bun으로 공개 npm 패키지를 설치할 수 없다.
-
-### worker 이미지 업그레이드와 checkpoint 호환
-
-단일 서버(compose) 설치의 [업그레이드](/run-server/self-hosting/upgrade)에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. Kubernetes(helm) 설치에서는 pre-upgrade hook이 같은 판정을 이미지를 실행하지 않고 포인터의 조합으로 한다([Kubernetes 설치 § 업그레이드 전 검사](/run-server/self-hosting/operate/kubernetes-deployment#업그레이드-전-검사)).
-
-worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(upgrade 스크립트의 상태 디렉터리에 `previous-worker` 파일로 둔다). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([설정 레퍼런스 § scheduler·worker 컨테이너·egress 설정](/run-server/self-hosting/operate/configuration#schedulerworker-컨테이너egress-설정)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
-
-SDK를 올리는 릴리스는 예시 설정 문서(`tests/fixtures/settings/`)의 `runtime_version`도 함께 올리고, 운영 설치의 상한은 새 버전으로 저장한다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 같은 릴리스에 새 엔진 조합의 내장 도구 지원 목록(`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`)도 넣는다. 목록이 없는 버전의 상한은 `deny`로 만들 수 없다. 새 목록에 생긴 도구는 각 상한의 새 버전에서 막힌 채 이어지고, `accept_added_tools`로 받아들여야 열린다([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)). Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [Kubernetes 설치 § 업그레이드와 롤백](/run-server/self-hosting/operate/kubernetes-deployment#업그레이드와-롤백)에 있다.
-
-### worker·control-host 롤백과 incremental checkpoint
-
-commit `95b0e7b5`부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 객체만 담은 incremental bundle을 올린다. 그 사슬은 manifest의 `workspace.baseBundles`에 적힌다. manifest `version`은 그대로 2이고, incremental인지는 이 필드가 있는지로만 갈린다. **그 이전 빌드로 롤백하면 이 필드가 있는 checkpoint를 복원하지 못한다.** 이전 빌드의 manifest 스키마는 모르는 키를 거절하기 때문이다.
-
-- **옛 worker 이미지.** 복원할 때 manifest decode가 `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"`로 실패한다. 이 실패는 workspace를 비우거나 bundle을 받기 전에 나므로 반쯤 복원된 workspace는 남지 않는다. 대신 manifest가 고정돼 있어 다시 launch해도 같은 이유로 `worker.failed`가 된다.
-- **옛 control-host.** 복원 계획이 `CHECKPOINT_UNAVAILABLE`로 거절되고, 앞 revision으로 물러나지 않는다. finalize도 incremental manifest를 거절해 pointer가 오르지 않는다. 새 worker와 섞여 있으면 첫 checkpoint처럼 홀로 선 bundle만 commit된다. 옛 GC는 decode되지 않는 세션을 건너뛰므로 base bundle을 지우지는 않는다.
-- **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
-- **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_WORKSPACE_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
-
-### control-host 롤백 하한: release 도구로 실행
-
-커밋 `756f0a220`부터 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 카드에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 마지막 턴이 끝난 뒤 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 카드가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
-
-- **롤백 하한은 commit `2648f2ac`다.** 도구 목록은 checkpoint의 profile digest에 들어간다. `2648f2ac`부터의 control-host는 claim의 복원 후보에 프로필 도구와 release 도구 두 목록을 모두 넣으므로, `756f0a220`과 `2648f2ac` 사이는 어느 쪽으로 옮겨도 서로의 checkpoint를 복원한다(아래 복원 후보 상한의 예외는 뺀다). 그보다 앞선 빌드로 롤백하면 release 도구로 만든 checkpoint를 복원하지 못하고, 그 세션은 첫 launch 뒤 `recovery_required`(`incompatible_checkpoint`)로 멈춘다. 롤포워드한 뒤 `retry_restore`로 같은 checkpoint를 다시 시도하면 된다. 그래서 `2648f2ac`보다 앞선 빌드에서 `756f0a220`이 든 빌드로 바로 올리지 말고, `2648f2ac` 이상의 빌드를 먼저 배포해 롤백 대상으로 만든다.
-- **좁혀질 release 수.** 배포 전에 읽기 쿼리로 센다. 카드가 프로필 도구를 모두 고른 release도 세므로 상한이다.
-
-```sql
-WITH narrowed AS (
-  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
-  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
-     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
-)
-SELECT
-  (SELECT count(*) FROM narrowed) AS releases,
-  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
-    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
-  (SELECT count(*) FROM agent_releases
-    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
-      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
-                    WHERE jsonb_typeof(t) <> 'string')
-      ELSE true END) AS unreadable;
-```
-
-`unreadable`은 `tools`가 없거나 문자열 배열이 아닌 snapshot이다. 그런 release의 세션은 내장 도구 없이 돈다(허용하지 않는 쪽으로 읽는다). 정상 경로로 만든 release는 늘 문자열 배열 `tools`를 싣는다.
-- **복원 후보 상한.** claim의 복원 후보는 16개까지다(worker 계약). 모든 프로필 목록을 release 목록보다 먼저 넣는다. 실제로 도구가 좁혀지는 release의 세션 중 이전 프로필이 많은 세션(GitHub 설정이 없으면 16개, 있으면 8개 이상)은 두 가지를 잃는다. ① `756f0a220` 뒤에는 현재 프로필의 프로필 목록이 한 칸을 더 써서 가장 오래된 이전 프로필의 후보 하나가 빠진다. 그 후보로만 맞는 checkpoint는 복원이 `incompatible_checkpoint`로 멈추고, 같은 후보 규칙을 쓰는 빌드에서는 다시 시도해도 같다. 그 세션은 `start_fresh`(이전 context를 버림)나 `close`로 끝낸다. ② `2648f2ac`로 롤백하면 그 빌드의 claim은 프로필 목록만으로 상한이 차서 release 도구 후보를 넣지 못하므로, `756f0a220` 뒤 release 도구로 만든 checkpoint를 복원하지 못한다. 이쪽은 롤포워드한 뒤 `retry_restore`로 다시 시도하면 된다.
-
-### worker protocol 필드를 걷어내는 순서
-
-API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미지로 계속 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 그래서 worker protocol의 필드는 받는 쪽이 먼저 그 필드 없이도 받아들이게 바꾸고, 그 릴리스로 모두 교체된 다음에야 보내는 쪽이 필드를 뺀다. 한 릴리스에서 양쪽을 같이 바꾸지 않는다.
-
-| 필드 | 1단계: 받는 쪽이 요구하지 않음 | 2단계: 보내는 쪽이 뺌(1단계 교체가 끝난 뒤) |
-|---|---|---|
-| heartbeat 응답 `auth_revision` | worker가 없는 응답도 받는다 | API가 보내지 않는다. 그 전에 1단계 이전 이미지의 worker가 하나도 남지 않았는지 본다 |
-| append-events 요청 `batch_key` | API가 없는 요청도 받는다(아직 안 함) | worker가 보내지 않는다. 그 전에 1단계 이전 API가 하나도 남지 않았는지 본다 |
-
-2단계를 너무 일찍 배포하면 옛 쪽이 상대의 요청이나 응답을 계약 위반으로 거절한다. worker는 계약에 맞지 않는 heartbeat 응답을 재시도할 수 없는 실패로 보므로, 첫 heartbeat에서 lease를 잃었다고 판단하고 멈춘다.
-
-checkpoint manifest에 필드를 더할 때는 반대로 읽는 쪽이 먼저다. control-host(commit 전 검증·복원 계획·GC)와 worker(복원) 모두 모르는 키를 거절한다. 그래서 control-host를 먼저 올리거나 같은 릴리스로 올리고, worker는 그 뒤에 올린다. 그 필드를 쓴 checkpoint가 생긴 뒤 worker를 롤백하면, 위의 `baseBundles`와 같은 이유로 그 세션은 복원되지 않는다.
-
-| 필드 | 먼저: 읽는 쪽 | 그다음: 쓰는 쪽 |
-|---|---|---|
-| `workerState`(승인 대기 park) | control-host와 worker가 이 키가 있는 manifest를 받는다 | worker가 승인 대기 turn을 park할 때만 쓴다 |
-
-worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저다. API의 worker protocol 요청 schema는 strict라서, 옛 API는 모르는 필드가 실린 요청 전체를 400 `BAD_REQUEST`로 거절한다.
-
-| 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
-|---|---|---|
-| pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
-| bootstrap-claim·pending-control 요청 `capabilities`, register-pending 요청 `remember_offer` | API | 호환 재시도가 없다. 새 worker의 첫 요청인 bootstrap-claim이 400 `BAD_REQUEST`(재시도 불가)로 거절되면 worker는 오류로 끝나고 turn을 하나도 돌리지 않는다. API만 되돌려도 같다. API를 되돌리기 전에 새 worker 이미지를 쓰는 세션이 없는지 본다 |
-
-### DB 스키마를 바꾸는 순서
-
-migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 control-host가 잠시 돌고, 옛 worker 이미지는 지원 창 동안 계속 돈다. 옛 코드가 읽고 쓰는 열·테이블은 그 코드가 모두 사라질 때까지 남아 있어야 한다. 그래서 스키마 변경은 세 릴리스에 나눠 한다. 한 릴리스에서 더하기와 지우기를 같이 하지 않는다.
-
-| 단계 | 하는 일 | 옛 코드가 보는 것 |
-|---|---|---|
-| 1. 확장(expand) | 열·테이블을 더한다. 새 열은 null을 허용하거나 기본값을 둔다. 기본값을 두면 기존 행에서도 그 값이 읽히고, INSERT가 그 열을 빼면 기본값이 들어간다. 명시적 NULL에는 기본값이 적용되지 않아 null 허용 열이면 NULL로 저장되고 NOT NULL 열이면 INSERT가 실패한다. 그래서 기존 행에 맞는 값인지와 옛 코드의 INSERT가 그 열을 어떻게 쓰는지 보고 고른다 | 모르는 열이 생길 뿐이고, 옛 코드의 쓰기는 그 열을 빼고 들어간다 |
-| 2. 전환 | 새 코드가 새 열에도 쓰기 시작한다. 옛 코드가 옛 열에 쓰는 동안에는 옛 열이 기준이다. 새 코드는 두 열에 모두 쓰되 옛 열을 읽는다. 옛 코드의 쓰기를 새 열로 옮기는 장치(trigger 등)가 없으면, 옛 writer가 모두 사라진 뒤 기존 행을 마지막으로 backfill하고 나서 읽기를 새 열로 옮긴다 | 옛 열이 그대로 있어 읽기·쓰기가 계속된다 |
-| 3. 정리(contract) | 옛 열·테이블을 지우거나 NOT NULL·CHECK로 제약을 강화한다. 그 열을 쓰는 이미지가 지원 창 밖으로 나가고, 그 이미지의 worker와 control-host가 실제로 하나도 남지 않은 것을 확인한 다음 릴리스에서 한다. 제약을 강화하기 전에는 기존 행과 지금 도는 모든 writer가 새 제약을 만족하는지 본다 | 그 열을 쓰는 옛 코드가 더는 없다 |
-
-열 이름을 바꾸는 것도 옛 이름을 바로 없애므로 같은 순서를 따른다. 새 열을 더하고, 데이터를 옮기고 코드를 바꾼 뒤, 옛 열을 지운다. `WORKER_IDLE_TIMEOUT_SEC`는 마지막 turn 뒤의 유휴 시간이지 worker 수명의 상한이 아니다. 일하는 worker는 그보다 오래 남을 수 있으니 정리 시점은 시간이 아니라 실제로 남은 컨테이너로 판단한다.
-
-예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다. `0199_worker_image_runtime`(launch의 조합, checkpoint의 digest scheme, `worker_image_refusals` 표)도 1단계다. scheme이 null인 checkpoint는 첫 scheme(1)으로 읽는다.
-
-## 공급망 취약점 정책
-
-**수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.
-
-- **무엇을 보나.** 세 이미지(Grype, Debian 패키지와 `/app`의 npm 패키지)와 `bun.lock` 전체(`bun audit`, dev 의존성 포함)다. "수정판이 있다"는 이미지에서는 Grype의 `fix.state`가 `fixed`인 것이고, npm에서는 GitHub advisory database에서 잠긴 버전을 포함하는 범위에 `first_patched_version`이 있는 것이다. Debian의 `not-fixed`·`wont-fix`와 수정판 없는 npm advisory는 막지 않는다.
-- **어디서 막나.** images.yml의 `supply-chain` job이 판정하고, branch protection의 required check다. PR, main push, 매일 03:17 UTC 실행, 수동 실행, `v*` tag에서 모두 돈다. tag의 `publish`와 main의 `publish-main`은 `supply-chain`을 기다리고, 승격할 digest를 다시 검사해 같은 기준으로 막는다.
-- **검사가 답을 못 받으면.** Grype DB나 advisory 서비스가 응답하지 않은 `error`는 PR과 main push에서 경고만 남긴다. 외부 서비스 장애로 모든 머지가 멈추면 안 되기 때문이다. 매일 실행과 tag에서는 실패한다. main push도 게시는 하지 않는다. `publish-main`이 `supply-chain` 결과를 같은 파일로 다시 판정해 `error`면 실패한다. 이미지가 빌드되지 않아 결과가 아예 없으면 어디서든 실패한다.
-- **보고.** 수정판 없는 high·critical도 각 검사의 step summary(접힌 목록)와 `supply-chain-results` artifact(검사마다 JSON 하나, 항목마다 `fix`가 null)에 남는다. 매일 실행이나 수동 실행이 실패하면 `ci-supply-chain` 라벨 이슈가 열린다.
-- **밤사이 새 advisory.** 수정판이 있는 advisory가 새로 나오면 main을 포함해 모든 PR의 `supply-chain`이 한꺼번에 빨개진다. 의도한 동작이다. 의존성이나 base를 올리는 PR 하나로 푼다. Debian 패키지는 다음 날의 `APT_UPGRADE_KEY`로 새 빌드가 받는다. 당일에 받으려면 수동 실행(`gh workflow run Images`)이 그날 key로 빌드한다.
-- **예외.** 올릴 수 없는 수정(예: `upgrade`가 보류한 Debian 패키지, 코드 경로가 닿지 않는 advisory)은 `.github/vulnerability-exceptions.json`에 `{"id", "package", "reason", "expires"}`로 적는다. `id`는 검사 결과의 `id`(CVE-… 또는 GHSA-…), `package`는 패키지 이름이다. `reason`과 `expires`(YYYY-MM-DD, 그날까지 적용)가 없으면 npm 검사가 `error`가 된다. 만료되면 다시 막는다. 예외는 PR 리뷰를 거친다.
-
-```bash
-bun .github/scripts/npm-audit.ts /tmp/sc && cat /tmp/sc/npm.txt   # the npm verdict, locally
-.github/scripts/supply-chain-verdict.sh /tmp/sc warn              # verdict over the four result files (control-host, worker, egress-proxy, npm)
-```
-
-제3자 고지(`THIRD_PARTY_NOTICES.md`와 이미지마다 `/app/DEBIAN_SOURCES.md`)를 만드는 방법은 [ci.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/ci.md)에 있다.
+이 주소는 이전 링크를 위해 유지한다. [현재 문서](/run-server/self-hosting/build-images)에서 설치·운영 절차를 읽는다.
+
+
+## 이전 주소 안내
+
+<details>
+<summary>이전 절에서 현재 문서 찾기</summary>
+
+<a id="images-and-the-compose-apps-profile" />
+<a id="package-tools-inside-the-worker" />
+<a id="イメージとcompose-apps-profile" />
+<a id="worker内のパッケージツール" />
+<a id="이미지와-compose-apps-profile" />
+<a id="worker-안의-패키지-도구" />
+
+[사용자 registry 이미지 빌드](/run-server/self-hosting/build-images#무엇을-하게-되나)
+
+<a id="images-published-on-every-main-merge" />
+<a id="reading-the-release-manifest" />
+<a id="mainへのマージごとに公開されるイメージ" />
+<a id="リリースmanifestを読む" />
+<a id="main-머지마다-게시되는-이미지" />
+<a id="릴리스-manifest-읽기" />
+
+[배포 패키지 계약](/run-server/self-hosting/reference/packages#계약)
+
+<a id="repository-maintainers-publishing-with-a-v-tag" />
+<a id="repository-maintainers-releasing-by-merging-a-release-prep-pr" />
+<a id="publishing-the-helm-chart" />
+<a id="supply-chain-vulnerability-policy" />
+<a id="リポジトリ管理者-vタグで公開" />
+<a id="リポジトリ管理者-リリース準備prのマージでリリースする" />
+<a id="helm-chartの公開" />
+<a id="サプライチェーンの脆弱性ポリシー" />
+<a id="저장소-관리자-v-태그로-게시" />
+<a id="저장소-관리자-릴리스-준비-pr을-머지해-릴리스" />
+<a id="helm-chart-게시" />
+<a id="공급망-취약점-정책" />
+
+[릴리스 게시와 공급망](/ko/contributing#릴리스-게시와-공급망)
+
+<a id="author-of-commits-made-inside-the-worker" />
+<a id="github-cli-inside-the-worker" />
+<a id="worker内で作ったcommitの作成者" />
+<a id="worker内のgithub-cli" />
+<a id="worker-안에서-만든-commit의-작성자" />
+<a id="worker-안의-github-cli" />
+
+[실행 기반과 격리](/run-server/self-hosting/explanation/isolation#개요)
+
+<a id="worker-image-upgrade-and-checkpoint-compatibility" />
+<a id="worker-and-control-host-rollback-and-incremental-checkpoints" />
+<a id="control-host-rollback-floor-running-with-release-tools" />
+<a id="order-for-removing-worker-protocol-fields" />
+<a id="order-for-changing-the-db-schema" />
+<a id="workerイメージのアップグレードとcheckpointの互換性" />
+<a id="workercontrol-hostのロールバックとincremental-checkpoint" />
+<a id="control-hostのロールバック下限-releaseのツールで実行" />
+<a id="worker-protocolのフィールドを取り除く順序" />
+<a id="dbスキーマを変える順序" />
+<a id="worker-이미지-업그레이드와-checkpoint-호환" />
+<a id="workercontrol-host-롤백과-incremental-checkpoint" />
+<a id="control-host-롤백-하한-release-도구로-실행" />
+<a id="worker-protocol-필드를-걷어내는-순서" />
+<a id="db-스키마를-바꾸는-순서" />
+
+[단일 서버 업그레이드](/run-server/self-hosting/upgrade-compose#실행-전-게이트)
+
+</details>

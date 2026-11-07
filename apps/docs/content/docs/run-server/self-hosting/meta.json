@@ -1,4 +1,35 @@
 {
   "title": "셀프 호스팅",
-  "pages": ["index", "single-server", "kubernetes", "upgrade", "operate"]
+  "pages": [
+    "index",
+    "---운영 설치---",
+    "single-server",
+    "kubernetes",
+    "---시험 설치---",
+    "try-kind",
+    "try-localstack",
+    "---설치 준비---",
+    "prepare-xfs",
+    "prepare-checkpoint-bucket",
+    "access",
+    "users-and-keys",
+    "model-connections",
+    "---운영 작업---",
+    "upgrade-compose",
+    "upgrade-kubernetes",
+    "backup-and-restore",
+    "stop-compose",
+    "remove-kubernetes",
+    "capacity",
+    "diagnose-database",
+    "collect-metrics",
+    "recover-sessions",
+    "migrate-workspaces",
+    "expand-network-pool",
+    "build-images",
+    "---레퍼런스와 설명---",
+    "reference",
+    "explanation",
+    "operate"
+  ]
 }

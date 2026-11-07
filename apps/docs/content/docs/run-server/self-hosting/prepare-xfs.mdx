@@ -1,0 +1,100 @@
+---
+title: "XFS 디스크 준비"
+description: "원본을 보존하며 quota 가능한 Docker 디스크를 준비한다"
+pageId: "P06"
+docType: "작업"
+audience: "Linux 스토리지 담당자"
+outcome: "원본을 보존하며 quota 가능한 Docker 디스크를 준비한다"
+---
+
+## 무엇을 하게 되나
+
+Docker data-root를 XFS prjquota 위에 두어 workspace byte·inode 상한을 강제한다. 기존 디스크·이미지·Docker 데이터는 보존한다.
+
+## 준비물
+
+운영에 사용할 Linux 서버(먼저 별도 시험 서버에서 검증)에서 먼저 실행한다. root 권한, xfsprogs·rsync, 원본 전체를 보관할 공간, 유지보수 시간이 필요하다. `/var/lib/docker.xfs.img`와 `/var/lib/docker.old`가 이미 있으면 아래 생성 절차를 실행하지 않는다. Docker Desktop은 이 설치 경로를 지원하지 않는다.
+
+## 단계
+
+### 1. 현재 상태 확인
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+XFS와 prjquota가 이미 적용됐고 probe가 성공하면 새 이미지 생성은 건너뛴다. quota probe가 실패하면 원인을 해결할 때까지 deploy하지 않는다.
+
+### 2. 기존 경로를 보호하고 이미지 생성
+
+다음 블록은 subshell 안에서 실행한다. 어느 단계든 실패하면 뒤 명령은 실행하지 않는다. 이미지가 이미 있으면 크기 변경이나 mkfs로 재사용하지 않는다. 다른 mount가 있거나 Docker 데이터 루트가 다른 경로이면 이 예시를 적용하지 않고 해당 경로용 이전 계획을 세운다.
+
+```bash
+(
+  set -eu
+  DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}')"
+  test "$DOCKER_ROOT" = /var/lib/docker
+  sudo test ! -L /var/lib/docker
+  sudo test ! -e /var/lib/docker.xfs.img
+  sudo test ! -L /var/lib/docker.xfs.img
+  sudo test ! -e /var/lib/docker.old
+  sudo test ! -L /var/lib/docker.old
+  if mountpoint -q /var/lib/docker; then
+    echo "Docker data-root is already mounted; inspect it before proceeding" >&2
+    exit 1
+  fi
+  sudo apt-get install -y xfsprogs rsync
+  sudo systemctl stop docker docker.socket
+  if sudo test -d /var/lib/docker; then
+    sudo mv /var/lib/docker /var/lib/docker.old
+  fi
+  sudo sh -c 'set -C; : > "$1"' sh /var/lib/docker.xfs.img
+  sudo truncate -s 60G /var/lib/docker.xfs.img
+  sudo mkfs.xfs -q /var/lib/docker.xfs.img
+  sudo mkdir -p /var/lib/docker
+  sudo mount -o loop,prjquota /var/lib/docker.xfs.img /var/lib/docker
+  findmnt -no FSTYPE,OPTIONS /var/lib/docker
+  if sudo test -d /var/lib/docker.old; then
+    sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/
+  fi
+)
+```
+
+60G는 이미지·로그·모든 volume의 합계 천장이다. sparse 파일이지만 호스트에 그만큼의 여유가 있어야 한다. 배포판이 dnf를 쓰면 패키지 설치 명령만 그 배포판에 맞춘다.
+
+### 3. 영구 mount와 Docker 시작
+
+관리자 편집기로 `/etc/fstab`의 기존 내용을 백업한 뒤 아래 항목을 **한 번만** 추가한다. 기존 data-root 항목과 겹치면 추가하지 않는다.
+
+```text
+/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
+```
+
+```bash
+sudo findmnt --verify
+findmnt -no FSTYPE,OPTIONS /var/lib/docker
+sudo systemctl start docker
+```
+
+fstab 검사와 mount 확인이 성공한 뒤에만 Docker를 시작한다.
+
+## 확인
+
+첫 단계의 quota probe를 다시 실행한다. `xfs`·`prjquota`와 probe 성공이 모두 필요하다. `df -h`, `df -i`, `xfs_quota -x -c 'report -p'`로 여유를 확인한다. fstab과 기존 데이터를 rsync로 이전하는 전체 절차는 실제 운영 디스크에서 실행 확인하지 않았다.
+
+## 자주 막히는 곳
+
+기존 이미지·이전 디렉터리가 있으면 즉시 멈추고 내용을 조사한다. 복사 실패나 mount 실패 뒤 Docker를 시작하면 빈 data-root를 사용할 수 있으므로 원인을 해결하기 전 시작하지 않는다.
+
+## 되돌리기
+
+Docker를 새 XFS에서 다시 시작한 뒤 만든 컨테이너·volume·데이터는 `/var/lib/docker.old`에 없다. 원본 디렉터리로 되돌리면 그 변경을 잃으므로 먼저 새 데이터를 별도로 보존하고 복구할 대상을 결정한다. sparse 이미지는 삭제한 데이터만큼 자동으로 줄어들지 않으므로 호스트 파일시스템 여유도 감시한다.
+
+Docker와 socket을 중지한다. 새 XFS가 mount돼 있으면 사용 중인 컨테이너가 없음을 확인한 뒤 unmount하고, 추가한 fstab 항목을 백업본과 대조해 되돌린다. `/var/lib/docker.old`가 원본이다. 원래 경로가 비어 있음을 확인한 뒤 원본을 되돌리고 Docker를 시작한다. 새 이미지나 원본을 삭제하지 말고 기존 컨테이너·volume 목록이 맞는지 확인한다.
+
+원래 데이터 디렉터리가 있었던 설치에서 unmount와 fstab 복원이 끝난 뒤에는 비어 있는 mount 지점만 `sudo rmdir /var/lib/docker`로 제거하고 `sudo mv /var/lib/docker.old /var/lib/docker`로 되돌린다. rmdir가 실패하면 안의 데이터를 지우지 말고 조사한다. 원본이 없었던 새 설치에는 이 이동을 실행하지 않는다.
+
+## 다음에 읽을 곳
+
+[운영용 단일 서버 설치](/run-server/self-hosting/single-server), [저장소와 상한](/run-server/self-hosting/reference/storage).

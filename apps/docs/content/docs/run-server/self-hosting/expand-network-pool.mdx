@@ -1,0 +1,85 @@
+---
+title: "worker 주소 풀 확장"
+description: "다른 설치와 충돌하지 않게 주소 풀을 변경한다"
+pageId: "P20"
+docType: "작업"
+audience: "Docker 네트워크 운영자"
+outcome: "다른 설치와 충돌하지 않게 주소 풀을 변경한다"
+---
+
+## 무엇을 하게 되나
+
+Docker daemon의 worker 네트워크 주소 풀을 다른 설치·LAN·VPN과 겹치지 않게 확장한다.
+
+## 준비물
+
+daemon 관리 권한과 유지보수 시간, 현재 네트워크·설치 id·slot limit 목록이 필요하다. daemon 전역 설정이므로 같은 호스트의 모든 compose project와 협의한다.
+
+## 단계
+
+**주소 풀.** worker 네트워크 하나가 daemon의 `default-address-pools`에서 subnet 하나를 가져간다. Docker 기본 풀은 합쳐서 31개다.
+
+* `172.17.0.0/16`~`172.31.0.0/16`의 /16 15개
+* `192.168.0.0/16`을 /20으로 나눈 16개
+
+이 중 `docker0`와 daemon 위의 다른 네트워크가 먼저 가져간다. 이 저장소의 compose는 `default` 하나를 쓴다. 그래서 기본값에서 worker에게 남는 것은 대략 **30개 − (그 daemon의 다른 네트워크 수)**다.
+
+**slot limit과의 관계.** execution 하나는 네트워크를 하나만 쥔다. 교체(replace)는 이전 generation을 지운 뒤 새 것을 만든다. 그래서 동시에 쓰이는 worker 네트워크 수는 대략 `EXECUTION_SLOT_LIMIT`(기본 10)이다. 다만 풀은 **daemon 전역**이라 같은 daemon의 다른 설치·다른 compose 프로젝트와 나눠 쓴다. 회수에 실패해 남은 네트워크도 slot limit이 세지 않는다. 따라서 기본 풀로는 slot limit 10인 설치 두 개가 한 daemon에 겨우 들어간다.
+
+**풀 넓히기.** 그보다 크게 쓰려면 daemon.json에서 풀을 넓힌다. 예: `{"default-address-pools":[{"base":"10.210.0.0/16","size":24}]}`는 /24 256개다.
+
+* LAN·VPN과 겹치지 않는 대역을 고른다.
+* size를 줄이면(`/28`이면 4096개) 그 daemon에서 자동 할당되는 **다른** 네트워크도 모두 작아진다. /28이면 컨테이너 13개까지다.
+* daemon을 재시작해야 적용되고, 이미 있는 네트워크에는 적용되지 않는다.
+
+**소진 시 동작.** 소진은 조용한 장애가 아니다. 네트워크 create가 `could not find an available, non-overlapping IPv4 address pool`로 실패한다. 그러면 그 launch는 `failedLaunches`로 기록되고 pass는 exit 1로 끝난다. intent는 남아 다음 pass가 다시 시도한다.
+
+**회수는 두 겹이다.**
+
+1. `terminate`: 컨테이너를 지운 뒤 proxy를 떼고 네트워크를 id로 지운다(best effort).
+2. pass의 ②단계 끝, slot을 채우기 전(`reconcileNetworks`): 이 설치 label이 붙은 worker 네트워크를 전부 훑는다.
+   * 이름에 대응하는 컨테이너가 **없으면**(어떤 상태로든) proxy만 떼고 네트워크를 지운다. 컨테이너를 `docker rm -f`로 지운 경우가 여기에 속한다. launch가 아직 살아 있는 execution이면 ①단계가 컨테이너를 먼저 다시 만들었으므로 그 네트워크는 그대로 재사용된다.
+   * 컨테이너가 **있으면** proxy attach를 확인하고, 떨어져 있으면 다시 붙인다. `compose up`이 proxy를 다시 만들면 새 proxy는 어느 worker 네트워크에도 붙어 있지 않다. 그래서 떠 있는 worker의 egress는 다음 pass(`SCHEDULER_INTERVAL_SEC`, 기본 5초)까지 끊긴다.
+
+**회수 실패 시 동작.**
+
+* 살아 있는 네트워크도 매 pass 같은 기준으로 다시 검사한다. 대상은 네트워크 모양, 이름에 대응하는 컨테이너가 이 설치의 그 worker인지, worker·proxy 외 구성원, worker가 다른 네트워크에도 붙었는지다. 교체를 앞두고 미리 만들어 둔 네트워크(아직 옛 컨테이너가 붙지 않은 것)는 문제로 보지 않는다.
+* 구성원은 network inspect가 보여 주는 실행 중 endpoint만이 아니다. 멈췄거나 한 번도 시작하지 않은 컨테이너도 시작하는 순간 붙으므로 함께 센다(`network` 필터로 컨테이너를 조회).
+* 살아 있는 네트워크에 남아도 되는 proxy는 **지금 실행 중인 하나**뿐이다. label이 붙은 다른 proxy(멈춘 이전 proxy 등)는 떼어 내고 `networksRepaired`로 센다. 시작되는 순간 같은 alias로 worker 앞에 다시 설 수 있기 때문이다. 실행 중인 proxy가 둘 이상이면 어느 쪽도 믿을 수 없으므로 label이 붙은 proxy를 모두 떼고 `networksFailed`로 보고한다. 하나도 실행 중이 아니면 보고만 하고 그대로 둔다. 혼자 시작한 proxy가 믿을 대상이기 때문이다. execution label이 없는 worker 네트워크도 proxy를 떼고 보고한다.
+* 모르는 구성원이 붙은 네트워크에서는 그 구성원을 떼어 내지 않는다. 강제로 떼면 흔적이 사라지기 때문이다. 대신 **이 설치의 proxy를 뗀다.** 모르는 컨테이너가 이 설치의 allowlist를 쓰지 못하게 하기 위해서다. 그 네트워크의 worker도 egress를 잃는다. 이런 네트워크는 그대로 두고 `networksFailed`로 보고하며 pass는 exit 1로 끝난다.
+* 목록 조회 자체가 실패하면(`networkScanFailed`) 역시 exit 1이다.
+* 남은 네트워크는 주소 풀을 계속 차지한다. 운영자가 `docker network inspect <name>`으로 구성원을 확인하고 정리한다.
+* proxy가 없으면 preflight에서 종료하므로 이 회수도 돌지 않는다. 대신 새 네트워크도 생기지 않아 누수가 늘지 않고, proxy가 돌아온 뒤 첫 pass가 회수한다.
+
+같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 주고, egress proxy도 설치마다 따로 두어 각자의 id로 label을 단다. worker 네트워크 이름·label에 설치 id가 들어가므로 설치 A의 worker 네트워크에는 A의 proxy만 붙는다. 하나의 proxy를 두 설치가 쓰면 두 설치의 worker가 같은 allowlist를 쓰게 된다.
+
+proxy 코드 교체는 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)를 따른다. 주소 풀 변경 뒤에는 이번 설치의 실행 중 proxy를 status와 project label로 확인하고 그 컨테이너에서 healthcheck를 실행한다. 이 검사는 proxy의 `/healthz`와 credential listener(설정된 경우)의 응답을 확인한다.
+
+source hash는 proxy 소스의 SHA-256이며, `Egress proxy listening` 로그와 `/healthz` 응답의 `ok source=<hex>`에서 읽는다. healthcheck는 이 값을 `/app/src`의 소스와 대조하고, 다르면 실행 중 코드가 현재 소스와 맞지 않는다는 뜻으로 unhealthy를 반환한다. 이미지로 실행하면 두 값은 항상 같고, 소스 트리를 마운트한 채 checkout이 움직였을 때만 불일치가 난다. 이때 새 코드를 실행하려면 egress-proxy 서비스를 재빌드해야 한다. 따라서 이미지 설치에서 이 검사가 주소 풀 변경 후 새 코드 적용까지 증명하는 것은 아니다.
+
+```bash
+PROXY_CONTAINER='<this-installation-egress-proxy-container-id>'
+INSTALLATION_ID='<this-installation-id>'
+docker exec "$PROXY_CONTAINER" bun run /app/src/healthcheck.ts
+docker network ls --filter label=werft.worker-network=true \
+  --filter "label=werft.installation=$INSTALLATION_ID" \
+  --format '{{.Name}} {{.Labels}}'
+```
+
+## 확인
+
+직접 실행한 healthcheck의 실패와 Docker 상태 표시는 시점이 다르다. Compose healthcheck는 연속 실패 12회(약 60초)가 쌓여야 Docker 상태를 unhealthy로 바꾼다.
+
+변경 뒤 새 worker 네트워크가 선택한 대역에서 생성되는지 확인한다. 기존 네트워크는 자동으로 새 풀로 바뀌지 않는다. network inspect로 worker와 이번 설치의 실행 중 proxy만 붙는지 확인하고 scheduler 로그의 networksFailed/networkScanFailed가 없는지 본다.
+
+## 자주 막히는 곳
+
+주소 풀이 고갈되면 create가 실패하고 launch가 재시도된다. slot limit 밖에 남은 네트워크도 풀을 사용한다. 모르는 구성원이 붙은 네트워크는 흔적을 지우지 말고 조사한다.
+
+## 되돌리기
+
+daemon.json의 이번 변경을 백업본으로 되돌려 daemon을 재시작한다. 이미 만들어진 네트워크가 옛 풀로 바뀌지는 않으므로 세션을 안전하게 종료하고 설치 label을 확인한 리소스만 정리한다.
+
+## 다음에 읽을 곳
+
+[실행 기반과 격리](/run-server/self-hosting/explanation/isolation), [용량 계획](/run-server/self-hosting/capacity).

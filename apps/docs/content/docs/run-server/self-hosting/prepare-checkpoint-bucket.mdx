@@ -1,0 +1,71 @@
+---
+title: "checkpoint bucket 준비"
+description: "보호 계약에 맞는 bucket과 최소 권한을 준비한다"
+pageId: "P07"
+docType: "작업"
+audience: "저장소 담당자"
+outcome: "보호 계약에 맞는 bucket과 최소 권한을 준비한다"
+---
+
+## 무엇을 하게 되나
+
+기본 보호 모드 locked를 만족하는 영속 bucket과 API 최소 권한을 준비한다. 공통 계약과 AWS 생성 절차를 구분한다.
+
+## 준비물
+
+bucket 생성 권한과 비용 승인이 필요하다. 설치 하나에 bucket 하나, 복원 훈련마다 별도 빈 bucket 하나를 사용한다. AWS 이외 S3 호환 저장소는 [공통 보호 계약](/run-server/self-hosting/reference/storage#공통-object-store-보호)과 조건부 쓰기·legal hold·version 읽기/삭제가 동작하는지 먼저 확인한다. Compose test-ops의 s3 경로는 AWS endpoint를 사용하며 사용자 endpoint를 받는 범용 설치 경로가 아니다.
+
+## 단계
+
+### 1. 공통 계약
+
+- versioning, Object Lock, 기본 SSE-S3(`AES256`)를 켠다.
+- public access는 모두 차단한다.
+- 기본 retention과 object version을 만료시키는 lifecycle은 두지 않는다.
+- 운영 자격 증명에는 bucket 생성 권한을 주지 않는다.
+
+### 2. AWS bucket 만들기
+
+`BUCKET`은 전역에서 유일한 이름으로 바꾼다. 기존 운영 bucket을 덮어쓰는 절차가 아니다.
+
+```bash
+BUCKET=<unique-bucket>
+AWS_REGION=ap-northeast-1
+aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" \
+  --create-bucket-configuration "LocationConstraint=$AWS_REGION" \
+  --object-lock-enabled-for-bucket
+aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Object Lock을 켜면 versioning도 켜진다.
+
+### 3. 최소 권한과 경로
+
+- API용 IAM 사용자에게는 이 bucket에 `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, `s3:DeleteObjectVersion`, 그리고 bucket 설정을 읽는 `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, `s3:GetEncryptionConfiguration`만 준다. bucket을 만드는 권한은 주지 않는다.
+- object version을 만료시키는 lifecycle rule을 두지 않는다. 조직 정책이 있으면 이 bucket을 제외한다.
+- 복원 훈련은 같은 자격 증명으로 훈련용 bucket에 쓴다. 훈련 bucket 이름을 `<bucket>-drill-*`로 정하고 같은 권한을 그 이름에 준다. 훈련 bucket은 운영자가 자기 권한으로 만든다.
+
+자격 증명은 API와 maintenance 컨테이너에만 간다. worker는 egress proxy를 지나며, 그 요청은 API가 세션 범위로 서명한다. [단일 서버 4단계](/run-server/self-hosting/single-server#4-s3를-명시해-검사설치)의 `TEST_OPS_OBJECT_STORE=s3 preflight`가 업로드, legal hold, version 읽기, hold 해제, scratch version 삭제 왕복을 통과해야 설치할 수 있다.
+
+API용 권한은 bucket의 `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, `s3:GetEncryptionConfiguration`과 객체의 `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, `s3:DeleteObjectVersion`이다. 리소스 ARN은 이 설치 bucket과 허용된 훈련 bucket 범위로 제한한다. `s3:DeleteObject`는 GC에 필요하지 않다.
+
+`EGRESS_CREDENTIAL_ALLOWLIST` 값은 기본값을 통째로 대체하므로 virtual-hosted bucket endpoint를 넣을 때 provider와 패키지 registry, Git host 등 필요한 항목을 모두 다시 적는다. 점이 든 bucket은 리전의 path-style endpoint를 쓴다. worker에 AWS key를 전달하지 않는다.
+
+## 확인
+
+단일 서버는 S3를 명시한 preflight가 scratch 객체의 create-only put → hold → hold 확인/version 읽기 → hold 해제 → version 삭제를 모두 성공해야 한다. bucket 설정을 읽는 API 기동 검사만으로 쓰기·hold·삭제 권한을 대신 증명하지 않는다. AWS 생성 절차와 실제 S3 운영 설치는 실행 확인하지 않았다.
+
+## 자주 막히는 곳
+
+기본 retention은 scratch 삭제와 checkpoint GC를 막는다. 암호화·versioning·Object Lock 중 하나가 없으면 API가 기동을 거부한다. allowlist endpoint가 다르면 worker가 checkpoint를 저장하지 못한다.
+
+## 되돌리기
+
+기존 운영 bucket을 삭제하거나 hold를 일괄 해제하지 않는다. 이번에 만든 빈 시험 bucket만 객체 version과 delete marker가 없음을 확인하고 조직의 저장소 정리 절차로 제거한다. 보존 데이터가 있으면 [복원 훈련](/run-server/self-hosting/backup-and-restore)을 먼저 수행한다.
+
+## 다음에 읽을 곳
+
+[단일 서버 설치](/run-server/self-hosting/single-server) 또는 [Kubernetes 설치](/run-server/self-hosting/kubernetes).

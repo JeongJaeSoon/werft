@@ -1,0 +1,176 @@
+---
+title: "단일 서버 업그레이드"
+description: "호환성과 백업을 확인하고 새 release를 적용한다"
+pageId: "P11"
+docType: "작업"
+audience: "Compose 운영자"
+outcome: "호환성과 백업을 확인하고 새 release를 적용한다"
+---
+
+## 무엇을 하게 되나
+
+백업과 호환성 검사를 거쳐 Compose 설치를 새 release로 올린다. checkpoint를 잃는 승인은 영향 세션을 정확히 확인한 뒤에만 한다.
+
+## 준비물
+
+[변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에서 대상 버전의 운영자 작업을 먼저 읽는다.
+
+현재와 대상의 source commit·release 입력·settings digest·이미지 digest가 필요하다. 최근 성공 백업과 복원 훈련을 확인하고 사용자에게 중단을 알린다. 이 Compose 업그레이드는 게시 이미지로 전체 실행 확인하지 않았다.
+
+[공통 실행 전 게이트](#실행-전-게이트)를 먼저 확인한다. LocalStack 시험 설치는 첫 restart policy 변경으로 컨테이너가 재생성되면 checkpoint 객체를 잃을 수 있다. `status`의 미수거 checkpoint 수가 0인지 확인할 수 없거나 0이 아니면 업그레이드를 미룬다. API가 기동 실패하고 `pending.json`까지 남으면 reseed로 우회할 수 없다. 이때 남은 탈출 수단인 `reset`은 데이터를 모두 버리므로 백업 복원 가능성을 먼저 판단한다. `backup --stop`도 이 차단을 해제하지 않는다.
+
+## 단계
+
+### 1. 대상 입력과 백업
+
+[패키지 계약](/run-server/self-hosting/reference/packages)에서 대상 태그를 고르고 [설치의 release 생성](/run-server/self-hosting/single-server#3-release-입력-생성)과 같은 방식으로 checkout 밖에 release-new.json을 만든다. 생성 전에 대상 source commit을 checkout하고 `bun install --frozen-lockfile`을 실행한다. release의 `source_commit`은 이 checkout의 HEAD여야 한다. 먼저 [백업](/run-server/self-hosting/backup-and-restore)을 수행한다.
+
+### 2. API → proxy → worker 순서
+
+protocol 또는 [실행 전 게이트](#실행-전-게이트)의 필드 변경이 있으면 한 번에 모든 이미지를 바꾸지 않는다. 먼저 새 source commit으로 checkout하고 의존성을 설치한 뒤, 대상 release에서 control_host만 새 이미지로 바꾸고 worker와 egress_proxy는 현재 이미지를 유지한 중간 release 파일을 만든다. 동일한 settings digest와 source_commit 조건을 지킨다. 이 중간 release로 upgrade한 뒤 API가 ready이고 모든 API 인스턴스가 새 버전임을 확인한다.
+
+그 다음 egress proxy와 worker를 대상 digest로 바꾼 최종 release로 upgrade한다. 이 순서가 API보다 proxy·worker가 먼저 새 필드를 보내는 것을 막는다. test-ops 설치는 중간·최종 release 입력을 각각 `scripts/test-ops.sh upgrade`로 적용한다.
+
+### 3. upgrade와 영향 세션
+
+1단계에서 대상 source commit과 digest로 만든 `release-new.json`을 사용해 `upgrade`를 부른다. worker 이미지가 바뀌었으면 새 이미지로 현재 checkpoint를 검사하고, 호환되지 않는 세션이 있으면 종료 코드 3으로 거부한다. 이때 영향을 받는 세션 id가 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적힌다. 목록을 검토하고 사용자에게 알린 뒤, 정확히 그 id를 담은 파일로 `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt`를 다시 부른다. 목록이 하나라도 다르면 거부하고, 진행하면 승인 기록을 상태 디렉터리에 남긴다. 호환되지 않는 세션을 `start_fresh`로 복구하면 이전 checkpoint의 context를 잃는다. 영향받는 세션이 없으면 승인 없이 진행한다.
+
+업그레이드 직전에 [백업](/run-server/self-hosting/backup-and-restore)을 한 번 받는다. 되돌리기는 이전 release 파일로 `upgrade`를 다시 부르는 것이고, worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다.
+
+업그레이드가 새 release가 뜨기 전에(예: scheduler의 quota 검사 실패) 멈추면 설치가 멈춘 채로 남고, 상태 디렉터리의 `pending.json`이 남는다. 이 상태에서는 `status`, `reset`, `pending.json`과 내용이 같은 release 파일을 쓰는 `upgrade`만 허용하고, 이전 release로 되돌리는 `upgrade`를 포함한 다른 명령은 거부한다. 원인을 고친 뒤 같은 대상 release 파일로 `upgrade`를 다시 부르면 풀린다.
+
+업그레이드가 아니라 `compose down`이나 호스트 재부팅으로 설치가 내려갔을 뿐이면 `upgrade`나 `deploy`가 아니라 `scripts/test-ops.sh start`로 같은 volume 그대로 다시 올린다([내리기](/run-server/self-hosting/stop-compose)). `pending.json`이 있으면 `start`는 거부한다.
+
+```bash
+scripts/test-ops.sh upgrade release-new.json
+```
+
+`release-new.json`과 승인 파일은 checkout 밖의 실제 절대 경로로 넘긴다. 대상 checkout의 HEAD는 release의 source_commit과 일치해야 한다.
+
+## 확인
+
+status의 적용 release·서비스 health·ready를 확인한다. 기존 세션을 새 worker에서 재개하고 context·최종 checkpoint·turn 완료를 대조한다. 지표 이름 변경이 있으면 Datadog 정의·쿼리·필터와 Prometheus 규칙을 새 이름으로 바꿔 실제 series를 확인한다.
+
+덮어쓴 CSS 이름도 변경 기록의 운영자 작업과 대조해 새 이름으로 바꾼다. 옛 지표·CSS 이름의 별칭이 있다고 가정하지 않는다.
+
+## 자주 막히는 곳
+
+pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다. 원인을 고친 뒤 pending과 동일한 대상 release로 다시 upgrade한다. 영향 세션 목록이 바뀌면 예전 승인 파일을 재사용하지 않는다. start_fresh는 이전 context를 버린다.
+
+## 되돌리기
+
+이전 release를 적용하는 일도 upgrade 검사와 [실행 전 게이트](#실행-전-게이트)의 rollback 하한을 따른다. 새 schema·checkpoint를 모르는 빌드로 단순히 이미지 태그만 되돌리지 않는다. 아직 새 release가 뜨지 않은 pending 실패에서는 이전 release 적용이 거부되므로 같은 대상으로 복구한다.
+
+## 다음에 읽을 곳
+
+[업그레이드 호환성](/run-server/self-hosting/explanation/compatibility), [세션 복구](/run-server/self-hosting/recover-sessions), [Compose 수명주기](/run-server/self-hosting/stop-compose).
+
+## 실행 전 게이트
+
+incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함하는 최초 정식 릴리스는 `v0.1.0`이다. 릴리스 설치자는 이 버전보다 앞선 이미지로 돌아가지 않는다. 정식 릴리스 이전의 `main-<12>` 설치는 이 하한을 충족하는지 따로 확인해야 한다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
+
+대상 변경 기록과 현재 배포 버전을 대조한다. 아래 조건이 해당되면 기능을 켜거나 worker를 바꾸기 전에 모두 충족한다.
+
+| 변경 | 먼저 끝낼 일 | 되돌릴 수 없는 경계 |
+| --- | --- | --- |
+| provider usage의 `inference_geo` | migration 포함 API를 먼저 교체하고 ready 확인 후 egress proxy 교체 | 옛 API는 새 proxy 보고를 400으로 거절하여 비용 계측이 빠짐 |
+| `billing: none` | 모든 API replica와 모든 scheduler의 WORKER_IMAGE 교체 후 새 none 세션 생성 | unmetered 세션이 남으면 옛 API·worker로 rollback 금지 |
+| `SESSION_PROMPT_REVISION=1` | migration 0229 → claim 처리 API 전부·현재/직전 worker 이미지 전부 교체 → 1 활성화 | 0은 새 세션에만 영향. 활성화 후 옛 API·worker로 rollback 미지원 |
+| transcript 상한/reason | migration → API 전부 → worker. API finalize와 worker capture/restore 상한을 같은 release로 맞춤 | transcript reason을 모르는 빌드로 rollback 금지 |
+| manifest `outputs` | API 전부 → worker | api와 worker 모두 outputs를 아는 빌드까지만 rollback |
+| `AGENT_ACTION_FLOWS` | GC·세션 보관 CronJob까지 모든 구성 요소 교체 후 활성화 | 진행 중 의도는 끈 뒤에도 처리됨 |
+
+새 control-host와 직전 worker의 조합은 배포 전 시험 설치에서 확인한다. 세션 turn 1 완료 → worker 제거 → checkpoint에서 turn 2 완료를 보고 API의 worker 요청에 400 BAD_REQUEST가 없어야 한다. 빈 설치 ready 200으로 이를 대신하지 않는다.
+
+### v0.1.0 이후 변경을 처음 적용할 때
+
+- `v0.1.0` 이후 대상 버전까지의 모든 migration(현재 `0241`까지)을 migrate로 적용한다. `0239_connection_replaces_auth`의 새 열은 이전 이미지가 무시하지만, 이것만으로 나머지 checkpoint·protocol rollback이 안전하다는 뜻은 아니다.
+- control-host를 먼저, worker를 나중에 교체한다. `platform_tool_trust` fallback이 있어도 교체 사이에는 옛 권한 경로를 사용하므로 순서를 지킨다.
+- `AGENT_ACTION_FLOWS`를 켜기 전에 API, Compose maintenance, Kubernetes checkpointGc·sessionArchive CronJob과 worker를 모두 대상 이미지로 바꾸고 **옛 이미지로 시작한 Job이 종료됐는지** 확인한다. 옛 GC가 고정 revision을 지울 수 있다.
+- 활성화 뒤 새 세션이 받는 prompt revision 2는 옛 worker가 읽지 못한다. 켜기 전 교체와 활성화 뒤 rollback 하한을 따로 확인한다. `v0.1.1` 게시 여부는 변경 기록 제목만으로 판단하지 않는다.
+
+다음 조건은 현재 설치가 해당 변경을 이미 포함했는지 대조하여 적용한다. rollback이 필요하면 먼저 영향 세션을 읽기 SQL로 센다. 데이터 손실을 승인하지 않고 roll-forward가 가능한지 먼저 판단한다.
+
+### Compose 전용 checkpoint 검사
+
+단일 서버(compose) 설치의 업그레이드 검사에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. Kubernetes(helm) 설치에서는 pre-upgrade hook이 같은 판정을 이미지를 실행하지 않고 포인터의 조합으로 한다([Kubernetes 업그레이드 § 3. 검사 결과와 예외 — 업그레이드 전 검사](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)).
+
+worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(upgrade 스크립트의 상태 디렉터리에 `previous-worker` 파일로 둔다). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([설정 레퍼런스 § scheduler·worker 컨테이너·egress 설정](/run-server/self-hosting/reference/configuration)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
+
+### runtime 프로필의 공통 준비
+
+SDK를 올리는 릴리스는 예시 설정 문서(`tests/fixtures/settings/`)의 `runtime_version`도 함께 올리고, 운영 설치의 상한은 새 버전으로 저장한다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 같은 릴리스에 새 엔진 조합의 내장 도구 지원 목록(`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`)도 넣는다. 목록이 없는 버전의 상한은 `deny`로 만들 수 없다. 새 목록에 생긴 도구는 각 상한의 새 버전에서 막힌 채 이어지고, `accept_added_tools`로 받아들여야 열린다([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)). Kubernetes(helm) 설치의 되돌리기 절차와 주의사항은 [Kubernetes 업그레이드 § 되돌리기](/run-server/self-hosting/upgrade-kubernetes#되돌리기)에 있다.
+
+### worker·control-host 롤백과 incremental checkpoint
+
+`v0.1.0`에 포함된 worker는 직전 checkpoint의 bundle 사슬 위에 새 객체만 담은 incremental bundle을 올린다. 그 사슬은 manifest의 `workspace.baseBundles`에 적힌다. manifest `version`은 그대로 2이고, incremental인지는 이 필드가 있는지로만 갈린다. **그 이전 빌드로 롤백하면 이 필드가 있는 checkpoint를 복원하지 못한다.** 이전 빌드의 manifest 스키마는 모르는 키를 거절하기 때문이다.
+
+- **옛 worker 이미지.** 복원할 때 manifest decode가 `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"`로 실패한다. 이 실패는 workspace를 비우거나 bundle을 받기 전에 나므로 반쯤 복원된 workspace는 남지 않는다. 대신 manifest가 고정돼 있어 다시 launch해도 같은 이유로 `worker.failed`가 된다.
+- **옛 control-host.** 복원 계획이 `CHECKPOINT_UNAVAILABLE`로 거절되고, 앞 revision으로 물러나지 않는다. finalize도 incremental manifest를 거절해 pointer가 오르지 않는다. 새 worker와 섞여 있으면 첫 checkpoint처럼 홀로 선 bundle만 commit된다. 옛 GC는 decode되지 않는 세션을 건너뛰므로 base bundle을 지우지는 않는다.
+- **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
+- **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_WORKSPACE_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
+
+### control-host 롤백 하한: release 도구로 실행
+
+`v0.1.0`에 포함된 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 에이전트 정의에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 마지막 턴이 끝난 뒤 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 에이전트가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
+
+- **정식 릴리스 롤백 하한은 `v0.1.0`이다.** 도구 목록은 checkpoint의 profile digest에 들어간다. 이 릴리스는 claim의 복원 후보에 프로필 도구와 release 도구 목록을 모두 넣는다. 이 기능이 없는 출시 이전 빌드로 돌아가면 release 도구로 만든 checkpoint를 복원하지 못해 세션이 `recovery_required`(`incompatible_checkpoint`)로 멈춘다. 롤포워드한 뒤 `retry_restore`로 같은 checkpoint를 다시 시도한다. 출시 이전 main 설치에서는 복원 후보 지원 여부가 확인된 릴리스를 먼저 배포해 롤백 대상으로 만든다.
+- **좁혀질 release 수.** 배포 전에 읽기 쿼리로 센다. 에이전트가 프로필 도구를 모두 고른 release도 세므로 상한이다.
+
+```sql
+WITH narrowed AS (
+  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
+  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
+     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
+)
+SELECT
+  (SELECT count(*) FROM narrowed) AS releases,
+  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
+    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
+  (SELECT count(*) FROM agent_releases
+    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
+      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
+                    WHERE jsonb_typeof(t) <> 'string')
+      ELSE true END) AS unreadable;
+```
+
+`unreadable`은 `tools`가 없거나 문자열 배열이 아닌 snapshot이다. 그런 release의 세션은 내장 도구 없이 돈다(허용하지 않는 쪽으로 읽는다). 정상 경로로 만든 release는 늘 문자열 배열 `tools`를 싣는다.
+- **복원 후보 상한.** claim의 복원 후보는 16개까지다(worker 계약). 모든 프로필 목록을 release 목록보다 먼저 넣는다. 실제로 도구가 좁혀지는 release의 세션 중 이전 프로필이 많은 세션(GitHub 설정이 없으면 16개, 있으면 8개 이상)은 두 가지를 잃는다. ① release 도구로 실행하는 빌드로 바꾼 뒤에는 현재 프로필의 프로필 목록이 한 칸을 더 써서 가장 오래된 이전 프로필의 후보 하나가 빠진다. 그 후보로만 맞는 checkpoint는 복원이 `incompatible_checkpoint`로 멈추고, 같은 후보 규칙을 쓰는 빌드에서는 다시 시도해도 같다. 그 세션은 `start_fresh`(이전 context를 버림)나 `close`로 끝낸다. ② release 도구 복원 후보를 지원하지 않는 출시 이전 빌드로 롤백하면 그 빌드의 claim은 프로필 목록만으로 상한이 차서 release 도구 후보를 넣지 못하므로, release 도구로 실행하는 빌드로 바꾼 뒤 release 도구로 만든 checkpoint를 복원하지 못한다. 이쪽은 롤포워드한 뒤 `retry_restore`로 다시 시도하면 된다.
+
+### worker protocol 필드를 걷어내는 순서
+
+API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미지로 계속 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 그래서 worker protocol의 필드는 받는 쪽이 먼저 그 필드 없이도 받아들이게 바꾸고, 그 릴리스로 모두 교체된 다음에야 보내는 쪽이 필드를 뺀다. 한 릴리스에서 양쪽을 같이 바꾸지 않는다.
+
+| 필드 | 1단계: 받는 쪽이 요구하지 않음 | 2단계: 보내는 쪽이 뺌(1단계 교체가 끝난 뒤) |
+|---|---|---|
+| heartbeat 응답 `auth_revision` | worker가 없는 응답도 받는다 | API가 보내지 않는다. 그 전에 1단계 이전 이미지의 worker가 하나도 남지 않았는지 본다 |
+| append-events 요청 `batch_key` | API가 없는 요청도 받는다(아직 안 함) | worker가 보내지 않는다. 그 전에 1단계 이전 API가 하나도 남지 않았는지 본다 |
+
+2단계를 너무 일찍 배포하면 옛 쪽이 상대의 요청이나 응답을 계약 위반으로 거절한다. worker는 계약에 맞지 않는 heartbeat 응답을 재시도할 수 없는 실패로 보므로, 첫 heartbeat에서 lease를 잃었다고 판단하고 멈춘다.
+
+checkpoint manifest에 필드를 더할 때는 반대로 읽는 쪽이 먼저다. control-host(commit 전 검증·복원 계획·GC)와 worker(복원) 모두 모르는 키를 거절한다. 그래서 control-host를 먼저 올리거나 같은 릴리스로 올리고, worker는 그 뒤에 올린다. 그 필드를 쓴 checkpoint가 생긴 뒤 worker를 롤백하면, 위의 `baseBundles`와 같은 이유로 그 세션은 복원되지 않는다.
+
+| 필드 | 먼저: 읽는 쪽 | 그다음: 쓰는 쪽 |
+|---|---|---|
+| `workerState`(승인 대기 park) | control-host와 worker가 이 키가 있는 manifest를 받는다 | worker가 승인 대기 turn을 park할 때만 쓴다 |
+
+worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저다. API의 worker protocol 요청 schema는 strict라서, 옛 API는 모르는 필드가 실린 요청 전체를 400 `BAD_REQUEST`로 거절한다.
+
+| 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
+|---|---|---|
+| pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
+| bootstrap-claim·pending-control 요청 `capabilities`, register-pending 요청 `remember_offer` | API | 호환 재시도가 없다. 새 worker의 첫 요청인 bootstrap-claim이 400 `BAD_REQUEST`(재시도 불가)로 거절되면 worker는 오류로 끝나고 turn을 하나도 돌리지 않는다. API만 되돌려도 같다. API를 되돌리기 전에 새 worker 이미지를 쓰는 세션이 없는지 본다 |
+
+### DB 스키마를 바꾸는 순서
+
+migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 control-host가 잠시 돌고, 옛 worker 이미지는 지원 창 동안 계속 돈다. 옛 코드가 읽고 쓰는 열·테이블은 그 코드가 모두 사라질 때까지 남아 있어야 한다. 그래서 스키마 변경은 세 릴리스에 나눠 한다. 한 릴리스에서 더하기와 지우기를 같이 하지 않는다.
+
+| 단계 | 하는 일 | 옛 코드가 보는 것 |
+|---|---|---|
+| 1. 확장(expand) | 열·테이블을 더한다. 새 열은 null을 허용하거나 기본값을 둔다. 기본값을 두면 기존 행에서도 그 값이 읽히고, INSERT가 그 열을 빼면 기본값이 들어간다. 명시적 NULL에는 기본값이 적용되지 않아 null 허용 열이면 NULL로 저장되고 NOT NULL 열이면 INSERT가 실패한다. 그래서 기존 행에 맞는 값인지와 옛 코드의 INSERT가 그 열을 어떻게 쓰는지 보고 고른다 | 모르는 열이 생길 뿐이고, 옛 코드의 쓰기는 그 열을 빼고 들어간다 |
+| 2. 전환 | 새 코드가 새 열에도 쓰기 시작한다. 옛 코드가 옛 열에 쓰는 동안에는 옛 열이 기준이다. 새 코드는 두 열에 모두 쓰되 옛 열을 읽는다. 옛 코드의 쓰기를 새 열로 옮기는 장치(trigger 등)가 없으면, 옛 writer가 모두 사라진 뒤 기존 행을 마지막으로 backfill하고 나서 읽기를 새 열로 옮긴다 | 옛 열이 그대로 있어 읽기·쓰기가 계속된다 |
+| 3. 정리(contract) | 옛 열·테이블을 지우거나 NOT NULL·CHECK로 제약을 강화한다. 그 열을 쓰는 이미지가 지원 창 밖으로 나가고, 그 이미지의 worker와 control-host가 실제로 하나도 남지 않은 것을 확인한 다음 릴리스에서 한다. 제약을 강화하기 전에는 기존 행과 지금 도는 모든 writer가 새 제약을 만족하는지 본다 | 그 열을 쓰는 옛 코드가 더는 없다 |
+
+열 이름을 바꾸는 것도 옛 이름을 바로 없애므로 같은 순서를 따른다. 새 열을 더하고, 데이터를 옮기고 코드를 바꾼 뒤, 옛 열을 지운다. `WORKER_IDLE_TIMEOUT_SEC`는 마지막 turn 뒤의 유휴 시간이지 worker 수명의 상한이 아니다. 일하는 worker는 그보다 오래 남을 수 있으니 정리 시점은 시간이 아니라 실제로 남은 컨테이너로 판단한다.
+
+예: checkpoint 포인터의 런타임 조합 `checkpoints.runtime_*`(migration `0196_checkpoint_runtime`)는 1단계로, 기본값 없는 null 허용 열만 더했다. 그 전에 커밋된 행은 null로 남는다. `0199_worker_image_runtime`(launch의 조합, checkpoint의 digest scheme, `worker_image_refusals` 표)도 1단계다. scheme이 null인 checkpoint는 첫 scheme(1)으로 읽는다.

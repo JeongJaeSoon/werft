@@ -1,0 +1,45 @@
+---
+title: "DB 연결 계약"
+description: "역할별 연결 예산과 timeout을 확인한다"
+pageId: "P26"
+docType: "레퍼런스"
+audience: "DB 운영자"
+outcome: "역할별 연결 예산과 timeout을 확인한다"
+---
+
+## 계약
+
+PostgreSQL 16을 사용한다. 연결 포화·느린 문장·잠금 조사는 [DB 지연 진단](/run-server/self-hosting/diagnose-database)을 따른다.
+
+## 역할별 연결 수
+
+모든 역할은 `packages/db/src/pool.ts`의 `createEnforcedPool`로 풀을 만든다. 풀 상한은 역할마다 다르다.
+
+| 역할 | 풀 상한 | 이유 |
+|---|---|---|
+| api | 10 + readiness probe 1 + LISTEN 1 | 요청을 동시에 처리한다. probe는 자기 풀(상한 1)을 써서 요청과 연결을 다투지 않는다. 이벤트 알림을 받는 LISTEN 연결(`werft:api-listen`)은 풀 밖에 하나 둔다 |
+| metrics | 10 | scrape 한 번이 집계 7개를 동시에 읽는다 |
+| scheduler | 4 | pass가 문장을 하나씩 낸다. pass lock이 연결 하나를 더 쥔다 |
+| reconciler | 4 | pass가 문장을 하나씩 낸다 |
+| slack | 4 | inbox와 outbox를 차례로 비운다 |
+| checkpoint GC, upgrade check, migrate, 운영자 CLI(`keys`·`grants` 등) | 10 | 잠깐 돌고 끝난다 |
+
+Helm 기본값(api 2개, slack 1개, scheduler·reconciler 1개, metrics 꺼짐)으로 늘 열려 있을 수 있는 연결은 api 24 + scheduler 4 + reconciler 4 + slack 4 = 36개다. `metrics.enabled`를 켜면 10개, GC·upgrade check·migrate job이 겹치면 최대 30개가 더 붙는다. compose는 api 12 + scheduler 4 + reconciler 4 + slack 4 = 24개다. PostgreSQL 기본 `max_connections`는 100이고 그중 3개는 superuser 몫이다. api나 slack replica를 늘리면 replica 하나에 12개(slack은 4개)씩 더해서 `max_connections`와 견준다. 관리형 DB는 인스턴스 크기에 따라 `max_connections`가 100보다 작을 수 있으니 그 값을 확인한다.
+
+## 연결마다 거는 세션 설정
+
+`createEnforcedPool`이 연결을 열 때 건다. `DATABASE_URL`에 같은 이름의 query parameter가 있어도 timeout은 코드 값이 이긴다.
+
+| 설정 | api·job 값 | migrate 값 | 뜻 |
+|---|---|---|---|
+| 연결 대기(`connectionTimeoutMillis`) | 5초 | 5초 | 풀이 비지 않으면 이 시간 뒤에 실패한다. api는 503으로 답한다 |
+| `statement_timeout` | 10초 | 300초 | 서버가 문장을 취소한다. 잠금을 기다리는 시간도 여기에 든다 |
+| 응답 읽기(`query_timeout`) | 20초 | 330초 | 서버가 답하지 않는 소켓을 클라이언트가 버린다 |
+| `idle_in_transaction_session_timeout` | 30초 | 30초 | 트랜잭션을 연 채 30초 동안 문장을 내지 않은 연결을 서버가 끊는다. 그 연결이 쥔 잠금도 풀린다 |
+| `application_name` | `werft:<역할>` | `werft:migrate` | `pg_stat_activity`와 서버 로그에서 역할을 가른다. `DATABASE_URL`에 `application_name`이 있으면 그 값을 쓴다 |
+
+## migration이 잠그는 시간
+
+오래된 main 설치에서 오는 경우 `0127_session_provider_tokens`는 사용량 INSERT trigger를 만든 뒤 기존 사용량을 backfill한다. `0129_session_provider_tokens_cap`는 합계가 JavaScript 안전 정수 상한을 넘지 않도록 trigger를 교체한다. `0169_usage_breakdown_rollup`은 사용량 INSERT를 SHARE lock으로 멈춘 상태에서 세션·모델 집계를 backfill하므로 데이터가 많으면 쓰기 중단이 길어진다. 이 세 migration이 이미 적용된 설치에는 다시 적용하지 않는다. 미적용 설치는 유지보수 창과 DB 데이터량을 확인하고 변경 기록의 버전별 작업을 따른다.
+
+migrate job은 문장마다 최대 300초를 쓴다. migrate가 둘 겹치면(손으로 돌린 `db:migrate`와 Helm hook Job 등) 뒤의 것은 앞의 것이 끝날 때까지 기다린 뒤 남은 migration만 적용한다. Helm hook Job은 `migrate.activeDeadlineSeconds`(기본 600초)가 지나면 끝난다. 커지는 표에 인덱스를 만드는 migration은 `CREATE INDEX CONCURRENTLY`로 쓰기를 막지 않고 만든다. 표가 커서 300초를 넘길 것 같으면 그 migration의 릴리스 노트가 따로 알린다. `CONCURRENTLY` 인덱스는 시작할 때 열려 있던 트랜잭션이 모두 끝나기를 기다리므로, 오래 열린 운영자 세션(`psql`의 열린 `BEGIN`)이 있으면 그만큼 늦어진다.

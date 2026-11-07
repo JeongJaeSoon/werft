@@ -1,0 +1,175 @@
+---
+title: "저장소와 상한"
+description: "저장소별 보장과 데이터 보존 조건을 확인한다"
+pageId: "P24"
+docType: "레퍼런스"
+audience: "스토리지 운영자"
+outcome: "저장소별 보장과 데이터 보존 조건을 확인한다"
+---
+
+## 계약
+
+저장소별 상한과 회수 조건의 정본이다. 크기를 변경하는 작업은 [용량 계획·변경](/run-server/self-hosting/capacity), 오류 뒤 결정은 [멈춘 세션 복구](/run-server/self-hosting/recover-sessions)를 따른다.
+
+## backend별 workspace
+
+| 항목 | 단일 서버 | Kubernetes |
+| --- | --- | --- |
+| 저장 위치 | 세션마다 Docker `local` volume. Docker 데이터 루트의 XFS | 세션마다 PVC 하나(`werft-ws-<installationId>-<sessionId>`), worker의 `/workspace`에 마운트. `ReadWriteOnce`, `Filesystem`. `/tmp`와 HOME은 메모리 emptyDir이고 hostPath는 쓰지 않는다 |
+| 용량 상한 | `EXECUTION_WORKSPACE_QUOTA_MB` 기본 4096MiB(최솟값 1024) | PVC의 `requests.storage`, helm `worker.workspace.quotaMb` 기본 4096MiB(최솟값 1024). 실제로 막는지는 StorageClass가 정한다 |
+| inode 상한 | `EXECUTION_WORKSPACE_QUOTA_INODES` 기본 1,000,000 | **없다.** Werft도 chart도 걸지 않는다. 파일시스템 기본값을 따른다(ext4는 만들 때 개수가 정해진다) |
+| 강제 주체 | XFS `prjquota`(커널). scheduler preflight가 확인 | kubelet과 CSI 드라이버. Werft는 크기를 요청만 하고 사용량을 읽지 않는다. 확인하는 preflight도 없다 |
+| 넘었을 때 | worker 쓰기가 `ENOSPC`. 상한을 걸 수 없으면 scheduler가 기동하지 않음 | StorageClass가 용량을 강제하면 `ENOSPC`. 강제하지 않으면 상한이 없는 것과 같다. 노드 디스크(PVC 밖, 주로 로그)는 `worker.ephemeralStorageMb`(기본 1024MiB, requests=limits)를 넘으면 kubelet이 Pod를 evict |
+| 운영자가 정할 값 | Docker 데이터 루트의 파일시스템과 크기, 위 두 상한 | `worker.storageClass`(비우면 클러스터 기본), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, worker 노드의 파일시스템 크기 |
+| 확인 명령 | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | 아래 |
+
+```bash
+kubectl get storageclass
+kubectl -n werft get pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId> \
+  -o custom-columns=NAME:.metadata.name,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+kubectl -n werft exec <worker-pod> -- df -h /workspace
+kubectl -n werft exec <worker-pod> -- df -i /workspace
+```
+
+`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 Kubernetes 명령과 용량 강제·AZ 재연결은 실행 확인하지 않았다. 값은 코드(`specs.ts`, `config.ts`)와 chart를 기준으로 한다.
+
+- **PVC는 필수다.** worker Pod가 쓰는 workspace 볼륨은 PVC뿐이고(`specs.ts`), emptyDir나 hostPath로 바꾸는 설정은 없다. 세션의 PVC는 Pod와 따로 살아서, Pod가 교체돼도 같은 이름의 PVC에 다시 붙는다. scheduler가 세션마다 Pod와 PVC를 만든다.
+- **StorageClass가 크기를 하드로 강제하는지는 Werft가 보지 않는다.** 코드는 `requests.storage`를 요청하고 그 값을 `werft.workspace-size` annotation에 적어 설정과 비교할 뿐, `status.capacity`나 사용량을 읽지 않는다. 강제 여부는 CSI 드라이버와 파일시스템마다 다르므로 설치 전에 인프라 쪽에 확인한다.
+- kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
+- **알려진 한계.** inode 상한이 없고, 용량 상한은 StorageClass에 맡겨져 있다. 상한을 강제하지 않는 StorageClass를 골라도 chart는 거부하지 않는다. 이 한계를 막을 코드 변경은 이 페이지의 범위 밖이다.
+
+EBS 같은 zonal PVC는 AZ에 묶인다. 노드를 교체하거나 Kubernetes를 올린 뒤 worker가 같은 AZ의 사용 가능한 노드에서 PVC에 다시 붙는지 설치 환경에서 확인한다.
+
+Kubernetes의 `worker.workspace.quotaMb`를 바꾸면 기존 PVC의 `werft.workspace-size` annotation과 달라 그 세션의 launch가 거절된다. 진행 중인 세션이 없을 때 새 세션용 값을 바꾼다. 크기를 바꾸겠다고 기존 PVC를 지우지 않는다.
+
+## transcript 상한
+
+checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512MiB를 넘으면 안 된다. part 하나는 16MiB를 넘으면 안 된다. 세 곳이 같은 값으로 검사한다.
+
+1. worker가 checkpoint를 올리기 전(`captureTranscripts`, manifest를 올리고 커밋하기 전).
+2. API의 finalize가 part를 읽기 전. 이 판정이 기준이다.
+3. restore가 part를 받기 전(`#checkManifest`).
+
+크기는 compaction 뒤에도 남는 JSONL 전체다. 엔진(Claude Code CLI)은 resume할 때 마지막 compaction 이전을 다시 읽지 않지만, 플랫폼은 파일 전체를 저장하고 복원한다. 그래서 상한은 파일 전체 크기에 건다.
+
+### 80% 경고
+
+- 커밋된 checkpoint의 transcript가 처음으로 상한의 80%(409.6MiB) 이상이 되면 SSE `system` 이벤트(`transcript_near_limit`)를 한 번 보내고, 세션 상세 `attention`을 `TRANSCRIPT_LIMIT`로 둔다. 막지는 않는다.
+
+### 상한을 넘으면
+
+- worker의 사전검사(workspace를 올리기 전)나 finalize(part를 읽기 전)가 `transcript_too_large`(part 하나가 넘으면 `transcript_part_too_large`)를 세션의 `durability.checkpoint_pending_reason`에 기록한다. 처음 기록될 때 SSE `system` 이벤트(`transcript_limit_reached`)를 한 번 보낸다.
+- 상한을 넘긴 turn은 실행된 대로 `completed`로 끝나지만 그 turn의 checkpoint는 커밋되지 않는다.
+- 그 뒤 새 메시지는 409 `CHECKPOINT_UNAVAILABLE`로 거절되고, queue에 있던 turn도 실행되지 않는다. 이어 가려면 새 세션을 만들거나 recovery 경로의 `start_fresh`를 쓴다. close도 409 `CHECKPOINT_UNAVAILABLE`이다. terminate한 뒤 recovery close로 닫는다.
+- interrupt된 turn은 다르다. 그 turn의 checkpoint가 거절되면 turn은 `outcome_unknown`(`interrupt_checkpoint_unavailable`)으로 끝나고 세션은 `recovery_required`로 간다.
+- 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 상한을 넘긴 turn 하나는 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
+
+## 결과물(`out/`) 색인 상한
+
+worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을 git 상태와 상관없이 색인해 manifest `outputs`에 넣고, 파일마다 객체를 하나 올린다. 상한은 `apps/worker/src/workspace-outputs.ts`의 `DEFAULT_OUTPUT_LIMITS`다.
+
+| 값 | 기본값 | 넘으면 |
+|---|---|---|
+| 파일 하나 `maxFileBytes` | 64MiB | 그 파일은 `{path, bytes, omitted: "too_large"}`로만 남고 올리지 않는다 |
+| checkpoint 하나의 업로드 합계 `maxTotalBytes` | 256MiB | 합계를 넘기게 하는 파일부터 `too_large`가 된다 |
+| 파일 수 `maxFiles` | 1,000 | 경로 순으로 1,000개 뒤의 파일은 목록에서 빠진다. publish 로그의 `outputs_dropped`에 개수가 남는다 |
+
+- 색인 상한을 넘어도 checkpoint는 실패하지 않는다. git bundle 상한(256MiB)과 workspace quota는 그대로라서, git이 추적하거나 저장소 없는 세션이 bundle에 싣는 큰 `out/` 파일은 그쪽 상한에 따로 걸린다. git이 무시하지 않는 untracked `out/` 파일도 복원용 untracked 객체로는 그대로 올라간다. 색인에서 `too_large`여도 마찬가지다.
+- manifest 상한(객체 20,000개, 8MiB)도 checkpoint를 실패시키지 않는다. 결과물은 복원에 쓰는 객체가 남긴 개수까지만 목록에 들고, 넘는 파일은 `outputs_dropped`로 센다. 목록 때문에 manifest가 8MiB를 넘으면 그 checkpoint는 `outputs` 없이 올라가고, publish 로그 `outputs_refused`에 이유가 남는다. 두 경우 모두 빠진 파일의 객체는 이미 올라간 뒤라 어느 manifest도 가리키지 않고, 다음 checkpoint는 그 파일을 다시 올린다.
+- 파일은 한 번에 하나씩 메모리에 읽는다. worker 메모리에 더해지는 것은 파일 하나 상한(64MiB)까지다.
+- symlink, 일반 파일 아닌 것, `.git`이나 UTF-8이 아닌 이름처럼 manifest가 받지 않는 이름은 목록에 없다. `out` 자체가 symlink면 목록이 빈다.
+- 같은 digest는 한 번만 올린다. 직전 checkpoint가 올린 같은 digest는 그 객체를 그대로 가리키고 다시 올리지 않는다.
+- 객체는 `sessions/<id>/checkpoints/<revision>/<attempt>/<publish>/outputs/<sha256>`에 있다. control plane이 finalize에서 크기와 digest를 확인하고 version을 hold한다. checkpoint GC는 보존하는 checkpoint가 가리키는 결과물 객체를 지우지 않는다.
+
+## Docker quota와 회수
+
+세션마다 `werft-ws-<installationId>-<sessionId>-<접미사>` volume 하나가 `/workspace`에 붙는다. 이 volume은 세대(generation)를 넘어 살아남는다. 컨테이너를 교체해도 세션의 작업 트리는 그대로여야 하기 때문이다. 그래서 **컨테이너를 지우는 `terminate`는 volume을 건드리지 않고**, 회수는 pass의 ④단계가 따로 한다.
+
+volume이 없어져도 세션은 마지막으로 commit된 checkpoint에서 이어 간다. 무엇이 남고 무엇이 사라지는지는 [workspace volume을 잃었을 때 남는 것](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것)에 있다.
+
+volume은 이제 backend가 `POST /volumes/create`로 **명시적으로** 만든다. mount spec에 이름만 적으면 Docker가 label도 상한도 없는 volume을 알아서 만들어 버리기 때문이다. 만들 때 `werft.managed`·`.installation`·`.session-id`·`.workspace-quota` label을 찍고, GC는 이름을 파싱하지 않고 이 label만 본다.
+
+**volume 이름은 1회용이다.** `local` 드라이버는 이미 quota를 걸었던 이름을 다시 만들면 `Options.size`는 그대로 돌려주면서 실제 project quota는 걸지 않는다. xfs+prjquota(Docker 27.5.1)의 재현 조건에서는 처음 만든 이름은 컨테이너 안 `df` 총량이 설정값(64MiB)이지만, 같은 이름을 지웠다 다시 만들면 `Options.size`가 같은데도 `df`는 파일시스템 전체(8GiB)를 보고한다. Engine API로는 둘을 구분할 수 없으므로, 세션의 workspace는 이름으로 유도하지 않고 무작위 접미사를 붙여 만든 뒤 **label로 조회한다.** GC나 운영자가 volume을 지워도 다음 것은 새 이름을 받으므로 상한이 다시 선다. 한 세션에 workspace가 둘 보이면 어느 쪽이 작업 트리인지 판단하지 않고 보고만 한다. preflight probe도 같은 이유로 매번 새 이름을 쓰고, 이전 실행이 남긴 probe는 label로 회수하되 만든 지 10분과 `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`의 20배 중 긴 쪽이 지난 것만 지운다. preflight는 pass lock 밖에서 돌기 때문에, 더 젊은 probe는 동시에 도는 다른 preflight(루프 옆의 단독 `--once`, scheduler 둘)가 쓰는 중일 수 있다.
+
+CPU·메모리·PID·tmpfs와 달리 `/workspace`에는 상한이 없었다. `EXECUTION_WORKSPACE_QUOTA_MB`(기본 4096)가 `local` 드라이버의 `size` driver option으로 그 상한이 된다. 단 이 옵션은 **daemon의 저장소가 project quota를 감당할 때만**(xfs + `prjquota`) 동작하고, 그렇지 않으면 daemon이 create를 `400 quota size requested but no quota support`로 거절한다. scheduler는 pass 전에 probe volume을 하나 만들어 보는 것으로 이 능력을 확인하고(`verifyWorkspaceQuota`), 감당하지 못하는 daemon에서는 **아무것도 띄우지 않고 종료한다.** probe는 volume 하나를 만들고 CAP_SYS_ADMIN helper를 띄우는 일이라 pass마다 반복하지 않는다. 감독 루프의 pass는 probe를 통과하면 backend 설정 전체(`DOCKER_HOST`·`EXECUTION_*` 등)의 해시를 status file 옆 `<SCHEDULER_STATUS_FILE>.quota-verified`에 적는다. 이후 pass는 해시가 같으면 probe를 건너뛴다. 감독 루프는 기동할 때 이 파일을 지운다. 그래서 루프가 다시 뜨면(컨테이너 재시작, 연속 실패 뒤 재기동) 첫 pass가 다시 확인한다. 실패한 probe는 아무것도 적지 않으므로 다음 pass가 또 확인한다. 루프 밖에서 단독으로 돌린 pass(`main.ts scheduler --once`)는 이 기록을 쓰지도 믿지도 않고 매번 probe한다. 루프는 기록 위치를 `SCHEDULER_QUOTA_PREFLIGHT_MARKER`로 자기 pass에만 넘긴다. 조용히 무제한으로 떨어지는 경로는 없고, 무제한을 감수하려면 `EXECUTION_WORKSPACE_QUOTA=off`를 명시해야 한다. 그 경우 scheduler pass마다 경고 1건이 남는다. `on`·`off` 외의 값(`false`, `0`, `no`)은 오타로 보고 거절한다.
+
+**quota 최솟값은 1024 MiB다.** 이보다 작은 `EXECUTION_WORKSPACE_QUOTA_MB`는 기동 시 거절된다. checkpoint 복원이 workspace volume을 한때 이만큼 쓰기 때문이다. 복원은 root를 비운 뒤 아래 순서로 진행한다. 표의 기호는 다음과 같다.
+
+- B: bundle 사슬 합계. control plane 상한은 256 MiB다.
+- U: untracked 파일. capture 상한은 256 MiB다.
+- W: workspace `.git`이 받은 객체. 대략 B다.
+- I: instructions commit이 닿는 객체. W 이하다.
+- T: checkout된 작업 트리와 index.
+
+| 단계 | 동시에 차지하는 것 | 최대 |
+| --- | --- | --- |
+| 내려받기 | bundle 파일 B, U | 512 MiB |
+| staging | bundle 파일 B, staged 저장소 ≈B, U | ≈768 MiB |
+| workspace fetch | staged 저장소 ≈B, W, U (bundle 파일은 staging 직후 지운다) | ≈768 MiB |
+| staged 저장소 축소 | W, I, U (staged 저장소를 먼저 지운다) | ≤768 MiB |
+| checkout 이후, 세션 내내 | W, I, T, U | 2B + T + U |
+
+checkout 전의 고정 비용은 bundle 상한 2배 + untracked 상한, 곧 768 MiB다. 1024 MiB는 여기에 pack index와 여유를 더한 값이다. incremental thin pack을 채우는 delta base 사본도 이 여유에 들어간다. checkout 뒤의 T는 세션의 작업 트리 자체라 상한이 없다. 그래서 최솟값은 세션과 무관한 checkout 전 비용만 보장한다. checkout 뒤의 W + I + T + U는 같은 quota 안에서 capture할 때 그 세션이 이미 쓰던 양과 비슷하다. capture 때는 workspace `.git`, 작업 트리, untracked, scratch 저장소의 snapshot 객체, bundle 파일(≤B)이 함께 있었다. I는 B 이하다. quota를 낮춘 뒤 새 volume에 복원하는 경우는 이 보장 밖이다. 이때는 복원이 checkout 중 ENOSPC로 실패할 수 있다.
+
+기존 workspace를 다시 쓰는 fresh fetch(checkpoint 없이 재개하는 reuse)는 복원과 달리 root를 비우지 않는다. 워커는 origin 전체를 bare mirror로 받아 거기서 branch를 복사한다. mirror는 `.git/werft-fetch-*` 아래에 만들고 fetch가 끝나면 지운다. `/tmp`와 HOME은 tmpfs라 컨테이너 메모리를 쓰기 때문이다. 표의 기호에 더해 M은 mirror가 디스크에서 차지하는 최대치다. origin 저장소의 pack 전체에 index·ref, 받는 동안의 임시 pack 파일이 더해진다. Δ는 workspace `.git`에 새로 들어오는 객체다. 아래 최대치는 이 추정을 더한 값이다.
+
+| 단계 | 동시에 차지하는 것 | 최대 |
+| --- | --- | --- |
+| mirror clone과 로컬 fetch | 기존 W, I, T, U + mirror M + Δ | 세션 사용량 + M + Δ |
+| fetch 뒤 | W + Δ, I, T, U (mirror는 지운다) | 세션 사용량 + Δ |
+
+M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하고, 모자라면 fetch가 ENOSPC로 실패한다. 처음 clone(`clone`·`recreate`)은 mirror 없이 root에 바로 받으므로 W + T만 쓴다. 워커가 도중에 죽어 남긴 scratch(fetch·capture·publish의 `.git/werft-<용도>-XXXXXX`)는 다음 reuse가 fetch 전에 지운다. `werft-checkpoint`는 남긴다. checkout이 다른 곳의 객체를 빌려 쓰면(`objects/info/alternates`, `commondir`, 링크인 `objects`) 그 대상일 수 있으므로 지우지 않는다.
+
+복원 뒤 `.git/werft-checkpoint/checkpoint.git`에는 instructions commit이 닿는 객체(I)만 남는다. engine이 그 commit을 prune해도 다음 capture가 bundle할 수 있게 하려는 저장소다. 그 뒤의 commit, 커밋하지 않은 변경의 snapshot, 사슬의 이전 snapshot은 남기지 않는다. 단, instructions commit이 HEAD와 같으면 I는 committed 이력 전체다. engine이 커밋하지 않은 세션이 그렇다. 이때 줄어드는 것은 snapshot 몫뿐이다.
+
+이 축소에는 대가가 있다. 다음 incremental capture는 사슬의 tip 중 아직 있는 것만 제외 대상으로 삼는다. 이전 base bundle만의 snapshot commit은 이제 남지 않는다. 마지막 bundle의 snapshot도 workspace `.git`에 참조 없이 들어 있을 뿐이다. 보통의 `git gc`는 2주 동안 이것을 지우지 않는다. 하지만 engine이 `git gc --prune=now`를 돌리면 사라진다. 그러면 남은 tip(이력에 남은 HEAD commit, instructions commit)을 기준으로 bundle을 만든다. 그 결과 bundle이 커지거나 전체 bundle로 되돌아갈 수 있다. 올바름은 그대로다. 전체 bundle이 상한을 넘는 저장소는 사슬이 32개나 상한에 닿아 재시작할 때도 어차피 거절된다.
+
+**inode 상한도 같은 project에 건다.** byte 상한만으로는 빈 파일 수백만 개로 inode를 소진하는 경로가 남는다. xfs는 inode를 project의 block 사용량에 매기지 않으므로 4GiB 안에서도 된다. 그러면 같은 daemon의 다른 세션과 Postgres가 파일을 만들지 못한다. `local` 드라이버에는 inode 옵션이 없고, `o=loop`로 세션마다 파일시스템을 만드는 길도 막혀 있다. 드라이버가 `mount(8)`이 아니라 mount syscall을 부르기 때문이다(`data: loop: invalid argument`). 그래서 Docker가 `size`로 만든 xfs project에 우리가 `ihard`·`isoft`(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000)를 직접 건다.
+
+- 거는 주체는 짧게 도는 helper 컨테이너(`workspace-inodes.ts`)다. 설정은 `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs이고 privileged는 아니다.
+- helper는 volume의 project id를 읽는다. project 0(= project 없음)이면 거절한다. 0에 한도를 걸면 파일시스템 전체가 묶이기 때문이다.
+- helper는 마운트 소스의 block device 노드를 자기 전용 `/dev`에 `mknod`로 만든 뒤 `xfs_quota`를 부른다.
+- `xfs_quota`는 실패해도 0으로 끝난다. 그래서 성공 여부는 quota 보고의 hard·soft limit과 statfs `f_files`를 읽어서만 판정한다.
+- Docker의 `SetQuota`는 BHARD/BSOFT만 쓰므로 이 값을 덮지 않는다.
+- 이미지는 scheduler의 `WORKER_IMAGE`다. worker 이미지에 `xfsprogs`가 들어 있다. launch마다 다른 이미지를 고르게 두지 않는다. CAP_SYS_ADMIN을 받는 이미지는 카탈로그가 아니라 운영자가 정한다.
+
+적용 시점은 넷이다.
+
+- preflight probe(`verifyWorkspaceQuota`, 루프가 뜬 뒤 첫 통과까지, 그리고 설정이 바뀔 때만): 못 걸면 byte 상한과 같은 규칙으로 기동을 거절하고, opt-out은 같은 `EXECUTION_WORKSPACE_QUOTA=off` 하나다.
+- 매 launch의 `ensureWorkspaceVolume`: 새 volume과 기존 volume 모두다. project id는 daemon 재시작 뒤 재사용될 수 있어 캐시하지 않고, 다시 거는 것은 멱등이다.
+- 교체 전 `assertReplaceable`: 한도를 못 거는 volume이면 기존 worker를 내리기 전에 교체를 거절한다.
+- `migrate-workspace`의 복사 전: 한도보다 파일이 많은 트리는 복사가 실패하고 원본이 남는다.
+
+inode 한도는 in-place로 바꿀 수 있으므로 volume label(`workspace-quota`)에는 넣지 않는다. inode 한도 없이 만든 volume도 거절되지 않고 다음 launch에서 한도를 받는다. 대신 `isolationStampFor` 지문에 넣고 `ISOLATION_CONTRACT`를 7로 올린다. 이 버전 이전으로 롤백한 host는 이 worker들을 newer로 보고 건드리지 않는다. 그래서 한도가 생기거나 바뀌면 실행 중인 worker는 stale로 교체되고, 교체 경로의 ensure가 한도를 건다.
+
+Docker Desktop은 커널 자체가 XFS quota 없이 빌드돼 있어(`XFS (loopN): quota support not available in this kernel`) 로컬에서는 `off`가 사실상 유일한 선택지다. GitHub Actions 러너의 daemon도 data root가 ext4라 마찬가지다. 그래서 실제 상한이 무는지는 CI의 `workspace-quota` job이 xfs + prjquota loop 파일을 data root로 쓰는 daemon을 따로 띄워 확인한다.
+
+상한은 volume 하나에만 거는 것으로는 부족하다. Docker는 이미지가 선언한 `VOLUME` 경로마다 **쓰기 가능한 익명 volume**을 자동으로 붙이는데, 거기에는 상한도 label도 없다. 그래서 launch 전에 이미지를 조회해 `/workspace` 외의 `VOLUME` 선언이 있으면 거절하고(`ImageVolumeError`), 컨테이너를 지울 때는 `v=true`로 익명 volume을 함께 지운다(named volume인 workspace는 영향을 받지 않는다). 아직 pull되지 않은 이미지는 조회가 404이므로 그대로 두고 create가 같은 404를 내게 한다.
+
+확인한 것과 실제로 띄우는 것 사이도 벌어질 수 있다. 태그는 가변이므로 컨테이너는 **조회한 이미지의 id**(`sha256:…`)로 만들고, volume은 create 직후 start 전에 한 번 더 확인한다. 그 사이에 `docker volume prune`이 지나가면 Docker가 mount용으로 label도 상한도 없는 volume을 새로 만들어 주기 때문이다. 어긋나면 아직 아무것도 실행되지 않은 컨테이너를 지우고 실패시킨다.
+
+quota preflight가 실패하면 **아무것도 띄우지 않되 회수는 한 번 돌린다.** probe도 디스크를 조금 쓰므로 이미 가득 찬 daemon은 preflight부터 실패하는데, 그 순간이 바로 끝난 세션의 workspace를 회수해야 할 때다. 그대로 종료하면 회수할 방법이 영영 없어진다. 이때 도는 것은 pass가 아니라 `reclaimWorkspaces`이고, 같은 advisory lock 아래에서 ④단계만 수행한다. slot limit 0짜리 pass로는 부족하다. 새 예약만 막힐 뿐 사라진 컨테이너를 재생성하고 stale 컨테이너를 교체하는 일은 그대로 하기 때문이다. 회수가 끝나면 원래 오류를 다시 던져 non-zero로 끝낸다.
+
+volume의 quota label이 지금 설정과 다르면(예전에 암묵 생성된 label 없는 volume이거나, 다른 byte 상한으로 만들어진 volume이면) 기동을 거절한다(`WorkspaceQuotaError`). 이름을 유도하던 시절의 `werft-ws-<installationId>-<sessionId>` volume도 계속 찾아본다. label이 없어 조회에는 걸리지 않지만, 못 본 척하고 새 workspace를 만들면 그 세션이 빈 트리로 시작하고 예전 트리는 묻히기 때문이다. volume의 byte quota는 나중에 바꿀 수 없고(inode 상한은 위에 적은 대로 제자리에서 바뀐다), 바꾸겠다고 지우면 그 세션의 작업 트리가 날아가기 때문이다. 작업 트리를 살린 채 새 계약으로 옮기려면 아래 [legacy workspace 마이그레이션](/run-server/self-hosting/migrate-workspaces) 절차를 쓴다. 이전 설정으로 되돌리는 것도 방법이다. 같은 이유로 quota 설정은 `werft.isolation` 지문에도 들어간다. 그러지 않으면 이미 떠 있는 컨테이너가 예전 상한을 그대로 들고 계속 산다.
+
+이 거절은 **이미 돌고 있는 worker를 죽이기 전에** 일어나야 한다. 지문이 바뀌면 stale 판정 → `terminate` → 재생성 순서인데, 재생성이 volume에서 거절당하면 그 세션은 worker도 없고 되돌아갈 길도 없는 상태로 남는다. 그래서 `inspect`는 stale을 보고하기 전에 그 세션의 volume을 읽기 전용으로 확인하고, 쓸 수 없는 volume이면 stale 대신 예외를 던진다. 컨테이너는 예전 상한 그대로 계속 돌고, pass는 `reconcileFailed`로 non-zero를 내며, 운영자가 volume을 옮길 때까지 그 상태가 유지된다. 옮기는 방법은 아래 [legacy workspace 마이그레이션](/run-server/self-hosting/migrate-workspaces)에 있다. inode 상한은 이 읽기 전용 확인이 아니라 교체 직전의 `assertReplaceable`이 실제로 걸어 보고, 못 걸면 기존 worker를 내리기 전에 교체를 거절한다.
+
+④단계의 GC는 fail-safe 방향이다. **volume을 먼저 나열하고 그 다음 DB에 묻는다**. 순서를 뒤집으면 두 호출 사이에 생긴 세션의 volume을 지운다. 남기는 조건은 session row가 있고 admission state가 `closed`가 아니거나 살아 있는 execution row가 있는 것이다. `stopped`는 예외로, 아래의 만료 규칙을 따른다. session id label이 없거나 session id 모양이 아닌 volume, 아직 컨테이너가 물고 있는 volume(409), 다른 설치의 volume은 전부 **남기고 로그만 남긴다.** 예외는 이름을 유도하던 시절의 label 없는 `werft-ws-<installationId>-<sessionId>` volume이다. 이름에서 읽은 session id는 후보일 뿐이고, **그 id의 row가 있고 `closed`이며 slot을 쥔 launch가 없을 때만** 회수한다(`filterClosedLegacySessions`). row가 없는 경우는 남긴다. label이 있는 volume과 달리, 이름이 맞다는 것만으로는 우리 세션의 것이라는 증거가 되지 않기 때문이다. legacy volume에는 `stopped` TTL도 적용하지 않는다. 먼저 마이그레이션해야 만료 규칙을 탄다. `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`(기본 3600)보다 어린 volume은 아예 후보가 아니다. volume은 컨테이너보다 먼저 만들어지므로 그 사이에 회수해 버리면 진행 중인 launch를 깨뜨린다. **판단으로 남긴 것과 실패로 남은 것은 exit code가 다르다.** 아직 마운트돼 있거나(409) 다른 설치 것이라 남긴 volume은 정상 상태이므로 exit code를 바꾸지 않는다(`workspacesUnresolved`). 반면 목록을 못 읽었거나 DB가 답하지 않았거나(`workspaceScanFailed`) 삭제 호출이 던진 경우(`workspacesFailed`)는 아무도 보지 않은 채 디스크가 쌓이는 상태이므로 pass가 non-zero로 끝난다.
+
+**`stopped` 세션의 workspace는 만료된다.** stop한 뒤 `EXECUTION_WORKSPACE_STOPPED_TTL_SEC`(기본 86400, 하루)이 지나면 회수 후보가 된다. 기준 시각은 `sessions.updated_at`이다. stop 전이가 이 값을 찍고, 회수 claim과 완료 기록은 이 값을 건드리지 않는다. 이미 `stopped`인 세션에 새 terminate가 받아들여지면 이 값이 바뀌어 TTL을 그때부터 다시 센다. 다만 terminate는 workspace를 붙잡는 수단이 아니다. 회수 claim이 이미 잡힌 뒤라면 그 회수는 그대로 진행된다. workspace가 필요하면 resume한다. resume만이 claim과 직렬화된다. slot을 쥔 launch가 남아 있으면 후보가 아니다. 멈춘 workspace는 설정한 TTL까지 보존하고, 기한 뒤에는 회수 후보로 판정한다. `0`은 다음 pass에서 바로 회수한다는 뜻이다.
+
+resume은 committed checkpoint가 있어야만 받아들여지고, 워커는 claim에 restore pointer가 있으면 checkpoint에서 workspace를 복원한다(복원은 root를 비운 뒤 채운다). 그래서 TTL이 지난 stopped 세션의 volume은 캐시일 뿐이다. 반대로 **checkpoint가 없는 stopped 세션은 resume할 수 없고, 그 volume에만 남은 작업은 TTL이 지나면 사라진다.** 그 작업을 살려야 하면 TTL 안에 volume에서 직접 꺼내야 한다.
+
+회수와 resume은 DB에서 직렬화된다. volume 목록에서 후보가 나오면 pass는 세션 row를 resume과 같은 순서(launch → session)로 잠그고 조건을 다시 확인한 뒤, **claim**(`sessions.workspace_reclaim_id`·`workspace_reclaim_workspace_id`)을 기록하고 commit한다. 그 다음에 volume을 지우고, 같은 claim id로 결과를 기록한다.
+
+* 지워졌거나 이미 없으면 claim을 지우고 `workspace_reclaimed_at`을 찍는다.
+* 마운트돼 있거나(409) 다른 설치 것이면 claim만 푼다.
+* 삭제 호출이 던지면(timeout 포함) claim을 그대로 둔다. volume이 지워졌는지 알 수 없기 때문이다. 다음 pass는 volume 목록과 별개로 끝나지 않은 claim부터 다시 처리한다. 지워진 volume은 목록에 다시 나오지 않기 때문이다.
+
+claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 `packages/db/src/workspace-reclaim.integration.test.ts`가 실제 PostgreSQL 위에서 고정한다.
+
+## 공통 object store 보호
+
+기본 보호 모드 `locked`는 versioning, Object Lock, SSE-S3(`AES256`)를 요구한다. checkpoint의 객체 version은 legal hold로 보호한다. 기본 retention과 object version 만료 lifecycle은 두지 않는다. 복원은 DB 포인터가 가리키는 정확한 version을 필요로 한다. `/readyz`의 준비 상태만으로 그 데이터가 보존됐다고 판단하지 않는다.
+
+AWS 생성과 최소 권한은 [bucket 준비](/run-server/self-hosting/prepare-checkpoint-bucket), 백업·별도 대상 대조는 [복원 훈련](/run-server/self-hosting/backup-and-restore)을 따른다.

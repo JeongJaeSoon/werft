@@ -1,0 +1,292 @@
+{
+  "P01": {
+    "paths": ["run-server/self-hosting/index"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P02": {
+    "paths": ["run-server/self-hosting/single-server"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P03": {
+    "paths": ["run-server/self-hosting/kubernetes"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P04": {
+    "paths": ["run-server/self-hosting/try-kind"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P05": {
+    "paths": ["run-server/self-hosting/try-localstack"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P06": {
+    "paths": ["run-server/self-hosting/prepare-xfs"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P07": {
+    "paths": ["run-server/self-hosting/prepare-checkpoint-bucket"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P08": {
+    "paths": ["run-server/self-hosting/access"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P09": {
+    "paths": ["run-server/self-hosting/users-and-keys"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P10": {
+    "paths": ["run-server/self-hosting/model-connections"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P11": {
+    "paths": ["run-server/self-hosting/upgrade-compose"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P12": {
+    "paths": ["run-server/self-hosting/upgrade-kubernetes"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P13": {
+    "paths": ["run-server/self-hosting/backup-and-restore"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P14": {
+    "paths": [
+      "run-server/self-hosting/stop-compose",
+      "run-server/self-hosting/remove-kubernetes"
+    ],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P15": {
+    "paths": ["run-server/self-hosting/capacity"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P16": {
+    "paths": ["run-server/self-hosting/diagnose-database"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P17": {
+    "paths": ["run-server/self-hosting/collect-metrics"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P18": {
+    "paths": ["run-server/self-hosting/recover-sessions"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P19": {
+    "paths": ["run-server/self-hosting/migrate-workspaces"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P20": {
+    "paths": ["run-server/self-hosting/expand-network-pool"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P21": {
+    "paths": ["run-server/self-hosting/build-images"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P23": {
+    "paths": ["run-server/self-hosting/reference/configuration"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P24": {
+    "paths": ["run-server/self-hosting/reference/storage"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P25": {
+    "paths": ["run-server/self-hosting/reference/metrics"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P26": {
+    "paths": ["run-server/self-hosting/reference/database"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P27": {
+    "paths": ["run-server/self-hosting/reference/packages"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P28": {
+    "paths": ["run-server/self-hosting/explanation/isolation"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P30": {
+    "paths": ["run-server/self-hosting/explanation/compatibility"],
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P22": {
+    "paths": ["run-server/self-hosting/reference/packages"],
+    "mergedInto": "P27",
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P29": {
+    "paths": ["run-server/self-hosting/capacity"],
+    "mergedInto": "P15",
+    "locales": {
+      "ko": "implemented",
+      "en": "fallback",
+      "ja": "fallback"
+    }
+  },
+  "P31": {
+    "paths": ["contributing"],
+    "integrated": true,
+    "locales": {
+      "ko": "implemented",
+      "en": "korean-link",
+      "ja": "korean-link"
+    }
+  },
+  "P32": {
+    "paths": ["getting-started/client"],
+    "integrated": true,
+    "locales": {
+      "ko": "implemented",
+      "en": "korean-link",
+      "ja": "korean-link"
+    }
+  },
+  "P33": {
+    "paths": ["contributing"],
+    "integrated": true,
+    "locales": {
+      "ko": "implemented",
+      "en": "korean-link",
+      "ja": "korean-link"
+    }
+  },
+  "H01": {
+    "paths": ["run-server/self-hosting/operate/session-data-flow"],
+    "held": true,
+    "locales": {
+      "ko": "unchanged",
+      "en": "unchanged",
+      "ja": "unchanged"
+    }
+  },
+  "H02": {
+    "paths": ["run-server/self-hosting/operate/monitoring-datadog"],
+    "held": true,
+    "locales": {
+      "ko": "unchanged",
+      "en": "unchanged",
+      "ja": "unchanged"
+    }
+  }
+}
