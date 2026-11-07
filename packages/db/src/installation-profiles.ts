@@ -238,11 +238,15 @@ export function createPostgresInstallationProfileStore(
         // replica after the service looked is refused like one that is gone.
         // A block on any ancestor stops everything below it, so the whole
         // chain is read, not only the direct source.
+        const seen = new Set<string>();
         for (
           let next: string | null = derivedFrom, depth = 0;
           next !== null;
           depth += 1
         ) {
+          // A chain that loops back ends the walk rather than the save.
+          if (seen.has(next)) break;
+          seen.add(next);
           const [source] = await tx
             .select({
               retiredAt: installationProfiles.retiredAt,
@@ -253,7 +257,6 @@ export function createPostgresInstallationProfileStore(
             .where(eq(installationProfiles.id, next));
           if (
             !source ||
-            depth >= 16 ||
             (depth === 0 && source.retiredAt !== null) ||
             source.blockedAt !== null
           )
