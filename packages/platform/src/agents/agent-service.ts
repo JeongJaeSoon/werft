@@ -1199,6 +1199,7 @@ export function createAgentService(deps: {
         intent: {
           kind: "migrate",
           migrationId: input.migrationId,
+          revert: true,
           expected,
           tracking: input.tracking,
         },

@@ -483,7 +483,8 @@ export async function topUpCeiling(
           removedAt: catalogRepositories.removedAt,
         })
         .from(catalogRepositories)
-        .where(eq(catalogRepositories.id, addition.repository_id));
+        .where(eq(catalogRepositories.id, addition.repository_id))
+        .for("share");
       if (
         row === undefined ||
         row.removedAt !== null ||
@@ -574,6 +575,7 @@ export async function readMigrationRecord(
       sql`SELECT target_ref, result FROM receipts
         WHERE operation = 'activate_agent'
           AND result->'migration'->>'id' = ${migrationId}
+          AND COALESCE(result->'migration'->>'revert', 'false') <> 'true'
         ORDER BY created_at, id`,
     ),
   );

@@ -251,6 +251,19 @@ async function apply(
           left.push({ agent_id: agent.agent_id, reason: agent.stay_reason });
           continue;
         }
+        // A newer version of the name appeared after the report: the
+        // approved tracking no longer holds, and a pinned agent must not follow.
+        const latest = current.workspaces
+          .find((w) => w.workspace_id === workspace.workspace_id)
+          ?.agents.find((a) => a.agent_id === agent.agent_id);
+        if (
+          latest?.decision === "move" &&
+          latest.tracking_after !== agent.tracking_after
+        ) {
+          failed = true;
+          left.push({ agent_id: agent.agent_id, reason: "plan_changed" });
+          continue;
+        }
         const step = await service.migrateAgent({
           workspaceId: workspace.workspace_id,
           agentId: agent.agent_id,

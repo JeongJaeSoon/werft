@@ -210,25 +210,37 @@ integration("profile migration on PostgreSQL (U5)", () => {
       workspaceId: ws.workspaceId,
       name: `team-${teamId.slice(0, 8)}`,
     });
-    const made = await (await service(catalog)).createAgent(ws.caller, {
+    const agents = await service(catalog);
+    const made = await agents.createAgent(ws.caller, {
       slug: `agent-${randomUUID().slice(0, 8)}`,
       name: "재무 분석가",
       managing_team_id: teamId,
       card: card("v1"),
+    });
+    const agentId = made.agent.id;
+    // A repository-required profile releases only for an agent with a settings
+    // row, so the row exists before the profile is given.
+    await db.insert(agentGitHubSettings).values({
+      agentId,
+      workspaceId: ws.workspaceId,
+      repositories: [],
+      pushApproval: false,
+      features: GITHUB_CEILING_NONE,
+      actionsAllow: [],
+    });
+    const released = await agents.updateAgent(ws.caller, agentId, {
       runtime_profile_id: profileId,
       model_source: "fixed",
     });
-    if (options.settingsRow !== false) {
-      await db.insert(agentGitHubSettings).values({
-        agentId: made.agent.id,
-        workspaceId: ws.workspaceId,
-        repositories: [],
-        pushApproval: false,
-        features: GITHUB_CEILING_NONE,
-        actionsAllow: [],
-      });
+    if (released.release.status !== "applied") {
+      throw new Error(`fixture release: ${JSON.stringify(released.release)}`);
     }
-    return made.agent.id;
+    if (options.settingsRow === false) {
+      await db
+        .delete(agentGitHubSettings)
+        .where(eq(agentGitHubSettings.agentId, agentId));
+    }
+    return agentId;
   }
 
   const agentRow = async (id: string) =>
@@ -393,6 +405,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       onV1: await releaseOf((await agentRow(onV1))?.activeReleaseId),
       onV2: await releaseOf((await agentRow(onV2))?.activeReleaseId),
       onOld: (await agentRow(onOld))?.activeReleaseId,
+      behavior: (await agentRow(onV1))?.behaviorRevision,
     };
     const report = await dryRun(catalog);
     const applied = await run(
@@ -441,7 +454,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       expect(a.permission_mode).toBe(b.permission_mode);
       expect(a.provider).toEqual(b.provider);
     }
-    expect(a1?.behaviorRevision).toBe(0);
+    expect(a1?.behaviorRevision).toBe(before.behavior);
     expect(r1?.versionId).toBe(before.onV1?.versionId);
 
     const [ceiling] = await db
@@ -612,6 +625,41 @@ integration("profile migration on PostgreSQL (U5)", () => {
           ),
         ),
     ).toHaveLength(2);
+
+    // Running the revert again undoes nothing and overwrites nothing a person
+    // changed since the first one.
+    await db
+      .update(agents)
+      .set({ profileTracking: "pinned" })
+      .where(eq(agents.id, onV1));
+    await run(
+      ["--revert", "--migration-id", migrationId],
+      await settingsCatalog(db),
+    );
+    const again = await agentRow(onV1);
+    expect(again?.activeReleaseId).toBe(startedOn.v1 as string);
+    expect(again?.profileTracking).toBe("pinned");
+  });
+
+  test("a newer version of the name made after the report stops the move that would have followed it", async () => {
+    const { ws, onV2, catalog } = await world();
+    const report = await dryRun(catalog);
+    expect(
+      JSON.parse(report.text).workspaces[0].agents.find(
+        (a: { agent_id: string }) => a.agent_id === onV2,
+      ).tracking_after,
+    ).toBe("follow");
+    await wsVersion(ws, await settingsCatalog(db), "strict", ["Read", "Bash"]);
+    const applied = await run(
+      ["--apply", "--report", report.out, "--report-sha256", report.sha],
+      await settingsCatalog(db),
+    );
+    expect(applied.code).toBe(1);
+    expect(JSON.stringify(applied.last)).toContain("plan_changed");
+    expect(
+      (await releaseOf((await agentRow(onV2))?.activeReleaseId))
+        ?.runtimeProfileId,
+    ).toStartWith("ws_");
   });
 
   test("a revert of a migration that wrote nothing refuses", async () => {

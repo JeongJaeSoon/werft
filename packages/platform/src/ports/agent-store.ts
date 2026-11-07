@@ -130,6 +130,8 @@ export type ActivationIntent =
   | {
       kind: "migrate";
       migrationId: string;
+      /** The receipt of a revert must not be read back as a forward move. */
+      revert?: boolean;
       expected: {
         activeReleaseId: string;
         activationRevision: number;

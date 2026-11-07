@@ -952,7 +952,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           (current === input.expectedRevision ||
             current === input.expectedRevision + 1)
         ) {
-          if (intent !== undefined) {
+          // A migrate retry writes nothing: a person may have changed the
+          // agent since the first attempt, and that change is theirs.
+          if (intent !== undefined && intent.kind !== "migrate") {
             await tx
               .update(agents)
               .set({ ...intentColumns, updatedAt: DB_NOW })
@@ -1010,6 +1012,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               ? {
                   migration: {
                     id: intent.migrationId,
+                    revert: intent.revert === true,
                     tracking_before: agent.profileTracking,
                     tracking_after: intent.tracking,
                     behavior_revision: agent.behaviorRevision,
