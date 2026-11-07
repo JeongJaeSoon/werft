@@ -205,19 +205,38 @@ describe("자격 연결 단계", () => {
   });
 });
 
+async function releasedTwice(server: ReturnType<typeof agentServer>) {
+  const save = (card: unknown) =>
+    server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+      new Request("http://test", {
+        method: "PATCH",
+        body: JSON.stringify({ card, runtime_profile_id: PROFILE }),
+      }),
+    );
+  const first = server.versions[0];
+  if (!first) throw new Error("agentServer starts with a version");
+  await save(first.card);
+  await save({ ...first.card, instructions: "환불도 맡는다." });
+}
+
+const FIRST = `릴리스 2026-10-11_10:00:00 · ${PROFILE}(으)로 되돌리기`;
+
+async function rollBackToFirst(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.click(await screen.findByRole("button", { name: FIRST }));
+  await user.click(
+    within(await screen.findByRole("dialog")).getByRole("button", {
+      name: "되돌리기",
+    }),
+  );
+}
+
 describe("CREDENTIAL_UNBOUND 안내", () => {
-  test("활성화가 거절되면 빠진 이름과 자격 연결로 가는 행동을 보이고, 연결 뒤 다시 활성화된다", async () => {
+  test("되돌리기가 거절되면 빠진 이름과 자격 연결로 가는 행동을 보이고, 연결 뒤 다시 되돌려진다", async () => {
     const server = serverNaming("github/app", "slack:bot");
+    await releasedTwice(server);
     const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
-    await user.click(
-      await screen.findByRole("button", { name: "릴리스 만들기" }),
-    );
-    const activate = await screen.findByRole("button", {
-      name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
-    });
-    await user.click(activate);
+    await rollBackToFirst(user);
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
@@ -226,7 +245,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(alert.textContent).toContain("github/app, slack:bot");
     // Shown in the releases section, where the button was pressed.
     const releases = screen
-      .getByRole("heading", { name: "릴리스 기록" })
+      .getByRole("heading", { name: "릴리스", level: 2 })
       .closest("section") as HTMLElement;
     expect(releases.contains(alert)).toBe(true);
     expect(document.activeElement?.contains(alert)).toBe(true);
@@ -251,16 +270,8 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
-    await user.click(
-      screen.getByRole("button", {
-        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
-      }),
-    );
-    expect(
-      await screen.findByText(
-        `활성화됐습니다 — 이제 새 세션은 릴리스 2026-10-11_10:00:00 · ${PROFILE}(으)로 시작합니다.`,
-      ),
-    ).toBeDefined();
+    await rollBackToFirst(user);
+    expect(await screen.findByText(/되돌렸습니다/)).toBeDefined();
     expect(
       screen.queryByText("연결되지 않은 자격이 있어 활성화하지 못했습니다"),
     ).toBeNull();
@@ -271,6 +282,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
 
   test("응답의 missing에 카드가 쓰지 않는 문자열이 섞여도 화면과 연결에 내보내지 않는다", async () => {
     const server = serverNaming("github/app");
+    await releasedTwice(server);
     const stray = "NOT A NAME 0123456789abcdef";
     const { services } = renderAt(DETAIL, {
       ...meOk,
@@ -290,15 +302,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
-    await user.click(
-      await screen.findByRole("button", { name: "릴리스 만들기" }),
-    );
-    await user.click(
-      await screen.findByRole("button", {
-        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
-      }),
-    );
+    await rollBackToFirst(user);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
       "이 릴리스가 쓰는 자격 증명 github/app이(가)",
@@ -318,6 +322,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
 
   test("details가 계약 모양이 아니어도 이름 없이 안내한다", async () => {
     const server = agentServer();
+    await releasedTwice(server);
     renderAt(DETAIL, {
       ...meOk,
       ...server.routes,
@@ -325,15 +330,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
         apiError(409, "CREDENTIAL_UNBOUND", "unbound"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
-    await user.click(
-      await screen.findByRole("button", { name: "릴리스 만들기" }),
-    );
-    await user.click(
-      await screen.findByRole("button", {
-        name: `릴리스 2026-10-11_10:00:00 · ${PROFILE} 활성화`,
-      }),
-    );
+    await rollBackToFirst(user);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
       "이 릴리스가 쓰는 자격 증명 중 연결되지 않은 것이 있습니다",

@@ -81,6 +81,7 @@ import {
 } from "./agent-detail/placement.tsx";
 import { ProfileFollow } from "./agent-detail/profile-follow.tsx";
 import { Releases } from "./agent-detail/releases.tsx";
+import { rolledBackText, trackingOf } from "./agent-detail/rollback-preview.ts";
 import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { shownVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
@@ -144,10 +145,16 @@ function AgentDetailPage({ id }: { readonly id: string }) {
   if (detail.isPending) return <StatusScreen kind="loading" />;
   if (detail.error) {
     if (isApiError(detail.error, "FORBIDDEN")) return <OutsideAgent id={id} />;
-    return isApiError(detail.error, "NOT_FOUND") ? (
-      <AgentNotFound />
-    ) : (
-      <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
+    if (isApiError(detail.error, "NOT_FOUND")) return <AgentNotFound />;
+    // A rollback whose outcome could not be read leaves its notice here too.
+    return (
+      <>
+        <PlacedOutcome placed={placed} at={placed?.at ?? "page"} />
+        <LoadFailure
+          error={detail.error}
+          onRetry={() => void detail.refetch()}
+        />
+      </>
     );
   }
   return (
@@ -300,9 +307,6 @@ function AgentView({
     if (outcome && home) openTab(home);
   };
   const onOutcome = outcomeAt("releases");
-  // Until a version is picked or saved the release form offers the latest.
-  const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
-  // One profile for the card editor's tool checklist and a new release.
   const [profileId, setProfileId] = useState<string>();
   const { client } = useWerft();
   const queryClient = useQueryClient();
@@ -327,10 +331,28 @@ function AgentView({
       : t("agent.noActive");
   };
 
+  // A read in flight began before the rollback and would answer with the old
+  // values, so it is dropped first. Null when the read fails.
+  const readAfterRollback = async () => {
+    const options = agentQuery(client, agent.id);
+    await queryClient.cancelQueries({ queryKey: options.queryKey });
+    return queryClient
+      .fetchQuery({ ...options, staleTime: 0, retry: false })
+      .catch(() => null);
+  };
+
   const activate = useMutation<
     ActivateAgentResponse,
     ApiError,
-    { release: AgentRelease; expected: number; seenActive: string | null }
+    {
+      release: AgentRelease;
+      expected: number;
+      seenActive: string | null;
+      before: {
+        tracking: NonNullable<AgentDetail["profile_tracking"]>;
+        modelSource: AgentDetail["model_source"];
+      };
+    }
   >({
     mutationFn: ({ release, expected }) =>
       unwrap(
@@ -343,22 +365,71 @@ function AgentView({
       onOutcome(null);
       setUnbound(null);
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, { before }) => {
       setConflict(null);
-      onOutcome({
-        kind: "notice",
-        text:
-          result.receipt_id === null
-            ? t("agent.alreadyActive")
-            : t("agent.activated", {
+      if (result.receipt_id === null) {
+        onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
+      } else {
+        const after = await readAfterRollback();
+        onOutcome({
+          kind: "notice",
+          text: after
+            ? rolledBackText(t, {
+                release: releaseLabel(result.active_release_id),
+                before,
+                after,
+              })
+            : t("agent.rolledBack.unchecked", {
                 release: releaseLabel(result.active_release_id),
               }),
-      });
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).agents,
       });
     },
-    onError: (error, { expected, seenActive }) => {
+    onError: async (error, { release, expected, seenActive, before }) => {
+      // The server may have committed before the answer was lost, so the
+      // outcome is read, never assumed.
+      if (error.code === "NETWORK_ERROR") {
+        const after = await readAfterRollback();
+        const done = after?.agent.active_release_id === release.id;
+        onOutcome(
+          after === null
+            ? {
+                kind: "error",
+                text: t("agent.rollback.unknown", {
+                  release: releaseLabel(release.id),
+                }),
+              }
+            : done
+              ? {
+                  kind: "notice",
+                  text: rolledBackText(t, {
+                    release: releaseLabel(release.id),
+                    before,
+                    after,
+                  }),
+                }
+              : after.agent.activation_revision === expected
+                ? {
+                    kind: "error",
+                    text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+                  }
+                : {
+                    // The pointer moved but not to the target: this rollback
+                    // may have applied and then been replaced.
+                    kind: "error",
+                    text: t("agent.rollback.movedMeanwhile", {
+                      release: releaseLabel(release.id),
+                    }),
+                  },
+        );
+        await queryClient.invalidateQueries({
+          queryKey: queryKeysOf(client).agents,
+        });
+        return;
+      }
       // Someone else moved the pointer since this page loaded. Retrying with
       // a fresh revision would silently undo their choice, so stop and let
       // the person look at what changed first.
@@ -376,7 +447,10 @@ function AgentView({
         openTab("release");
         return;
       }
-      onOutcome({ kind: "error", text: agentRefusal(t, error, role) });
+      onOutcome({
+        kind: "error",
+        text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+      });
     },
   });
 
@@ -457,7 +531,6 @@ function AgentView({
             onProfileChange={setProfileId}
             result={<PlacedOutcome placed={placed} at="card" />}
             onOutcome={outcomeAt("card")}
-            onSaved={setReleaseVersion}
             onClose={(cancelled) => {
               setEditing(false);
               editReturns.current = cancelled;
@@ -499,11 +572,7 @@ function AgentView({
       <TabsContent {...tabPanel("release")}>
         <Releases
           detail={detail}
-          profileId={profileId}
-          onProfileChange={setProfileId}
           shown={tab === "release"}
-          picked={releaseVersion}
-          onPick={setReleaseVersion}
           versionNo={versionNo}
           result={
             <>
@@ -573,7 +642,6 @@ function AgentView({
               </TakesFocus>
             </>
           }
-          onOutcome={onOutcome}
           activating={
             activate.isPending ? activate.variables?.release.id : undefined
           }
@@ -582,6 +650,10 @@ function AgentView({
               release,
               expected: agent.activation_revision,
               seenActive: agent.active_release_id,
+              before: {
+                tracking: trackingOf(detail),
+                modelSource: detail.model_source,
+              },
             })
           }
         />

@@ -1,13 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
-import {
-  type ApiClient,
-  type ApiError,
-  type components,
-  unwrap,
-} from "@werft-ai/client";
+import { type ApiError, type components, unwrap } from "@werft-ai/client";
 import type { AgentDetail } from "@werft-ai/contracts";
-import { queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
@@ -50,6 +44,11 @@ import {
   type Translate,
   useI18n,
 } from "../../i18n/i18n.tsx";
+import {
+  githubKey,
+  receiptTitle,
+  useAgentGitHubActivity,
+} from "./github-activity.ts";
 import { AppRepositoryPicker } from "./github-app-repositories.tsx";
 import { AgentPullRequestSettingsCard } from "./github-pull-request.tsx";
 import { type Notify, useToast } from "./toast.tsx";
@@ -103,9 +102,6 @@ const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;
 
-const githubKey = (client: ApiClient, agentId: string) =>
-  [...queryKeysOf(client).agent(agentId), "github"] as const;
-
 /** Whether a ref pattern can name an `agent/` branch, which never runs. */
 export function refusesAgentRef(ref: string): boolean {
   const slash = ref.indexOf("/");
@@ -150,27 +146,6 @@ export function pendingCount(
 function failure(error: unknown, t: Translate): string {
   const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
   return t(errorKey(code));
-}
-
-function receiptTitle(receipt: Receipt, t: Translate): string {
-  const result = (receipt.result ?? {}) as {
-    enabled?: boolean;
-    change?: string;
-  };
-  if (receipt.operation === "set_agent_github") {
-    if (result.change === "settings") {
-      return t("agentGitHub.activity.set_agent_github.settings");
-    }
-    return t(
-      result.enabled
-        ? "agentGitHub.activity.set_agent_github.on"
-        : "agentGitHub.activity.set_agent_github.off",
-    );
-  }
-  const key = `agentGitHub.activity.${receipt.operation}${
-    receipt.status === "failed" ? ".failed" : ""
-  }`;
-  return t(key as MessageKey);
 }
 
 function ReceiptRow({
@@ -263,17 +238,7 @@ function Activity({
   readonly detail: AgentDetail;
 }) {
   const { t } = useI18n();
-  const { client } = useWerft();
-  const activity = useQuery({
-    queryKey: [...githubKey(client, agentId), "activity"],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/agents/{id}/github/activity", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    retry: false,
-  });
+  const activity = useAgentGitHubActivity(agentId);
   return (
     <Section
       id={SECTION.activity}

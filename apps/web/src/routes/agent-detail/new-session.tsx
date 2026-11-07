@@ -63,9 +63,7 @@ function foreseenServerRefusal(
   );
   if (profile === undefined || !startableWhenPinned(profile)) return "profile";
   const repository = release.repository_id;
-  if (repository === null) {
-    return profile.repository_mode === "required" ? "repository" : null;
-  }
+  if (repository === null) return null;
   const pinned = release.policy_pins.github?.repositories;
   return (profile.repository_ids?.includes(repository) ?? true) &&
     (pinned?.includes(repository) ?? true)

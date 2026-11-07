@@ -55,19 +55,15 @@ export function CardEditor({
   detail,
   result,
   onOutcome,
-  onSaved,
   onClose,
   profileId,
   onProfileChange,
 }: {
   readonly detail: AgentDetail;
-  /** Shared with the releases tab, whose new release starts from it. */
   readonly profileId: string | undefined;
   readonly onProfileChange: (profileId: string) => void;
   readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
-  /** The version the save resolved to, which the release form then offers. */
-  readonly onSaved: (versionId: string) => void;
   /**
    * Back to the read-only card: on cancel, or after a save nothing was typed
    * after. Only a cancel hands the keyboard back; a save's result takes it.
@@ -176,7 +172,6 @@ export function CardEditor({
           ? savedVersion(detail, updated, submitted)
           : versionOf(release.version_id)
         : undefined;
-      if (saved) onSaved(saved.id);
       const isNew =
         saved !== undefined && !detail.versions.some((v) => v.id === saved.id);
       onOutcome(

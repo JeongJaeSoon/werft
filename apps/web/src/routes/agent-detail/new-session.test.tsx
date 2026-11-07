@@ -54,24 +54,17 @@ type Routes = Record<
 >;
 
 async function released(repositoryMode: ProfileSummary["repository_mode"]) {
-  const server = agentServer({ repositoryMode });
+  const server = agentServer({
+    repositoryMode,
+    releaseRepository: repositoryMode === "none" ? null : "sample-app",
+  });
   const routes = server.routes as Routes;
-  const post = (name: string, body: unknown) =>
-    routes[`POST ${PATH}/${name}`]?.(
-      new Request(`http://test${PATH}/${name}`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    );
-  await post("releases", {
-    version_id: server.detail().versions[0]?.id,
-    runtime_profile_id: "claude-coding-local",
-    repository_id: repositoryMode === "none" ? undefined : "sample-app",
-  });
-  await post("activate", {
-    release_id: server.detail().releases[0]?.id,
-    expected_revision: -1,
-  });
+  await routes[`PATCH ${PATH}`]?.(
+    new Request(`http://test${PATH}`, {
+      method: "PATCH",
+      body: JSON.stringify({ runtime_profile_id: "claude-coding-local" }),
+    }),
+  );
   return server;
 }
 
@@ -368,7 +361,7 @@ describe("이 에이전트로 새 세션", () => {
     test("릴리스가 없다", async () => {
       renderAt(DETAIL, { ...meAs(me()), ...agentServer().routes });
       await expectBlocked(
-        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
       );
     });
 
@@ -430,7 +423,7 @@ describe("이 에이전트로 새 세션", () => {
       await expectBlocked(profileReason);
     });
 
-    test("저장소가 필요한 프로필인데 릴리스에 저장소가 없다", async () => {
+    test("릴리스에 저장소가 없으면 프로필이 저장소를 요구해도 막지 않는다", async () => {
       const server = await released("required");
       const detail = withRelease(server.detail(), { repository_id: null });
       renderAt(DETAIL, {
@@ -438,7 +431,10 @@ describe("이 에이전트로 새 세션", () => {
         ...server.routes,
         [`GET ${PATH}`]: () => json(200, detail),
       });
-      await expectBlocked(repositoryReason);
+      await waitFor(async () =>
+        expect((await button()).getAttribute("aria-disabled")).toBeNull(),
+      );
+      expect(screen.queryByText(repositoryReason) === null).toBe(true);
     });
 
     test("릴리스의 저장소가 프로필이 허용하는 목록 밖이다", async () => {

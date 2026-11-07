@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { expectedMigrationHead } from "@werft-ai/db";
 import { installationLimitProblems } from "@werft-ai/platform";
@@ -11,6 +13,23 @@ import { checkpointStorageConfigFromEnv } from "./checkpoints.ts";
 import { createReadinessProbe, type QueryRunner } from "./readiness.ts";
 
 const databases: PGlite[] = [];
+
+// The newest journal entry, read without expectedMigrationHead() so the
+// assertions below can tell that function's answer from the file's.
+function journalLastTag(): string {
+  const journal = JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dir,
+        "../../../../packages/db/migrations/meta/_journal.json",
+      ),
+      "utf8",
+    ),
+  ) as { entries: { tag: string }[] };
+  const last = journal.entries.at(-1);
+  if (!last) throw new Error("migration journal is empty");
+  return last.tag;
+}
 
 async function database(migrated: boolean): Promise<PGlite> {
   const client = migrated ? await migratedPGlite() : new PGlite();
@@ -27,7 +46,9 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
-    expect(expectedMigrationHead().tag).toBe("0241_profile_fill");
+    // Read from the journal, not pinned: a literal tag here conflicts in every
+    // migration PR.
+    expect(expectedMigrationHead().tag).toBe(journalLastTag());
   });
 
   test("passes on a migrated database with the required configuration", async () => {
@@ -89,9 +110,7 @@ describe("readiness probe", () => {
       environment,
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
-    expect(result.ready === false && result.reason).toContain(
-      "0241_profile_fill",
-    );
+    expect(result.ready === false && result.reason).toContain(journalLastTag());
 
     // Same timestamp, different SQL behind it: not the schema this build ships.
     const rewritten = await database(true);

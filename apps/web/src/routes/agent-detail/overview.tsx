@@ -38,6 +38,7 @@ import { type ReactNode, useId, useState } from "react";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
+import { withNodes } from "../../components/with-nodes.tsx";
 import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
@@ -472,7 +473,7 @@ export function CardSummary({
   /** The button that turns this view into the editor. */
   readonly edit: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const titleId = useId();
   const rawId = useId();
   const [copyFailed, setCopyFailed] = useState(false);
@@ -537,6 +538,26 @@ export function CardSummary({
                 <Code size="inherit" className={VALUE}>
                   {detail.agent.slug}
                 </Code>
+              ),
+            },
+            {
+              label: t("agent.releases.title"),
+              value: (
+                <span className={`${VALUE} tabular-nums`}>
+                  {detail.active_release === null
+                    ? "-"
+                    : withNodes((vars) => t("agent.card.releasedAt", vars), {
+                        at: (
+                          <RelativeTime
+                            value={
+                              detail.active_release.activated_at ??
+                              detail.active_release.created_at
+                            }
+                            locale={locale}
+                          />
+                        ),
+                      })}
+                </span>
               ),
             },
             {

@@ -34,17 +34,23 @@ export const versionOf = (profile: ProfileSummary): number =>
   profile.workspace?.version ?? profile.installation?.version ?? 1;
 
 /** A profile as the profiles screen names it, with its model and kind. */
-export const profileLabel = (t: Translate, profile: ProfileSummary): string =>
-  t("profiles.option", {
-    name: profileName(profile),
+export const profileLabel = (t: Translate, profile: ProfileSummary): string => {
+  const kind = t(
+    profile.source === "operator"
+      ? "profiles.optionKind.installation"
+      : "profiles.optionKind.workspace",
+  );
+  const named = profile.workspace?.name ?? profile.installation?.name;
+  // A nameless ceiling has only its id, which a choice never shows.
+  if (named == null)
+    return t("profiles.optionUnnamed", { kind, model: profile.model });
+  return t("profiles.option", {
+    name: named,
     version: versionOf(profile),
     model: profile.model,
-    kind: t(
-      profile.source === "operator"
-        ? "profiles.optionKind.installation"
-        : "profiles.optionKind.workspace",
-    ),
+    kind,
   });
+};
 
 /**
  * One option per profile: those that `fit` first, each part installation

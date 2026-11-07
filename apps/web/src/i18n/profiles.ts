@@ -11,6 +11,7 @@ export const profilesKo = {
   "profiles.option": "{name} v{version} · {model} ({kind})",
   "profiles.optionKind.installation": "설치",
   "profiles.optionKind.workspace": "워크스페이스",
+  "profiles.optionUnnamed": "{kind} 프로필 · {model}",
   "profiles.workspace.description":
     "수정하면 새 버전으로 저장됩니다. 이전 버전을 쓰던 에이전트는 그대로 동작합니다.",
   "profiles.locked": "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
@@ -359,6 +360,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.option": "{name} v{version} · {model} ({kind})",
   "profiles.optionKind.installation": "installation",
   "profiles.optionKind.workspace": "workspace",
+  "profiles.optionUnnamed": "{kind} profile · {model}",
   "profiles.workspace.description":
     "Editing saves a new version. Agents on an earlier version keep working as they are.",
   "profiles.locked": "To change these, ask a workspace owner or admin",
@@ -710,6 +712,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.option": "{name} v{version} · {model}（{kind}）",
   "profiles.optionKind.installation": "インストール",
   "profiles.optionKind.workspace": "ワークスペース",
+  "profiles.optionUnnamed": "{kind}プロファイル · {model}",
   "profiles.workspace.description":
     "編集すると新しいバージョンとして保存されます。前のバージョンを使っていたエージェントはそのまま動きます。",
   "profiles.locked":

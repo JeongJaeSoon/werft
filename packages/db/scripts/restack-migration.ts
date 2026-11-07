@@ -14,6 +14,9 @@
 // base side for conflicts under migrations/meta with
 // `git checkout --ours -- packages/db/migrations/meta`; never drop your .sql):
 //   bun run --cwd packages/db db:restack [--base <ref>] [--keep-handwritten]
+//   bun run --cwd packages/db db:restack --check [--base <ref>]
+// --check changes nothing: exit 0 when the migration already follows the base's
+// head and the folder is sound, exit 1 with the reasons when a restack is due.
 //
 // Handles one migration per branch; a branch with several is asked to squash
 // them. Multi-migration restacking waits for a branch that genuinely needs two.
@@ -114,6 +117,17 @@ if (edited.length > 0) {
 }
 const added = changed.map(([, path]) => path);
 if (added.length === 0) {
+  // A branch that edited schema.ts but forgot its migration is not "nothing
+  // to do" for --check: the folder check below catches the drift.
+  const drift = process.argv.includes("--check")
+    ? await migrationFolderProblems(MIGRATIONS_FOLDER, schema)
+    : [];
+  if (drift.length > 0) {
+    console.error(
+      `db:restack --check: the folder is not sound:\n${drift.join("\n")}`,
+    );
+    process.exit(1);
+  }
   console.log("db:restack: no migration on this branch; nothing to do");
   process.exit(0);
 }
@@ -137,6 +151,34 @@ const baseMeta = new Set(
 );
 if (!baseMeta.has("_journal.json")) {
   fail(`could not list ${migrationsPath}/meta on ${base}`);
+}
+
+// Read-only: says whether this branch still needs a restack, so a lead can skip
+// the squash-and-regenerate round when main took no number since the fork.
+if (process.argv.includes("--check")) {
+  const baseTag = (
+    JSON.parse(git("show", `${base}:${migrationsPath}/meta/_journal.json`)) as {
+      entries: { tag: string }[];
+    }
+  ).entries.at(-1)?.tag;
+  if (!baseTag) {
+    fail(`${base} has an empty migration journal`);
+  }
+  const wanted = String(Number(baseTag.slice(0, 4)) + 1).padStart(4, "0");
+  const reasons = await migrationFolderProblems(MIGRATIONS_FOLDER, schema);
+  if (!oldTag.startsWith(`${wanted}_`)) {
+    reasons.unshift(
+      `${oldTag} should be number ${wanted}, the one after ${baseTag} on ${base}`,
+    );
+  }
+  if (reasons.length > 0) {
+    console.error(`db:restack --check: restack needed:\n${reasons.join("\n")}`);
+    process.exit(1);
+  }
+  console.log(
+    `db:restack --check: ${oldTag} follows ${baseTag}; nothing to do`,
+  );
+  process.exit(0);
 }
 
 function generate(custom: boolean): void {

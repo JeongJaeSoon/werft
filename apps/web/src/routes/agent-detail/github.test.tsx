@@ -75,31 +75,20 @@ async function activeAgent({
   github?: Settings | null;
 } = {}) {
   const server = agentServer();
-  const call = (key: string, body: unknown) =>
-    (
-      server.routes as unknown as Record<
-        string,
-        (request: Request) => Promise<Response>
-      >
-    )[key]?.(
-      new Request("http://test", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    );
   const versionId = server.versions[0]?.id ?? "";
-  await call(`POST ${PATH}/releases`, {
-    version_id: versionId,
-    runtime_profile_id: "claude-coding-local",
-    ...(repository === null ? {} : { repository_id: repository }),
-  });
+  await server.routes[`PATCH ${PATH}`](
+    new Request("http://test", {
+      method: "PATCH",
+      body: JSON.stringify({
+        card: server.versions[0]?.card,
+        runtime_profile_id: "claude-coding-local",
+      }),
+    }),
+  );
   const release = server.releases[0];
   if (!release) throw new Error("no release");
+  release.repository_id = repository;
   release.policy_pins = github === null ? {} : { github };
-  await call(`POST ${PATH}/activate`, {
-    release_id: release.id,
-    expected_revision: -1,
-  });
   return { server, release, versionId };
 }
 

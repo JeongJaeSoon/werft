@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  seedRelease as releaseFixture,
+} from "../../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -23,13 +27,8 @@ const selected = () =>
   screen.getByRole("tab", { selected: true }).textContent ?? "";
 const visiblePanel = () => screen.getByRole("tabpanel");
 
-/**
- * A release row's version name, status, activation instants and card
- * version. The version cell also holds the narrow-only list of the other
- * columns, so only its first line is the name.
- */
 function releaseCells(row: HTMLElement) {
-  const [version, status, activated, card] = within(row).getAllByRole("cell");
+  const [version, status, activated, by] = within(row).getAllByRole("cell");
   const times = [...(activated?.querySelectorAll("time") ?? [])].map((time) =>
     time.getAttribute("datetime"),
   );
@@ -37,7 +36,7 @@ function releaseCells(row: HTMLElement) {
     version?.firstElementChild?.firstElementChild?.textContent,
     status?.textContent,
     times.length > 0 ? times.join(" ~ ") : activated?.textContent,
-    card?.textContent,
+    by?.textContent,
   ];
 }
 const tabIn = (history: { location: { search: string } }) =>
@@ -170,7 +169,7 @@ describe("에이전트 상세 탭", () => {
     history.push(`${DETAIL}?tab=release`);
     await waitFor(() => expect(selected()).toBe("릴리스"));
     expect(
-      within(visiblePanel()).getByRole("heading", { name: "릴리스 기록" }),
+      within(visiblePanel()).getByRole("heading", { name: "릴리스", level: 2 }),
     ).toBeDefined();
 
     await user.click(screen.getByRole("tab", { name: "상세 설정" }));
@@ -204,6 +203,7 @@ describe("에이전트 상세 탭", () => {
     ).toEqual([
       "이름",
       "식별자",
+      "릴리스",
       "설명",
       "에이전트 지시문",
       "자격 증명",
@@ -213,6 +213,10 @@ describe("에이전트 상세 탭", () => {
       "쓸 수 있는 도구",
       "금지 도구",
     ]);
+    expect(
+      within(summary).getByText("릴리스", { selector: "dt" }).nextElementSibling
+        ?.textContent,
+    ).toBe("-");
     expect(within(summary).getByText("v1")).toBeDefined();
     // Not released yet: the raw card is the latest version's.
     expect(screen.getByText("최신 버전 기준 · 읽기 전용")).toBeDefined();
@@ -755,24 +759,7 @@ describe("에이전트 상세 탭", () => {
 
   test("머리 태그는 릴리스한 에이전트를 목록과 같은 상태 이름으로 부른다", async () => {
     const server = agentServer();
-    const path = `/v1/agents/${AGENT_ID}`;
-    const post = (route: string, body: unknown) =>
-      (server.routes as Record<string, (request: Request) => unknown>)[
-        `POST ${path}/${route}`
-      ]?.(
-        new Request(`http://test${path}/${route}`, {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      );
-    await post("releases", {
-      version_id: server.detail().versions[0]?.id,
-      runtime_profile_id: "claude-coding-local",
-    });
-    await post("activate", {
-      release_id: server.detail().releases[0]?.id,
-      expected_revision: -1,
-    });
+    await released(server);
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
@@ -783,31 +770,17 @@ describe("에이전트 상세 탭", () => {
   test("일시정지된 에이전트는 최신 release가 켜져 있어도 켜짐이라 하지 않는다", async () => {
     const server = agentServer();
     const path = `/v1/agents/${AGENT_ID}`;
-    const post = (route: string, body: unknown) =>
-      (server.routes as Record<string, (request: Request) => unknown>)[
-        `POST ${path}/${route}`
-      ]?.(
-        new Request(`http://test${path}/${route}`, {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      );
-    const version = server.detail().versions[0];
-    await post("releases", {
-      version_id: version?.id,
-      runtime_profile_id: "claude-coding-local",
-    });
+    await released(server);
     const release = server.detail().releases[0];
-    await post("activate", { release_id: release?.id, expected_revision: -1 });
-    const released = server.detail();
-    expect(released.agent.active_release_id).toBe(release?.id ?? "");
+    const live = server.detail();
+    expect(live.agent.active_release_id).toBe(release?.id ?? "");
     renderAt(DETAIL, {
       ...meOk,
       ...server.routes,
       [`GET ${path}`]: () =>
         json(200, {
-          ...released,
-          agent: { ...released.agent, status: "paused" },
+          ...live,
+          agent: { ...live.agent, status: "paused" },
         }),
     });
     const section = (
@@ -847,25 +820,9 @@ describe("에이전트 상세 탭", () => {
     test(`${label} 에이전트는 최신 version이 더 새로워도 새 세션이 활성 version으로 시작한다고 하지 않는다`, async () => {
       const server = agentServer();
       const path = `/v1/agents/${AGENT_ID}`;
-      const post = (route: string, body: unknown) =>
-        (server.routes as Record<string, (request: Request) => unknown>)[
-          `POST ${path}/${route}`
-        ]?.(
-          new Request(`http://test${path}/${route}`, {
-            method: "POST",
-            body: JSON.stringify(body),
-          }),
-        );
       const first = server.detail().versions[0];
-      await post("releases", {
-        version_id: first?.id,
-        runtime_profile_id: "claude-coding-local",
-      });
-      await post("activate", {
-        release_id: server.detail().releases[0]?.id,
-        expected_revision: -1,
-      });
-      const released = server.detail();
+      await released(server);
+      const live = server.detail();
       if (!first) throw new Error("fake agent has no version");
       const second = {
         ...first,
@@ -880,9 +837,9 @@ describe("에이전트 상세 탭", () => {
         ...server.routes,
         [`GET ${path}`]: () =>
           json(200, {
-            ...released,
-            agent: { ...released.agent, status },
-            versions: [...released.versions, second],
+            ...live,
+            agent: { ...live.agent, status },
+            versions: [...live.versions, second],
           }),
       });
       const section = (
@@ -897,19 +854,7 @@ describe("에이전트 상세 탭", () => {
 
   test("release만 만들고 켜지 않은 version은 배포하지 않았다고 하지 않는다", async () => {
     const server = agentServer();
-    const path = `/v1/agents/${AGENT_ID}`;
-    const version = server.detail().versions[0];
-    await (server.routes as Record<string, (request: Request) => unknown>)[
-      `POST ${path}/releases`
-    ]?.(
-      new Request(`http://test${path}/releases`, {
-        method: "POST",
-        body: JSON.stringify({
-          version_id: version?.id,
-          runtime_profile_id: "claude-coding-local",
-        }),
-      }),
-    );
+    server.releases.push(releaseFixture(0));
     expect(server.detail().releases).toHaveLength(1);
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...server.routes });
     const summary = await screen.findByRole("region", {
@@ -1055,32 +1000,15 @@ describe("에이전트 상세 탭", () => {
   test("릴리스는 만든 시각으로 불리고, 이전 릴리스는 활성이었던 기간을 보인다", async () => {
     const server = agentServer();
     await released(server);
+    const first = server.versions[0] as (typeof server.versions)[number];
     server.versions.push({
-      ...(server.versions[0] as (typeof server.versions)[number]),
+      ...first,
       id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
       version_no: 2,
       content_sha256: "f".repeat(64),
+      card: { ...first.card, agent_instructions: "환불도 맡는다." },
     });
-    const routes = server.routes as Record<
-      string,
-      (request: Request) => Response | Promise<Response>
-    >;
-    const path = `/v1/agents/${AGENT_ID}`;
-    const post = (route: string, body: unknown) =>
-      routes[`POST ${path}/${route}`]?.(
-        new Request(`https://console.test${path}/${route}`, {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      );
-    await post("releases", {
-      version_id: server.versions[1]?.id,
-      runtime_profile_id: "claude-coding-local",
-    });
-    await post("activate", {
-      release_id: server.releases[1]?.id,
-      expected_revision: 0,
-    });
+    await released(server, server.versions[1]?.card);
     renderAt(`${DETAIL}?tab=release`, { ...meOk, ...server.routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
@@ -1090,12 +1018,12 @@ describe("에이전트 상세 탭", () => {
     expect(
       within(table).getAllByRole("row").slice(1).map(releaseCells),
     ).toEqual([
-      ["2026-10-11_10:01:00", "활성", "2026-10-11T02:01:00.000Z", "v2"],
+      ["2026-10-11_10:01:00 v2", "활성", "2026-10-11T02:01:00.000Z", "구성원"],
       [
-        "2026-10-11_10:00:00",
+        "2026-10-11_10:00:00 v1",
         "이전",
         "2026-10-11T02:00:00.000Z ~ 2026-10-11T02:01:00.000Z",
-        "v1",
+        "구성원",
       ],
     ]);
     // Each end reads relative, with the exact instant in its tooltip, in
@@ -1130,7 +1058,7 @@ describe("에이전트 상세 탭", () => {
     const table = await screen.findByRole("table");
     expect(
       within(table).getAllByRole("row").slice(1).map(releaseCells),
-    ).toEqual([["버전 1", "활성", "—", "v1"]]);
+    ).toEqual([["버전 1 v1", "활성", "—", "구성원"]]);
   });
 
   test("배포 탭은 배포 기록 표 다음에 자격 연결을 두고, 만든 사람은 구성원 이름으로 쓴다", async () => {
@@ -1162,28 +1090,17 @@ describe("에이전트 상세 탭", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((head) => head.textContent),
-    ).toEqual([
-      "버전",
-      "상태",
-      "활성화 시각",
-      "카드 버전",
-      "프로필",
-      "저장소",
-      "만든 사람",
-      "메모",
-      "동작",
-    ]);
+    ).toEqual(["버전", "상태", "활성화 시각", "만든 사람", "동작"]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
     // The column and the version cell's narrow-only list both say it.
     await within(row).findAllByText("이민호");
     expect(releaseCells(row)).toEqual([
-      "2026-10-11_10:00:00",
+      "2026-10-11_10:00:00 v1",
       "활성",
       "2026-10-11T02:00:00.000Z",
-      "v1",
+      "이민호",
     ]);
     expect(row.textContent).toContain("활성");
-    expect(row.textContent).toContain("claude-coding-local");
     // A narrow table keeps the version and action columns; the version
     // cell shows the status and lists every column it drops, the
     // activation as a time.
@@ -1220,11 +1137,7 @@ describe("에이전트 상세 탭", () => {
       ]),
     ).toEqual([
       ["활성화 시각", expect.any(String)],
-      ["카드 버전", "v1"],
-      ["프로필", "claude-coding-local"],
-      ["저장소", expect.any(String)],
       ["만든 사람", "이민호"],
-      ["메모", "—"],
     ]);
     expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
       "2026-10-11T02:00:00.000Z",
@@ -1233,7 +1146,7 @@ describe("에이전트 상세 탭", () => {
       within(visiblePanel())
         .getAllByRole("heading", { level: 2 })
         .map((heading) => heading.textContent),
-    ).toEqual(["릴리스 기록", "자격 증명 연결"]);
+    ).toEqual(["릴리스", "자격 증명 연결"]);
   });
 
   test("구성원 목록은 배포 탭을 열 때 읽고, 다른 탭을 볼 때는 읽지 않는다", async () => {
@@ -1267,119 +1180,24 @@ describe("에이전트 상세 탭", () => {
     await waitFor(() => expect(row.textContent).toContain("구성원"));
   });
 
-  test("release가 없으면 빈 상태를 보이고, 새 release 대화상자는 포커스를 가두었다가 닫으면 버튼으로 돌려준다", async () => {
+  test("release가 없으면 빈 상태만 보이고 릴리스를 만드는 단추는 없다", async () => {
     renderAt(`${DETAIL}?tab=release`, { ...meOk, ...agentServer().routes });
-    const user = await setupUser();
     expect(await screen.findByText("아직 릴리스가 없습니다.")).toBeDefined();
     expect(screen.queryByRole("table")).toBeNull();
-    const trigger = screen.getByRole("button", { name: "새 릴리스" });
-    await user.click(trigger);
-    const dialog = await screen.findByRole("dialog", { name: "새 릴리스" });
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    expect(within(dialog).getByLabelText("버전")).toBeDefined();
-    await within(dialog).findByLabelText("프로필");
-    await user.click(within(dialog).getByRole("button", { name: "취소" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement === trigger).toBe(true);
-  });
-
-  test("새 release의 프로필은 프로필 화면의 이름·버전·모델·종류로 보이고, 새 release를 받지 않는 판은 고를 수 없으며 기본값도 되지 않는다", async () => {
-    // Its default model is not the card's, but it also runs the card's
-    // model, which is what the server checks.
-    const operator = {
-      id: "claude-coding-fast",
-      source: "operator" as const,
-      model: "claude-haiku-5",
-      models: ["claude-haiku-5", "claude-sonnet-5"],
-      tools: ["Read"],
-      permission_mode: "default" as const,
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      billing: "metered" as const,
-      repository_mode: "required" as const,
-    };
-    const version = (
-      n: number,
-      state: "usable" | "retired" | "base_changed",
-    ) => ({
-      ...operator,
-      id: `ws_acme_strict_v${n}`,
-      source: "workspace" as const,
-      model: "claude-sonnet-5",
-      models: ["claude-sonnet-5"],
-      workspace: {
-        name: "strict",
-        version: n,
-        base_profile_id: "claude-coding-local",
-        state,
-        created_at: "2026-10-27T00:00:00.000Z",
-        retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
-      },
-    });
-    renderAt(`${DETAIL}?tab=release`, {
-      ...meOk,
-      ...agentServer().routes,
-      "GET /v1/profiles": () =>
-        json(200, {
-          items: [operator, version(1, "retired"), version(2, "base_changed")],
-        }),
-    });
-    const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "새 릴리스" }));
-    const dialog = await screen.findByRole("dialog", { name: "새 릴리스" });
-    const select = (await within(dialog).findByLabelText(
-      "프로필",
-    )) as HTMLSelectElement;
-    expect(
-      [...select.querySelectorAll("option")].map((option) => [
-        option.value,
-        option.disabled,
-        option.textContent,
-      ]),
-    ).toEqual([
-      [
-        "claude-coding-fast",
-        false,
-        "claude-coding-fast v1 · claude-haiku-5 (설치)",
-      ],
-      [
-        "ws_acme_strict_v1",
-        true,
-        "strict v1 · claude-sonnet-5 (워크스페이스) · 사용 중지됨",
-      ],
-      [
-        "ws_acme_strict_v2",
-        true,
-        "strict v2 · claude-sonnet-5 (워크스페이스) · 바탕 프로필 바뀜",
-      ],
-    ]);
-    expect(select.value).toBe("claude-coding-fast");
-    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "새 릴리스" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
 /** One release of version 1, activated, as the server would hold it. */
-async function released(server: ReturnType<typeof agentServer>) {
-  const routes = server.routes as Record<
-    string,
-    (request: Request) => Response | Promise<Response>
-  >;
-  const path = `/v1/agents/${AGENT_ID}`;
-  const post = (route: string, body: unknown) =>
-    routes[`POST ${path}/${route}`]?.(
-      new Request(`https://console.test${path}/${route}`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    );
-  const made = (await (
-    await post("releases", {
-      version_id: server.versions[0]?.id,
-      runtime_profile_id: "claude-coding-local",
-    })
-  )?.json()) as { release: { id: string } };
-  await post("activate", {
-    release_id: made.release.id,
-    expected_revision: -1,
-  });
+async function released(
+  server: ReturnType<typeof agentServer>,
+  card = server.versions.at(-1)?.card,
+) {
+  await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
+    new Request("https://console.test/", {
+      method: "PATCH",
+      body: JSON.stringify({ card, runtime_profile_id: "claude-coding-local" }),
+    }),
+  );
 }

@@ -1,6 +1,5 @@
 import {
   type UseQueryResult,
-  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -10,19 +9,15 @@ import {
   useBlocker,
   useRouter,
 } from "@tanstack/react-router";
-import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiClient, unwrap } from "@werft-ai/client";
 import type {
-  ActivateAgentResponse,
-  AgentCard,
   AgentDetail,
+  ModelSource,
   ProfileSummary,
+  SaveAgentResponse,
 } from "@werft-ai/contracts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
-import {
-  agentCardStep,
-  agentIdentityStep,
-  agentReleaseStep,
-} from "@werft-ai/core/forms";
+import { agentCardStep, agentIdentityStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   type StepForm,
@@ -35,7 +30,6 @@ import {
   Alert,
   AlertActions,
   AlertDescription,
-  AlertTitle,
   Button,
   ConfirmDialog,
   Field,
@@ -61,7 +55,8 @@ import {
   scopedKey,
 } from "../api/queries.ts";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
-import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import { saveFailureText } from "../routes/agent-detail/effective-behavior.tsx";
 import {
   AGENT_FORM,
   AgentCardFields,
@@ -70,14 +65,18 @@ import {
   type CardDraft,
   type CardErrors,
   cardDraftOf,
+  chosenProfile,
   EMPTY_DRAFT,
   toolsBlocked,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { useTeamChoices } from "./managing-team.tsx";
-import { ProfileOptions, pickable, profileLabel } from "./profile-options.tsx";
+import { pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
+
+const releasable = (profile: ProfileSummary) =>
+  pickable(profile) && profile.repository_mode !== "required";
 
 const SlackConnect = lazyRouteComponent(
   () => import("../routes/agent-detail/slack.tsx"),
@@ -94,8 +93,7 @@ type Steps = {
     name: string;
     slug: string;
     agentId: string;
-    versionId: string;
-    releaseId: string;
+    card?: unknown;
   };
   name: {
     flow: string;
@@ -112,23 +110,6 @@ type Steps = {
     managing_team_id?: string;
     card?: unknown;
   };
-  release: {
-    flow: string;
-    name: string;
-    slug: string;
-    agentId: string;
-    versionId: string;
-    /** The profile the job step previewed tools with. */
-    previewId?: string;
-  };
-  activate: {
-    flow: string;
-    name: string;
-    slug: string;
-    agentId: string;
-    versionId: string;
-    releaseId: string;
-  };
 };
 
 const hasText = (data: unknown, keys: readonly string[]) =>
@@ -138,13 +119,11 @@ const hasText = (data: unknown, keys: readonly string[]) =>
     (key) => typeof (data as Record<string, unknown>)[key] === "string",
   );
 
-const STEP_IDS = ["name", "job", "release", "activate", "channels"] as const;
+const STEP_IDS = ["name", "job", "channels"] as const;
 const STEP_LABEL = {
   channels: "agents.flow.channels",
   name: "agents.flow.name",
   job: "agents.flow.job",
-  release: "agents.flow.release",
-  activate: "agents.flow.activate",
 } as const satisfies Record<keyof Steps, MessageKey>;
 
 const NEW_CARD_STEP = agentCardStep();
@@ -179,19 +158,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/**
- * The version a save resolved to: the server keeps one version per card
- * content, so the card sent may match an older version than the highest.
- * The whole card counts, fields the form has no input for included.
- */
-function savedVersionId(detail: AgentDetail, sent: AgentCard): string {
-  const version = detail.versions.find(
-    (v) => canonical(v.card) === canonical(sent),
-  );
-  if (!version) throw new Error("the saved card matches no version");
-  return version.id;
-}
-
 const latestCard = (detail: AgentDetail) =>
   [...detail.versions].sort((a, b) => b.version_no - a.version_no)[0]?.card;
 
@@ -203,6 +169,7 @@ interface SavedDraft {
   readonly description: string;
   readonly managingTeamId: string | null;
   readonly card: CardDraft;
+  readonly profileId: string | null;
 }
 
 /** The start of every flow id of who is signed in, in their workspace. */
@@ -226,6 +193,7 @@ function readDraft(flow: string): SavedDraft | null {
       managingTeamId:
         typeof draft.managingTeamId === "string" ? draft.managingTeamId : null,
       card: cardDraftOf(draft.card) ?? EMPTY_DRAFT,
+      profileId: typeof draft.profileId === "string" ? draft.profileId : null,
     };
   } catch {
     return null;
@@ -240,11 +208,6 @@ function writeDraft(flow: string, draft: SavedDraft) {
   }
 }
 
-/**
- * Making an agent in five steps. The job step saves the agent as a draft
- * (D9), so leaving after it keeps the agent; going back to the first two
- * steps afterwards edits that draft instead of making another.
- */
 export function NewAgentFlow({
   refuse,
 }: {
@@ -266,14 +229,7 @@ export function NewAgentFlow({
     steps: {
       channels: {
         guard: (data): data is Steps["channels"] =>
-          ours(data, [
-            "flow",
-            "name",
-            "slug",
-            "agentId",
-            "versionId",
-            "releaseId",
-          ]),
+          ours(data, ["flow", "name", "slug", "agentId"]),
       },
       name: {
         guard: (data): data is Steps["name"] => ours(data, ["flow"]),
@@ -285,21 +241,6 @@ export function NewAgentFlow({
           ours(data, ["flow", "name", "slug"]) &&
           (hasText(data, ["managing_team_id"]) ||
             readDraft((data as { flow: string }).flow) !== null),
-      },
-      release: {
-        guard: (data): data is Steps["release"] =>
-          ours(data, ["flow", "name", "slug", "agentId", "versionId"]),
-      },
-      activate: {
-        guard: (data): data is Steps["activate"] =>
-          ours(data, [
-            "flow",
-            "name",
-            "slug",
-            "agentId",
-            "versionId",
-            "releaseId",
-          ]),
       },
     },
   });
@@ -336,9 +277,10 @@ export function NewAgentFlow({
   const card = useStepForm(NEW_CARD_STEP, {
     defaultValues: cardDraftOf(restored.card) ?? saved?.card ?? EMPTY_DRAFT,
   });
-  // The profile the job step previewed tools with, which the release step
-  // then starts from; unpicked, both take the first that runs the model.
-  const [previewId, setPreviewId] = useState<string>();
+  const [previewId, setPreviewId] = useState<string | undefined>(
+    saved?.profileId ?? undefined,
+  );
+  const [releaseFailure, setReleaseFailure] = useState<string | null>(null);
   const cardInput = useWatch({ control: card.control }) as CardDraft;
   const identityInput = useWatch({ control: identity.control });
   const router = useRouter();
@@ -366,6 +308,7 @@ export function NewAgentFlow({
     description: "",
     managingTeamId: null,
     card: EMPTY_DRAFT,
+    profileId: null,
   };
   const unsaved = useRef(false);
   unsaved.current =
@@ -381,10 +324,7 @@ export function NewAgentFlow({
     withResolver: true,
   });
   const catalog = useQuery(profilesQuery(client));
-  const savedPastJob =
-    funnel.step === "release" ||
-    funnel.step === "activate" ||
-    funnel.step === "channels";
+  const savedPastJob = funnel.step === "channels";
   const moved = useStepMoved(funnel.step);
 
   const stepper = useStepper({
@@ -403,9 +343,10 @@ export function NewAgentFlow({
     disabled: step.disabled || (savedPastJob && step.id !== funnel.step),
   }));
 
-  const saveDraft = async (
+  const saveAgent = async (
     values: z.output<typeof NEW_CARD_STEP>,
     context: Steps["job"],
+    profile: ProfileSummary,
   ) => {
     const input = card.getValues();
     // An edit of the draft starts from its latest card, so fields the form
@@ -418,7 +359,13 @@ export function NewAgentFlow({
     const sent = base ? agentCardStep(base).parse(input) : values;
     const description =
       typeof context.description === "string" ? context.description : "";
-    const detail = (await unwrap(
+    const release = {
+      runtime_profile_id: profile.id,
+      model_source: (profile.model === input.model.trim()
+        ? "profile"
+        : "fixed") as ModelSource,
+    };
+    const response = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
             params: { path: { id: saved.agentId } },
@@ -426,6 +373,7 @@ export function NewAgentFlow({
               ...(context.name !== saved.name ? { name: context.name } : {}),
               ...(description !== saved.description ? { description } : {}),
               card: sent as unknown as ApiCard,
+              ...release,
             },
           })
         : client.POST("/v1/agents", {
@@ -436,9 +384,11 @@ export function NewAgentFlow({
               // The job guard lets no unsaved flow here without a team.
               managing_team_id: context.managing_team_id ?? "",
               card: sent as unknown as ApiCard,
+              ...release,
             },
           }),
-    )) as AgentDetail;
+    )) as SaveAgentResponse;
+    const detail: AgentDetail = response;
     const draft = {
       agentId: detail.agent.id,
       name: detail.agent.name,
@@ -446,6 +396,7 @@ export function NewAgentFlow({
       description: detail.agent.description ?? "",
       managingTeamId: detail.agent.managing_team_id,
       card: input,
+      profileId: profile.id,
     };
     setSaved(draft);
     setTeam(draft.managingTeamId ?? "");
@@ -461,12 +412,21 @@ export function NewAgentFlow({
       detail,
     );
     await queryClient.invalidateQueries(agentListsFilter(client));
+    const done =
+      (response.release.status === "applied" ||
+        response.release.status === "unchanged") &&
+      detail.agent.active_release_id !== null;
     return {
       agentId: detail.agent.id,
-      versionId: savedVersionId(detail, sent),
-      // The job context may hold input from before the last edit; the steps
-      // after it carry what was saved.
       card: input,
+      done,
+      failure: done
+        ? null
+        : response.release.status === "superseded"
+          ? t("agent.save.superseded")
+          : t("agents.flow.releaseFailed", {
+              reason: saveFailureText(t, response.release.reason),
+            }),
     };
   };
 
@@ -494,37 +454,22 @@ export function NewAgentFlow({
             focus={moved}
             previewId={previewId}
             onPreviewChange={setPreviewId}
-            onSave={async (values) => {
+            failure={releaseFailure}
+            savedAgentId={saved?.agentId}
+            onSave={async (values, profile) => {
               clearTimeout(keepTimer.current);
-              await history.push("release", {
-                ...(await saveDraft(values, context)),
-                ...(previewId === undefined ? {} : { previewId }),
-              });
+              setReleaseFailure(null);
+              const result = await saveAgent(values, context, profile);
+              if (result.done) {
+                await history.push("channels", {
+                  agentId: result.agentId,
+                  card: result.card,
+                });
+              } else {
+                setReleaseFailure(result.failure);
+              }
             }}
             refuse={refuse}
-          />
-        )}
-        release={({ context, history }) => (
-          <ReleaseStep
-            agentId={context.agentId}
-            versionId={context.versionId}
-            previewId={
-              typeof context.previewId === "string"
-                ? context.previewId
-                : undefined
-            }
-            focus={moved}
-            onReleased={(releaseId) => history.push("activate", { releaseId })}
-            refuse={refuse}
-          />
-        )}
-        activate={({ context, history }) => (
-          <ActivateStep
-            agentId={context.agentId}
-            releaseId={context.releaseId}
-            focus={moved}
-            refuse={refuse}
-            onNext={() => void history.push("channels", {})}
           />
         )}
         channels={({ context }) => (
@@ -707,6 +652,8 @@ function JobStep({
   focus,
   previewId,
   onPreviewChange,
+  failure,
+  savedAgentId,
   onSave,
   refuse,
 }: {
@@ -715,12 +662,21 @@ function JobStep({
   readonly focus: boolean;
   readonly previewId: string | undefined;
   readonly onPreviewChange: (profileId: string) => void;
-  readonly onSave: (card: z.output<typeof NEW_CARD_STEP>) => Promise<unknown>;
+  readonly failure: string | null;
+  readonly savedAgentId: string | undefined;
+  readonly onSave: (
+    card: z.output<typeof NEW_CARD_STEP>,
+    profile: ProfileSummary,
+  ) => Promise<unknown>;
   readonly refuse: (error: unknown) => string;
 }) {
   const { t } = useI18n();
   const draft = useWatch({ control: form.control }) as CardDraft;
   const { errors, isSubmitted, isSubmitting } = form.formState;
+  const chosen = catalog.isSuccess
+    ? chosenProfile(catalog.data.items, draft.model, previewId, releasable)
+    : undefined;
+  const profile = chosen && releasable(chosen) ? chosen : undefined;
   const change = (next: CardDraft) => {
     for (const key of CARD_FIELDS)
       if (next[key] !== draft[key])
@@ -736,7 +692,13 @@ function JobStep({
     <form
       className={AGENT_FORM}
       noValidate
-      onSubmit={submitStep(form, onSave, refuse)}
+      onSubmit={submitStep(
+        form,
+        async (values) => {
+          if (profile) await onSave(values, profile);
+        },
+        refuse,
+      )}
     >
       <StepHeading focus={focus}>{t("agents.flow.job")}</StepHeading>
       <Text variant="sub">{t("agents.flow.jobIntro")}</Text>
@@ -745,22 +707,28 @@ function JobStep({
         catalog={catalog}
         onChange={change}
         errors={fieldErrors}
-        previewable={releasable}
         previewId={previewId}
         onPreviewChange={onPreviewChange}
+        previewable={releasable}
       />
       <Alerts lines={formAlerts(errors, CARD_ERROR_FIELDS)} />
-      <div>
+      {catalog.isSuccess && profile === undefined && draft.model !== "" ? (
+        <Alerts lines={[t("agents.flow.noProfile")]} />
+      ) : null}
+      {failure ? <Alerts lines={[failure]} /> : null}
+      <div className="flex flex-wrap gap-2">
         <Button
           type="submit"
           disabled={
             isSubmitting ||
             !catalog.isSuccess ||
+            (draft.model !== "" && profile === undefined) ||
             toolsBlocked(catalog.data.items, draft)
           }
         >
-          {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveDraft")}
+          {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveNext")}
         </Button>
+        {savedAgentId ? <LaterLink agentId={savedAgentId} /> : null}
       </div>
     </form>
   );
@@ -774,250 +742,5 @@ function LaterLink({ agentId }: { readonly agentId: string }) {
         {t("agents.flow.later")}
       </Link>
     </Button>
-  );
-}
-
-function ReleaseStep({
-  agentId,
-  versionId,
-  previewId,
-  focus,
-  onReleased,
-  refuse,
-}: {
-  readonly agentId: string;
-  readonly versionId: string;
-  readonly previewId: string | undefined;
-  readonly focus: boolean;
-  readonly onReleased: (releaseId: string) => void;
-  readonly refuse: (error: unknown) => string;
-}) {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const agent = useQuery(agentQuery(client, agentId));
-  const profiles = useQuery(profilesQuery(client));
-  const cardModel = agent.data?.versions.find((v) => v.id === versionId)?.card
-    .model;
-  return (
-    <section className={AGENT_FORM}>
-      <StepHeading focus={focus}>{t("agents.flow.release")}</StepHeading>
-      <Text variant="sub">{t("agents.flow.releaseIntro")}</Text>
-      {agent.error ? (
-        <Alerts lines={[refuse(agent.error)]} />
-      ) : profiles.error ? (
-        <Alerts
-          lines={[
-            t("agent.releases.profilesFailed", {
-              reason: t(errorKey((profiles.error as ApiError).code)),
-            }),
-          ]}
-        />
-      ) : profiles.data && agent.data ? (
-        <ReleaseForm
-          agentId={agentId}
-          versionId={versionId}
-          cardModel={cardModel}
-          previewId={previewId}
-          profiles={profiles.data.items}
-          onReleased={onReleased}
-          refuse={refuse}
-        />
-      ) : (
-        <Text variant="sub">{t("agent.releases.profilesLoading")}</Text>
-      )}
-      <div>
-        <LaterLink agentId={agentId} />
-      </div>
-    </section>
-  );
-}
-
-// The flow releases without a repository (agent-wizard-rework.md item 1); a
-// profile that needs one is released from the agent's releases tab.
-const needsRepository = (profile: ProfileSummary) =>
-  profile.repository_mode === "required";
-const releasable = (profile: ProfileSummary) =>
-  pickable(profile) && !needsRepository(profile);
-
-function ReleaseForm({
-  agentId,
-  versionId,
-  cardModel,
-  previewId,
-  profiles,
-  onReleased,
-  refuse,
-}: {
-  readonly agentId: string;
-  readonly versionId: string;
-  readonly cardModel: string | undefined;
-  readonly previewId: string | undefined;
-  readonly profiles: readonly ProfileSummary[];
-  readonly onReleased: (releaseId: string) => void;
-  readonly refuse: (error: unknown) => string;
-}) {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  const runsCard = (profile: ProfileSummary) =>
-    cardModel === undefined || profile.models.includes(cardModel);
-  // The job step's preview, else the same default it showed.
-  const offered = (p: ProfileSummary) => releasable(p) && runsCard(p);
-  const first =
-    profiles.find((p) => p.id === previewId && offered(p)) ??
-    profiles.find(offered);
-  const fallback = first?.id ?? "";
-  const form = useStepForm(agentReleaseStep, {
-    defaultValues: { runtime_profile_id: fallback, repository_id: "" },
-  });
-  const chosen = useWatch({
-    control: form.control,
-    name: "runtime_profile_id",
-  });
-  const picked = profiles.find((p) => p.id === chosen);
-  const stillOffered = picked !== undefined && offered(picked);
-  const { setValue } = form;
-  // A refetch can retire, drop or narrow the picked one under the open form.
-  useEffect(() => {
-    if (!stillOffered && chosen !== fallback)
-      setValue("runtime_profile_id", fallback);
-  }, [stillOffered, chosen, fallback, setValue]);
-  const { errors, isSubmitting } = form.formState;
-  const release = async ({
-    runtime_profile_id,
-  }: z.output<typeof agentReleaseStep>) => {
-    const result = await unwrap(
-      client.POST("/v1/agents/{id}/releases", {
-        params: { path: { id: agentId } },
-        body: { version_id: versionId, runtime_profile_id },
-      }),
-    );
-    await queryClient.invalidateQueries({
-      queryKey: queryKeysOf(client).agent(agentId),
-    });
-    onReleased(result.release.id);
-  };
-  const someNeedRepository = profiles.some(
-    (p) => pickable(p) && needsRepository(p),
-  );
-  if (first === undefined) {
-    return (
-      <Alert variant="amber">
-        <AlertTitle>
-          {t(
-            someNeedRepository
-              ? "agents.flow.noProfileWithoutRepository"
-              : "agents.flow.noProfile",
-          )}
-        </AlertTitle>
-        <AlertDescription>
-          {t(
-            someNeedRepository
-              ? "agents.flow.repositoryLater"
-              : "agents.flow.noProfileHint",
-          )}
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  return (
-    <form
-      className="flex flex-col gap-4"
-      noValidate
-      onSubmit={submitStep(form, release, refuse)}
-    >
-      <Field>
-        <FieldLabel>{t("agent.releases.profile")}</FieldLabel>
-        <NativeSelect {...form.register("runtime_profile_id")}>
-          <ProfileOptions
-            profiles={profiles}
-            usable={offered}
-            fits={runsCard}
-            label={(profile) =>
-              needsRepository(profile)
-                ? `${profileLabel(t, profile)} · ${t("agents.flow.repositoryRequired")}`
-                : profileLabel(t, profile)
-            }
-          />
-        </NativeSelect>
-        <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
-        {someNeedRepository ? (
-          <FieldDescription>
-            {t("agents.flow.repositoryLater")}
-          </FieldDescription>
-        ) : null}
-        <FieldDescription>
-          {t("agent.releases.profileUnlisted")}
-        </FieldDescription>
-        <FieldError>{errors.runtime_profile_id?.message}</FieldError>
-      </Field>
-      <Alerts lines={formAlerts(errors, ["runtime_profile_id"])} />
-      <div>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting
-            ? t("agent.releases.creating")
-            : t("agents.flow.createRelease")}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function ActivateStep({
-  agentId,
-  releaseId,
-  focus,
-  refuse,
-  onNext,
-}: {
-  readonly agentId: string;
-  readonly releaseId: string;
-  readonly focus: boolean;
-  readonly refuse: (error: unknown) => string;
-  readonly onNext: () => void;
-}) {
-  const { t } = useI18n();
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  const agent = useQuery(agentQuery(client, agentId));
-  const activate = useMutation<ActivateAgentResponse, unknown, number>({
-    mutationFn: (expected) =>
-      unwrap(
-        client.POST("/v1/agents/{id}/activate", {
-          params: { path: { id: agentId } },
-          body: { release_id: releaseId, expected_revision: expected },
-        }),
-      ),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeysOf(client).agents }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeysOf(client).agent(agentId),
-        }),
-      ]);
-      onNext();
-    },
-  });
-  return (
-    <section className={AGENT_FORM}>
-      <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      <Text variant="sub">{t("agents.flow.activateIntro")}</Text>
-      {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
-      {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          disabled={activate.isPending || !agent.data}
-          onClick={() =>
-            agent.data && activate.mutate(agent.data.agent.activation_revision)
-          }
-        >
-          {activate.isPending
-            ? t("agents.flow.activating")
-            : t("agents.flow.turnOn")}
-        </Button>
-        <LaterLink agentId={agentId} />
-      </div>
-    </section>
   );
 }

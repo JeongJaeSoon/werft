@@ -12,6 +12,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "../src/migrate.ts";
 import {
   migrationFolderProblems,
   readJournal,
@@ -81,6 +84,44 @@ async function problems(): Promise<string[]> {
   return migrationFolderProblems(migrations, schema);
 }
 
+// An existing database: migrated up to the journal minus its last `landed`
+// entries with the real migrate(), then upgraded with the whole folder.
+async function upgradeExisting(landed: number): Promise<{
+  tables: string[];
+  applied: number;
+}> {
+  const entries = readJournal(migrations);
+  const older = mkdtempSync(join(tmpdir(), "restack-older-"));
+  const db = new PGlite();
+  try {
+    cpSync(migrations, older, { recursive: true });
+    writeFileSync(
+      join(older, "meta/_journal.json"),
+      JSON.stringify({
+        version: "7",
+        dialect: "postgresql",
+        entries: entries.slice(0, -landed),
+      }),
+    );
+    await migrate(drizzle(db), { migrationsFolder: older });
+    await migrate(drizzle(db), { migrationsFolder: migrations });
+    const tables = await db.query<{ table_name: string }>(
+      "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'restack_%' ORDER BY 1",
+    );
+    const applied = await db.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM "drizzle"."__drizzle_migrations"',
+    );
+    expect(applied.rows[0]?.n).toBe(entries.length);
+    return {
+      tables: tables.rows.map((row) => row.table_name),
+      applied: entries.length,
+    };
+  } finally {
+    await db.close();
+    rmSync(older, { recursive: true, force: true });
+  }
+}
+
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "restack-"));
   pkg = join(root, "packages/db");
@@ -138,6 +179,18 @@ describe("db:restack", () => {
         `${branchTag}.sql has no journal entry`,
       );
 
+      const due = bun(
+        "run",
+        "scripts/restack-migration.ts",
+        "--check",
+        "--base",
+        "collision-main",
+      );
+      expect(due.status, `${due.stdout}${due.stderr}`).toBe(1);
+      expect(due.stderr).toContain(
+        `should be number ${String(next + 1).padStart(4, "0")}`,
+      );
+
       const result = bun(
         "run",
         "scripts/restack-migration.ts",
@@ -156,6 +209,53 @@ describe("db:restack", () => {
       expect(await problems()).toEqual([]);
       git("add", ".");
       git("commit", "-qm", "restacked");
+
+      // The branch was generated first but lands second. Once restacked it
+      // needs no more work, and a database that already ran main's migration
+      // (or only the fork) upgrades to have both tables.
+      const settled = bun(
+        "run",
+        "scripts/restack-migration.ts",
+        "--check",
+        "--base",
+        "collision-main",
+      );
+      expect(settled.status, `${settled.stdout}${settled.stderr}`).toBe(0);
+      for (const landed of [1, 2]) {
+        expect(await upgradeExisting(landed)).toEqual({
+          tables: ["restack_branch", "restack_main"],
+          applied: readJournal(migrations).length,
+        });
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "--check fails a branch that changed the schema without a migration",
+    () => {
+      git("switch", "-qc", "forgot", "fork");
+      const clean = bun(
+        "run",
+        "scripts/restack-migration.ts",
+        "--check",
+        "--base",
+        "fork",
+      );
+      expect(clean.status, `${clean.stdout}${clean.stderr}`).toBe(0);
+
+      addTable("restack_forgot");
+      git("add", ".");
+      git("commit", "-qm", "schema only");
+      const forgot = bun(
+        "run",
+        "scripts/restack-migration.ts",
+        "--check",
+        "--base",
+        "fork",
+      );
+      expect(forgot.status, `${forgot.stdout}${forgot.stderr}`).toBe(1);
+      expect(forgot.stderr).toContain("the folder is not sound");
     },
     TIMEOUT_MS,
   );

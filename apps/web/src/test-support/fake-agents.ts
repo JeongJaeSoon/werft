@@ -52,11 +52,26 @@ const bindingId = (n: number) =>
  * exactly as the real route does it.
  */
 export function agentServer({
-  repositoryMode = "required",
+  repositoryMode = "optional",
   description: initialDescription = null,
+  tracking: initialTracking = "follow",
+  modelSource: initialModelSource = "fixed",
+  afterActivate,
+  releaseRefusal,
+  activity = [],
+  releaseRepository = null,
 }: {
   repositoryMode?: ProfileSummary["repository_mode"];
   description?: string | null;
+  tracking?: "follow" | "pinned";
+  modelSource?: "fixed" | "profile";
+  afterActivate?: (release: AgentRelease) => {
+    tracking?: "follow" | "pinned";
+    modelSource?: "fixed" | "profile";
+  };
+  releaseRefusal?: string;
+  activity?: readonly unknown[];
+  releaseRepository?: string | null;
 } = {}) {
   const versions: AgentVersion[] = [version(1, CARD)];
   let name = "결제 담당";
@@ -67,6 +82,64 @@ export function agentServer({
   let active: string | null = null;
   let revision = -1;
   let draftId: string | null = null;
+  let tracking = initialTracking;
+  let modelSource = initialModelSource;
+
+  function saveRelease(
+    body: { runtime_profile_id: string; model_source?: "fixed" | "profile" },
+    versionId: string,
+  ) {
+    const refusal =
+      releaseRefusal ??
+      (/^(claude-coding-|ws_)/.test(body.runtime_profile_id)
+        ? null
+        : "profile_unknown");
+    if (refusal !== null) {
+      draftId = versionId;
+      return {
+        status: "failed" as const,
+        reason: refusal,
+        release_id: null,
+        version_id: versionId,
+      };
+    }
+    draftId = null;
+    const card = versions.find((v) => v.id === versionId)?.card;
+    const id = `rel-${versionId.slice(0, 8)}`;
+    if (!releases.some((r) => r.id === id)) {
+      releases.push(
+        seedRelease(releases.length, {
+          id,
+          versionId,
+          model: card?.model ?? "claude-sonnet-5",
+          profile: body.runtime_profile_id,
+          repositoryId: releaseRepository,
+        }),
+      );
+    }
+    previousActive = active;
+    active = id;
+    revision += 1;
+    modelSource = body.model_source ?? modelSource;
+    stamp(revision);
+    return {
+      status: "applied" as const,
+      reason: null,
+      release_id: id,
+      version_id: versionId,
+    };
+  }
+  let previousActive: string | null = null;
+  function stamp(rev: number) {
+    const at = `2026-10-11T02:0${rev}:00.000Z`;
+    for (const release of releases) {
+      if (release.id === previousActive) release.deactivated_at = at;
+      if (release.id === active) {
+        release.activated_at = at;
+        release.deactivated_at = null;
+      }
+    }
+  }
 
   function version(no: number, card: AgentCard): AgentVersion {
     return {
@@ -101,7 +174,8 @@ export function agentServer({
       releases: [...releases],
       active_release: releases.find((r) => r.id === active) ?? null,
       behavior_revision: 0,
-      model_source: "fixed",
+      model_source: modelSource,
+      profile_tracking: tracking,
       draft: draftId
         ? {
             version_id: draftId,
@@ -154,6 +228,8 @@ export function agentServer({
         description?: string;
         managing_team_id?: string;
         card: AgentCard;
+        runtime_profile_id?: string;
+        model_source?: "fixed" | "profile";
       };
       if (
         body.managing_team_id !== undefined &&
@@ -164,16 +240,26 @@ export function agentServer({
       name = body.name;
       description = body.description ?? null;
       team = body.managing_team_id === undefined ? null : TEAM;
-      return json(201, {
-        ...detail(),
-        release: {
-          status: "unchanged",
-          reason: null,
-          release_id: null,
-          version_id: null,
-        },
-      });
+      const release =
+        body.runtime_profile_id === undefined
+          ? {
+              status: "unchanged" as const,
+              reason: null,
+              release_id: null,
+              version_id: null,
+            }
+          : saveRelease(
+              {
+                runtime_profile_id: body.runtime_profile_id,
+                ...(body.model_source
+                  ? { model_source: body.model_source }
+                  : {}),
+              },
+              versions[0]?.id ?? "",
+            );
+      return json(201, { ...detail(), release });
     },
+    [`GET ${path}/github/activity`]: () => json(200, { items: activity }),
     [`PUT ${path}/managing-team`]: async (request: Request) => {
       const body = (await request.json()) as { team_id: string };
       if (body.team_id !== TEAM.id)
@@ -222,19 +308,31 @@ export function agentServer({
         name?: string;
         description?: string | null;
         card?: AgentCard;
+        runtime_profile_id?: string;
+        model_source?: "fixed" | "profile";
       };
       if (body.name !== undefined) name = body.name;
       if (body.description !== undefined) description = body.description;
       const card = body.card;
       let fresh = false;
-      if (
-        card &&
-        !versions.some((v) => JSON.stringify(v.card) === JSON.stringify(card))
-      ) {
-        const added = version(versions.length + 1, card);
-        versions.push(added);
-        draftId = added.id;
+      let saved = versions.find(
+        (v) => JSON.stringify(v.card) === JSON.stringify(card),
+      );
+      if (card && !saved) {
+        saved = version(versions.length + 1, card);
+        versions.push(saved);
+        draftId = saved.id;
         fresh = true;
+      }
+      if (body.runtime_profile_id !== undefined) {
+        const release = saveRelease(
+          {
+            runtime_profile_id: body.runtime_profile_id,
+            ...(body.model_source ? { model_source: body.model_source } : {}),
+          },
+          saved?.id ?? versions.at(-1)?.id ?? "",
+        );
+        return json(200, { ...detail(), release });
       }
       return json(200, {
         ...detail(),
@@ -252,45 +350,6 @@ export function agentServer({
               version_id: null,
             },
       });
-    },
-    [`POST ${path}/releases`]: async (request: Request) => {
-      const body = (await request.json()) as {
-        version_id: string;
-        runtime_profile_id: string;
-        note?: string;
-        repository_id?: string;
-      };
-      if (body.runtime_profile_id !== "claude-coding-local")
-        return apiError(
-          422,
-          "UNSUPPORTED_CAPABILITY",
-          `Unknown runtime profile ${body.runtime_profile_id}`,
-        );
-      const id = `rel-${body.version_id.slice(0, 8)}`;
-      const existing = releases.find((r) => r.id === id);
-      if (existing) return json(200, { release: existing, created: false });
-      const release: AgentRelease = {
-        id,
-        agent_id: AGENT_ID,
-        version_id: body.version_id,
-        card_sha256: sha(releases.length + 10),
-        runtime_profile_id: body.runtime_profile_id,
-        repository_id: body.repository_id ?? null,
-        profile_digest: "digest-1",
-        runtime_config_snapshot: {},
-        effective_tools: { tools: ["Read"], mcp: [] },
-        policy_pins: {},
-        created_by: USER_ID,
-        created_at: `2026-10-11T01:0${releases.length}:00.000Z`,
-        approved_by: null,
-        approved_at: null,
-        note: body.note ?? null,
-        label: `2026-10-11_10:0${releases.length}:00`,
-        activated_at: null,
-        deactivated_at: null,
-      };
-      releases.push(release);
-      return json(200, { release, created: true });
     },
     [`POST ${path}/activate`]: async (request: Request) => {
       const body = (await request.json()) as {
@@ -332,14 +391,12 @@ export function agentServer({
         });
       active = body.release_id;
       revision += 1;
-      const at = `2026-10-11T02:0${revision}:00.000Z`;
-      for (const release of releases) {
-        if (release.id === previous) release.deactivated_at = at;
-        if (release.id === active) {
-          release.activated_at = at;
-          release.deactivated_at = null;
-        }
-      }
+      previousActive = previous;
+      stamp(revision);
+      const target = releases.find((r) => r.id === active);
+      const changed = target ? afterActivate?.(target) : undefined;
+      tracking = changed?.tracking ?? tracking;
+      modelSource = changed?.modelSource ?? modelSource;
       return json(200, {
         active_release_id: active,
         previous_release_id: previous,
@@ -367,6 +424,46 @@ export function agentServer({
   }
 
   return { routes, detail, versions, releases, bindings };
+}
+
+export function seedRelease(
+  n: number,
+  {
+    id = `rel-${n}`,
+    versionId = VERSION_IDS[0] ?? "",
+    profile = "claude-coding-local",
+    model = "claude-sonnet-5",
+    createdBy = USER_ID,
+    repositoryId = null,
+  }: {
+    id?: string;
+    versionId?: string;
+    profile?: string;
+    model?: string;
+    createdBy?: string | null;
+    repositoryId?: string | null;
+  } = {},
+): AgentRelease {
+  return {
+    id,
+    agent_id: AGENT_ID,
+    version_id: versionId,
+    card_sha256: sha(n + 10),
+    runtime_profile_id: profile,
+    repository_id: repositoryId,
+    profile_digest: "digest-1",
+    runtime_config_snapshot: { model },
+    effective_tools: { tools: ["Read"], mcp: [] },
+    policy_pins: {},
+    created_by: createdBy,
+    created_at: `2026-10-11T01:0${n}:00.000Z`,
+    approved_by: null,
+    approved_at: null,
+    note: null,
+    label: `2026-10-11_10:0${n}:00`,
+    activated_at: null,
+    deactivated_at: null,
+  };
 }
 
 function profile(

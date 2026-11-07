@@ -49,7 +49,7 @@ export const agentsKo = {
   "agents.status.archived": "보관됨",
   "agents.newTitle": "새 에이전트",
   "agents.newIntro":
-    "빈 카드에서 다섯 단계로 만듭니다. '하는 일'까지 마치면 초안으로 저장되어, 그 뒤에 나가도 목록에 초안으로 남습니다.",
+    "빈 카드에서 세 단계로 만듭니다. '하는 일'에서 저장하면 첫 릴리스가 만들어져 바로 쓸 수 있고, 그 뒤에 나가도 에이전트는 남습니다.",
   "agents.name": "이름",
   "agents.slug": "식별자",
   "agents.description": "설명",
@@ -58,40 +58,27 @@ export const agentsKo = {
     "목록과 상세 화면에 보입니다. 설치에서 플랫폼 안내를 켜 두었다면 이름과 함께 모델에게도 그대로 전해지고, 바꾼 값은 새 세션부터 적용됩니다.",
   "agents.slugHint":
     "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
-  "agents.slugLocked": "초안으로 저장해 식별자는 더 바꿀 수 없습니다",
+  "agents.slugLocked": "저장해 식별자는 더 바꿀 수 없습니다",
   "agents.slugTaken":
     "이 식별자는 다른 에이전트가 이미 씁니다. '이름' 단계로 돌아가 식별자를 바꾸세요.",
   "agents.flow.label": "에이전트 만들기 단계",
   "agents.flow.name": "이름",
   "agents.flow.job": "하는 일",
-  "agents.flow.release": "릴리스",
-  "agents.flow.activate": "켜기",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 도구를 고릅니다. 다음으로 넘어가면 초안으로 저장됩니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
-  "agents.flow.saveDraft": "초안 저장하고 다음",
+    "에이전트가 쓸 모델과 도구를 고르고 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
+  "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
-  "agents.flow.releaseIntro":
-    "초안으로 저장했습니다. 카드와 프로필을 묶어 릴리스를 만듭니다. 활성화해야 새 세션에서 사용됩니다.",
-  "agents.flow.createRelease": "릴리스 만들기",
-  "agents.flow.repositoryRequired": "저장소 필요",
-  "agents.flow.repositoryLater":
-    "저장소가 꼭 필요한 프로필은 에이전트 상세의 릴리스 탭에서 기본 저장소와 함께 릴리스합니다.",
-  "agents.flow.noProfileWithoutRepository":
-    "저장소 없이 릴리스할 수 있는 프로필이 없습니다",
-  "agents.flow.noProfile": "릴리스할 수 있는 프로필이 없습니다",
-  "agents.flow.noProfileHint":
-    "쓸 수 있는 프로필이 생기면 에이전트 상세의 릴리스 탭에서 릴리스합니다.",
-  "agents.flow.activateIntro": "켜면 새 세션이 이 릴리스로 시작합니다.",
-  "agents.flow.turnOn": "에이전트 켜기",
-  "agents.flow.activating": "켜는 중…",
+  "agents.flow.releaseFailed":
+    "에이전트는 저장했지만 첫 릴리스를 만들지 못했습니다: {reason}. 저장을 다시 누르면 같은 에이전트를 고쳐 다시 시도합니다.",
+  "agents.flow.noProfile": "쓸 수 있는 프로필이 없습니다",
   "agents.flow.later": "나중에 하기",
   "agents.flow.done":
     "{name}을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다.",
   "agents.flow.open": "에이전트 보기",
   "agents.flow.leaveTitle": "저장하지 않고 나갈까요?",
   "agents.flow.leaveConsequence":
-    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '초안 저장하고 다음'을 누르세요.",
+    "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
   "agentCard.agentInstructions": "에이전트 지시문",
@@ -102,7 +89,7 @@ export const agentsKo = {
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
+    "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "릴리스할 때 프로필이 막지 않은 도구 전부",
   "agentCard.toolsAllHint":
@@ -121,7 +108,7 @@ export const agentsKo = {
     "전에 적어 둔 금지 도구입니다. 지우기 전에는 체크할 수 없고 쓰지 않습니다.",
   "agentCard.forbiddenClear": "금지 도구 지우기",
   "agent.created":
-    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 릴리스 탭에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
+    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 상세 설정에서 프로필을 골라 저장하세요. 저장하면 첫 릴리스가 만들어집니다.",
   "agent.noActive": "없음",
   "agent.releaseLabel": "릴리스 {release} · {profile}",
   "agent.versionLabel": "버전 {version}",
@@ -134,8 +121,6 @@ export const agentsKo = {
     "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다.",
   "agent.identitySaved":
     "이름과 설명을 저장했습니다. 바로 반영되고 새 버전은 생기지 않았습니다.",
-  "agent.activated":
-    "활성화됐습니다 — 이제 새 세션은 {release}(으)로 시작합니다.",
   "agent.alreadyActive": "이미 활성 릴리스입니다. 바뀐 것은 없습니다.",
   "agent.conflict.title": "다른 곳에서 활성 릴리스를 먼저 바꿨습니다",
   "agent.conflict.body":
@@ -207,50 +192,58 @@ export const agentsKo = {
   "agent.versions.active": "활성",
   "agent.versions.before": "비교 기준",
   "agent.versions.after": "비교 대상",
-  "agent.releases.title": "릴리스 기록",
-  "agent.releases.new": "새 릴리스",
+  "agent.releases.title": "릴리스",
+  "agent.releases.auto":
+    "릴리스는 프로필이나 카드가 바뀌면 자동으로 만들어집니다.",
   "agent.releases.colVersion": "버전",
   "agent.releases.colStatus": "상태",
   "agent.releases.colBy": "만든 사람",
   "agent.releases.colActivated": "활성화 시각",
-  "agent.releases.colCard": "카드 버전",
   "agent.releases.activePeriod": "{from} ~ {to}",
-  "agent.releases.colNote": "메모",
   "agent.releases.noteNone": "—",
-  "agent.releases.noteToggle": "메모 전체 보기",
   "agent.releases.colActions": "동작",
   "agent.releases.previous": "이전",
   "agent.releases.never": "활성화 전",
   "agent.releases.byMember": "구성원",
   "agent.releases.emptyBody":
-    "새 릴리스로 버전과 프로필을 묶으면 여기에 쌓입니다.",
-  "agent.releases.intro":
-    "릴리스는 버전을 프로필에 묶어 고정한 것입니다. 만들기만 해서는 쓰이지 않고, 활성화해야 새 세션이 씁니다.",
-  "agent.releases.version": "버전",
-  "agent.releases.profile": "프로필",
-  "agent.releases.profileHint":
-    "각 프로필과 그 프로필의 기본 모델. 카드 모델을 실행할 수 있는 프로필만 릴리스할 수 있습니다",
-  "agent.releases.profileUnlisted":
-    "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
-  "agent.releases.repository": "저장소",
-  "agent.releases.repositoryHint":
-    "Slack과 웹 콘솔의 세션, 저장소를 따로 보내지 않은 API 세션이 이 저장소에서 시작합니다",
+    "프로필이나 카드를 바꿔 저장하면 릴리스가 여기에 쌓입니다.",
   "agent.releases.repositoryNone": "저장소 없음",
-  "agent.releases.repositoryMissing":
-    "카탈로그에 이 프로필을 허용하는 저장소가 없어 릴리스할 수 없습니다. 운영자에게 저장소 추가를 요청하세요.",
-  "agent.releases.profileGone": "카탈로그에 없음",
-  "agent.releases.profilesLoading": "프로필 목록을 불러오는 중…",
-  "agent.releases.profilesFailed":
-    "프로필 목록을 불러오지 못했습니다: {reason}",
-  "agent.releases.create": "릴리스 만들기",
-  "agent.releases.creating": "만드는 중…",
+  "agent.releases.access": "접근 변경",
+  "agent.releases.accessNoRelease":
+    "저장소와 GitHub 설정 변경입니다. 새 릴리스를 만들지 않습니다.",
+  "agent.releases.rollback": "되돌리기",
+  "agent.releases.rollbackFor": "{release}(으)로 되돌리기",
+  "agent.releases.rollingBack": "되돌리는 중…",
+  "agent.rollback.title": "{release}(으)로 되돌릴까요?",
+  "agent.rollback.content":
+    "새 세션이 이 릴리스의 모델·지시·도구로 시작합니다.",
+  "agent.rollback.tracking": "되돌린 뒤 프로필 새 버전 따라가기: {change}.",
+  "agent.rollback.tracking.keepOn": "켜짐 유지",
+  "agent.rollback.tracking.keepOff": "꺼짐 유지",
+  "agent.rollback.tracking.turnedOff": "꺼짐으로 바뀜",
+  "agent.rollback.tracking.turnedOn": "켜짐으로 바뀜",
+  "agent.rollback.tracking.undetermined":
+    "켜져 있습니다. 이 릴리스의 프로필이 최신 판과 실행 방식이 다르면 꺼질 수 있습니다",
+  "agent.rollback.modelFixed": "실행 모델: 직접 고르기로 바뀜.",
+  "agent.rollback.modelMayFix":
+    "실행 모델: 프로필 목록을 읽지 못해 직접 고르기로 바뀌는지 알 수 없음.",
+  "agent.rollback.settingsKept": "저장소와 GitHub 설정은 지금 그대로입니다.",
+  "agent.rollback.mayRefuse":
+    "차단된 프로필이거나, 프로필 내용이 달라졌거나, 자격 증명이 연결되지 않았으면 거절되고 지금 설정이 유지됩니다.",
+  "agent.rollback.kept": "되돌리지 않았습니다. 지금 설정이 유지됩니다.",
+  "agent.rollback.unknown":
+    "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고 상태도 다시 읽지 못했습니다. 릴리스 목록에서 활성 릴리스를 확인하세요.",
+  "agent.rollback.movedMeanwhile":
+    "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고, 그 사이 활성 릴리스가 다른 릴리스로 바뀌었습니다. 릴리스 목록에서 지금 활성 릴리스를 확인하세요.",
+  "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
+  "agent.rolledBack.reenable":
+    "다시 따라가게 하려면 프로필 칸에서 '최신으로 올리기'를 누르세요.",
+  "agent.rolledBack.unchecked":
+    "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 따라가기 값은 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
   "agent.releases.approved": "{at} 처음 활성화",
   "agent.releases.notApproved": "아직 활성화된 적 없음",
   "agent.releases.active": "활성",
-  "agent.releases.activate": "활성화",
-  "agent.releases.activating": "활성화하는 중…",
-  "agent.releases.activateFor": "{release} 활성화",
   "agent.releases.byUnknown": "작성자 정보 없음",
   "agent.releases.changesFirst": "첫 릴리스",
   "agent.releases.changesNone": "직전 릴리스와 같음",
@@ -292,10 +285,6 @@ export const agentsKo = {
   "agent.releases.changesClose": "닫기",
   "agent.releases.secretsHidden":
     "자격 증명은 값을 보이지 않고 바뀐 것만 알립니다.",
-  "agent.releaseCreated":
-    "릴리스를 만들었습니다({release}). 아직 활성화되지 않았습니다.",
-  "agent.releaseExisted":
-    "같은 내용의 릴리스가 이미 있어 그것을 씁니다. 아직 활성화되지 않았다면 활성화하세요.",
   "agent.credentials.title": "자격 증명 연결",
   "agent.credentials.intro":
     "카드가 쓰는 자격의 이름을 이 에이전트에 연결합니다. 연결되지 않은 이름이 있는 릴리스는 활성화할 수 없고 새 세션도 시작하지 않습니다. 여기서는 이름만 다루고 값은 다루지 않습니다.",
@@ -335,8 +324,9 @@ export const agentsKo = {
   "agent.tabs.toRelease": "릴리스 탭으로",
   "agent.back": "에이전트 목록",
   "agent.panel.none": "없음",
+  "agent.card.releasedAt": "릴리스 {at}",
   "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
+    "아직 켜지지 않았습니다. 상세 설정에서 프로필을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
@@ -355,7 +345,7 @@ export const agentsKo = {
   "agent.newSession.blocked.paused":
     "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.noRelease":
-    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
   "agent.newSession.blocked.outsider":
     "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
   "agent.newSession.blocked.profile":
@@ -380,9 +370,10 @@ export const agentsKo = {
   "agent.ready.credentialsBound": "필요한 {count}개를 모두 연결했습니다.",
   "agent.ready.credentialsMissing": "연결이 필요합니다: {names}",
   "agent.ready.credentialsUnknown": "연결 상태를 불러오지 못했습니다.",
-  "agent.ready.release": "릴리스 만들기",
+  "agent.ready.release": "릴리스",
   "agent.ready.releaseDone": "릴리스 {count}개가 있습니다.",
-  "agent.ready.releaseTodo": "릴리스 탭에서 버전과 프로필로 릴리스를 만듭니다.",
+  "agent.ready.releaseTodo":
+    "카드 탭에서 프로필을 골라 저장하면 첫 릴리스가 만들어집니다.",
   "agent.ready.activate": "활성화",
   "agent.ready.notRunnable":
     "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
@@ -534,7 +525,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.status.archived": "Archived",
   "agents.newTitle": "New agent",
   "agents.newIntro":
-    "Create an agent from a blank card in five steps. Once 'What it does' is done the agent is saved as a draft, so it stays in the list as a draft if you leave after that.",
+    "Create an agent from a blank card in three steps. Saving in 'What it does' makes the first release and the agent is ready to use; it stays if you leave after that.",
   "agents.name": "Name",
   "agents.slug": "Identifier",
   "agents.description": "Description",
@@ -544,40 +535,26 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.slugHint":
     "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
-    "The draft is saved, so the identifier can no longer change",
+    "The agent is saved, so the identifier can no longer change",
   "agents.slugTaken":
     "Another agent already uses this identifier. Go back to the Name step and change it.",
   "agents.flow.label": "Steps to make an agent",
   "agents.flow.name": "Name",
   "agents.flow.job": "What it does",
-  "agents.flow.release": "Release",
-  "agents.flow.activate": "Turn on",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model and tools the agent uses. Going on saves the agent as a draft. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
-  "agents.flow.saveDraft": "Save draft and continue",
+    "Choose the model and tools the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
+  "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
-  "agents.flow.releaseIntro":
-    "Saved as a draft. A release ties the card to a profile. Sessions do not use a release until it is turned on.",
-  "agents.flow.createRelease": "Create release",
-  "agents.flow.repositoryRequired": "Needs a repository",
-  "agents.flow.repositoryLater":
-    "Profiles that need a repository are released from the agent's Releases tab, together with a default repository.",
-  "agents.flow.noProfileWithoutRepository":
-    "No profile can be released without a repository",
-  "agents.flow.noProfile": "No profile can be released",
-  "agents.flow.noProfileHint":
-    "Once a usable profile exists, release from the agent's Releases tab.",
-  "agents.flow.activateIntro":
-    "Once it is on, new sessions start with this release.",
-  "agents.flow.turnOn": "Turn the agent on",
-  "agents.flow.activating": "Turning on…",
+  "agents.flow.releaseFailed":
+    "The agent was saved, but its first release could not be made: {reason}. Saving again edits the same agent and tries again.",
+  "agents.flow.noProfile": "No profile can be used",
   "agents.flow.later": "Do this later",
   "agents.flow.done": "{name} is on. New sessions now use this agent.",
   "agents.flow.open": "Open agent",
   "agents.flow.leaveTitle": "Leave without saving?",
   "agents.flow.leaveConsequence":
-    "What you typed here and did not save is lost. To keep it, press 'Save draft and continue'.",
+    "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
   "agentCard.agentInstructions": "Agent instructions",
@@ -588,7 +565,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "It must be exactly the model of the profile you pick when releasing",
+    "Only profiles that run the model you pick can be chosen below",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the profile does not block at release",
   "agentCard.toolsAllHint":
@@ -608,7 +585,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Blocked earlier. Until cleared they cannot be checked and stay unused.",
   "agentCard.forbiddenClear": "Clear blocked tools",
   "agent.created":
-    "Agent created as version 1. To use it in sessions, choose a version and a profile on the Release tab, then create and activate a release.",
+    "Agent created as version 1. To use it in sessions, choose a profile in Settings and save. Saving makes the first release.",
   "agent.noActive": "None",
   "agent.releaseLabel": "Release {release} · {profile}",
   "agent.versionLabel": "Version {version}",
@@ -621,7 +598,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Saved. Nothing changed, so no new version was created.",
   "agent.identitySaved":
     "Name and description saved. They apply now; no new version was created.",
-  "agent.activated": "Activated — new sessions now start with {release}.",
   "agent.alreadyActive": "That release is already active. Nothing changed.",
   "agent.conflict.title": "Someone else changed the active release first",
   "agent.conflict.body":
@@ -695,49 +671,60 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.versions.active": "Active",
   "agent.versions.before": "Compare from",
   "agent.versions.after": "Compare to",
-  "agent.releases.title": "Release history",
-  "agent.releases.new": "New release",
+  "agent.releases.title": "Releases",
+  "agent.releases.auto":
+    "Releases are made automatically when the profile or the card changes.",
   "agent.releases.colVersion": "Version",
   "agent.releases.colStatus": "Status",
   "agent.releases.colBy": "Created by",
   "agent.releases.colActivated": "Activated",
-  "agent.releases.colCard": "Card version",
   "agent.releases.activePeriod": "{from} – {to}",
-  "agent.releases.colNote": "Note",
   "agent.releases.noteNone": "—",
-  "agent.releases.noteToggle": "Show full note",
   "agent.releases.colActions": "Actions",
   "agent.releases.previous": "Previous",
   "agent.releases.never": "Never active",
   "agent.releases.byMember": "A member",
   "agent.releases.emptyBody":
-    "Releases that pair a version with a profile appear here.",
-  "agent.releases.intro":
-    "A release pins a version to a profile. Creating one changes nothing until you activate it.",
-  "agent.releases.version": "Version",
-  "agent.releases.profile": "Profile",
-  "agent.releases.profileHint":
-    "Each profile is shown with its default model. Choose a profile that can run the card's model.",
-  "agent.releases.profileUnlisted":
-    "A profile's permission mode is not shown on this screen yet.",
-  "agent.releases.repository": "Repository",
-  "agent.releases.repositoryHint":
-    "Slack and web console sessions, and API sessions that send no repository, start on this repository",
+    "Releases appear here once you save a change to the profile or the card.",
   "agent.releases.repositoryNone": "No repository",
-  "agent.releases.repositoryMissing":
-    "No repository in the catalog allows this profile, so a release cannot be created. Ask an operator to add a repository.",
-  "agent.releases.profileGone": "Not in catalog",
-  "agent.releases.profilesLoading": "Loading profiles…",
-  "agent.releases.profilesFailed": "Could not load the profiles: {reason}",
-  "agent.releases.create": "Create release",
-  "agent.releases.creating": "Creating…",
+  "agent.releases.access": "Access change",
+  "agent.releases.accessNoRelease":
+    "A change to repositories and GitHub settings. It makes no new release.",
+  "agent.releases.rollback": "Roll back",
+  "agent.releases.rollbackFor": "Roll back to {release}",
+  "agent.releases.rollingBack": "Rolling back…",
+  "agent.rollback.title": "Roll back to {release}?",
+  "agent.rollback.content":
+    "New sessions start with this release's model, instructions and tools.",
+  "agent.rollback.tracking":
+    "Following new versions of the profile after the rollback: {change}.",
+  "agent.rollback.tracking.keepOn": "stays on",
+  "agent.rollback.tracking.keepOff": "stays off",
+  "agent.rollback.tracking.turnedOff": "turned off",
+  "agent.rollback.tracking.turnedOn": "turned on",
+  "agent.rollback.tracking.undetermined":
+    "it is on now, and it may turn off if this release's profile runs differently from the newest version",
+  "agent.rollback.modelFixed": "Run model: changes to chosen by hand.",
+  "agent.rollback.modelMayFix":
+    "Run model: the profile list could not be read, so whether it changes to chosen by hand is unknown.",
+  "agent.rollback.settingsKept":
+    "Repository and GitHub settings stay as they are now.",
+  "agent.rollback.mayRefuse":
+    "A blocked profile, a profile whose content changed, or credentials that are not connected refuse the rollback and the current settings stay.",
+  "agent.rollback.kept": "Nothing was rolled back. The current settings stay.",
+  "agent.rollback.unknown":
+    "Could not confirm whether it was rolled back to {release}. No answer came back and the state could not be read again. Check the active release in the list.",
+  "agent.rollback.movedMeanwhile":
+    "Could not confirm whether it was rolled back to {release}. No answer came back, and the active release has changed to a different one since. Check the active release in the list.",
+  "agent.rolledBack": "Rolled back to {release}.",
+  "agent.rolledBack.reenable":
+    "To follow the profile again, use 'Bring to latest' in the profile section.",
+  "agent.rolledBack.unchecked":
+    "Rolled back to {release}. The settings could not be read again, so whether the agent still follows its profile is not checked.",
   "agent.releases.empty": "No releases yet.",
   "agent.releases.approved": "First activated {at}",
   "agent.releases.notApproved": "Never activated",
   "agent.releases.active": "Active",
-  "agent.releases.activate": "Activate",
-  "agent.releases.activating": "Activating…",
-  "agent.releases.activateFor": "Activate {release}",
   "agent.releases.byUnknown": "Author not recorded",
   "agent.releases.changesFirst": "First release",
   "agent.releases.changesNone": "Same as the previous release",
@@ -780,9 +767,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.changesClose": "Close",
   "agent.releases.secretsHidden":
     "Credentials show only that they changed, never their values.",
-  "agent.releaseCreated": "Release {release} created. It is not active yet.",
-  "agent.releaseExisted":
-    "A release with the same content already exists, so that one is used. Activate it if it is not active yet.",
   "agent.credentials.title": "Credentials",
   "agent.credentials.intro":
     "Connect the credential names the card uses to this agent. A release that names an unconnected credential cannot be activated and starts no new session. Only names are handled here, never values.",
@@ -821,8 +805,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.toRelease": "Go to the Release tab",
   "agent.back": "Agents",
   "agent.panel.none": "None",
+  "agent.card.releasedAt": "Released {at}",
   "agent.overview.notActive":
-    "Not turned on yet. Create a release on the Release tab and activate it, and new sessions will use this agent.",
+    "Not turned on yet. Choose a profile in Settings and save, and the first release is made and new sessions will use this agent.",
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
@@ -841,7 +826,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "This agent is paused, so no session can start.",
   "agent.newSession.blocked.noRelease":
-    "This agent has no active release, so no session can start. Activate a release to start one.",
+    "This agent has no active release, so no session can start. Choose a profile in Settings and save to start one.",
   "agent.newSession.blocked.outsider":
     "Only the responsible team's members and the agent's admins can start a session with it.",
   "agent.newSession.blocked.profile":
@@ -866,10 +851,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.credentialsBound": "All {count} it needs are connected.",
   "agent.ready.credentialsMissing": "Still to connect: {names}",
   "agent.ready.credentialsUnknown": "Could not load the connections.",
-  "agent.ready.release": "Create a release",
-  "agent.ready.releaseDone": "Releases created: {count}.",
+  "agent.ready.release": "Release",
+  "agent.ready.releaseDone": "Releases made: {count}.",
   "agent.ready.releaseTodo":
-    "On the Release tab, create a release from a version and a profile.",
+    "On the Card tab, pick a profile and save to make the first release.",
   "agent.ready.activate": "Activate",
   "agent.ready.notRunnable":
     "The agent is {status}, so new sessions do not use it.",
@@ -1014,7 +999,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.status.archived": "アーカイブ済み",
   "agents.newTitle": "新規エージェント",
   "agents.newIntro":
-    "空のカードから5ステップで作成します。「役割」まで完了すると下書きとして保存され、その後に離れても一覧に下書きとして残ります。",
+    "空のカードから3ステップで作成します。「役割」で保存すると最初のリリースが作成されてすぐに使え、その後に離れてもエージェントは残ります。",
   "agents.name": "名前",
   "agents.slug": "識別子",
   "agents.description": "説明",
@@ -1023,41 +1008,27 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "一覧と詳細画面に表示されます。インストールでプラットフォーム案内を有効にしている場合は、名前とあわせてモデルにもそのまま渡され、変更は次に始まるセッションから反映されます。",
   "agents.slugHint":
     "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
-  "agents.slugLocked": "下書きを保存したため、識別子は変更できません",
+  "agents.slugLocked": "保存したため、識別子は変更できません",
   "agents.slugTaken":
     "この識別子はほかのエージェントがすでに使っています。「名前」ステップに戻って変更してください。",
   "agents.flow.label": "エージェント作成のステップ",
   "agents.flow.name": "名前",
   "agents.flow.job": "役割",
-  "agents.flow.release": "リリース",
-  "agents.flow.activate": "有効化",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデルとツールを選びます。次へ進むと下書きとして保存されます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
-  "agents.flow.saveDraft": "下書きを保存して次へ",
+    "エージェントが使うモデルとツール、プロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
+  "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
-  "agents.flow.releaseIntro":
-    "下書きとして保存しました。カードをプロファイルに紐付けてリリースを作成します。作成しただけではセッションで使われません。",
-  "agents.flow.createRelease": "リリースを作成",
-  "agents.flow.repositoryRequired": "リポジトリが必要",
-  "agents.flow.repositoryLater":
-    "リポジトリが必須のプロファイルは、エージェント詳細のリリースタブで既定のリポジトリと一緒にリリースします。",
-  "agents.flow.noProfileWithoutRepository":
-    "リポジトリなしでリリースできるプロファイルがありません",
-  "agents.flow.noProfile": "リリースできるプロファイルがありません",
-  "agents.flow.noProfileHint":
-    "使えるプロファイルができたら、エージェント詳細のリリースタブでリリースします。",
-  "agents.flow.activateIntro":
-    "有効にすると、新しいセッションはこのリリースで開始します。",
-  "agents.flow.turnOn": "エージェントを有効化",
-  "agents.flow.activating": "有効化中…",
+  "agents.flow.releaseFailed":
+    "エージェントは保存しましたが、最初のリリースを作成できませんでした: {reason}。もう一度保存すると、同じエージェントを更新して再試行します。",
+  "agents.flow.noProfile": "使えるプロファイルがありません",
   "agents.flow.later": "あとで設定",
   "agents.flow.done":
     "{name}を有効にしました。新しいセッションでこのエージェントが使われます。",
   "agents.flow.open": "エージェントを表示",
   "agents.flow.leaveTitle": "保存せずに移動しますか？",
   "agents.flow.leaveConsequence":
-    "ここで入力して保存していない内容は失われます。残すには「下書きを保存して次へ」を押してください。",
+    "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
   "agentCard.agentInstructions": "エージェント指示文",
@@ -1067,8 +1038,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.importEarlier": "エージェント指示文に取り込む",
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
-  "agentCard.modelHint":
-    "リリース時に選ぶプロファイルのモデルと完全に一致している必要があります",
+  "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
   "agentCard.tools": "使用できるツール",
   "agentCard.toolsAll":
     "リリース時にプロファイルがブロックしていないすべてのツール",
@@ -1089,7 +1059,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "以前に設定した禁止ツールです。消すまではチェックできず、使いません。",
   "agentCard.forbiddenClear": "禁止ツールを消す",
   "agent.created":
-    "エージェントを作成しました（バージョン 1）。セッションで使うには、「リリース」タブでバージョンとプロファイルを選んでリリースを作成し、有効化してください。",
+    "エージェントを作成しました（バージョン 1）。セッションで使うには、「詳細設定」でプロファイルを選んで保存してください。保存すると最初のリリースが作成されます。",
   "agent.noActive": "なし",
   "agent.releaseLabel": "リリース {release} · {profile}",
   "agent.versionLabel": "バージョン {version}",
@@ -1102,8 +1072,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "保存しました。変更がないため、新しいバージョンは作成していません。",
   "agent.identitySaved":
     "名前と説明を保存しました。すぐに反映され、新しいバージョンは作成していません。",
-  "agent.activated":
-    "有効化しました。新しいセッションは {release} で開始します。",
   "agent.alreadyActive": "すでに有効なリリースです。変更はありません。",
   "agent.conflict.title": "ほかの場所で有効なリリースが先に変更されました",
   "agent.conflict.body":
@@ -1178,50 +1146,59 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.versions.active": "有効",
   "agent.versions.before": "比較元",
   "agent.versions.after": "比較先",
-  "agent.releases.title": "リリース履歴",
-  "agent.releases.new": "新しいリリース",
+  "agent.releases.title": "リリース",
+  "agent.releases.auto":
+    "リリースは、プロファイルやカードが変わると自動で作成されます。",
   "agent.releases.colVersion": "バージョン",
   "agent.releases.colStatus": "状態",
   "agent.releases.colBy": "作成者",
   "agent.releases.colActivated": "有効化日時",
-  "agent.releases.colCard": "カードのバージョン",
   "agent.releases.activePeriod": "{from}〜{to}",
-  "agent.releases.colNote": "メモ",
   "agent.releases.noteNone": "—",
-  "agent.releases.noteToggle": "メモ全文を表示",
   "agent.releases.colActions": "操作",
   "agent.releases.previous": "以前",
   "agent.releases.never": "有効化前",
   "agent.releases.byMember": "メンバー",
   "agent.releases.emptyBody":
-    "バージョンとプロファイルを組み合わせて作成したリリースがここに表示されます。",
-  "agent.releases.intro":
-    "リリースはバージョンをプロファイルに固定します。作成しただけでは何も変わらず、有効化すると反映されます。",
-  "agent.releases.version": "バージョン",
-  "agent.releases.profile": "プロファイル",
-  "agent.releases.profileHint":
-    "各プロファイルと既定のモデルを表示しています。カードのモデルを実行できるプロファイルを選択してください。",
-  "agent.releases.profileUnlisted":
-    "プロファイルの権限モードは、この画面にはまだ表示されません。",
-  "agent.releases.repository": "リポジトリ",
-  "agent.releases.repositoryHint":
-    "Slack と Web コンソールのセッション、リポジトリを指定しない API セッションはこのリポジトリで始まります",
+    "プロファイルやカードの変更を保存すると、リリースがここに表示されます。",
   "agent.releases.repositoryNone": "リポジトリなし",
-  "agent.releases.repositoryMissing":
-    "このプロファイルを許可するリポジトリがカタログにないため、リリースできません。運用担当者にリポジトリの追加を依頼してください。",
-  "agent.releases.profileGone": "カタログにありません",
-  "agent.releases.profilesLoading": "プロファイルを読み込み中…",
-  "agent.releases.profilesFailed":
-    "プロファイルを読み込めませんでした: {reason}",
-  "agent.releases.create": "リリースを作成",
-  "agent.releases.creating": "作成中…",
+  "agent.releases.access": "アクセスの変更",
+  "agent.releases.accessNoRelease":
+    "リポジトリと GitHub 設定の変更です。新しいリリースは作成しません。",
+  "agent.releases.rollback": "元に戻す",
+  "agent.releases.rollbackFor": "{release}に戻す",
+  "agent.releases.rollingBack": "戻しています…",
+  "agent.rollback.title": "{release}に戻しますか？",
+  "agent.rollback.content":
+    "新しいセッションは、このリリースのモデル・指示・ツールで始まります。",
+  "agent.rollback.tracking":
+    "戻した後のプロファイル新バージョンへの追従: {change}。",
+  "agent.rollback.tracking.keepOn": "オンのまま",
+  "agent.rollback.tracking.keepOff": "オフのまま",
+  "agent.rollback.tracking.turnedOff": "オフに変わります",
+  "agent.rollback.tracking.turnedOn": "オンに変わります",
+  "agent.rollback.tracking.undetermined":
+    "現在はオンです。このリリースのプロファイルが最新版と実行方式が異なる場合は、オフになることがあります",
+  "agent.rollback.modelFixed": "実行モデル: 直接指定に変わります。",
+  "agent.rollback.modelMayFix":
+    "実行モデル: プロファイル一覧を読み込めなかったため、直接指定に変わるかは不明です。",
+  "agent.rollback.settingsKept": "リポジトリと GitHub の設定は現在のままです。",
+  "agent.rollback.mayRefuse":
+    "ブロックされたプロファイル、内容が変わったプロファイル、資格情報が未接続の場合は拒否され、現在の設定が維持されます。",
+  "agent.rollback.kept": "戻していません。現在の設定が維持されます。",
+  "agent.rollback.unknown":
+    "{release}に戻したか確認できませんでした。応答を受け取れず、状態も再読み込みできませんでした。一覧で有効なリリースを確認してください。",
+  "agent.rollback.movedMeanwhile":
+    "{release}に戻したか確認できませんでした。応答を受け取れず、その間に有効なリリースが別のものに変わりました。一覧で現在有効なリリースを確認してください。",
+  "agent.rolledBack": "{release}に戻しました。",
+  "agent.rolledBack.reenable":
+    "再び追従させるには、プロファイル欄の「最新にする」を押してください。",
+  "agent.rolledBack.unchecked":
+    "{release}に戻しました。設定を読み直せなかったため、追従の状態は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
   "agent.releases.approved": "{at}に初回有効化",
   "agent.releases.notApproved": "未有効化",
   "agent.releases.active": "有効",
-  "agent.releases.activate": "有効化",
-  "agent.releases.activating": "有効化中…",
-  "agent.releases.activateFor": "{release}を有効化",
   "agent.releases.byUnknown": "作成者の記録なし",
   "agent.releases.changesFirst": "最初のリリース",
   "agent.releases.changesNone": "直前のリリースと同じ",
@@ -1264,10 +1241,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.changesClose": "閉じる",
   "agent.releases.secretsHidden":
     "認証情報は値を表示せず、変わったことだけを示します。",
-  "agent.releaseCreated":
-    "リリース {release} を作成しました。まだ有効ではありません。",
-  "agent.releaseExisted":
-    "同じ内容のリリースがすでにあるため、そのリリースを使います。まだ有効でない場合は有効化してください。",
   "agent.credentials.title": "認証情報",
   "agent.credentials.intro":
     "カードが使う認証情報の名前を、このエージェントに接続します。未接続の認証情報を指定するリリースは有効化できず、新しいセッションも開始しません。ここでは名前のみを扱い、値は扱いません。",
@@ -1305,7 +1278,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
   "agent.overview.notActive":
-    "まだ有効になっていません。「リリース」タブでリリースを作成して有効化すると、新しいセッションでこのエージェントが使われます。",
+    "まだ有効になっていません。「詳細設定」でプロファイルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
@@ -1324,7 +1297,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.blocked.paused":
     "一時停止中のエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.noRelease":
-    "有効なリリースがないため、セッションを開始できません。リリースを有効化すると開始できます。",
+    "有効なリリースがないため、セッションを開始できません。「詳細設定」でプロファイルを選んで保存すると開始できます。",
   "agent.newSession.blocked.outsider":
     "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
   "agent.newSession.blocked.profile":
@@ -1349,10 +1322,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ready.credentialsBound": "必要な{count}件をすべて接続しました。",
   "agent.ready.credentialsMissing": "接続が必要です: {names}",
   "agent.ready.credentialsUnknown": "接続状態を読み込めませんでした。",
-  "agent.ready.release": "リリースの作成",
+  "agent.ready.release": "リリース",
   "agent.ready.releaseDone": "リリースが{count}件あります。",
   "agent.ready.releaseTodo":
-    "リリースタブで、バージョンとプロファイルからリリースを作成します。",
+    "カードタブでプロファイルを選んで保存すると、最初のリリースが作成されます。",
   "agent.ready.activate": "有効化",
   "agent.ready.notRunnable":
     "エージェントが「{status}」のため、新しいセッションはこのエージェントを使いません。",
@@ -1422,6 +1395,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.column.updated": "更新",
   "agent.back": "エージェント一覧",
   "agent.panel.none": "なし",
+  "agent.card.releasedAt": "リリース {at}",
 
   "managingTeam.title": "担当チーム",
   "managingTeam.intro":

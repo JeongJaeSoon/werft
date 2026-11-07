@@ -12,7 +12,8 @@ export const homeKo = {
   "home.checklist.invite": "구성원 초대하기",
   "home.checklist.inviteHint": "구성원 화면에서 초대 링크를 만듭니다.",
   "home.checklist.agent": "에이전트 준비하기",
-  "home.checklist.agentHint": "릴리스를 활성화하면 준비됩니다.",
+  "home.checklist.agentHint":
+    "프로필을 골라 저장하면 첫 릴리스가 만들어져 준비됩니다.",
   "home.checklist.session": "첫 세션 확인하기",
   "home.checklist.sessionHint": "API로 시작한 세션이 목록에 보입니다.",
   "home.checklist.unknown": "확인할 수 없음",
@@ -115,7 +116,8 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   "home.checklist.invite": "Invite members",
   "home.checklist.inviteHint": "Create an invite link under Members.",
   "home.checklist.agent": "Set up an agent",
-  "home.checklist.agentHint": "Ready once a release is active.",
+  "home.checklist.agentHint":
+    "Ready once you choose a profile and save, which makes the first release.",
   "home.checklist.session": "Check for the first session",
   "home.checklist.sessionHint": "Sessions started via the API show up here.",
   "home.checklist.unknown": "Unknown",
@@ -222,7 +224,8 @@ export const homeJa: Record<keyof typeof homeKo, string> = {
   "home.checklist.invite": "メンバーを招待",
   "home.checklist.inviteHint": "メンバー画面で招待リンクを作成します。",
   "home.checklist.agent": "エージェントを準備",
-  "home.checklist.agentHint": "リリースを有効にすると準備完了です。",
+  "home.checklist.agentHint":
+    "プロファイルを選んで保存すると最初のリリースが作成され、準備完了です。",
   "home.checklist.session": "最初のセッションを確認",
   "home.checklist.sessionHint":
     "API で開始したセッションが一覧に表示されます。",

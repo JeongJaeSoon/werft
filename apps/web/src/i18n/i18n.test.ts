@@ -124,6 +124,25 @@ describe("i18n", () => {
     }
   });
 
+  test("no message sends people to the Release tab to make or turn on a release", () => {
+    // A save makes the release now; the tab only lists them and rolls back.
+    const pointsAtTab: Record<(typeof LOCALES)[number], RegExp> = {
+      ko: /릴리스 탭에서/,
+      en: /(on|in) the Release tab/i,
+      ja: /リリースタブ|「リリース」タブ/,
+    };
+    for (const locale of LOCALES) {
+      for (const [key, text] of Object.entries(catalogs[locale])) {
+        if (key === "agent.tabs.toRelease") continue;
+        expect([locale, key, pointsAtTab[locale].test(text)]).toEqual([
+          locale,
+          key,
+          false,
+        ]);
+      }
+    }
+  });
+
   test("release changes and the session's release are written in every locale", () => {
     const keys = [
       "agent.releases.changesFirst",

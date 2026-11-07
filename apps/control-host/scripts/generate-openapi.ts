@@ -59,12 +59,42 @@ export function renderScalarAsset(): string {
   )}\n`;
 }
 
+// The three committed outputs, each paired with what the current source renders.
+export function generatedOutputs(): { path: string; content: string }[] {
+  return [
+    { path: OPENAPI_OUTPUT_PATH, content: renderOpenApiDocument() },
+    { path: API_REFERENCE_OUTPUT_PATH, content: renderApiReferenceDocument() },
+    { path: SCALAR_ASSET_OUTPUT_PATH, content: renderScalarAsset() },
+  ];
+}
+
+// After a merge or rebase that conflicted in docs/openapi.json or docs/api/,
+// resolve only the source (openapi.ts and the routes), then run this: the
+// outputs are rewritten from source, so conflict markers in them do not matter.
+// `--check` writes nothing and exits 1 naming each output that differs.
 if (import.meta.main) {
-  mkdirSync(dirname(API_REFERENCE_OUTPUT_PATH), { recursive: true });
-  writeFileSync(OPENAPI_OUTPUT_PATH, renderOpenApiDocument());
-  writeFileSync(API_REFERENCE_OUTPUT_PATH, renderApiReferenceDocument());
-  writeFileSync(SCALAR_ASSET_OUTPUT_PATH, renderScalarAsset());
-  console.log(`wrote ${OPENAPI_OUTPUT_PATH}`);
-  console.log(`wrote ${API_REFERENCE_OUTPUT_PATH}`);
-  console.log(`wrote ${SCALAR_ASSET_OUTPUT_PATH}`);
+  const outputs = generatedOutputs();
+  if (process.argv.includes("--check")) {
+    const stale = outputs.filter((output) => {
+      try {
+        return readFileSync(output.path, "utf8") !== output.content;
+      } catch {
+        return true;
+      }
+    });
+    for (const output of stale) {
+      console.error(`stale: ${output.path}`);
+    }
+    if (stale.length > 0) {
+      console.error("run `bun run --cwd apps/control-host openapi:generate`");
+      process.exit(1);
+    }
+    console.log("openapi outputs match the source");
+  } else {
+    mkdirSync(dirname(API_REFERENCE_OUTPUT_PATH), { recursive: true });
+    for (const output of outputs) {
+      writeFileSync(output.path, output.content);
+      console.log(`wrote ${output.path}`);
+    }
+  }
 }

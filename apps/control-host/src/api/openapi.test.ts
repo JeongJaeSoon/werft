@@ -10,6 +10,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   API_REFERENCE_OUTPUT_PATH,
+  generatedOutputs,
   OPENAPI_OUTPUT_PATH,
   renderApiReferenceDocument,
   renderScalarAsset,
@@ -181,6 +182,20 @@ describe("OpenAPI document", () => {
     expect(html).not.toContain("Authorization");
     expect(scalarAsset).toContain("meta[property=csp-nonce]");
     expect(scalarAsset).not.toContain("./chunks/");
+  });
+
+  test("the generator covers JSON, HTML and Scalar, and --check passes on a fresh tree", () => {
+    expect(generatedOutputs().map((output) => output.path)).toEqual([
+      OPENAPI_OUTPUT_PATH,
+      API_REFERENCE_OUTPUT_PATH,
+      SCALAR_ASSET_OUTPUT_PATH,
+    ]);
+    const check = Bun.spawnSync(
+      [process.execPath, "scripts/generate-openapi.ts", "--check"],
+      { cwd: join(import.meta.dir, "../.."), stderr: "pipe", stdout: "pipe" },
+    );
+    expect(check.stderr.toString()).toBe("");
+    expect(check.exitCode).toBe(0);
   });
 
   test("groups every operation under exactly one declared tag", () => {

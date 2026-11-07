@@ -10,7 +10,7 @@ Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서
 
 credential 경계: provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
 
-`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다. merge·rebase에서 이 생성물이 충돌하면 `openapi.ts`와 route 소스만 풀고 같은 명령으로 다시 만든다(생성물의 충돌 표시는 덮어써진다). 쓰지 않고 맞는지만 보려면 `openapi:generate --check`다.
 
 이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있고 npm 패키지 이름은 `@werft-ai/sdk`, 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 설치 경로에는 옛 이름이 남아 있다.
 

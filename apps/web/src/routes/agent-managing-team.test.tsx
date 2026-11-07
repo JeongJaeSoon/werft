@@ -297,9 +297,7 @@ describe("새 에이전트의 담당 팀", () => {
       await screen.findByLabelText("모델"),
       "claude-sonnet-5",
     );
-    await user.click(
-      screen.getByRole("button", { name: "초안 저장하고 다음" }),
-    );
+    await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
     await waitFor(() =>
       expect(
         (
