@@ -73,6 +73,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 잃으면 저장한 자격 증명을 읽지 못한다 |
 | `BOOTSTRAP_TOKEN` | 주석을 풀고 32–256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
+| `CONSOLE_ORIGIN` | 콘솔에서 GitHub App을 만들 때 필요한 브라우저의 콘솔 origin(`scheme://host[:port]`). 없으면 "GitHub에서 만들기" 버튼이 비활성화된다. SSH tunnel로 콘솔을 열면 `http://127.0.0.1:<터널 포트>`를 넣는다 |
 
 예시의 LocalStack 값을 운영 S3 값으로 바꾼다. 비밀을 명령줄이나 로그에 출력하지 않는다.
 
@@ -111,7 +112,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 }
 ```
 
-저장소 URL은 실제 사용할 공개 저장소로 바꾼다. 비공개 저장소의 GitHub App은 [연결과 설정](/run-server/self-hosting/model-connections)에서 설치 뒤 구성한다. 파일은 비밀을 포함하지 않으며 migrate가 읽을 수 있어야 한다.
+저장소 URL은 실제 사용할 공개 저장소로 바꾼다. 비공개 저장소의 GitHub App은 설치 뒤 콘솔에서 구성한다. 파일은 비밀을 포함하지 않으며 migrate가 읽을 수 있어야 한다.
 
 ### 3. release 입력 생성
 

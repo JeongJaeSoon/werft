@@ -74,7 +74,7 @@ config:
     credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
 ```
 
-`credentialAllowlist`는 기본값을 통째로 바꾼다. 기본 목록(provider와 패키지 registry)을 그대로 두고 저장소 호스트(`github.com:443`, 다른 Git 호스트를 쓰면 그 호스트도)와 bucket 호스트를 뒤에 더한다.
+`credentialAllowlist`는 기본값을 통째로 바꾼다. 기본 목록(provider와 패키지 registry)을 모두 다시 적고, 저장소 호스트(`github.com:443`, 다른 Git 호스트를 쓰면 그 호스트도)와 bucket 호스트를 이어 적는다.
 
 `config.aws.region`의 기본값은 `ap-northeast-1`이다. 다른 리전의 bucket이면 바꾼다. 연결, 저장소, MCP 서버, 상한은 values에 없다. 설치한 뒤 웹 콘솔에서 더한다. `bun run settings:k8s import`를 쓰는 대안은 설치 버전의 저장소 checkout과 호스트 Bun·kubectl이 필요하다. 기본값과 설명은 `helm show values`에 있다.
 

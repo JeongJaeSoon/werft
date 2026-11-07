@@ -43,7 +43,7 @@ kubectl -n werft apply -f deploy/kind/deps.yaml
 SECRETS="$(mktemp -d)"
 ```
 
-다음 명령의 `read -rs`는 프롬프트 없이 입력을 기다린다. 입력할 값은 `deploy/kind/deps.yaml`의 `POSTGRES_PASSWORD`이고, 값을 명령줄에 쓰지 않으려고 터미널에서 읽는다. 터미널 없이 실행하는 스크립트에서는 같은 값을 표준 입력으로 넘겨 이 줄을 채운다. Secret 값은 모두 이 kind 시험용이다. 실서버에는 2단계의 방식으로 직접 만든 값을 쓴다. Secret을 만든 뒤에는 변수와 임시 디렉터리를 지운다.
+다음 명령의 `read -rs`는 프롬프트 없이 입력을 기다린다. 입력할 값은 `deploy/kind/deps.yaml`의 `POSTGRES_PASSWORD`이고, 값을 명령줄에 쓰지 않으려고 터미널에서 읽는다. 터미널 없이 실행하는 스크립트에서는 같은 값을 표준 입력으로 넘겨 이 줄을 채운다. Secret 값은 모두 이 kind 시험용이다. 실서버에는 [Kubernetes 설치의 2. namespace와 Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret)에서 직접 만든 값을 쓴다. Secret을 만든 뒤에는 변수와 임시 디렉터리를 지운다.
 
 ```bash
 read -rs KIND_DB_PASSWORD
