@@ -125,24 +125,19 @@ export function createPostgresInstallationProfileStore(
             : await tx
                 .insert(installationProfiles)
                 .values(
-                  entries.map((entry) => {
-                    // The fingerprint leaves `repository` out, so dropping
-                    // it here keeps the row's hash.
-                    const { repository: _repository, ...definition } =
-                      entry.definition as Record<string, unknown>;
-                    return {
-                      id: entry.id,
-                      name: null,
-                      version: 1,
-                      origin: "catalog",
-                      definition,
-                      permissionMode: entry.permission_mode,
-                      fingerprint: entry.fingerprint,
-                      repositoryIds: null,
-                      githubAppRepositories: null,
-                      repositoryScope: null,
-                    };
-                  }),
+                  entries.map((entry) => ({
+                    id: entry.id,
+                    name: null,
+                    version: 1,
+                    origin: "catalog",
+                    definition: entry.definition as Record<string, unknown>,
+                    permissionMode: entry.permission_mode,
+                    fingerprint: entry.fingerprint,
+                    // An imported document names its repositories, and the
+                    // workspace ceiling that would replace them is not
+                    // written yet: keep what it says.
+                    repositoryIds: input.repositoryIdsOf(entry.id),
+                  })),
                 )
                 .returning({ id: installationProfiles.id });
         const unmigrated = await tx

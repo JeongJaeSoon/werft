@@ -114,10 +114,7 @@ integration("installation profiles on PostgreSQL", () => {
         origin: "catalog",
         name: null,
         version: 1,
-        // A seeded row names no repository, whatever the document allowed.
-        repositoryIds: null,
-        githubAppRepositories: null,
-        repositoryScope: null,
+        repositoryIds: ["app", "docs"],
         createdBy: null,
         previousId: null,
         retiredAt: null,
