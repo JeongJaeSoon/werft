@@ -345,11 +345,7 @@ export function ProfileDetailScreen() {
           </Badge>
         </span>
       }
-      description={t(
-        ceiling
-          ? "profiles.detail.ceilingDescription"
-          : "profiles.detail.workspaceDescription",
-      )}
+      description={t("profiles.detail.description")}
       actions={
         actions.length === 0 ? null : (
           <div className="flex flex-wrap gap-2">{actions}</div>
