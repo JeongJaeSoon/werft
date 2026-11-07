@@ -255,10 +255,10 @@ describe("agentRefusal", () => {
     const ceiling = { reason_code: "blocked", profile_id: "coding-v1" };
     const over = { reason_code: "base_blocked", profile_id: "ws_acme_v1" };
     expect(blocked("ko", ceiling)).toBe(
-      "운영자가 설치 프로필 coding-v1을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
+      "운영자가 프로필 coding-v1을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
     );
     expect(blocked("en", over)).toBe(
-      "The operator blocked the installation profile that profile ws_acme_v1 narrows. Until it is unblocked, no release on it can be created or activated.",
+      "The operator blocked the profile that profile ws_acme_v1 narrows. Until it is unblocked, no release on it can be created or activated.",
     );
     expect(blocked("ja", ceiling)).toContain("coding-v1");
     expect(blocked("ko", null)).toBe(translate("ko", "error.PROFILE_BLOCKED"));

@@ -332,7 +332,7 @@ describe("프로필 상세", () => {
     expect(
       cells(
         screen.getByRole("table", {
-          name: "이 프로필로 만든 워크스페이스 프로필",
+          name: "이 프로필로 만든 프로필",
         }),
       ),
     ).toEqual([["strict v1op_wl_strict_v1", "사용 가능", "claude-sonnet-5"]]);
@@ -405,7 +405,7 @@ describe("프로필 상세", () => {
       name: "op_wide_v2 버전을 사용 중지할까요?",
     });
     expect(
-      within(dialog).getByText(/그 위의 워크스페이스 프로필은 계속 동작합니다/),
+      within(dialog).getByText(/그 프로필로 만든 프로필은 계속 동작합니다/),
     ).toBeDefined();
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     await screen.findByText("op_wide_v2 버전을 사용 중지했습니다.");
@@ -433,7 +433,7 @@ describe("프로필 상세", () => {
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
     expect(
       await within(dialog).findByText(
-        "설치 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+        "프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
       ),
     ).toBeDefined();
   });
@@ -445,17 +445,17 @@ describe("프로필 상세", () => {
     );
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "이 설치 프로필 차단" }),
+      await screen.findByRole("button", { name: "이 프로필 차단" }),
     );
     const dialog = await screen.findByRole("dialog", {
-      name: "설치 프로필 op_wide_v2을(를) 차단할까요?",
+      name: "프로필 op_wide_v2을(를) 차단할까요?",
     });
     expect(
       within(dialog).getByText(/이미 쓰는 세션도 다음 턴에서 멈추고/),
     ).toBeDefined();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
     await user.click(within(dialog).getByRole("button", { name: "차단" }));
-    await screen.findByText("설치 프로필 op_wide_v2을(를) 차단했습니다.");
+    await screen.findByText("프로필 op_wide_v2을(를) 차단했습니다.");
     expect((await screen.findAllByText("차단됨")).length).toBeGreaterThan(0);
     // The block button left with the refetch; focus goes to its undo.
     const unblock = await screen.findByRole("button", { name: "차단 해제" });
@@ -463,12 +463,12 @@ describe("프로필 상세", () => {
 
     await user.click(unblock);
     const undo = await screen.findByRole("dialog", {
-      name: "설치 프로필 op_wide_v2의 차단을 해제할까요?",
+      name: "프로필 op_wide_v2의 차단을 해제할까요?",
     });
     await user.click(within(undo).getByRole("button", { name: "차단 해제" }));
-    await screen.findByText("설치 프로필 op_wide_v2의 차단을 해제했습니다.");
+    await screen.findByText("프로필 op_wide_v2의 차단을 해제했습니다.");
     const again = await screen.findByRole("button", {
-      name: "이 설치 프로필 차단",
+      name: "이 프로필 차단",
     });
     await waitFor(() => expect(document.activeElement === again).toBe(true));
     expect(
@@ -489,13 +489,13 @@ describe("프로필 상세", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "이 설치 프로필 차단" }),
+      await screen.findByRole("button", { name: "이 프로필 차단" }),
     );
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "차단" }));
     expect(
       await within(dialog).findByText(
-        "설치 프로필은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
+        "프로필은 워크스페이스 owner만 차단하고 해제할 수 있습니다.",
       ),
     ).toBeDefined();
   });
@@ -508,7 +508,7 @@ describe("프로필 상세", () => {
     await screen.findByRole("heading", { level: 1, name: "wide" });
     expect(actions()).toEqual(["이 프로필을 복제해 만들기"]);
     expect(
-      screen.getByText("설치 프로필은 워크스페이스 owner만 바꿀 수 있습니다"),
+      screen.getByText("프로필은 워크스페이스 owner만 바꿀 수 있습니다"),
     ).toBeDefined();
   });
 

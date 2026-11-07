@@ -790,7 +790,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
     await user.type(await screen.findByLabelText("이름"), "wide");
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "설치 프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
+      "프로필은 워크스페이스 owner만 만들고 사용 중지할 수 있습니다.",
     );
   });
 

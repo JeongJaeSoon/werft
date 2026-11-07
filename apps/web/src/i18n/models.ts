@@ -16,9 +16,9 @@ export const modelsKo = {
   "agent.releases.modelRefused":
     "카드 모델 {card}이(가) 프로필 {profile}에서 실행되지 않아 릴리스를 만들지 못했습니다. 카드 모델을 실행하는 프로필을 고르세요.",
   "agent.releases.profileBlocked":
-    "운영자가 설치 프로필 {profile}을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
+    "운영자가 프로필 {profile}을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
   "agent.releases.baseProfileBlocked":
-    "운영자가 프로필 {profile}의 바탕 설치 프로필을 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
+    "운영자가 프로필 {profile}의 바탕 프로필을 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
 };
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {
@@ -35,9 +35,9 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.releases.modelRefused":
     "Profile {profile} does not run the card's model {card}, so no release was created. Choose a profile that runs the card's model.",
   "agent.releases.profileBlocked":
-    "The operator blocked the installation profile {profile}. Until it is unblocked, no release on it can be created or activated.",
+    "The operator blocked the profile {profile}. Until it is unblocked, no release on it can be created or activated.",
   "agent.releases.baseProfileBlocked":
-    "The operator blocked the installation profile that profile {profile} narrows. Until it is unblocked, no release on it can be created or activated.",
+    "The operator blocked the profile that profile {profile} narrows. Until it is unblocked, no release on it can be created or activated.",
 };
 
 export const modelsJa: Record<keyof typeof modelsKo, string> = {
@@ -54,7 +54,7 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agent.releases.modelRefused":
     "プロファイル {profile} はカードのモデル {card} を実行しないため、リリースは作成されませんでした。カードのモデルを実行するプロファイルを選んでください。",
   "agent.releases.profileBlocked":
-    "運用担当者がインストールのプロファイル {profile} をブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
+    "運用担当者がプロファイル {profile} をブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
   "agent.releases.baseProfileBlocked":
-    "運用担当者がプロファイル {profile} のもとになっているインストールのプロファイルをブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
+    "運用担当者がプロファイル {profile} のもとになっているプロファイルをブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
 };

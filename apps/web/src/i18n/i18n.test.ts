@@ -374,3 +374,19 @@ describe("i18n", () => {
     });
   });
 });
+
+describe("profile naming", () => {
+  // The screen is named "프로필"; the two old kinds must not leak into copy.
+  const OLD_NAMES =
+    /설치 프로필|워크스페이스 프로필|installation profile|workspace profile|インストールのプロファイル|ワークスペースのプロファイル/i;
+  test.each([
+    ["ko", [profilesKo, modelsKo, errorsKo, settingsKo]],
+    ["en", [profilesEn, modelsEn, errorsEn, settingsEn]],
+    ["ja", [profilesJa, modelsJa, errorsJa, settingsJa]],
+  ] as const)("%s copy never names a profile kind", (_locale, tables) => {
+    const hits = tables.flatMap((table) =>
+      Object.entries(table).filter(([, text]) => OLD_NAMES.test(String(text))),
+    );
+    expect(hits.map(([key]) => key)).toEqual([]);
+  });
+});
