@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
   CreateInstallationProfileRequest,
-  CreateWorkspaceProfileRequest,
   InstallationProfileOptionsResponse,
   ProfileSummary,
 } from "@werft-ai/contracts";
@@ -45,42 +44,37 @@ function catalog(
       "GET /v1/profiles": () => json(200, { items }),
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/installation-profiles/options": () => json(200, options),
-      "POST /v1/workspace-profiles": async (request: Request) => {
-        const {
-          name,
-          base_profile_id,
-          deny = [],
-          accept_added_tools: _,
-          ...narrowed
-        } = (await request.json()) as CreateWorkspaceProfileRequest;
-        const n =
-          items.filter((item) => item.workspace?.name === name).length + 1;
-        const base = items.find((item) => item.id === base_profile_id);
-        const made: ProfileSummary = {
-          ...version(
-            n,
-            "usable",
-            {
-              ...narrowed,
-              tools: (base?.tools ?? []).filter((tool) => !deny.includes(tool)),
-            },
-            base_profile_id,
-          ),
-          id: `ws_acme_${name}_v${n}`,
-        };
-        made.workspace = {
-          ...(made.workspace as NonNullable<ProfileSummary["workspace"]>),
-          name,
-        };
-        items.push(made);
-        return json(201, { profile: made, receipt_id: RECEIPT_ID });
-      },
       "POST /v1/installation-profiles": async (request: Request) => {
         const body = (await request.json()) as CreateInstallationProfileRequest;
         const denied = body.deny ?? [];
         const n =
           items.filter((item) => item.installation?.name === body.name).length +
           1;
+        // An admin names no connection: the profile narrows a source.
+        if (body.connection_id === undefined) {
+          const source =
+            body.derived_from ??
+            items.find((item) => item.id === body.previous_id)?.installation
+              ?.derived_from ??
+            undefined;
+          const from = items.find((item) => item.id === source);
+          const narrowed = version(
+            n,
+            "usable",
+            {
+              model: body.model,
+              models: body.models,
+              permission_mode: body.permission_mode,
+              tools: (from?.tools ?? []).filter(
+                (tool) => !denied.includes(tool),
+              ),
+            },
+            source,
+            body.name,
+          );
+          items.push(narrowed);
+          return json(201, { profile: narrowed, receipt_id: RECEIPT_ID });
+        }
         const made = ceiling(
           body.name,
           n,
@@ -91,7 +85,6 @@ function catalog(
               (name) => !denied.includes(name),
             ),
             permission_mode: body.permission_mode,
-            repository_ids: body.repository_ids,
           },
           { previous_id: body.previous_id ?? null },
         );
@@ -108,13 +101,10 @@ const posted = (api: { calls: { method: string; body?: unknown }[] }) =>
 const form = () =>
   screen.getByRole("main").querySelector("form") as HTMLElement;
 
-describe("프로필 만들기 (워크스페이스)", () => {
-  test("an owner narrows a ceiling and lands on the new version", async () => {
-    const server = catalog();
-    const { api, history } = renderAt(
-      "/profiles/new?kind=workspace",
-      server.routes,
-    );
+describe("프로필 만들기 (관리자)", () => {
+  test("an admin clones a profile, narrows it and lands on the new one", async () => {
+    const server = catalog(undefined, me(undefined, "admin"));
+    const { api, history } = renderAt("/profiles/new", server.routes);
     await screen.findByRole("heading", { level: 1, name: "프로필 만들기" });
     const base = (await screen.findByLabelText(
       "바탕 프로필",
@@ -174,9 +164,6 @@ describe("프로필 만들기 (워크스페이스)", () => {
 
     const user = await setupUser();
     await user.type(screen.getByLabelText("이름"), "strict");
-    expect(
-      screen.getByText("저장할 버전의 id: ws_acme_strict_v1"),
-    ).toBeDefined();
     await user.click(screen.getByRole("checkbox", { name: "Bash" }));
     await user.selectOptions(mode, "plan");
     // The review lists only what changed.
@@ -191,13 +178,13 @@ describe("프로필 만들기 (워크스페이스)", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() =>
-      expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v1"),
+      expect(history.location.pathname).toBe("/profiles/op_wl_strict_v1"),
     );
-    // A block list only, the base's blocks kept.
+    // A block list only, the base's blocks kept; no field the owner alone sets.
     expect(posted(api)).toEqual([
       {
         name: "strict",
-        base_profile_id: "coding-claude",
+        derived_from: "coding-claude",
         model: "claude-sonnet-5",
         models: ["claude-sonnet-5"],
         permission_mode: "plan",
@@ -206,9 +193,9 @@ describe("프로필 만들기 (워크스페이스)", () => {
     ]);
   });
 
-  test("an admin has no kind to pick and gets the workspace form even when asking for a ceiling", async () => {
+  test("an admin gets the clone form, never the owner's connection and runtime fields", async () => {
     const { api } = renderAt(
-      "/profiles/new?kind=installation",
+      "/profiles/new",
       catalog(undefined, me(undefined, "admin")).routes,
     );
     await screen.findByLabelText("바탕 프로필");
@@ -231,13 +218,16 @@ describe("프로필 만들기 (워크스페이스)", () => {
   test("a new profile starts on a base that allows auto, at auto, and may pick bypassPermissions over a bypass base", async () => {
     const operator = (id: string, mode: "auto" | "bypassPermissions") =>
       imported(id, { permission_mode: mode });
-    const server = catalog([
-      CODING,
-      GENERAL,
-      operator("coding-auto", "auto"),
-      operator("coding-bypass", "bypassPermissions"),
-    ]);
-    const { api } = renderAt("/profiles/new?kind=workspace", server.routes);
+    const server = catalog(
+      [
+        CODING,
+        GENERAL,
+        operator("coding-auto", "auto"),
+        operator("coding-bypass", "bypassPermissions"),
+      ],
+      me(undefined, "admin"),
+    );
+    const { api } = renderAt("/profiles/new", server.routes);
     const base = (await screen.findByLabelText(
       "바탕 프로필",
     )) as HTMLSelectElement;
@@ -257,15 +247,15 @@ describe("프로필 만들기 (워크스페이스)", () => {
     await user.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(posted(api)).toHaveLength(1));
     expect(posted(api)[0]).toMatchObject({
-      base_profile_id: "coding-bypass",
+      derived_from: "coding-bypass",
       permission_mode: "bypassPermissions",
     });
   });
 
-  test("from=<ceiling> starts on that ceiling", async () => {
+  test("from=<profile> starts on that profile", async () => {
     renderAt(
-      "/profiles/new?kind=workspace&from=general-read",
-      catalog().routes,
+      "/profiles/new?from=general-read",
+      catalog(undefined, me(undefined, "admin")).routes,
     );
     const base = (await screen.findByLabelText(
       "바탕 프로필",
@@ -274,15 +264,18 @@ describe("프로필 만들기 (워크스페이스)", () => {
   });
 
   test("mode=version starts from the version it follows and keeps its name", async () => {
-    const server = catalog([
-      CODING,
-      version(1, "usable", {
-        tools: ["Read", "Edit"],
-        permission_mode: "plan",
-      }),
-    ]);
+    const server = catalog(
+      [
+        CODING,
+        version(1, "usable", {
+          tools: ["Read", "Edit"],
+          permission_mode: "plan",
+        }),
+      ],
+      me(undefined, "admin"),
+    );
     const { api } = renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      "/profiles/new?from=op_wl_strict_v1&mode=version",
       server.routes,
     );
     await screen.findByRole("heading", { level: 1, name: "strict 새 버전" });
@@ -291,9 +284,6 @@ describe("프로필 만들기 (워크스페이스)", () => {
     expect((screen.getByLabelText("이름") as HTMLInputElement).readOnly).toBe(
       true,
     );
-    expect(
-      screen.getByText("저장할 버전의 id: ws_acme_strict_v2"),
-    ).toBeDefined();
     // It starts on what v1 blocked: Bash, and the base's blocks.
     const blocked = () =>
       within(screen.getByRole("group", { name: "차단할 내장 도구" }))
@@ -312,7 +302,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
     expect(posted(api)).toEqual([
       {
         name: "strict",
-        base_profile_id: "coding-claude",
+        previous_id: "op_wl_strict_v1",
         model: "claude-sonnet-5",
         models: ["claude-sonnet-5"],
         permission_mode: "plan",
@@ -321,24 +311,13 @@ describe("프로필 만들기 (워크스페이스)", () => {
     ]);
   });
 
-  test("mode=remake is titled as such", async () => {
-    renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=remake",
-      catalog([CODING, version(1, "base_changed")]).routes,
-    );
-    expect(
-      await screen.findByRole("heading", {
-        level: 1,
-        name: "strict 다시 만들기",
-      }),
-    ).toBeDefined();
-  });
-
   test("a version over a ceiling that does not run here cannot be continued", async () => {
     renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
-      catalog([imported("coding-claude", {}, "retired"), version(1, "usable")])
-        .routes,
+      "/profiles/new?from=op_wl_strict_v1&mode=version",
+      catalog(
+        [imported("coding-claude", {}, "retired"), version(1, "usable")],
+        me(undefined, "admin"),
+      ).routes,
     );
     expect(await screen.findByText("지금은 만들 수 없습니다")).toBeDefined();
   });
@@ -349,7 +328,10 @@ describe("프로필 만들기 (워크스페이스)", () => {
       tools: [],
       deny: Array.from({ length: 65 }, (_, n) => `Tool${n}`),
     });
-    const { api } = renderAt("/profiles/new", catalog([wide]).routes);
+    const { api } = renderAt(
+      "/profiles/new",
+      catalog([wide], me(undefined, "admin")).routes,
+    );
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "Strict Review");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -375,8 +357,9 @@ describe("프로필 만들기 (워크스페이스)", () => {
       field: "tools",
     };
     renderAt("/profiles/new", {
-      ...catalog().routes,
-      "POST /v1/workspace-profiles": () => refusal(400, "BAD_REQUEST", details),
+      ...catalog(undefined, me(undefined, "admin")).routes,
+      "POST /v1/installation-profiles": () =>
+        refusal(400, "BAD_REQUEST", details),
     });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "strict");
@@ -405,7 +388,7 @@ describe("프로필 만들기 (워크스페이스)", () => {
   });
 
   test("a base the list read again as retired is refused before the request", async () => {
-    const server = catalog();
+    const server = catalog(undefined, me(undefined, "admin"));
     const { api, services } = renderAt("/profiles/new", server.routes);
     const base = (await screen.findByLabelText(
       "바탕 프로필",
@@ -432,26 +415,13 @@ describe("프로필 만들기 (워크스페이스)", () => {
 });
 
 describe("프로필 만들기 (설치 프로필)", () => {
-  test("an owner picks the kind, and the ceiling form reads its choices from options", async () => {
-    const { history } = renderAt("/profiles/new", catalog().routes);
-    const kinds = await screen.findByRole("radiogroup", { name: "종류" });
-    expect(
-      within(kinds)
-        .getAllByRole("radio")
-        .map((radio) => [
-          radio.closest("[data-slot=field]")?.querySelector("label")
-            ?.textContent,
-          radio.getAttribute("aria-checked"),
-        ]),
-    ).toEqual([
-      ["워크스페이스 프로필", "true"],
-      ["설치 프로필", "false"],
-    ]);
-    const user = await setupUser();
-    await user.click(within(kinds).getByRole("radio", { name: "설치 프로필" }));
-    await waitFor(() =>
-      expect(history.location.search).toContain("kind=installation"),
-    );
+  test("an owner gets one form with no kind to pick, and it reads its choices from options", async () => {
+    renderAt("/profiles/new", catalog().routes);
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "설치 프로필 만들기",
+    });
+    expect(screen.queryAllByRole("radiogroup").length).toBe(0);
     const connection = (await screen.findByLabelText(
       "연결",
     )) as HTMLSelectElement;
@@ -485,22 +455,15 @@ describe("프로필 만들기 (설치 프로필)", () => {
       "WebFetch",
       "WebSearch",
       "저장소의 CLAUDE.md 읽기",
-      "App이 설치된 저장소 모두 허용",
-      "docs",
-      "platform",
     ]);
-    // A new console ceiling starts on every App repository.
+    // No repository is asked for: a session picks its own.
     expect(
-      (
-        within(form()).getByRole("checkbox", {
-          name: "App이 설치된 저장소 모두 허용",
-        }) as HTMLButtonElement
-      ).getAttribute("aria-checked"),
-    ).toBe("true");
+      screen.queryAllByLabelText(/저장소 쓰지 않음|허용할 저장소/),
+    ).toEqual([]);
   });
 
   test("with the unattended switch off, bypassPermissions is listed closed with its reason; on, it warns", async () => {
-    renderAt("/profiles/new?kind=installation", catalog().routes);
+    renderAt("/profiles/new", catalog().routes);
     const mode = (await screen.findByLabelText(
       "권한 모드",
     )) as HTMLSelectElement;
@@ -525,7 +488,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
 
   test("with the unattended switch on, bypassPermissions may be picked and warns", async () => {
     renderAt(
-      "/profiles/new?kind=installation",
+      "/profiles/new",
       catalog(undefined, me(), { ...OPTIONS, unattended_allowed: true }).routes,
     );
     const mode = (await screen.findByLabelText(
@@ -547,10 +510,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
   });
 
   test("an owner saves a first version and lands on it", async () => {
-    const { api, history } = renderAt(
-      "/profiles/new?kind=installation",
-      catalog().routes,
-    );
+    const { api, history } = renderAt("/profiles/new", catalog().routes);
     await screen.findByRole("heading", {
       level: 1,
       name: "설치 프로필 만들기",
@@ -569,7 +529,6 @@ describe("프로필 만들기 (설치 프로필)", () => {
     );
     await user.click(screen.getByRole("checkbox", { name: "Bash" }));
     await user.selectOptions(screen.getByLabelText("권한 모드"), "auto");
-    await user.click(screen.getByRole("checkbox", { name: "platform" }));
     await user.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() =>
       expect(history.location.pathname).toBe("/profiles/op_wide_v1"),
@@ -586,24 +545,14 @@ describe("프로필 만들기 (설치 프로필)", () => {
         deny: ["Bash", "WebSearch"],
         permission_mode: "auto",
         project_settings: { claude_md: false },
-        repository_mode: "required",
-        repository_ids: ["platform"],
-        github_app_repositories: "installed",
       },
     ]);
   });
 
   test("an empty form is caught before the request, each field saying what it needs", async () => {
-    const { api } = renderAt(
-      "/profiles/new?kind=installation",
-      catalog().routes,
-    );
+    const { api } = renderAt("/profiles/new", catalog().routes);
     const user = await setupUser();
     await user.clear(await screen.findByLabelText("런타임 버전"));
-    // Only a ceiling limited to its own list needs one picked there.
-    await user.click(
-      screen.getByRole("checkbox", { name: "App이 설치된 저장소 모두 허용" }),
-    );
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(
       await screen.findByText(
@@ -614,16 +563,6 @@ describe("프로필 만들기 (설치 프로필)", () => {
       screen.getByText("런타임 버전을 200자 이하로 적으세요."),
     ).toBeDefined();
     expect(screen.getByText("모델을 하나 이상 고르세요.")).toBeDefined();
-    // 저장소 필요 with none picked would leave no session able to start.
-    expect(
-      screen
-        .getByRole("group", { name: "허용할 저장소" })
-        .contains(
-          screen.getByText(
-            "저장소를 하나 이상 고르세요. 저장소 없이 돌리려면 '저장소 쓰지 않음'을 고릅니다.",
-          ),
-        ),
-    ).toBe(true);
     expect(
       (screen.getByLabelText("이름") as HTMLInputElement).getAttribute(
         "aria-invalid",
@@ -635,7 +574,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
   test("a new version of a console ceiling keeps its name, names it as previous, and reviews only what changed", async () => {
     const server = catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]);
     const { api } = renderAt(
-      "/profiles/new?kind=installation&from=op_wide_v2&mode=version",
+      "/profiles/new?from=op_wide_v2&mode=version",
       server.routes,
     );
     await screen.findByRole("heading", { level: 1, name: "wide 새 버전" });
@@ -648,14 +587,6 @@ describe("프로필 만들기 (설치 프로필)", () => {
       screen.getByText("op_wide_v2와 달라진 칸이 없습니다."),
     ).toBeDefined();
     const user = await setupUser();
-    await user.click(screen.getByRole("checkbox", { name: "docs" }));
-    const review = screen.getByRole("group", { name: "검토" });
-    expect(
-      Array.from(review.querySelectorAll("dt"), (term) => [
-        term.textContent,
-        term.nextElementSibling?.textContent,
-      ]),
-    ).toEqual([["허용할 저장소", "platform → docs, platform"]]);
     await user.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(posted(api)).toHaveLength(1));
     expect(posted(api)[0]).toEqual({
@@ -670,17 +601,13 @@ describe("프로필 만들기 (설치 프로필)", () => {
       deny: ["Write", "WebFetch", "WebSearch"],
       permission_mode: "acceptEdits",
       project_settings: { claude_md: true },
-      repository_mode: "required",
-      repository_ids: ["platform", "docs"],
-      // Kept from the version before, which never had it on.
-      github_app_repositories: "listed",
       previous_id: "op_wide_v2",
     });
   });
 
   test("what the installation no longer offers is reviewed as a change", async () => {
     renderAt(
-      "/profiles/new?kind=installation&from=op_free_v1&mode=version",
+      "/profiles/new?from=op_free_v1&mode=version",
       catalog([
         CODING,
         ceiling("free", 1, { permission_mode: "bypassPermissions" }),
@@ -695,24 +622,9 @@ describe("프로필 만들기 (설치 프로필)", () => {
     ).toEqual([["권한 모드", "bypassPermissions → auto"]]);
   });
 
-  test("the review names an empty repository list as such", async () => {
-    renderAt("/profiles/new?kind=installation&from=op_bare_v1&mode=version", {
-      ...catalog([CODING, ceiling("bare", 1, { repository_ids: [] })]).routes,
-    });
-    const user = await setupUser();
-    await user.click(await screen.findByRole("checkbox", { name: "docs" }));
-    const review = screen.getByRole("group", { name: "검토" });
-    expect(
-      Array.from(review.querySelectorAll("dt"), (term) => [
-        term.textContent,
-        term.nextElementSibling?.textContent,
-      ]),
-    ).toEqual([["허용할 저장소", "허용한 저장소 없음 → docs"]]);
-  });
-
   test("a new version of an imported ceiling takes a new name and names the import as previous", async () => {
     const { api } = renderAt(
-      "/profiles/new?kind=installation&from=coding-claude&mode=version",
+      "/profiles/new?from=coding-claude&mode=version",
       catalog().routes,
     );
     const name = (await screen.findByLabelText("이름")) as HTMLInputElement;
@@ -764,7 +676,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
 
   for (const [reason, details, label, text] of REFUSALS) {
     test(`a ${reason} refusal shows beside ${label}`, async () => {
-      renderAt("/profiles/new?kind=installation&from=coding-claude", {
+      renderAt("/profiles/new?from=coding-claude", {
         ...catalog().routes,
         "POST /v1/installation-profiles": () =>
           refusal(400, "BAD_REQUEST", details),
@@ -780,24 +692,47 @@ describe("프로필 만들기 (설치 프로필)", () => {
     });
   }
 
-  test("an unknown repository shows beside the repositories", async () => {
-    renderAt("/profiles/new?kind=installation&from=coding-claude", {
+  test("a taken display name shows beside the name", async () => {
+    renderAt("/profiles/new?from=coding-claude", {
       ...catalog().routes,
       "POST /v1/installation-profiles": () =>
-        refusal(400, "BAD_REQUEST", {
-          reason_code: "unknown_repository",
-          field: "repository_ids",
+        refusal(409, "REVISION_CONFLICT", {
+          reason_code: "name_taken",
+          field: "name",
         }),
     });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "wide");
     await user.click(screen.getByRole("button", { name: "저장" }));
     const message = await screen.findByText(
-      "고른 저장소 가운데 이 설치에 없는 것이 있습니다. 다시 불러와 고르세요.",
+      "같은 이름의 프로필이 이미 있습니다.",
     );
     expect(
-      screen.getByRole("group", { name: "허용할 저장소" }).contains(message),
+      screen
+        .getByLabelText("이름")
+        .closest("[data-slot=field]")
+        ?.contains(message),
     ).toBe(true);
+  });
+
+  test("a form equal to the latest version says nothing changed and stays", async () => {
+    const server = catalog([CODING, ceiling("wide", 1)]);
+    const { history } = renderAt("/profiles/new?from=op_wide_v1&mode=version", {
+      ...server.routes,
+      // The server writes nothing and answers with the latest row.
+      "POST /v1/installation-profiles": () =>
+        json(200, {
+          profile: ceiling("wide", 1),
+          receipt_id: null,
+        }),
+    });
+    const user = await setupUser();
+    await screen.findByLabelText("이름");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(
+      await screen.findByText("바뀐 내용이 없어 새 버전을 만들지 않았습니다."),
+    ).toBeDefined();
+    expect(history.location.pathname).toBe("/profiles/new");
   });
 
   test("a taken id shows beside the name; a stale previous offers the latest version", async () => {
@@ -806,13 +741,10 @@ describe("프로필 만들기 (설치 프로필)", () => {
       field: "name",
     });
     const server = catalog([CODING, ceiling("wide", 1)]);
-    const { history } = renderAt(
-      "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
-      {
-        ...server.routes,
-        "POST /v1/installation-profiles": () => answer,
-      },
-    );
+    const { history } = renderAt("/profiles/new?from=op_wide_v1&mode=version", {
+      ...server.routes,
+      "POST /v1/installation-profiles": () => answer,
+    });
     const user = await setupUser();
     await screen.findByLabelText("이름");
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -849,7 +781,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
   });
 
   test("a refusal for the role says only an owner makes ceilings", async () => {
-    renderAt("/profiles/new?kind=installation&from=coding-claude", {
+    renderAt("/profiles/new?from=coding-claude", {
       ...catalog().routes,
       "POST /v1/installation-profiles": () =>
         refusal(403, "FORBIDDEN", { reason_code: "role" }),
@@ -864,7 +796,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
 
   test("with no connection there is no form, and the page says why", async () => {
     renderAt(
-      "/profiles/new?kind=installation",
+      "/profiles/new",
       catalog(undefined, me(), { ...OPTIONS, connections: [] }).routes,
     );
     expect(
@@ -877,7 +809,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
 
   test("English speaks the same refusals", async () => {
     renderAt(
-      "/profiles/new?kind=installation&from=coding-claude",
+      "/profiles/new?from=coding-claude",
       {
         ...catalog().routes,
         "POST /v1/installation-profiles": () =>
@@ -933,7 +865,7 @@ const blockedBoxes = () =>
 
 describe("차단할 내장 도구", () => {
   test("a first ceiling lists the catalog to block, each with its boundary, the provider-side one ticked", async () => {
-    renderAt("/profiles/new?kind=installation", catalog().routes);
+    renderAt("/profiles/new", catalog().routes);
     const tools = await screen.findByRole("group", {
       name: "차단할 내장 도구",
     });
@@ -982,10 +914,7 @@ describe("차단할 내장 도구", () => {
   });
 
   test("a runtime version no catalog lists cannot be saved as a block list, and says which can", async () => {
-    const { api } = renderAt(
-      "/profiles/new?kind=installation",
-      catalog().routes,
-    );
+    const { api } = renderAt("/profiles/new", catalog().routes);
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "wide");
     await user.type(screen.getByLabelText("모델"), "claude-sonnet-5");
@@ -1010,7 +939,7 @@ describe("차단할 내장 도구", () => {
       deny: ["Write", "Glob", "WebFetch"],
     });
     const { api } = renderAt(
-      "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
+      "/profiles/new?from=op_wide_v1&mode=version",
       catalog([CODING, previous], me(), TWO_CATALOGS).routes,
     );
     // On the version it follows, nothing differs.
@@ -1069,7 +998,7 @@ describe("차단할 내장 도구", () => {
       deny: ["Write", "Glob", "WebFetch"],
     });
     renderAt(
-      "/profiles/new?kind=installation&from=op_wide_v1",
+      "/profiles/new?from=op_wide_v1",
       catalog([CODING, source], me(), TWO_CATALOGS).routes,
     );
     await screen.findByRole("group", { name: "차단할 내장 도구" });
@@ -1084,22 +1013,19 @@ describe("차단할 내장 도구", () => {
     // An allow-list row reads like a block list: only the server knows.
     let refused = false;
     const server = catalog([CODING, ceiling("wide", 1)]);
-    const { api } = renderAt(
-      "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
-      {
-        ...server.routes,
-        "POST /v1/installation-profiles": async (request: Request) => {
-          if (!refused) {
-            refused = true;
-            return refusal(400, "BAD_REQUEST", {
-              reason_code: "added_tool_not_accepted",
-              field: "accept_added_tools",
-            });
-          }
-          return server.routes["POST /v1/installation-profiles"](request);
-        },
+    const { api } = renderAt("/profiles/new?from=op_wide_v1&mode=version", {
+      ...server.routes,
+      "POST /v1/installation-profiles": async (request: Request) => {
+        if (!refused) {
+          refused = true;
+          return refusal(400, "BAD_REQUEST", {
+            reason_code: "added_tool_not_accepted",
+            field: "accept_added_tools",
+          });
+        }
+        return server.routes["POST /v1/installation-profiles"](request);
       },
-    );
+    });
     await screen.findByRole("group", { name: "차단할 내장 도구" });
     expect(screen.queryAllByRole("group", { name: "카탈로그 차이" })).toEqual(
       [],
@@ -1155,7 +1081,7 @@ describe("차단할 내장 도구", () => {
 
   for (const [reason, text] of TOOL_REFUSALS) {
     test(`a ${reason} refusal says so beside the checklist`, async () => {
-      renderAt("/profiles/new?kind=installation&from=coding-claude", {
+      renderAt("/profiles/new?from=coding-claude", {
         ...catalog().routes,
         "POST /v1/installation-profiles": () =>
           refusal(400, "BAD_REQUEST", { reason_code: reason, field: "deny" }),
@@ -1172,10 +1098,10 @@ describe("차단할 내장 도구", () => {
     });
   }
 
-  test("a base_denies refusal on a workspace version says the base's blocks stay", async () => {
-    renderAt("/profiles/new?kind=workspace", {
-      ...catalog().routes,
-      "POST /v1/workspace-profiles": () =>
+  test("a base_denies refusal on an admin version says the base's blocks stay", async () => {
+    renderAt("/profiles/new", {
+      ...catalog(undefined, me(undefined, "admin")).routes,
+      "POST /v1/installation-profiles": () =>
         refusal(400, "BAD_REQUEST", {
           reason_code: "base_denies",
           field: "deny",
@@ -1192,18 +1118,21 @@ describe("차단할 내장 도구", () => {
     ).toBe(true);
   });
 
-  test("a workspace version from an older one is asked about against the latest, which the server checks", async () => {
+  test("an admin version from an older one is asked about against the latest, which the server checks", async () => {
     let refused = false;
-    const server = catalog([
-      CODING,
-      version(1, "usable", { tools: ["Read", "Edit"] }),
-      version(2, "usable", { tools: ["Read"] }),
-    ]);
+    const server = catalog(
+      [
+        CODING,
+        version(1, "usable", { tools: ["Read", "Edit"] }),
+        version(2, "usable", { tools: ["Read"] }),
+      ],
+      me(undefined, "admin"),
+    );
     const { api } = renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      "/profiles/new?from=op_wl_strict_v1&mode=version",
       {
         ...server.routes,
-        "POST /v1/workspace-profiles": async (request: Request) => {
+        "POST /v1/installation-profiles": async (request: Request) => {
           if (!refused) {
             refused = true;
             return refusal(400, "BAD_REQUEST", {
@@ -1211,7 +1140,7 @@ describe("차단할 내장 도구", () => {
               field: "accept_added_tools",
             });
           }
-          return server.routes["POST /v1/workspace-profiles"](request);
+          return server.routes["POST /v1/installation-profiles"](request);
         },
       },
     );
@@ -1235,15 +1164,15 @@ describe("차단할 내장 도구", () => {
 
   test("a latest version saved after the form opened is read again when the server refuses against it", async () => {
     let refused = false;
-    const server = catalog([
-      CODING,
-      version(1, "usable", { tools: ["Read", "Edit"] }),
-    ]);
+    const server = catalog(
+      [CODING, version(1, "usable", { tools: ["Read", "Edit"] })],
+      me(undefined, "admin"),
+    );
     const { api } = renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      "/profiles/new?from=op_wl_strict_v1&mode=version",
       {
         ...server.routes,
-        "POST /v1/workspace-profiles": async (request: Request) => {
+        "POST /v1/installation-profiles": async (request: Request) => {
           if (!refused) {
             refused = true;
             // Someone else's v2, which never ran Edit, lands first.
@@ -1253,7 +1182,7 @@ describe("차단할 내장 도구", () => {
               field: "accept_added_tools",
             });
           }
-          return server.routes["POST /v1/workspace-profiles"](request);
+          return server.routes["POST /v1/installation-profiles"](request);
         },
       },
     );
@@ -1274,27 +1203,24 @@ describe("차단할 내장 도구", () => {
 
   test("when the list cannot be read again after that refusal, the form and its message stay", async () => {
     let refused = false;
-    const server = catalog([
-      CODING,
-      version(1, "usable", { tools: ["Read", "Edit"] }),
-    ]);
-    renderAt(
-      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
-      {
-        ...server.routes,
-        "GET /v1/profiles": () =>
-          refused
-            ? refusal(500, "INTERNAL", {})
-            : server.routes["GET /v1/profiles"](),
-        "POST /v1/workspace-profiles": () => {
-          refused = true;
-          return refusal(400, "BAD_REQUEST", {
-            reason_code: "added_tool_not_accepted",
-            field: "accept_added_tools",
-          });
-        },
-      },
+    const server = catalog(
+      [CODING, version(1, "usable", { tools: ["Read", "Edit"] })],
+      me(undefined, "admin"),
     );
+    renderAt("/profiles/new?from=op_wl_strict_v1&mode=version", {
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        refused
+          ? refusal(500, "INTERNAL", {})
+          : server.routes["GET /v1/profiles"](),
+      "POST /v1/installation-profiles": () => {
+        refused = true;
+        return refusal(400, "BAD_REQUEST", {
+          reason_code: "added_tool_not_accepted",
+          field: "accept_added_tools",
+        });
+      },
+    });
     await screen.findByRole("group", { name: "차단할 내장 도구" });
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
@@ -1304,14 +1230,14 @@ describe("차단할 내장 도구", () => {
     expect(screen.getByLabelText("이름")).toBeTruthy();
   });
 
-  test("a new workspace profile under a name already taken starts with what its latest version never ran blocked", async () => {
+  test("a new admin profile under a name already taken starts with what its latest version never ran blocked", async () => {
     const { api } = renderAt(
-      "/profiles/new?kind=workspace",
+      "/profiles/new",
       // An allow-list v1: it weighed nothing outside what it ran.
-      catalog([
-        CODING,
-        version(1, "usable", { tools: ["Read", "Edit"], deny: null }),
-      ]).routes,
+      catalog(
+        [CODING, version(1, "usable", { tools: ["Read", "Edit"], deny: null })],
+        me(undefined, "admin"),
+      ).routes,
     );
     await screen.findByRole("group", { name: "차단할 내장 도구" });
     const user = await setupUser();
@@ -1330,9 +1256,9 @@ describe("차단할 내장 도구", () => {
   });
 
   test("a refusal beside the checklist marks its open boxes invalid", async () => {
-    renderAt("/profiles/new?kind=workspace", {
-      ...catalog().routes,
-      "POST /v1/workspace-profiles": () =>
+    renderAt("/profiles/new", {
+      ...catalog(undefined, me(undefined, "admin")).routes,
+      "POST /v1/installation-profiles": () =>
         refusal(400, "BAD_REQUEST", {
           reason_code: "unknown_tool",
           field: "deny",

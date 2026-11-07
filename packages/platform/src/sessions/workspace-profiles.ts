@@ -114,7 +114,8 @@ function summaryOf(
   };
 }
 
-function workspaceSummary(
+/** An old `ws_` version as the one that answers its own write describes it; it is no longer listed. */
+export function workspaceSummary(
   catalog: SessionCatalogView,
   record: WorkspaceProfileRecord,
 ): ProfileSummary {
@@ -251,6 +252,7 @@ export function operatorSummary(
               claude_md: false,
             },
             previous_id: record.previous_id,
+            derived_from: record.derived_from ?? null,
             created_by: record.created_by,
             created_at: record.created_at.toISOString(),
             retired_by: record.retired_by,
@@ -283,13 +285,9 @@ export function listCatalogProfiles(
     const summary = operatorSummary(catalog, id);
     return summary ? [summary] : [];
   });
-  const workspace =
-    workspaceId === null
-      ? []
-      : [...(catalog.workspace_profiles?.records.values() ?? [])]
-          .filter((record) => record.workspace_id === workspaceId)
-          .map((record) => workspaceSummary(catalog, record));
-  return { items: [...operator.sort(byId), ...workspace.sort(byId)] };
+  // The old `ws_` versions are not listed: a profile is one kind now, and
+  // what ran on them keeps its release.
+  return { items: operator.sort(byId) };
 }
 
 const OUTRANKED = () =>

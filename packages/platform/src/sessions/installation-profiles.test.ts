@@ -25,6 +25,7 @@ import {
 import { ProfileFeatureGate } from "./feature-gate.ts";
 import { createInstallationProfileService } from "./installation-profiles.ts";
 import { settingsSnapshot } from "./installation-settings.ts";
+import { sameExecutionForm } from "./profile-execution-form.ts";
 import {
   type Connections,
   catalogRows,
@@ -108,14 +109,34 @@ function memoryStore(rows: InstallationProfileRecord[]) {
       if (reads.failing) throw new Error("the database went away");
       return rows.map((row) => ({ ...row }));
     },
+    // A stand-in for the lineage rules the database store enforces (its own
+    // integration tests hold the real ones).
     async create(input) {
       writes.push(input);
+      const workspaceId =
+        input.scope.kind === "workspace" ? input.scope.workspaceId : null;
       const versions = rows.filter(
-        (row) => row.origin === "console" && row.name === input.name,
+        (row) =>
+          row.origin === "console" &&
+          (workspaceId === null
+            ? row.name === input.name && !row.workspace_id
+            : row.workspace_id === workspaceId &&
+              row.display_name === input.name),
       );
       const latest = versions.sort((a, b) => b.version - a.version)[0];
       if (latest && input.previousId !== latest.id) {
         return { outcome: "stale_previous", latestId: latest.id };
+      }
+      if (
+        latest &&
+        !latest.retired_at &&
+        !latest.blocked_at &&
+        sameExecutionForm(
+          latest.definition as Record<string, unknown>,
+          input.definition as Record<string, unknown>,
+        )
+      ) {
+        return { outcome: "unchanged", record: latest };
       }
       if (
         !latest &&
@@ -124,24 +145,42 @@ function memoryStore(rows: InstallationProfileRecord[]) {
       ) {
         return { outcome: "unknown_previous" };
       }
+      if (
+        !latest &&
+        rows.some(
+          (row) =>
+            row.display_name === input.name ||
+            (!row.workspace_id && row.name === input.name),
+        )
+      ) {
+        return { outcome: "name_taken" };
+      }
       const version = (latest?.version ?? 0) + 1;
-      const id = `op_${input.name}_v${version}`;
+      const key =
+        workspaceId === null
+          ? input.name
+          : (latest?.name ?? `wl_${crypto.randomUUID()}`);
+      const id = `op_${key}_v${version}`;
       if (rows.some((row) => row.id === id)) {
         return { outcome: "id_taken", id };
       }
       const record: InstallationProfileRecord = {
         id,
-        name: input.name,
+        name: key,
         version,
         origin: "console",
         definition: JSON.parse(JSON.stringify(input.definition)),
         permission_mode: input.permission_mode,
         fingerprint: input.fingerprint,
-        repository_ids: input.repository_ids,
-        github_app_repositories:
-          input.github_app_repositories ??
-          latest?.github_app_repositories ??
-          "listed",
+        repository_ids: null,
+        github_app_repositories: "listed",
+        repository_scope: null,
+        workspace_id: workspaceId,
+        display_name: workspaceId === null ? null : input.name,
+        derived_from:
+          input.scope.kind === "workspace"
+            ? (latest?.derived_from ?? input.scope.derivedFrom)
+            : null,
         previous_id: input.previousId,
         created_by: input.actor.userId,
         created_at: new Date("2026-10-28T00:00:00Z"),
@@ -262,7 +301,6 @@ const REQUEST: CreateInstallationProfileRequest = {
   title_model: "claude-haiku-5",
   tools: ["Read", "Edit", "Bash"],
   permission_mode: "acceptEdits",
-  repository_ids: ["docs"],
 };
 
 async function refusal(promise: Promise<unknown>) {
@@ -291,7 +329,6 @@ describe("saving an installation ceiling", () => {
       source: "operator",
       models: ["claude-sonnet-5", "claude-opus-5"],
       tools: ["Read", "Edit", "Bash"],
-      repository_ids: ["docs"],
       installation: {
         name: "coding",
         version: 1,
@@ -308,25 +345,132 @@ describe("saving an installation ceiling", () => {
     expect(JSON.stringify(saved)).not.toContain("api.anthropic.invalid");
   });
 
-  test("github_app_repositories stays outside the fingerprint, so pins on a ceiling never move with it", async () => {
-    const listed = setup();
-    await listed.service.create(caller("owner"), {
-      ...REQUEST,
-      github_app_repositories: "listed",
-    });
-    const installed = setup();
-    await installed.service.create(caller("owner"), {
-      ...REQUEST,
-      github_app_repositories: "installed",
-    });
-    expect(installed.writes[0]?.fingerprint).toBe(
-      listed.writes[0]?.fingerprint,
+  test("the definition written has no repository key", async () => {
+    const { service, writes } = setup();
+    await service.create(caller("owner"), REQUEST);
+    expect(Object.hasOwn(writes[0]?.definition as object, "repository")).toBe(
+      false,
     );
-    expect(installed.writes[0]?.github_app_repositories).toBe("installed");
-    // Absent on a first version: listed, as every ceiling before it.
-    const absent = setup();
-    await absent.service.create(caller("owner"), REQUEST);
-    expect(absent.rows.at(-1)?.github_app_repositories).toBe("listed");
+  });
+
+  test("a save that runs the same answers the latest version with a null receipt and writes nothing", async () => {
+    const { service, rows } = setup();
+    await service.create(caller("owner"), REQUEST);
+    const again = await service.create(caller("owner"), {
+      ...REQUEST,
+      previous_id: "op_coding_v1",
+      models: ["claude-opus-5", "claude-sonnet-5"],
+    });
+    expect(again.receipt_id).toBeNull();
+    expect(again.profile.id).toBe("op_coding_v1");
+    expect(rows.filter((row) => row.name === "coding")).toHaveLength(1);
+  });
+
+  test("an admin narrows a version, which the server copies the runtime from; the owner's fields are 400", async () => {
+    const { service, rows } = setup();
+    const saved = await service.create(caller("admin"), {
+      name: "narrow",
+      derived_from: "seed",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read"],
+      permission_mode: "default",
+    });
+    expect(saved.profile.installation?.name).toBe("narrow");
+    expect(saved.profile.id).toMatch(/^op_wl_[0-9a-f-]{36}_v1$/);
+    expect(rows.at(-1)).toMatchObject({
+      workspace_id: WORKSPACE,
+      display_name: "narrow",
+      derived_from: "seed",
+    });
+    expect(rows.at(-1)?.definition).toMatchObject({
+      runtime_version: "0.3.270",
+      provider: MAIN,
+    });
+    for (const extra of [
+      { connection_id: "main" },
+      { runtime_kind: "claude_agent_sdk" as const },
+      { runtime_version: "0.3.270" },
+      { title_model: "claude-haiku-5" },
+    ]) {
+      const refused = await refusal(
+        service.create(caller("admin"), {
+          name: "other",
+          derived_from: "seed",
+          model: "claude-sonnet-5",
+          models: ["claude-sonnet-5"],
+          tools: ["Read"],
+          permission_mode: "default",
+          ...extra,
+        }),
+      );
+      expect([refused.code, refused.reason]).toEqual([
+        "BAD_REQUEST",
+        "source_field",
+      ]);
+    }
+  });
+
+  test("an admin cannot widen the source, name none, or reach another workspace's version; the owner must name the runtime", async () => {
+    const { service, writes } = setup();
+    const base = {
+      name: "wide",
+      derived_from: "seed",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read"],
+      permission_mode: "default" as const,
+    };
+    expect(
+      await refusal(
+        service.create(caller("admin"), { ...base, tools: ["Read", "Bash"] }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "widens_base" });
+    expect(
+      await refusal(
+        service.create(caller("admin"), { ...base, derived_from: undefined }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "missing_field" });
+    expect(
+      await refusal(
+        service.create(caller("admin"), { ...base, derived_from: "nowhere" }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "unknown_base" });
+    expect(
+      await refusal(
+        service.create(caller("owner"), {
+          name: "bare",
+          model: "claude-sonnet-5",
+          models: ["claude-sonnet-5"],
+          tools: ["Read"],
+          permission_mode: "default",
+        }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "missing_field" });
+    expect(writes).toEqual([]);
+  });
+
+  test("a display name this workspace already sees is name_taken", async () => {
+    const { service } = setup();
+    const request = {
+      name: "narrow",
+      derived_from: "seed",
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      tools: ["Read"],
+      permission_mode: "default" as const,
+    };
+    await service.create(caller("admin"), request);
+    expect(
+      await refusal(
+        service.create(caller("admin"), { ...request, tools: ["Read"] }),
+      ),
+    ).toEqual({ code: "REVISION_CONFLICT", reason: "stale_previous" });
+    expect(
+      await refusal(
+        service.create(caller("owner"), { ...REQUEST, name: "narrow" }),
+      ),
+    ).toEqual({ code: "REVISION_CONFLICT", reason: "name_taken" });
   });
 
   test("the next version names the latest as previous_id; anything else is a conflict", async () => {
@@ -346,6 +490,7 @@ describe("saving an installation ceiling", () => {
     ).toEqual({ code: "REVISION_CONFLICT", reason: "stale_previous" });
     const v2 = await service.create(caller("owner"), {
       ...REQUEST,
+      tools: ["Read"],
       previous_id: "op_coding_v1",
     });
     expect(v2.profile.id).toBe("op_coding_v2");
@@ -382,16 +527,18 @@ describe("saving an installation ceiling", () => {
     ).toEqual({ code: "REVISION_CONFLICT", reason: "id_taken" });
   });
 
-  test("only the owner saves: an admin, a member and an API key are 403, before anything is written", async () => {
+  test("a member and an API key are 403 before anything is written; an admin retires and blocks nothing", async () => {
     const { service, writes } = setup();
-    for (const who of [caller("admin"), caller("member"), apiKey]) {
+    for (const who of [caller("member"), apiKey]) {
       expect((await refusal(service.create(who, REQUEST))).code).toBe(
         "FORBIDDEN",
       );
+      expect((await refusal(service.options(who))).code).toBe("FORBIDDEN");
+    }
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
       expect((await refusal(service.retire(who, "seed"))).code).toBe(
         "FORBIDDEN",
       );
-      expect((await refusal(service.options(who))).code).toBe("FORBIDDEN");
     }
     expect(writes).toEqual([]);
   });
@@ -418,16 +565,7 @@ describe("saving an installation ceiling", () => {
     const cases: Array<[Partial<CreateInstallationProfileRequest>, string]> = [
       [{ connection_id: "elsewhere" }, "unknown_connection"],
       [{ runtime_kind: "pi_coding_agent" }, "runtime_not_installed"],
-      [{ repository_ids: ["nowhere"] }, "unknown_repository"],
       [{ model: "claude-haiku-5" }, "model_not_in_models"],
-      [
-        {
-          repository_mode: "none",
-          project_settings: { claude_md: true },
-          repository_ids: [],
-        },
-        "invalid_profile",
-      ],
     ];
     for (const [change, reason] of cases) {
       const refused = await refusal(
@@ -451,7 +589,6 @@ describe("a write whose re-read fails", () => {
       connection_id: "main",
       version: 1,
     });
-    expect(saved.profile.repository_ids).toEqual(["docs"]);
     const retired = await service.retire(caller("owner"), "seed");
     expect(retired.receipt_id).not.toBeNull();
     expect(retired.profile.installation?.state).toBe("retired");
@@ -633,7 +770,7 @@ describe("the options and the list", () => {
     expect(options.connections).toEqual([
       { id: "main", kind: "anthropic", billing: "metered" },
     ]);
-    expect(options.repositories).toEqual([{ id: "app" }, { id: "docs" }]);
+    expect(options.repositories).toBeUndefined();
     expect(options.unattended_allowed).toBe(false);
     expect(
       options.runtimes.find((r) => r.runtime_kind === "claude_agent_sdk")

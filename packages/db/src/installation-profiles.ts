@@ -1,13 +1,15 @@
+import { randomUUID } from "node:crypto";
 import {
   installationProfileId,
   type PermissionMode,
 } from "@werft-ai/contracts";
-import type {
-  InstallationProfileRecord,
-  InstallationProfileStore,
-  TeamActor,
+import {
+  type InstallationProfileRecord,
+  type InstallationProfileStore,
+  sameExecutionForm,
+  type TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import { writeProfileRollout } from "./profile-rollouts.ts";
@@ -23,9 +25,13 @@ export const lockWrites = async (tx: Database) => {
   await lockSettingsGeneration(tx);
 };
 
-async function actorOperates(tx: Database, actor: TeamActor) {
+async function actorRole(tx: Database, actor: TeamActor) {
   const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
-  return me?.live === true && me.role === "owner";
+  return me?.live === true ? me.role : null;
+}
+
+async function actorOperates(tx: Database, actor: TeamActor) {
+  return (await actorRole(tx, actor)) === "owner";
 }
 
 async function writeReceipt(
@@ -119,16 +125,24 @@ export function createPostgresInstallationProfileStore(
             : await tx
                 .insert(installationProfiles)
                 .values(
-                  entries.map((entry) => ({
-                    id: entry.id,
-                    name: null,
-                    version: 1,
-                    origin: "catalog",
-                    definition: entry.definition as Record<string, unknown>,
-                    permissionMode: entry.permission_mode,
-                    fingerprint: entry.fingerprint,
-                    repositoryIds: input.repositoryIdsOf(entry.id),
-                  })),
+                  entries.map((entry) => {
+                    // The fingerprint leaves `repository` out, so dropping
+                    // it here keeps the row's hash.
+                    const { repository: _repository, ...definition } =
+                      entry.definition as Record<string, unknown>;
+                    return {
+                      id: entry.id,
+                      name: null,
+                      version: 1,
+                      origin: "catalog",
+                      definition,
+                      permissionMode: entry.permission_mode,
+                      fingerprint: entry.fingerprint,
+                      repositoryIds: null,
+                      githubAppRepositories: null,
+                      repositoryScope: null,
+                    };
+                  }),
                 )
                 .returning({ id: installationProfiles.id });
         const unmigrated = await tx
@@ -157,63 +171,157 @@ export function createPostgresInstallationProfileStore(
     },
 
     async create(input) {
-      const { actor } = input;
+      const { actor, scope } = input;
+      const workspaceId = scope.kind === "workspace" ? scope.workspaceId : null;
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        if (!(await actorOperates(tx, actor))) {
+        // The role is read again under the lock: an admin writes only a
+        // profile of its own workspace, an owner either kind.
+        const role = await actorRole(tx, actor);
+        if (
+          role === null ||
+          (scope.kind === "installation" && role !== "owner") ||
+          (scope.kind === "workspace" &&
+            (scope.workspaceId !== actor.workspaceId ||
+              (role !== "owner" && role !== "admin")))
+        ) {
           return { outcome: "actor_inactive" as const };
         }
         const [latest] = await tx
-          .select({
-            id: installationProfiles.id,
-            version: installationProfiles.version,
-            definition: installationProfiles.definition,
-          })
+          .select()
           .from(installationProfiles)
           .where(
             and(
               eq(installationProfiles.origin, "console"),
-              eq(installationProfiles.name, input.name),
+              workspaceId === null
+                ? and(
+                    eq(installationProfiles.name, input.name),
+                    isNull(installationProfiles.workspaceId),
+                  )
+                : and(
+                    eq(installationProfiles.workspaceId, workspaceId),
+                    eq(installationProfiles.displayName, input.name),
+                  ),
             ),
           )
           .orderBy(desc(installationProfiles.version))
           .limit(1);
-        if (latest) {
-          if (input.previousId !== latest.id) {
-            return { outcome: "stale_previous" as const, latestId: latest.id };
+        // A new profile under a name that has versions is a clash, not a
+        // save that raced another one.
+        if (latest && input.previousId === null) {
+          return { outcome: "name_taken" as const };
+        }
+        if (latest && input.previousId !== latest.id) {
+          return { outcome: "stale_previous" as const, latestId: latest.id };
+        }
+        // A saved profile that runs the same changes nothing, unless the
+        // latest one is retired or blocked (the save then brings it back).
+        if (
+          latest &&
+          latest.retiredAt === null &&
+          latest.blockedAt === null &&
+          sameExecutionForm(
+            latest.definition,
+            input.definition as Record<string, unknown>,
+          )
+        ) {
+          return { outcome: "unchanged" as const, record: recordOf(latest) };
+        }
+        let derivedFrom: string | null = null;
+        if (scope.kind === "workspace") {
+          derivedFrom = latest ? latest.derivedFrom : scope.derivedFrom;
+          if (derivedFrom === null) {
+            return { outcome: "unknown_previous" as const };
           }
         }
-        let inherited: string | null = null;
-        if (input.previousId !== null) {
-          const [previous] = await tx
-            .select({
-              githubAppRepositories: installationProfiles.githubAppRepositories,
-            })
+        // A named row must exist, and an admin's lineage sees nothing of
+        // another workspace.
+        for (const named of [
+          latest ? null : input.previousId,
+          latest ? null : derivedFrom,
+        ]) {
+          if (named === null) continue;
+          const [found] = await tx
+            .select({ workspaceId: installationProfiles.workspaceId })
             .from(installationProfiles)
-            .where(eq(installationProfiles.id, input.previousId));
-          if (!previous) return { outcome: "unknown_previous" as const };
-          inherited = previous.githubAppRepositories;
+            .where(eq(installationProfiles.id, named));
+          if (
+            !found ||
+            (workspaceId !== null &&
+              found.workspaceId !== null &&
+              found.workspaceId !== workspaceId) ||
+            (workspaceId === null && found.workspaceId !== null)
+          ) {
+            return { outcome: "unknown_previous" as const };
+          }
+        }
+        if (!latest) {
+          // What the author calls it must be new to the workspace that sees
+          // it; an owner's installation-wide name also to every workspace.
+          const [clash] = await tx
+            .select({ id: installationProfiles.id })
+            .from(installationProfiles)
+            .where(
+              and(
+                or(
+                  and(
+                    eq(installationProfiles.origin, "console"),
+                    eq(installationProfiles.name, input.name),
+                    isNull(installationProfiles.workspaceId),
+                  ),
+                  and(
+                    eq(installationProfiles.origin, "catalog"),
+                    eq(installationProfiles.id, input.name),
+                  ),
+                  workspaceId === null
+                    ? eq(installationProfiles.displayName, input.name)
+                    : and(
+                        eq(installationProfiles.workspaceId, workspaceId),
+                        eq(installationProfiles.displayName, input.name),
+                      ),
+                ),
+              ),
+            )
+            .limit(1);
+          if (clash) return { outcome: "name_taken" as const };
         }
         const version = (latest?.version ?? 0) + 1;
-        const id = installationProfileId(input.name, version);
-        const [taken] = await tx
-          .select({ id: installationProfiles.id })
-          .from(installationProfiles)
-          .where(eq(installationProfiles.id, id));
-        if (taken) return { outcome: "id_taken" as const, id };
+        // A workspace lineage's key is the server's; a clash is a second
+        // draw, never a join onto another lineage.
+        let key = latest?.name ?? input.name;
+        let id = installationProfileId(key, version);
+        for (let attempt = 0; ; attempt += 1) {
+          if (workspaceId !== null && !latest) {
+            key = `wl_${randomUUID()}`;
+            id = installationProfileId(key, version);
+          }
+          const [taken] = await tx
+            .select({ id: installationProfiles.id })
+            .from(installationProfiles)
+            .where(eq(installationProfiles.id, id));
+          if (!taken) break;
+          if (workspaceId === null || latest || attempt >= 1) {
+            return { outcome: "id_taken" as const, id };
+          }
+        }
         const [row] = await tx
           .insert(installationProfiles)
           .values({
             id,
-            name: input.name,
+            name: key,
             version,
             origin: "console",
             definition: input.definition as Record<string, unknown>,
             permissionMode: input.permission_mode,
             fingerprint: input.fingerprint,
-            repositoryIds: input.repository_ids,
-            githubAppRepositories:
-              input.github_app_repositories ?? inherited ?? "listed",
+            // A new row names no repository: the three columns say so
+            // outright rather than by the table's defaults.
+            repositoryIds: null,
+            githubAppRepositories: null,
+            repositoryScope: null,
+            derivedFrom,
+            workspaceId,
+            displayName: workspaceId === null ? null : input.name,
             deny: input.deny,
             toolCatalogId: input.toolCatalogId,
             previousId: input.previousId,
@@ -237,13 +345,14 @@ export function createPostgresInstallationProfileStore(
           result: {
             profile_id: record.id,
             name: record.name,
+            display_name: record.display_name ?? null,
+            workspace_id: record.workspace_id ?? null,
+            derived_from: record.derived_from ?? null,
             version: record.version,
             previous_id: record.previous_id,
             fingerprint: record.fingerprint,
             permission_mode: record.permission_mode,
             connection_id: input.connectionId,
-            repository_ids: record.repository_ids,
-            github_app_repositories: record.github_app_repositories,
             deny: record.deny ?? null,
             tool_catalog_id: record.tool_catalog_id ?? null,
             ...(input.previousDenyDrift ? { previous_deny_drift: true } : {}),

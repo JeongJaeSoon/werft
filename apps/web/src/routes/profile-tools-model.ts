@@ -161,15 +161,15 @@ function baseCatalog(base: ProfileSummary): ToolCatalogView | null {
   };
 }
 
-/** The latest workspace version under `name`, which the server weighs new tools against. */
+/** The latest version under `name`, which the server weighs new tools against. */
 export const latestVersion = (
   items: readonly ProfileSummary[],
   name: string,
 ): ProfileSummary | undefined =>
   items
-    .filter((item) => item.workspace?.name === name)
+    .filter((item) => item.installation?.name === name)
     .sort(
-      (a, b) => (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
+      (a, b) => (b.installation?.version ?? 0) - (a.installation?.version ?? 0),
     )[0];
 
 /**

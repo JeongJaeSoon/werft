@@ -2,11 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ApiError, type components, unwrap } from "@werft-ai/client";
 import type {
-  GitHubAppRepositories,
   InstallationProfileOptionsResponse,
   PermissionMode,
   ProfileSummary,
-  RepositoryMode,
   RuntimeKind,
   WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
@@ -23,8 +21,6 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
   Input,
   NativeSelect,
   NativeSelectOption,
@@ -62,9 +58,7 @@ type CeilingField =
   | "title_model"
   | "deny"
   | "permission_mode"
-  | "project_settings"
-  | "repository_mode"
-  | "repository_ids";
+  | "project_settings";
 
 const FIELDS: readonly CeilingField[] = [
   "name",
@@ -77,14 +71,6 @@ const FIELDS: readonly CeilingField[] = [
   "deny",
   "permission_mode",
   "project_settings",
-  "repository_mode",
-  "repository_ids",
-];
-
-const REPOSITORY_MODES: readonly RepositoryMode[] = [
-  "required",
-  "optional",
-  "none",
 ];
 
 interface Draft {
@@ -99,9 +85,6 @@ interface Draft {
   readonly tools: ToolPicks;
   readonly permission_mode: PermissionMode;
   readonly claude_md: boolean;
-  readonly repository_mode: RepositoryMode;
-  readonly repository_ids: readonly string[];
-  readonly github_app_repositories: GitHubAppRepositories;
 }
 
 const lines = (text: string) => [
@@ -167,16 +150,6 @@ function draftOf(
     tools: NO_PICKS,
     permission_mode: mode,
     claude_md: template?.installation?.project_settings.claude_md ?? false,
-    repository_mode: template?.repository_mode ?? "required",
-    // An id this installation no longer has would only be refused.
-    repository_ids: (template?.repository_ids ?? []).filter((id) =>
-      (options.repositories ?? []).some((item) => item.id === id),
-    ),
-    // A console ceiling starts on every App repository; a next version
-    // keeps what the one before had.
-    github_app_repositories:
-      template?.installation?.github_app_repositories ??
-      (template ? "listed" : "installed"),
   };
 }
 
@@ -226,11 +199,11 @@ export function CeilingForm({
         runtime_kind: template.runtime_kind,
         runtime_version: template.runtime_version,
         permission_mode: template.permission_mode,
-        repository_ids: template.repository_ids ?? [],
       }
     : initial;
   const [submitted, setSubmitted] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
+  const [unchanged, setUnchanged] = useState(false);
   const riskId = useId();
   const modelsId = useId();
 
@@ -287,12 +260,6 @@ export function CeilingForm({
     ...(titleModel.length > 200
       ? { title_model: t("profiles.editor.tooLong") }
       : {}),
-    // The server takes it, but no session could then start on the ceiling.
-    ...(draft.repository_mode === "required" &&
-    draft.github_app_repositories === "listed" &&
-    draft.repository_ids.length === 0
-      ? { repository_ids: t("profiles.ceiling.repositoriesEmpty") }
-      : {}),
   };
   const errorOf = (field: CeilingField) =>
     (submitted ? local[field] : undefined) ??
@@ -305,11 +272,19 @@ export function CeilingForm({
   >({
     mutationFn: (body) =>
       unwrap(client.POST("/v1/installation-profiles", { body })),
-    onMutate: () => setRefusal(null),
-    onSuccess: async ({ profile }) => {
+    onMutate: () => {
+      setRefusal(null);
+      setUnchanged(false);
+    },
+    onSuccess: async ({ profile, receipt_id }) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).profiles,
       });
+      // Nothing was written: the latest version already runs this.
+      if (receipt_id === null) {
+        setUnchanged(true);
+        return;
+      }
       onSaved(profile.id);
     },
     onError: async (failure) => {
@@ -357,8 +332,8 @@ export function CeilingForm({
         return beside(t("profiles.ceiling.error.runtimeNotInstalled"));
       case "unattended_not_allowed":
         return beside(t("profiles.ceiling.error.unattendedNotAllowed"));
-      case "unknown_repository":
-        return beside(t("profiles.ceiling.error.unknownRepository"));
+      case "name_taken":
+        return { field: "name", text: t("profiles.error.nameTaken") };
       case "model_not_in_models":
         return beside(t("profiles.ceiling.error.modelNotInModels"));
       case "unknown_previous":
@@ -407,13 +382,6 @@ export function CeilingForm({
       ...choice,
       permission_mode: draft.permission_mode,
       project_settings: { claude_md: draft.claude_md },
-      repository_mode: draft.repository_mode,
-      repository_ids:
-        draft.repository_mode === "none" ? [] : [...draft.repository_ids],
-      github_app_repositories:
-        draft.repository_mode === "none"
-          ? "listed"
-          : draft.github_app_repositories,
     };
     if (titleModel) body.title_model = titleModel;
     if (previous) body.previous_id = previous.id;
@@ -648,80 +616,6 @@ export function CeilingForm({
         </FieldContent>
       </Field>
 
-      <Field className="w-auto max-w-full">
-        <FieldLabel>{t("profiles.ceiling.repositoryMode")}</FieldLabel>
-        <NativeSelect
-          value={draft.repository_mode}
-          disabled={pending}
-          aria-invalid={errorOf("repository_mode") ? true : undefined}
-          onChange={(event) =>
-            set({ repository_mode: event.target.value as RepositoryMode })
-          }
-        >
-          {REPOSITORY_MODES.map((mode) => (
-            <NativeSelectOption key={mode} value={mode}>
-              {t(`profiles.repository.${mode}`)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <FieldError>{errorOf("repository_mode")}</FieldError>
-      </Field>
-
-      {draft.repository_mode === "none" ? null : (
-        <FieldSet className="gap-3">
-          <FieldLegend variant="label" className="mb-2">
-            {t("profiles.ceiling.repositories")}
-          </FieldLegend>
-          {/* With no repository listed this is the second-last child, whose
-              pull-up would undo the legend's margin. */}
-          <FieldDescription className="nth-last-2:mt-0">
-            {(options.repositories ?? []).length === 0
-              ? t("profiles.ceiling.noRepositories")
-              : t("profiles.ceiling.repositoriesHint")}
-          </FieldDescription>
-          <Field orientation="horizontal">
-            <Checkbox
-              checked={draft.github_app_repositories === "installed"}
-              disabled={pending}
-              onCheckedChange={(checked) =>
-                set({
-                  github_app_repositories:
-                    checked === true ? "installed" : "listed",
-                })
-              }
-            />
-            <FieldContent>
-              <FieldLabel>{t("profiles.ceiling.appRepositories")}</FieldLabel>
-              <FieldDescription>
-                {t("profiles.ceiling.appRepositoriesHint")}
-              </FieldDescription>
-            </FieldContent>
-          </Field>
-          {(options.repositories ?? []).map((repository) => (
-            <Field key={repository.id} orientation="horizontal">
-              <Checkbox
-                checked={draft.repository_ids.includes(repository.id)}
-                disabled={pending}
-                onCheckedChange={(checked) =>
-                  set({
-                    repository_ids:
-                      checked === true
-                        ? [...draft.repository_ids, repository.id]
-                        : draft.repository_ids.filter(
-                            (id) => id !== repository.id,
-                          ),
-                  })
-                }
-              />
-              <FieldContent>
-                <FieldLabel className="font-mono">{repository.id}</FieldLabel>
-              </FieldContent>
-            </Field>
-          ))}
-          <FieldError>{errorOf("repository_ids")}</FieldError>
-        </FieldSet>
-      )}
-
       {template ? (
         <ChangeReview
           against={template.id}
@@ -783,43 +677,14 @@ export function CeilingForm({
               before: t(saved.claude_md ? "profiles.on" : "profiles.off"),
               after: t(draft.claude_md ? "profiles.on" : "profiles.off"),
             },
-            {
-              id: "repository-mode",
-              label: t("profiles.ceiling.repositoryMode"),
-              before: t(`profiles.repository.${saved.repository_mode}`),
-              after: t(`profiles.repository.${draft.repository_mode}`),
-            },
-            {
-              id: "repositories",
-              label: t("profiles.ceiling.repositories"),
-              before: join(
-                [...saved.repository_ids].sort(),
-                t("profiles.detail.noRepositories"),
-              ),
-              after: join(
-                draft.repository_mode === "none"
-                  ? []
-                  : [...draft.repository_ids].sort(),
-                t("profiles.detail.noRepositories"),
-              ),
-            },
-            {
-              id: "app-repositories",
-              label: t("profiles.ceiling.appRepositories"),
-              before: t(
-                saved.github_app_repositories === "installed"
-                  ? "profiles.on"
-                  : "profiles.off",
-              ),
-              after: t(
-                draft.repository_mode !== "none" &&
-                  draft.github_app_repositories === "installed"
-                  ? "profiles.on"
-                  : "profiles.off",
-              ),
-            },
           ]}
         />
+      ) : null}
+
+      {unchanged ? (
+        <Alert variant="amber" role="status" className="border-0">
+          <AlertDescription>{t("profiles.unchanged")}</AlertDescription>
+        </Alert>
       ) : null}
 
       {refusal === null || refusal.field !== null ? null : (
@@ -833,7 +698,6 @@ export function CeilingForm({
                   className="font-medium underline underline-offset-4"
                   to="/profiles/new"
                   search={{
-                    kind: "installation",
                     from: refusal.latestId,
                     mode: "version",
                   }}

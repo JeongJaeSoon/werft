@@ -6,28 +6,14 @@ import {
   Alert,
   AlertDescription,
   EmptyState,
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldLabel,
-  FieldLegend,
-  FieldSet,
   Page,
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
-  RadioGroup,
-  RadioGroupItem,
   Skeleton,
 } from "@werft-ai/ui";
-import { useId } from "react";
 import { profilesQuery } from "../api/queries.ts";
-import {
-  permissionReason,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { permissionReason, useHasPermission, useRole } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -39,26 +25,22 @@ import {
 } from "./profile-editor.tsx";
 import { installationOptionsQuery } from "./profile-tools.tsx";
 import { latestVersion } from "./profile-tools-model.ts";
-import { nextVersionId, profileName } from "./profiles.tsx";
-
-export type ProfileKind = "workspace" | "installation";
+import { profileName } from "./profiles.tsx";
 
 export interface ProfileNewSearch {
-  readonly kind?: ProfileKind;
   /** The profile a new one starts from: its base, or the version it follows. */
   readonly from?: string;
   /** With `from`: the next version of it, or one made again on its changed base. */
-  readonly mode?: "version" | "remake";
+  readonly mode?: "version";
 }
 
 export function profileNewSearch(
   search: Record<string, unknown>,
 ): ProfileNewSearch {
-  const { kind, from, mode } = search;
+  const { from, mode } = search;
   return {
-    ...(kind === "workspace" || kind === "installation" ? { kind } : {}),
     ...(typeof from === "string" && from.length > 0 ? { from } : {}),
-    ...(mode === "version" || mode === "remake" ? { mode } : {}),
+    ...(mode === "version" ? { mode } : {}),
   };
 }
 
@@ -68,7 +50,6 @@ export function ProfileNewScreen() {
   const navigate = useNavigate();
   const { client } = useWerft();
   const role = useRole();
-  const workspace = useMe()?.workspace;
   const manages = useHasPermission("workspace.manage");
   const operates = useHasPermission("profile.installation.manage");
   const profiles = useQuery(profilesQuery(client));
@@ -78,21 +59,12 @@ export function ProfileNewScreen() {
     search.from === undefined
       ? undefined
       : items.find((item) => item.id === search.from);
-  // Only an owner makes a ceiling; anyone else asking for one gets the
-  // workspace form, the one choice they have.
-  const kind: ProfileKind =
-    operates &&
-    (search.kind ??
-      (search.mode && from?.source === "operator"
-        ? "installation"
-        : "workspace")) === "installation"
-      ? "installation"
-      : "workspace";
+  // An owner writes the whole profile; an admin clones one and narrows it.
+  const kind = operates ? "installation" : "workspace";
   const options = useQuery({
     ...installationOptionsQuery(client),
     enabled: kind === "installation",
   });
-  const kindId = useId();
 
   const versioned = search.mode !== undefined && from !== undefined;
   const title =
@@ -100,13 +72,8 @@ export function ProfileNewScreen() {
       ? versioned
         ? t("profiles.new.ceilingVersionTitle", { name: profileName(from) })
         : t("profiles.new.ceilingTitle")
-      : versioned && from.source === "workspace"
-        ? t(
-            search.mode === "remake"
-              ? "profiles.editor.remakeTitle"
-              : "profiles.editor.versionTitle",
-            { name: profileName(from) },
-          )
+      : versioned
+        ? t("profiles.editor.versionTitle", { name: profileName(from) })
         : t("profiles.create");
 
   const breadcrumb = (
@@ -179,7 +146,7 @@ export function ProfileNewScreen() {
             )}
           />
         );
-      const template = from?.source === "operator" ? from : undefined;
+      const template = from;
       return (
         <>
           {missing}
@@ -212,7 +179,7 @@ export function ProfileNewScreen() {
         <EmptyState
           title={t("profiles.new.cannotMake")}
           description={t(
-            from?.source === "workspace"
+            search.mode === "version"
               ? "profiles.error.baseUnusable"
               : "profiles.new.noBase",
           )}
@@ -225,7 +192,6 @@ export function ProfileNewScreen() {
           key={`${search.from}:${search.mode}`}
           start={start}
           operators={operators}
-          nextId={(name) => nextVersionId(workspace, items, name)}
           latest={(name) => latestVersion(items, name)}
           onCancel={() =>
             void navigate(
@@ -251,62 +217,24 @@ export function ProfileNewScreen() {
       )}
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
-        {operates && search.mode === undefined ? (
-          <FieldSet className="gap-3">
-            <FieldLegend id={kindId} variant="label" className="mb-2">
-              {t("profiles.new.kind")}
-            </FieldLegend>
-            <RadioGroup
-              value={kind}
-              aria-labelledby={kindId}
-              onValueChange={(next) =>
-                void navigate({
-                  to: "/profiles/new",
-                  search: {
-                    kind: next as ProfileKind,
-                    ...(search.from ? { from: search.from } : {}),
-                  },
-                  replace: true,
-                })
-              }
-            >
-              {(["workspace", "installation"] as const).map((value) => (
-                <Field key={value} orientation="horizontal">
-                  <RadioGroupItem value={value} />
-                  <FieldContent>
-                    <FieldLabel>{t(`profiles.kind.${value}`)}</FieldLabel>
-                    <FieldDescription>
-                      {t(`profiles.new.kindHint.${value}`)}
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-              ))}
-            </RadioGroup>
-          </FieldSet>
-        ) : null}
         {body()}
       </div>
     </Page>
   );
 }
 
-/** Where a workspace profile starts, or null when nothing usable is there to narrow. */
+/** Where an admin's profile starts, or null when nothing usable is there to narrow. */
 function workspaceStart(
   search: ProfileNewSearch,
   from: ProfileSummary | undefined,
   operators: readonly ProfileSummary[],
   firstBase: ProfileSummary | undefined,
 ): EditorStart | null {
-  if (from?.source === "workspace") {
+  if (from !== undefined && search.mode === "version") {
     const base = operators.find(
-      (item) => item.id === from.workspace?.base_profile_id && pickable(item),
+      (item) => item.id === from.installation?.derived_from && pickable(item),
     );
-    if (base === undefined) return null;
-    return {
-      mode: search.mode === "remake" ? "remake" : "version",
-      from,
-      base,
-    };
+    return base === undefined ? null : { mode: "version", from, base };
   }
   if (from !== undefined && pickable(from)) return { mode: "new", base: from };
   return firstBase === undefined ? null : { mode: "new", base: firstBase };

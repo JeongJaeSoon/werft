@@ -3,7 +3,7 @@ export const profilesKo = {
   "nav.profiles": "프로필",
   "profiles.title": "프로필",
   "profiles.description":
-    "에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다.",
+    "에이전트가 쓸 모델과 도구를 정합니다. 소유자는 연결과 실행 방식까지 정하고, 관리자는 기존 프로필을 복제해 모델·지시·막을 도구를 정합니다.",
   "profiles.create": "프로필 만들기",
   "profiles.createCeiling": "설치 프로필 만들기",
   "profiles.kind.installation": "설치 프로필",
@@ -130,14 +130,16 @@ export const profilesKo = {
     "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
   "profiles.error.versionTaken":
     "같은 이름의 새 버전이 방금 저장됐습니다. 다시 저장하면 그다음 버전이 됩니다.",
+  "profiles.error.nameTaken": "같은 이름의 프로필이 이미 있습니다.",
+  "profiles.unchanged": "바뀐 내용이 없어 새 버전을 만들지 않았습니다.",
   "profiles.review.title": "검토",
   "profiles.review.text": "{id}와 달라진 칸입니다.",
   "profiles.review.none": "{id}와 달라진 칸이 없습니다.",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "설치 프로필 만들기",
+  "profiles.new.ceilingTitle": "프로필 만들기",
   "profiles.new.ceilingVersionTitle": "{name} 새 버전",
   "profiles.new.ceilingDescription":
-    "설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 워크스페이스 프로필은 이 범위를 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다.",
+    "에이전트가 쓸 모델·도구·실행 방식을 정합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다.",
   "profiles.new.kind": "종류",
   "profiles.new.kindHint.workspace":
     "설치 프로필 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.",
@@ -240,7 +242,7 @@ export const profilesKo = {
     "이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다.",
   "profiles.detail.ownerOnly":
     "설치 프로필은 워크스페이스 owner만 바꿀 수 있습니다",
-  "profiles.detail.createFrom": "이 프로필로 워크스페이스 프로필 만들기",
+  "profiles.detail.createFrom": "이 프로필을 복제해 만들기",
   "profiles.detail.settings": "설정",
   "profiles.detail.id": "id",
   "profiles.detail.models": "고를 수 있는 모델",
@@ -352,7 +354,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "nav.profiles": "Profiles",
   "profiles.title": "Profiles",
   "profiles.description":
-    "The models and tools an agent uses. An installation profile sets the widest range every workspace on this installation can use; a workspace profile narrows one installation profile.",
+    "The models and tools an agent uses. Owners also set the connection and how it runs; admins clone an existing profile and set its models, instructions and blocked tools.",
   "profiles.create": "Create profile",
   "profiles.createCeiling": "Create installation profile",
   "profiles.kind.installation": "Installation profile",
@@ -478,14 +480,16 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "The base profile does not allow a value you picked. Reload the list and check the base profile.",
   "profiles.error.versionTaken":
     "A new version of this name was just saved. Save again to make the one after it.",
+  "profiles.error.nameTaken": "A profile with this name already exists.",
+  "profiles.unchanged": "Nothing changed, so no new version was created.",
   "profiles.review.title": "Review",
   "profiles.review.text": "What differs from {id}.",
   "profiles.review.none": "Nothing differs from {id}.",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "Create installation profile",
+  "profiles.new.ceilingTitle": "Create profile",
   "profiles.new.ceilingVersionTitle": "New version of {name}",
   "profiles.new.ceilingDescription":
-    "An installation profile sets the widest range every workspace on this installation can use. Workspace profiles can only narrow it. Connections and credentials are set under Model connections, cost limits in the server settings.",
+    "Sets the models, tools and how an agent runs. Connections and credentials are set under Model connections, cost limits in the server settings.",
   "profiles.new.kind": "Kind",
   "profiles.new.kindHint.workspace":
     "Narrows the models, tools and permission mode of one installation profile.",
@@ -592,7 +596,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "Sets the widest range every workspace on this installation can use. A saved version never changes; editing makes a new one.",
   "profiles.detail.ownerOnly":
     "Only a workspace owner changes installation profiles",
-  "profiles.detail.createFrom": "Create a workspace profile from this one",
+  "profiles.detail.createFrom": "Clone this profile",
   "profiles.detail.settings": "Settings",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "Models to choose from",
@@ -704,7 +708,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "nav.profiles": "プロファイル",
   "profiles.title": "プロファイル",
   "profiles.description":
-    "エージェントが使うモデルとツールを決めます。インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはインストールのプロファイルを 1 つ絞って作ります。",
+    "エージェントが使うモデルとツールを決めます。オーナーは接続と実行方法まで決め、管理者は既存のプロファイルを複製してモデル・指示・ブロックするツールを決めます。",
   "profiles.create": "プロファイルを作成",
   "profiles.createCeiling": "インストールのプロファイルを作成",
   "profiles.kind.installation": "インストールのプロファイル",
@@ -832,14 +836,17 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "ベースプロファイルが許可しない値です。一覧を再読み込みしてベースプロファイルを確認してください。",
   "profiles.error.versionTaken":
     "同じ名前の新しいバージョンがいま保存されました。もう一度保存するとその次のバージョンになります。",
+  "profiles.error.nameTaken": "同じ名前のプロファイルがすでにあります。",
+  "profiles.unchanged":
+    "変更がないため、新しいバージョンは作成しませんでした。",
   "profiles.review.title": "確認",
   "profiles.review.text": "{id} と異なる項目です。",
   "profiles.review.none": "{id} と異なる項目はありません。",
   "profiles.review.change": "{before} → {after}",
-  "profiles.new.ceilingTitle": "インストールのプロファイルを作成",
+  "profiles.new.ceilingTitle": "プロファイルを作成",
   "profiles.new.ceilingVersionTitle": "{name} の新しいバージョン",
   "profiles.new.ceilingDescription":
-    "インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続と認証情報はモデル接続で、コスト上限はサーバー設定で決めます。",
+    "エージェントが使うモデル・ツール・実行方法を決めます。接続と認証情報はモデル接続で、コスト上限はサーバー設定で決めます。",
   "profiles.new.kind": "種類",
   "profiles.new.kindHint.workspace":
     "インストールのプロファイル 1 つをもとに、モデル・ツール・権限モードを絞ります。",
@@ -950,7 +957,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "このインストールのすべてのワークスペースが使える最も広い範囲を決めます。保存したバージョンは変わらず、編集すると新しいバージョンになります。",
   "profiles.detail.ownerOnly":
     "インストールのプロファイルはワークスペースのオーナーだけが変更できます",
-  "profiles.detail.createFrom": "ワークスペースのプロファイルを作成",
+  "profiles.detail.createFrom": "このプロファイルを複製して作成",
   "profiles.detail.settings": "設定",
   "profiles.detail.id": "ID",
   "profiles.detail.models": "選べるモデル",

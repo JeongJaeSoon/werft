@@ -68,8 +68,8 @@ function agent(
 
 const RELEASE = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
 const AGENTS = [
-  agent(1, "결제 담당", "ws_acme_strict_v2", RELEASE),
-  agent(2, "리뷰 담당", "ws_acme_strict_v1", RELEASE),
+  agent(1, "결제 담당", "op_wl_strict_v2", RELEASE),
+  agent(2, "리뷰 담당", "op_wl_strict_v1", RELEASE),
   agent(3, "초안 담당", null, null),
 ];
 
@@ -138,8 +138,8 @@ function catalog(
       );
       return json(200, { items, next_cursor: null });
     },
-    "POST /v1/workspace-profiles/ws_acme_strict_v2/retire": () =>
-      retire("ws_acme_strict_v2"),
+    "POST /v1/installation-profiles/op_wl_strict_v2/retire": () =>
+      retire("op_wl_strict_v2"),
     "POST /v1/installation-profiles/op_wide_v2/retire": () =>
       retire("op_wide_v2"),
     "POST /v1/installation-profiles/op_wide_v2/block": () =>
@@ -184,12 +184,12 @@ const dangers = () =>
   );
 
 describe("프로필 상세", () => {
-  test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
+  test("a workspace profile opens like any other, with its source, record, history and the agents on it", async () => {
     const { history, api } = renderAt("/profiles", catalog());
     const user = await setupUser();
     await user.click(
       await screen.findByRole("link", {
-        name: "ws_acme_strict_v2 자세히 보기",
+        name: "op_wl_strict_v2 자세히 보기",
       }),
     );
     // The server picks the profile's agents; no agent list is read whole.
@@ -198,21 +198,21 @@ describe("프로필 상세", () => {
         api.calls
           .filter((c) => c.path === "/v1/agents")
           .map((c) => new URLSearchParams(c.search).get("runtime_profile_id")),
-      ).toEqual(["ws_acme_strict_v2"]),
+      ).toEqual(["op_wl_strict_v2"]),
     );
     await screen.findByRole("heading", { level: 1, name: "strict" });
     expect(values("설정")).toEqual({
-      id: "ws_acme_strict_v2",
-      종류: "워크스페이스 프로필",
+      id: "op_wl_strict_v2",
       "바탕 프로필": "coding-claude",
+      연결: "anthropic",
       런타임: "claude_agent_sdk 0.3.270",
       "기본 모델": "claude-sonnet-5",
       "고를 수 있는 모델": "claude-sonnet-5",
+      "제목 모델": "기본 모델",
       "차단한 도구": "WriteBashWebFetchWebSearch",
       "실행하는 도구": "ReadEdit",
       "권한 모드": "default",
-      저장소: "저장소 필요",
-      "허용할 저장소": "platform",
+      "저장소의 CLAUDE.md 읽기": "끔",
       비용: "비용 집계",
     });
     expect(values("기록")).toMatchObject({
@@ -223,15 +223,15 @@ describe("프로필 상세", () => {
         row.slice(0, 2),
       ),
     ).toEqual([
-      ["v2 지금 보는 버전ws_acme_strict_v2", "사용 가능"],
-      ["v1ws_acme_strict_v1", "사용 가능"],
+      ["strict v2 지금 보는 버전op_wl_strict_v2", "사용 가능"],
+      ["strict v1op_wl_strict_v1", "사용 가능"],
     ]);
     const agents = await screen.findByRole("table", {
       name: "이 프로필을 쓰는 에이전트",
     });
     expect(cells(agents)).toEqual([["결제 담당", "2026-10-20_09:00:01"]]);
-    expect(actions()).toEqual(["새 버전"]);
-    expect(dangers()).toEqual(["사용 중지"]);
+    expect(actions()).toEqual(["이 프로필을 복제해 만들기", "새 버전"]);
+    expect(dangers()).toEqual(["차단", "사용 중지"]);
     expect(
       within(agents)
         .getByRole("link", { name: "결제 담당의 릴리스 보기" })
@@ -239,10 +239,10 @@ describe("프로필 상세", () => {
     ).toBe(`/agents/${AGENTS[0]?.id}?tab=release`);
 
     await user.click(
-      screen.getByRole("link", { name: "ws_acme_strict_v1 자세히 보기" }),
+      screen.getByRole("link", { name: "op_wl_strict_v1 자세히 보기" }),
     );
     await waitFor(() =>
-      expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v1"),
+      expect(history.location.pathname).toBe("/profiles/op_wl_strict_v1"),
     );
     await waitFor(() =>
       expect(
@@ -252,28 +252,28 @@ describe("프로필 상세", () => {
   });
 
   test("새 버전 opens the creation page on this version", async () => {
-    const { history } = renderAt("/profiles/ws_acme_strict_v2", catalog());
+    const { history } = renderAt("/profiles/op_wl_strict_v2", catalog());
     const user = await setupUser();
     await user.click(await screen.findByRole("link", { name: "새 버전" }));
     await screen.findByRole("heading", { level: 1, name: "strict 새 버전" });
     expect(history.location.pathname).toBe("/profiles/new");
-    expect(history.location.search).toContain("from=ws_acme_strict_v2");
+    expect(history.location.search).toContain("from=op_wl_strict_v2");
     expect(history.location.search).toContain("mode=version");
   });
 
   test("retiring a version asks first, then shows it retired with who did it", async () => {
-    const { api } = renderAt("/profiles/ws_acme_strict_v2", catalog());
+    const { api } = renderAt("/profiles/op_wl_strict_v2", catalog());
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "이 버전 사용 중지" }),
     );
     const dialog = await screen.findByRole("dialog", {
-      name: "ws_acme_strict_v2 버전을 사용 중지할까요?",
+      name: "op_wl_strict_v2 버전을 사용 중지할까요?",
     });
     expect(within(dialog).getByText(/되돌릴 수 없습니다/)).toBeDefined();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
     await user.click(within(dialog).getByRole("button", { name: "사용 중지" }));
-    await screen.findByText("ws_acme_strict_v2 버전을 사용 중지했습니다.");
+    await screen.findByText("op_wl_strict_v2 버전을 사용 중지했습니다.");
     await waitFor(() =>
       expect(values("기록")).toMatchObject({
         "사용 중지한 사람": `${USER_ID} (나)`,
@@ -283,7 +283,7 @@ describe("프로필 상세", () => {
       api.calls
         .filter((call) => call.method === "POST")
         .map((call) => call.path),
-    ).toEqual(["/v1/workspace-profiles/ws_acme_strict_v2/retire"]);
+    ).toEqual(["/v1/installation-profiles/op_wl_strict_v2/retire"]);
     expect(
       screen.queryAllByRole("button", { name: "이 버전 사용 중지" }).length,
     ).toBe(0);
@@ -302,7 +302,6 @@ describe("프로필 상세", () => {
     await screen.findByRole("heading", { level: 1, name: "wide" });
     expect(values("설정")).toEqual({
       id: "op_wide_v2",
-      종류: "설치 프로필",
       연결: "anthropic",
       런타임: "claude_agent_sdk 0.3.270",
       "기본 모델": "claude-sonnet-5",
@@ -311,8 +310,6 @@ describe("프로필 상세", () => {
       "차단한 도구": "WriteWebFetchWebSearch",
       "실행하는 도구": "ReadEditBash",
       "권한 모드": "auto",
-      저장소: "저장소 필요",
-      "허용할 저장소": "platform",
       비용: "비용 집계",
       "저장소의 CLAUDE.md 읽기": "켬",
     });
@@ -338,11 +335,8 @@ describe("프로필 상세", () => {
           name: "이 프로필로 만든 워크스페이스 프로필",
         }),
       ),
-    ).toEqual([["strict v1ws_acme_strict_v1", "사용 가능", "claude-sonnet-5"]]);
-    expect(actions()).toEqual([
-      "이 프로필로 워크스페이스 프로필 만들기",
-      "새 버전",
-    ]);
+    ).toEqual([["strict v1op_wl_strict_v1", "사용 가능", "claude-sonnet-5"]]);
+    expect(actions()).toEqual(["이 프로필을 복제해 만들기", "새 버전"]);
     expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
@@ -352,7 +346,7 @@ describe("프로필 상세", () => {
       catalog([CODING, ceiling("wide", 1), ceiling("wide", 2)]),
     );
     await screen.findByRole("region", { name: "기록" });
-    expect(actions()).toEqual(["이 프로필로 워크스페이스 프로필 만들기"]);
+    expect(actions()).toEqual(["이 프로필을 복제해 만들기"]);
     expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
@@ -367,10 +361,7 @@ describe("프로필 상세", () => {
       ]),
     );
     await screen.findByRole("region", { name: "기록" });
-    expect(actions()).toEqual([
-      "이 프로필로 워크스페이스 프로필 만들기",
-      "새 버전",
-    ]);
+    expect(actions()).toEqual(["이 프로필을 복제해 만들기", "새 버전"]);
     expect(dangers()).toEqual(["차단", "사용 중지"]);
   });
 
@@ -398,7 +389,7 @@ describe("프로필 상세", () => {
     });
     expect(
       screen.getByRole("link", { name: "새 버전" }).getAttribute("href"),
-    ).toBe("/profiles/new?kind=installation&from=coding-claude&mode=version");
+    ).toBe("/profiles/new?from=coding-claude&mode=version");
   });
 
   test("an owner retires a ceiling, told that what runs on it keeps running", async () => {
@@ -515,14 +506,14 @@ describe("프로필 상세", () => {
       catalog([CODING, ceiling("wide", 2)], me(undefined, "admin")),
     );
     await screen.findByRole("heading", { level: 1, name: "wide" });
-    expect(actions()).toEqual(["이 프로필로 워크스페이스 프로필 만들기"]);
+    expect(actions()).toEqual(["이 프로필을 복제해 만들기"]);
     expect(
       screen.getByText("설치 프로필은 워크스페이스 owner만 바꿀 수 있습니다"),
     ).toBeDefined();
   });
 
   test("a member reads the detail without actions and without the agent list", async () => {
-    renderAt("/profiles/ws_acme_strict_v2", catalog(undefined, memberMe()));
+    renderAt("/profiles/op_wl_strict_v2", catalog(undefined, memberMe()));
     await screen.findByRole("heading", { level: 1, name: "strict" });
     expect(actions()).toEqual([]);
     expect(
@@ -530,30 +521,6 @@ describe("프로필 상세", () => {
         "에이전트 목록은 에이전트를 관리할 수 있는 사람만 봅니다",
       ),
     ).toBeDefined();
-  });
-
-  test("a version whose base changed offers 다시 만들기 and says why; a retired one offers nothing", async () => {
-    renderAt(
-      "/profiles/ws_acme_strict_v1",
-      catalog([CODING, version(1, "base_changed"), version(2, "retired")]),
-    );
-    await screen.findByRole("heading", { level: 1, name: "strict" });
-    expect(actions()).toEqual(["다시 만들기"]);
-    expect(dangers()).toEqual(["사용 중지"]);
-    expect(
-      screen.getByRole("link", { name: "다시 만들기" }).getAttribute("href"),
-    ).toBe("/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=remake");
-    expect(
-      screen.getByText(
-        /^바탕 프로필 coding-claude가 이 버전을 만든 뒤 바뀌었습니다/,
-      ),
-    ).toBeDefined();
-    const user = await setupUser();
-    await user.click(
-      screen.getByRole("link", { name: "ws_acme_strict_v2 자세히 보기" }),
-    );
-    await waitFor(() => expect(actions()).toEqual([]));
-    expect(dangers()).toEqual([]);
   });
 
   test("a ceiling that does not run here says why and is no base to make from", async () => {

@@ -3604,31 +3604,12 @@
             ],
             "additionalProperties": false
           },
-          "repository_mode": {
-            "type": "string",
-            "enum": [
-              "required",
-              "optional",
-              "none"
-            ]
-          },
-          "repository_ids": {
-            "maxItems": 256,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
-            }
-          },
-          "github_app_repositories": {
-            "type": "string",
-            "enum": [
-              "listed",
-              "installed"
-            ]
-          },
           "previous_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "derived_from": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -3636,13 +3617,9 @@
         },
         "required": [
           "name",
-          "connection_id",
-          "runtime_kind",
-          "runtime_version",
           "model",
           "models",
-          "permission_mode",
-          "repository_ids"
+          "permission_mode"
         ],
         "additionalProperties": false
       },
@@ -20226,6 +20203,17 @@
                         }
                       ]
                     },
+                    "derived_from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "created_by": {
                       "anyOf": [
                         {
@@ -20696,6 +20684,17 @@
                     "additionalProperties": false
                   },
                   "previous_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "derived_from": {
                     "anyOf": [
                       {
                         "type": "string",
@@ -75163,7 +75162,7 @@
           "Agents"
         ],
         "summary": "The runtime profiles this workspace can run",
-        "description": "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the installation ceilings (`source: operator`, saved by the operator, each with an `installation` object) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). Every ceiling and every workspace version is listed with its state (`installation.state`, `workspace.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the profiles (`source: operator`, each with an `installation` object): the installation-wide ones and the caller's workspace's own, each with the models it offers, its tools and permission mode. The older workspace versions (ids starting `ws_`) are not listed; what runs on them keeps its release. A profile saved from now on carries no `repository_mode`; an older one still does. Every profile is listed with its state (`installation.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -80488,8 +80487,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Save a new version of an installation ceiling",
-        "description": "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `mcp_tool` or `tool_pattern` (`Bash(rm:*)`: whole tool names only). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "summary": "Save a new version of a profile",
+        "description": "The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_<name>_v<n>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_<uuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers 200 with that latest version and a null `receipt_id`; a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `mcp_tool` or `tool_pattern` (`Bash(rm:*)`: whole tool names only). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -80536,10 +80535,6 @@
                 "project_settings": {
                   "claude_md": true
                 },
-                "repository_mode": "required",
-                "repository_ids": [
-                  "sample-app"
-                ],
                 "previous_id": "op_coding_v1"
               },
               "schema": {

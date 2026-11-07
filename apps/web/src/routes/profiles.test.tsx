@@ -46,7 +46,6 @@ function routes(items: ProfileSummary[], signedIn = me()) {
 const HEADER = [
   "이름",
   "버전",
-  "종류",
   "바탕 프로필",
   "기본 모델",
   "권한 모드",
@@ -55,7 +54,7 @@ const HEADER = [
 ];
 
 describe("프로필", () => {
-  test("lists ceilings and workspace profiles in one table from the sidebar", async () => {
+  test("lists every profile in one table from the sidebar, with no kind or scope", async () => {
     const { api } = renderAt(
       "/",
       routes([version(1, "usable"), CODING, GENERAL]),
@@ -70,14 +69,13 @@ describe("프로필", () => {
         .getAttribute("aria-current"),
     ).toBe("page");
     const table = await screen.findByRole("table", { name: "프로필" });
-    // Ceilings first; each name cell ends in the line a phone shows instead
-    // of the columns it drops. A profile without a name shows its id once.
+    // Each name cell ends in the line a phone shows instead of the columns
+    // it drops. A profile without a name shows its id once.
     expect(rows(table)).toEqual([
       HEADER,
       [
-        "coding-claude설치 프로필 · v1",
+        "coding-claudev1",
         "v1",
-        "설치 프로필",
         "—",
         "claude-sonnet-5",
         "acceptEdits",
@@ -85,9 +83,8 @@ describe("프로필", () => {
         "사용 가능",
       ],
       [
-        "general-read설치 프로필 · v1",
+        "general-readv1",
         "v1",
-        "설치 프로필",
         "—",
         "claude-haiku-5",
         "default",
@@ -96,9 +93,8 @@ describe("프로필", () => {
         "사용 가능",
       ],
       [
-        "strictws_acme_strict_v1워크스페이스 프로필 · v1",
+        "strictop_wl_strict_v1v1",
         "v1",
-        "워크스페이스 프로필",
         "coding-claude",
         "claude-sonnet-5",
         "default",
@@ -112,26 +108,28 @@ describe("프로필", () => {
     expect(api.calls.filter((call) => call.method !== "GET")).toEqual([]);
   });
 
-  test("an owner gets both ways to make one, each opening its own page", async () => {
+  test("one create link opens the one form", async () => {
     const { history } = renderAt("/profiles", routes([CODING]));
     const user = await setupUser();
-    // The workspace one waits for a usable ceiling in the list.
     await screen.findByRole("link", { name: "프로필 만들기" });
-    await user.click(screen.getByRole("link", { name: "설치 프로필 만들기" }));
+    expect(
+      screen
+        .queryAllByRole("link", { name: /만들기/ })
+        .map((a) => a.textContent),
+    ).toEqual(["프로필 만들기"]);
+    await user.click(screen.getByRole("link", { name: "프로필 만들기" }));
     await screen.findByRole("heading", {
       level: 1,
       name: "설치 프로필 만들기",
     });
     expect(history.location.pathname).toBe("/profiles/new");
-    expect(history.location.search).toContain("kind=installation");
+    expect(history.location.search).toBe("");
   });
 
-  test("an admin makes workspace profiles only", async () => {
+  test("an admin gets the same single create link", async () => {
     renderAt("/profiles", routes([CODING], me(undefined, "admin")));
     await screen.findByRole("link", { name: "프로필 만들기" });
-    expect(
-      screen.queryAllByRole("link", { name: "설치 프로필 만들기" }).length,
-    ).toBe(0);
+    expect(screen.queryAllByRole("link", { name: /만들기/ }).length).toBe(1);
   });
 
   test("a member reads every profile but gets no way to change them", async () => {
@@ -143,18 +141,15 @@ describe("프로필", () => {
     expect(screen.queryAllByRole("link", { name: /만들기/ }).length).toBe(0);
   });
 
-  test("one list without a kind filter; the kind column still tells them apart", async () => {
+  test("one list without a kind filter or column", async () => {
     renderAt("/profiles", routes([CODING, GENERAL, version(1, "usable")]));
     const table = await screen.findByRole("table", { name: "프로필" });
     expect(screen.queryAllByRole("group", { name: "프로필 종류" }).length).toBe(
       0,
     );
-    expect(screen.queryAllByRole("button", { name: /^전체/ }).length).toBe(0);
     expect(
-      rows(table)
-        .slice(1)
-        .map((row) => row[2]),
-    ).toEqual(["설치 프로필", "설치 프로필", "워크스페이스 프로필"]);
+      within(table).queryAllByText(/설치 프로필|워크스페이스 프로필/),
+    ).toEqual([]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
@@ -171,16 +166,13 @@ describe("프로필", () => {
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[7]]),
+        .map((row) => [row[0], row[6]]),
     ).toEqual([
-      ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
-      [
-        "strict 이전 버전 1개ws_acme_strict_v2워크스페이스 프로필 · v2",
-        "사용 가능",
-      ],
+      ["strict 이전 버전 1개op_wl_strict_v2v2", "사용 가능"],
+      ["wide 이전 버전 1개op_wide_v2v2", "사용 가능"],
     ]);
     const user = await setupUser();
-    const [first] = within(table).getAllByRole("button", {
+    const [, first] = within(table).getAllByRole("button", {
       name: "이전 버전 1개",
     });
     expect(first?.getAttribute("aria-expanded")).toBe("false");
@@ -189,14 +181,11 @@ describe("프로필", () => {
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[7]]),
+        .map((row) => [row[0], row[6]]),
     ).toEqual([
-      ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
-      ["wideop_wide_v1설치 프로필 · v1", "사용 중지됨"],
-      [
-        "strict 이전 버전 1개ws_acme_strict_v2워크스페이스 프로필 · v2",
-        "사용 가능",
-      ],
+      ["strict 이전 버전 1개op_wl_strict_v2v2", "사용 가능"],
+      ["wide 이전 버전 1개op_wide_v2v2", "사용 가능"],
+      ["wideop_wide_v1v1", "사용 중지됨"],
     ]);
     await user.click(first as HTMLElement);
     expect(rows(table)).toHaveLength(3);
@@ -220,13 +209,13 @@ describe("프로필", () => {
         .slice(1)
         .map((row) => row[0]),
     ).toEqual([
-      "coding 이전 버전 1개op_coding_v1설치 프로필 · v1",
-      "wideop_wide_v1설치 프로필 · v1",
-      "wide설치 프로필 · v1",
+      "coding 이전 버전 1개op_coding_v1v1",
+      "wideop_wide_v1v1",
+      "widev1",
     ]);
   });
 
-  test("every state a ceiling or a version can be in shows as its badge", async () => {
+  test("every state a profile can be in shows as its badge", async () => {
     renderAt(
       "/profiles",
       routes([
@@ -239,29 +228,7 @@ describe("프로필", () => {
         imported("c-drift", {}, "definition_drift"),
         imported("d-codex", {}, "runtime_unsupported"),
         imported("e-old", {}, "retired"),
-        {
-          ...version(1, "base_retired"),
-          id: "ws_acme_x_v1",
-          workspace: {
-            ...(version(1, "base_retired").workspace as NonNullable<
-              ProfileSummary["workspace"]
-            >),
-            name: "x",
-            base_profile_id: "e-old",
-          },
-        },
         imported("f-stop", {}, "blocked"),
-        {
-          ...version(1, "base_blocked"),
-          id: "ws_acme_y_v1",
-          workspace: {
-            ...(version(1, "base_blocked").workspace as NonNullable<
-              ProfileSummary["workspace"]
-            >),
-            name: "y",
-            base_profile_id: "f-stop",
-          },
-        },
       ]),
     );
     const table = await screen.findByRole("table", { name: "프로필" });
@@ -279,32 +246,15 @@ describe("프로필", () => {
       ["지원하지 않는 런타임", "danger"],
       ["사용 중지됨", "neutral"],
       ["차단됨", "danger"],
-      ["바탕 프로필 사용 중지됨", "neutral"],
-      ["바탕 프로필 차단됨", "danger"],
     ]);
   });
 
-  test("a version whose base changed or is gone warns above the table", async () => {
-    renderAt(
-      "/profiles",
-      routes([
-        CODING,
-        version(1, "base_changed"),
-        {
-          ...version(1, "base_missing", {}, "removed-profile"),
-          id: "ws_acme_gone_v1",
-          workspace: {
-            ...(version(1, "base_missing", {}, "removed-profile")
-              .workspace as NonNullable<ProfileSummary["workspace"]>),
-            name: "gone",
-          },
-        },
-      ]),
+  test("a workspace profile lists as one more row and nothing warns about its base", async () => {
+    renderAt("/profiles", routes([CODING, version(1, "usable")]));
+    await screen.findByRole("table", { name: "프로필" });
+    expect(screen.queryAllByText(/바탕 프로필이 (바뀌었|없어졌)/).length).toBe(
+      0,
     );
-    expect(
-      await screen.findByText("strict의 바탕 프로필이 바뀌었습니다"),
-    ).toBeDefined();
-    expect(screen.getByText("gone의 바탕 프로필이 없어졌습니다")).toBeDefined();
   });
 
   test("a failed read says so and asks again", async () => {
@@ -323,23 +273,21 @@ describe("프로필", () => {
     await screen.findByRole("table", { name: "프로필" });
   });
 
-  test("an installation without profiles says so; with no usable ceiling there is nothing to narrow", async () => {
+  test("an installation without profiles says so; an owner can still make the first one", async () => {
     renderAt("/profiles", routes([]));
     await screen.findByText("이 설치에 프로필이 없습니다.");
     expect(screen.queryAllByRole("table", { name: "프로필" }).length).toBe(0);
-    expect(
-      screen.queryAllByRole("link", { name: "프로필 만들기" }).length,
-    ).toBe(0);
-    // An owner can still make the first ceiling.
-    expect(
-      screen.getByRole("link", { name: "설치 프로필 만들기" }),
-    ).toBeDefined();
+    // An owner can still make the first profile.
+    expect(screen.getByRole("link", { name: "프로필 만들기" })).toBeDefined();
   });
 
-  test("a ceiling that runs nowhere here is no base to make a profile from", async () => {
+  test("a profile that runs nowhere here leaves an admin nothing to clone", async () => {
     renderAt(
       "/profiles",
-      routes([imported("coding-claude", {}, "connection_missing")]),
+      routes(
+        [imported("coding-claude", {}, "connection_missing")],
+        me(undefined, "admin"),
+      ),
     );
     await screen.findByRole("table", { name: "프로필" });
     await waitFor(() =>

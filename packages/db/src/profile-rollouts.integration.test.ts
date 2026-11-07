@@ -949,12 +949,11 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         },
         receiptId: randomUUID(),
         name: "ops",
+        scope: { kind: "installation" },
         previousId,
         definition: definitionOf(profile),
         permission_mode: "default",
         fingerprint,
-        repository_ids: [],
-        github_app_repositories: null,
         deny: null,
         toolCatalogId: null,
         connectionId: "main",
@@ -1009,17 +1008,18 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       );
     });
 
-    test("the same form writes no rollout, and a form nobody follows still writes the row", async () => {
+    test("the same form writes no row and no rollout", async () => {
       const caller = await owner();
       await lineage(caller);
       const made = await follower(caller, { profile: "op_ops_v2" });
       const same = await save(caller, V3, "op_ops_v2", "fp-3");
-      expect(same.outcome).toBe("created");
+      expect(same.outcome).toBe("unchanged");
       expect(await rolloutsOf()).toEqual([]);
 
-      await save(caller, V4, "op_ops_v3", "fp-4");
+      await save(caller, V4, "op_ops_v2", "fp-4");
       const [rollout] = await rolloutsOf();
-      expect(rollout?.targetProfileId).toBe("op_ops_v4");
+      // V3 was never written, so the next version took its number.
+      expect(rollout?.targetProfileId).toBe("op_ops_v3");
       expect(await items(rollout?.id as string)).toHaveLength(1);
       expect(made.agent.id).toBeTruthy();
 

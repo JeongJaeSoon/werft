@@ -5,12 +5,8 @@ import type {
   ProfileSummary,
   WorkspaceProfileState,
 } from "@werft-ai/contracts";
-import { workspaceProfileId } from "@werft-ai/core/forms";
 import { useWerft } from "@werft-ai/react";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   buttonVariants,
   Code,
@@ -38,10 +34,10 @@ import {
 import { useI18n } from "../i18n/i18n.tsx";
 import { ModelConnections } from "./model-connections.tsx";
 
-// Name, version, kind, base, default model, permission mode, blocked tools,
-// state; a phone keeps the name and the state, and the name cell says the kind.
+// Name, version, base, default model, permission mode, blocked tools,
+// state; a phone keeps the name and the state, and the name cell says the version.
 const COLUMNS = [
-  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
+  "minmax(0,1.6fr) 64px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
   "minmax(0,1fr) 128px",
 ] as const;
 
@@ -66,35 +62,15 @@ export const stateOf = (profile: ProfileSummary): ProfileState =>
 
 export { profileName, versionOf };
 
-/** The id a save of a new version under `name` would get. */
-export function nextVersionId(
-  workspace: { readonly id: string; readonly slug: string } | null | undefined,
-  profiles: readonly ProfileSummary[],
-  name: string,
-): string {
-  return workspaceProfileId(
-    workspace ?? { id: "", slug: "" },
-    name,
-    Math.max(
-      0,
-      ...profiles
-        .filter((item) => item.workspace?.name === name)
-        .map((item) => item.workspace?.version ?? 0),
-    ) + 1,
-  );
-}
-
 /**
  * The versions of one line, newest first; each group's head is its latest.
- * A workspace profile's line is its name. A ceiling's is its `previous_id`
- * chain, which may change name (a catalog import's next version takes one)
- * while another ceiling may share a name without being linked.
+ * A line is a `previous_id` chain, which may change name (a catalog import's
+ * next version takes one) while another profile may share a name without
+ * being linked.
  */
 function groupsOf(items: readonly ProfileSummary[]): ProfileSummary[][] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const line = (item: ProfileSummary): { key: string; rank: number } => {
-    if (item.source !== "operator")
-      return { key: `workspace:${profileName(item)}`, rank: versionOf(item) };
     let at = item;
     let rank = 0;
     for (
@@ -120,9 +96,7 @@ function groupsOf(items: readonly ProfileSummary[]): ProfileSummary[][] {
     )
     .sort(([a], [b]) =>
       a && b
-        ? // Ceilings first, as a workspace profile narrows one of them.
-          (a.source === b.source ? 0 : a.source === "operator" ? -1 : 1) ||
-          profileName(a).localeCompare(profileName(b)) ||
+        ? profileName(a).localeCompare(profileName(b)) ||
           a.id.localeCompare(b.id)
         : 0,
     );
@@ -138,7 +112,6 @@ export function ProfilesScreen() {
 
   const items = profiles.data?.items ?? [];
   const ceilings = items.filter((item) => item.source === "operator");
-  const versions = items.filter((item) => item.source === "workspace");
   const groups = groupsOf(items);
   const toggle = (id: string) =>
     setExpanded((current) => {
@@ -146,16 +119,6 @@ export function ProfilesScreen() {
       if (!next.delete(id)) next.add(id);
       return next;
     });
-  const stranded = versions.filter(
-    (item) =>
-      (item.workspace?.state === "base_changed" ||
-        item.workspace?.state === "base_missing") &&
-      !versions.some(
-        (other) =>
-          other.workspace?.name === item.workspace?.name &&
-          versionOf(other) > versionOf(item),
-      ),
-  );
 
   return (
     <Page
@@ -163,28 +126,13 @@ export function ProfilesScreen() {
       description={t("profiles.description")}
       actions={
         manages || operates ? (
-          <div className="flex flex-wrap gap-2">
-            {operates ? (
-              <Link
-                className={buttonVariants({ variant: "outline" })}
-                to="/profiles/new"
-                search={{ kind: "installation" }}
-              >
-                <Plus aria-hidden="true" />
-                {t("profiles.createCeiling")}
-              </Link>
-            ) : null}
-            {manages && ceilings.some(pickable) ? (
-              <Link
-                className={buttonVariants()}
-                to="/profiles/new"
-                search={{ kind: "workspace" }}
-              >
-                <Plus aria-hidden="true" />
-                {t("profiles.create")}
-              </Link>
-            ) : null}
-          </div>
+          // An owner makes a profile from nothing; an admin clones one.
+          operates || ceilings.some(pickable) ? (
+            <Link className={buttonVariants()} to="/profiles/new">
+              <Plus aria-hidden="true" />
+              {t("profiles.create")}
+            </Link>
+          ) : null
         ) : null
       }
     >
@@ -197,30 +145,6 @@ export function ProfilesScreen() {
         />
       ) : (
         <div className="flex flex-col gap-[var(--werft-space-block)]">
-          {stranded.map((item) => (
-            <Alert key={item.id} variant="red" className="border-0">
-              <AlertTitle>
-                {t(
-                  item.workspace?.state === "base_missing"
-                    ? "profiles.baseMissing.title"
-                    : "profiles.baseChanged.title",
-                  { name: profileName(item) },
-                )}
-              </AlertTitle>
-              <AlertDescription>
-                {t(
-                  item.workspace?.state === "base_missing"
-                    ? "profiles.baseMissing.text"
-                    : "profiles.baseChanged.text",
-                  {
-                    name: profileName(item),
-                    base: item.workspace?.base_profile_id ?? "",
-                    id: item.id,
-                  },
-                )}
-              </AlertDescription>
-            </Alert>
-          ))}
           {manages ? null : (
             <Text variant="meta" className="flex items-center gap-1">
               <Lock aria-hidden="true" className="size-3.5 shrink-0" />
@@ -244,9 +168,6 @@ export function ProfilesScreen() {
                 </GridTableColumnHeader>
                 <GridTableColumnHeader hideNarrow>
                   {t("profiles.column.version")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow>
-                  {t("profiles.column.kind")}
                 </GridTableColumnHeader>
                 <GridTableColumnHeader hideNarrow>
                   {t("profiles.column.base")}
@@ -308,7 +229,6 @@ function ProfileRow({
 }) {
   const { t } = useI18n();
   const state = stateOf(profile);
-  const kind = profile.source === "operator" ? "installation" : "workspace";
   const Chevron = older?.expanded ? ChevronDown : ChevronRight;
   return (
     <GridTableRow>
@@ -349,10 +269,7 @@ function ProfileRow({
           }
           second={profileName(profile) === profile.id ? null : profile.id}
           secondMono
-          narrow={t("profiles.narrowKind", {
-            kind: t(`profiles.kind.${kind}`),
-            version: versionOf(profile),
-          })}
+          narrow={t("profiles.versionTag", { version: versionOf(profile) })}
         />
       </GridTableCell>
       <GridTableCell hideNarrow>
@@ -361,13 +278,8 @@ function ProfileRow({
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Text as="span" variant="meta">
-          {t(`profiles.kind.${kind}`)}
-        </Text>
-      </GridTableCell>
-      <GridTableCell hideNarrow>
         <Code className="wrap-anywhere">
-          {profile.workspace?.base_profile_id ?? "—"}
+          {profile.installation?.derived_from ?? "—"}
         </Code>
       </GridTableCell>
       <GridTableCell hideNarrow>

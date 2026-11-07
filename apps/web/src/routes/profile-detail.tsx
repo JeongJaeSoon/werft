@@ -258,17 +258,13 @@ export function ProfileDetailScreen() {
     );
 
   const state = stateOf(profile);
-  const base = items.find(
-    (item) =>
-      item.id === profile.workspace?.base_profile_id &&
-      item.source === "operator",
-  );
   // The server takes a new version of a name only from its latest; an
-  // imported ceiling has no name, so any new name may follow it.
+  // imported ceiling has no name, so any new name may follow it. An owner
+  // versions any profile, an admin only a workspace profile (one with a source).
   const ceilingName = profile.installation?.name;
   const versionable =
     ceiling &&
-    operates &&
+    (operates || (manages && profile.installation?.derived_from != null)) &&
     !(
       ceilingName &&
       items.some(
@@ -289,7 +285,7 @@ export function ProfileDetailScreen() {
           key="narrow"
           className={buttonVariants({ variant: "outline" })}
           to="/profiles/new"
-          search={{ kind: "workspace", from: profile.id }}
+          search={{ from: profile.id }}
         >
           {t("profiles.detail.createFrom")}
         </Link>,
@@ -300,31 +296,11 @@ export function ProfileDetailScreen() {
           key="version"
           className={buttonVariants()}
           to="/profiles/new"
-          search={{ kind: "installation", from: profile.id, mode: "version" }}
+          search={{ from: profile.id, mode: "version" }}
         >
           {t("profiles.newVersion")}
         </Link>,
       );
-  } else if (
-    manages &&
-    base !== undefined &&
-    pickable(base) &&
-    (state === "usable" || state === "base_changed")
-  ) {
-    actions.push(
-      <Link
-        key="version"
-        className={buttonVariants()}
-        to="/profiles/new"
-        search={{
-          kind: "workspace",
-          from: profile.id,
-          mode: state === "usable" ? "version" : "remake",
-        }}
-      >
-        {t(state === "usable" ? "profiles.newVersion" : "profiles.remake")}
-      </Link>,
-    );
   }
   const canRetire = changes && state !== "retired";
   // Only the owner blocks a ceiling; a retired one can be blocked too.
@@ -421,11 +397,7 @@ export function ProfileDetailScreen() {
                 <Link
                   className="font-medium underline underline-offset-4"
                   to="/profiles/new"
-                  search={{
-                    kind: "installation",
-                    from: profile.id,
-                    mode: "version",
-                  }}
+                  search={{ from: profile.id, mode: "version" }}
                 >
                   {t("profiles.tools.makeVersion")}
                 </Link>
@@ -587,7 +559,6 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
         ))}
       </span>
     );
-  const made = profile.workspace;
   const ceiling = profile.installation;
   const item = (id: string, label: string, value: ReactNode) => ({
     id,
@@ -599,17 +570,12 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
       <KeyValueList
         items={[
           item("id", t("profiles.detail.id"), <Mono>{profile.id}</Mono>),
-          item(
-            "kind",
-            t("profiles.column.kind"),
-            t(`profiles.kind.${made ? "workspace" : "installation"}`),
-          ),
-          ...(made
+          ...(profile.installation?.derived_from
             ? [
                 item(
                   "base",
                   t("profiles.editor.base"),
-                  <ProfileLink id={made.base_profile_id} />,
+                  <ProfileLink id={profile.installation.derived_from} />,
                 ),
               ]
             : []),
@@ -671,23 +637,6 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
             t("profiles.editor.permissionMode"),
             <Mono>{profile.permission_mode}</Mono>,
           ),
-          item(
-            "repository-mode",
-            t("profiles.ceiling.repositoryMode"),
-            t(`profiles.repository.${profile.repository_mode ?? "required"}`),
-          ),
-          ...(profile.repository_ids === undefined
-            ? []
-            : [
-                item(
-                  "repositories",
-                  t("profiles.ceiling.repositories"),
-                  list(
-                    profile.repository_ids,
-                    t("profiles.detail.noRepositories"),
-                  ),
-                ),
-              ]),
           item(
             "billing",
             t("profiles.detail.billing"),
@@ -900,7 +849,7 @@ function Narrowings({
 }) {
   const { t } = useI18n();
   const rows = items.filter(
-    (item) => item.workspace?.base_profile_id === ceiling.id,
+    (item) => item.installation?.derived_from === ceiling.id,
   );
   return (
     <Section
