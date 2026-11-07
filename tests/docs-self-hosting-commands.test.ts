@@ -78,6 +78,37 @@ describe("self-hosting command fixtures", () => {
     }
   });
 
+  test("kind dependencies must be ready before Helm can start", () => {
+    const block = blocks("try-kind", "bash").find((block) =>
+      block.includes("apply -f deploy/kind/deps.yaml"),
+    );
+    expect(block).toBeDefined();
+    for (const failed of ["", "deploy/postgres", "deploy/localstack"]) {
+      const input = [
+        "git() { :; }; cd() { :; }; kind() { :; }; mktemp() { printf fixture; }",
+        `kubectl() { printf '%s\\n' "$*"; [ "$5" != '${failed}' ]; }`,
+        block,
+        "printf '%s\\n' 'dependencies ready; Helm may start'",
+      ].join("\n");
+      const result = spawnSync("bash", [], {
+        input,
+        encoding: "utf8",
+        timeout: 5000,
+      });
+      expect(result.stdout).toContain(
+        "rollout status deploy/postgres --timeout=300s",
+      );
+      expect(result.status).toBe(failed === "" ? 0 : 1);
+      expect(result.stdout.includes("dependencies ready; Helm may start")).toBe(
+        failed === "",
+      );
+      if (failed !== "deploy/postgres")
+        expect(result.stdout).toContain(
+          "rollout status deploy/localstack --timeout=300s",
+        );
+    }
+  });
+
   test("a failed readiness check stops its own port-forward and returns failure", () => {
     const block = blocks("kubernetes", "bash").find((block) =>
       block.includes("PF=$!"),

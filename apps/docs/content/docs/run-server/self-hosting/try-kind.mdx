@@ -40,6 +40,8 @@ kubectl create namespace werft
 kubectl -n werft create configmap localstack-init \
   --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
 kubectl -n werft apply -f deploy/kind/deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
+kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
 SECRETS="$(mktemp -d)"
 ```
 

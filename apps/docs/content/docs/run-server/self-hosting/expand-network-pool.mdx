@@ -53,7 +53,9 @@ daemon 관리 권한과 유지보수 시간, 현재 네트워크·설치 id·slo
 
 같은 daemon을 여러 설치가 공유하면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 주고, egress proxy도 설치마다 따로 두어 각자의 id로 label을 단다. worker 네트워크 이름·label에 설치 id가 들어가므로 설치 A의 worker 네트워크에는 A의 proxy만 붙는다. 하나의 proxy를 두 설치가 쓰면 두 설치의 worker가 같은 allowlist를 쓰게 된다.
 
-proxy 코드 교체는 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)를 따른다. 주소 풀 변경 뒤에는 이번 설치의 실행 중 proxy를 status와 project label로 확인하고 그 컨테이너에서 healthcheck를 실행한다. source hash는 proxy 소스의 SHA-256이며, `Egress proxy listening` 로그와 `/healthz` 응답의 `ok source=<hex>`에서 읽는다. healthcheck는 이 값을 `/app/src`의 소스와 대조하고, 다르면 실행 중 코드가 현재 소스와 맞지 않는다는 뜻으로 unhealthy를 반환한다.
+proxy 코드 교체는 [Compose 업그레이드](/run-server/self-hosting/upgrade-compose)를 따른다. 주소 풀 변경 뒤에는 이번 설치의 실행 중 proxy를 status와 project label로 확인하고 그 컨테이너에서 healthcheck를 실행한다. 이 검사는 proxy의 `/healthz`와 credential listener(설정된 경우)의 응답을 확인한다.
+
+source hash는 proxy 소스의 SHA-256이며, `Egress proxy listening` 로그와 `/healthz` 응답의 `ok source=<hex>`에서 읽는다. healthcheck는 이 값을 `/app/src`의 소스와 대조하고, 다르면 실행 중 코드가 현재 소스와 맞지 않는다는 뜻으로 unhealthy를 반환한다. 이미지로 실행하면 두 값은 항상 같고, 소스 트리를 마운트한 채 checkout이 움직였을 때만 불일치가 난다. 이때 새 코드를 실행하려면 egress-proxy 서비스를 재빌드해야 한다. 따라서 이미지 설치에서 이 검사가 주소 풀 변경 후 새 코드 적용까지 증명하는 것은 아니다.
 
 ```bash
 PROXY_CONTAINER='<this-installation-egress-proxy-container-id>'
