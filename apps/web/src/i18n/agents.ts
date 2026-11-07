@@ -89,7 +89,7 @@ export const agentsKo = {
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
-    "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
+    "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
   "agentCard.tools": "쓸 수 있는 도구",
   "agentCard.toolsAll": "릴리스할 때 프로필이 막지 않은 도구 전부",
   "agentCard.toolsAllHint":
@@ -565,7 +565,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
-    "It must be exactly the model of the profile you pick when releasing",
+    "Only profiles that run the model you pick can be chosen below",
   "agentCard.tools": "Tools it may use",
   "agentCard.toolsAll": "Every tool the profile does not block at release",
   "agentCard.toolsAllHint":
@@ -1038,8 +1038,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.importEarlier": "エージェント指示文に取り込む",
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
-  "agentCard.modelHint":
-    "リリース時に選ぶプロファイルのモデルと完全に一致している必要があります",
+  "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
   "agentCard.tools": "使用できるツール",
   "agentCard.toolsAll":
     "リリース時にプロファイルがブロックしていないすべてのツール",
