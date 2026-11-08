@@ -571,6 +571,41 @@ describe("Slack management", () => {
     expect(puts()).toEqual(["off", "on"]);
   });
 
+  test("shows the public or private tag beside the row's control, in the picker and the list", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            { id: "C123", name: "general", is_private: false, is_member: true },
+            { id: "G9", name: "secret", is_private: true, is_member: true },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    // The list row carries its tag in the control column, next to the switch.
+    const connected = within(list).getByRole("switch").closest("li");
+    expect(within(connected as HTMLElement).getByText("공개")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "채널 추가" }));
+    const dialog = screen.getByRole("dialog");
+    await within(dialog).findByText("#secret");
+    for (const [channel, tag] of [
+      ["general", "공개"],
+      ["secret", "비공개"],
+    ] as const) {
+      const button = within(dialog).getByRole("button", {
+        name: `#${channel} 연결`,
+      });
+      const item = within(button.closest("li") as HTMLElement);
+      // Same container as the action, not the description under the name.
+      expect(item.getByText(tag).parentElement).toBe(button.parentElement);
+    }
+  });
+
   test("saves the channel picked in the home step as in use and home, then opens the tab", async () => {
     let items: (typeof BINDING)[] = [{ ...BINDING, home: false, mode: "off" }];
     const { api } = renderAt(DETAIL, {

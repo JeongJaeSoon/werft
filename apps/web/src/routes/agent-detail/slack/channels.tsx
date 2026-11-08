@@ -104,6 +104,17 @@ function InviteCopy({
   );
 }
 
+// The tag sits in the row's right column, which shares the name's line even
+// at 390px; the description slot would put it under the name.
+function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
+  const { t } = useI18n();
+  return (
+    <Badge variant={isPrivate ? "gray" : "green"}>
+      {t(isPrivate ? "slack.private" : "slack.public")}
+    </Badge>
+  );
+}
+
 function ChannelSkeleton() {
   const { t } = useI18n();
   return (
@@ -337,6 +348,12 @@ export function SlackChannels({
                       : t("slack.channelId", {
                           id: row.external_surface_id ?? "",
                         });
+                const tag =
+                  row.surface_kind === "dm" ? null : (
+                    <VisibilityBadge
+                      isPrivate={row.surface_kind === "private_channel"}
+                    />
+                  );
                 return (
                   <SettingRow
                     key={row.id}
@@ -346,11 +363,6 @@ export function SlackChannels({
                         <Badge variant="gray">{t("slack.home")}</Badge>
                       ) : undefined
                     }
-                    description={t(
-                      row.surface_kind === "private_channel"
-                        ? "slack.private"
-                        : "slack.public",
-                    )}
                     meta={
                       awaitsInvite(row, known) ? (
                         <span className="flex flex-wrap items-center gap-1">
@@ -364,6 +376,7 @@ export function SlackChannels({
                     actions={
                       manages ? (
                         <span className="flex items-center gap-2">
+                          {tag}
                           <Text as="span" aria-hidden="true">
                             {t("slack.inUse")}
                           </Text>
@@ -377,9 +390,12 @@ export function SlackChannels({
                           />
                         </span>
                       ) : (
-                        <Text as="span" variant="sub">
-                          {t(row.mode !== "off" ? "slack.on" : "slack.off")}
-                        </Text>
+                        <span className="flex items-center gap-2">
+                          {tag}
+                          <Text as="span" variant="sub">
+                            {t(row.mode !== "off" ? "slack.on" : "slack.off")}
+                          </Text>
+                        </span>
                       )
                     }
                   />
@@ -438,56 +454,50 @@ export function SlackChannels({
                     key={channel.id}
                     title={`#${channel.name}`}
                     description={
-                      <span className="flex flex-wrap items-center gap-2">
-                        <Badge variant={channel.is_private ? "gray" : "green"}>
-                          {t(
-                            channel.is_private
-                              ? "slack.private"
-                              : "slack.public",
-                          )}
-                        </Badge>
-                        {awaitsInvite(
-                          rows.find(
-                            (row) => row.external_surface_id === channel.id,
-                          ),
-                          {
-                            private: channel.is_private,
-                            member: channel.is_member,
-                          },
-                        ) ? (
-                          <span className="flex flex-wrap items-center gap-1">
-                            <Badge variant="gray">
-                              {t("slack.privateInvite")}
-                            </Badge>
-                            <InviteCopy command={invite} notify={notify} />
-                          </span>
-                        ) : null}
-                      </span>
+                      awaitsInvite(
+                        rows.find(
+                          (row) => row.external_surface_id === channel.id,
+                        ),
+                        {
+                          private: channel.is_private,
+                          member: channel.is_member,
+                        },
+                      ) ? (
+                        <span className="flex flex-wrap items-center gap-1">
+                          <Badge variant="gray">
+                            {t("slack.privateInvite")}
+                          </Badge>
+                          <InviteCopy command={invite} notify={notify} />
+                        </span>
+                      ) : undefined
                     }
                     actions={
-                      <RowAction
-                        aria-label={t(
-                          pickHome
-                            ? "slack.channelHome"
-                            : "slack.channelConnect",
-                          {
-                            channel: `#${channel.name}`,
-                          },
-                        )}
-                        disabled={
-                          update.isPending ||
-                          !bindings.isSuccess ||
-                          channels.isPlaceholderData ||
-                          input.trim() !== query ||
-                          (!pickHome &&
-                            rows.some(
-                              (row) => row.external_surface_id === channel.id,
-                            ))
-                        }
-                        onClick={() => connectChannel(channel.id)}
-                      >
-                        {t(pickHome ? "slack.setHome" : "slack.add")}
-                      </RowAction>
+                      <span className="flex items-center gap-2">
+                        <VisibilityBadge isPrivate={channel.is_private} />
+                        <RowAction
+                          aria-label={t(
+                            pickHome
+                              ? "slack.channelHome"
+                              : "slack.channelConnect",
+                            {
+                              channel: `#${channel.name}`,
+                            },
+                          )}
+                          disabled={
+                            update.isPending ||
+                            !bindings.isSuccess ||
+                            channels.isPlaceholderData ||
+                            input.trim() !== query ||
+                            (!pickHome &&
+                              rows.some(
+                                (row) => row.external_surface_id === channel.id,
+                              ))
+                          }
+                          onClick={() => connectChannel(channel.id)}
+                        >
+                          {t(pickHome ? "slack.setHome" : "slack.add")}
+                        </RowAction>
+                      </span>
                     }
                   />
                 ))}
