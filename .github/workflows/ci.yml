@@ -381,6 +381,7 @@ jobs:
               - tests/local-sh.
               - tests/pages-workflow.
               - tests/preview-reap.
+              - tests/verify-werft-response-capture.
               - tests/release-auto.
               - tests/sdk-release.
               - tests/supply-chain.
