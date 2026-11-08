@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BODY_LIMIT,
+  createCollector,
   formatCapture,
   globToRegExp,
   maskBody,
@@ -53,6 +54,140 @@ describe("maskBody", () => {
     const out = maskBody("see /invite/AbC123xyz and ?code=c0de&state=st4te");
     for (const secret of ["AbC123xyz", "c0de", "st4te"])
       expect(out).not.toContain(secret);
+  });
+});
+
+describe("maskBody: shapes a first version leaked", () => {
+  const leaks = (text: string) => maskBody(text).includes("SENTINEL");
+
+  test("secret keys with array, object or escaped-name values", () => {
+    expect(leaks('{"access_token":["SENTINEL"]}')).toBe(false);
+    expect(leaks('{"token":{"value":"SENTINEL"}}')).toBe(false);
+    expect(leaks('{"access_\\u0074oken":"SENTINEL"}')).toBe(false);
+    expect(leaks('{"a":[{"client_secret":"SENTINEL"}]}')).toBe(false);
+  });
+
+  test("keeps error.code, the field a failure is read for", () => {
+    expect(maskBody('{"error":{"code":"UNAUTHORIZED"}}')).toContain(
+      "UNAUTHORIZED",
+    );
+  });
+
+  test("bare and URL-encoded query values", () => {
+    expect(leaks("token=SENTINEL")).toBe(false);
+    expect(leaks("code=SENTINEL")).toBe(false);
+    expect(leaks("?redir=https%3A%2F%2Fh%2Fcb%3Fcode%3DSENTINEL")).toBe(false);
+  });
+
+  test("every cookie in a list, not just the first", () => {
+    expect(leaks("Cookie: first=x; session=SENTINEL")).toBe(false);
+    expect(leaks("set-cookie: a=1, b=SENTINEL")).toBe(false);
+  });
+
+  test("an invite token in the reported path", () => {
+    const line = formatCapture({
+      method: "GET",
+      url: "http://h/invite/SENTINEL",
+      status: 404,
+      body: "missing",
+    });
+    expect(line).not.toContain("SENTINEL");
+  });
+});
+
+describe("createCollector", () => {
+  const sent: string[] = [];
+  const setup = (answer: () => Promise<unknown>) => {
+    sent.length = 0;
+    return createCollector({
+      send: (method: string) => {
+        sent.push(method);
+        return answer();
+      },
+      pattern: undefined,
+      settleMs: 500,
+    });
+  };
+  const request = (id: string, status: number, url = "http://h/v1/x") => [
+    {
+      method: "Network.requestWillBeSent",
+      params: { requestId: id, request: { method: "POST" } },
+    },
+    {
+      method: "Network.responseReceived",
+      params: { requestId: id, response: { status, url } },
+    },
+  ];
+  const finished = (id: string) => ({
+    method: "Network.loadingFinished",
+    params: { requestId: id },
+  });
+
+  test("reads the body of a failed request and skips a successful one", async () => {
+    const c = setup(async () => ({
+      body: '{"error":"no"}',
+      base64Encoded: false,
+    }));
+    for (const m of [
+      ...request("1", 401),
+      finished("1"),
+      ...request("2", 200),
+      finished("2"),
+    ])
+      c.onEvent(m);
+    expect(await c.report()).toEqual([
+      '! failed request: POST /v1/x -> 401 | {"error":"no"}',
+    ]);
+    expect(sent).toEqual(["Network.getResponseBody"]);
+  });
+
+  test("a response that finishes after report() started is still listed", async () => {
+    const c = setup(async () => ({ body: "late", base64Encoded: false }));
+    for (const m of request("1", 500)) c.onEvent(m);
+    const lines = c.report();
+    setTimeout(() => c.onEvent(finished("1")), 100);
+    expect(await lines).toEqual(["! failed request: POST /v1/x -> 500 | late"]);
+  });
+
+  test("a connection reset after the status keeps method, path, status and the reason", async () => {
+    const c = setup(async () => ({ body: "", base64Encoded: false }));
+    for (const m of request("1", 500)) c.onEvent(m);
+    c.onEvent({
+      method: "Network.loadingFailed",
+      params: { requestId: "1", errorText: "net::ERR_CONNECTION_RESET" },
+    });
+    expect(await c.report()).toEqual([
+      "! failed request: POST /v1/x -> 500 | body unavailable: net::ERR_CONNECTION_RESET",
+    ]);
+  });
+
+  test("a request that never finishes is listed, not dropped", async () => {
+    const c = setup(async () => ({ body: "", base64Encoded: false }));
+    for (const m of request("1", 503)) c.onEvent(m);
+    expect((await c.report())[0]).toContain(
+      "response had not finished loading",
+    );
+  });
+
+  test("a body the browser no longer has is reported as unavailable", async () => {
+    const c = setup(() =>
+      Promise.reject(
+        new Error("Network.getResponseBody: No resource with given identifier"),
+      ),
+    );
+    for (const m of [...request("1", 404), finished("1")]) c.onEvent(m);
+    expect((await c.report())[0]).toContain(
+      "body unavailable: No resource with given identifier",
+    );
+  });
+
+  test("a base64 body is decoded", async () => {
+    const c = setup(async () => ({
+      body: Buffer.from("héllo").toString("base64"),
+      base64Encoded: true,
+    }));
+    for (const m of [...request("1", 400), finished("1")]) c.onEvent(m);
+    expect((await c.report())[0]).toContain("| héllo");
   });
 });
 

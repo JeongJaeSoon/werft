@@ -22,9 +22,10 @@
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
-// Every page command also ends with a "! failed request:" line per 4xx/5xx
-// response (method, path, status, masked body up to 2000 chars); CAPTURE_URL
-// ='*/v1/x*' adds the responses of matching URLs.
+// Every page command also ends with a "! failed request:" line on stderr per
+// 4xx/5xx response (method, path, status, masked body up to 2000 chars);
+// CAPTURE_URL='*/v1/x*' adds the responses of matching URLs. A command that
+// throws skips the lines; `accept` refusing still prints them.
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -38,7 +39,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatCapture, globToRegExp, wanted } from "./response-capture.mjs";
+import { createCollector, globToRegExp } from "./response-capture.mjs";
 
 const CHROME =
   process.env.CHROME ??
@@ -316,45 +317,14 @@ const focused = () =>
 const capturePattern = process.env.CAPTURE_URL
   ? globToRegExp(process.env.CAPTURE_URL)
   : undefined;
-const methods = new Map();
-const wantedRequests = new Map();
-const bodyReads = [];
-ws.addEventListener("message", (e) => {
-  const m = JSON.parse(String(e.data));
-  const p = m.params;
-  if (m.method === "Network.requestWillBeSent")
-    methods.set(p.requestId, p.request.method);
-  else if (
-    m.method === "Network.responseReceived" &&
-    wanted(p.response.status, p.response.url, capturePattern)
-  )
-    wantedRequests.set(p.requestId, {
-      method: methods.get(p.requestId) ?? "GET",
-      url: p.response.url,
-      status: p.response.status,
-    });
-  else if (
-    m.method === "Network.loadingFinished" &&
-    wantedRequests.has(p.requestId)
-  )
-    bodyReads.push(
-      send("Network.getResponseBody", { requestId: p.requestId }).then(
-        (r) => ({
-          ...wantedRequests.get(p.requestId),
-          body: r.base64Encoded
-            ? Buffer.from(r.body, "base64").toString("utf8")
-            : r.body,
-        }),
-        (error) => ({
-          ...wantedRequests.get(p.requestId),
-          bodyError: error.message.replace(/^Network\.getResponseBody: /, ""),
-        }),
-      ),
-    );
-});
+const collector = createCollector({ send, pattern: capturePattern });
+ws.addEventListener("message", (e) =>
+  collector.onEvent(JSON.parse(String(e.data))),
+);
+// On stderr, so a caller that parses a command's stdout (eval prints JSON)
+// sees the same stdout as before.
 async function reportCaptures() {
-  for (const c of await Promise.all(bodyReads))
-    console.log(`! failed request: ${formatCapture(c)}`);
+  for (const line of await collector.report()) console.error(line);
 }
 
 await send("Page.enable");
@@ -402,6 +372,8 @@ switch (cmd) {
           "(document.querySelector('main [data-status] h2') ?? document.querySelector('main [role=alert]') ?? document.querySelector('main'))?.innerText.replace(/\\s+/g, ' ').slice(0, 80)",
         )}`,
       );
+      await sleep(300);
+      await reportCaptures();
       process.exit(1);
     };
     await navigate(`/invite/${token}`);
