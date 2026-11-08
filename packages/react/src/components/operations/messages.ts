@@ -490,12 +490,12 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         slots: "동시 실행 슬롯",
         slotsRowNote: "설치 설정의 상한. 빈 슬롯이 없으면 세션이 대기합니다",
         storageRowNote:
-          "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
-        outputs: "결과물 저장",
+          "세션에 보낸 입력 메시지만 셉니다. 성과물은 따로 셉니다",
+        outputs: "성과물 저장",
         outputsRowNote:
-          "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+          "세션 성과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
         outputsIncompleteNote:
-          "결과물을 세기 전 체크포인트가 남아 있어 실제보다 적을 수 있습니다",
+          "성과물을 세기 전 체크포인트가 남아 있어 실제보다 적을 수 있습니다",
         outputsAtLeast: (bytes) => `${bytes} 이상`,
         noLimit: "한도 없음",
         sessionCost: "세션당 비용",

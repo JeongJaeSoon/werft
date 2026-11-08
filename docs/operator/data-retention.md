@@ -60,11 +60,11 @@
 - **작업 큐** — `queue_messages`, `unassigned_sessions`, `workers`
   - 처리하면 지우는 작업 행이다(예: `packages/db/src/queries.ts:408`, `close-control.ts:86`). 보존 데이터가 아니다.
 - **checkpoint 행** — `checkpoints`(`schema.ts:1934`), `checkpoint_outputs`(`schema.ts:1983`)
-  - 담는 것: manifest의 object key와 version, 부모 revision, transcript 바이트 수, 결과물 파일의 key와 크기.
+  - 담는 것: manifest의 object key와 version, 부모 revision, transcript 바이트 수, 성과물 파일의 key와 크기.
   - 만드는 시점: turn 끝에 checkpoint pointer를 올릴 때(`worker-unit-of-work.ts:485`, `508`).
   - 보존 기간: 무기한. GC가 object를 지우면 행에 `collected_at`(`schema.ts:1960`)과 `objects_purged_at`(`schema.ts:1963`)만 적고 행은 남긴다(`packages/db/src/checkpoint-store.ts:251-292`).
   - 닫힌 지 하루가 지났고 열린 push 요청이 없는 세션은 GC pass가 정리를 마치면 `sessions.checkpoint_collection_settled_at`을 적고, 다음 pass부터 읽지 않는다. 하루는 worker 자격 증명의 12시간보다 길어서, 그 뒤에 object를 쓸 attempt가 없다.
-  - 설치 사용량의 결과물 바이트는 trigger가 key마다 채우는 `checkpoint_output_objects`와 합계 `checkpoint_output_totals`에서 읽는다.
+  - 설치 사용량의 성과물 바이트는 trigger가 key마다 채우는 `checkpoint_output_objects`와 합계 `checkpoint_output_totals`에서 읽는다.
 - **receipt와 멱등 키** — `receipts`(`schema.ts:1538`), `idempotency_keys`(`schema.ts:1612`)
   - 담는 것: 명령(입력, 제어, 공유 변경, GitHub 게이트 등)마다 결과 한 행. 응답의 `X-Request-Id`가 `request_id`로 남는다.
   - 보존 기간: 무기한. 삭제 조건: 없음.
@@ -86,7 +86,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 보존 기간·삭제 조건: 아래 checkpoint GC를 따른다. 지금 실행 세대(generation)보다 오래된 세대만 지운다.
   - 바꾸기: 상한은 코드 상수라 바꿀 수 없다.
 - **checkpoint** — `sessions/<id>/checkpoints/<10자리 revision>/<attempt>/<publish>/` 아래의 `manifest.json`, `workspace-<sha256>.bundle`, `untracked/<sha256>`, `outputs/<sha256>`
-  - 담는 것: 작업 공간 git bundle, 추적하지 않는 파일, `out/` 결과물 파일, 그리고 이것들과 transcript를 묶는 manifest(`checkpoint-service.ts:336-346`, 쓰는 곳 `apps/worker/src/session-checkpoints.ts:1101`, `1137`, `1189`, `1314`).
+  - 담는 것: 작업 공간 git bundle, 추적하지 않는 파일, `out/` 성과물 파일, 그리고 이것들과 transcript를 묶는 manifest(`checkpoint-service.ts:336-346`, 쓰는 곳 `apps/worker/src/session-checkpoints.ts:1101`, `1137`, `1189`, `1314`).
   - 만드는 시점: turn 끝에 worker가 올린다. 모든 쓰기는 create-only다(`packages/storage/src/checkpoint-objects.ts:109-140`).
   - 보존 기간: pointer와 그 부모 `DEFAULT_MAX_RESTORE_FALLBACKS = 3`개(`checkpoint-service.ts:312`), 열린 push 요청이 고정한 revision은 남는다(`packages/platform/src/checkpoints/checkpoint-collector.ts:102-145`).
   - 삭제 조건: checkpoint GC만 지운다(`checkpoint-collector.ts:174-259`, 삭제 `checkpoint-objects.ts:350-371`). Kubernetes 설치는 CronJob이 매주 일요일 04:00에 돈다(`values.yaml`의 `checkpointGc.schedule: "0 4 * * 0"`). compose 설치는 `maintenance` 서비스가 주 1회 돈다. GC는 `locked`에서만 돈다. bucket에 lifecycle 만료 규칙을 두지 않는 이유와 백업과의 관계는 [backup-restore.md](backup-restore.md)에 있다.
@@ -199,7 +199,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 5. **대기 요청을 읽는다.** `GET /v1/sessions/{id}/pending-requests`는 아직 답할 수 있는 열린 요청만 보인다. 승인·질문이 있었다면 답하는 동안 여기서 보고, 답한 뒤의 `answer`·`answered_by`·닫힌 방식은 10의 SQL로 읽는다.
 6. **사용량을 읽는다.** `GET /v1/sessions/{id}/usage`. 토큰과 추정 비용이 `provider_usage`에서 온다.
-7. **결과물을 읽는다.** `GET /v1/sessions/{id}/outputs`. 마지막 checkpoint의 manifest가 가리키는 `out/` 파일 목록이다.
+7. **성과물을 읽는다.** `GET /v1/sessions/{id}/outputs`. 마지막 checkpoint의 manifest가 가리키는 `out/` 파일 목록이다.
 8. **세션을 닫는다.** 3에서 읽은 `revision`으로 `POST /v1/sessions/{id}/close`를 보낸다. `Idempotency-Key`가 필요하다.
 
    ```sh
