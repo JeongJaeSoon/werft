@@ -20,7 +20,9 @@ import {
   githubMcpRefusalSpec,
   githubMcpToolNames,
   githubMcpTools,
+  LISTED_REPOSITORY_STATUS_VALUES,
   listedGitHubMcpTools,
+  listedRepositorySchema,
   pushClassOf,
 } from "./github-mcp.ts";
 import { PULL_REQUEST_REFUSAL_VALUES } from "./pull-request.ts";
@@ -278,6 +280,60 @@ describe("the tool envelope", () => {
         /\b(you|your|do not|don't|must|should|tell the user|end (this|your) turn|call (it|this|open_pull_request)|instructions?)\b/i,
       );
     }
+  });
+});
+
+describe("listedRepositorySchema", () => {
+  const entry = { id: "web", name: "acme/web", branch: "main" };
+
+  test("keeps every status and entry shape from before, and adds not_attached, revoked and remote", () => {
+    for (const status of [
+      "primary",
+      "attached",
+      "pending",
+      "failed",
+      "available",
+      "allowed_in_newer_release",
+    ]) {
+      expect(
+        listedRepositorySchema.safeParse({ ...entry, status }).success,
+      ).toBe(true);
+    }
+    expect([...LISTED_REPOSITORY_STATUS_VALUES].slice(0, 6)).toEqual([
+      "primary",
+      "attached",
+      "pending",
+      "failed",
+      "available",
+      "allowed_in_newer_release",
+    ]);
+    for (const status of ["not_attached", "revoked"]) {
+      expect(
+        listedRepositorySchema.safeParse({ ...entry, status }).success,
+      ).toBe(true);
+    }
+    expect(
+      listedRepositorySchema.parse({
+        ...entry,
+        status: "attached",
+        remote: "origin",
+      }),
+    ).toEqual({ ...entry, status: "attached", remote: "origin" });
+    // Absent for a repository that is not in the workspace; never an empty name.
+    expect(
+      "remote" in
+        listedRepositorySchema.parse({ ...entry, status: "attached" }),
+    ).toBe(false);
+    expect(
+      listedRepositorySchema.safeParse({
+        ...entry,
+        status: "attached",
+        remote: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      listedRepositorySchema.safeParse({ ...entry, status: "unknown" }).success,
+    ).toBe(false);
   });
 });
 
