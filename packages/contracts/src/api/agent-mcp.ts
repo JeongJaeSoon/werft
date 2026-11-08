@@ -15,6 +15,8 @@ export const AGENT_MCP_REFUSAL_VALUES = [
   "server_required",
   "tool_outside_server",
   "server_credential_missing",
+  // The active release's profile blocks the tool being added.
+  "mcp_tool_denied",
   "duplicate",
 ] as const;
 

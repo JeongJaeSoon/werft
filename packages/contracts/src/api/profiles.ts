@@ -169,6 +169,11 @@ export const profileSummarySchema = z
       description:
         "The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version.",
     }),
+    // Optional so a reader ahead of its server reads a profile without it.
+    mcp_deny: z.array(z.string().min(1)).optional().meta({
+      description:
+        "The `mcp__<server>__<tool>` names it blocks, sorted; absent when it blocks none. A deny request names them in `deny`, beside the built-in tools.",
+    }),
     permission_mode: permissionModeSchema,
     runtime_kind: runtimeKindSchema,
     runtime_version: z.string().min(1),
@@ -265,7 +270,7 @@ const toolChoiceFields = {
   }),
   deny: toolNamesSchema.exactOptional().meta({
     description:
-      "The built-in tools of the runtime version's tool catalog to block; the server stores the rest as `tools`. `[]` blocks none. Exactly one of `tools` and `deny`; 400 for a runtime version with no catalog.",
+      "The built-in tools of the runtime version's tool catalog to block, and `mcp__<server>__<tool>` names of the servers this installation lists (not the built-in `github` server); the server stores the rest of the catalog as `tools`. A derived version names every `mcp__` name its base blocks; a next version keeps those of the one before. `[]` blocks none. Exactly one of `tools` and `deny`; 400 for a runtime version with no catalog.",
   }),
   accept_added_tools: toolNamesSchema.exactOptional().meta({
     description:

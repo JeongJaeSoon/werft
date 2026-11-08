@@ -30,6 +30,7 @@ import type { ProfileFeatureGate } from "./feature-gate.ts";
 import { type Connections, definitionFingerprint } from "./profile-registry.ts";
 import {
   deniedTools,
+  mcpDenyScope,
   previousChoice,
   type ToolCatalogs,
   withKeptMcpDeny,
@@ -262,6 +263,7 @@ export function createInstallationProfileService(deps: {
       // names the runtime knows them by (`Task` is `Agent`).
       ...(base === undefined ? {} : { base }),
       previous: previousRead,
+      mcp: mcpDenyScope(catalog.mcp_servers, base?.mcpDeny, previous?.deny),
     });
     const denied =
       withKeptMcpDeny({
@@ -270,6 +272,7 @@ export function createInstallationProfileService(deps: {
         denied: asked,
         previous,
         baseMcpDeny: base?.mcpDeny,
+        requested: asked.mcpDeny,
       }) ?? asked;
     return {
       tools: asked.tools,
