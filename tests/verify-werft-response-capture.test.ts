@@ -233,6 +233,11 @@ describe("createCollector", () => {
       method: "Network.responseReceived",
       params: { requestId: id, response: { status, url } },
     },
+    // The browser reports the decoded size; a body of unknown size is not read.
+    {
+      method: "Network.dataReceived",
+      params: { requestId: id, dataLength: 64 },
+    },
   ];
   const finished = (id: string) => ({
     method: "Network.loadingFinished",
@@ -422,7 +427,23 @@ describe("createCollector", () => {
     expect(out[1]).toContain("not read (1000000 bytes");
   });
 
-  test("a body read without a size is cut before it is masked", async () => {
+  test("a body of unknown size is not read", async () => {
+    const c = setup(async () => ({
+      body: `{"error":"${"y".repeat(1_000_000)}"}`,
+      base64Encoded: false,
+    }));
+    c.onEvent(sentEvent("1"));
+    c.onEvent(responded("1", 500, { mimeType: "text/plain" }));
+    c.onEvent({
+      method: "Network.loadingFinished",
+      params: { requestId: "1", encodedDataLength: 0 },
+    });
+    const out = await c.report();
+    expect(sent).toEqual([]);
+    expect(out[0]).toContain("body unavailable: not read (size unknown)");
+  });
+
+  test("a body larger than its reported size is cut before it is masked", async () => {
     const c = setup(async () => ({
       body: `{"error":"${"y".repeat(1_000_000)}"}`,
       base64Encoded: false,
@@ -433,13 +454,41 @@ describe("createCollector", () => {
     expect(out[0]).not.toContain("+998");
   });
 
+  test("the read budget counts bytes, not characters", async () => {
+    const c = setup(async () => ({
+      body: "가".repeat(20_000),
+      base64Encoded: false,
+    }));
+    for (let i = 0; i < 12; i++) {
+      const id = String(i);
+      c.onEvent(sentEvent(id));
+      c.onEvent(responded(id, 500));
+      c.onEvent({
+        method: "Network.dataReceived",
+        params: { requestId: id, dataLength: 60_000 },
+      });
+      c.onEvent(finished(id));
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await c.report();
+    expect(sent.length).toBe(4);
+  });
+
   test("the number of listed requests and bytes read is capped", async () => {
     const c = setup(async () => ({
       body: "z".repeat(60_000),
       base64Encoded: false,
     }));
     for (let i = 0; i < 300; i++)
-      for (const m of [...request(String(i), 500), finished(String(i))])
+      for (const m of [
+        ...request(String(i), 500),
+        {
+          method: "Network.dataReceived",
+          params: { requestId: String(i), dataLength: 59_936 },
+        },
+        finished(String(i)),
+      ])
         c.onEvent(m);
     const out = await c.report();
     expect(sent.length).toBeLessThan(10);
@@ -489,6 +538,29 @@ describe("createCollector", () => {
     c.onEvent(responded("1", 200, { mimeType: "text/event-stream" }));
     const started = performance.now();
     expect(await c.report()).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  test("data arriving on a successful stream does not hold the report", async () => {
+    const c = setup(
+      async () => ({ body: "", base64Encoded: false }),
+      undefined,
+      2000,
+    );
+    c.onEvent(sentEvent("1"));
+    c.onEvent(responded("1", 200, { mimeType: "text/event-stream" }));
+    const tick = setInterval(
+      () =>
+        c.onEvent({
+          method: "Network.dataReceived",
+          params: { requestId: "1", dataLength: 10 },
+        }),
+      50,
+    );
+    const started = performance.now();
+    const out = await c.report();
+    clearInterval(tick);
+    expect(out).toEqual([]);
     expect(performance.now() - started).toBeLessThan(1500);
   });
 });
@@ -550,6 +622,27 @@ describe("maskBody: werft#1327 review", () => {
     expect(leaked("see https://h/in%2576ite/syn-inv-15")).toEqual([]);
     expect(leaked("<password>syn-pw-12</password>")).toEqual([]);
     expect(leaked("<Session-Id>syn-sid-13</Session-Id>")).toEqual([]);
+  });
+
+  test("everything inside a secret element: CDATA, nested and repeated tags", () => {
+    expect(leaked("<password><![CDATA[syn-pw-12]]></password>")).toEqual([]);
+    expect(leaked("<password><value>syn-pw-12</value></password>")).toEqual(
+      [],
+    );
+    expect(
+      leaked("<password><password>a</password>syn-pw-12</password>"),
+    ).toEqual([]);
+    expect(leaked('<field name="password">syn-pw-12</field>')).toEqual([]);
+    expect(leaked("<sid>syn-sid-13")).toEqual([]);
+    expect(maskBody("<password>x</password><error>kept</error>")).toContain(
+      "kept",
+    );
+  });
+
+  test("a status code in the body stays readable", () => {
+    expect(
+      maskBody('{"statusCode":500,"error":{"code":"UNAUTHORIZED"}}'),
+    ).toContain('"statusCode":500');
   });
 });
 
