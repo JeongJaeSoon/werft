@@ -24,9 +24,9 @@ Every role creates its pool through `createEnforcedPool` in `packages/db/src/poo
 | scheduler | 4 | Each pass issues statements sequentially. The pass lock holds an additional connection |
 | reconciler | 4 | Each pass issues statements sequentially |
 | slack | 4 | Drains the inbox and outbox in sequence |
-| checkpoint GC, session archive, upgrade check, migrate, operator CLIs (`keys`, `grants`, etc.) | 10 | Runs briefly and exits. Uses the default (`DEFAULT_POOL_MAX`) |
-| operator CLI `profile-backfill` | 2 | Runs briefly and exits. The code sets 2 instead of the default |
-| operator CLI `profile-migration` | 4 | Runs briefly and exits. The code sets 4 instead of the default |
+| checkpoint GC, session archive, upgrade check, migrate, operator CLIs (`keys`, `grants`, etc.) | 10 | Runs once and exits. Uses the default (`DEFAULT_POOL_MAX`) |
+| operator CLI `profile-backfill` | 2 | Runs once and exits. The code sets 2 instead of the default |
+| operator CLI `profile-migration` | 4 | Runs once and exits. The code sets 4 instead of the default |
 
 With the Helm defaults (2 api replicas, 1 slack, 1 scheduler, 1 reconciler, metrics disabled), persistent connections can total api 24 + scheduler 4 + reconciler 4 + slack 4 = 36. Enabling `metrics.enabled` adds 10. Checkpoint GC (default Sunday 04:00) and session archive (default Sunday 05:00) are CronJobs with `concurrencyPolicy: Forbid`, so each runs at most once at a time. Upgrade check and migrate are Helm hooks that start only after the previous one finishes, so only one runs at a time. When these three overlap they add up to 30 more. With the default schedules, GC and session archive overlap only if GC runs for over an hour or the schedules are changed. Compose totals api 12 + scheduler 4 + reconciler 4 + slack 4 = 24. PostgreSQL defaults to `max_connections` of 100, with 3 reserved for superusers. For each additional api replica, budget 12 connections; for slack, budget 4. Compare the total with `max_connections`. Check this setting on managed databases: smaller instances may allow fewer than 100 connections.
 
