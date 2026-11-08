@@ -1216,9 +1216,8 @@ export function createPullRequestService(deps: {
       if (before.headSha !== source.gitCommit) {
         return await refuse("head_moved", fields);
       }
-      // A second line behind the branch protection: a state GitHub does not
-      // call mergeable is not sent a PUT, so a bypass-capable App is not
-      // trusted to be blocked by the PUT alone.
+      // Refused before a request that GitHub would queue and then fail. The
+      // rules themselves are enforced at merge time, with bypass off.
       if (!MERGEABLE_STATES.has(before.mergeableState ?? "")) {
         return await refuse("merge_blocked", fields);
       }
@@ -1227,11 +1226,19 @@ export function createPullRequestService(deps: {
           number: pullRequest.number,
           sha: source.gitCommit,
         });
-        if (!merged.merged) return await refuse("merge_blocked", fields);
+        if (!merged.merged) {
+          // GitHub reports a cancelled merge and a refused one alike.
+          const after = (await forge.getPullRequest(pullRequest.number))
+            .pullRequest;
+          return await refuse(
+            after.headSha === source.gitCommit ? "merge_blocked" : "head_moved",
+            fields,
+          );
+        }
         return await answer({ sha: merged.sha, method: "squash" }, true);
       } catch (error) {
         if (error instanceof GitHubCallError) {
-          if (error.status === 405)
+          if (error.status === 400 || error.status === 405)
             return await refuse("merge_blocked", fields);
           if (error.status === 409) return await refuse("head_moved", fields);
           return await refuse(

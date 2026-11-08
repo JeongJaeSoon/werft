@@ -474,19 +474,50 @@ export function createGitHubConnection(
         });
       },
       async mergePullRequest({ number, sha }) {
-        const { data } = await quiet("pull request merge", () =>
-          client.request(
-            "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge",
-            {
-              ...target,
-              pull_number: number,
-              merge_method: "squash",
-              sha,
-              headers,
-            },
-          ),
+        // Not PUT .../merge: that one lets an actor on a ruleset's bypass list
+        // through, and has no way to refuse it. This one bypasses only when
+        // asked, so the answer to bypass_rules is ours, not the App's setup.
+        const sent = await quiet("pull request merge", () =>
+          request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge-async", {
+            ...target,
+            pull_number: number,
+            merge_method: "squash",
+            merge_action: "direct_merge",
+            bypass_rules: false,
+            sha,
+            headers,
+            // A 409 is an answer here, not a failure to retry.
+            request: { retries: 0 },
+          }).catch((error: unknown) => {
+            // 409 is the request already pending, answered with its options.
+            if (statusOf(error) !== 409) throw error;
+            const { response } = error as { response?: { data?: unknown } };
+            return { status: 409, data: response?.data };
+          }),
         );
-        return { merged: data.merged, sha: data.sha ?? null };
+        const first = mergeAsyncOf(sent.data);
+        if (first === null)
+          throw new GitHubCallError("pull request merge", null, null);
+        if (first.status !== "pending") return mergedOf(first);
+        // Someone else's pending request may carry other options.
+        if (!first.ours(sha)) return { merged: false, sha: null };
+        const pause = options.retryAfterBaseMs ?? MERGE_POLL_MS;
+        for (let poll = 0; poll < MERGE_POLLS; poll += 1) {
+          await new Promise((resolve) => setTimeout(resolve, pause));
+          const result = await quiet("pull request merge result", () =>
+            request(
+              "GET /repos/{owner}/{repo}/pulls/{pull_number}/merge-async/{uuid}",
+              { ...target, pull_number: number, uuid: first.uuid, headers },
+            ),
+          );
+          const polled = mergeAsyncOf(result.data);
+          if (polled === null) {
+            throw new GitHubCallError("pull request merge result", null, null);
+          }
+          if (polled.status !== "pending") return mergedOf(polled);
+        }
+        // Still queued: it may yet merge, and the next call finds it merged.
+        throw new GitHubCallError("pull request merge", 202, null);
       },
       async setPullRequestState(number, state) {
         const { data } = await call("pull request state", () =>
@@ -756,6 +787,59 @@ function installedOnCheck(
     }
     return answers;
   };
+}
+
+const MERGE_POLLS = 20;
+const MERGE_POLL_MS = 500;
+
+type MergeAsync =
+  | { status: "merged"; sha: string | null }
+  | { status: "enqueued" | "failed" }
+  | {
+      status: "pending";
+      uuid: string;
+      /** Whether the pending request is the one this call would have made. */
+      ours: (sha: string) => boolean;
+    };
+
+/** A merge-async answer, or null when it is not one of the four shapes. */
+function mergeAsyncOf(data: unknown): MergeAsync | null {
+  const body = data as {
+    status?: unknown;
+    details?: Record<string, unknown> | null;
+  } | null;
+  const details = body?.details ?? {};
+  switch (body?.status) {
+    case "merged":
+      return {
+        status: "merged",
+        sha: typeof details.sha === "string" ? details.sha : null,
+      };
+    case "enqueued":
+    case "failed":
+      return { status: body.status };
+    case "pending":
+      return typeof details.uuid === "string"
+        ? {
+            status: "pending",
+            uuid: details.uuid,
+            ours: (sha) =>
+              details.merge_method === "squash" &&
+              details.merge_action === "direct_merge" &&
+              details.expected_head_sha === sha &&
+              details.bypass_rules !== true,
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/** A direct merge that did not merge (failed, or queued) is not a merge. */
+function mergedOf(result: Exclude<MergeAsync, { status: "pending" }>) {
+  return result.status === "merged"
+    ? { merged: true, sha: result.sha }
+    : { merged: false, sha: null };
 }
 
 function pullRequestOf(data: {

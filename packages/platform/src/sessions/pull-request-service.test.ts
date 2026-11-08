@@ -218,6 +218,7 @@ function harness(
   let patchAnswer: ForgePullRequest["state"] | null = null;
   let mergeable: string | null = "clean";
   let mergeStatus: number | null = null;
+  let declined: { headMoves: boolean } | null = null;
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -323,6 +324,10 @@ function harness(
       }
       if (open === null || open.number !== number) {
         throw new GitHubCallError("pull request merge", 404, null);
+      }
+      if (declined !== null) {
+        if (declined.headMoves) open = { ...open, headSha: "f".repeat(40) };
+        return { merged: false, sha: null };
       }
       open = { ...open, state: "closed", mergedAt: "2026-11-08T00:00:00Z" };
       return { merged: true, sha: "c".repeat(40) };
@@ -448,6 +453,10 @@ function harness(
     },
     failMerge: (status: number) => {
       mergeStatus = status;
+    },
+    /** GitHub answers that nothing merged; the head may have moved by then. */
+    declineMerge: (headMoves: boolean) => {
+      declined = { headMoves };
     },
     failForge: () => {
       failing = true;
@@ -2339,7 +2348,26 @@ describe("merging the pull request", () => {
     });
   });
 
-  test("GitHub's 405 is merge_blocked and its 409 is head_moved", async () => {
+  test("a merge GitHub did not do is head_moved when the head moved meanwhile and merge_blocked when it did not", async () => {
+    const blocked = withPullRequest();
+    blocked.declineMerge(false);
+    expect((await refusal(merge(blocked))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
+    expect(blocked.calls).toEqual(["read 7", "merge 7 a", "read 7"]);
+    const moved = withPullRequest();
+    moved.declineMerge(true);
+    expect((await refusal(merge(moved))).details).toMatchObject({
+      refusal: "head_moved",
+    });
+  });
+
+  test("GitHub's 400 and 405 are merge_blocked and its 409 is head_moved", async () => {
+    const closedOrDraft = withPullRequest();
+    closedOrDraft.failMerge(400);
+    expect((await refusal(merge(closedOrDraft))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
     const blocked = withPullRequest();
     blocked.failMerge(405);
     expect((await refusal(merge(blocked))).details).toMatchObject({

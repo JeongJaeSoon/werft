@@ -298,56 +298,200 @@ describe("GitHub pull requests", () => {
     }
   });
 
-  test("a merge is one PUT that squashes and pins the head sha, and answers what GitHub did", async () => {
-    const sent: Array<{ method: string; path: string; body: unknown }> = [];
-    const stub = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        sent.push({
-          method: request.method,
-          path: new URL(request.url).pathname,
-          body: await request.json(),
-        });
-        return Response.json({ merged: true, sha: "d".repeat(40) });
+  describe("merging", () => {
+    const SHA = "a".repeat(40);
+    const MERGED = "d".repeat(40);
+    const pending = (over: Record<string, unknown> = {}) => ({
+      status: "pending",
+      details: {
+        message: "queued",
+        uuid: "u-1",
+        merge_method: "squash",
+        merge_action: "direct_merge",
+        expected_head_sha: SHA,
+        bypass_rules: false,
+        ...over,
       },
     });
-    try {
-      const forge = await appForgeAt(stub.port);
-      expect(
-        await forge.mergePullRequest({ number: 7, sha: "a".repeat(40) }),
-      ).toEqual({
-        merged: true,
-        sha: "d".repeat(40),
-      });
-      expect(sent).toEqual([
-        {
-          method: "PUT",
-          path: "/repos/acme/app/pulls/7/merge",
-          body: { merge_method: "squash", sha: "a".repeat(40) },
-        },
-      ]);
-    } finally {
-      await stub.stop(true);
-    }
-  });
+    const merged = {
+      status: "merged",
+      details: { message: "ok", sha: MERGED },
+    };
+    const failed = { status: "failed", details: { message: "blocked" } };
 
-  test("a merge GitHub refuses with 405 or 409 reaches the caller as a status, not a merge", async () => {
-    for (const status of [405, 409]) {
+    /** GitHub, scripted: the answer to the PUT, then to each poll. */
+    async function scripted(put: [number, unknown], polls: unknown[] = []) {
+      const seen: Array<{ method: string; path: string; body: unknown }> = [];
       const stub = Bun.serve({
         port: 0,
-        fetch: () => Response.json({ message: "secret echo" }, { status }),
+        async fetch(request) {
+          const text = await request.text();
+          seen.push({
+            method: request.method,
+            path: new URL(request.url).pathname,
+            body: text === "" ? null : JSON.parse(text),
+          });
+          if (request.method === "PUT") {
+            return Response.json(put[1], { status: put[0] });
+          }
+          return Response.json(polls.shift() ?? pending());
+        },
       });
-      try {
-        const forge = await appForgeAt(stub.port);
-        const error = await forge
-          .mergePullRequest({ number: 7, sha: "a".repeat(40) })
-          .catch((caught: unknown) => caught);
-        expect(error).toMatchObject({ status });
-        expect(JSON.stringify(error)).not.toContain("secret echo");
-      } finally {
-        await stub.stop(true);
-      }
+      const forge = await appForgeAt(stub.port);
+      return { forge, seen, stop: () => stub.stop(true) };
     }
+    const merge = (forge: Awaited<ReturnType<typeof scripted>>["forge"]) =>
+      forge.mergePullRequest({ number: 7, sha: SHA });
+
+    test("asks for a squash of that head as a direct merge that bypasses no rule", async () => {
+      const github = await scripted([202, pending()], [merged]);
+      try {
+        expect(await merge(github.forge)).toEqual({
+          merged: true,
+          sha: MERGED,
+        });
+        expect(github.seen).toEqual([
+          {
+            method: "PUT",
+            path: "/repos/acme/app/pulls/7/merge-async",
+            body: {
+              merge_method: "squash",
+              merge_action: "direct_merge",
+              bypass_rules: false,
+              sha: SHA,
+            },
+          },
+          {
+            method: "GET",
+            path: "/repos/acme/app/pulls/7/merge-async/u-1",
+            body: null,
+          },
+        ]);
+      } finally {
+        await github.stop();
+      }
+    });
+
+    test("waits while it is pending and answers the merge commit", async () => {
+      const github = await scripted([202, pending()], [pending(), merged]);
+      try {
+        expect(await merge(github.forge)).toEqual({
+          merged: true,
+          sha: MERGED,
+        });
+        expect(github.seen.map((request) => request.method)).toEqual([
+          "PUT",
+          "GET",
+          "GET",
+        ]);
+      } finally {
+        await github.stop();
+      }
+    });
+
+    test("an already merged pull request answers at once, with no poll", async () => {
+      const github = await scripted([200, merged]);
+      try {
+        expect(await merge(github.forge)).toEqual({
+          merged: true,
+          sha: MERGED,
+        });
+        expect(github.seen).toHaveLength(1);
+      } finally {
+        await github.stop();
+      }
+    });
+
+    test("a failed or queued result is not a merge", async () => {
+      for (const [put, polls] of [
+        [[202, pending()], [failed]],
+        [[200, { status: "enqueued", details: { message: "queued" } }], []],
+        [[202, pending()], [{ status: "enqueued", details: { message: "q" } }]],
+      ] as Array<[[number, unknown], unknown[]]>) {
+        const github = await scripted(put, polls);
+        try {
+          expect(await merge(github.forge)).toEqual({
+            merged: false,
+            sha: null,
+          });
+        } finally {
+          await github.stop();
+        }
+      }
+    });
+
+    test("a request already pending with other options is neither joined nor waited for", async () => {
+      const others = [
+        { bypass_rules: true },
+        { merge_method: "merge" },
+        { merge_action: "merge_queue" },
+        { expected_head_sha: "b".repeat(40) },
+      ];
+      for (const over of others) {
+        const github = await scripted([409, pending(over)]);
+        try {
+          expect(await merge(github.forge)).toEqual({
+            merged: false,
+            sha: null,
+          });
+          expect(github.seen.map((request) => request.method)).toEqual(["PUT"]);
+        } finally {
+          await github.stop();
+        }
+      }
+    });
+
+    test("a request already pending with the same options is waited for", async () => {
+      const github = await scripted([409, pending()], [merged]);
+      try {
+        expect(await merge(github.forge)).toEqual({
+          merged: true,
+          sha: MERGED,
+        });
+      } finally {
+        await github.stop();
+      }
+    });
+
+    test("one that stays pending past the polls fails with 202 rather than claim a merge", async () => {
+      const github = await scripted([202, pending()]);
+      try {
+        const error = await merge(github.forge).catch(
+          (caught: unknown) => caught,
+        );
+        expect(error).toBeInstanceOf(GitHubCallError);
+        expect(error).toMatchObject({ status: 202 });
+      } finally {
+        await github.stop();
+      }
+    });
+
+    test("a refusal reaches the caller as a status, without what GitHub echoed", async () => {
+      for (const status of [400, 404, 422]) {
+        const github = await scripted([status, { message: "secret echo" }]);
+        try {
+          const error = await merge(github.forge).catch(
+            (caught: unknown) => caught,
+          );
+          expect(error).toMatchObject({ status });
+          expect(JSON.stringify(error)).not.toContain("secret echo");
+        } finally {
+          await github.stop();
+        }
+      }
+    });
+
+    test("an answer in no known shape is a failure, not a merge", async () => {
+      const github = await scripted([202, { merged: true }]);
+      try {
+        const error = await merge(github.forge).catch(
+          (caught: unknown) => caught,
+        );
+        expect(error).toBeInstanceOf(GitHubCallError);
+      } finally {
+        await github.stop();
+      }
+    });
   });
 
   test("isAncestor asks one compare and reads only ahead and identical as yes", async () => {
