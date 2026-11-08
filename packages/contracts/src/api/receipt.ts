@@ -187,6 +187,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_achievement_judge",
   "rejudge_session",
   "review_achievement",
+  // User variables (E-41). Names, kinds and versions only: a value is never
+  // written, and a plain variable's session record keeps a keyed hash.
+  "set_env_variable",
+  "delete_env_variable",
+  "set_env_variable_grants",
+  "resolve_session_env",
+  "reject_session_env",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

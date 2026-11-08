@@ -150,6 +150,27 @@ export const API_ERROR_CODE_VALUES = [
   // Archiving a team that is still an agent's managing team;
   // `details.agent_ids` names those agents.
   "TEAM_MANAGES_AGENTS",
+  // User variables (E-41). A name that is not an upper-case variable name, or
+  // one the platform sets itself; a value with NUL or invalid UTF-8, or over
+  // the byte limit.
+  "VARIABLE_NAME_INVALID",
+  "VARIABLE_NAME_RESERVED",
+  "VARIABLE_VALUE_INVALID",
+  "VARIABLE_VALUE_TOO_LARGE",
+  // The workspace or agent holds its limit of variables.
+  "VARIABLE_QUOTA_EXCEEDED",
+  // A card names a variable the session cannot get; the response carries no
+  // name, only the administrator's contact.
+  "VARIABLE_UNRESOLVED",
+  // A secret asked for engine delivery without the exposure acknowledged, was
+  // granted to every agent, or was set before any runtime can carry one.
+  "SECRET_ACK_REQUIRED",
+  "SECRET_GRANT_ALL_FORBIDDEN",
+  "SECRET_ENV_UNSUPPORTED",
+  // A write whose If-Match names another version than the current one, and a
+  // write that sent no If-Match or If-None-Match at all.
+  "VERSION_MISMATCH",
+  "PRECONDITION_REQUIRED",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

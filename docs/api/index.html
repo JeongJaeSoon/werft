@@ -2998,6 +2998,23 @@
                       "type": "string",
                       "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
                     }
+                  },
+                  "env": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "required": [
@@ -3182,6 +3199,23 @@
                     "items": {
                       "type": "string",
                       "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                    }
+                  },
+                  "env": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
                     }
                   }
                 },
@@ -4007,7 +4041,18 @@
                   "INSTALLATION_SUSPENDED",
                   "PENDING_REQUESTS_OPEN",
                   "PERMISSION_WAIT_ABOVE_PROFILE",
-                  "TEAM_MANAGES_AGENTS"
+                  "TEAM_MANAGES_AGENTS",
+                  "VARIABLE_NAME_INVALID",
+                  "VARIABLE_NAME_RESERVED",
+                  "VARIABLE_VALUE_INVALID",
+                  "VARIABLE_VALUE_TOO_LARGE",
+                  "VARIABLE_QUOTA_EXCEEDED",
+                  "VARIABLE_UNRESOLVED",
+                  "SECRET_ACK_REQUIRED",
+                  "SECRET_GRANT_ALL_FORBIDDEN",
+                  "SECRET_ENV_UNSUPPORTED",
+                  "VERSION_MISMATCH",
+                  "PRECONDITION_REQUIRED"
                 ]
               },
               "message": {
@@ -5804,6 +5849,30 @@
                       "reason",
                       "transcript_bytes",
                       "limit_bytes"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "const": "VARIABLE_REFUSED"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "unresolved",
+                          "not_granted",
+                          "reserved_name",
+                          "too_large",
+                          "runtime_unsupported"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
                     ],
                     "additionalProperties": false
                   }
@@ -13041,7 +13110,12 @@
               "enable_achievement_rule",
               "set_achievement_judge",
               "rejudge_session",
-              "review_achievement"
+              "review_achievement",
+              "set_env_variable",
+              "delete_env_variable",
+              "set_env_variable_grants",
+              "resolve_session_env",
+              "reject_session_env"
             ]
           },
           "target_ref": {
@@ -13326,7 +13400,18 @@
                       "INSTALLATION_SUSPENDED",
                       "PENDING_REQUESTS_OPEN",
                       "PERMISSION_WAIT_ABOVE_PROFILE",
-                      "TEAM_MANAGES_AGENTS"
+                      "TEAM_MANAGES_AGENTS",
+                      "VARIABLE_NAME_INVALID",
+                      "VARIABLE_NAME_RESERVED",
+                      "VARIABLE_VALUE_INVALID",
+                      "VARIABLE_VALUE_TOO_LARGE",
+                      "VARIABLE_QUOTA_EXCEEDED",
+                      "VARIABLE_UNRESOLVED",
+                      "SECRET_ACK_REQUIRED",
+                      "SECRET_GRANT_ALL_FORBIDDEN",
+                      "SECRET_ENV_UNSUPPORTED",
+                      "VERSION_MISMATCH",
+                      "PRECONDITION_REQUIRED"
                     ]
                   },
                   "message": {
@@ -22842,6 +22927,23 @@
                             "type": "string",
                             "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
                           }
+                        },
+                        "env": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [
@@ -24037,6 +24139,23 @@
                           "items": {
                             "type": "string",
                             "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+                          }
+                        },
+                        "env": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ],
+                            "additionalProperties": false
                           }
                         }
                       },
