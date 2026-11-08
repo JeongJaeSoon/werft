@@ -9,8 +9,8 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { ModelConnections } from "./model-connections.tsx";
 
 /**
- * Model connections under Settings, beside the MCP servers: the same table
- * and dialogs as the Profiles screen's section, which stays.
+ * Model connections under Settings, beside the MCP servers. This is the only
+ * place connections are managed; the Profiles screens only pick one.
  */
 export function ConnectionsScreen() {
   const { t } = useI18n();
@@ -43,7 +43,6 @@ export function ConnectionsScreen() {
 
   return (
     <ModelConnections
-      asPage
       profiles={profiles.data.items.filter(
         (item) => item.source === "operator",
       )}

@@ -211,7 +211,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops   # TEST_OPS_STATE_DIR
 | `S3_BUCKET` | 위 bucket 이름 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | 위 IAM 사용자의 key. API와 maintenance 컨테이너에만 간다 |
 
-`BOOTSTRAP_TOKEN`은 요구하지 않지만 넣는 것을 권한다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력하고, 첫 owner가 생길 때까지 `docker logs`를 읽을 수 있는 누구나 그 값으로 bootstrap할 수 있다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([API 서버](api-server.md#api-인증과-권한)의 웹 콘솔·계정 복구 문단).
+`BOOTSTRAP_TOKEN`은 요구하지 않는다. 웹 콘솔의 첫 owner를 만드는 토큰(32~256자 무작위 값)이고 API에만 간다. 넣지 않으면 API가 기동할 때 하나를 만들어 api 컨테이너의 `BOOTSTRAP_TOKEN_FILE`(compose.test-ops.yml이 정하는 `/tmp/werft-bootstrap-token`, 소유자만 읽는다)에 둔다. 로그에는 출력하지 않고, `scripts/test-ops.sh bootstrap-token`이 한 번 꺼내 보이면서 지운다. 쓰기에 실패하면 토큰을 만들었다는 한 줄만 남기고 값은 어디에도 출력하지 않으니, 그때는 `BOOTSTRAP_TOKEN`을 env 파일에 넣는다. 예시 파일처럼 줄을 주석으로 두면 이 자동 생성 경로를 쓴다. 주석을 풀고 값을 비우면 API가 기동하지 않는다. 첫 owner가 생긴 뒤에는 이 값이 다시 통과하지 않으므로 env 파일에 남겨 둬도 된다([API 서버](api-server.md#api-인증과-권한)의 웹 콘솔·계정 복구 문단).
 
 `compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `SESSION_COST_LIMIT_USD` 등)은 넣지 않으면 core 기본값을 쓴다.
 
@@ -367,7 +367,7 @@ scripts/test-ops.sh deploy release.json      # LocalStack
 
 ### 첫 owner
 
-웹 콘솔은 API와 같은 주소(3000)에서 열린다. 아래 "접근"의 터널을 연 뒤 `http://localhost:3000/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`, owner의 email·이름·비밀번호, workspace 이름·slug를 넣으면 첫 owner와 workspace가 생기고, 그 계정으로 `/login`에 로그인한다. 토큰은 env 파일을 연 편집기에서 복사해 붙이고 터미널에 출력하지 않는다. env 파일에 넣지 않았다면 `docker logs werft-test-ops-api-1 2>&1 | grep '^BOOTSTRAP_TOKEN='`의 값을 쓴다(그 경우 로그 열람 권한을 운영자로 제한한다).
+웹 콘솔은 API와 같은 주소(3000)에서 열린다. 아래 "접근"의 터널을 연 뒤 `http://localhost:3000/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`, owner의 email·이름·비밀번호, workspace 이름·slug를 넣으면 첫 owner와 workspace가 생기고, 그 계정으로 `/login`에 로그인한다. env 파일에 `BOOTSTRAP_TOKEN`을 넣었다면 그 값을 편집기에서 복사해 붙이고 터미널에 출력하지 않는다. 넣지 않았다면 `scripts/test-ops.sh bootstrap-token`이 출력하는 값을 쓴다. 이 명령은 토큰을 한 번만 보이고, 다시 실행하면 토큰 없이 exit 1로 끝난다. 값을 놓쳤고 owner가 아직 없으면 `stop`과 `start`로 API를 다시 띄워 새 토큰을 만든다(이전 토큰은 무효).
 
 bootstrap은 live owner가 없을 때 한 번만 통과한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`이다. 나머지 사용자는 owner가 웹 콘솔에서 초대한다.
 

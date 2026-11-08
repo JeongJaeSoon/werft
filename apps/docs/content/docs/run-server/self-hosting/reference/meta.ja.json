@@ -1,0 +1,4 @@
+{
+  "title": "リファレンス",
+  "pages": ["configuration", "storage", "metrics", "database", "packages"]
+}

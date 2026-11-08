@@ -2470,6 +2470,10 @@ describe("compose layers", () => {
   // The model key is entered on the console's model connections screen;
   // the env value only serves a connection that names it with `value_env`.
   const OPTIONAL = ["ANTHROPIC_API_KEY"];
+  // The one value this layer fixes itself: the path the API writes a minted
+  // bootstrap token to and `scripts/test-ops.sh bootstrap-token` reads from.
+  // It is no operator setting, so it is not asked of the env file.
+  const FIXED_PATH = "BOOTSTRAP_TOKEN_FILE";
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -2693,6 +2697,7 @@ describe("compose layers", () => {
       [
         "WORKER_IMAGE",
         "SETTINGS_DOCUMENT",
+        FIXED_PATH,
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
           (name) =>
@@ -2764,7 +2769,9 @@ describe("compose layers", () => {
           (service.environment ?? {}) as Record<string, string>,
         ).filter(
           ([variable]) =>
-            variable !== "SETTINGS_DOCUMENT" && !OPTIONAL.includes(variable),
+            variable !== "SETTINGS_DOCUMENT" &&
+            variable !== FIXED_PATH &&
+            !OPTIONAL.includes(variable),
         );
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
@@ -3099,6 +3106,26 @@ describe("compose layers", () => {
             value: service.environment?.BOOTSTRAP_TOKEN ?? null,
           }).toEqual({ name, value: name === "api" ? expected : null });
       }
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the test-ops API alone is told to leave a minted bootstrap token in a file",
+    () => {
+      const { exitCode, stderr, model } = render(
+        LOCALSTACK_LAYERS,
+        TEST_OPS_REQUIRED,
+      );
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      for (const [name, service] of Object.entries(model?.services ?? {}))
+        expect({
+          name,
+          value: service.environment?.BOOTSTRAP_TOKEN_FILE ?? null,
+        }).toEqual({
+          name,
+          value: name === "api" ? "/tmp/werft-bootstrap-token" : null,
+        });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

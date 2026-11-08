@@ -47,13 +47,12 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  GridTableRowOpener,
   Heading,
   Input,
   RadioGroup,
   RadioGroupItem,
   RowAction,
-  RowList,
-  RowListItem,
   Section,
   Text,
   Link as TextLink,
@@ -79,13 +78,11 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
-import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
 import {
   SEARCH_MAX,
   SEARCH_SETTLE_MS,
   useSearchTerm,
 } from "../components/search-term.ts";
-import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -163,86 +160,107 @@ export function TeamsScreen() {
     );
   }
 
-  // Creating a team is the page head's button (TeamCreateDialog).
+  // Creating a team is the page head's button (TeamCreateDialog). The intro
+  // is the page's description line here, so the tab opens on the search box
+  // like the 구성원 tab does.
   return (
-    <TeamsTab>
-      <Section title={t("teams.listTitle")}>
-        <div className={SECTION_BODY}>
-          {isApiError(teams.error, "FORBIDDEN") ? null : (
-            <ListToolbar
-              filter={null}
-              search={{
-                ref: search,
-                type: "search",
-                "aria-label": t("teams.listSearch"),
-                placeholder: t("teams.listSearch"),
-                maxLength: SEARCH_MAX,
-                value: query,
-                onChange: (event) => setQuery(event.target.value),
-              }}
-            />
-          )}
-          {teams.isPending ? (
-            <StatusScreen kind="loading" />
-          ) : teams.error && items.length === 0 ? (
-            <ListError
-              error={teams.error}
-              onRetry={() => void teams.refetch()}
-            />
-          ) : items.length === 0 && q !== undefined ? (
-            <EmptyState
-              title={t("teams.listNoMatch")}
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={clear}
-                >
-                  {t("members.clearSearch")}
-                </Button>
-              }
-            />
-          ) : items.length === 0 ? (
-            <EmptyState title={t("teams.empty")} />
-          ) : (
-            <>
-              <RowList>
-                {items.map((team) => (
-                  <RowListItem key={team.id} className={OPENS_ROW}>
-                    <TextLink
-                      asChild
-                      className={`${ROW_LINK} [overflow-wrap:anywhere]`}
-                    >
-                      <Link
-                        to="/members/teams/$teamId"
-                        params={{ teamId: team.id }}
-                      >
-                        {team.name}
-                      </Link>
-                    </TextLink>
-                    <Text
-                      as="span"
-                      variant="meta"
-                      numeric
-                      className="ml-auto [overflow-wrap:anywhere]"
-                    >
-                      {t("teams.memberCount", { count: team.member_count })}
-                    </Text>
-                    <ChevronRight
-                      aria-hidden="true"
-                      className="size-4 shrink-0 text-subtle-foreground"
-                    />
-                  </RowListItem>
-                ))}
-              </RowList>
-              <PagedListFooter list={teams} />
-            </>
-          )}
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      {isApiError(teams.error, "FORBIDDEN") ? null : (
+        <ListToolbar
+          filter={null}
+          search={{
+            ref: search,
+            type: "search",
+            "aria-label": t("teams.listSearch"),
+            placeholder: t("teams.listSearch"),
+            maxLength: SEARCH_MAX,
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+          }}
+        />
+      )}
+      {teams.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : teams.error && items.length === 0 ? (
+        <ListError error={teams.error} onRetry={() => void teams.refetch()} />
+      ) : items.length === 0 && q !== undefined ? (
+        <EmptyState
+          className="w-full"
+          title={t("teams.listNoMatch")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clear}>
+              {t("members.clearSearch")}
+            </Button>
+          }
+        />
+      ) : items.length === 0 ? (
+        <EmptyState title={t("teams.empty")} />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <TeamTable items={items} />
+          <PagedListFooter list={teams} />
         </div>
-      </Section>
+      )}
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
-    </TeamsTab>
+    </div>
+  );
+}
+
+// The same frame as the 구성원 table; the count and its arrow share the
+// second track, so every row's arrow lines up.
+const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
+
+function TeamTable({
+  items,
+}: {
+  readonly items: readonly { id: string; name: string; member_count: number }[];
+}) {
+  const { t } = useI18n();
+  return (
+    // The padding keeps the opener's focus ring inside the scroller's clip.
+    <div className="-m-1 grid overflow-x-auto p-1">
+      <GridTable
+        aria-label={t("teams.listLabel")}
+        columns={TEAM_COLUMNS}
+        framed={true}
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("teams.column.team")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("teams.column.members")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {items.map((team) => (
+          <GridTableRow key={team.id}>
+            <GridTableCell>
+              <GridTableRowOpener
+                asChild
+                aria-label={t("teams.open", { name: team.name })}
+              >
+                <Link
+                  to="/members/teams/$teamId"
+                  params={{ teamId: team.id }}
+                />
+              </GridTableRowOpener>
+              <Text as="span" weight="medium" truncate title={team.name}>
+                {team.name}
+              </Text>
+            </GridTableCell>
+            <GridTableCell>
+              <Text as="span" variant="meta" numeric truncate>
+                {t("teams.memberCount", { count: team.member_count })}
+              </Text>
+              <ChevronRight
+                aria-hidden="true"
+                className="ml-auto size-4 shrink-0 text-subtle-foreground"
+              />
+            </GridTableCell>
+          </GridTableRow>
+        ))}
+      </GridTable>
+    </div>
   );
 }
 

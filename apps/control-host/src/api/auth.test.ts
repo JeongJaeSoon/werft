@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
   apiErrorResponseSchema,
   authMeResponseSchema,
   bootstrapResponseSchema,
@@ -41,6 +52,7 @@ import {
   WEB_SESSIONS_PER_USER,
   WorkGate,
 } from "./auth.ts";
+import { takeBootstrapTokenFile } from "./bootstrap-token-file.ts";
 import {
   REQUEST_IDLE_TIMEOUT_SECONDS,
   RESPONSE_IDLE_TIMEOUT_SECONDS,
@@ -615,6 +627,133 @@ describe("bootstrap", () => {
     await expect(
       bootstrapGateFromEnv("short", identity, logger, print),
     ).rejects.toThrow(/BOOTSTRAP_TOKEN/);
+  });
+
+  describe("with a BOOTSTRAP_TOKEN_FILE", () => {
+    const setup = () => {
+      const dir = mkdtempSync(join(tmpdir(), "bootstrap-token-"));
+      const sink = new MemoryLogSink();
+      return {
+        dir,
+        file: join(dir, "token"),
+        sink,
+        logger: new StructuredLogger({ sinks: [sink] }),
+        printed: [] as string[],
+      };
+    };
+
+    test("a minted token goes to the file once, never to the log or the output, and is gone after one take", async () => {
+      const t = setup();
+      try {
+        const gate = await bootstrapGateFromEnv(
+          undefined,
+          new MemoryIdentityStore(),
+          t.logger,
+          (line) => t.printed.push(line),
+          undefined,
+          t.file,
+        );
+        const token = readFileSync(t.file, "utf8");
+        expect(token).toHaveLength(43);
+        expect(statSync(t.file).mode & 0o777).toBe(0o600);
+        // Only the final name is left behind by the write-then-rename.
+        expect(readdirSync(t.dir)).toEqual(["token"]);
+        expect(gate.matches(token)).toBe(true);
+        expect(t.printed.join("\n")).not.toContain(token);
+        expect(JSON.stringify(t.sink.records)).not.toContain(token);
+
+        expect(takeBootstrapTokenFile(t.file)).toBe(token);
+        expect(existsSync(t.file)).toBe(false);
+        expect(takeBootstrapTokenFile(t.file)).toBeNull();
+        // Taking the value does not spend it: the gate still opens the install.
+        expect(gate.consume(token)).toBe(true);
+      } finally {
+        rmSync(t.dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a second take finds nothing", async () => {
+      const t = setup();
+      try {
+        writeFileSync(t.file, "x".repeat(43));
+        const results = [
+          takeBootstrapTokenFile(t.file),
+          takeBootstrapTokenFile(t.file),
+        ];
+        expect(results.filter((r) => r !== null)).toEqual(["x".repeat(43)]);
+      } finally {
+        rmSync(t.dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a restart replaces the file's token, and a restart after the first owner removes it", async () => {
+      const t = setup();
+      try {
+        const identity = new MemoryIdentityStore();
+        const start = () =>
+          bootstrapGateFromEnv(
+            undefined,
+            identity,
+            t.logger,
+            (line) => t.printed.push(line),
+            undefined,
+            t.file,
+          );
+        await start();
+        const first = readFileSync(t.file, "utf8");
+        await start();
+        expect(readFileSync(t.file, "utf8")).not.toBe(first);
+
+        identity.users.push({ id: "u", disabledAt: null } as IdentityUser);
+        identity.memberships.push({
+          workspaceId: "w",
+          userId: "u",
+          role: "owner",
+          disabledAt: null,
+        });
+        await start();
+        expect(existsSync(t.file)).toBe(false);
+      } finally {
+        rmSync(t.dir, { recursive: true, force: true });
+      }
+    });
+
+    test("an operator's own BOOTSTRAP_TOKEN writes no file", async () => {
+      const t = setup();
+      try {
+        await bootstrapGateFromEnv(
+          "g".repeat(32),
+          new MemoryIdentityStore(),
+          t.logger,
+          (line) => t.printed.push(line),
+          undefined,
+          t.file,
+        );
+        expect(existsSync(t.file)).toBe(false);
+      } finally {
+        rmSync(t.dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a file that cannot be written leaves the token out of the output too", async () => {
+      const t = setup();
+      try {
+        const gate = await bootstrapGateFromEnv(
+          undefined,
+          new MemoryIdentityStore(),
+          t.logger,
+          (line) => t.printed.push(line),
+          undefined,
+          join(t.dir, "missing-dir", "token"),
+        );
+        expect(t.printed).toHaveLength(1);
+        expect(t.printed[0]).not.toMatch(/[A-Za-z0-9_-]{43}/);
+        expect(gate.matches("x".repeat(43))).toBe(false);
+        expect(readdirSync(t.dir)).toEqual([]);
+      } finally {
+        rmSync(t.dir, { recursive: true, force: true });
+      }
+    });
   });
 
   test("an unreachable database does not stop startup; the value is printed since owners are unknown", async () => {

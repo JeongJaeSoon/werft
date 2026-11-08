@@ -58,10 +58,8 @@ import {
   RadioGroup,
   RadioGroupItem,
   RowAction,
-  RowLines,
   RowList,
   RowListItem,
-  SearchInput,
   Section,
   Skeleton,
   Stepper,
@@ -112,9 +110,6 @@ const SEARCH_MAX = 200;
 
 const SECTION = "flex flex-col gap-[var(--werft-space-block)]";
 const MUTED = "m-0 text-muted-foreground";
-const PRIMARY =
-  "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
-const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
 const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
 const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
@@ -359,11 +354,14 @@ type Tab = "members" | "teams" | "invites";
 function MembersLayout({
   manages,
   tab,
+  onTeamList = false,
   action,
   children,
 }: {
   readonly manages: boolean;
   readonly tab: Tab;
+  /** The team list, not a team's page: its intro is the description. */
+  readonly onTeamList?: boolean;
   readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
@@ -371,9 +369,11 @@ function MembersLayout({
     <Page
       title="구성원"
       description={
-        manages
-          ? "워크스페이스에 속한 사람과 역할입니다."
-          : "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다."
+        !manages
+          ? "구성원 초대와 관리는 워크스페이스 소유자나 관리자가 합니다."
+          : onTeamList
+            ? TEAMS_INTRO
+            : "워크스페이스에 속한 사람과 역할입니다."
       }
       actions={action}
     >
@@ -823,59 +823,70 @@ function InvitesTab({
   readonly invites: readonly InviteRow[];
   readonly initialRevoke?: string | undefined;
 }) {
-  const titleId = useId();
   const [revoking, setRevoking] = useState(
     invites.find((invite) => invite.id === initialRevoke) ?? null,
   );
   const pending = invites.filter((invite) => invite.status === "pending");
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
-      <section className={SECTION} aria-labelledby={titleId}>
-        <Heading id={titleId}>대기 중인 초대</Heading>
-        {pending.length === 0 ? (
-          <EmptyState title="대기 중인 초대가 없습니다." />
-        ) : (
-          <RowList>
+      {pending.length === 0 ? (
+        <EmptyState title="대기 중인 초대가 없습니다." />
+      ) : (
+        <div className="-m-1 grid overflow-x-auto p-1">
+          <GridTable
+            aria-label="대기 중인 초대 표"
+            columns={MEMBER_COLUMNS}
+            narrowAt={640}
+            narrowColumns={MEMBER_NARROW_COLUMNS}
+            framed={true}
+            className="min-w-[322px]"
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>초대</GridTableColumnHeader>
+              <GridTableColumnHeader>역할</GridTableColumnHeader>
+              <GridTableColumnHeader action={true}>관리</GridTableColumnHeader>
+            </GridTableHeader>
             {pending.map((invite) => (
-              <RowListItem key={invite.id}>
-                <RowLines>
-                  <Text as="span" className={PRIMARY}>
+              <GridTableRow key={invite.id}>
+                <GridTableCell lines={true}>
+                  <Text as="span" weight="medium" truncate title={invite.email}>
                     {invite.email}
                   </Text>
-                  <Text
-                    as="span"
-                    variant="meta"
-                    className="block [overflow-wrap:anywhere]"
-                  >
-                    {ROLE_LABEL[invite.role]} ·{" "}
+                  <Text as="span" variant="meta">
                     {`${formatTimestamp(invite.expires_at, "ko")}까지`}
                   </Text>
-                </RowLines>
-                <RowAction
-                  variant="danger"
-                  className="ml-auto"
-                  aria-label={`${invite.email} 초대 회수`}
-                  onClick={() => setRevoking(invite)}
-                >
-                  회수
-                </RowAction>
-              </RowListItem>
+                </GridTableCell>
+                <GridTableCell>
+                  <Badge variant={invite.role === "member" ? "gray" : "blue"}>
+                    {ROLE_LABEL[invite.role]}
+                  </Badge>
+                </GridTableCell>
+                <GridTableCell align="end">
+                  <RowAction
+                    variant="danger"
+                    aria-label={`${invite.email} 초대 회수`}
+                    onClick={() => setRevoking(invite)}
+                  >
+                    회수
+                  </RowAction>
+                </GridTableCell>
+              </GridTableRow>
             ))}
-          </RowList>
-        )}
-        <ConfirmDialog
-          open={revoking !== null}
-          onOpenChange={(open) => {
-            if (!open) setRevoking(null);
-          }}
-          title={`${revoking?.email ?? ""} 초대를 회수할까요?`}
-          consequence="보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다."
-          confirmLabel="회수"
-          cancelLabel="취소"
-          tone="danger"
-          onConfirm={() => setRevoking(null)}
-        />
-      </section>
+          </GridTable>
+        </div>
+      )}
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title={`${revoking?.email ?? ""} 초대를 회수할까요?`}
+        consequence="보낸 링크로는 더 가입할 수 없습니다. 다시 초대하려면 새 링크를 만들어 보내야 합니다."
+        confirmLabel="회수"
+        cancelLabel="취소"
+        tone="danger"
+        onConfirm={() => setRevoking(null)}
+      />
     </div>
   );
 }
@@ -941,15 +952,15 @@ function TeamCreateAction({
   );
 }
 
-/** The 팀 tab: what teams are for, then the tab's own sections. */
+// A manager reads this as the page's description; a member, above their teams.
+const TEAMS_INTRO =
+  "팀은 사람 묶음입니다. 에이전트의 담당 팀이나 관리자로 지정해 함께 관리하고 씁니다.";
+
+/** A member's 팀 tab: what teams are for, then the tab's own sections. */
 function TeamsIntro({ children }: { readonly children: ReactNode }) {
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <Text className={`${MUTED} text-sm`}>
-        팀은 사람 묶음입니다. 에이전트의 담당 팀이 되면 팀 관리자는 그
-        에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 팀을 에이전트
-        관리자로 지정하면 팀의 구성원 모두가 그 에이전트를 관리합니다.
-      </Text>
+      <Text className={`${MUTED} text-sm`}>{TEAMS_INTRO}</Text>
       {children}
     </div>
   );
@@ -964,48 +975,63 @@ function TeamRowLink({ name }: { readonly name: string }) {
 }
 
 function TeamsTab({ teams }: { readonly teams: readonly TeamView[] }) {
-  const titleId = useId();
   const [query, setQuery] = useState("");
   const items = teams.filter((team) => matches(query, team.name));
   return (
-    <TeamsIntro>
-      <section className={SECTION} aria-labelledby={titleId}>
-        <Heading id={titleId}>팀 목록</Heading>
-        <div className="flex">
-          <SearchInput
-            type="search"
-            aria-label="이름으로 팀 찾기"
-            placeholder="이름으로 팀 찾기"
-            maxLength={SEARCH_MAX}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-        {items.length === 0 && query.trim() !== "" ? (
-          <EmptyState
-            title="검색어에 맞는 팀이 없습니다."
-            action={<ClearSearch onClick={() => setQuery("")} />}
-          />
-        ) : items.length === 0 ? (
-          <EmptyState title="아직 팀이 없습니다." />
-        ) : (
-          <RowList>
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      <ListToolbar
+        filter={null}
+        search={{
+          type: "search",
+          "aria-label": "이름으로 팀 찾기",
+          placeholder: "이름으로 팀 찾기",
+          maxLength: SEARCH_MAX,
+          value: query,
+          onChange: (event) => setQuery(event.target.value),
+        }}
+      />
+      {items.length === 0 && query.trim() !== "" ? (
+        <EmptyState
+          className="w-full"
+          title="검색어에 맞는 팀이 없습니다."
+          action={<ClearSearch onClick={() => setQuery("")} />}
+        />
+      ) : items.length === 0 ? (
+        <EmptyState title="아직 팀이 없습니다." />
+      ) : (
+        <div className="-m-1 grid overflow-x-auto p-1">
+          <GridTable
+            aria-label="팀 표"
+            columns="minmax(0,1fr) 9rem"
+            framed={true}
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>팀</GridTableColumnHeader>
+              <GridTableColumnHeader>구성원</GridTableColumnHeader>
+            </GridTableHeader>
             {items.map((team) => (
-              <RowListItem key={team.id} className={OPENS_ROW}>
-                <TeamRowLink name={team.name} />
-                <Text as="span" className={`${SECONDARY} ml-auto`}>
-                  {`구성원 ${team.member_count}명`}
-                </Text>
-                <ChevronRight
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-subtle-foreground"
-                />
-              </RowListItem>
+              <GridTableRow key={team.id}>
+                <GridTableCell>
+                  <GridTableRowOpener aria-label={`팀 열기: ${team.name}`} />
+                  <Text as="span" weight="medium" truncate title={team.name}>
+                    {team.name}
+                  </Text>
+                </GridTableCell>
+                <GridTableCell>
+                  <Text as="span" variant="meta" numeric truncate>
+                    {`구성원 ${team.member_count}명`}
+                  </Text>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="ml-auto size-4 shrink-0 text-subtle-foreground"
+                  />
+                </GridTableCell>
+              </GridTableRow>
             ))}
-          </RowList>
-        )}
-      </section>
-    </TeamsIntro>
+          </GridTable>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1660,7 +1686,12 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
 
   return (
     <ScreenShell current="members" crumb={["구성원"]} role={viewer}>
-      <MembersLayout manages={manager !== null} tab={tab} action={action}>
+      <MembersLayout
+        manages={manager !== null}
+        tab={tab}
+        onTeamList={tab === "teams" && !onTeamPage}
+        action={action}
+      >
         {content}
       </MembersLayout>
     </ScreenShell>

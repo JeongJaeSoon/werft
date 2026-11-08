@@ -23,7 +23,7 @@ outcome: "利用者ごとの認証手段と実行権限を発行します"
 <a id="1-첫-owner-만들기" />
 ### 1. 最初の owner の作成
 
-ブラウザの `/bootstrap` に固定した BOOTSTRAP_TOKEN、owner 情報、workspace 名を入力します。トークン未設定の単一 API 環境では、今回の API コンテナの起動ログ（`docker logs <this-installation-api-container-id>`）を運用者だけが確認し、自動生成されたトークンを取得します。コンテナは status と project label で確認します。既定 replica が 2 の Kubernetes では自動生成に頼らず、Secret の固定トークンを使います。最初の owner 作成後に同じトークンを再利用すると `409 BOOTSTRAP_DONE` です。`/login` でログインします。
+ブラウザの `/bootstrap` に固定した BOOTSTRAP_TOKEN、owner 情報、workspace 名を入力します。トークン未設定の test-ops 単一 API 環境では、`scripts/test-ops.sh bootstrap-token` が自動生成されたトークンを一度だけ出力します。再実行しても出力されず、コンテナログは読みません。それ以外の単一 API 構成（`scripts/local.sh` など）では API の起動ログ（`docker logs <this-installation-api-container-id>`）に出力されます。既定 replica が 2 の Kubernetes では自動生成に頼らず、Secret の固定トークンを使います。最初の owner 作成後に同じトークンを再利用すると `409 BOOTSTRAP_DONE` です。`/login` でログインします。
 
 <a id="2-사용자별-key-발급" />
 ### 2. 利用者ごとの key 発行

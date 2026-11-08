@@ -23,7 +23,7 @@ Complete [installation](/run-server/self-hosting) and [access configuration](/ru
 
 ### 1. Create the first owner
 
-Open `/bootstrap` in a browser and enter the fixed BOOTSTRAP_TOKEN, owner details, and workspace name. On a single-API installation without a configured token, an operator can find the generated token in this installation's API container startup logs (`docker logs <this-installation-api-container-id>`). Identify the container by status and project label. On Kubernetes with the default 2 replicas, use a fixed token in the Secret rather than relying on automatic generation. Reusing the token after the first owner exists returns `409 BOOTSTRAP_DONE`. Sign in at `/login`.
+Open `/bootstrap` in a browser and enter the fixed BOOTSTRAP_TOKEN, owner details, and workspace name. On a test-ops single-API installation without a configured token, `scripts/test-ops.sh bootstrap-token` prints the generated token once; running it again prints nothing, and no container log is read. Other single-API setups (such as `scripts/local.sh`) print it in the API startup log (`docker logs <this-installation-api-container-id>`). On Kubernetes with the default 2 replicas, use a fixed token in the Secret rather than relying on automatic generation. Reusing the token after the first owner exists returns `409 BOOTSTRAP_DONE`. Sign in at `/login`.
 
 <a id="2-사용자별-key-발급" />
 ### 2. Issue per-user keys

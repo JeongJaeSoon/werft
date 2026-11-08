@@ -329,6 +329,7 @@ jobs:
               - tests/dev/
               - tests/docs-i18n-code.
               - tests/docs-links.
+              - tests/docs-meta-pairs.
               - tests/docs-reader-contract.
               - tests/docs-self-hosting-commands.
               - tests/docs-self-hosting-facts.

@@ -72,7 +72,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | 무작위 값. 영문, 숫자, `.` `_` `~` `-`만 쓴다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 잃으면 저장한 자격 증명을 읽지 못한다 |
-| `BOOTSTRAP_TOKEN` | 주석을 풀고 32–256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
+| `BOOTSTRAP_TOKEN` | 비워 둔다(주석 그대로). 첫 owner를 만드는 토큰은 API가 만들고, 4단계 `deploy` 뒤 `scripts/test-ops.sh bootstrap-token`이 한 번 보여 준다. 고정 값이 필요하면 주석을 풀고 32–256자 무작위 값을 넣는다. 그 값을 쓰는 설치에서는 위 명령이 토큰을 내지 않는다 |
 | `CONSOLE_ORIGIN` | 콘솔에서 GitHub App을 만들 때 필요한 브라우저의 콘솔 origin(`scheme://host[:port]`). 없으면 "GitHub에서 만들기" 버튼이 비활성화된다. 예시 env 파일에는 이 줄이 없으므로 직접 추가한다. SSH tunnel로 콘솔을 열면 `http://127.0.0.1:<터널 포트>`를 넣는다. 설치 뒤 추가·변경한 값은 `start` 대신 `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`으로 현재 release를 다시 적용해 반영한다 |
 
 예시의 LocalStack 값을 운영 S3 값으로 바꾼다. 비밀을 명령줄이나 로그에 출력하지 않는다.
@@ -143,6 +143,14 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 ```
 
 preflight는 bucket 보호 설정과 scratch version의 쓰기·hold·읽기·hold 해제·삭제를 검사한다. quota는 deploy 때 scheduler가 검사한다. 둘 다 성공하고 서비스가 healthy가 되어야 한다. object store 방식은 첫 deploy 뒤 바꿀 수 없다.
+
+env 파일에 `BOOTSTRAP_TOKEN`을 넣지 않았다면 deploy 뒤에 첫 owner 토큰을 받는다. 토큰은 컨테이너 로그가 아니라 API 컨테이너 안의 owner 전용 파일에 놓이고, 이 명령이 꺼내면서 지운다.
+
+```bash
+scripts/test-ops.sh bootstrap-token
+```
+
+출력된 값을 `/bootstrap`에 붙인다([첫 owner와 key](/run-server/self-hosting/users-and-keys)). 같은 명령을 다시 실행하면 토큰 없이 종료 코드 1로 끝난다. 값을 놓쳤고 owner가 아직 없으면 `scripts/test-ops.sh stop`과 `start`로 API를 다시 띄워 새 토큰을 만든다(이전 토큰은 무효가 된다). 이미 `BOOTSTRAP_TOKEN`을 넣어 둔 설치는 바뀌는 것이 없다.
 
 ## 확인
 
