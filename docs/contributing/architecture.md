@@ -77,7 +77,7 @@ credential 경계: provider key와 저장소·object store credential은 worker�
 
 ## 경계
 
-이 저장소는 포트-어댑터(헥사고날) 구조다. `packages/platform`이 도메인과 port(`src/ports`)를 갖고, `packages/adapters`와 `packages/db`가 그 port를 구현하는 어댑터이며, `apps/control-host`가 이를 조립한다. 의존은 어댑터에서 platform 쪽으로만 향하고 `tests/architecture.test.ts`가 이를 강제한다. 웹 콘솔과 SDK는 BFF 없이 같은 `/v1` API(`packages/client`)를 쓰고, Slack은 `/v1`을 거치지 않고 platform 서비스를 직접 부르는 입력 어댑터다.
+이 저장소는 포트-어댑터(헥사고날) 구조다. `packages/platform`이 도메인과 port(`src/ports`)를 갖고, `packages/db`와 `packages/adapters/execution`이 그 port를 구현한다. 런타임 어댑터(`packages/adapters/runtimes`)는 platform이 아니라 `packages/runtime-core`의 `AgentRuntime` 계약을 구현한다. 조립은 제어 영역의 `apps/control-host`와 런타임 쪽의 `apps/worker`(`src/composition.ts`)가 맡고, `tests/architecture.test.ts`가 패키지마다 허용한 의존만 남기도록 강제한다(예: platform은 db·SDK를 import하지 않고, Claude 어댑터는 platform에 닿지 않는다). 웹 콘솔과 SDK는 BFF 없이 같은 `/v1` API(`packages/client`)를 쓴다. Slack 이벤트는 `/v1/slack/*`로 들어오지만, Slack 처리기는 세션을 `/v1`로 HTTP 호출하지 않고 platform 서비스를 직접 부르는 입력 어댑터다.
 
 `tests/architecture.test.ts`가 아래 규칙을 import와 package 의존성으로 검사한다. 규칙을 바꾸려면 그 테스트를 먼저 고친다.
 
