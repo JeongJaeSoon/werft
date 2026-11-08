@@ -1361,6 +1361,11 @@ export const sessions = pgTable(
     // (`githubPolicyStartSchema`); later changes can only narrow them for it.
     // Null on a session without one, which reads the row alone.
     githubPolicyStart: jsonb("github_policy_start").$type<unknown>(),
+    // The agent's MCP settings as they were when the session started
+    // (`mcpStartSchema`); later changes can only narrow them for it. Null
+    // on a session started without a settings row, which follows its
+    // release's card and pins.
+    mcpStart: jsonb("mcp_start").$type<unknown>(),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -3357,6 +3362,50 @@ export const agentGitHubSettings = pgTable(
     check(
       "agent_github_settings_push_attached_check",
       sql`${table.pushAttached} IS NULL OR ${table.pushAttached} IN ('allow','ask','deny')`,
+    ),
+  ],
+);
+
+// The remote MCP server an agent calls and the credential names it needs,
+// read at every use and in no version: access, not behavior, so a change
+// makes no release. No row: the agent's sessions follow their release's
+// card and pins. `updated_by` is set only by a person's save; a row copied
+// from a release leaves it null and does not narrow that release's sessions.
+export const agentMcpSettings = pgTable(
+  "agent_mcp_settings",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    // The catalog id of the one server, or null for none.
+    server: text(),
+    // Full `mcp__<server>__<tool>` names the agent may call.
+    allowedTools: jsonb("allowed_tools").$type<string[]>().notNull(),
+    // Names only; the grant is `credential_bindings`.
+    credentialRefs: jsonb("credential_refs").$type<string[]>().notNull(),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_mcp_settings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "agent_mcp_settings_allowed_tools_check",
+      sql`jsonb_typeof(${table.allowedTools}) = 'array'`,
+    ),
+    check(
+      "agent_mcp_settings_credential_refs_check",
+      sql`jsonb_typeof(${table.credentialRefs}) = 'array' AND jsonb_array_length(${table.credentialRefs}) <= 32`,
+    ),
+    check(
+      "agent_mcp_settings_server_check",
+      sql`${table.server} IS NULL OR ${table.server} ~ '^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$'`,
     ),
   ],
 );

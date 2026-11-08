@@ -98,6 +98,20 @@ export const cardMcpServerSchema = z
   .object({ server: mcpServerIdSchema })
   .strict();
 
+/**
+ * An agent's MCP settings as a session starts with them (`sessions.mcp_start`).
+ * Not strict, so a later field does not make an older image refuse the
+ * snapshot; one that does not parse closes the session's MCP.
+ */
+export const mcpStartSchema = z.object({
+  server: mcpServerIdSchema.nullable(),
+  allowed_tools: z.array(toolNameSchema),
+  credential_refs: z.array(credentialRefSchema),
+  /** `agent_mcp_settings.revision` the snapshot was taken from. */
+  revision: z.number().int().positive(),
+});
+export type McpStart = z.infer<typeof mcpStartSchema>;
+
 export const agentCapabilitiesSchema = z
   .object({
     /** `null` = every tool the runtime profile allows, `[]` = none. */

@@ -1058,6 +1058,13 @@
       "when": 1793996771524,
       "tag": "0241_profile_fill",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1794108873340,
+      "tag": "0242_agent_mcp_settings",
+      "breakpoints": true
     }
   ]
 }

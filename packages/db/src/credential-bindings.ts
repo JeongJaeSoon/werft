@@ -29,7 +29,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Written out with aliases: inside a select list drizzle renders a column
 // without its table, which is ambiguous once the subquery joins.
-const CARD_REFS = sql.raw(`v.card -> 'capabilities' -> 'credential_refs'`);
+const CARD_REFS_TEXT = `v.card -> 'capabilities' -> 'credential_refs'`;
+
+// The names a session needs: the snapshot it started with when it has one,
+// else its release's card. `s` is the session, `v` its release's version.
+const SESSION_REFS = sql.raw(
+  `CASE WHEN jsonb_typeof(s.mcp_start -> 'credential_refs') = 'array' THEN s.mcp_start -> 'credential_refs' ELSE ${CARD_REFS_TEXT} END`,
+);
+
+// The names an agent needs for a session it starts or an activation: its
+// settings when it has a row, else the release's card. `m` is the row.
+const CURRENT_REFS = sql.raw(
+  `CASE WHEN m.agent_id IS NOT NULL THEN m.credential_refs ELSE ${CARD_REFS_TEXT} END`,
+);
 
 // Sessions on this agent's releases whose card names the credential and
 // that can still take a turn: until they close they keep what they started
@@ -42,8 +54,8 @@ function runningSessions(workspaceId: string, agentId: SQL, ref: SQL) {
     WHERE s.owner_id = ${workspaceId}
       AND r.agent_id = ${agentId}
       AND s.admission_state <> 'closed'
-      AND jsonb_typeof(${CARD_REFS}) = 'array'
-      AND ${CARD_REFS} ? ${ref}
+      AND jsonb_typeof(${SESSION_REFS}) = 'array'
+      AND ${SESSION_REFS} ? ${ref}
   )`;
 }
 
@@ -185,17 +197,25 @@ async function writeReceipt(
   });
 }
 
+// With a session the names are that session's own (`SESSION_REFS`), so a name
+// the settings gained since it started does not stop its next message; without
+// one they are the agent's current need (`CURRENT_REFS`), for activating a
+// release or starting a session.
 async function unboundRefsOn(
   executor: Database,
   workspaceId: string,
   releaseId: string,
+  sessionId: string | null = null,
 ): Promise<string[]> {
+  const needed = sessionId === null ? CURRENT_REFS : SESSION_REFS;
   const result = await executor.execute<{ ref: string }>(sql`
     SELECT DISTINCT ref FROM agent_releases r
     JOIN agents a ON a.id = r.agent_id AND a.workspace_id = ${workspaceId}
     JOIN agent_versions v ON v.id = r.version_id
+    LEFT JOIN agent_mcp_settings m ON m.agent_id = r.agent_id AND m.workspace_id = a.workspace_id
+    LEFT JOIN sessions s ON s.id = ${sessionId}
     CROSS JOIN LATERAL jsonb_array_elements_text(
-      CASE WHEN jsonb_typeof(${CARD_REFS}) = 'array' THEN ${CARD_REFS} ELSE '[]'::jsonb END
+      CASE WHEN jsonb_typeof(${needed}) = 'array' THEN ${needed} ELSE '[]'::jsonb END
     ) AS ref
     WHERE r.id = ${releaseId}
       AND NOT EXISTS (
@@ -218,7 +238,7 @@ async function unboundRefsOn(
  */
 export async function lockUnboundRefs(
   tx: Database,
-  input: { workspaceId: string; releaseId: string },
+  input: { workspaceId: string; releaseId: string; sessionId?: string },
 ): Promise<string[]> {
   await tx.execute(sql`
     SELECT 1 FROM credential_bindings b
@@ -228,7 +248,12 @@ export async function lockUnboundRefs(
       AND b.target = 'agent'
       AND b.revoked_at IS NULL
     FOR SHARE OF b`);
-  return unboundRefsOn(tx, input.workspaceId, input.releaseId);
+  return unboundRefsOn(
+    tx,
+    input.workspaceId,
+    input.releaseId,
+    input.sessionId ?? null,
+  );
 }
 
 /**

@@ -16,10 +16,10 @@ export type McpSessionState = {
   workspaceSlug: string | null;
   agentId: string;
   releaseId: string;
-  /** The server the release's card names. */
+  /** The server the session may reach now (`effectiveMcp`). */
   server: string | null;
-  /** The release's pinned tool policy, `per_tool`. */
-  perTool: Readonly<Record<string, string>>;
+  /** The `mcp__<server>__<tool>` names it may call now. */
+  tools: readonly string[];
   /** The credential names bound to the agent now, revoked ones left out. */
   boundRefs: readonly string[];
   /** The turn the attempt is running, by its public id; null between turns. */

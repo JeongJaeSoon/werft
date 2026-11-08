@@ -14,6 +14,7 @@ import {
   agentAdmins,
   agentAdminTeams,
   agentIdentities,
+  agentMcpSettings,
   agentReleases,
   agents,
   agentVersions,
@@ -142,6 +143,26 @@ export async function agentSummaries(
     .orderBy(asc(agentAdminTeams.createdAt), asc(agentAdminTeams.teamId)))
     push(admins, row.agentId, row.name);
 
+  // An agent with a settings row shows its server and names; the others show
+  // their card's, as before.
+  const mcpSettings = new Map(
+    (
+      await db
+        .select({
+          agentId: agentMcpSettings.agentId,
+          server: agentMcpSettings.server,
+          credentialRefs: agentMcpSettings.credentialRefs,
+        })
+        .from(agentMcpSettings)
+        .where(
+          and(
+            eq(agentMcpSettings.workspaceId, workspaceId),
+            inArray(agentMcpSettings.agentId, found),
+          ),
+        )
+    ).map((row) => [row.agentId, row]),
+  );
+
   const bound = new Map<string, string[]>();
   for (const row of await db
     .select({
@@ -257,14 +278,23 @@ export async function agentSummaries(
   const summaries = new Map<string, AgentSummary>();
   for (const version of versions) {
     const capabilities = agentCapabilitiesSchema.parse(version.capabilities);
+    const settings = mcpSettings.get(version.agentId);
     summaries.set(version.agentId, {
       version: {
         version_no: version.versionNo,
         role: version.role,
         instructions:
           version.instructions === null ? null : clip(version.instructions),
-        mcp_servers: (capabilities.mcp ?? []).map((mcp) => mcp.server),
-        credential_refs: capabilities.credential_refs ?? [],
+        mcp_servers:
+          settings === undefined
+            ? (capabilities.mcp ?? []).map((mcp) => mcp.server)
+            : settings.server === null
+              ? []
+              : [settings.server],
+        credential_refs:
+          settings === undefined
+            ? (capabilities.credential_refs ?? [])
+            : settings.credentialRefs,
       },
       runtime_profile_id: profiles.get(version.agentId) ?? null,
       release_label: labels.get(version.agentId) ?? null,

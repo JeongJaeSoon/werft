@@ -94,6 +94,7 @@ import { enqueueWithin } from "./enqueue.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
+import { captureMcpStart } from "./mcp-settings.ts";
 import {
   AWAITABLE_STATUSES,
   actionableOfSession,
@@ -314,6 +315,10 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId !== undefined
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
+        const mcpStart =
+          input.agentReleaseId === undefined
+            ? null
+            : await captureMcpStart(tx, input.agentReleaseId);
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -321,6 +326,7 @@ export function createPostgresSessionUnitOfWork(
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
+          mcpStart,
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
@@ -461,6 +467,7 @@ export function createPostgresSessionUnitOfWork(
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: session.agentReleaseId,
+              sessionId,
             })
           ).length > 0
         ) {
