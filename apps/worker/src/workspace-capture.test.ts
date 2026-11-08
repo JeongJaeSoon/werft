@@ -469,18 +469,18 @@ exec "$REAL_GIT" "$@"`);
     await commitFiles({ "a.txt": "a\n" });
     await dated("2000-01-01T00:00:00Z");
     for (let at = 0; at < 3; at += 1) {
-      await git(root, "branch", `old-${at}`);
+      await git(root, "branch", `a-old-${at}`);
     }
     await dated("2020-01-01T00:00:00Z");
     for (let at = 0; at < MAX_CHECKPOINT_SOURCES; at += 1) {
-      await git(root, "branch", `new-${at}`);
+      await git(root, "branch", `z-new-${at}`);
     }
 
     const result = await captured();
 
     expect(result.sources).toHaveLength(MAX_CHECKPOINT_SOURCES);
     expect(
-      result.sources.filter((source) => source.name.startsWith("old-")),
+      result.sources.filter((source) => source.name.startsWith("a-old-")),
     ).toEqual([]);
   });
 
