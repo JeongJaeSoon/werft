@@ -209,6 +209,8 @@ export function TeamsScreen() {
 // The same frame as the 구성원 table; the count and its arrow share the
 // second track, so every row's arrow lines up.
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
+// "Change role" and "Remove" side by side in the longest language.
+const TEAM_ACTIONS_COLUMN = "12rem";
 
 function TeamTable({
   items,
@@ -583,21 +585,24 @@ function TeamMembers({
   const shown = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  // Below 640px the date and the workspace role drop out; the name keeps
-  // what the team role and the buttons leave.
+  // Every track is fixed: each row is its own grid, so a max-content track
+  // would size to that row's buttons and the header's "Actions" alone, and
+  // push the columns before it out from under their headers. Below 820px the
+  // date and the workspace role drop out; the name keeps what the team role
+  // and the buttons leave.
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
     "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "max-content",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    "max-content",
-    manages && "max-content",
+    "96px",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -653,101 +658,109 @@ function TeamMembers({
               }
             />
           ) : (
-            <GridTable
-              aria-label={t("teams.tableLabel")}
-              columns={columns}
-              narrowAt={640}
-              narrowColumns={narrowColumns}
-              framed={true}
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>
-                  {t("members.column.name")}
-                </GridTableColumnHeader>
-                {roles && (
+            // Below the narrow template's width the fixed tracks would leave
+            // the name no room, so the table scrolls instead; the padding
+            // keeps the row opener's focus ring inside the scroller's clip.
+            <div className="-m-1 grid overflow-x-auto p-1">
+              <GridTable
+                aria-label={t("teams.tableLabel")}
+                columns={columns}
+                narrowAt={820}
+                narrowColumns={narrowColumns}
+                framed={true}
+                className={manages ? "min-w-[480px]" : undefined}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("members.column.name")}
+                  </GridTableColumnHeader>
+                  {roles && (
+                    <GridTableColumnHeader hideNarrow={true}>
+                      {t("teams.column.workspaceRole")}
+                    </GridTableColumnHeader>
+                  )}
+                  <GridTableColumnHeader>
+                    {t("teams.column.teamRole")}
+                  </GridTableColumnHeader>
                   <GridTableColumnHeader hideNarrow={true}>
-                    {t("teams.column.workspaceRole")}
+                    {t("teams.column.addedAt")}
                   </GridTableColumnHeader>
-                )}
-                <GridTableColumnHeader>
-                  {t("teams.column.teamRole")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("teams.column.addedAt")}
-                </GridTableColumnHeader>
-                {manages && (
-                  <GridTableColumnHeader action={true}>
-                    {t("members.column.actions")}
-                  </GridTableColumnHeader>
-                )}
-              </GridTableHeader>
-              {shown.map((member) => {
-                const name = member.display_name ?? member.email;
-                const memberRole = roles?.get(member.user_id);
-                return (
-                  <GridTableRow key={member.user_id}>
-                    <GridTableCell>
-                      <Avatar
-                        initials={avatarInitials(name)}
-                        tone={avatarTone(member.user_id)}
-                      />
-                      <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
-                        {member.display_name !== null && (
-                          <Text
-                            as="span"
-                            variant="meta"
-                            truncate
-                            title={member.email}
-                          >
-                            {member.email}
-                          </Text>
-                        )}
-                      </span>
-                    </GridTableCell>
-                    {roles && (
-                      <GridTableCell hideNarrow={true}>
-                        {memberRole && (
-                          <Badge
-                            variant={memberRole === "member" ? "gray" : "blue"}
-                          >
-                            {roleLabel(t, memberRole)}
-                          </Badge>
-                        )}
-                      </GridTableCell>
-                    )}
-                    <GridTableCell>
-                      <TeamRoleBadge role={member.role} />
-                    </GridTableCell>
-                    <GridTableCell
-                      hideNarrow={true}
-                      className="text-caption text-muted-foreground tabular-nums"
-                    >
-                      {formatTimestamp(member.added_at, locale)}
-                    </GridTableCell>
-                    {manages && (
-                      <GridTableCell align="end">
-                        <TeamRoleDialog
-                          team={team}
-                          member={member}
-                          onOutcome={onOutcome}
+                  {manages && (
+                    <GridTableColumnHeader action={true}>
+                      {t("members.column.actions")}
+                    </GridTableColumnHeader>
+                  )}
+                </GridTableHeader>
+                {shown.map((member) => {
+                  const name = member.display_name ?? member.email;
+                  const memberRole = roles?.get(member.user_id);
+                  return (
+                    <GridTableRow key={member.user_id}>
+                      <GridTableCell>
+                        <Avatar
+                          initials={avatarInitials(name)}
+                          tone={avatarTone(member.user_id)}
                         />
-                        <RowAction
-                          variant="danger"
-                          disabled={remove.isPending}
-                          aria-label={t("teams.removeMemberFor", { name })}
-                          onClick={() => setRemoving(member)}
-                        >
-                          {t("teams.removeMember")}
-                        </RowAction>
+                        <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
+                          <Text as="span" weight="medium" truncate>
+                            {name}
+                          </Text>
+                          {member.display_name !== null && (
+                            <Text
+                              as="span"
+                              variant="meta"
+                              truncate
+                              title={member.email}
+                            >
+                              {member.email}
+                            </Text>
+                          )}
+                        </span>
                       </GridTableCell>
-                    )}
-                  </GridTableRow>
-                );
-              })}
-            </GridTable>
+                      {roles && (
+                        <GridTableCell hideNarrow={true}>
+                          {memberRole && (
+                            <Badge
+                              variant={
+                                memberRole === "member" ? "gray" : "blue"
+                              }
+                            >
+                              {roleLabel(t, memberRole)}
+                            </Badge>
+                          )}
+                        </GridTableCell>
+                      )}
+                      <GridTableCell>
+                        <TeamRoleBadge role={member.role} />
+                      </GridTableCell>
+                      <GridTableCell
+                        hideNarrow={true}
+                        className="text-caption text-muted-foreground tabular-nums"
+                      >
+                        {formatTimestamp(member.added_at, locale)}
+                      </GridTableCell>
+                      {manages && (
+                        <GridTableCell align="end">
+                          <TeamRoleDialog
+                            team={team}
+                            member={member}
+                            onOutcome={onOutcome}
+                          />
+                          <RowAction
+                            variant="danger"
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </RowAction>
+                        </GridTableCell>
+                      )}
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
+            </div>
           )}
         </div>
       )}

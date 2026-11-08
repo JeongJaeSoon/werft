@@ -67,6 +67,10 @@ import {
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
+import {
+  INACTIVE_ROW_CLASS,
+  InactiveBadge,
+} from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
@@ -498,6 +502,7 @@ function MemberTable({
               <GridTableRow
                 key={member.user_id}
                 inactive={disabled}
+                className={disabled ? INACTIVE_ROW_CLASS : undefined}
                 data-disabled={disabled}
               >
                 <GridTableCell lines={true}>
@@ -520,9 +525,7 @@ function MemberTable({
                       {member.display_name}
                     </Text>
                     {disabled ? (
-                      <span className="sr-only">
-                        {` (${t("members.state.disabled")})`}
-                      </span>
+                      <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
                     ) : null}
                     {member.user_id === self ? (
                       <Badge

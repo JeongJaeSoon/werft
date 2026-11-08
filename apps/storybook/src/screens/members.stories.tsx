@@ -637,6 +637,10 @@ function MembersTab({
   );
 }
 
+// Same fill the web app gives an inactive member's row.
+const INACTIVE_ROW =
+  "bg-hover has-[[data-slot=grid-table-row-opener]]:hover:bg-active";
+
 function MemberTableRow({
   member,
   self,
@@ -670,7 +674,11 @@ function MemberTableRow({
     </RowAction>
   );
   return (
-    <GridTableRow inactive={disabled} data-disabled={disabled}>
+    <GridTableRow
+      inactive={disabled}
+      className={disabled ? INACTIVE_ROW : undefined}
+      data-disabled={disabled}
+    >
       <GridTableCell lines={true}>
         <GridTableRowOpener
           aria-label={disabled ? `${name} 편집 (비활성)` : `${name} 편집`}
@@ -685,9 +693,12 @@ function MemberTableRow({
             {name}
           </Text>
           {disabled ? (
-            <Text as="span" className="sr-only">
-              {" (비활성)"}
-            </Text>
+            <Badge
+              variant="gray"
+              className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+            >
+              비활성
+            </Badge>
           ) : null}
           {self ? (
             <Badge
@@ -1210,15 +1221,11 @@ function TeamMembers({
     roles && "112px",
     "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "max-content",
+    manages && "12rem",
   ]
     .filter(Boolean)
     .join(" ");
-  const narrowColumns = [
-    "minmax(0,1fr)",
-    "max-content",
-    manages && "max-content",
-  ]
+  const narrowColumns = ["minmax(0,1fr)", "96px", manages && "12rem"]
     .filter(Boolean)
     .join(" ");
   return (
@@ -1254,95 +1261,102 @@ function TeamMembers({
               action={<ClearSearch onClick={() => setQuery("")} />}
             />
           ) : (
-            <GridTable
-              aria-label="팀 구성원"
-              columns={columns}
-              narrowAt={640}
-              narrowColumns={narrowColumns}
-              framed={true}
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>구성원</GridTableColumnHeader>
-                {roles && (
+            <div className="-m-1 grid overflow-x-auto p-1">
+              <GridTable
+                aria-label="팀 구성원"
+                columns={columns}
+                narrowAt={820}
+                narrowColumns={narrowColumns}
+                framed={true}
+                className={manages ? "min-w-[480px]" : undefined}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>구성원</GridTableColumnHeader>
+                  {roles && (
+                    <GridTableColumnHeader hideNarrow={true}>
+                      워크스페이스 역할
+                    </GridTableColumnHeader>
+                  )}
+                  <GridTableColumnHeader>팀 역할</GridTableColumnHeader>
                   <GridTableColumnHeader hideNarrow={true}>
-                    워크스페이스 역할
+                    추가한 날
                   </GridTableColumnHeader>
-                )}
-                <GridTableColumnHeader>팀 역할</GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  추가한 날
-                </GridTableColumnHeader>
-                {manages && (
-                  <GridTableColumnHeader action={true}>
-                    관리
-                  </GridTableColumnHeader>
-                )}
-              </GridTableHeader>
-              {shown.map((member) => {
-                const name = member.display_name ?? member.email;
-                const role = roles?.get(member.user_id);
-                return (
-                  <GridTableRow key={member.user_id}>
-                    <GridTableCell>
-                      <Avatar
-                        initials={avatarInitials(name)}
-                        tone={avatarTone(member.user_id)}
-                      />
-                      <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
-                        {member.display_name !== null && (
-                          <Text
-                            as="span"
-                            variant="meta"
-                            truncate
-                            title={member.email}
-                          >
-                            {member.email}
-                          </Text>
-                        )}
-                      </div>
-                    </GridTableCell>
-                    {roles && (
-                      <GridTableCell hideNarrow={true}>
-                        {role && (
-                          <Badge variant={role === "member" ? "gray" : "blue"}>
-                            {ROLE_LABEL[role]}
-                          </Badge>
-                        )}
-                      </GridTableCell>
-                    )}
-                    <GridTableCell>
-                      <Badge variant={member.role === "lead" ? "blue" : "gray"}>
-                        {TEAM_ROLE[member.role].label}
-                      </Badge>
-                    </GridTableCell>
-                    <GridTableCell
-                      hideNarrow={true}
-                      className="text-caption text-muted-foreground tabular-nums"
-                    >
-                      {formatTimestamp(member.added_at, "ko")}
-                    </GridTableCell>
-                    {manages && (
-                      <GridTableCell align="end">
-                        <TeamRoleDialog
-                          member={member}
-                          initialOpen={initialRole === member.user_id}
+                  {manages && (
+                    <GridTableColumnHeader action={true}>
+                      관리
+                    </GridTableColumnHeader>
+                  )}
+                </GridTableHeader>
+                {shown.map((member) => {
+                  const name = member.display_name ?? member.email;
+                  const role = roles?.get(member.user_id);
+                  return (
+                    <GridTableRow key={member.user_id}>
+                      <GridTableCell>
+                        <Avatar
+                          initials={avatarInitials(name)}
+                          tone={avatarTone(member.user_id)}
                         />
-                        <RowAction
-                          variant="danger"
-                          aria-label={`${name}님을 팀에서 빼기`}
-                          onClick={() => setRemoving(member)}
-                        >
-                          빼기
-                        </RowAction>
+                        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
+                          <Text as="span" weight="medium" truncate>
+                            {name}
+                          </Text>
+                          {member.display_name !== null && (
+                            <Text
+                              as="span"
+                              variant="meta"
+                              truncate
+                              title={member.email}
+                            >
+                              {member.email}
+                            </Text>
+                          )}
+                        </div>
                       </GridTableCell>
-                    )}
-                  </GridTableRow>
-                );
-              })}
-            </GridTable>
+                      {roles && (
+                        <GridTableCell hideNarrow={true}>
+                          {role && (
+                            <Badge
+                              variant={role === "member" ? "gray" : "blue"}
+                            >
+                              {ROLE_LABEL[role]}
+                            </Badge>
+                          )}
+                        </GridTableCell>
+                      )}
+                      <GridTableCell>
+                        <Badge
+                          variant={member.role === "lead" ? "blue" : "gray"}
+                        >
+                          {TEAM_ROLE[member.role].label}
+                        </Badge>
+                      </GridTableCell>
+                      <GridTableCell
+                        hideNarrow={true}
+                        className="text-caption text-muted-foreground tabular-nums"
+                      >
+                        {formatTimestamp(member.added_at, "ko")}
+                      </GridTableCell>
+                      {manages && (
+                        <GridTableCell align="end">
+                          <TeamRoleDialog
+                            member={member}
+                            initialOpen={initialRole === member.user_id}
+                          />
+                          <RowAction
+                            variant="danger"
+                            aria-label={`${name}님을 팀에서 빼기`}
+                            onClick={() => setRemoving(member)}
+                          >
+                            빼기
+                          </RowAction>
+                        </GridTableCell>
+                      )}
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
+            </div>
           )}
         </div>
       )}
