@@ -372,7 +372,6 @@ switch (cmd) {
           "(document.querySelector('main [data-status] h2') ?? document.querySelector('main [role=alert]') ?? document.querySelector('main'))?.innerText.replace(/\\s+/g, ' ').slice(0, 80)",
         )}`,
       );
-      await sleep(300);
       await reportCaptures();
       process.exit(1);
     };
@@ -755,7 +754,6 @@ switch (cmd) {
     console.error(`browser.mjs: unknown command '${cmd}'`);
     process.exit(2);
 }
-await sleep(300);
 await reportCaptures();
 ws.close();
 process.exit(0);
