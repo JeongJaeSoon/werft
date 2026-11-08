@@ -131,7 +131,6 @@ NetworkPolicy and namespace permissions replace Docker networks as the worker bo
 
 PostgreSQL advisory lock `pg_try_advisory_lock` serializes passes. A second scheduler skips without acquiring it, then its health goes stale without successful passes and liveness repeatedly restarts it. More replicas do not increase throughput. The chart fixes `replicas: 1` (no values key) and uses `Recreate`, stopping old Pods before new ones instead of RollingUpdate. Passes pause briefly during upgrades. Reconciler rechecks under row locks, so `reconciler.replicas` can scale without leader election; default 1.
 
-<a id="worker-networkpolicy" />
 ### Worker NetworkPolicy
 
 Chart NetworkPolicy replaces per-execution internal Docker networks. Worker Pods labeled `app.kubernetes.io/part-of=werft`, `app.kubernetes.io/component=worker`, `werft.installation=<installationId>` accept no inbound connections and send only to egress-proxy ports 3128/3129. No direct database/api/worker/node/cloud-metadata access exists; api gateway requests also use the proxy. Proxy accepts only workers; api authorizer 3100 accepts only proxy. This isolation requires CNI enforcement (kindnet enforces it; enable EKS VPC CNI's network policy agent).

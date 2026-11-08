@@ -20,7 +20,6 @@ You need an installed server and SSH access, or organizational TLS certificates 
 <a id="단계" />
 ## Steps
 
-<a id="compose-ssh-tunnel" />
 ### Compose: SSH tunnel
 
 ```bash
@@ -29,7 +28,6 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 Leave this terminal open and connect to `http://127.0.0.1:3000` from another terminal or browser.
 
-<a id="compose-tls-reverse-proxy" />
 ### Compose: TLS reverse proxy
 
 API (default 3000) and PostgreSQL (default 5432) bind only to host loopback. Users enter through an SSH tunnel; operators use PostgreSQL only on the server. Allow only SSH and the selected TLS endpoint through the firewall.

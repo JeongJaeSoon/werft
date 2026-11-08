@@ -43,7 +43,6 @@ scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timest
 
 `--port-base` sets the drill services' separate starting port. Choose a value that does not overlap other installations. Omit `--bucket` for a LocalStack trial. The drill restores postgres and the object store, then compares every checkpoint pointer by version. It does not start the API. Run it monthly and on the first backup after each upgrade.
 
-<a id="3-checkpoint-gc" />
 ### 3. Checkpoint GC
 
 Schedule this weekly, without overlapping backups, and start with a dry run.
