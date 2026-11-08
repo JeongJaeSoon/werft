@@ -240,6 +240,9 @@ describe("팀 화면", () => {
         .map((header) => header.textContent),
     ).toEqual(["팀", "구성원"]);
     expect(link.getAttribute("data-slot")).toBe("grid-table-row-opener");
+    // Keyboard reachable, and a list link is not the current page.
+    expect(link.getAttribute("tabindex")).toBeNull();
+    expect(link.getAttribute("aria-current")).toBeNull();
     const row = link.closest("[role=row]") as HTMLElement;
     expect(row.querySelectorAll("a").length).toBe(1);
     expect(row.textContent).toContain("결제팀");

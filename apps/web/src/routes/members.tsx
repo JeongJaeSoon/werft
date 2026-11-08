@@ -814,37 +814,46 @@ function InviteList({
                 {t("members.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
-            {pending.map((invite) => (
-              <GridTableRow key={invite.id}>
-                <GridTableCell lines={true}>
-                  <Text as="span" weight="medium" truncate title={invite.email}>
-                    {invite.email}
-                  </Text>
-                  <Text as="span" variant="meta">
-                    {t("members.invites.expires", {
-                      expires: formatTimestamp(invite.expires_at, locale),
-                    })}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={invite.role === "member" ? "gray" : "blue"}>
-                    {roleLabel(t, invite.role)}
-                  </Badge>
-                </GridTableCell>
-                <GridTableCell align="end">
-                  <RowAction
-                    variant="danger"
-                    disabled={revoke.isPending}
-                    aria-label={t("members.invites.revokeFor", {
-                      email: invite.email,
-                    })}
-                    onClick={() => setRevoking(invite)}
-                  >
-                    {t("members.invites.revoke")}
-                  </RowAction>
-                </GridTableCell>
-              </GridTableRow>
-            ))}
+            {pending.map((invite) => {
+              // The cell ellipsizes a long line; the title keeps the full time.
+              const expires = t("members.invites.expires", {
+                expires: formatTimestamp(invite.expires_at, locale),
+              });
+              return (
+                <GridTableRow key={invite.id}>
+                  <GridTableCell lines={true}>
+                    <Text
+                      as="span"
+                      weight="medium"
+                      truncate
+                      title={invite.email}
+                    >
+                      {invite.email}
+                    </Text>
+                    <Text as="span" variant="meta" title={expires}>
+                      {expires}
+                    </Text>
+                  </GridTableCell>
+                  <GridTableCell>
+                    <Badge variant={invite.role === "member" ? "gray" : "blue"}>
+                      {roleLabel(t, invite.role)}
+                    </Badge>
+                  </GridTableCell>
+                  <GridTableCell align="end">
+                    <RowAction
+                      variant="danger"
+                      disabled={revoke.isPending}
+                      aria-label={t("members.invites.revokeFor", {
+                        email: invite.email,
+                      })}
+                      onClick={() => setRevoking(invite)}
+                    >
+                      {t("members.invites.revoke")}
+                    </RowAction>
+                  </GridTableCell>
+                </GridTableRow>
+              );
+            })}
           </GridTable>
         </div>
       )}
