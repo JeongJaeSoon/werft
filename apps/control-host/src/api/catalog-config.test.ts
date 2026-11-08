@@ -46,6 +46,11 @@ async function fixture(name: Fixture) {
   return { entries, profiles, repositories: entries.repositories };
 }
 
+const OLD_VERSION = <P extends { runtime_version: string }>(profile: P): P => ({
+  ...profile,
+  runtime_version: "0.3.270",
+});
+
 const resolved = (config: Pick<SessionCatalogConfig, "profiles">) =>
   resolveSessionCatalog(
     { profiles: config.profiles, repositories: {} },
@@ -234,7 +239,11 @@ describe("installed runtimes", () => {
       const config = resolved(await fixture(name as Fixture));
       for (const [id, digest] of Object.entries(pinned)) {
         const entry = config.profiles[id];
-        expect(entry && profileFingerprint(entry)).toBe(digest);
+        // The pins were taken under 0.3.270, the version the seeds named then.
+        // A bump moves the seeds, not these digests: a row pinned to one keeps
+        // matching while the old version is accepted (profilePinned).
+        expect(entry && profileFingerprint(OLD_VERSION(entry))).toBe(digest);
+        expect(entry && profilePinned(entry, digest, ["0.3.270"])).toBe(true);
       }
       for (const [id, entry] of Object.entries(config.profiles)) {
         const digest = profileFingerprint(entry);
@@ -390,7 +399,8 @@ describe("the settings fixtures", () => {
       profilePinned(
         coding,
         "sha256:4be8de033a7e0268fa33d785ef498f3ddc9ed2452ee0c6b9b0461dc14a8fc539",
-        [],
+        // Taken under 0.3.270; the seeds name 0.3.319 since the SDK bump.
+        ["0.3.270"],
       ),
     ).toBe(true);
     expect(repositoryModeOf(coding)).toBe("required");

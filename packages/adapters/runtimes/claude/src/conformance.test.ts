@@ -29,8 +29,8 @@ const harness: AdapterConformanceHarness = {
       { ...config, permissionMode },
       { onPermission: async () => ({ behavior: "allow" }) },
     );
-    const attribution =
-      typeof settings === "object" ? settings.attribution : undefined;
+    const raw = typeof settings === "object" ? settings.attribution : undefined;
+    const attribution = typeof raw === "object" ? raw : undefined;
     return { commit: attribution?.commit, pr: attribution?.pr };
   },
   engineLaunch(gitEnvironment) {

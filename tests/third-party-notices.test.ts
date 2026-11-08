@@ -216,7 +216,7 @@ describe("license policy", () => {
           row(
             "@anthropic-ai/claude-agent-sdk",
             "SEE LICENSE IN README.md",
-            "0.3.270",
+            "0.3.319",
           ),
           row(
             "@anthropic-ai/claude-agent-sdk-linux-x64",
@@ -229,7 +229,7 @@ describe("license policy", () => {
     // A review covers the license it read; new terms need a new one.
     expect(
       problemsOf(
-        [row("@anthropic-ai/claude-agent-sdk", "GPL-3.0", "0.3.270")],
+        [row("@anthropic-ai/claude-agent-sdk", "GPL-3.0", "0.3.319")],
         base,
       ),
     ).toHaveLength(1);
@@ -263,7 +263,7 @@ describe("license policy", () => {
         row(
           "@anthropic-ai/claude-agent-sdk",
           "SEE LICENSE IN README.md",
-          "0.3.270",
+          "0.3.319",
         ),
       ],
       base,
@@ -275,7 +275,7 @@ describe("license policy", () => {
     expect(text).toContain(`oven-sh/tinycc/tree/${build?.tinycc}`);
     expect(text).toContain("oven-sh/bun/tree/bun-v1.3.14");
     expect(text).toContain(
-      `Bun ${CLAUDE_CODE_BUN["0.3.270"]} 런타임을 내장한다`,
+      `Bun ${CLAUDE_CODE_BUN["0.3.319"]} 런타임을 내장한다`,
     );
     // Only an image list with the SDK gets the Claude Code section.
     expect(render([row("hono", "MIT")], base)).not.toContain("Claude Code");

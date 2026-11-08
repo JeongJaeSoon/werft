@@ -141,7 +141,7 @@ describe("fake agent runtime", () => {
     await iterator.next();
     expect(await run.prepareCheckpoint()).toEqual({
       status: "ready",
-      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.270" },
+      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.319" },
     });
     const resumed = runtime.start(
       { ...config, mode: "resume", resume: "ckpt" },
@@ -149,7 +149,7 @@ describe("fake agent runtime", () => {
     );
     expect(await resumed.prepareCheckpoint()).toEqual({
       status: "ready",
-      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.270" },
+      checkpoint: { engine: "claude", resume: "ckpt", sdkVersion: "0.3.319" },
     });
     resumed.send({ message: "queued", uuid: "queued-1" });
     expect(await resumed.prepareCheckpoint()).toEqual({
@@ -212,7 +212,7 @@ describe("fake agent runtime", () => {
       checkpoint: {
         engine: "claude",
         resume: "ckpt",
-        sdkVersion: "0.3.270",
+        sdkVersion: "0.3.319",
       },
     });
   });
