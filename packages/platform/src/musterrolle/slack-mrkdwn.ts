@@ -260,24 +260,40 @@ function cellText(cell: string, kept: Kept): string {
     .replace(/`(?=`)/g, `\`${ZWSP}`);
 }
 
+const NAME_MAX = 40;
+
 /**
- * One line per row, `*first cell* — second · third`, for a table Slack cannot
- * show as a table block. The header names are dropped; the cells are read in
- * their order.
+ * One line per row,`*first cell* — second · third`, for a table Slack cannot
+ * show as a table block. Each cell after the first carries its column's name,
+ * so a blank cell cannot swap places with its neighbour.
  */
 function renderRowList(rows: readonly string[][], kept: Kept): string {
   // Cells past the header's count are dropped, as GitHub does.
   const columns = rows[0]?.length ?? 0;
+  // A long header is cut so it cannot be repeated into every row at full size.
+  const names = (rows[0] ?? []).map((cell) =>
+    inline(cell.slice(0, NAME_MAX), kept, CELL).trim(),
+  );
   const lines = (rows.length > 1 ? rows.slice(1) : rows).map((row) => {
     const cells = row
       .slice(0, columns)
-      .map((cell) => inline(cell, kept, CELL).trim())
+      .map((cell) => inline(cell, kept, CELL).trim());
+    const first = cells[0];
+    // An empty cell is left out, so the others keep their column's name.
+    const rest = cells
+      .slice(1)
+      .map((cell, index) =>
+        cell === ""
+          ? ""
+          : rows.length > 1 && names[index + 1]
+            ? `${names[index + 1]}: ${cell}`
+            : cell,
+      )
       .filter((cell) => cell !== "");
-    const [first, ...rest] = cells;
-    if (first === undefined) return "";
-    return rest.length === 0
-      ? `*${first}*`
-      : `*${first}* — ${rest.join(" · ")}`;
+    if (first === undefined || (first === "" && rest.length === 0)) return "";
+    const lead = first === "" ? "" : `*${first}*`;
+    if (rest.length === 0) return lead;
+    return lead === "" ? rest.join(" · ") : `${lead} — ${rest.join(" · ")}`;
   });
   return lines.filter((line) => line !== "").join("\n");
 }

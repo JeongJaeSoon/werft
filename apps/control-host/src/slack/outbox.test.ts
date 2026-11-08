@@ -1609,7 +1609,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
     expect(await outboxPass()).toMatchObject({ sent: 1, failed: 0 });
     const [message] = posted();
-    expect(message?.text).toContain("*acme/web* — 기본 저장소");
+    expect(message?.text).toContain("*acme/web* — 상태: 기본 저장소");
     expect(message?.text).not.toContain("```");
     const blocks = JSON.parse(message?.options.blocks ?? "[]") as {
       type: string;
@@ -1632,7 +1632,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     const messages = posted();
     expect(messages).toHaveLength(1);
     expect(messages[0]?.options.blocks).toBeUndefined();
-    expect(messages[0]?.text).toContain("*acme/api* — 붙일 수 있음");
+    expect(messages[0]?.text).toContain("*acme/api* — 상태: 붙일 수 있음");
   });
 
   test("a transient error backs off and fails on the fifth attempt", async () => {

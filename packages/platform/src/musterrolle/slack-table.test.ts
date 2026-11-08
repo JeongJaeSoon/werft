@@ -58,14 +58,21 @@ describe("markdownToSlackParts", () => {
   test("leaves a second table to the row list", () => {
     const parts = markdownToSlackParts(`${table(1, 2)}\n\n${table(1, 2, "y")}`);
     expect(parts?.filter((part) => "table" in part)).toHaveLength(1);
-    expect(JSON.stringify(parts)).toContain("*y* — y");
+    expect(JSON.stringify(parts)).toContain("*y* — h: y");
   });
 
   test("falls back to the row list text without a code block", () => {
     const text = markdownToSlackMrkdwn(REPLY);
-    expect(text).toContain("*acme/web* — 기본 저장소 · 웹 앱");
-    expect(text).toContain("*acme/api* — 붙일 수 있음");
+    expect(text).toContain("*acme/web* — 상태: 기본 저장소 · 설명: 웹 앱");
+    expect(text).toContain("*acme/api* — 상태: 붙일 수 있음");
     expect(text).not.toContain("```");
+  });
+
+  test("a blank cell does not move its neighbour to another column", () => {
+    const text = markdownToSlackMrkdwn(
+      "| 항목 | Before | After |\n| --- | --- | --- |\n| a | | 10 |\n| b | 10 | |",
+    );
+    expect(text).toBe("*a* — After: 10\n*b* — Before: 10");
   });
 });
 
@@ -113,6 +120,15 @@ describe("slackReplyBlocks", () => {
         text: `\`\`\`\n${"code\n".repeat(700)}\`\`\`\n\n${table(1, 2)}`,
       }),
     ).toBeNull();
+  });
+
+  test("a first line of exactly the section limit leaves no empty section", () => {
+    const blocks = slackReplyBlocks({
+      text: `${"z".repeat(3_000)}\nmore\n\n${table(1, 2)}`,
+    }) as { type: string; text?: { text: string } }[];
+    for (const block of blocks.filter((b) => b.type === "section")) {
+      expect(block.text?.text.length ?? 0).toBeGreaterThan(0);
+    }
   });
 
   test("long text around the table is split between lines", () => {

@@ -88,8 +88,8 @@ describe("markdownToSlackMrkdwn", () => {
     ).toBe(
       [
         "before",
-        "*alpha* — `1|2`",
-        "*link (https://a.test)* — 한",
+        "*alpha* — 값: `1|2`",
+        "*link (https://a.test)* — 값: 한",
         "after",
       ].join("\n"),
     );
@@ -166,7 +166,7 @@ describe("markdownToSlackMrkdwn", () => {
         "    ◦ 하위 항목",
         "• 두 번째 항목",
         "",
-        "*alpha* — 1",
+        "*alpha* — 값: 1",
         "",
         "`a**b**c`",
         "",
@@ -215,13 +215,15 @@ describe("markdownToSlackMrkdwn", () => {
     );
   });
 
-  test("a table's row list stays within the size of its source", () => {
+  test("a table's row list stays within a fixed multiple of its source", () => {
     const wide = `| h | b |\n|---|---|\n| ${"x".repeat(10_000)} | b |\n${"| a | b |\n".repeat(8_000)}`;
-    expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(wide.length);
+    expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(wide.length * 2);
     const ragged = `|h|\n|-|\n${"|".repeat(1_000)}\n${"|x|\n".repeat(24_000)}`;
     expect(markdownToSlackMrkdwn(ragged).length).toBeLessThan(ragged.length);
     const sparse = `|${"h|".repeat(2_000)}\n|${"-|".repeat(2_000)}\n${"|x|\n".repeat(2_000)}`;
     expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(sparse.length);
+    const longHeader = `|a|${"H".repeat(10_000)}|\n|-|-|\n${"|x|y|\n".repeat(1_000)}`;
+    expect(markdownToSlackMrkdwn(longHeader).length).toBeLessThan(100_000);
   });
 
   test("a table ends before a quote and keeps its code spans", () => {

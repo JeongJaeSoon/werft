@@ -211,7 +211,7 @@ function sectionPieces(text: string): string[] | null {
   let current = "";
   for (const line of text.split("\n")) {
     if (line.length > SECTION_TEXT_MAX) return null;
-    if (current.length + line.length + 1 > SECTION_TEXT_MAX) {
+    if (current !== "" && current.length + line.length + 1 > SECTION_TEXT_MAX) {
       pieces.push(current);
       current = line;
     } else current = current === "" ? line : `${current}\n${line}`;
