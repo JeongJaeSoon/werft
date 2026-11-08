@@ -240,7 +240,16 @@ const steps: Step[] = [
   ),
   bash("read_pwd_ls", "pwd && ls -la notes", false, "sample.txt"),
   bash("read_cat_file", "cat notes/sample.txt", false, "sample"),
-  bash("read_head_tail_wc", "head -n 1 notes/sample.txt | wc -l", false, "1"),
+  bash(
+    "read_head_tail_wc",
+    "head -n 1 notes/sample.txt | wc -c && wc -c notes/sample.txt",
+    false,
+    "7 notes/sample.txt",
+  ),
+  // Code that mentions a secret's name is not a secret.
+  bash("read_code_process_env", "grep -n process.env notes/sample.txt", false),
+  bash("read_code_credentials", "grep credentials notes/sample.txt", false),
+  bash("read_code_keys_ts", "cat src/keys.ts src/object.keys.ts", false),
   bash("read_grep", "grep -n sample notes/sample.txt", false, "1:sample"),
   bash("read_find_name", "find . -name '*.txt' -not -path './.git/*'", false),
   bash(
@@ -248,7 +257,6 @@ const steps: Step[] = [
     "stat notes/sample.txt && file notes/sample.txt",
     false,
   ),
-  bash("read_tree", "tree notes", false),
   bash("read_rg", "rg sample notes", false),
   // The same inspections aimed at a secret, out of the workspace, or at a
   // write: each part is judged alone, so one of them asks for the whole line.
@@ -284,7 +292,8 @@ const steps: Step[] = [
   ),
   // A known gap, pinned so a change to it is noticed: the secret is matched by
   // name, and a glob never spells the name. The Read tool reaches the same file.
-  bash("read_cat_glob_dotenv_known_gap", "cat .e*", false),
+  bash("read_cat_glob_dotenv_known_gap", "cat .e*", false, "SECRET_SENTINEL"),
+  bash("read_rg_bundled_hidden", "rg -nuu SECRET_SENTINEL", true),
   bash(
     "read_git_remote_add",
     "git remote add origin https://example.test/r",
@@ -301,6 +310,27 @@ const steps: Step[] = [
     "read_git_remote_verbose_add",
     "git remote -v add origin https://x.test",
     true,
+  ),
+  // The catch-all option ask is gone; the engine has to ask for each of these.
+  ...[
+    "-m a b",
+    "-M a b",
+    "-c a b",
+    "-C a b",
+    "-u origin/main",
+    "--set-upstream-to=origin/main",
+    "--edit-description",
+    "-f a HEAD",
+    "--track a origin/main",
+    "--no-track a",
+    "-vm a b",
+    "-vf a HEAD",
+    "--set-upstream-t=origin/main",
+    "--edit-desc",
+    "--forc a HEAD",
+    "--list --edit-description",
+  ].map((flags) =>
+    bash(`read_git_branch_${flags}`, `git branch ${flags}`, true),
   ),
   bash("read_git_branch_delete", "git branch -D feature/sample", true),
   bash(
@@ -373,6 +403,9 @@ async function run(permissionMode: PermissionMode) {
     await proc.exited;
   }
   await mkdir(dirname(join(workspace, "notes", "x")), { recursive: true });
+  // A secret the fixture holds on disk, so a read that gets past the rules
+  // prints something recognizable. Its name matches the ask-on-write paths.
+  await writeFile(join(workspace, ".env.secret"), "SECRET_SENTINEL=1\n");
 
   const results = new Map<string, string>();
   server = startFakeAnthropicServer((request) => {
@@ -454,9 +487,14 @@ describe("a session's own workspace", () => {
       // Not asked is not the same as ran: read what the call printed.
       for (const step of active) {
         if (step.output !== undefined) {
-          expect([step.id, results.get(`toolu_${step.id}`)]).toEqual([
+          const printed = results.get(`toolu_${step.id}`) ?? "";
+          expect([step.id, printed]).toEqual([
             step.id,
             expect.stringContaining(step.output),
+          ]);
+          expect([step.id, printed.includes("Exit code")]).toEqual([
+            step.id,
+            false,
           ]);
         }
       }

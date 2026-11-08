@@ -140,14 +140,48 @@ const GIT_ASK = [
  */
 const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
 
-/** The secret names above, minus `credentials`, which also names source files. */
-const SECRET_READ_PARTS = [
-  ...SECRET_NAME_PARTS.filter((part) => part !== "credentials"),
+/**
+ * Where a file name begins in a command line: the first operand, or after a
+ * space, a slash or a quote. Matching them anywhere would ask for
+ * `process.env` and `src/credentials.ts`, which are code and not secrets.
+ */
+const NAME_STARTS = [" ", "/", '"', "'"];
+
+/** Matched where the name ends, so `object.keys.ts` is not a key file. */
+const SECRET_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".keystore"];
+
+/** File names that are secrets, matched from where the name begins. */
+const SECRET_READ_NAMES = [
+  ...SECRET_NAME_PARTS.filter(
+    (part) => part !== "credentials" && !SECRET_EXTENSIONS.includes(part),
+  ),
   ".git/config",
 ];
 
-/** `rg` skips hidden files (`.env` among them) unless told not to. */
-const RG_HIDDEN_ASK = ["--hidden", "-uu", "--no-ignore", "--unrestricted"];
+/** The ask patterns for one reader and every spelling above. */
+function secretReadPatterns(command: string): string[] {
+  const names = SECRET_READ_NAMES.flatMap((name) => [
+    `${command} ${name}*`,
+    ...NAME_STARTS.map((start) => `${command} *${start}${name}*`),
+  ]);
+  const extensions = SECRET_EXTENSIONS.flatMap((extension) => [
+    `${command} *${extension}`,
+    ...[" ", '"', "'"].map((end) => `${command} *${extension}${end}*`),
+  ]);
+  return [...names, ...extensions];
+}
+
+/**
+ * `rg` skips hidden files (dotenv files among them) unless told not to. A
+ * bundled short flag (`-nuu`) counts, so `-*uu*` rather than the bare `-uu`.
+ */
+const RG_HIDDEN_ASK = [
+  "rg *--hidden*",
+  "rg *--no-ignore*",
+  "rg *--unrestricted*",
+  "rg -*uu*",
+  "rg * -*uu*",
+];
 
 /** Test and script runners; the workspace's own code runs through them. */
 const DEV_COMMANDS = [
@@ -223,11 +257,9 @@ export function workspaceRules(
     allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
     ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
     for (const command of SECRET_READERS) {
-      for (const part of SECRET_READ_PARTS) {
-        ask.push(`Bash(${command} *${part}*)`);
-      }
+      ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
     }
-    for (const option of RG_HIDDEN_ASK) ask.push(`Bash(rg *${option}*)`);
+    ask.push(...RG_HIDDEN_ASK.map((pattern) => `Bash(${pattern})`));
     for (const command of DEV_COMMANDS) {
       // `*` stands for the operands before the flag, which may be none.
       for (const flag of DEV_ASK) {
