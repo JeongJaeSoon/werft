@@ -440,6 +440,13 @@ integration("turning one repository on or off on PostgreSQL", () => {
     const off = (id: string) =>
       toggle(f, { enabled: false, target: { kind: "catalog", id } });
 
+    // Turning on needs an active row even for an id the settings list.
+    for (const id of [f.sample, "ghost"]) {
+      expect(await toggle(f, { target: { kind: "catalog", id } })).toEqual({
+        outcome: "repository_not_found",
+      });
+    }
+
     // Dropped from the catalog: turned off, and the start repository goes.
     expect(await off(f.sample)).toMatchObject({
       outcome: "saved",
