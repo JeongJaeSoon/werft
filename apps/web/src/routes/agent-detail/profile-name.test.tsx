@@ -81,9 +81,7 @@ describe("에이전트 상세의 프로필 이름", () => {
     );
     const value = await profileValue();
     await waitFor(() => expect(value.textContent).toBe("readonly-review v1"));
-    expect(value.querySelector("[title]")?.getAttribute("title")).toBe(
-      COPY_ID,
-    );
+    expect(value.querySelector("[title]")?.getAttribute("title")).toBe(COPY_ID);
     expect(screen.queryByText(COPY_ID)).toBeNull();
   });
 
@@ -101,10 +99,7 @@ describe("에이전트 상세의 프로필 이름", () => {
   });
 
   test("표시 이름이 없는 프로필(옛 데이터)은 지금처럼 id를 보인다", async () => {
-    renderAt(
-      `${DETAIL}?tab=card`,
-      agentOn(COPY_ID, listing(copy(null))),
-    );
+    renderAt(`${DETAIL}?tab=card`, agentOn(COPY_ID, listing(copy(null))));
     const value = await profileValue();
     await waitFor(() => expect(value.textContent).toBe(COPY_ID));
   });
