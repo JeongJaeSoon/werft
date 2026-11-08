@@ -143,6 +143,15 @@ export interface GitHubApi {
     edit: (body: string) => string,
     title?: string,
   ): Promise<void>;
+  /**
+   * Squash-merges it on `sha`, which GitHub checks against the head. No
+   * admin bypass, no auto-merge, no other method. A 405 (not mergeable now)
+   * or 409 (the head moved) is GitHubCallError with that status.
+   */
+  mergePullRequest(input: {
+    number: number;
+    sha: string;
+  }): Promise<{ merged: boolean; sha: string | null }>;
   /** Closes or reopens it; answers the pull request as GitHub left it. */
   setPullRequestState(
     number: number,
@@ -282,7 +291,8 @@ export type GitHubGateReceipt = {
     | "mint_github_token"
     | "dispatch_workflow"
     | "rerun_workflow"
-    | "review_pull_request";
+    | "review_pull_request"
+    | "merge_pull_request";
   status: "succeeded" | "failed";
   result: Record<string, unknown>;
   error: { code: "GITHUB_REFUSED"; message: string } | null;

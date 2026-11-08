@@ -423,6 +423,7 @@ export function createGitHubConnection(
               ...pullRequestOf(data),
               title: data.title,
               mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
+              mergeableState: data.mergeable_state ?? null,
               additions: countOf(data.additions),
               deletions: countOf(data.deletions),
               changedFiles: countOf(data.changed_files),
@@ -471,6 +472,21 @@ export function createGitHubConnection(
             },
           );
         });
+      },
+      async mergePullRequest({ number, sha }) {
+        const { data } = await quiet("pull request merge", () =>
+          client.request(
+            "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge",
+            {
+              ...target,
+              pull_number: number,
+              merge_method: "squash",
+              sha,
+              headers,
+            },
+          ),
+        );
+        return { merged: data.merged, sha: data.sha ?? null };
       },
       async setPullRequestState(number, state) {
         const { data } = await call("pull request state", () =>

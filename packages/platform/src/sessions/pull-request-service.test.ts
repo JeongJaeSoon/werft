@@ -216,6 +216,8 @@ function harness(
   const ancestors = new Set<string>();
   let readStatus: number | null = null;
   let patchAnswer: ForgePullRequest["state"] | null = null;
+  let mergeable: string | null = "clean";
+  let mergeStatus: number | null = null;
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -285,7 +287,8 @@ function harness(
         pullRequest: {
           ...open,
           title: "t",
-          mergeCommitSha: null,
+          mergeCommitSha: open.mergedAt === null ? null : "c".repeat(40),
+          mergeableState: mergeable,
           additions: null,
           deletions: null,
           changedFiles: null,
@@ -312,6 +315,17 @@ function harness(
         closedAt: now === "closed" ? "2026-11-04T00:00:00Z" : null,
       };
       return open;
+    },
+    mergePullRequest: async ({ number, sha }) => {
+      calls.push(`merge ${number} ${sha.slice(0, 1)}`);
+      if (mergeStatus !== null) {
+        throw new GitHubCallError("pull request merge", mergeStatus, null);
+      }
+      if (open === null || open.number !== number) {
+        throw new GitHubCallError("pull request merge", 404, null);
+      }
+      open = { ...open, state: "closed", mergedAt: "2026-11-08T00:00:00Z" };
+      return { merged: true, sha: "c".repeat(40) };
     },
     updatePullRequestBody: async (number, edit, title) => {
       calls.push(`update ${number}`);
@@ -428,6 +442,12 @@ function harness(
     },
     failRead: (status: number | null) => {
       readStatus = status;
+    },
+    setMergeable: (state: string | null) => {
+      mergeable = state;
+    },
+    failMerge: (status: number) => {
+      mergeStatus = status;
     },
     failForge: () => {
       failing = true;
@@ -2215,5 +2235,158 @@ describe("the agent's pull request settings", () => {
     });
     expect(named.body).toContain("<!-- feature -->");
     expect(named.body).not.toContain("<!-- bug -->");
+  });
+});
+
+describe("merging the pull request", () => {
+  const recorded: PullRequest = {
+    push_request_id: PUSH,
+    session_id: SESSION,
+    repository_id: "app",
+    number: 7,
+    url: "https://github.com/acme/app/pull/7",
+    head: HEAD,
+    base: "develop",
+    created_at: "2026-10-13T00:00:00.000Z",
+    receipt_id: "receipt-0",
+  };
+  const withPullRequest = (options: Parameters<typeof harness>[0] = {}) => {
+    const h = harness(options);
+    h.saved.push(recorded);
+    h.setOpen({ ...recorded, state: "open" });
+    return h;
+  };
+  const merge = (h: ReturnType<typeof harness>, push = PUSH) =>
+    h.service.merge(actor, SESSION, push);
+
+  test("squash-merges on the pushed commit, asks the gate for a merge, and records it", async () => {
+    const h = withPullRequest();
+    expect(await merge(h)).toMatchObject({
+      merged: true,
+      changed: true,
+      head_sha: "a".repeat(40),
+      merge_commit_sha: "c".repeat(40),
+      method: "squash",
+    });
+    expect(h.calls).toEqual(["read 7", `merge 7 a`]);
+    expect(h.works.map((work) => work.purpose)).toEqual(["merge"]);
+    expect(h.receipts.at(-1)).toMatchObject({
+      operation: "merge_pull_request",
+      result: { verdict: "allow", merged: true, method: "squash" },
+    });
+    expect(h.dueAgain).toEqual([recorded.url]);
+  });
+
+  test("a gate refusal (merge_off) ends it before the forge is called", async () => {
+    const h = withPullRequest();
+    h.refuseGitHub("merge_off");
+    expect(await refusal(merge(h))).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { refusal: "github_refused", reason_code: "merge_off" },
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.receipts.at(-1)).toMatchObject({
+      operation: "merge_pull_request",
+      result: { verdict: "refuse", refusal: "github_refused" },
+    });
+  });
+
+  test("only the push request of this session: another id is NOT_FOUND and nothing is read", async () => {
+    const h = withPullRequest();
+    expect(
+      await refusal(merge(h, "55555555-5555-4555-8555-555555555555")),
+    ).toMatchObject({ code: "NOT_FOUND", details: { refusal: "not_found" } });
+    expect(h.calls).toEqual([]);
+    expect(h.works).toEqual([]);
+  });
+
+  test("a pull request that is not recorded, or a push request not pushed, is refused first", async () => {
+    const none = harness();
+    expect((await refusal(merge(none))).details).toMatchObject({
+      refusal: "no_pull_request",
+    });
+    const waiting = withPullRequest({ state: "approved" });
+    expect((await refusal(merge(waiting))).details).toMatchObject({
+      refusal: "not_pushed",
+    });
+    expect(waiting.calls).toEqual([]);
+  });
+
+  test("a head that is not the pushed commit is head_moved, and no PUT is sent", async () => {
+    const h = withPullRequest();
+    h.setOpen({ ...recorded, state: "open" }, "f".repeat(40));
+    expect(await refusal(merge(h))).toMatchObject({
+      code: "PUSH_REQUEST_RESOLVED",
+      details: { refusal: "head_moved" },
+    });
+    expect(h.calls).toEqual(["read 7"]);
+  });
+
+  test("a state GitHub does not call mergeable is merge_blocked without a PUT", async () => {
+    for (const state of ["blocked", "dirty", "draft", "behind", "unknown"]) {
+      const h = withPullRequest();
+      h.setMergeable(state);
+      expect(await refusal(merge(h))).toMatchObject({
+        code: "PULL_REQUEST_MERGE_BLOCKED",
+        details: { refusal: "merge_blocked" },
+      });
+      expect(h.calls).toEqual(["read 7"]);
+    }
+    const unread = withPullRequest();
+    unread.setMergeable(null);
+    expect((await refusal(merge(unread))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
+  });
+
+  test("GitHub's 405 is merge_blocked and its 409 is head_moved", async () => {
+    const blocked = withPullRequest();
+    blocked.failMerge(405);
+    expect((await refusal(merge(blocked))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
+    const moved = withPullRequest();
+    moved.failMerge(409);
+    expect((await refusal(merge(moved))).details).toMatchObject({
+      refusal: "head_moved",
+    });
+    const down = withPullRequest();
+    down.failMerge(502);
+    expect(
+      (await refusal(down.service.merge(actor, SESSION, PUSH))).details,
+    ).toMatchObject({ refusal: "forge_failed" });
+  });
+
+  test("a pull request closed without a merge is pull_request_closed", async () => {
+    const h = withPullRequest();
+    h.setOpen({ ...recorded, state: "closed" });
+    expect(await refusal(merge(h))).toMatchObject({
+      code: "PULL_REQUEST_CLOSED",
+      details: { refusal: "pull_request_closed" },
+    });
+    expect(h.calls).toEqual(["read 7"]);
+  });
+
+  test("an already merged pull request is answered when it merged the pushed commit, with no method", async () => {
+    const h = withPullRequest();
+    h.merge();
+    expect(await merge(h)).toMatchObject({
+      merged: true,
+      changed: false,
+      head_sha: "a".repeat(40),
+      merge_commit_sha: "c".repeat(40),
+      method: null,
+    });
+    expect(h.calls).toEqual(["read 7"]);
+    expect(h.dueAgain).toEqual([]);
+  });
+
+  test("an already merged pull request on another commit is head_moved", async () => {
+    const h = withPullRequest();
+    h.setOpen({ ...recorded, state: "open" }, "f".repeat(40));
+    h.merge();
+    expect((await refusal(merge(h))).details).toMatchObject({
+      refusal: "head_moved",
+    });
   });
 });

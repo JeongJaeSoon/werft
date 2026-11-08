@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
+import { GITHUB_CEILING_NONE, GITHUB_FEATURES_NONE } from "@werft-ai/contracts";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import { withSeededInstallation } from "@werft-ai/platform";
@@ -81,7 +81,7 @@ const PIN = (repositories: unknown) => ({
   github: {
     repositories,
     push_approval: false,
-    features: { ...GITHUB_CEILING_NONE },
+    features: { ...GITHUB_FEATURES_NONE },
     actions_allow: [],
   },
 });

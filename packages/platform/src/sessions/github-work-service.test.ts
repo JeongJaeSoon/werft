@@ -114,6 +114,9 @@ function harness(
     setPullRequestState: async () => {
       throw new Error("not used");
     },
+    mergePullRequest: async () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       throw new Error("not used");
     },

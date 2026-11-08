@@ -5,7 +5,7 @@ import {
   type AgentGitHubRepositoryUnavailable,
   type AgentGitHubResponse,
   type AgentGitHubSettings,
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type GitHubAppRole,
   type GitHubFeatures,
   githubFeaturesOverCeiling,
@@ -264,7 +264,7 @@ export function createAgentGitHubService(deps: {
               // 2026-11-02). Until then the release still asks a person:
               // only an explicit false turns approval off.
               push_approval: false,
-              features: { ...GITHUB_CEILING_NONE },
+              features: { ...GITHUB_FEATURES_NONE },
               actions_allow: [],
             }
           : null;

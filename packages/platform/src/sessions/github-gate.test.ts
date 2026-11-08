@@ -3,6 +3,7 @@ import {
   type AgentGitHub,
   type EffectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
   type GitHubAppRole,
   type GitHubCeiling,
@@ -50,6 +51,7 @@ const ALL_ON: GitHubCeiling = {
   checks: true,
   issues: true,
   review: true,
+  merge: true,
 };
 
 const CATALOG = {
@@ -76,7 +78,7 @@ const CATALOG = {
 } satisfies SessionCatalog;
 
 function features(on: Partial<GitHubFeatures> = {}): GitHubFeatures {
-  return { ...GITHUB_CEILING_NONE, ...on };
+  return { ...GITHUB_FEATURES_NONE, ...on };
 }
 
 function settings(overrides: Partial<AgentGitHub> = {}): AgentGitHub {
@@ -106,6 +108,7 @@ function fakeApi(): GitHubApi {
     getPullRequest: unused,
     updatePullRequestBody: unused,
     setPullRequestState: unused,
+    mergePullRequest: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
@@ -668,6 +671,75 @@ describe("credentials and receipts", () => {
     expect((await grant({ purpose: "actions_read" }))?.permissions).toEqual({
       actions: "read",
     });
+  });
+});
+
+describe("merge", () => {
+  test("with the ceiling off it is merge_off before any credential is issued, and the receipt names no App", async () => {
+    const { grant, receipts, author } = harness();
+    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
+      "merge_off",
+    );
+    expect(author?.issued).toEqual([]);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      operation: "merge_pull_request",
+      status: "failed",
+      result: { purpose: "merge", reason_code: "merge_off" },
+    });
+    for (const key of ["connection_id", "app_id", "role"]) {
+      expect(receipts[0]?.result).not.toHaveProperty(key);
+    }
+  });
+
+  test("merge_off holds whatever the agent's own features say", async () => {
+    const { grant, author } = harness({
+      github: settings({
+        features: features({
+          workflows: true,
+          actions: true,
+          checks: true,
+          issues: true,
+          review: true,
+        }),
+      }),
+      ceiling: { ...ALL_ON, merge: false },
+    });
+    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
+      "merge_off",
+    );
+    expect(author?.issued).toEqual([]);
+  });
+
+  test("turning the ceiling on lets the next grant through with contents write and pull_requests read, and off refuses the one after", async () => {
+    const { grant, state, author, receipts } = harness();
+    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
+      "merge_off",
+    );
+    state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };
+    const granted = await grant({ purpose: "merge" });
+    expect(granted).toMatchObject({
+      role: "author",
+      permissions: { contents: "write", pull_requests: "read" },
+    });
+    expect(author?.issued).toHaveLength(1);
+    state.ceiling = GITHUB_CEILING_NONE;
+    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
+      "merge_off",
+    );
+    expect(author?.issued).toHaveLength(1);
+    expect(receipts.map((receipt) => receipt.operation)).toEqual([
+      "merge_pull_request",
+      "mint_github_token",
+      "merge_pull_request",
+    ]);
+  });
+
+  test("another repository's pull request cannot be merged", async () => {
+    const { grant, state, author } = harness();
+    state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };
+    await refused(grant({ purpose: "merge", repositoryId: "docs" }));
+    expect(author?.issued).toEqual([]);
   });
 });
 

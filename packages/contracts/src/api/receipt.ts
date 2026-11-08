@@ -106,6 +106,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "comment_pull_request",
   "close_pull_request",
   "reopen_pull_request",
+  "merge_pull_request",
   // A remote MCP exchange the egress proxy refused for the agent's
   // credential: unbound, not for this workspace, or moved in the catalog.
   "call_mcp",
