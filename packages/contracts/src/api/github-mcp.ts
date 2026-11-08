@@ -240,11 +240,29 @@ export const REPOSITORY_ATTACH_REFUSAL_VALUES = [
 export type RepositoryAttachRefusal =
   (typeof REPOSITORY_ATTACH_REFUSAL_VALUES)[number];
 
+/** The status in plain words, so an answer to a person need not quote it. */
+export const LISTED_REPOSITORY_MEANING = {
+  primary: "the repository this session works in",
+  attached: "attached to this session",
+  pending: "being attached to this session now",
+  failed: "attaching it to this session failed",
+  available: "not attached yet; it can be attached on request",
+  allowed_in_newer_release:
+    "allowed only for new sessions; this session cannot attach it",
+  not_attached: "allowed, but nothing is fetched into this session yet",
+  revoked: "was attached, but is no longer allowed",
+} as const satisfies Record<
+  (typeof LISTED_REPOSITORY_STATUS_VALUES)[number],
+  string
+>;
+
 export const listedRepositorySchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   branch: z.string().nullable(),
   status: z.enum(LISTED_REPOSITORY_STATUS_VALUES),
+  /** Optional so a list from before it was added still parses. */
+  meaning: z.string().optional(),
   /** The git remote name an `attached` repository was given; absent otherwise. */
   remote: z.string().min(1).optional(),
 });
@@ -480,7 +498,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it.`,
+  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
   attach_repository: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes; allowed repositories the task does not touch stay unattached, and \`list_repositories\` needs no attach. The workspace has one checkout and a push carries its HEAD, so changes to several repositories are pushed one repository per turn. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. Changes to it are pushed from a branch of \`<repository_id>/<branch>\` checked out in the workspace; a git worktree or clone elsewhere is not captured, and a push carries the workspace HEAD of its checkpoint (with the flows on, the checkpoint taken when the turn ends, shared by every push request of that turn).`,
 };
 

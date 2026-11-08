@@ -94,6 +94,8 @@ export type FakeSlackWebApi = {
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
   failures: Map<string, string>;
+  /** A block type named here is refused as `invalid_blocks`, as an app without it would be. */
+  refusedBlockTypes: Set<string>;
 };
 
 /** A chat.postMessage or chat.postEphemeral the fake accepted. */
@@ -151,7 +153,10 @@ const MESSAGE_BLOCKS_MAX = 50;
 const CONTAINER_CHILDREN_MAX = 10;
 
 /** Throws `invalid_blocks` for blocks Slack would refuse to post. */
-function checkBlocks(raw: string | undefined): void {
+function checkBlocks(
+  raw: string | undefined,
+  refused: ReadonlySet<string> = new Set(),
+): void {
   if (raw === undefined) return;
   let blocks: unknown;
   try {
@@ -161,8 +166,43 @@ function checkBlocks(raw: string | undefined): void {
   }
   if (!Array.isArray(blocks)) throw new SlackError("invalid_blocks");
   let count = 0;
-  for (const block of blocks as { type?: unknown; child_blocks?: unknown }[]) {
+  let tableCharacters = 0;
+  for (const block of blocks as {
+    type?: unknown;
+    child_blocks?: unknown;
+    rows?: unknown;
+    text?: { text?: unknown };
+  }[]) {
     count += 1;
+    if (typeof block?.type === "string" && refused.has(block.type)) {
+      throw new SlackError("invalid_blocks");
+    }
+    if (block?.type === "section" && block.text !== undefined) {
+      const length = String(block.text.text ?? "").length;
+      if (length === 0 || length > 3_000)
+        throw new SlackError("invalid_blocks");
+    }
+    if (block?.type === "table") {
+      const rows = block.rows;
+      const cells = Array.isArray(rows) ? (rows as { text?: unknown }[][]) : [];
+      if (
+        cells.length === 0 ||
+        cells.length > 100 ||
+        cells.some(
+          (row) =>
+            !Array.isArray(row) ||
+            row.length === 0 ||
+            row.length > 20 ||
+            row.some((cell) => String(cell?.text ?? "") === ""),
+        )
+      ) {
+        throw new SlackError("invalid_blocks");
+      }
+      tableCharacters += cells
+        .flat()
+        .reduce((sum, cell) => sum + String(cell.text).length, 0);
+      if (tableCharacters > 10_000) throw new SlackError("invalid_blocks");
+    }
     if (block?.type !== "container") continue;
     const children = block.child_blocks;
     if (
@@ -220,7 +260,7 @@ export function createFakeSlackWebApi(
     const { channel, thread_ts, text, user: _, ...options } = context.params;
     if (!channel) throw new SlackError("channel_not_found");
     if (!text) throw new SlackError("no_text");
-    checkBlocks(options.blocks);
+    checkBlocks(options.blocks, refusedBlockTypes);
     messageCounter += 1;
     const ts = `${Math.floor(Date.now() / 1000)}.${String(messageCounter).padStart(6, "0")}`;
     messages.push({
@@ -235,6 +275,7 @@ export function createFakeSlackWebApi(
     return ts;
   };
   const failures = new Map<string, string>();
+  const refusedBlockTypes = new Set<string>();
   /** The next call of a method answers exactly this, then it is forgotten. */
   const nextAnswers = new Map<string, { status: number; body: unknown }>();
   let appCounter = 0;
@@ -718,6 +759,7 @@ export function createFakeSlackWebApi(
     messages,
     missingTs,
     failures,
+    refusedBlockTypes,
     authorize,
     sendEvent,
 

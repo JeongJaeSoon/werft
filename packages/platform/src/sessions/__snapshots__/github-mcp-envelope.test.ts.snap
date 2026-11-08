@@ -2710,7 +2710,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "repository.read",
     },
-    "description": "List the repositories this session works with, 100 a page (\`limit\` 1 to 500): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it.",
+    "description": "List the repositories this session works with, 100 a page (\`limit\` 1 to 500): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2765,6 +2765,9 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                       },
                       "id": {
                         "minLength": 1,
+                        "type": "string",
+                      },
+                      "meaning": {
                         "type": "string",
                       },
                       "name": {

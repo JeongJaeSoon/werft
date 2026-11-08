@@ -1,6 +1,7 @@
 import {
   githubPolicyReceiptFields,
   LIST_REPOSITORIES_LIMIT_DEFAULT,
+  LISTED_REPOSITORY_MEANING,
   type ListedRepository,
   type ListRepositoriesResponse,
   type ReceiptActor,
@@ -148,12 +149,14 @@ export function createRepositoryAttachmentService(deps: {
       }
       const nameOf = (id: string, url: string | undefined) =>
         (url === undefined ? null : pathNameOf(url)) ?? id;
+      // The row before its status is put in plain words.
+      type Listed = Omit<ListedRepository, "meaning">;
       // One row per id, the first one wins: the session's own, then what the
       // session's release allows, then what only a newer release allows. The
       // allowed lists may name an id twice, and a cursor would swallow the
       // second row.
-      const byId = new Map<string, ListedRepository>();
-      const add = (repository: ListedRepository) => {
+      const byId = new Map<string, Listed>();
+      const add = (repository: Listed) => {
         if (!byId.has(repository.id)) byId.set(repository.id, repository);
       };
       if (context.repositoryId !== null) {
@@ -207,7 +210,7 @@ export function createRepositoryAttachmentService(deps: {
       // Pages walk the ids, never the status: a fetch settling between two
       // calls moves a row's status but not its place.
       const needle = page.query?.toLowerCase();
-      const matches = ({ id, name }: ListedRepository) =>
+      const matches = ({ id, name }: Listed) =>
         needle === undefined ||
         id.toLowerCase().includes(needle) ||
         name.toLowerCase().includes(needle);
@@ -222,7 +225,10 @@ export function createRepositoryAttachmentService(deps: {
       const limit = page.limit ?? LIST_REPOSITORIES_LIMIT_DEFAULT;
       const shown = rest.slice(0, limit);
       return {
-        repositories: shown,
+        repositories: shown.map((repository) => ({
+          ...repository,
+          meaning: LISTED_REPOSITORY_MEANING[repository.status],
+        })),
         next_cursor:
           rest.length > limit ? (shown[shown.length - 1]?.id ?? null) : null,
       };

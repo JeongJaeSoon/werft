@@ -22,7 +22,9 @@ const target = agent_release_id
       repository_id: process.env.WERFT_REPOSITORY_ID ?? "sample-app",
     };
 
-const COMMAND = "echo alpha > hello.txt";
+// `tee` rather than a redirect: a write under the workspace by redirect is
+// pre-approved by the platform and would never reach this handler.
+const COMMAND = "echo alpha | tee hello.txt";
 // A handler is a security boundary: allow the exact command, deny the rest.
 const approvals: PendingRequestHandlers = {
   permission(request) {

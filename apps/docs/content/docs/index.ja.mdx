@@ -6,15 +6,22 @@ description: Werft 開発者ドキュメント
 <HomeHero />
 
 <Cards>
+  <Card title="使う" href="/getting-started/install" description="SDK でエージェントとセッションを作って使う。はじめに、機能、UI コンポーネント、リファレンス" />
+  <Card title="設置する" href="/run-server/self-hosting" description="Werft サーバーを設置して運用する。設置方法の選択から運用作業まで" />
+</Cards>
+
+## 使う
+
+<Cards>
   <Card title="はじめに" href="/getting-started/install" description="SDK のインストール、最初のセッション作成、権限リクエストとクローズ、クライアント設定" />
+  <Card title="ローカル試験サーバーの実行" href="/run-server/dev-server" description="自分のコンピューターにサーバーを立ち上げ、API キーを取得する" />
   <Card title="エージェント" href="/agents/create" description="作成、指示文と説明、プロファイル、権限" />
   <Card title="セッション" href="/sessions/start" description="開始、状態とライフサイクル、承認待ちと再開、クローズ" />
   <Card title="メッセージ" href="/messages/send" description="送信、ストリーミング受信、添付" />
   <Card title="承認と push" href="/approvals/request" description="リクエスト、承認、拒否、receipt" />
   <Card title="連携" href="/integrations/github" description="GitHub、Slack" />
   <Card title="API キー" href="/api-keys" description="発行と scope" />
-  <Card title="オブザーバビリティ (OTel)" href="/observability" description="トレースとメトリクス" />
-  <Card title="サーバーを動かす" href="/run-server/dev-server" description="開発用サーバーの実行、セルフホスティング" />
+  <Card title="観測" href="/observability" description="イベントストリーム、receipt、使用量、サーバー状態。OTel トレースはまだ出力しません" />
   <Card title="UI コンポーネント" href="/ui" description="セッションブロック、テーマ、Storybook" />
   <Card title="リファレンス" href="/reference" description="HTTP API、UI コンポーネント (Storybook)" />
 </Cards>

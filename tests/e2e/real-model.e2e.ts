@@ -120,7 +120,7 @@ function commitSeen(events: SseEvent[]): string {
 test.each(PROFILE_IDS)(
   `two turns, a checkpoint and a resume on a new worker, against the ${MODE} model (%s)`,
   async (profileId) => {
-    // 1. The model writes and commits a file; every write asks permission.
+    // 1. The model writes and commits a file; workspace writes and local git are pre-approved.
     const created = await api.createSession(
       exactly(write),
       undefined,

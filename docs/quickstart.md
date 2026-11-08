@@ -134,7 +134,7 @@ get /v1 | jq .
 ### ① 생성
 
 ```bash
-created=$(post /v1/sessions "$(body 'GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha > hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}')")
+created=$(post /v1/sessions "$(body 'GATE-SPEC {"id":"q1","steps":[{"tool":"Bash","input":{"command":"echo alpha | tee hello.txt","description":"write hello.txt"}}],"final":"wrote hello.txt"}')")
 echo "$created" | jq .
 echo "$created" | jq -e '.status == "queued" and .turn_id == "1"'
 SID=$(echo "$created" | jq -r .session_id)
@@ -148,7 +148,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 ### ② 이벤트 관찰
 
-turn 1은 `echo alpha > hello.txt`를 실행하려다 권한을 묻고 멈춘다. worker가 뜨고 저장소를 clone하는 데 몇 초에서 수십 초가 걸리므로, 세션이 그 상태(`needs_input`)가 될 때까지 기다린 뒤 스트림을 처음부터 읽는다.
+turn 1은 `echo alpha | tee hello.txt`를 실행하려다 권한을 묻고 멈춘다. worker가 뜨고 저장소를 clone하는 데 몇 초에서 수십 초가 걸리므로, 세션이 그 상태(`needs_input`)가 될 때까지 기다린 뒤 스트림을 처음부터 읽는다.
 
 ```bash
 wait_for "/v1/sessions/$SID" .status needs_input
@@ -173,7 +173,7 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ```
 
 ```text
-{ "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha > hello.txt", … }, "expires_at": "…" } ] }
+{ "items": [ { "request_id": "req_…", "turn_id": "1", "kind": "permission", "tool": "Bash", "input": { "command": "echo alpha | tee hello.txt", … }, "expires_at": "…" } ] }
 ```
 
 요청은 30분(`PENDING_REQUEST_TTL_SEC`, 정수 초) 안에 답하지 않으면 거절로 끝난다. 값을 바꾸면 worker도 그만큼 기다린다. 다만 turn 상한 `MAX_TURN_SECONDS`를 넘길 수는 없다.

@@ -183,6 +183,7 @@ function server(failure: SessionServiceError | null) {
             branch: "main",
             status: "attached" as const,
             remote: "origin",
+            meaning: "attached to this session",
           },
         ],
         next_cursor: null,
