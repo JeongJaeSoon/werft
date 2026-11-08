@@ -422,7 +422,7 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```sh
 # Actor: owner.
 ap_as owner
-Q=$(ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"verify-permission\",\"steps\":[{\"tool\":\"Bash\",\"input\":{\"command\":\"echo alpha > hello.txt\",\"description\":\"write hello.txt\"}}],\"final\":\"wrote hello.txt\"}"}')
+Q=$(ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"verify-permission\",\"steps\":[{\"tool\":\"Bash\",\"input\":{\"command\":\"echo alpha | tee hello.txt\",\"description\":\"write hello.txt\"}}],\"final\":\"wrote hello.txt\"}"}')
 printf '%s\n' "$Q"
 QSID=$(printf '%s\n' "$Q" | head -1 | jq -r .session_id)
 printf 'QSID=%s\n' "$QSID" >> "$VERIFY_RUN/ids.sh"
@@ -857,7 +857,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. `pending_requests`에는 `remember: session`, `settled_answer_result: applied`, `remember_offer: [{"tool_name":"Bash","rule_content":"touch a.txt"}]` 한 행뿐이고(두 번째 호출은 요청이 없다) 세션은 turn 1 `completed`로 idle이 된다. 일반 허용은 카드가 `허용됨`으로 바뀌고 두 번째 카드가 온다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. GitHub 자격이 없는 기본 mock run에서는 `failed`(`no_push_credential`)로 끝나는 것이 정상이다. 틀린 서명은 401 `UNAUTHORIZED`.
 
-주의: 명령에 `>` 같은 리다이렉션이 있으면(`echo alpha > hello.txt`) 엔진이 제안한 규칙(`echo alpha *`)이 그 명령 자체를 덮지 못해, 카드가 `이 세션 동안 허용됨`으로 바뀐 뒤에도 같은 호출에 카드가 다시 온다. 세션 허용을 증명하는 대본은 리다이렉션 없는 명령을 쓴다. 실제 SDK에 간 `updatedPermissions`는 worker 로그에 남지 않는다. 증거는 `pending_requests`의 `remember: session`·`applied`와 다음 호출에 요청이 없다는 사실이다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
+주의: 명령에 `|`나 `>` 같은 파이프·리다이렉션이 있으면(`echo alpha | tee hello.txt`) 엔진이 제안한 규칙(`echo alpha *`)이 그 명령 자체를 덮지 못해, 카드가 `이 세션 동안 허용됨`으로 바뀐 뒤에도 같은 호출에 카드가 다시 온다. 세션 허용을 증명하는 대본은 리다이렉션 없는 명령을 쓴다. 실제 SDK에 간 `updatedPermissions`는 worker 로그에 남지 않는다. 증거는 `pending_requests`의 `remember: session`·`applied`와 다음 호출에 요청이 없다는 사실이다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 

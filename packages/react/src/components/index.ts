@@ -136,6 +136,8 @@ export {
   type ComposerProps,
   type ComposerQueuedMessage,
 } from "./session/composer.tsx";
+export { Markdown, type MarkdownProps } from "./session/markdown.tsx";
+export { markdownPlainText } from "./session/markdown-text.ts";
 export { Message, type MessageProps } from "./session/message.tsx";
 export {
   type QuestionAnswer,
@@ -187,6 +189,7 @@ export {
 } from "./session/timeline.tsx";
 export {
   type FormatTurnMessage,
+  turnPreviewText,
   turnSummaryText,
 } from "./session/turn-text.ts";
 export { useMinute } from "./session/use-minute.ts";

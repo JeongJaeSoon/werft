@@ -21,6 +21,17 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
 
+// The toast's region mounts empty and is filled a beat later (so a screen
+// reader announces it): wait for the words, not just the region.
+async function toastAlert(): Promise<string> {
+  const region = await screen.findByRole("alert");
+  await waitFor(() => expect(region.textContent).not.toBe(""));
+  expect(region.getAttribute("data-slot")).toBe("toast");
+  // An error nobody must act on goes by itself: no dismiss button.
+  expect(screen.queryByRole("button", { name: "알림 닫기" })).toBeNull();
+  return region.textContent ?? "";
+}
+
 const OTHER_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
 const GONE_ID = "3d8f2e5b-6c7a-4b9f-8e1d-2f3a4b5c6d7e";
 
@@ -315,7 +326,7 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await changeRole(user, "Boss", "member");
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect(await toastAlert()).toBe(
       "하나뿐인 소유자의 역할은 바꿀 수 없습니다 — 다른 사람을 먼저 소유자로 정하세요.",
     );
   });
@@ -331,7 +342,7 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await changeRole(user, "Mate", "owner");
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect(await toastAlert()).toBe(
       "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
     );
   });
@@ -441,7 +452,7 @@ describe("구성원 화면", () => {
     await user.click(
       await screen.findByRole("button", { name: /^\S+ 다시 활성화$/ }),
     );
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect(await toastAlert()).toBe(
       "소유자는 관리자가 다시 활성화할 수 없습니다.",
     );
   });
@@ -1508,7 +1519,7 @@ describe("구성원 페이지와 서버 검색", () => {
       ).length;
     const before = reads();
     await changeRole(user, "Mate", "admin");
-    expect((await screen.findByRole("alert")).textContent).toBe(
+    expect(await toastAlert()).toBe(
       "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
     );
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
@@ -1629,8 +1640,7 @@ describe("권한", () => {
     });
     const user = await setupUser();
     await changeRole(user, "Mate", "owner");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe(
+    expect(await toastAlert()).toBe(
       "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
   });

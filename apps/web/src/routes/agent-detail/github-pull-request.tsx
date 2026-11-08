@@ -19,8 +19,8 @@ import { type FormEvent, useId, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
+import type { Notify } from "../../components/toast.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
-import type { Notify } from "./toast.tsx";
 
 export const AGENT_TEMPLATE_MAX_BYTES = 16 * 1024;
 export const AGENT_TEMPLATE_NAME_MAX_LENGTH = 100;

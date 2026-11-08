@@ -6,11 +6,23 @@ CI는 PR 전체의 변경 경로를 한 번 분류한다. main push와 수동 �
 
 main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이다. 다른 branch 위에 쌓은 PR과 base를 확인할 수 없는 PR은 전체 검증이다. 하나라도 다른 경로가 섞이거나 diff가 비어 있어도 전체 검증이다.
 
-- 루트 `README.md`, `CHANGELOG.md`
+- 루트의 `.md` 파일(`README.md`, `CHANGELOG.md`, `AGENTS.md` 등). 라이선스 고지 `THIRD_PARTY_NOTICES.md`는 lockfile에서 생성되므로 제외한다
 - `docs/` 아래 `.md`
 - `apps/docs/content/` 아래 `.mdx`
+- `.claude/` 아래 `.md` (같은 디렉터리의 스크립트·설정은 제외)
+- `.github/ISSUE_TEMPLATE/` 아래 파일과 `.github/` 바로 아래 `.md`
 
 소스·workflow·lockfile·사이트 설정·의존성·배포 파일은 이 목록에 없다. 새 경로도 기본적으로 전체 검증이다. 대소문자가 다른 확장자도 자동으로 허용하지 않는다.
+
+## 영역별 계획
+
+문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`, `apps/storybook/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
+
+| 바뀐 영역 | integration 도메인 | `helm-chart` | `k8s-smoke` | `quickstart` | `workspace-quota` |
+| --- | --- | --- | --- | --- | --- |
+| `apps/web/`, `apps/storybook/` | `surface` | 생략 | 생략 | 가이드 경로가 바뀔 때만 | 생략 |
+
+control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에서도 그대로 돈다. 닿지 않는 도메인도 job은 시작해 몇 초 안에 성공으로 끝난다. job 단위 `if`는 matrix 값을 읽지 못하고, 도메인 선언은 `integration-jobs.ts`가 읽는 한 곳(ci.yml)에 두기 때문이다. 계획 스크립트의 `domains` 목록은 그 matrix와 같아야 하며 `tests/ci-plan.test.ts`가 비교한다.
 
 | 변경 | 정적 검사 | 문서·저장소 정책 | 일반 unit·integration·제품 E2E | 실행 가이드 | 사이트 조립 |
 | --- | --- | --- | --- | --- | --- |
