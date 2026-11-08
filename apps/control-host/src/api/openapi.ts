@@ -6461,7 +6461,7 @@ export const API_ROUTE_DECLARATIONS = [
         repositories: [{ id: "sample-app" }],
         tool_catalogs: [
           {
-            id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+            id: "claude_agent_sdk@0.3.319+claude-code@2.1.319",
             runtime_kind: "claude_agent_sdk",
             runtime_version: "0.3.319",
             tools: [

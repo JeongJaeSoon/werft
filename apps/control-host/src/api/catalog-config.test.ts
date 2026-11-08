@@ -326,6 +326,11 @@ describe("installed runtimes", () => {
       expect.arrayContaining(["0.3.319", "2.1.319", "0.3.270", "2.1.270"]),
     );
     expect(runtimes?.current).not.toContain("0.3.1");
+    // A session pinned under the older row still names its profile once the
+    // row moves to the image's own version.
+    expect(runtimes?.accepted).toEqual(
+      expect.arrayContaining(["0.3.319", "0.3.270"]),
+    );
     expect(() =>
       runtimeVersionsFromEnv({ WORKER_IMAGE_RUNTIME: "0.3.280" }),
     ).toThrow("WORKER_IMAGE_RUNTIME");

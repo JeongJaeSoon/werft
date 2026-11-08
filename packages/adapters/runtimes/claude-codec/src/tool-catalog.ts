@@ -113,9 +113,16 @@ export function toolCatalogFor(
   );
 }
 
+// Tools as sorted [name, boundary] pairs and aliases as sorted pairs, so
+// neither list order nor key order decides.
+const shape = (catalog: BuiltinToolCatalog): string =>
+  JSON.stringify([
+    catalog.tools.map((tool) => [tool.name, tool.boundary]).sort(),
+    Object.entries(catalog.aliases).sort(),
+  ]);
+
 const sameTools = (a: BuiltinToolCatalog, b: BuiltinToolCatalog): boolean =>
-  JSON.stringify([a.tools, Object.entries(a.aliases).sort()]) ===
-  JSON.stringify([b.tools, Object.entries(b.aliases).sort()]);
+  shape(a) === shape(b);
 
 /**
  * Every SDK and engine version, other than the one asked about, of a catalog

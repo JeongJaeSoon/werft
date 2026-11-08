@@ -57,6 +57,25 @@ describe("equivalent builds", () => {
     expect(versionsOf([base, other({})])).toEqual(["1.1.0", "2.1.0"]);
   });
 
+  test("do not depend on the order of tools, aliases or a tool's keys", () => {
+    const two: BuiltinToolCatalog = {
+      ...base,
+      aliases: { Task: "Agent", KillShell: "TaskStop" },
+      tools: [
+        { name: "Read", boundary: "local" },
+        { name: "Bash", boundary: "local" },
+      ],
+    };
+    const shuffled = other({
+      aliases: { KillShell: "TaskStop", Task: "Agent" },
+      tools: [
+        { boundary: "local", name: "Bash" },
+        { boundary: "local", name: "Read" },
+      ],
+    });
+    expect(versionsOf([two, shuffled])).toEqual(["1.1.0", "2.1.0"]);
+  });
+
   test("leave out a catalog whose tool, boundary or alias differs", () => {
     const widened = other({
       tools: [...base.tools, { name: "Write", boundary: "local" }],

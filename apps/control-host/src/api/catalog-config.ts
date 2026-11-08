@@ -142,8 +142,9 @@ export function runtimeServes(profile: CatalogProfileConfig): boolean {
 
 /**
  * The configured worker images' engine versions; undefined without them.
- * `current` also names the older builds whose tool catalog is the image's
- * own, since a worker runs a profile row left at one of them.
+ * `current` and `accepted` also name the older builds whose tool catalog is
+ * an image's own: a worker runs a profile row left at one of them, and a
+ * session pinned under that row keeps its profile when the row moves on.
  */
 export function runtimeVersionsFromEnv(
   env: Record<string, string | undefined>,
@@ -151,14 +152,19 @@ export function runtimeVersionsFromEnv(
   const images = workerImageRuntimesFromEnv(env);
   if (images === null) return undefined;
   const versions = runtimeVersionsOf(images);
-  const equivalent = installedDescriptors.flatMap(({ kind }) =>
-    versions.current.flatMap((version) =>
-      equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
-    ),
-  );
+  const withEquivalents = (listed: readonly string[]) => [
+    ...new Set([
+      ...listed,
+      ...installedDescriptors.flatMap(({ kind }) =>
+        listed.flatMap((version) =>
+          equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
+        ),
+      ),
+    ]),
+  ];
   return {
-    ...versions,
-    current: [...new Set([...versions.current, ...equivalent])],
+    accepted: withEquivalents(versions.accepted),
+    current: withEquivalents(versions.current),
   };
 }
 
