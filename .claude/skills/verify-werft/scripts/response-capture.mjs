@@ -75,6 +75,11 @@ function valueEnd(s, i) {
     }
     return s.length;
   }
+  if (open === "\\" && s[i + 1] === '"') {
+    // A string inside a string: \"value\"
+    const e = s.indexOf('\\"', i + 2);
+    return e === -1 ? s.length : e + 2;
+  }
   const bare = /^[^\s,}\]]*/.exec(s.slice(i))[0];
   return i + bare.length;
 }
@@ -82,27 +87,23 @@ function valueEnd(s, i) {
 // JSON that sits inside other text, or a body that is not valid JSON: find
 // each `"key":` and hide the value after a secret key, whatever its shape.
 function hideEmbedded(text) {
-  // A scan, not a regex: every string is walked once, so long runs of quotes
-  // and backslashes stay linear.
+  // A scan, not a regex, and every quote is tried as the start of a key: the
+  // span to the next quote is the candidate, so a stray quote earlier in the
+  // text cannot pair the wrong quotes and skip a key, and the work stays
+  // linear. A key written as \"name\" (JSON inside a string) is found the same way.
   const colon = /\s*:\s*/y;
   let out = "";
   let last = 0;
-  for (let i = text.indexOf('"'); i !== -1 && i < text.length; ) {
-    const stringEnd = valueEnd(text, i);
-    colon.lastIndex = stringEnd;
-    if (!colon.test(text)) {
-      i = text.indexOf('"', stringEnd);
-      continue;
-    }
+  for (let q = text.indexOf('"'); q !== -1; q = text.indexOf('"', q + 1)) {
+    if (q < last) continue; // inside a value that is already hidden
+    const close = text.indexOf('"', q + 1);
+    if (close === -1) break;
+    colon.lastIndex = close + 1;
+    if (!colon.test(text)) continue;
+    if (!SECRET_KEY.test(jsonText(text.slice(q, close + 1)))) continue;
     const start = colon.lastIndex;
-    if (!SECRET_KEY.test(jsonText(text.slice(i, stringEnd)))) {
-      i = text.indexOf('"', start);
-      continue;
-    }
-    const end = valueEnd(text, start);
     out += `${text.slice(last, start)}"(hidden)"`;
-    last = end;
-    i = text.indexOf('"', end);
+    last = valueEnd(text, start);
   }
   return out + text.slice(last);
 }
@@ -140,21 +141,23 @@ export function shortBody(text, limit = BODY_LIMIT) {
 export function safeUrl(raw) {
   try {
     const u = new URL(raw);
-    // Decide per segment, decoded on its own: /in%76ite/<token> is the invite
-    // path too, and one bad escape elsewhere must not hide that. Nothing after
-    // an invite segment is printed.
-    const segments = u.pathname.split("/");
-    const at = segments.findIndex((segment) => {
+    // Decode each run of %XX on its own, so one bad escape elsewhere cannot
+    // disable the rest, then look for the invite segment in the decoded path:
+    // /in%76ite%2F<token> is the invite path too. Nothing after an invite
+    // segment is printed; what comes before goes through the body masks.
+    const decoded = u.pathname.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
       try {
-        return decodeURIComponent(segment).toLowerCase() === "invite";
+        return decodeURIComponent(run);
       } catch {
-        return false;
+        return run;
       }
     });
+    const segments = decoded.split("/");
+    const at = segments.findIndex((s) => s.toLowerCase() === "invite");
     const path =
       at === -1
-        ? maskBody(u.pathname)
-        : `${segments.slice(0, at + 1).join("/")}/(token)`;
+        ? maskBody(decoded)
+        : `${maskBody(segments.slice(0, at + 1).join("/"))}/(token)`;
     return `${path}${u.search ? "?(query hidden)" : ""}`;
   } catch {
     return "(unparsable url)";

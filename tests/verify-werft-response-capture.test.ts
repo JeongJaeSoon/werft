@@ -91,6 +91,18 @@ describe("maskBody: shapes a first version leaked", () => {
     expect(leaks('Cookie: a="SENTINEL')).toBe(false);
   });
 
+  test("a stray quote before a secret key does not hide the key from the scan", () => {
+    expect(leaks('prefix " {"token":"SENTINEL"}')).toBe(false);
+    expect(leaks('a " b " c {"token":"SENTINEL"} " d')).toBe(false);
+  });
+
+  test("JSON inside a JSON string (escaped quotes)", () => {
+    const body = JSON.stringify({
+      note: JSON.stringify({ token: "two words SENTINEL", ok: "fine" }),
+    });
+    expect(leaks(body)).toBe(false);
+  });
+
   test("mismatched brackets hide the rest instead of ending early", () => {
     expect(leaks('prefix {"token":[}SENTINEL]}')).toBe(false);
   });
@@ -137,6 +149,7 @@ describe("maskBody: shapes a first version leaked", () => {
       "/invite/PREFIX%20SENTINEL",
       "/invite/a%22SENTINEL",
       "/in%76ite/SENTINEL%ZZ",
+      "/in%76ite%2FSENTINEL",
     ])
       expect(
         formatCapture({
