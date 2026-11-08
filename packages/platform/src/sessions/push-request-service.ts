@@ -325,9 +325,6 @@ export function createPushRequestService(deps: {
       if (pinned.status === "unavailable") {
         return end("failed", "checkpoint_unavailable");
       }
-      // A named branch is pushed at its own commit: what is uncommitted in
-      // the workspace is not part of it, and the worker's look at the
-      // snapshot's commits does not describe it (the push checks it again).
       let gitCommit = pinned.gitCommit;
       if (job.sourceRef === null) {
         if (

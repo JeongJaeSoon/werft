@@ -122,7 +122,6 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
             row.repositoryId === input.repositoryId &&
             row.targetBranch === input.targetBranch,
         );
-        // The same call again, or one that adds nothing to a settled intent.
         if (
           existing &&
           (sourceRef === null ||
@@ -131,10 +130,6 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
         ) {
           return { outcome: "existing", intent: publicPushIntent(existing) };
         }
-        // Every intent of a turn pins the same checkpoint, so two intents
-        // that both mean "the snapshot" would push one commit twice, and an
-        // unnamed one would take whatever HEAD ends on. With two or more,
-        // each names its own source.
         const after = [
           ...taken.filter((row) => row !== existing),
           { sourceRef, targetBranch: input.targetBranch },

@@ -301,9 +301,6 @@ export function createGitWorkspaceBundleVerifier(
               bases.length === 0 ? checked.reason : `${key}: ${checked.reason}`,
           };
         }
-        // The manifest and the bundle must name the same source branches: a
-        // push resolves a branch through the manifest and sends the commit
-        // the bundle proves.
         const carried = manifestSourcesOf(checked.refs);
         const missing = sources.find(
           (named) =>

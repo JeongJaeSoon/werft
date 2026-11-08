@@ -599,7 +599,6 @@ async function captureWorkspaceOnce(
     const sources = await localSources(workspace);
     const headBranch = branch.code === 0 ? branch.stdout.trim() : null;
     for (const source of sources) {
-      // HEAD's branch is already in the bundle under its own name.
       if (`refs/heads/${source.name}` === headBranch) continue;
       refs.push([`${CHECKPOINT_SOURCE_PREFIX}${source.name}`, source.commit]);
     }
@@ -888,12 +887,6 @@ async function workspaceMarker(
   }
 }
 
-/**
- * The local branches a push may name, at most `MAX_CHECKPOINT_SOURCES`,
- * newest commit first. A workspace with more keeps the most recently
- * committed ones rather than failing every checkpoint; a branch whose name
- * the manifest cannot carry is left out.
- */
 async function localSources(
   workspace: Git,
 ): Promise<Array<{ commit: string; name: string }>> {

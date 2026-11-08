@@ -379,8 +379,6 @@ export function createGitHubMcpServer(deps: {
         const { source_ref, ...body } = parsed.data as z.infer<
           (typeof GITHUB_MCP_TOOL_ARGUMENTS)["request_push"]
         >;
-        // Without the intent flow there is one checkpoint to push; before
-        // anything is written.
         if (source_ref !== undefined && deps.actionFlows?.() !== true) {
           return refused({
             code: "source_ref_unsupported",
@@ -425,8 +423,6 @@ export function createGitHubMcpServer(deps: {
             });
           }
           if (asked.status === "source_ref_required") {
-            // Two pushes in one request would both mean the workspace as it
-            // ends: each has to name the branch that holds its commit.
             return refused({
               code: "source_ref_required",
               by: "platform",

@@ -113,8 +113,6 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  // The REST body plus `source_ref`, which only the tool takes. Without the
-  // intent flow it is answered `source_ref_unsupported`.
   request_push: createPushRequestRequestSchema
     .safeExtend({
       source_ref: sourceRefSchema.optional(),

@@ -369,7 +369,6 @@ describe("an intent with a source branch", () => {
       { name: "guard-docs", commit: GUARD },
       { name: "skills-sample", commit: SKILLS },
     ],
-    // What the worker says about the snapshot must not block a named branch.
     mismatches: [{ commit: COMMIT, problems: ["author"] }],
   };
 

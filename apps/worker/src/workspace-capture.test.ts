@@ -411,7 +411,6 @@ exec "$REAL_GIT" "$@"`);
     );
     expect(result.sources).toHaveLength(3);
     const refs = headerOf(result)?.refs ?? [];
-    // HEAD's branch is carried under its own name, the others as sources.
     expect(refs).toContainEqual({
       name: `${CHECKPOINT_SOURCE_PREFIX}guard/docs`,
       oid: guard,

@@ -26,7 +26,6 @@ export const CHECKPOINT_UPSTREAM_PREFIX = "refs/checkpoint/upstream/";
  * restore does not check these out; they keep the commits reachable.
  */
 export const CHECKPOINT_SOURCE_PREFIX = "refs/checkpoint/source/";
-/** Most local branches one checkpoint carries as push sources. */
 export const MAX_CHECKPOINT_SOURCES = 16;
 
 /**

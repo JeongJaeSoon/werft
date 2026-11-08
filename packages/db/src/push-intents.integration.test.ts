@@ -158,7 +158,6 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     if (first.outcome !== "created") throw new Error("expected created");
     expect(first.intent.source_ref).toBeNull();
     const docs = `agent/${s.sessionId}-docs`;
-    // The first has no source, so a second push cannot be told apart.
     expect(await ask(s, docs, { sourceRef: "docs-work" })).toEqual({
       outcome: "source_ref_required",
       targetBranch: `agent/${s.sessionId}`,
@@ -178,7 +177,6 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
       "docs-work",
       "main-work",
     ]);
-    // Asking again without a source is the same call, not a change.
     expect(await ask(s, docs)).toMatchObject({
       outcome: "existing",
       intent: { source_ref: "docs-work" },

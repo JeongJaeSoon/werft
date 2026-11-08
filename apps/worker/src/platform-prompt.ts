@@ -64,10 +64,6 @@ const PUSH_THIS_TURN_SCHEDULED_PR = [
   "A push carries the HEAD the workspace has when the turn ends and the history before it, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
 ];
 
-// Revision 4 (AGENT_ACTION_FLOWS on): every repository the user names is pushed
-// in the one reply, each from its own local branch, so nothing asks the user
-// to send another message. The words avoid the platform's internal terms: the
-// model repeats what it is told in its answer to the user.
 const PUSH_EACH_REPOSITORY = [
   "Push with mcp__github__request_push. It pushes the latest commit of a local branch of the workspace, never uncommitted edits: commit first, then call it.",
   "It answers deferred, which is not a refusal: the platform makes the push request once your reply ends, and nothing starts after that, so do not call it again for the same push.",
