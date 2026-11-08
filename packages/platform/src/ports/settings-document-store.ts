@@ -109,6 +109,15 @@ export interface SettingsDocumentStore {
     owner: { kind: SettingsKind; id: string },
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
+  /**
+   * Clears a connection's `disabled_at`. Refused when another live
+   * connection holds the same definition (or an alias of it), or when its
+   * own stored value is gone. A deployment's reference is not opened here.
+   */
+  enableConnection(
+    id: string,
+    actor: TeamActor,
+  ): Promise<SettingsConsoleResult>;
   setMcpWorkspaces(
     id: string,
     workspaces: readonly string[],
@@ -144,11 +153,18 @@ export type SettingsConsoleResult =
        * credential comes from the deployment.
        * `alias_taken`: another connection is, or was, exactly what this one
        * was, so a ceiling made over it could not tell which one is its own.
+       * `not_disabled`: enabling a row that is already in use.
+       * `definition_active`: enabling needs the definition (or an alias of
+       * it) to be held by no other live connection.
+       * `needs_value`: enabling a stored connection whose value is gone.
        */
       reason:
         | "already_exists"
         | "not_stored"
         | "disabled"
         | "not_external"
-        | "alias_taken";
+        | "alias_taken"
+        | "not_disabled"
+        | "definition_active"
+        | "needs_value";
     };

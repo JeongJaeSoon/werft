@@ -239,7 +239,13 @@ export function createSettingsConsoleService(deps: {
                 ? `${id} already keeps its own value: replace the value instead`
                 : result.reason === "alias_taken"
                   ? `${id} cannot move to a stored value: another connection is, or was, exactly what it is now`
-                  : `${id} is disabled`,
+                  : result.reason === "not_disabled"
+                    ? `${id} is not disabled`
+                    : result.reason === "definition_active"
+                      ? `${id} cannot be enabled: another connection in use is, or was, exactly what it is`
+                      : result.reason === "needs_value"
+                        ? `${id} cannot be enabled: its stored value is gone, make a new connection instead`
+                        : `${id} is disabled`,
           undefined,
           { reason_code: result.reason },
         );
@@ -441,6 +447,12 @@ export function createSettingsConsoleService(deps: {
     disable(caller: Caller, kind: SettingsKind, id: string) {
       return onRow(caller, kind, id, (actor) =>
         store.disable({ kind, id }, actor),
+      );
+    },
+
+    enableConnection(caller: Caller, id: string) {
+      return onRow(caller, "connection", id, (actor) =>
+        store.enableConnection(id, actor),
       );
     },
 

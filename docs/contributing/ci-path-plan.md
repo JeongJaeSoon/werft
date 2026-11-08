@@ -9,7 +9,7 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 - 루트의 `.md` 파일(`README.md`, `CHANGELOG.md`, `AGENTS.md` 등). 라이선스 고지 `THIRD_PARTY_NOTICES.md`는 lockfile에서 생성되므로 제외한다
 - `docs/` 아래 `.md`
 - `apps/docs/content/` 아래 `.mdx`
-- `.claude/` 아래 `.md` (같은 디렉터리의 스크립트·설정은 제외)
+- `.claude/` 아래 모든 파일 (스킬 스크립트·설정 포함. 워크플로와 이미지가 읽지 않고, 이를 검증하는 시험은 `tests/`에 있어 `docs-checks`가 덮는다. 예외로 `.claude/skills/verify-werft/github-sandbox/`는 `apps/control-host` 시험이 파싱하므로 전체 계획이다)
 - `.github/ISSUE_TEMPLATE/` 아래 파일과 `.github/` 바로 아래 `.md`
 
 소스·workflow·lockfile·사이트 설정·의존성·배포 파일은 이 목록에 없다. 새 경로도 기본적으로 전체 검증이다. 대소문자가 다른 확장자도 자동으로 허용하지 않는다.
@@ -40,7 +40,7 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 
 `check (static)`은 typecheck·lint·라이선스 고지 검사를 계속 실행한다. 문서 전용 PR의 `docs-checks`는 `bun test ./tests`로 저장소 정책 검사를 서비스 없이 실행한다. 문서 링크·anchor·문서 내 ticket 링크 금지, 다국어 코드 동등성, 이미지·로컬 실행 문서의 정책 등을 일부 파일 이름으로 고르지 않고 기존 `tests/` 집합에서 검증한다. 서비스와 D2 스택이 필요한 테스트의 skip은 이 경로에서 의도적이다. 제품 변경 PR에서는 기존 전체 unit·integration 경로가 돈다.
 
-Images workflow와 required `supply-chain`은 이 변경의 경계 밖이므로 문서 전용 PR에서도 기존대로 실행한다. 이 경로 계획이 공급망 검사나 배포 검사를 생략하지 않는다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
+Images workflow는 `plan` job이 같은 `ci-plan.sh`로 문서 전용 여부를 판정해, 문서 전용 PR에서만 이미지 `build`(6개)를 건너뛴다. required `supply-chain`은 항상 실행하며 계획 값(`build` 또는 `skip`)을 명시적으로 읽는다. `plan` job 자체가 success가 아니면(출력이 남아 있어도) 실패하고, 계획이 비었거나 알 수 없는 값이어도 실패하며, `build` 계획인데 build가 success가 아니면 스캔 artifact가 있어도 실패한다. `skip`은 build가 skipped인 pull request에서만 인정하며 npm audit은 그대로 판정한다. main·태그·schedule·수동 실행은 항상 `build`다. 이 경로 계획이 공급망 검사나 배포 검사를 생략하지 않는다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
 
 ## required 결과와 실패 처리
 
