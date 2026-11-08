@@ -57,16 +57,17 @@ read -rs KIND_DB_PASSWORD
 { printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/BOOTSTRAP_TOKEN"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]' --timeout 10m
 ```
 
-Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
+既定の API replica は 2 個なので、同じ `BOOTSTRAP_TOKEN`（`openssl rand -hex 32` は 64 文字なので 32–256 文字の条件を満たします）を Secret に作り、`secrets.catalogEnv` に残します。一覧を `[]` で空にすると replica ごとに別のトークンができます。この試験ではモデル key を入れないため、一覧から外すのは既定の `ANTHROPIC_API_KEY` だけです。Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
 
 <a id="확인" />
 ## 確認
