@@ -404,7 +404,7 @@ const AGENT_ACCESS: Record<
 > = {
   agent_outsider_access: {
     legend: "담당 팀 밖 구성원의 에이전트 접근",
-    foot: "담당 팀이 없는 에이전트에도 적용됩니다.",
+    foot: "모든 에이전트에 적용됩니다.",
     choices: [
       {
         value: "use",
@@ -425,7 +425,7 @@ const AGENT_ACCESS: Record<
   },
   agent_outsider_session_visibility: {
     legend: "워크스페이스 공개 세션",
-    foot: "담당 팀이 있는 에이전트의 세션에만 적용됩니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
+    foot: "모든 에이전트의 세션에 적용됩니다. 다만 'Unassigned agents' 팀에 아직 남아 있는 에이전트는 예외라, 담당 팀을 정하기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
     choices: [
       {
         value: "managing_team",

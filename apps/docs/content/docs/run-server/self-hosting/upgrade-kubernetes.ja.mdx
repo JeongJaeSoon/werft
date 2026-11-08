@@ -192,7 +192,7 @@ helm -n werft history werft
 helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
-rollback は migrate hook を実行しません（`pre-rollback` ではありません）。DB は新 schema に残り、以前のビルドは自分より先の schema でも ready になります（`/readyz` の schema 検査は、自分の migration 一覧が適用済み一覧の先頭部分と一致するかだけを見ます）。そのため rollback できない migration はデプロイしません。worker イメージを戻す際の checkpoint 互換性は、先に [worker・control-host の rollback と incremental checkpoint](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint)を確認します。
+rollback は migrate hook を実行しません（`pre-rollback` ではありません）。DB は新 schema に残り、以前のビルドは自分より先の schema でも ready になります（`/readyz` の schema 検査は、自分の migration 一覧が適用済み一覧の先頭部分と一致するかだけを見ます）。そのため rollback できない migration はデプロイしません。あるイメージまでしか戻せない migration（例: `0243`）は、その下限をイメージごとに [Compose のアップグレード表](/run-server/self-hosting/upgrade-compose)に書き、下限より前には rollback しません。worker イメージを戻す際の checkpoint 互換性は、先に [worker・control-host の rollback と incremental checkpoint](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint)を確認します。
 
 リンクした共通の実行前ゲートと直接検査で rollback 可能と確認してからだけ戻します。hook がないため、rollback コマンドが自動検査で止めてはくれません。roll-forward を優先します。
 

@@ -1,17 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link as RouterLink } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { Agent, SetAgentManagingTeamResponse } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
-  Button,
   NativeSelect,
   NativeSelectOption,
   Section,
   Text,
+  Link as TextLink,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useId } from "react";
 import {
   agentListsFilter,
   myTeamsQuery,
@@ -29,6 +30,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { SECTION_BODY } from "./section-body.ts";
+import type { Notify } from "./toast.tsx";
 
 export interface TeamChoice {
   readonly id: string;
@@ -62,24 +64,43 @@ export function ManagingTeamName({ agent }: { readonly agent: Agent }) {
 export function ManagingTeam({
   agent,
   manages,
+  notify,
   onOutcome,
 }: {
   readonly agent: Agent;
   readonly manages: boolean;
+  /** Said as a toast: a change is applied on the spot and needs no banner. */
+  readonly notify: Notify;
+  /** Only a refusal is placed on the page. */
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
+  const limited =
+    useMe()?.workspace?.settings.agent_outsider_session_visibility ===
+    "managing_team";
   return (
     <Section
       title={t("managingTeam.title")}
       description={t("managingTeam.intro")}
     >
       <div className={SECTION_BODY}>
-        <div className="flex flex-wrap items-center gap-2">
-          <ManagingTeamName agent={agent} />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <TextLink asChild className="[overflow-wrap:anywhere]">
+            <RouterLink
+              to="/members/teams/$teamId"
+              params={{ teamId: agent.managing_team_id }}
+            >
+              {agent.managing_team_name}
+            </RouterLink>
+          </TextLink>
+          {manages ? (
+            <ChangeTeam agent={agent} notify={notify} onOutcome={onOutcome} />
+          ) : null}
         </div>
         <NoLeadNotice teamId={agent.managing_team_id} />
-        {manages ? <ChangeTeam agent={agent} onOutcome={onOutcome} /> : null}
+        {manages && limited ? (
+          <Text variant="meta">{t("managingTeam.audience")}</Text>
+        ) : null}
       </div>
     </Section>
   );
@@ -103,22 +124,25 @@ function NoLeadNotice({ teamId }: { readonly teamId: string }) {
   );
 }
 
+/**
+ * One control: choosing a team applies it. The select itself never holds the
+ * choice (its value stays ""), so a refused change shows the old state again
+ * without any undo, and it is locked while the request is out.
+ */
 function ChangeTeam({
   agent,
+  notify,
   onOutcome,
 }: {
   readonly agent: Agent;
+  readonly notify: Notify;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  const limited =
-    useMe()?.workspace?.settings.agent_outsider_session_visibility ===
-    "managing_team";
   const { choices, error, refetch } = useTeamChoices();
-  const [picked, setPicked] = useState("");
   const selectId = useId();
   const others = choices?.filter((team) => team.id !== agent.managing_team_id);
 
@@ -132,11 +156,7 @@ function ChangeTeam({
       ),
     onMutate: () => onOutcome(null),
     onSuccess: async (_result, team) => {
-      setPicked("");
-      onOutcome({
-        kind: "notice",
-        text: t("managingTeam.saved", { name: team.name }),
-      });
+      notify(t("managingTeam.saved", { name: team.name }));
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).agent(agent.id),
@@ -150,64 +170,49 @@ function ChangeTeam({
         queryClient.invalidateQueries(agentListsFilter(client)),
       ]);
     },
-    onError: (failure) =>
+    onError: (failure) => {
+      const reason = (failure.details as { reason_code?: unknown } | null)
+        ?.reason_code;
       onOutcome({
         kind: "error",
         text:
-          (failure.details as { reason_code?: unknown } | null)?.reason_code ===
-          "team_not_allowed"
+          reason === "team_not_allowed"
             ? t("managingTeam.notAllowed")
-            : refusalText(t, failure, "agent.admin.manage", role),
-      }),
+            : reason === "team_holding"
+              ? t("managingTeam.holding")
+              : refusalText(t, failure, "agent.admin.manage", role),
+      });
+    },
   });
 
   if (error) return <LoadFailure error={error} onRetry={refetch} />;
   if (others === undefined) return null;
-  const choice = others.find((team) => team.id === picked);
+  if (others.length === 0)
+    return <Text variant="meta">{t("managingTeam.noChoices")}</Text>;
   return (
-    <div className="flex flex-col gap-3">
-      {others.length === 0 ? (
-        <Text variant="meta">{t("managingTeam.noChoices")}</Text>
-      ) : (
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (choice) set.mutate(choice);
-          }}
-        >
-          <label className="sr-only" htmlFor={selectId}>
-            {t("managingTeam.pick")}
-          </label>
-          <NativeSelect
-            id={selectId}
-            className="w-auto max-w-full"
-            value={picked}
-            onChange={(event) => setPicked(event.target.value)}
-          >
-            <NativeSelectOption value="" disabled>
-              {t("managingTeam.pickPlaceholder")}
-            </NativeSelectOption>
-            {others.map((team) => (
-              <NativeSelectOption key={team.id} value={team.id}>
-                {team.name}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <Button
-            type="submit"
-            variant="outline"
-            disabled={!choice || set.isPending}
-          >
-            {set.isPending
-              ? t("managingTeam.saving")
-              : t("managingTeam.change")}
-          </Button>
-        </form>
-      )}
-      {limited ? (
-        <Text variant="meta">{t("managingTeam.audience")}</Text>
-      ) : null}
-    </div>
+    <>
+      <label className="sr-only" htmlFor={selectId}>
+        {t("managingTeam.pick")}
+      </label>
+      <NativeSelect
+        id={selectId}
+        className="w-auto max-w-full"
+        value=""
+        disabled={set.isPending}
+        onChange={(event) => {
+          const team = others.find((row) => row.id === event.target.value);
+          if (team) set.mutate(team);
+        }}
+      >
+        <NativeSelectOption value="" disabled>
+          {set.isPending ? t("managingTeam.saving") : t("managingTeam.change")}
+        </NativeSelectOption>
+        {others.map((team) => (
+          <NativeSelectOption key={team.id} value={team.id}>
+            {team.name}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </>
   );
 }

@@ -196,7 +196,7 @@ helm -n werft history werft
 helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
-Rollback does not run migrate hooks (they are not pre-rollback). Database schema stays new; old builds can still report ready on later schemas because readyz checks only that their migration list is a prefix of applied migrations. Do not deploy irreversible migrations. Before reverting workers, read [incremental checkpoint rollback](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint).
+Rollback does not run migrate hooks (they are not pre-rollback). Database schema stays new; old builds can still report ready on later schemas because readyz checks only that their migration list is a prefix of applied migrations. Do not deploy irreversible migrations. A migration that can be reversed only down to some image (for example `0243`) has that floor written per image in the [Compose upgrade table](/run-server/self-hosting/upgrade-compose); do not roll back below it. Before reverting workers, read [incremental checkpoint rollback](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint).
 
 Roll back only after shared gates and the direct check establish viability. Without hooks, rollback does not automatically enforce checks. Prefer roll-forward.
 

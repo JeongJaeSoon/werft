@@ -181,7 +181,7 @@ helm -n werft history werft
 helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
-롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [worker·control-host 롤백과 incremental checkpoint](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint)를 먼저 본다.
+롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. 어느 이미지까지만 되돌릴 수 있는 migration(예: `0243`)은 그 하한을 [Compose 업그레이드 표](/run-server/self-hosting/upgrade-compose)에 이미지별로 적고, 하한 아래로는 롤백하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [worker·control-host 롤백과 incremental checkpoint](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint)를 먼저 본다.
 
 링크한 공통 실행 전 게이트와 직접 검사에서 rollback 가능성을 확인한 뒤에만 되돌린다. hook이 없으므로 rollback 명령이 검사를 자동으로 막아 주지 않는다. 롤포워드가 우선이다.
 

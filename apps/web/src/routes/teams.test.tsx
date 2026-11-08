@@ -1411,13 +1411,15 @@ describe("에이전트 관리자", () => {
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(true),
     );
+    // Both lists failed: the reason is said under the picker, which stays
+    // open for typing.
     await waitFor(() =>
-      expect(
-        screen
-          .getByRole("button", { name: "관리자로 추가" })
-          .getAttribute("aria-disabled"),
-      ).toBe("true"),
+      expect(picker.getAttribute("aria-describedby")).not.toBeNull(),
     );
+    expect(
+      document.getElementById(picker.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).not.toBe("");
     expect(picker.disabled).toBe(false);
     const user = await setupUser();
     await user.type(picker, "a");
@@ -1478,8 +1480,8 @@ describe("에이전트 관리자", () => {
     const picker = screen.getByRole("combobox", {
       name: "관리자로 추가할 사람이나 팀",
     }) as HTMLInputElement;
-    const addButton = () =>
-      screen.getByRole("button", { name: "관리자로 추가" });
+    // There is no add button: choosing from the results adds at once.
+    expect(screen.queryByRole("button", { name: "관리자로 추가" })).toBeNull();
     // People and teams are searched on the server together.
     await pick(user, picker, "결제");
     expect(
@@ -1489,19 +1491,8 @@ describe("에이전트 관리자", () => {
     ).toEqual(
       expect.arrayContaining(["/v1/members?q=결제", "/v1/teams?q=결제"]),
     );
-    expect(picker.value).toBe("결제팀");
-    expect(addButton().hasAttribute("disabled")).toBe(false);
-    // Editing the text drops the choice, so nothing the input no longer
-    // shows is added.
-    await user.type(picker, "x");
-    expect(addButton().hasAttribute("disabled")).toBe(true);
-    await user.clear(picker);
-    await pick(user, picker, "결제");
-    await user.click(addButton());
-    await waitFor(() =>
-      expect(said()).toContain("결제팀을(를) 관리자로 추가했습니다."),
-    );
-    expect(picker.value).toBe("");
+    expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
+    await waitFor(() => expect(picker.value).toBe(""));
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
@@ -1521,7 +1512,9 @@ describe("에이전트 관리자", () => {
     expect(dialog.textContent).not.toContain("나 자신을 빼면");
     await user.click(within(dialog).getByRole("button", { name: "빼기" }));
     await waitFor(() =>
-      expect(said()).toContain("Mate을(를) 관리자에서 뺐습니다."),
+      expect(toastRegion()?.textContent).toBe(
+        "Mate을(를) 관리자에서 뺐습니다.",
+      ),
     );
     expect(
       screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
@@ -1710,10 +1703,14 @@ describe("에이전트 관리자", () => {
     expect(
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
-    const person = screen.getByRole("button", { name: "관리자로 추가" });
-    expect(person.getAttribute("aria-disabled")).toBe("true");
+    // There is no add button to carry the reason: the shut picker says it.
+    expect(screen.queryByRole("button", { name: "관리자로 추가" })).toBeNull();
+    const picker = screen.getByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    }) as HTMLInputElement;
+    expect(picker.disabled).toBe(true);
     expect(
-      document.getElementById(person.getAttribute("aria-describedby") ?? "")
+      document.getElementById(picker.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
       "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
