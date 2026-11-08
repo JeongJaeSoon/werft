@@ -209,6 +209,12 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
  * session cannot attach because it stays on the release it started with
  * (`allowed_in_newer_release`). `name` is the URL's path, never its
  * credentials.
+ *
+ * `not_attached` and `revoked` are not produced yet: they are here first so
+ * that a client built from this contract parses the list of the release that
+ * starts to produce them. `not_attached` is an allowed repository with
+ * nothing fetched; `revoked` is one that was attached and is no longer
+ * allowed.
  */
 export const LISTED_REPOSITORY_STATUS_VALUES = [
   "primary",
@@ -217,6 +223,8 @@ export const LISTED_REPOSITORY_STATUS_VALUES = [
   "failed",
   "available",
   "allowed_in_newer_release",
+  "not_attached",
+  "revoked",
 ] as const;
 
 /**
@@ -237,6 +245,8 @@ export const listedRepositorySchema = z.object({
   name: z.string(),
   branch: z.string().nullable(),
   status: z.enum(LISTED_REPOSITORY_STATUS_VALUES),
+  /** The git remote it is under in the workspace; absent when it is not there. */
+  remote: z.string().min(1).optional(),
 });
 export type ListedRepository = z.infer<typeof listedRepositorySchema>;
 

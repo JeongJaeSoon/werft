@@ -15,6 +15,7 @@ import {
   type PutAgentGitHubSettingsResponse,
   pushAttachedOf,
   type RepositoryCeiling,
+  repositoryRefOf,
 } from "@werft-ai/contracts";
 import {
   type AuthorizationPolicy,
@@ -65,6 +66,20 @@ const DEFAULT_REPOSITORY_CEILING: RepositoryCeiling = {
   repository_ids: [],
   github_app_repositories: "installed",
 };
+
+const nonEmpty = (value: unknown): string | null =>
+  typeof value === "string" && value !== "" ? value : null;
+
+/** `owner/repo` of a clone URL; its path when the URL has no such shape. */
+function fullNameOfUrl(url: string): string {
+  const repo = repoRefOf(url);
+  if (repo !== null) return `${repo.owner}/${repo.name}`;
+  try {
+    return new URL(url).pathname.replace(/^\/+|\/+$|\.git$/g, "") || url;
+  } catch {
+    return url;
+  }
+}
 
 /** Where a PAT works: github.com. Elsewhere a `basic` login is not GitHub's. */
 function onGitHub(repository: Repository): boolean {
@@ -243,9 +258,14 @@ export function createAgentGitHubService(deps: {
               : repository.auth?.kind !== "github_app"
                 ? "app_required"
                 : null;
+          const name = fullNameOfUrl(repository.url);
           return {
             id,
             url: repository.url,
+            repository: name,
+            full_name: name,
+            private: null,
+            ref: repositoryRefOf(id),
             available: reason === null,
             reason,
             installed: {
@@ -316,11 +336,29 @@ export function createAgentGitHubService(deps: {
         return { available: reason === null, reason };
       };
 
+      // A row the catalog dropped still has its name in the table.
+      const dropped = await store.repositoryNames(
+        scope.filter((id) => entry(id) === undefined),
+      );
+      const selected = scope.map((id) => {
+        const held = entry(id);
+        return {
+          id,
+          repository:
+            held === undefined
+              ? (dropped.get(id) ?? null)
+              : fullNameOfUrl(held.url),
+          private: null,
+          ref: repositoryRefOf(id),
+        };
+      });
+
       return {
         enabled,
         active_release_id: release?.id ?? null,
         github,
         settings_revision: agentRow?.revision ?? null,
+        selected_repositories: selected,
         start_repository_id: agentRow?.startRepositoryId ?? null,
         // No row: what a first save writes. A row: its value, `ask` for one
         // from before the column. A value this image cannot read shows as
@@ -491,13 +529,44 @@ export function createAgentGitHubService(deps: {
       if ((await store.enabled(caller.ownerId, agentId)) === null) {
         throw NOT_FOUND();
       }
-      return {
-        items: await store.activity(
-          caller.ownerId,
-          agentId,
-          viewerOf(caller),
-          AGENT_GITHUB_ACTIVITY_LIMIT,
+      const receipts = await store.activity(
+        caller.ownerId,
+        agentId,
+        viewerOf(caller),
+        AGENT_GITHUB_ACTIVITY_LIMIT,
+      );
+      // New receipts carry `owner/repo`; the older ones only a catalog id,
+      // read as the repository's name now.
+      const named = (receipt: (typeof receipts)[number]) => {
+        const result = receipt.result;
+        if (result === null || typeof result !== "object") return null;
+        const held = result as Record<string, unknown>;
+        return {
+          repository: nonEmpty(held.repository) ?? nonEmpty(held.full_name),
+          id: nonEmpty(held.repository_id),
+        };
+      };
+      const names = await store.repositoryNames([
+        ...new Set(
+          receipts.flatMap((receipt) => {
+            const found = named(receipt);
+            return found?.repository == null && found?.id != null
+              ? [found.id]
+              : [];
+          }),
         ),
+      ]);
+      return {
+        items: receipts,
+        receipt_repositories: receipts.flatMap((receipt) => {
+          const found = named(receipt);
+          const repository =
+            found?.repository ??
+            (found?.id == null ? null : (names.get(found.id) ?? null));
+          return repository === null
+            ? []
+            : [{ receipt_id: receipt.id, repository }];
+        }),
       };
     },
   };

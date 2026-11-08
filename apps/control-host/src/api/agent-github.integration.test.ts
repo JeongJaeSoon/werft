@@ -14,6 +14,7 @@ import {
   newSessionGitHubPolicy,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubSettingsResponseSchema,
+  repositoryRefOf,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -468,11 +469,16 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       {
         id: "sample-app",
         url: "https://github.com/acme/sample-app",
+        repository: "acme/sample-app",
+        full_name: "acme/sample-app",
+        private: null,
+        ref: repositoryRefOf("sample-app"),
         available: true,
         reason: null,
         installed: { author: null, reviewer: null },
       },
     ]);
+    expect(body.selected_repositories).toEqual([]);
     expect(body.options.features.actions).toEqual({
       available: true,
       reason: null,

@@ -833,9 +833,11 @@ describe("verify-werft down.sh", () => {
 echo "$*" >> "${dir}/docker-calls"
 case "$*" in
   *" config --format json") echo '{"services":{"scheduler":{"environment":{"EXECUTION_INSTALLATION_ID":"${project}"}}}}' ;;
-  "ps -aq --filter label="*) echo "worker-1" ;;
+  "ps -aq --filter label="*) [ -e "${dir}/worker-gone" ] || echo "worker-1" ;;
+  "rm "*) touch "${dir}/worker-gone" ;;
   "network ls -q --filter label="*) echo "net-1" ;;
-  "volume ls -q --filter label="*) echo "ws-1" ;;
+  "volume ls -q --filter label="*) [ -e "${dir}/ws-gone" ] || echo "ws-1" ;;
+  "volume rm ws-1") touch "${dir}/ws-gone" ;;
   "network ls --filter label=werft.installation="*)
     echo "$STUB_LEFT_NETWORK"
     exit "\${STUB_LEFT_EXIT:-0}" ;;
@@ -885,7 +887,10 @@ esac
     ]);
     expect(calls).toContain("rm -f worker-1");
     expect(calls).toContain("network rm net-1");
-    expect(calls.filter((call) => call.startsWith("volume"))).toEqual([]);
+    // Listing volumes is how down.sh records the anonymous ones for the next
+    // pass; only removing them is forbidden here.
+    expect(calls.filter((call) => call.startsWith("volume rm"))).toEqual([]);
+    expect(calls.filter((call) => /^rm -v/.test(call))).toEqual([]);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 
@@ -909,7 +914,7 @@ esac
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain(
-      `containers or networks left (above); ports.yml kept, rerun down.sh ${runDir} --keep-volumes`,
+      `containers, networks or volumes left (above); ports.yml kept, rerun down.sh ${runDir} --keep-volumes`,
     );
     expect(
       await readFile(join(runDir, "evidence/leftovers.txt"), "utf8"),
