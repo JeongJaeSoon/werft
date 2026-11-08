@@ -2,7 +2,7 @@ import type { TurnEventPresentation } from "@werft-ai/contracts";
 import { cn } from "@werft-ai/ui";
 import type { JSX } from "react";
 
-import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
+import { type FormatTurnMessage, turnPreviewText } from "./turn-text.ts";
 
 export interface StageIndicatorProps {
   /**
@@ -28,7 +28,7 @@ export function StageIndicator({
   className,
 }: StageIndicatorProps): JSX.Element {
   const summary = presentation
-    ? turnSummaryText(presentation.summary, formatMessage)
+    ? turnPreviewText(presentation, formatMessage)
     : "";
   const error = presentation?.error === true;
   return (

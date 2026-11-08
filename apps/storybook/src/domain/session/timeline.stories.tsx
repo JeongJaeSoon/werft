@@ -6,6 +6,8 @@ import { Timeline, type TimelineMessages } from "@werft-ai/react/components";
 import {
   FAILED_EVENTS,
   LONG_DETAIL_EVENTS,
+  LONG_REPLY_EVENTS,
+  MARKDOWN_REPLY_EVENTS,
   NO_TURN_EVENTS,
   pairedTimelineEntries,
   RUNNING_EVENTS,
@@ -36,6 +38,10 @@ function copyFrom(catalog: Catalog) {
     folded: (count) => fill(catalog["session.events.folded"], { count }),
     running: catalog["session.events.running"],
     waiting: catalog["sessions.status.needs_input"],
+    more: catalog["session.events.more"],
+    less: catalog["session.events.less"],
+    table: catalog["session.events.table"],
+    newTab: catalog["session.events.newTab"],
   };
   return { formatMessage, messages };
 }
@@ -163,6 +169,22 @@ export const TurnWithoutTokens: Story = {
 /** Events before the first turn stand outside any group. */
 export const WithoutTurn: Story = {
   args: { entries: pairedTimelineEntries(NO_TURN_EVENTS) },
+};
+
+/** A reply drawn as Markdown, whole: bold, list, link, code and a table. */
+export const MarkdownReply: Story = {
+  args: { entries: pairedTimelineEntries(MARKDOWN_REPLY_EVENTS) },
+};
+
+export const MarkdownReplyMobile390: Story = {
+  name: "Markdown reply (390px)",
+  args: { entries: pairedTimelineEntries(MARKDOWN_REPLY_EVENTS) },
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/** A very long reply folds between blocks behind a keyboard-reachable button. */
+export const LongReply: Story = {
+  args: { entries: pairedTimelineEntries(LONG_REPLY_EVENTS) },
 };
 
 export const LongDetail: Story = {
