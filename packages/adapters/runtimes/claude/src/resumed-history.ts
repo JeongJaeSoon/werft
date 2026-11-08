@@ -173,6 +173,21 @@ function savedCostOf(
   return saved;
 }
 
+/** The numeric fields the engine requires of a `cost-state` entry besides the cost. */
+const COST_STATE_NUMBERS = [
+  "totalAPIDuration",
+  "totalAPIDurationWithoutRetries",
+  "totalToolDuration",
+  "totalLinesAdded",
+  "totalLinesRemoved",
+  "totalDuration",
+  "startTime",
+] as const;
+
+function isCount(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 /** The cost one `cost-state` entry saved; undefined for any other entry. */
 export function savedCostOfEntry(
   entry: TranscriptEntry,
@@ -185,15 +200,17 @@ export function savedCostOfEntry(
   // The engine drops a `cost-state` entry that does not match its whole
   // schema, so one without what a real entry carries is not a baseline.
   // Charging in full is the safe side when unsure.
+  const { modelUsage, sessionId } = entry;
   if (
-    typeof entry.sessionId !== "string" ||
-    typeof entry.modelUsage !== "object" ||
-    entry.modelUsage === null ||
-    typeof entry.totalAPIDuration !== "number"
+    typeof sessionId !== "string" ||
+    typeof modelUsage !== "object" ||
+    modelUsage === null ||
+    Array.isArray(modelUsage) ||
+    !COST_STATE_NUMBERS.every((key) => isCount(entry[key]))
   ) {
     return undefined;
   }
-  return { usd, sessionId: entry.sessionId };
+  return { usd, sessionId };
 }
 
 function describe(error: unknown): string {

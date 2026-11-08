@@ -1437,6 +1437,12 @@ describe("Claude session store writing a resumed transcript to disk", () => {
       sessionId,
       totalCostUSD: 0,
       totalAPIDuration: 15,
+      totalAPIDurationWithoutRetries: 14,
+      totalToolDuration: 0,
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
+      totalDuration: 335,
+      startTime: 1794151687760,
       modelUsage: {},
     };
     await first.append(root, [

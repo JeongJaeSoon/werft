@@ -44,6 +44,12 @@ const REAL_COST_STATE = {
   sessionId: "s1",
   totalCostUSD: 0,
   totalAPIDuration: 15,
+  totalAPIDurationWithoutRetries: 14,
+  totalToolDuration: 0,
+  totalLinesAdded: 0,
+  totalLinesRemoved: 0,
+  totalDuration: 335,
+  startTime: 1794151687760,
   modelUsage: {},
 };
 
@@ -122,8 +128,11 @@ describe("resumed history", () => {
       { type: "user", uuid: "input-1" },
       { ...REAL_COST_STATE, totalCostUSD: 3 },
       { ...REAL_COST_STATE, totalCostUSD: 4.5 },
-      // Incomplete, so the engine ignores it and so must we.
+      // Each of these the engine ignores, and so must we.
       { type: "cost-state", totalCostUSD: 9, sessionId: "s1" },
+      { ...REAL_COST_STATE, totalCostUSD: 9, totalDuration: undefined },
+      { ...REAL_COST_STATE, totalCostUSD: 9, totalAPIDuration: -1 },
+      { ...REAL_COST_STATE, totalCostUSD: 9, modelUsage: [] },
     ];
     const watched = ResumedHistory.watching(mirror(async () => withCost));
     await watched.store.load(ROOT);
