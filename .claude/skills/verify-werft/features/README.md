@@ -1,6 +1,6 @@
 # agent-platform 검증 map
 
-이 디렉터리는 agent-platform의 사용자 표면을 확인하는 정본이다. 몰기 전에 이 index를 읽고, 해당 기능 파일을 절차로 쓴다.
+이 디렉터리는 agent-platform의 사용자 표면을 확인하는 정본이다. 몰기 전에 이 index를 읽고, 해당 기능 파일을 절차로 쓴다. (CI 시험용 한 줄)
 
 ## 기본 전제
 
