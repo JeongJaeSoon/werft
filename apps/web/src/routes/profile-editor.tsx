@@ -44,8 +44,8 @@ import {
   toolRefusalKey,
 } from "./profile-tools.tsx";
 import {
+  allBlockedOf,
   askAgain,
-  blockedOf,
   denyRequest,
   latestVersion,
   NO_PICKS,
@@ -522,12 +522,15 @@ export function ProfileEditor({
             before:
               before?.deny == null
                 ? ""
-                : join(before.deny, t("profiles.tools.noneBlocked")),
+                : join(
+                    [...before.deny, ...(before.mcp_deny ?? [])],
+                    t("profiles.tools.noneBlocked"),
+                  ),
             after:
               tools === null
                 ? ""
                 : join(
-                    blockedOf(tools, draft.tools),
+                    allBlockedOf(tools, draft.tools),
                     t("profiles.tools.noneBlocked"),
                   ),
           },
@@ -658,6 +661,23 @@ function BaseSummary({ base }: { readonly base: ProfileSummary }) {
                 </span>
               ),
           },
+          ...(base.mcp_deny?.length
+            ? [
+                {
+                  id: "mcp-deny",
+                  label: t("profiles.tools.mcp.blocked"),
+                  value: (
+                    <span className="flex flex-wrap gap-1">
+                      {base.mcp_deny.map((tool) => (
+                        <Badge key={tool} variant="mono">
+                          {tool}
+                        </Badge>
+                      ))}
+                    </span>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </div>

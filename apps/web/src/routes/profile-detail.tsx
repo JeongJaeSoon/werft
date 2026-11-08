@@ -623,6 +623,15 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
               ? t("profiles.tools.allowList")
               : list(profile.deny, t("profiles.tools.noneBlocked")),
           ),
+          ...(profile.mcp_deny?.length
+            ? [
+                item(
+                  "mcp-deny",
+                  t("profiles.tools.mcp.blocked"),
+                  list(profile.mcp_deny, t("profiles.tools.noneBlocked")),
+                ),
+              ]
+            : []),
           item(
             "tools",
             t("profiles.tools.running"),

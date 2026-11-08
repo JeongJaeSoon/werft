@@ -278,7 +278,7 @@ export const profilesKo = {
     "고른 모델을 쓰는 에이전트 {count}개는 기본 모델이 바뀌어도 그대로 유지됩니다.",
   "profiles.tools.legend": "차단할 내장 도구",
   "profiles.tools.hint":
-    "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
+    "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구 이름과 mcp__서버__도구 이름을 차단할 수 있습니다.",
   "profiles.tools.unlimited":
     "아무것도 체크하지 않으면 제한 없음입니다. 다만 플랫폼이 지원하는 내장 도구 카탈로그({catalog}) 안에서입니다.",
   "profiles.tools.unlimitedBase":
@@ -308,7 +308,34 @@ export const profilesKo = {
   "profiles.tools.baseNoCatalog":
     "바탕 프로필의 런타임 버전에는 지원 카탈로그가 없어 이 프로필을 차단목록으로 저장할 수 없습니다.",
   "profiles.tools.error.mcpTool":
-    "MCP 도구는 프로필에서 막을 수 없습니다. 내장 도구만 고르세요.",
+    "MCP 도구 이름은 차단할 도구에만 쓸 수 있습니다. 허용 목록에는 내장 도구만 넣으세요.",
+  "profiles.tools.error.mcpToolName":
+    "mcp__서버__도구 형식이 아닌 이름이 있습니다. 128자 이하, 공백과 제어 문자가 없어야 합니다.",
+  "profiles.tools.error.githubServer":
+    "내장 GitHub 서버의 도구는 에이전트의 GitHub 설정이 정합니다. 프로필에서 막을 수 없습니다.",
+  "profiles.tools.error.unknownMcpServer":
+    "이 설치의 MCP 서버 목록에 없는 서버의 도구입니다. 서버 이름을 확인하세요.",
+  "profiles.tools.error.baseMcpDenyDropped":
+    "바탕 프로필이 막은 MCP 도구는 풀 수 없습니다. 목록을 다시 불러오세요.",
+  "profiles.tools.error.mcpUnblockUnknown":
+    "이전 버전이 막지 않은 MCP 도구를 풀려고 했습니다. 목록을 다시 불러오세요.",
+  "profiles.tools.error.mcpUnblockConflict":
+    "같은 MCP 도구를 막으면서 풀 수는 없습니다. 하나만 고르세요.",
+  "profiles.tools.error.mcpUnblockNoPrevious":
+    "첫 버전에는 풀 이전 차단이 없습니다. 목록을 다시 불러오세요.",
+  "profiles.tools.mcp.legend": "차단할 MCP 도구",
+  "profiles.tools.mcp.hint":
+    "mcp__서버__도구 이름을 하나씩 적어 추가합니다. 이전 버전이 막은 이름은 이어지고, 체크를 풀면 이 버전부터 풉니다.",
+  "profiles.tools.mcp.none": "차단한 MCP 도구가 없습니다.",
+  "profiles.tools.mcp.carried": "이어받은 차단입니다.",
+  "profiles.tools.mcp.new": "새로 추가",
+  "profiles.tools.mcp.input": "MCP 도구 이름",
+  "profiles.tools.mcp.placeholder": "mcp__서버__도구",
+  "profiles.tools.mcp.add": "차단 추가",
+  "profiles.tools.mcp.invalid":
+    "mcp__서버__도구 형식이 아닙니다. 128자 이하, 공백과 제어 문자가 없어야 합니다.",
+  "profiles.tools.mcp.duplicate": "이미 차단한 이름입니다.",
+  "profiles.tools.mcp.blocked": "차단한 MCP 도구",
   "profiles.tools.error.toolPattern":
     "패턴은 받지 않습니다. 내장 도구 이름 하나를 고르세요.",
   "profiles.tools.error.unknownTool":
@@ -610,7 +637,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "{count} agents with a chosen model keep it when the default model changes.",
   "profiles.tools.legend": "Built-in tools to block",
   "profiles.tools.hint":
-    "A ticked tool does not run in this profile's sessions. Only built-in tools are listed here; an agent's MCP settings decide its MCP tools.",
+    "A ticked tool does not run in this profile's sessions. You can block built-in tool names and mcp__server__tool names.",
   "profiles.tools.unlimited":
     "With nothing ticked there is no limit, within the built-in tool catalog the platform supports ({catalog}).",
   "profiles.tools.unlimitedBase":
@@ -640,7 +667,34 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.tools.baseNoCatalog":
     "No supported catalog lists the base profile's runtime version, so this profile cannot be saved as a block list.",
   "profiles.tools.error.mcpTool":
-    "A profile cannot block MCP tools. Pick built-in tools only.",
+    "An MCP tool name can only go in the tools to block. Put built-in tools only in an allow list.",
+  "profiles.tools.error.mcpToolName":
+    "A name is not in the mcp__server__tool form. Use at most 128 characters, with no spaces or control characters.",
+  "profiles.tools.error.githubServer":
+    "An agent's GitHub settings decide the built-in GitHub server's tools. A profile cannot block them.",
+  "profiles.tools.error.unknownMcpServer":
+    "The tool belongs to a server this installation does not list. Check the server name.",
+  "profiles.tools.error.baseMcpDenyDropped":
+    "An MCP tool the base profile blocks cannot be lifted. Reload the list.",
+  "profiles.tools.error.mcpUnblockUnknown":
+    "The save lifts an MCP tool the previous version did not block. Reload the list.",
+  "profiles.tools.error.mcpUnblockConflict":
+    "The same MCP tool cannot be both blocked and lifted. Pick one.",
+  "profiles.tools.error.mcpUnblockNoPrevious":
+    "A first version has no earlier block to lift. Reload the list.",
+  "profiles.tools.mcp.legend": "MCP tools to block",
+  "profiles.tools.mcp.hint":
+    "Add mcp__server__tool names one at a time. A name the previous version blocked carries over; clear its box to lift it from this version.",
+  "profiles.tools.mcp.none": "No MCP tool is blocked.",
+  "profiles.tools.mcp.carried": "Carried over from before.",
+  "profiles.tools.mcp.new": "New",
+  "profiles.tools.mcp.input": "MCP tool name",
+  "profiles.tools.mcp.placeholder": "mcp__server__tool",
+  "profiles.tools.mcp.add": "Add block",
+  "profiles.tools.mcp.invalid":
+    "Not in the mcp__server__tool form. Use at most 128 characters, with no spaces or control characters.",
+  "profiles.tools.mcp.duplicate": "Already blocked.",
+  "profiles.tools.mcp.blocked": "Blocked MCP tools",
   "profiles.tools.error.toolPattern":
     "Patterns are not taken. Pick a whole built-in tool.",
   "profiles.tools.error.unknownTool":
@@ -950,7 +1004,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "モデルを選んでいるエージェント{count}件は、既定モデルが変わってもそのままです。",
   "profiles.tools.legend": "ブロックする組み込みツール",
   "profiles.tools.hint":
-    "チェックしたツールはこのプロファイルのセッションで動きません。扱うのは組み込みツールだけです。MCP ツールはエージェントの MCP 設定が決めます。",
+    "チェックしたツールはこのプロファイルのセッションで動きません。組み込みツール名と mcp__サーバー__ツール名をブロックできます。",
   "profiles.tools.unlimited":
     "何もチェックしなければ制限なしです。ただし、プラットフォームがサポートする組み込みツールのカタログ（{catalog}）の範囲内です。",
   "profiles.tools.unlimitedBase":
@@ -980,7 +1034,34 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.tools.baseNoCatalog":
     "ベースのプロファイルのランタイムバージョンにはサポートするカタログがないため、このプロファイルをブロックリストとして保存できません。",
   "profiles.tools.error.mcpTool":
-    "MCP ツールはプロファイルでブロックできません。組み込みツールだけを選んでください。",
+    "MCP ツール名はブロックするツールにだけ使えます。許可リストには組み込みツールだけを入れてください。",
+  "profiles.tools.error.mcpToolName":
+    "mcp__サーバー__ツール の形式でない名前があります。128 文字以内で、空白と制御文字は使えません。",
+  "profiles.tools.error.githubServer":
+    "組み込みの GitHub サーバーのツールは、エージェントの GitHub 設定が決めます。プロファイルではブロックできません。",
+  "profiles.tools.error.unknownMcpServer":
+    "このインストールの MCP サーバー一覧にないサーバーのツールです。サーバー名を確認してください。",
+  "profiles.tools.error.baseMcpDenyDropped":
+    "ベースのプロファイルがブロックした MCP ツールは解除できません。一覧を読み込み直してください。",
+  "profiles.tools.error.mcpUnblockUnknown":
+    "前のバージョンがブロックしていない MCP ツールを解除しようとしました。一覧を読み込み直してください。",
+  "profiles.tools.error.mcpUnblockConflict":
+    "同じ MCP ツールをブロックしながら解除することはできません。どちらか一つを選んでください。",
+  "profiles.tools.error.mcpUnblockNoPrevious":
+    "最初のバージョンには解除できる以前のブロックがありません。一覧を読み込み直してください。",
+  "profiles.tools.mcp.legend": "ブロックする MCP ツール",
+  "profiles.tools.mcp.hint":
+    "mcp__サーバー__ツール の名前を一つずつ追加します。前のバージョンがブロックした名前は引き継がれ、チェックを外すとこのバージョンから解除されます。",
+  "profiles.tools.mcp.none": "ブロックしている MCP ツールはありません。",
+  "profiles.tools.mcp.carried": "引き継いだブロックです。",
+  "profiles.tools.mcp.new": "新規",
+  "profiles.tools.mcp.input": "MCP ツール名",
+  "profiles.tools.mcp.placeholder": "mcp__サーバー__ツール",
+  "profiles.tools.mcp.add": "ブロックを追加",
+  "profiles.tools.mcp.invalid":
+    "mcp__サーバー__ツール の形式ではありません。128 文字以内で、空白と制御文字は使えません。",
+  "profiles.tools.mcp.duplicate": "すでにブロックしています。",
+  "profiles.tools.mcp.blocked": "ブロックした MCP ツール",
   "profiles.tools.error.toolPattern":
     "パターンは受け付けません。組み込みツールの名前を一つ選んでください。",
   "profiles.tools.error.unknownTool":

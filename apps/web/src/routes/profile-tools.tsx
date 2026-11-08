@@ -5,6 +5,7 @@ import type {
 } from "@werft-ai/contracts";
 import {
   Badge,
+  Button,
   Checkbox,
   Field,
   FieldContent,
@@ -13,13 +14,17 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  Input,
 } from "@werft-ai/ui";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
+  addMcpBlock,
   blockedOf,
+  mcpBlockedOf,
   needsAccepting,
+  setMcpBlock,
   type ToolChoiceModel,
   type ToolPicks,
 } from "./profile-tools-model.ts";
@@ -36,6 +41,13 @@ export const installationOptionsQuery = (client: ApiClient) => ({
 
 const TOOL_REFUSALS: Readonly<Record<string, MessageKey>> = {
   mcp_tool: "profiles.tools.error.mcpTool",
+  mcp_tool_name: "profiles.tools.error.mcpToolName",
+  github_server: "profiles.tools.error.githubServer",
+  unknown_mcp_server: "profiles.tools.error.unknownMcpServer",
+  base_mcp_deny_dropped: "profiles.tools.error.baseMcpDenyDropped",
+  mcp_unblock_unknown: "profiles.tools.error.mcpUnblockUnknown",
+  mcp_unblock_conflict: "profiles.tools.error.mcpUnblockConflict",
+  mcp_unblock_no_previous: "profiles.tools.error.mcpUnblockNoPrevious",
   tool_pattern: "profiles.tools.error.toolPattern",
   unknown_tool: "profiles.tools.error.unknownTool",
   no_tool_catalog: "profiles.tools.error.noToolCatalog",
@@ -51,15 +63,123 @@ export function toolRefusalKey(reason: unknown): MessageKey | undefined {
 }
 
 /**
- * The form field a refusal's path names: the tools a save works out, and
- * the tools it accepts, are both drawn by the checklist.
+ * The form field a refusal's path names: the tools a save works out, the
+ * tools it accepts and the `mcp__` names it lifts are all drawn by the
+ * checklist.
  */
 export const toolField = (path: string | undefined): string | undefined =>
-  path === "tools" || path === "accept_added_tools" ? "deny" : path;
+  path === "tools" ||
+  path === "accept_added_tools" ||
+  path === "unblock_mcp_tools"
+    ? "deny"
+    : path;
 
 export const reasonOf = (failure: ApiError): unknown =>
   (failure.details as { readonly reason_code?: unknown } | undefined)
     ?.reason_code;
+
+/**
+ * The `mcp__<server>__<tool>` names a profile blocks. The built-in catalog
+ * does not list them, so they are typed in; a held name stays ticked until
+ * the person clears it, and the base's cannot be cleared.
+ */
+function McpBlocks({
+  model,
+  picks,
+  onPicks,
+  disabled,
+}: {
+  readonly model: ToolChoiceModel;
+  readonly picks: ToolPicks;
+  readonly onPicks: (picks: ToolPicks) => void;
+  readonly disabled: boolean;
+}) {
+  const { t } = useI18n();
+  const [raw, setRaw] = useState("");
+  const [problem, setProblem] = useState<"invalid" | "duplicate" | null>(null);
+  const fixed = new Set(model.mcp.fixed);
+  const held = new Set(model.mcp.start);
+  const blocked = new Set(mcpBlockedOf(model, picks));
+  const names = [
+    ...new Set([...model.mcp.fixed, ...model.mcp.start, ...picks.mcpAdded]),
+  ].sort();
+  const add = () => {
+    const added = addMcpBlock(model, picks, raw);
+    if ("picks" in added) {
+      onPicks(added.picks);
+      setRaw("");
+      setProblem(null);
+    } else {
+      setProblem(added.error);
+    }
+  };
+
+  return (
+    <FieldSet className="gap-3">
+      <FieldLegend variant="label" className="mb-2">
+        {t("profiles.tools.mcp.legend")}
+      </FieldLegend>
+      <FieldDescription>{t("profiles.tools.mcp.hint")}</FieldDescription>
+      {names.length === 0 ? (
+        <FieldDescription>{t("profiles.tools.mcp.none")}</FieldDescription>
+      ) : null}
+      {names.map((name) => (
+        <Field key={name} orientation="horizontal">
+          <Checkbox
+            checked={blocked.has(name)}
+            disabled={disabled || fixed.has(name)}
+            onCheckedChange={(checked) =>
+              onPicks(setMcpBlock(model, picks, name, checked === true))
+            }
+          />
+          <FieldContent>
+            <FieldLabel className="font-mono">{name}</FieldLabel>
+            <FieldDescription className="flex flex-wrap items-center gap-1">
+              {fixed.has(name) ? (
+                t("profiles.tools.fixed")
+              ) : held.has(name) ? (
+                t("profiles.tools.mcp.carried")
+              ) : (
+                <Badge variant="blue">{t("profiles.tools.mcp.new")}</Badge>
+              )}
+            </FieldDescription>
+          </FieldContent>
+        </Field>
+      ))}
+      {/* Not a form: this checklist sits inside the page's own. */}
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field>
+          <FieldLabel>{t("profiles.tools.mcp.input")}</FieldLabel>
+          <Input
+            value={raw}
+            placeholder={t("profiles.tools.mcp.placeholder")}
+            className="font-mono"
+            autoComplete="off"
+            disabled={disabled}
+            aria-invalid={problem ? true : undefined}
+            onChange={(event) => setRaw(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              add();
+            }}
+          />
+          {problem ? (
+            <FieldError>{t(`profiles.tools.mcp.${problem}`)}</FieldError>
+          ) : null}
+        </Field>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          onClick={add}
+        >
+          {t("profiles.tools.mcp.add")}
+        </Button>
+      </div>
+    </FieldSet>
+  );
+}
 
 const BOUNDARY_BADGE: Record<ToolBoundaryValue, "gray" | "blue" | "amber"> = {
   local: "gray",
@@ -156,6 +276,13 @@ export function DenyChecklist({
         })}
         <FieldError id={errorId}>{error}</FieldError>
       </FieldSet>
+
+      <McpBlocks
+        model={model}
+        picks={picks}
+        onPicks={onPicks}
+        disabled={disabled}
+      />
 
       {model.versioned && (accepting.length > 0 || model.removed.length > 0) ? (
         <FieldSet className="gap-3">
