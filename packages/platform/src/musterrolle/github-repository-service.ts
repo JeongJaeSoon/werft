@@ -382,7 +382,9 @@ export function createGitHubRepositoryService(deps: {
   /**
    * The catalog rows the workspace ceiling allows for an agent, together
    * with the installation page's repositories: one entry per repository,
-   * the page's answer for its name and visibility winning.
+   * the page's answer for its name and visibility winning. `rows` are the
+   * App-authenticated ones only: a PAT repository the ceiling names cannot
+   * be chosen for an agent (`app_required`), so it is no choice here.
    */
   const choicesOf = (
     page: readonly GitHubInstallationRepository[],

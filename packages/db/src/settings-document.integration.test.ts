@@ -406,6 +406,21 @@ integration("settings document import and export", () => {
         fields[row.operation] ?? [],
       );
     }
+    // The names are the rows' own, not just present.
+    const named = written
+      .filter((row) => row.operation === "import_repository")
+      .map((row) => row.result as Record<string, unknown>)
+      .map((result) => [
+        result.repository_id,
+        result.repository,
+        result.github_repository_id,
+      ])
+      .sort();
+    expect(named).toEqual([
+      ["app", "acme/app", null],
+      ["ghec", "acme/ghec", null],
+      ["open", "agent/sample-app", null],
+    ]);
   });
 
   test("the API's import refuses a new external reference, takes stored ones, and an export never carries the value", async () => {
