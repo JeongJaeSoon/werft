@@ -4,6 +4,7 @@ import { defineDocs } from "fumadocs-mdx/macro";
 import { i18n, type Locale, messages } from "./i18n";
 import { openapi, slugifyTag } from "./openapi";
 import { withBasePath } from "./shared";
+import { buildSidebarTree, sidebarLabels } from "./sidebar-tree";
 
 const docs = defineDocs({
   dir: "content/docs",
@@ -31,6 +32,10 @@ const pageTreeFixes: LoaderPlugin = {
         ? { ...node, name: "HTTP API" }
         : node;
     },
+    root(tree) {
+      const locale = (this.locale ?? i18n.defaultLanguage) as Locale;
+      return buildSidebarTree(tree, sidebarLabels[locale]);
+    },
   },
 };
 
@@ -55,7 +60,7 @@ export const docsLlms = llms(source, {
   // Operation items carry a method badge as their name; the title is plain text.
   renderName: (node, { lang }) => {
     if (node.type === "page")
-      return source.getNodePage(node, lang)?.data.title ?? "";
+      return source.getNodePage(node, lang)?.data.title ?? String(node.name);
     return node.type === "folder"
       ? String(node.name)
       : messages[(lang ?? i18n.defaultLanguage) as Locale].siteTitle;

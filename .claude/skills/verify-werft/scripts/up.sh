@@ -89,7 +89,12 @@ echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, dow
 # shellcheck disable=SC1091
 . "$run/state.env"
 # Bootstrap runs start empty; demo verification explicitly opts in.
-LOCAL_DEMO_ACCOUNTS=$demo "$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2
+if ! LOCAL_DEMO_ACCOUNTS=$demo "$repo/scripts/local.sh" up --fake-model 2>&1 | tee "$run/evidence/up.log" >&2; then
+  # A half-built run has images, volumes and networks nobody will name again.
+  echo "up.sh: the stack did not come up; tearing down this run (evidence/up.log stays)" >&2
+  "$(dirname "$0")/down.sh" "$run_id" || true
+  exit 1
+fi
 
 api=$(docker compose --profile apps port api 3000 | head -n 1)
 echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"

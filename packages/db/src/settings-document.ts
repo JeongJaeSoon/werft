@@ -216,8 +216,12 @@ function auditOf(add: SettingsImportAdd): Record<string, unknown> {
       };
     case "repository": {
       const entry: CatalogRepositoryConfig = add.entry;
+      const { owner, name } = repositoryNameOf(entry);
       return {
         repository_id: add.id,
+        repository: `${owner}/${name}`,
+        // A row of this document has no GitHub id until a pick fills it.
+        github_repository_id: null,
         url: entry.url,
         branch: entry.branch,
         auth_kind: repositoryAuthKindOf(entry),

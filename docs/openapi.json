@@ -12405,6 +12405,45 @@
               }
             ]
           },
+          "selected_repositories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "repository": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "private": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "ref": {
+                  "type": "string",
+                  "pattern": "^r1\\.[A-Za-z0-9_-]+$"
+                }
+              },
+              "required": [
+                "id",
+                "repository",
+                "private",
+                "ref"
+              ],
+              "additionalProperties": false
+            }
+          },
           "start_repository_id": {
             "type": [
               "string",
@@ -12512,6 +12551,24 @@
                     },
                     "url": {
                       "type": "string"
+                    },
+                    "repository": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "full_name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "private": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "ref": {
+                      "type": "string",
+                      "pattern": "^r1\\.[A-Za-z0-9_-]+$"
                     },
                     "available": {
                       "type": "boolean"
@@ -12920,6 +12977,28 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Receipt"
+            }
+          },
+          "receipt_repositories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "receipt_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "receipt_id",
+                "repository"
+              ],
+              "additionalProperties": false
             }
           }
         },
@@ -16283,6 +16362,21 @@
                       "type": "null"
                     }
                   ]
+                },
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ref": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^r1\\.[A-Za-z0-9_-]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -16291,6 +16385,59 @@
                 "default_branch",
                 "private",
                 "catalog_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "all_repositories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "github_repository_id": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "full_name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "private": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "ref": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^r1\\.[A-Za-z0-9_-]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "github_repository_id",
+                "repository",
+                "full_name",
+                "private",
+                "ref"
               ],
               "additionalProperties": false
             }
