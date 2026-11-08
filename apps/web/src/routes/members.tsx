@@ -34,10 +34,7 @@ import {
   FieldLegend,
   FieldSet,
   formatTimestamp,
-  GridTable,
   GridTableCell,
-  GridTableColumnHeader,
-  GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
   LinkTab,
@@ -72,6 +69,7 @@ import {
   InactiveBadge,
 } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { MemberTableFrame } from "../components/member-table.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -85,14 +83,8 @@ import {
 import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
-// Role and actions keep one width on every row, so badges and buttons line
-// up under their headers; the actions track never drops below its button.
-const MEMBER_COLUMNS =
-  "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
-const MEMBER_NARROW_COLUMNS =
-  "minmax(0,1fr) 72px var(--werft-row-action-min-width)";
-// 320px of columns plus the frame's 1px border on each side.
-const MEMBER_TABLE_MIN = "min-w-[322px]";
+// Past more invites than this the list is searched like the member list.
+export const INVITE_SEARCH_THRESHOLD = 10;
 
 type MemberAction = "role" | "disable" | "enable";
 
@@ -349,16 +341,8 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
   // follows the row as the list is read again, not the row it opened on.
   const [editingId, setEditingId] = useState<string | null>(null);
   const editing = items.find((member) => member.user_id === editingId);
-  // The name button that opened 구성원 편집 gets the keyboard back, and a
-  // saved role opens its confirmation only once the editor has handed it
-  // back, so the confirmation returns there too rather than to <body>.
+  // The name button that opened 구성원 편집 gets the keyboard back.
   const editOpener = useRef<HTMLElement | null>(null);
-  const saved = useRef<{ member: MemberRow; role: WorkspaceRole } | null>(null);
-  // A saved role still waits here for the confirmation.
-  const [roleChange, setRoleChange] = useState<{
-    member: MemberRow;
-    role: WorkspaceRole;
-  } | null>(null);
   const self = useMe()?.user?.id;
 
   const settle = async (text: string) => {
@@ -368,11 +352,12 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
     });
   };
   const fail = (error: ApiError, action: MemberAction) => {
-    // Disabling is confirmed in a dialog that has closed by now: the person
-    // must read why it did not happen, so the error waits to be dismissed.
+    // Disabling and role changes are confirmed in a dialog that has closed by
+    // now: the person must read why it did not happen, so the error waits to
+    // be dismissed. Re-enabling has no dialog.
     notify(refusal(t, error, role, action), {
       tone: "error",
-      persistent: action === "disable",
+      persistent: action !== "enable",
     });
     // A refusal means the rows' verdicts were stale: read them again.
     if (error.status === 403 || error.status === 409) {
@@ -394,7 +379,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
           body: { role: next },
         }),
       ),
-    onSettled: () => setRoleChange(null),
+    onSettled: () => setEditingId(null),
     onSuccess: (updated) =>
       settle(
         t("members.roleChanged", {
@@ -442,140 +427,115 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
 
   return (
     <>
-      {/* Below the table's minimum the actions would cover the role badges,
-          so it scrolls instead. The padding keeps the opener's focus ring,
-          2px outside the row, inside the scroller's clip. */}
-      <div className="-m-1 grid overflow-x-auto p-1">
-        <GridTable
-          aria-label={t("members.tableLabel")}
-          columns={MEMBER_COLUMNS}
-          narrowAt={640}
-          narrowColumns={MEMBER_NARROW_COLUMNS}
-          framed={true}
-          className={MEMBER_TABLE_MIN}
-        >
-          <GridTableHeader>
-            <GridTableColumnHeader>
-              {t("members.column.name")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader>
-              {t("members.column.role")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader action={true}>
-              {t("members.column.actions")}
-            </GridTableColumnHeader>
-          </GridTableHeader>
-          {items.map((member) => {
-            const disabled = member.disabled_at !== null;
-            const keepWhy = disabled
-              ? reasonOf(t, "enable", member.actions.enable)
-              : reasonOf(t, "disable", member.actions.disable);
-            const busy =
-              (changeRole.isPending &&
-                changeRole.variables?.member.user_id === member.user_id) ||
-              (setAccess.isPending &&
-                setAccess.variables?.member.user_id === member.user_id);
-            const button = disabled ? (
-              <RowAction
-                disabled={busy || keepWhy !== undefined}
-                aria-label={t("members.enableFor", {
-                  name: member.display_name,
-                })}
-                onClick={() => setAccess.mutate({ member, enable: true })}
-              >
-                {t("members.enable")}
-              </RowAction>
-            ) : (
-              <RowAction
-                disabled={busy || keepWhy !== undefined}
-                aria-label={t("members.disableFor", {
-                  name: member.display_name,
-                })}
-                onClick={() => setConfirming(member)}
-              >
-                {t("members.disable")}
-              </RowAction>
-            );
-            return (
-              <GridTableRow
-                key={member.user_id}
-                inactive={disabled}
-                className={disabled ? INACTIVE_ROW_CLASS : undefined}
-                data-disabled={disabled}
-              >
-                <GridTableCell lines={true}>
-                  <GridTableRowOpener
-                    aria-label={t(
-                      disabled ? "members.editForDisabled" : "members.editFor",
+      <MemberTableFrame
+        label={t("members.tableLabel")}
+        firstColumn={t("members.column.name")}
+      >
+        {items.map((member) => {
+          const disabled = member.disabled_at !== null;
+          const keepWhy = disabled
+            ? reasonOf(t, "enable", member.actions.enable)
+            : reasonOf(t, "disable", member.actions.disable);
+          const busy =
+            (changeRole.isPending &&
+              changeRole.variables?.member.user_id === member.user_id) ||
+            (setAccess.isPending &&
+              setAccess.variables?.member.user_id === member.user_id);
+          const button = disabled ? (
+            <RowAction
+              disabled={busy || keepWhy !== undefined}
+              aria-label={t("members.enableFor", {
+                name: member.display_name,
+              })}
+              onClick={() => setAccess.mutate({ member, enable: true })}
+            >
+              {t("members.enable")}
+            </RowAction>
+          ) : (
+            <RowAction
+              disabled={busy || keepWhy !== undefined}
+              aria-label={t("members.disableFor", {
+                name: member.display_name,
+              })}
+              onClick={() => setConfirming(member)}
+            >
+              {t("members.disable")}
+            </RowAction>
+          );
+          return (
+            <GridTableRow
+              key={member.user_id}
+              inactive={disabled}
+              className={disabled ? INACTIVE_ROW_CLASS : undefined}
+              data-disabled={disabled}
+            >
+              <GridTableCell lines={true}>
+                <GridTableRowOpener
+                  aria-label={t(
+                    disabled ? "members.editForDisabled" : "members.editFor",
+                    { name: member.display_name },
+                  )}
+                  onClick={(event) => {
+                    editOpener.current = event.currentTarget;
+                    setEditingId(member.user_id);
+                  }}
+                />
+                {/* v4 .strong: body text at weight 500, not link blue;
+                      blue stays for links that move (→). */}
+                {/* Below md the "you" badge drops to its own line under
+                      the name, so the name gets the whole column (QA L-17). */}
+                <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+                  <Text as="span" weight="medium" truncate>
+                    {member.display_name}
+                  </Text>
+                  {disabled ? (
+                    <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
+                  ) : null}
+                  {member.user_id === self ? (
+                    <Badge
+                      variant="gray"
+                      className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                    >
+                      {t("members.you")}
+                    </Badge>
+                  ) : null}
+                </span>
+                <Text as="span" variant="meta" title={member.email}>
+                  {member.email}
+                </Text>
+              </GridTableCell>
+              <GridTableCell>
+                <Badge variant={member.role === "member" ? "gray" : "blue"}>
+                  {roleLabel(t, member.role)}
+                </Badge>
+              </GridTableCell>
+              <GridTableCell raised={true} align="end" className="gap-1">
+                {keepWhy ? (
+                  <DisabledReason
+                    reason={keepWhy}
+                    label={t(
+                      disabled ? "members.enableFor" : "members.disableFor",
                       { name: member.display_name },
                     )}
-                    onClick={(event) => {
-                      editOpener.current = event.currentTarget;
-                      setEditingId(member.user_id);
-                    }}
-                  />
-                  {/* v4 .strong: body text at weight 500, not link blue;
-                      blue stays for links that move (→). */}
-                  {/* Below md the "you" badge drops to its own line under
-                      the name, so the name gets the whole column (QA L-17). */}
-                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
-                    <Text as="span" weight="medium" truncate>
-                      {member.display_name}
-                    </Text>
-                    {disabled ? (
-                      <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
-                    ) : null}
-                    {member.user_id === self ? (
-                      <Badge
-                        variant="gray"
-                        className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
-                      >
-                        {t("members.you")}
-                      </Badge>
-                    ) : null}
-                  </span>
-                  <Text as="span" variant="meta" title={member.email}>
-                    {member.email}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={member.role === "member" ? "gray" : "blue"}>
-                    {roleLabel(t, member.role)}
-                  </Badge>
-                </GridTableCell>
-                <GridTableCell raised={true} align="end" className="gap-1">
-                  {keepWhy ? (
-                    <DisabledReason
-                      reason={keepWhy}
-                      label={t(
-                        disabled ? "members.enableFor" : "members.disableFor",
-                        { name: member.display_name },
-                      )}
-                    >
-                      {button}
-                    </DisabledReason>
-                  ) : (
-                    button
-                  )}
-                </GridTableCell>
-              </GridTableRow>
-            );
-          })}
-        </GridTable>
-      </div>
+                  >
+                    {button}
+                  </DisabledReason>
+                ) : (
+                  button
+                )}
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
+      </MemberTableFrame>
       {editing ? (
         <MemberEditDialog
           member={editing}
           busy={changeRole.isPending}
           onClose={() => setEditingId(null)}
-          onSave={(next) => {
-            saved.current = { member: editing, role: next };
-            setEditingId(null);
-          }}
+          onSave={(next) => changeRole.mutate({ member: editing, role: next })}
           onClosed={() => {
             if (editOpener.current?.isConnected) editOpener.current.focus();
-            if (saved.current) setRoleChange(saved.current);
-            saved.current = null;
           }}
         />
       ) : null}
@@ -597,34 +557,13 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
             setAccess.mutate({ member: confirming, enable: false });
         }}
       />
-      <ConfirmDialog
-        open={roleChange !== null}
-        onOpenChange={(open) => {
-          if (!open) setRoleChange(null);
-        }}
-        title={t("members.roleChangeTitle", {
-          name: roleChange?.member.display_name ?? "",
-          role: roleChange ? roleLabel(t, roleChange.role) : "",
-        })}
-        consequence={
-          roleChange?.role === "owner"
-            ? t("members.roleChangeOwnerConsequence")
-            : t("members.roleChangeConsequence")
-        }
-        confirmLabel={t("members.roleChangeConfirm")}
-        cancelLabel={t("common.cancel")}
-        busy={changeRole.isPending}
-        onConfirm={() => {
-          if (roleChange) changeRole.mutate(roleChange);
-        }}
-      />
     </>
   );
 }
 
 /**
- * 구성원 편집 (v3 MemberEdit): the role, picked here and saved through the
- * same confirmation the row used to raise. When the server offers no other
+ * 구성원 편집 (v3 MemberEdit): the role, picked here and confirmed here by
+ * the one button that names the change. When the server offers no other
  * role, its reason shows and every choice is disabled; a single role it
  * withholds is disabled with its reason in place of the role's help.
  */
@@ -647,6 +586,7 @@ function MemberEditDialog({
   // changed the role elsewhere is not saved back over.
   const [picked, setPicked] = useState<string>();
   const role = picked ?? member.role;
+  const changed = role !== member.role;
   const legendId = useId();
   const reasonId = useId();
   const roleReasonId = useId();
@@ -722,6 +662,18 @@ function MemberEditDialog({
             })}
           </RadioGroup>
         </FieldSet>
+        {/* What confirming does, said before the button that does it. */}
+        {changed && !blocked ? (
+          <FieldDescription role="status">
+            {t("members.edit.result", {
+              name: member.display_name,
+              role: roleLabel(t, role as WorkspaceRole),
+            })}{" "}
+            {role === "owner"
+              ? t("members.roleChangeOwnerConsequence")
+              : t("members.roleChangeConsequence")}
+          </FieldDescription>
+        ) : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             {t("common.cancel")}
@@ -729,16 +681,24 @@ function MemberEditDialog({
           <Button
             type="button"
             disabled={
-              blocked || busy || !verdicts[role as WorkspaceRole]?.allowed
+              blocked ||
+              busy ||
+              !changed ||
+              !verdicts[role as WorkspaceRole]?.allowed
             }
             onClick={() => onSave(role as WorkspaceRole)}
           >
-            {t("members.edit.save")}
+            {t("members.roleChangeConfirm")}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The server lists an invite whose time has passed as expired. */
+function inviteLapsed(invite: Invite): boolean {
+  return invite.status === "expired";
 }
 
 function InviteList() {
@@ -769,11 +729,43 @@ function InviteList() {
       notify(refusal(t, error, role), { tone: "error", persistent: true }),
   });
 
-  const pending =
-    invites.data?.items.filter((invite) => invite.status === "pending") ?? [];
+  const [query, setQuery] = useState("");
+  const search = useRef<HTMLInputElement>(null);
+  // Revoked and accepted invites are history; waiting and lapsed ones are
+  // what someone may still act on or ask about.
+  const listed =
+    invites.data?.items.filter(
+      (invite) => invite.status === "pending" || inviteLapsed(invite),
+    ) ?? [];
+  const term = query.trim().toLowerCase();
+  const shown = term
+    ? listed.filter((invite) => invite.email.toLowerCase().includes(term))
+    : listed;
+  // The box stays while a term is typed, so emptying the list by it never
+  // takes the box away.
+  const searchable = listed.length > INVITE_SEARCH_THRESHOLD || query !== "";
+  // The clear button leaves with the empty state; focus goes back to the box.
+  const clear = () => {
+    setQuery("");
+    search.current?.focus();
+  };
 
   return (
     <>
+      {searchable ? (
+        <ListToolbar
+          filter={null}
+          search={{
+            ref: search,
+            type: "search",
+            "aria-label": t("members.invites.search"),
+            placeholder: t("members.invites.search"),
+            maxLength: SEARCH_MAX,
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+          }}
+        />
+      ) : null}
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
@@ -785,38 +777,40 @@ function InviteList() {
             onRetry={() => void invites.refetch()}
           />
         )
-      ) : pending.length === 0 ? (
+      ) : listed.length === 0 ? (
         <EmptyState title={t("members.invites.empty")} />
+      ) : shown.length === 0 ? (
+        <EmptyState
+          className="w-full"
+          title={t("members.invites.noMatch")}
+          description={t("members.invites.noMatchHint")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clear}>
+              {t("members.clearSearch")}
+            </Button>
+          }
+        />
       ) : (
-        // Same frame and padding as the 구성원 table.
-        <div className="-m-1 grid overflow-x-auto p-1">
-          <GridTable
-            aria-label={t("members.invites.tableLabel")}
-            columns={MEMBER_COLUMNS}
-            narrowAt={640}
-            narrowColumns={MEMBER_NARROW_COLUMNS}
-            framed={true}
-            className={MEMBER_TABLE_MIN}
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>
-                {t("members.tab.invites")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader>
-                {t("members.column.role")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader action={true}>
-                {t("members.column.actions")}
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {pending.map((invite) => {
-              // The cell ellipsizes a long line; the title keeps the full time.
-              const expires = t("members.invites.expires", {
-                expires: formatTimestamp(invite.expires_at, locale),
-              });
-              return (
-                <GridTableRow key={invite.id}>
-                  <GridTableCell lines={true}>
+        <MemberTableFrame
+          label={t("members.invites.tableLabel")}
+          firstColumn={t("members.tab.invites")}
+        >
+          {shown.map((invite) => {
+            const lapsed = inviteLapsed(invite);
+            // The cell ellipsizes a long line; the title keeps the full time.
+            const expires = t(
+              lapsed ? "members.invites.expiredAt" : "members.invites.expires",
+              { expires: formatTimestamp(invite.expires_at, locale) },
+            );
+            return (
+              <GridTableRow
+                key={invite.id}
+                inactive={lapsed}
+                className={lapsed ? INACTIVE_ROW_CLASS : undefined}
+                data-expired={lapsed}
+              >
+                <GridTableCell lines={true}>
+                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
                     <Text
                       as="span"
                       weight="medium"
@@ -825,18 +819,27 @@ function InviteList() {
                     >
                       {invite.email}
                     </Text>
-                    <Text as="span" variant="meta" title={expires}>
-                      {expires}
-                    </Text>
-                  </GridTableCell>
-                  <GridTableCell>
-                    <Badge variant={invite.role === "member" ? "gray" : "blue"}>
-                      {roleLabel(t, invite.role)}
-                    </Badge>
-                  </GridTableCell>
-                  <GridTableCell align="end">
+                    {lapsed ? (
+                      <Badge
+                        variant="gray"
+                        className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                      >
+                        {t("members.invites.state.expired")}
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <Text as="span" variant="meta" title={expires}>
+                    {expires}
+                  </Text>
+                </GridTableCell>
+                <GridTableCell>
+                  <Badge variant={invite.role === "member" ? "gray" : "blue"}>
+                    {roleLabel(t, invite.role)}
+                  </Badge>
+                </GridTableCell>
+                <GridTableCell align="end">
+                  {lapsed ? null : (
                     <RowAction
-                      variant="danger"
                       disabled={revoke.isPending}
                       aria-label={t("members.invites.revokeFor", {
                         email: invite.email,
@@ -845,12 +848,12 @@ function InviteList() {
                     >
                       {t("members.invites.revoke")}
                     </RowAction>
-                  </GridTableCell>
-                </GridTableRow>
-              );
-            })}
-          </GridTable>
-        </div>
+                  )}
+                </GridTableCell>
+              </GridTableRow>
+            );
+          })}
+        </MemberTableFrame>
       )}
       <ConfirmDialog
         open={revoking !== null}
