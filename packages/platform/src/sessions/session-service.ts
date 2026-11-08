@@ -82,12 +82,12 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
-import { attachedRepositoriesOf } from "./session-repository.ts";
 import {
   type AgentPromptIdentity,
   type PlatformPromptRevision,
   platformPromptOf,
 } from "./platform-prompt.ts";
+import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
 export const viewerOf = (actor: Caller): SessionViewer => ({

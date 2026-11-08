@@ -47,6 +47,7 @@ const MESSAGES = {
     })[status] ?? status,
   statusAxis: "Status",
   noRepository: "No repository",
+  moreRepositories: (count: number) => `${count} more repositories`,
   unknown: "—",
   recent: "Recent",
   open: (name: string) => `Open session: ${name}`,

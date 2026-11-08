@@ -77,6 +77,12 @@ export function useSessionUsage(id: string, enabled: boolean) {
   return useQuery({ ...sessionUsageQuery(client, id), enabled });
 }
 
+/** The session's push requests, which carry each repository's push and PR stage. */
+export function useSessionGithubWork(id: string, enabled: boolean) {
+  const { client } = useWerft();
+  return useQuery({ ...sessionGithubWorkQuery(client, id, { enabled }) });
+}
+
 export function usePendingRequests(id: string, enabled: boolean) {
   const { client } = useWerft();
   return useQuery({ ...pendingRequestsQuery(client, id), enabled });

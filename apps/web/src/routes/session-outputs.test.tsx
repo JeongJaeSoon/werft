@@ -265,7 +265,7 @@ describe("session GitHub attribution", () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...attributed({ trigger: "web", attribution: "co_author", login: "x" }),
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, { ...detail, repository: null }),
+        json(200, { ...detail, repository: null, repository_id: null }),
     });
     await openOutputs();
     await screen.findByRole("region", { name: /^out\/ 파일/ });
@@ -791,9 +791,32 @@ describe("the session's GitHub work", () => {
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     expect(within(area).getAllByRole("listitem")).toHaveLength(2);
     expect(within(area).queryByRole("button")).toBeNull();
-    const short = within(area).getByText("demo ← agent/0f8b6a52…");
+    const short = within(area).getByText("acme/demo ← agent/0f8b6a52…");
     expect(short.getAttribute("title")).toBe(`agent/${SESSION_ID}`);
-    expect(within(area).getByText("demo ← feature/login")).toBeDefined();
+    expect(within(area).getByText("acme/demo ← feature/login")).toBeDefined();
+  });
+
+  test("a session with only attached repositories is asked and shows each push under its owner/repo name", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({
+        items: [{ ...request, repository_id: "shop" }],
+        intents: [],
+      }),
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          repository: null,
+          repository_id: null,
+          attached_repository_ids: ["shop"],
+          attached_repositories: [{ id: "shop", full_name: "acme/shop" }],
+        }),
+    });
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getByText("acme/shop ← agent/0f8b6a52…")).toBeDefined();
+    expect(api.calls.some((call) => call.path.endsWith("/push-requests"))).toBe(
+      true,
+    );
   });
 
   test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {
@@ -818,7 +841,7 @@ describe("the session's GitHub work", () => {
     const { api } = renderAt(`/sessions/${SESSION_ID}`, {
       ...working({ items: [], intents: [] }),
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
-        json(200, { ...detail, repository: null }),
+        json(200, { ...detail, repository: null, repository_id: null }),
     });
     await openOutputs();
     await screen.findByRole("region", { name: /^out\/ 파일/ });

@@ -1,5 +1,6 @@
 import { isApiError } from "@werft-ai/client";
 import type {
+  PushRequest,
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
@@ -24,7 +25,6 @@ import {
   Copy,
   Folder,
   Gauge,
-  Lock,
   type LucideIcon,
   UserRound,
 } from "lucide-react";
@@ -35,8 +35,11 @@ import {
   DetailRail,
   DetailRailSection,
   OPERATIONS_MESSAGES,
+  RepositoryName,
+  RepositorySummary,
   SessionStatusLabel,
   StatusLabel,
+  sessionRepositoriesOf,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
 import { useWerft } from "../provider.tsx";
@@ -45,6 +48,7 @@ import {
   usePendingRequests,
   useSession,
   useSessionEvents,
+  useSessionGithubWork,
   useSessionTurns,
   useSessionUsage,
 } from "../sessions.ts";
@@ -243,6 +247,7 @@ export function SessionDetail({
       <TabsContent value="info">
         <div className="flex flex-col gap-3 rounded-card border bg-card p-4">
           <Overview session={detail} />
+          <Repositories session={detail} />
           {usage.data ? (
             <Usage usage={usage.data} />
           ) : usage.error ? (
@@ -304,41 +309,9 @@ export function SessionDetail({
         unavailable={unavailable}
         controls={controls?.(detail)}
       />
-      <DetailRailSection title={t("session.info.title")}>
-        <KeyValueList
-          className={RAIL_ROWS}
-          items={[
-            {
-              label: t("session.info.agent"),
-              value: <AgentName session={detail} />,
-            },
-            {
-              label: t("session.meta.model"),
-              value: (
-                <span className="font-mono text-caption">
-                  {detail.runtime?.model ?? t("sessions.none")}
-                </span>
-              ),
-            },
-            {
-              label: t("session.meta.repository"),
-              value: detail.repository_id ?? t("session.repository.none"),
-            },
-            {
-              label: t("session.info.startedBy"),
-              value: startedBy(detail, t),
-            },
-            ...(usage.data
-              ? [
-                  {
-                    label: t("session.usage"),
-                    value: <Cost usage={usage.data} />,
-                  },
-                ]
-              : []),
-          ]}
-        />
-      </DetailRailSection>
+      {/* No repository list here on purpose: the header and the info tab
+          already show it, and a third copy is the repeat 94S-1469 removed.
+          To show it, add a DetailRailSection holding <RepositoryList />. */}
     </DetailRail>
   );
   return (
@@ -456,8 +429,8 @@ function startedBy(session: SessionDetailData, t: BlockText): ReactNode {
 }
 
 /**
- * The header's one line: id to copy, agent, who started it, repository,
- * model and cost so far.
+ * The header's one line: id to copy, agent, who started it, repositories and
+ * cost so far. The model and the rest are on the info tab.
  */
 function SessionMeta({
   session,
@@ -471,6 +444,7 @@ function SessionMeta({
   const { t } = useBlockText();
   const [copied, setCopied] = useState(false);
   const label = t("session.id.copy");
+  const repositories = sessionRepositoriesOf(session);
   return (
     <span className={className}>
       <span className="inline-flex items-center gap-2">
@@ -501,15 +475,17 @@ function SessionMeta({
         {startedBy(session, t)}
       </MetaItem>
       <MetaItem
-        icon={session.repository_id === null ? Folder : GitBranch}
+        icon={repositories.length === 0 ? Folder : GitBranch}
         label={t("session.meta.repository")}
       >
-        {session.repository_id ?? t("session.repository.none")}
-      </MetaItem>
-      <MetaItem icon={Lock} label={t("session.meta.model")}>
-        <span className="font-mono text-caption">
-          {session.runtime?.model ?? t("sessions.none")}
-        </span>
+        <RepositorySummary
+          repositories={repositories}
+          messages={{
+            none: t("session.repository.none"),
+            unknown: t("session.repositories.unknown"),
+            more: (count) => t("session.repositories.more", { count }),
+          }}
+        />
       </MetaItem>
       {usage ? (
         <MetaItem icon={Gauge} label={t("session.usage")}>
@@ -680,15 +656,15 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
         [t("session.info.agent"), <AgentName key="agent" session={session} />],
         [t("session.info.startedBy"), startedBy(session, t)],
         [
-          t("session.meta.repository"),
-          session.repository_id ?? t("session.repository.none"),
+          t("session.info.id"),
+          <span key="id" className="font-mono">
+            {session.id}
+          </span>,
         ],
-        // Not in the session's API yet: said so rather than guessed.
-        [t("session.info.branch"), t("session.info.notProvided")],
         [
           t("session.meta.model"),
           <span key="model" className="font-mono">
-            {runtime?.model ?? t("sessions.none")}
+            {session.model ?? runtime?.model ?? t("sessions.none")}
           </span>,
         ],
         [
@@ -714,6 +690,138 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
           : null,
       ]}
     />
+  );
+}
+
+const PUSH_TONE = {
+  requested: "amber",
+  approved: "blue",
+  pushing: "blue",
+  pushed: "green",
+  rejected: "gray",
+  failed: "red",
+} as const satisfies Record<PushRequest["state"], string>;
+
+const PR_TONE = {
+  due: "blue",
+  opening: "blue",
+  opened: "green",
+  closed_unrecorded: "gray",
+  uncertain: "amber",
+  failed: "red",
+  cancelled: "gray",
+} as const satisfies Record<NonNullable<PushRequest["pr_state"]>, string>;
+
+/** The newest request of each repository; a session may ask more than once. */
+function latestRequests(items: readonly PushRequest[]) {
+  const latest = new Map<string, PushRequest>();
+  for (const item of items) {
+    const seen = latest.get(item.repository_id);
+    if (!seen || item.requested_at > seen.requested_at) {
+      latest.set(item.repository_id, item);
+    }
+  }
+  return latest;
+}
+
+/**
+ * Every repository the session works on, one list in id order, each with
+ * where its push and pull request stand. History stays on the outputs tab.
+ */
+function Repositories({ session }: { readonly session: SessionDetailData }) {
+  const { t } = useBlockText();
+  return (
+    <TitledBlock
+      titleAs="h3"
+      title={t("session.repositories.title", {
+        count: sessionRepositoriesOf(session).length,
+      })}
+    >
+      <RepositoryList session={session} />
+    </TitledBlock>
+  );
+}
+
+/** The list alone, so a rail section can hold it under a title of its own. */
+function RepositoryList({ session }: { readonly session: SessionDetailData }) {
+  const { t } = useBlockText();
+  const repositories = sessionRepositoriesOf(session);
+  const work = useSessionGithubWork(session.id, repositories.length > 0);
+  const latest = latestRequests(work.data?.items ?? []);
+  return (
+    <>
+      {repositories.length === 0 ? (
+        <p className="m-0 text-control text-muted-foreground">
+          {t("session.repositories.none")}
+        </p>
+      ) : (
+        <ul className="m-0 flex list-none flex-col divide-y p-0">
+          {repositories.map((repository, index) => {
+            const request = repository.id
+              ? latest.get(repository.id)
+              : undefined;
+            const prLink =
+              request?.pr_state === "opened" &&
+              request.pr_number !== null &&
+              request.pr_url?.startsWith("https://")
+                ? request.pr_url
+                : null;
+            return (
+              <li
+                // The same id can come twice from a legacy row with no key.
+                key={`${repository.id ?? ""}:${index}`}
+                className="flex min-w-0 flex-col gap-1 py-2 first:pt-0 last:pb-0"
+              >
+                <RepositoryName
+                  repository={{ ...repository, branch: null }}
+                  unknown={t("session.repositories.unknown")}
+                />
+                <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-muted-foreground">
+                  {repository.branch ? (
+                    <span>
+                      {t("session.repositories.cloneBranch")}{" "}
+                      <code>{repository.branch}</code>
+                    </span>
+                  ) : null}
+                  {request ? (
+                    <>
+                      <span>
+                        {t("session.repositories.pushBranch")}{" "}
+                        <code>{request.target_branch}</code>
+                      </span>
+                      <Badge variant={PUSH_TONE[request.state]}>
+                        {t(`session.repositories.push.${request.state}`)}
+                      </Badge>
+                      {prLink ? (
+                        <a
+                          href={prLink}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="text-(color:--werft-color-link) underline-offset-2 hover:underline focus-visible:underline"
+                        >
+                          {t("session.repositories.pr.opened")} #
+                          {request?.pr_number}
+                          <span className="sr-only">
+                            {" "}
+                            {t("session.slackLink.newTab")}
+                          </span>
+                        </a>
+                      ) : request.pr_state ? (
+                        <Badge variant={PR_TONE[request.pr_state]}>
+                          {t(`session.repositories.pr.${request.pr_state}`)}
+                        </Badge>
+                      ) : null}
+                    </>
+                  ) : work.data ? (
+                    <span>{t("session.repositories.noPush")}</span>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
   );
 }
 

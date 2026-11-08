@@ -404,6 +404,7 @@ const OVERVIEW_MESSAGES = {
   status: (status: string) => `status:${status}`,
   statusAxis: "work",
   noRepository: "no repository",
+  moreRepositories: (count: number) => `more:${count}`,
   unknown: "—",
   recent: "recent",
 };
@@ -500,6 +501,80 @@ describe("SessionOverviewRow", () => {
       expect(getByTitle(shown).textContent).toBe(shown);
       unmount();
     }
+  });
+
+  describe("저장소 여러 개", () => {
+    const own = { id: "web", full_name: "acme/web", branch: "main" } as const;
+    const attached = [
+      { id: "zed", full_name: "acme/zed" },
+      { id: "api", full_name: "acme/api" },
+    ];
+    const renderRow = (session: SessionSummary) =>
+      render(
+        <SessionOverviewRow
+          session={session}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={OVERVIEW_MESSAGES}
+        />,
+      );
+
+    test("id 순 첫 저장소와 +N 단추를 보이고, 단추의 설명이 전체 목록이다", () => {
+      const { getByRole, container } = renderRow({
+        ...SESSION,
+        repository_id: "web",
+        repository: own,
+        attached_repositories: attached,
+      });
+      // id order, not the session's own first: api, web, zed.
+      const first = container.querySelector("code");
+      expect(first?.textContent).toBe("acme/api");
+      const more = getByRole("button", { name: "more:2" });
+      expect(more.textContent).toBe("+2");
+      expect(more.getAttribute("type")).toBe("button");
+      // Above the row's opener, so it takes its own hover and focus.
+      expect(more.className).toContain("relative");
+      const described = more.getAttribute("aria-describedby");
+      const description = document.getElementById(described ?? "");
+      expect(description?.textContent).toBe("acme/apiacme/web · mainacme/zed");
+      more.focus();
+      expect(document.activeElement === more).toBe(true);
+    });
+
+    test("자기 저장소 없이 추가만 있어도 저장소 있음으로 읽는다", () => {
+      const { queryByText, getByRole, container } = renderRow({
+        ...SESSION,
+        repository_id: null,
+        repository: null,
+        attached_repositories: attached,
+      });
+      expect(queryByText("no repository")).toBeNull();
+      expect(container.querySelector("code")?.textContent).toBe("acme/api");
+      expect(getByRole("button", { name: "more:1" })).toBeTruthy();
+    });
+
+    test("하나면 단추가 없고, 하나도 없으면 단추 없이 문구만 둔다", () => {
+      const one = renderRow({
+        ...SESSION,
+        repository_id: "web",
+        repository: own,
+      });
+      expect(one.queryByRole("button")).toBeNull();
+      one.unmount();
+      const none = renderRow({ ...SESSION, attached_repositories: [] });
+      expect(none.queryByRole("button")).toBeNull();
+      expect(none.getByText("no repository")).toBeTruthy();
+    });
+
+    test("옛 서버가 id만 보내면 id가 이름을 대신하고, 같은 id는 한 번만 센다", () => {
+      const { getByRole, container } = renderRow({
+        ...SESSION,
+        repository_id: "web",
+        repository: own,
+        attached_repository_ids: ["web", "api", "api"],
+      });
+      expect(container.querySelector("code")?.textContent).toBe("api");
+      expect(getByRole("button", { name: "more:1" })).toBeTruthy();
+    });
   });
 
   test("제목이 없으면 짧은 ID를 mono로 보이고 링크 이름은 전체 ID다", () => {

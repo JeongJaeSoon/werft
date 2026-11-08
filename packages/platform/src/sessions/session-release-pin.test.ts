@@ -1299,9 +1299,9 @@ describe("attached repositories in a session read", () => {
     expect(none.listed?.attached_repositories).toEqual([]);
     const unknown = await read(null);
     expect("attached_repositories" in unknown.detail).toBe(false);
-    expect(
-      unknown.listed && "attached_repositories" in unknown.listed,
-    ).toBe(false);
+    expect(unknown.listed && "attached_repositories" in unknown.listed).toBe(
+      false,
+    );
   });
 });
 

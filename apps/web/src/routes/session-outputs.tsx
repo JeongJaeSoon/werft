@@ -11,7 +11,10 @@ import type {
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
 import { useSessionUsage, useWerft } from "@werft-ai/react";
-import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
+import {
+  OPERATIONS_MESSAGES,
+  sessionRepositoriesOf,
+} from "@werft-ai/react/components";
 import {
   Badge,
   Code,
@@ -77,8 +80,9 @@ function useSessionOutputs(session: SessionDetail) {
   });
 }
 
-// Absent from a cached detail older than the field, as well as null.
-const hasRepository = (session: SessionDetail) => Boolean(session.repository);
+// A session with only attached repositories has pushes and pull requests too.
+const hasRepository = (session: SessionDetail) =>
+  sessionRepositoriesOf(session).length > 0;
 
 // GitHub changes a pull request after the session has stopped, and the
 // server's refresher reads it once a minute, so no session event says when.
