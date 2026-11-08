@@ -20,6 +20,29 @@ import { realpathSync } from "node:fs";
  * proxy are what hold that.
  */
 
+/**
+ * File name parts that mark a secret. A command line is matched by text, so
+ * this list is what `git add` and `git commit` are checked against; keep it
+ * in step with SENSITIVE_PATHS below.
+ */
+const SECRET_NAME_PARTS = [
+  ".env",
+  ".npmrc",
+  ".yarnrc",
+  ".pypirc",
+  ".netrc",
+  ".pem",
+  ".key",
+  ".p12",
+  ".pfx",
+  ".keystore",
+  "id_rsa",
+  "id_ecdsa",
+  "id_ed25519",
+  "credentials",
+  "service-account",
+];
+
 /** Edits under the workspace that still go to a person. */
 const SENSITIVE_PATHS = [
   ".git/**",
@@ -102,14 +125,10 @@ const GIT_ASK = [
   "git switch --create * -*",
   "git restore --staged -*",
   "git restore --staged * -*",
-  "git add *.env*",
-  "git add *.pem*",
-  "git add *.key*",
-  "git add *id_rsa*",
-  "git add *id_ecdsa*",
-  "git add *id_ed25519*",
-  "git add *credentials*",
-  "git add *service-account*",
+  // `git commit <path>` commits that file's current content without an add.
+  ...["git add", "git commit"].flatMap((command) =>
+    SECRET_NAME_PARTS.map((part) => `${command} *${part}*`),
+  ),
 ];
 
 /** Test and script runners; the workspace's own code runs through them. */
