@@ -25,7 +25,11 @@ export function registerAgentRoutes(
   router: ApiRouter,
   service: Omit<
     AgentService,
-    "resolveRelease" | "promptIdentity" | "rolloutRelease"
+    | "resolveRelease"
+    | "promptIdentity"
+    | "rolloutRelease"
+    | "migrateAgent"
+    | "revertMigration"
   >,
 ) {
   apiRoute(router, "listAgents", async (context) => {

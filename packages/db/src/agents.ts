@@ -911,35 +911,50 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        if (
+          intent?.kind === "migrate" &&
+          agent.activeReleaseId !== input.releaseId &&
+          (agent.activeReleaseId !== intent.expected.activeReleaseId ||
+            agent.activationRevision !== intent.expected.activationRevision ||
+            agent.behaviorRevision !== intent.expected.behaviorRevision ||
+            agent.profileTracking !== intent.expected.tracking ||
+            agent.modelSource !== intent.expected.modelSource)
+        ) {
+          return { outcome: "superseded" };
+        }
         const intentColumns =
-          intent?.kind === "save"
-            ? {
-                modelSource: intent.modelSource,
-                draftVersionId: null,
-                draftProfileId: null,
-                draftModelSource: null,
-                draftFailure: null,
-              }
-            : intent?.kind === "raise"
-              ? { profileTracking: "follow" }
-              : intent?.kind === "direct"
-                ? {
-                    behaviorRevision: sql`${agents.behaviorRevision} + 1`,
-                    modelSource: intent.releaseRunsProfileDefault
-                      ? sql`${agents.modelSource}`
-                      : "fixed",
-                    ...(intent.pinsProfile === true
-                      ? { profileTracking: "pinned" }
-                      : {}),
-                  }
-                : {};
+          intent?.kind === "migrate"
+            ? { profileTracking: intent.tracking }
+            : intent?.kind === "save"
+              ? {
+                  modelSource: intent.modelSource,
+                  draftVersionId: null,
+                  draftProfileId: null,
+                  draftModelSource: null,
+                  draftFailure: null,
+                }
+              : intent?.kind === "raise"
+                ? { profileTracking: "follow" }
+                : intent?.kind === "direct"
+                  ? {
+                      behaviorRevision: sql`${agents.behaviorRevision} + 1`,
+                      modelSource: intent.releaseRunsProfileDefault
+                        ? sql`${agents.modelSource}`
+                        : "fixed",
+                      ...(intent.pinsProfile === true
+                        ? { profileTracking: "pinned" }
+                        : {}),
+                    }
+                  : {};
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&
           (current === input.expectedRevision ||
             current === input.expectedRevision + 1)
         ) {
-          if (intent !== undefined) {
+          // A migrate retry writes nothing: a person may have changed the
+          // agent since the first attempt, and that change is theirs.
+          if (intent !== undefined && intent.kind !== "migrate") {
             await tx
               .update(agents)
               .set({ ...intentColumns, updatedAt: DB_NOW })
@@ -993,6 +1008,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             previous_release_id: agent.activeReleaseId,
             activation_revision: swapped.revision,
             reason: input.reason ?? null,
+            ...(intent?.kind === "migrate"
+              ? {
+                  migration: {
+                    id: intent.migrationId,
+                    revert: intent.revert === true,
+                    tracking_before: agent.profileTracking,
+                    tracking_after: intent.tracking,
+                    behavior_revision: agent.behaviorRevision,
+                    model_source: agent.modelSource,
+                  },
+                }
+              : {}),
             ...(await githubChange(tx, input.releaseId, agent.activeReleaseId)),
           },
         });
