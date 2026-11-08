@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  type AgentGitHubRepositoryChoice,
+  type AgentInstalledGitHubRepository,
   type CatalogGitHubRepository,
   type GetGitHubRepositoryAppPinsResponse,
   GITHUB_APP_ROLE_VALUES,
@@ -16,6 +18,7 @@ import {
   type PutGitHubRepositoryAppPinRequest,
   type PutGitHubRepositoryAppPinResponse,
   type RepositoryCeiling,
+  repositoryRefOf,
 } from "@werft-ai/contracts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type {
@@ -357,14 +360,104 @@ export function createGitHubRepositoryService(deps: {
     full_name: `${repository.owner}/${repository.name}`,
     default_branch: repository.defaultBranch,
     private: repository.private,
-    catalog_id:
-      rows.find(
-        (row) =>
-          row.github_repository_id === repository.id ||
-          fullNameOf(row.owner, row.name) ===
-            fullNameOf(repository.owner, repository.name),
-      )?.id ?? null,
+    catalog_id: rowOfRepository(repository, rows)?.id ?? null,
   });
+
+  /**
+   * The row of that GitHub repository: by its id, and by name only a row
+   * not yet tied to an id (another repository may hold a name this one had).
+   */
+  const rowOfRepository = (
+    repository: GitHubInstallationRepository,
+    rows: readonly CatalogRepositoryRow[],
+  ) =>
+    rows.find((row) => row.github_repository_id === repository.id) ??
+    rows.find(
+      (row) =>
+        row.github_repository_id === null &&
+        fullNameOf(row.owner, row.name) ===
+          fullNameOf(repository.owner, repository.name),
+    );
+
+  /**
+   * The catalog rows the workspace ceiling allows for an agent, together
+   * with the installation page's repositories: one entry per repository,
+   * the page's answer for its name and visibility winning. `rows` are the
+   * console App's; `choosable` adds the rows with an App of their own. A PAT
+   * repository the ceiling names cannot be chosen for an agent
+   * (`app_required`), so it is no choice here. As in `ceilingHolds`, an
+   * `installed` ceiling opens the console App's rows and a row with an App of
+   * its own is open only when the ceiling names it.
+   */
+  const choicesOf = (
+    page: readonly GitHubInstallationRepository[],
+    rows: readonly CatalogRepositoryRow[],
+    choosable: readonly CatalogRepositoryRow[],
+    ceiling: RepositoryCeiling | null,
+  ): AgentGitHubRepositoryChoice[] => {
+    const consoleApp = new Set(rows.map((row) => row.id));
+    const opened =
+      ceiling === null || ceiling.github_app_repositories === "installed";
+    const allowed = choosable.filter(
+      (row) =>
+        (opened && consoleApp.has(row.id)) ||
+        ceiling?.repository_ids.includes(row.id) === true,
+    );
+    const choices: AgentGitHubRepositoryChoice[] = [];
+    // The same GitHub id is one repository. A name settles it only where an
+    // id is missing: two ids sharing a name are two repositories, the older
+    // one renamed away.
+    const held = (githubId: number | null, name: string) =>
+      choices.some((choice) =>
+        githubId !== null && choice.github_repository_id !== null
+          ? choice.github_repository_id === githubId
+          : choice.repository.toLowerCase() === name.toLowerCase(),
+      );
+    for (const repository of page) {
+      const row = rowOfRepository(repository, allowed);
+      const name = `${repository.owner}/${repository.name}`;
+      choices.push({
+        github_repository_id: repository.id,
+        repository: name,
+        full_name: name,
+        private: repository.private,
+        ref: row === undefined ? null : repositoryRefOf(row.id),
+      });
+    }
+    // Rows with an id go first: a row without one is folded by name, and
+    // placed first it would swallow every differently numbered row of that name.
+    const idFirst = [
+      ...allowed.filter((row) => row.github_repository_id !== null),
+      ...allowed.filter((row) => row.github_repository_id === null),
+    ];
+    for (const row of idFirst) {
+      const name = `${row.owner}/${row.name}`;
+      if (held(row.github_repository_id, name)) continue;
+      choices.push({
+        github_repository_id: row.github_repository_id,
+        repository: name,
+        full_name: name,
+        private: null,
+        ref: repositoryRefOf(row.id),
+      });
+    }
+    return choices.sort((a, b) =>
+      a.repository.toLowerCase().localeCompare(b.repository.toLowerCase()),
+    );
+  };
+
+  const agentRepositoryOf = (
+    repository: GitHubInstallationRepository,
+    rows: readonly CatalogRepositoryRow[],
+  ): AgentInstalledGitHubRepository => {
+    const picked = pickedOf(repository, rows);
+    return {
+      ...picked,
+      repository: picked.full_name,
+      ref:
+        picked.catalog_id === null ? null : repositoryRefOf(picked.catalog_id),
+    };
+  };
 
   const rowView = (
     row: CatalogRepositoryRow,
@@ -596,18 +689,35 @@ export function createGitHubRepositoryService(deps: {
       await manageAgent(caller, agentId);
       const workspaceId = caller.ownerId;
       const blocked = await installedCeiling(workspaceId, agentId);
+      const [rows, choosable, ceiling] = await Promise.all([
+        store.listActive(),
+        store.listAgentChoosable(),
+        deps.repositoryCeiling(workspaceId),
+      ]);
       if (blocked !== null) {
         const { role: _author, ...empty } = emptyPage(query, null);
-        return { ...empty, repositories: [], unavailable: blocked };
+        return {
+          ...empty,
+          repositories: [],
+          all_repositories: choicesOf([], rows, choosable, ceiling),
+          unavailable: blocked,
+        };
       }
-      const [{ role: _author, ...page }, rows] = await Promise.all([
-        installationPage(workspaceId, query, ["author"]),
-        store.listActive(),
-      ]);
+      const { role: _author, ...page } = await installationPage(
+        workspaceId,
+        query,
+        ["author"],
+      );
       return {
         ...page,
         repositories: page.repositories.map((repository) =>
-          pickedOf(repository, rows),
+          agentRepositoryOf(repository, rows),
+        ),
+        all_repositories: choicesOf(
+          page.repositories,
+          rows,
+          choosable,
+          ceiling,
         ),
       };
     },

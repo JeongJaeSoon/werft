@@ -59,7 +59,7 @@ describe("platformPromptOf repository", () => {
 });
 
 describe("platformPromptRevisionFromEnv", () => {
-  test("unset or empty is 0; 0 and 1 are read; anything else refuses to start", () => {
+  test("unset or empty is 0; 0, 1 and 2 are read; anything else refuses to start", () => {
     expect(platformPromptRevisionFromEnv({})).toBe(0);
     expect(platformPromptRevisionFromEnv({ SESSION_PROMPT_REVISION: "" })).toBe(
       0,
@@ -70,10 +70,13 @@ describe("platformPromptRevisionFromEnv", () => {
     expect(
       platformPromptRevisionFromEnv({ SESSION_PROMPT_REVISION: "0" }),
     ).toBe(0);
-    for (const bad of ["2", "true", " 1", "01"]) {
+    expect(
+      platformPromptRevisionFromEnv({ SESSION_PROMPT_REVISION: "2" }),
+    ).toBe(2);
+    for (const bad of ["3", "true", " 1", "01"]) {
       expect(() =>
         platformPromptRevisionFromEnv({ SESSION_PROMPT_REVISION: bad }),
-      ).toThrow("SESSION_PROMPT_REVISION must be one of 0, 1");
+      ).toThrow("SESSION_PROMPT_REVISION must be one of 0, 1, 2");
     }
   });
 });
