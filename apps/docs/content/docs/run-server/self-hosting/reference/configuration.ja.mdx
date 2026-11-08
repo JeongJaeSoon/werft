@@ -172,7 +172,7 @@ readOnlyRootFilesystem の Pod では、status file を書き込み可能なパ�
 
 kubernetes モードだけで読む設定は次のとおりです。
 
-`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` は未設定なら `false` で、正確な `true`/`false` のみ受け付けます。空値・空白・大文字・`1`/`0`・`on`/`off` は元の値を出さないエラーで起動を拒否します。Helm の `worker.workspace.enforcedByStorage`（既定 `false`）から生成し、この設置の全 workspace PVC（既存を含む）で保存先が要求バイト数をハードに強制するという運用者の宣言です。StorageClass が空ならクラスタ既定値なので、各 PVC の強制を運用者が確認します。Werft は検証しません。専用書き込み可能 mount（`/` 以外、`rw` あり、`ro` なし）、ファイルシステム総量が要求の 0.95〜1.05 倍、PVC capacity が要求以上というヒューリスティックを満たした宣言経路だけがバイト `hard`/inode `unknown` になります。[保存先と上限](/run-server/self-hosting/reference/storage)に従います。宣言を変えても PVC・isolation stamp・既存 Pod の env は変わらず、新しい Pod だけが新しい値を受け取ります。
+`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` は未設定なら `false` で、正確な `true`/`false` のみ受け付けます。空値・空白・大文字・`1`/`0`・`on`/`off` は元の値を出さないエラーで起動を拒否します。Helm の `worker.workspace.enforcedByStorage`（既定 `false`）から生成し、この設置の全 workspace PVC（既存を含む）で保存先が要求バイト数をハードに強制するという運用者の宣言です。StorageClass が空ならクラスタ既定値なので、各 PVC の強制を運用者が確認します。Werft は検証しません。専用書き込み可能 mount（`/` 以外、`rw` あり、`ro` なし）、ファイルシステム総量が要求の 0.95〜1.05 倍、PVC capacity が要求以上というヒューリスティックを満たした宣言経路だけがバイト `hard`/inode `unknown` になります。[ストレージと上限](/run-server/self-hosting/reference/storage)に従います。宣言を変えても PVC・isolation stamp・既存 Pod の env は変わらず、新しい Pod だけが新しい値を受け取ります。
 
 | 変数 | 意味 |
 | --- | --- |

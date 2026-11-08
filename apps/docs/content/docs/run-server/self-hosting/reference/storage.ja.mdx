@@ -48,7 +48,9 @@ Kubernetes の `worker.workspace.quotaMb` を変えると、既存 PVC の `werf
 
 宣言経路では、ファイルシステム総量が要求の 0.95〜1.05 倍、PVC capacity が要求以上、mount point が `/` 以外の専用書き込み可能 mount（`rw` あり、`ro` なし）の場合、worker はバイトを `hard`、inode を `unknown` と判定します（`storage_declaration_and_capacity`）。mount・ファイルシステム証拠や capacity がなければ `unknown` です。他の宣言条件が不足すると `unknown`/`storage_enforcement_unverified` となり、共有ファイルシステム・inode 総数 0・要求の 1.5 倍を超えるファイルシステムは既存の `soft` 判定を維持します。サイズと mount の条件はヒューリスティックであり強制検証ではありません。宣言と判定根拠は `workspace_limit_mode` ログの evidence に残ります。
 
-宣言を変えても PVC サイズ・名前・annotation と isolation stamp は変わらず、既存 Pod の置換や resume 拒否は起きません。実行中 Pod の env はそのままで、新しく作る Pod だけが新しい宣言を受け取ります。実際の StorageClass 強制、`ENOSPC`、クラスタでの resume・再接続はこの変更では実行検証していません。
+PVC がまだ bind されていないか、scheduler に PVC の `get` 権限がないと capacity は分かりません。共有ファイルシステムなど既存の `soft` 判定に該当せず mount・ファイルシステム証拠があっても、capacity がなければ宣言だけでは引き上げず `unknown`（`storage_capacity_unavailable`）のままです。
+
+宣言を変えても PVC サイズ・名前・annotation と isolation stamp は変わらず、既存 Pod の置換や resume 拒否は起きません。実行中 Pod の env はそのままで、新しく作る Pod だけが新しい宣言を受け取ります。
 
 <a id="transcript-상한" />
 ## transcript 上限
