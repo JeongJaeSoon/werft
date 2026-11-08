@@ -254,49 +254,47 @@ export const AGENT_GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   "ceiling_listed",
 ] as const;
 
+// The agent's list is not strict, as the other agent GitHub responses are: a
+// validator written before a key was added (the web's, or a client's in
+// `strict` mode) must not reject the response for it.
+
 /** A row of the installation page, as the agent's list shows it. */
-export const agentInstalledGitHubRepositorySchema =
-  installedGitHubRepositorySchema.extend({
-    // Optional only so a client written before them still type-checks; the
-    // server always sends both.
-    /** `owner/repo` as GitHub answered now. */
-    repository: z.string().min(1).optional(),
-    /** Hand it back to keep a catalog repository; null until a pick makes one. */
-    ref: repositoryRefSchema.nullable().optional(),
-  });
+export const agentInstalledGitHubRepositorySchema = z.object({
+  ...installedGitHubRepositorySchema.shape,
+  // Optional only so a client written before them still type-checks; the
+  // server always sends both.
+  /** `owner/repo` as GitHub answered now. */
+  repository: z.string().min(1).optional(),
+  /** Hand it back to keep a catalog repository; null until a pick makes one. */
+  ref: repositoryRefSchema.nullable().optional(),
+});
 
 /** One repository of the merged list: the catalog's and the page's. */
-export const agentGitHubRepositoryChoiceSchema = z
-  .object({
-    /** Null for a catalog row GitHub was never asked about. */
-    github_repository_id: z.number().int().positive().nullable(),
-    /** `owner/repo`; the installation page's answer wins over the catalog's. */
-    repository: z.string().min(1),
-    full_name: z.string().min(1),
-    /** Null when only the catalog knows the repository: it keeps no visibility. */
-    private: z.boolean().nullable(),
-    /** Null for a repository only the installation page has. */
-    ref: repositoryRefSchema.nullable(),
-  })
-  .strict();
+export const agentGitHubRepositoryChoiceSchema = z.object({
+  /** Null for a catalog row GitHub was never asked about. */
+  github_repository_id: z.number().int().positive().nullable(),
+  /** `owner/repo`; the installation page's answer wins over the catalog's. */
+  repository: z.string().min(1),
+  full_name: z.string().min(1),
+  /** Null when only the catalog knows the repository: it keeps no visibility. */
+  private: z.boolean().nullable(),
+  /** Null for a repository only the installation page has. */
+  ref: repositoryRefSchema.nullable(),
+});
 
-export const listAgentGitHubRepositoriesResponseSchema = z
-  .object({
-    ...installationPageFields,
-    repositories: z.array(agentInstalledGitHubRepositorySchema.strict()),
-    /**
-     * Every catalog repository the workspace ceiling allows (turned off
-     * ones too, and under `ceiling_listed` too) together with this page of
-     * the installation, never the installation's whole list. `page` and
-     * `total_count` still describe the installation. Optional only for
-     * clients written before it; the server always sends it.
-     */
-    all_repositories: z.array(agentGitHubRepositoryChoiceSchema).optional(),
-    unavailable: z
-      .enum(AGENT_GITHUB_REPOSITORIES_UNAVAILABLE_VALUES)
-      .nullable(),
-  })
-  .strict();
+export const listAgentGitHubRepositoriesResponseSchema = z.object({
+  ...installationPageFields,
+  repositories: z.array(agentInstalledGitHubRepositorySchema),
+  /**
+   * Every catalog repository the workspace ceiling allows (turned off
+   * ones too, and under `ceiling_listed` too) together with this page of
+   * the installation, never the installation's whole list. `page` and
+   * `total_count` still describe the installation. Optional only for
+   * clients written before it; the server always sends it.
+   */
+  all_repositories: z.array(agentGitHubRepositoryChoiceSchema).optional(),
+  unavailable: z.enum(AGENT_GITHUB_REPOSITORIES_UNAVAILABLE_VALUES).nullable(),
+});
 
 export const pickAgentGitHubRepositoryRequestSchema = z
   .object({

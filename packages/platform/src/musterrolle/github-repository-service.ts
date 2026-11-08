@@ -398,27 +398,36 @@ export function createGitHubRepositoryService(deps: {
     const consoleApp = new Set(rows.map((row) => row.id));
     const opened =
       ceiling === null || ceiling.github_app_repositories === "installed";
-    const refOf = (id: string | undefined) =>
-      id === undefined ? null : repositoryRefOf(id);
-    const merged = new Map<string, AgentGitHubRepositoryChoice>();
+    const allowed = choosable.filter(
+      (row) =>
+        (opened && consoleApp.has(row.id)) ||
+        ceiling?.repository_ids.includes(row.id) === true,
+    );
+    const choices: AgentGitHubRepositoryChoice[] = [];
+    // The same GitHub id is one repository. A name settles it only where an
+    // id is missing: two ids sharing a name are two repositories, the older
+    // one renamed away.
+    const held = (githubId: number | null, name: string) =>
+      choices.some((choice) =>
+        githubId !== null && choice.github_repository_id !== null
+          ? choice.github_repository_id === githubId
+          : choice.repository.toLowerCase() === name.toLowerCase(),
+      );
     for (const repository of page) {
-      const row = rowOfRepository(repository, rows);
+      const row = rowOfRepository(repository, allowed);
       const name = `${repository.owner}/${repository.name}`;
-      merged.set(row?.id ?? `github:${repository.id}`, {
+      choices.push({
         github_repository_id: repository.id,
         repository: name,
         full_name: name,
         private: repository.private,
-        ref: refOf(row?.id),
+        ref: row === undefined ? null : repositoryRefOf(row.id),
       });
     }
-    for (const row of choosable) {
-      const allowed =
-        (opened && consoleApp.has(row.id)) ||
-        ceiling?.repository_ids.includes(row.id) === true;
-      if (!allowed || merged.has(row.id)) continue;
+    for (const row of allowed) {
       const name = `${row.owner}/${row.name}`;
-      merged.set(row.id, {
+      if (held(row.github_repository_id, name)) continue;
+      choices.push({
         github_repository_id: row.github_repository_id,
         repository: name,
         full_name: name,
@@ -426,7 +435,7 @@ export function createGitHubRepositoryService(deps: {
         ref: repositoryRefOf(row.id),
       });
     }
-    return [...merged.values()].sort((a, b) =>
+    return choices.sort((a, b) =>
       a.repository.toLowerCase().localeCompare(b.repository.toLowerCase()),
     );
   };

@@ -633,6 +633,64 @@ describe("the agent's repositories read as owner/repo", () => {
     ]);
   });
 
+  test("a row renamed away and a row with no GitHub id under the new name are one repository, not two lines", async () => {
+    const OLD = { ...ROW, id: "old", github_repository_id: 5, name: "old" };
+    const SEEDED = {
+      ...ROW,
+      id: "widget",
+      github_repository_id: null,
+      name: "widget",
+    };
+    const { agentPage } = serviceWith(
+      pageOf({ ...repository(5, "widget"), private: true }),
+      apps,
+      null,
+      [OLD, SEEDED],
+    );
+    const page = await agentPage();
+    expect(page.all_repositories).toEqual([
+      {
+        github_repository_id: 5,
+        repository: "acme/widget",
+        full_name: "acme/widget",
+        private: true,
+        // The row GitHub's id names; the id-less one is its duplicate.
+        ref: repositoryRefOf("old"),
+      },
+    ]);
+  });
+
+  test("a row with an App of its own and the page's entry for the same GitHub id are one line", async () => {
+    const OWN = {
+      ...ROW,
+      id: "ghe",
+      github_repository_id: 9,
+      name: "shared",
+      url: "https://ghe.example.invalid/acme/shared.git",
+    };
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "installed",
+    };
+    const { agentPage } = serviceWith(
+      pageOf({ ...repository(9, "shared"), private: false }),
+      apps,
+      null,
+      [],
+      [OWN],
+    );
+    const page = await agentPage();
+    expect(page.all_repositories).toEqual([
+      {
+        github_repository_id: 9,
+        repository: "acme/shared",
+        full_name: "acme/shared",
+        private: false,
+        ref: repositoryRefOf("ghe"),
+      },
+    ]);
+  });
+
   test("a name an older repository held is not taken for the repository that has it now", async () => {
     const { agentPage } = serviceWith(
       pageOf(repository(8, "widget")),
