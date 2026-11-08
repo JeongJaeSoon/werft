@@ -210,7 +210,6 @@ async function agentInSlack(
     activate?: boolean;
     mode?: "off" | "on";
     mentionOnly?: boolean;
-    /** A private channel is saved waiting for approval. */
     channelKind?: "public_channel" | "private_channel";
   } = {},
 ) {
@@ -896,8 +895,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   });
 
   test("a private channel bound as private but seen as public is refused with a notice", async () => {
-    // The other direction stays refused, not loosened: a saved private
-    // binding is approved or not, and a public event does not change it.
     const fixture = await agentInSlack("general", {
       channelKind: "private_channel",
     });
@@ -975,7 +972,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await drain(handle);
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(await links()).toEqual([]);
-    // One wait, one notice to this person in this thread.
     expect(notices.map((notice) => notice.reason)).toEqual([
       "pending_approval",
     ]);
@@ -1017,7 +1013,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
     expect(approved.outcome).toBe("resolved");
 
-    // The same mention, queued before and processed after, stays unanswered.
     await deliver(
       fixture,
       mention(sentWhileWaiting, { thread_ts: undefined }),

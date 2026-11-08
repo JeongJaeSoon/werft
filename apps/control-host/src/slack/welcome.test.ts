@@ -563,7 +563,6 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     });
     expect(await outboxRows()).toEqual([]);
 
-    // Invited but not approved: still no welcome.
     expect(await invited(fixture, channel)).toMatchObject({ processed: 1 });
     expect(await outboxRows()).toEqual([]);
 

@@ -86,7 +86,6 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     secrets: secrets.store,
     now: () => clock.getTime(),
   });
-  // Channels whose binding waits for approval, as the store would report.
   const pendingChannels = new Set<string>();
   const service = createSlackEventsService({
     signingSecrets,

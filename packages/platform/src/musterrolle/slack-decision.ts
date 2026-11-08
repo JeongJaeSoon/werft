@@ -59,11 +59,6 @@ export type SlackDecision =
       actorUserId: string | null;
       /** What to show the person alone, once per thread; null for none. */
       notice: SlackNotice | null;
-      /**
-       * The private channel waiting for approval that took this input in
-       * its place, when it is why nothing ran; its revision changes with
-       * every wait, so the notice can be told once per wait.
-       */
       pending: { id: string; revision: number } | null;
     };
 
@@ -127,8 +122,6 @@ export async function authorizeSlackInput(
     stored !== null && stored.mode !== "off" && stored.agentId === agentId
       ? stored
       : null;
-  // A channel waiting for approval is not bound yet, but its people are told
-  // why the agent is silent instead of that it is unbound.
   const pending =
     stored === null && !input.channel.dm
       ? await deps.bindings.findPendingApproval(

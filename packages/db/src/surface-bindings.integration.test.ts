@@ -396,7 +396,6 @@ integration("surface bindings on PostgreSQL", () => {
       agentId,
       channelId: "G0INVITE",
       channelKind: "private_channel",
-      // An invite is no person's decision: a private channel waits.
       status: "pending_approval",
       approvedAt: null,
       mode: "on",
@@ -534,7 +533,6 @@ integration("surface bindings on PostgreSQL", () => {
         outcome: "set",
         binding: { id: binding.id, status: "pending_approval", revision: 2 },
       });
-      // Editing again is not a new wait: one request receipt in all.
       expect(await operations(binding.id)).toEqual([
         "request_surface_binding",
         "set_surface_binding",
@@ -558,7 +556,6 @@ integration("surface bindings on PostgreSQL", () => {
       expect((await store().list(owner.ownerId, agentId, 10))[0]).toMatchObject(
         { channelId: "C0HOME", home: true },
       );
-      // The table refuses it too, whatever the code above did.
       expect(
         await refusal(
           db
@@ -605,7 +602,6 @@ integration("surface bindings on PostgreSQL", () => {
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toBeNull();
-      // A new save of the channel starts a new wait on a new row.
       const again = await setAs(owner, agentId, {
         channelId: "G0SECRET",
         channelKind: "private_channel",
@@ -666,7 +662,6 @@ integration("surface bindings on PostgreSQL", () => {
       await db
         .insert(schema.agentAdmins)
         .values({ workspaceId, agentId, userId: member.actor?.userId ?? "" });
-      // An admin of the agent holds binding.manage on it, and still not this.
       expect(await approve(member, agentId, binding.id, 1)).toEqual({
         outcome: "outranked",
       });
@@ -769,7 +764,6 @@ integration("surface bindings on PostgreSQL", () => {
       expect(
         await store().resolveSlackChannel(installationId, "C0TURNED"),
       ).toBeNull();
-      // No longer a ready public channel: nothing more to do.
       expect(await store().requireApproval(open.binding.id)).toBeNull();
       expect(await operations(open.binding.id)).toContain(
         "request_surface_binding",
@@ -813,8 +807,6 @@ integration("surface bindings on PostgreSQL", () => {
   });
 
   test("migration 0243 puts every live private binding to wait and leaves the others", async () => {
-    // Replays the migration's UPDATE on rows shaped as the old code wrote
-    // them: a ready private home, a ready public one, a revoked private one.
     const owner = await person(await workspace(), "owner");
     const { agentId, installationId } = await slackAgent(owner);
     const migrationSql = (
@@ -835,7 +827,6 @@ integration("surface bindings on PostgreSQL", () => {
       ["C0OLDOPEN", "public_channel", false, null],
       ["G0OLDGONE", "private_channel", false, new Date()],
     ] as const;
-    // Written with the constraint set aside, as the old code could.
     await pool.query(
       "ALTER TABLE surface_bindings DROP CONSTRAINT surface_bindings_pending_check",
     );

@@ -3716,7 +3716,6 @@ export const surfaceBindings = pgTable(
       .$type<"ready" | "pending_approval" | "partial" | "failed" | "revoked">()
       .notNull()
       .default("ready"),
-    /** Set when an owner or admin approves; input sent before it is dropped. */
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
@@ -3796,8 +3795,6 @@ export const surfaceBindings = pgTable(
       "surface_bindings_ready_check",
       sql`${table.surface} <> 'slack' OR ${table.status} <> 'ready' OR (${table.installationId} IS NOT NULL AND ${table.surfaceKind} IS NOT NULL AND (${table.externalSurfaceId} IS NOT NULL OR ${table.surfaceKind} = 'dm'))`,
     ),
-    // A row waiting for approval is a private Slack channel of an install,
-    // never a DM and never the agent's home.
     check(
       "surface_bindings_pending_check",
       sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,

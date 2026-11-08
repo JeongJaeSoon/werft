@@ -86,11 +86,6 @@ const memberJoinedSchema = z.object({
  * is how a person adds the agent to a channel), the binding is `joined`,
  * and a home hears the welcome it was waiting for. Every other event goes
  * to `next`.
- *
- * The event's `channel_type` is not trusted for the kind: Slack is asked,
- * and when it cannot answer the event fails and is tried again, so a
- * private channel is never taken for a public one. A private channel waits
- * for an owner or admin before the agent answers in it.
  */
 export function createSlackMemberJoinedHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
@@ -100,7 +95,6 @@ export function createSlackMemberJoinedHandler(deps: {
   >;
   welcome: Pick<SlackWelcome, "welcome">;
   slack: Pick<SlackBotApi, "channelKind">;
-  /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
@@ -122,8 +116,6 @@ export function createSlackMemberJoinedHandler(deps: {
     if (botToken === null) {
       throw new Error("The Slack app has no bot token stored");
     }
-    // A failed read throws: the event is tried again, and nothing is bound
-    // on the word of `channel_type`.
     const kind = await deps.slack.channelKind(botToken, channel);
     if (kind === "dm") return;
     let binding = await deps.bindings.ensureInvitedChannel(
@@ -137,8 +129,6 @@ export function createSlackMemberJoinedHandler(deps: {
     ) {
       return;
     }
-    // Bound as a public channel and now seen as a private one: it waits for
-    // approval like a new one.
     if (
       binding.status === "ready" &&
       binding.channelKind === "public_channel" &&

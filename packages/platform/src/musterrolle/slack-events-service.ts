@@ -125,8 +125,6 @@ type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
   | { status: "received" | "processed"; redact?: { botUserId: string } };
 
-// What a mention in a channel waiting for approval keeps: where and who, so
-// one notice can be told, and none of what was said or attached.
 const PENDING_EVENT_FIELDS = [
   "type",
   "user",
@@ -145,7 +143,6 @@ function redactedEvent(
   for (const field of PENDING_EVENT_FIELDS) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
-  // The mention is why the event is kept, so the handler still finds it.
   kept.text = `<@${botUserId}>`;
   return kept as SlackEventCallback["event"];
 }
@@ -220,8 +217,6 @@ export function createSlackEventsService(deps: {
       ) {
         return { status: "dropped", dropReason: "message_subtype" };
       }
-      // A channel waiting for approval is not bound, so what is said in it
-      // is not kept: only a mention is, with nothing but who and where.
       if (typeof event.channel === "string" && event.channel_type !== "im") {
         const pending = await deps.bindings.findPendingApproval(
           resolved.installationId,

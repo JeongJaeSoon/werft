@@ -154,7 +154,6 @@ const deps = () => ({
     ) {
       const binding =
         installationId === INSTALLATION ? stored.get(channelId) : undefined;
-      // Input reads only a ready binding, as the store does.
       return binding?.status === "ready" ? binding : null;
     },
     async findPendingApproval(installationId: string, channelId: string) {
@@ -416,7 +415,6 @@ describe("the channel's stored binding (94S-177)", () => {
       notice: { message: "pendingApproval" },
       pending: { id: BINDING, revision: 1 },
     });
-    // A press on a button there is held the same way.
     const pressed = pressing(slackUser("U0B"));
     stored.set(CHANNEL, {
       ...(stored.get(CHANNEL) as SurfaceBindingRecord),
@@ -426,7 +424,6 @@ describe("the channel's stored binding (94S-177)", () => {
       decision: { outcome: "deny" },
       notice: { message: "pendingApproval" },
     });
-    // Approved, it is an ordinary ready channel again.
     stored.set(CHANNEL, {
       ...(stored.get(CHANNEL) as SurfaceBindingRecord),
       status: "ready",

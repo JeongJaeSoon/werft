@@ -31,8 +31,6 @@ import type { SlackWelcome } from "./slack-welcome.ts";
 // agent, which owner, admin and that agent's admins hold.
 const ACTION = "binding.manage";
 const MANAGERS: readonly WorkspaceRole[] = MANAGEMENT_ROLES[ACTION] ?? [];
-// A private channel waits for the owner or an admin, not for the agent's
-// admins who may have asked for it.
 const APPROVE_ACTION = "binding.approve";
 const APPROVERS: readonly WorkspaceRole[] =
   MANAGEMENT_ROLES[APPROVE_ACTION] ?? [];
@@ -136,7 +134,6 @@ export function createSurfaceBindingService(deps: {
     switch (result.outcome) {
       case "resolved":
         return {
-          // An approved channel is joined and heard like one just saved.
           slack_binding: surfaceBindingView(
             decision === "approve"
               ? await joined(result.binding)

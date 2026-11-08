@@ -199,8 +199,6 @@ export function createSlackSessionHandler(
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
-    // `wait` names one wait of one channel, so the notice that it waits for
-    // approval is told once per wait, not once per thread.
     const notice = async (
       reason: string,
       text: SlackNotice,
@@ -235,8 +233,6 @@ export function createSlackSessionHandler(
         : binding !== null && binding.channelKind !== "dm"
           ? await deps.slack.channelKind(botToken, event.channel)
           : undefined;
-    // A public channel that turned private is no longer the place the
-    // binding allowed: it waits for approval, and the others are told so.
     if (
       binding !== null &&
       binding.channelKind === "public_channel" &&
@@ -322,8 +318,6 @@ export function createSlackSessionHandler(
       }
       return;
     }
-    // Input from before the approval is not answered after it: an approval
-    // does not bring back what was said while the channel waited.
     if (
       binding?.approvedAt != null &&
       Number(event.ts) * 1000 < binding.approvedAt.getTime()

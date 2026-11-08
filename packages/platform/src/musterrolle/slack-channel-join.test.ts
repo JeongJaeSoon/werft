@@ -182,7 +182,6 @@ describe("joining a bound channel", () => {
 describe("the bot's invite", () => {
   function handler(
     bound: Partial<SurfaceBindingRecord> | null,
-    // What Slack answers per channel; an Error is a read that failed.
     kinds: Record<string, SurfaceChannelKind | Error> = {
       G1: "private_channel",
       G2: "private_channel",
@@ -208,8 +207,6 @@ describe("the bot's invite", () => {
         }),
       } as never,
       bindings: {
-        // What the store holds for the channel, whatever its kind and
-        // status; null stands for a channel nobody bound yet.
         ensureInvitedChannel: async (_installation, channelId, kind) => {
           invited.push([channelId, kind]);
           return {
@@ -293,7 +290,6 @@ describe("the bot's invite", () => {
 
   test("the bot invited to an unbound channel binds it with the kind Slack reports, joined, with no welcome", async () => {
     const h = handler(null);
-    // `channel_type` says public; Slack says private, and Slack is believed.
     await h.handle(
       claim({
         type: "member_joined_channel",

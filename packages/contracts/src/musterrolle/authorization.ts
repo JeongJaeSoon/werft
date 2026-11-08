@@ -342,8 +342,6 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "agent.admin.manage",
   "credential.bind",
   "binding.manage",
-  // Letting the agent use a private Slack channel that waits for approval:
-  // the owner and the admin, not the agent's admins who asked for it.
   "binding.approve",
   "routine.manage",
   "session.read",

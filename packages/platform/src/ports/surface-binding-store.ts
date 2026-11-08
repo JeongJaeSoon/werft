@@ -22,7 +22,6 @@ export type SurfaceBindingRecord = {
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
   status: SurfaceBindingStatus;
-  /** When an owner or admin last approved it; null if none ever did. */
   approvedAt: Date | null;
   /** Null until Slack was asked; always null on the DM binding. */
   membership: SurfaceMembership | null;
@@ -39,7 +38,6 @@ export type SetSurfaceBindingResult =
   | { outcome: "not_installed" }
   // A concurrent write took the channel, the DM row or the home first.
   | { outcome: "conflict" }
-  // The channel waits for approval, so it cannot be the home yet.
   | { outcome: "pending_home" }
   | { outcome: "actor_inactive" }
   | { outcome: "outranked" };
@@ -49,18 +47,14 @@ export type ResolveSurfaceBindingInput = {
   workspaceId: string;
   agentId: string;
   bindingId: string;
-  /** The binding's revision as the caller read it. */
   revision: number;
   approverRoles: readonly WorkspaceRole[];
 };
 
 export type ResolveSurfaceBindingResult =
   | { outcome: "resolved"; binding: SurfaceBindingRecord; receiptId: string }
-  // The same decision again: the binding as the first one left it.
   | { outcome: "replayed"; binding: SurfaceBindingRecord }
   | { outcome: "not_found" }
-  // Not waiting for approval, decided the other way, or changed since the
-  // caller read it.
   | { outcome: "conflict" }
   | { outcome: "actor_inactive" }
   | { outcome: "outranked" };
@@ -144,15 +138,9 @@ export interface SurfaceBindingStore {
    * the binding is no longer ready.
    */
   requireApproval(bindingId: string): Promise<SurfaceBindingRecord | null>;
-  /**
-   * Approves a binding that waits: `ready`, `approved_at` now, a
-   * `resolve_surface_binding` receipt. Only `binding.approve` holders, read
-   * again under lock from the caller's membership.
-   */
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
-  /** Revokes a binding that waits; the bot stays in the channel. */
   reject(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;

@@ -110,8 +110,6 @@ type ReceiptOperation =
   | "request_surface_binding"
   | "resolve_surface_binding";
 
-// A Slack event has no person behind it: the installation is the actor, and
-// what Slack said is carried in `extra`, never as a verified Werft user.
 const installationActor = (installationId: string | null) => ({
   principal: { kind: "installation" as const, id: installationId ?? "" },
   actor_user_id: null,
@@ -219,16 +217,12 @@ async function set(
       if (current && current.agentId !== agentId) {
         return { outcome: "conflict" };
       }
-      // A private channel waits for approval when it is new, when it was
-      // bound as another kind, or when it already waits. A saved edit never
-      // takes an approval away from one that has it.
       const waits =
         input.channelKind === "private_channel" &&
         (!current ||
           current.status === "pending_approval" ||
           current.surfaceKind !== "private_channel");
       const startsWaiting = waits && current?.status !== "pending_approval";
-      // Before the previous home is cleared: a refusal changes nothing.
       if (waits && input.home) return { outcome: "pending_home" };
       if (input.home) {
         await tx
@@ -356,8 +350,6 @@ export function createPostgresSurfaceBindingStore(
       const id = installationId.toLowerCase();
       const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
       const bindingId = randomUUID();
-      // An invite never makes a private channel usable: it waits for an
-      // owner or admin, with a receipt written in the same transaction.
       return db.transaction(async (tx) => {
         const inserted = rowsOf<{ id: string }>(
           await tx.execute(sql`
@@ -423,7 +415,6 @@ export function createPostgresSurfaceBindingStore(
   };
 }
 
-// Whatever its status; the live indexes leave at most one row per channel.
 async function liveChannel(
   db: Database,
   installationId: string,
@@ -438,8 +429,6 @@ async function liveChannel(
   return row ? recordOf(row) : null;
 }
 
-// Input reads only a binding that is ready: a channel waiting for approval
-// is a channel the agent is not bound to.
 async function resolveSlackChannel(
   db: Database,
   installationId: string,
@@ -538,7 +527,6 @@ async function resolve(
     const { createdBy, ...row } = found;
     const current = recordOf(row);
     if (current.status !== "pending_approval") {
-      // The caller read revision N, and this decision made N + 1.
       const again =
         current.revision === input.revision + 1 &&
         (decision === "approve"
