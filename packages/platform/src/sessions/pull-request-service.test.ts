@@ -2421,10 +2421,11 @@ describe("merging the pull request", () => {
     });
     const done = withPullRequest();
     done.failMerge(202, true);
+    // Found merged, it cannot be told whose merge or which method.
     expect(await merge(done)).toMatchObject({
       merged: true,
-      changed: true,
-      method: "squash",
+      changed: false,
+      method: null,
       head_sha: "a".repeat(40),
     });
     const retry = await merge(done);

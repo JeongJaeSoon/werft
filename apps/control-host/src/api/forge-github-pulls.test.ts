@@ -442,12 +442,13 @@ describe("GitHub pull requests", () => {
       }
     });
 
-    test("a request already pending with the same options is waited for", async () => {
+    test("a request already pending with the same options is waited for, but its merge is not claimed", async () => {
       const github = await scripted([409, pending()], [merged]);
       try {
         expect(await merge(github.forge)).toEqual({
           merged: true,
           sha: MERGED,
+          already: true,
         });
       } finally {
         await github.stop();

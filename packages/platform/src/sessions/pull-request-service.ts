@@ -1266,7 +1266,9 @@ export function createPullRequestService(deps: {
           if (error.status === 409) return await refuse("head_moved", fields);
           if (error.status === 202) {
             // Accepted and still queued when the wait ended: it may have
-            // merged since, and may yet. A retry finds it merged.
+            // merged since, and may yet. A retry finds it merged. If it did,
+            // the pull request alone cannot say whose merge or which method,
+            // so it is answered as found.
             const after = await forge
               .getPullRequest(pullRequest.number)
               .then((read) => read.pullRequest)
@@ -1277,8 +1279,8 @@ export function createPullRequestService(deps: {
               after.headSha === source.gitCommit
             ) {
               return await answer(
-                { sha: after.mergeCommitSha, method: "squash" },
-                true,
+                { sha: after.mergeCommitSha, method: null },
+                false,
               );
             }
           }

@@ -506,6 +506,9 @@ export function createGitHubConnection(
         }
         // Someone else's pending request may carry other options.
         if (!first.ours(sha)) return { merged: false, sha: null };
+        // Only a 202 is a request this call made. Anyone can send the same
+        // options, so a 409's request is waited for but not claimed.
+        const joined = sent.status === 409;
         const pause = options.retryAfterBaseMs ?? MERGE_POLL_MS;
         for (let poll = 0; poll < MERGE_POLLS; poll += 1) {
           await new Promise((resolve) => setTimeout(resolve, pause));
@@ -519,7 +522,11 @@ export function createGitHubConnection(
           if (polled === null) {
             throw new GitHubCallError("pull request merge result", null, null);
           }
-          if (polled.status !== "pending") return mergedOf(polled);
+          if (polled.status !== "pending") {
+            return joined && polled.status === "merged"
+              ? { ...mergedOf(polled), already: true }
+              : mergedOf(polled);
+          }
         }
         // Still queued: it may yet merge, and the next call finds it merged.
         throw new GitHubCallError("pull request merge", 202, null);
