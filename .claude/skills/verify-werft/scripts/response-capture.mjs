@@ -151,7 +151,9 @@ function hideTags(text) {
   TAG_OPEN.lastIndex = 0;
   for (let m = TAG_OPEN.exec(text); m; m = TAG_OPEN.exec(text)) {
     const [whole, name, attrs, closed] = m;
-    if (attrs.endsWith("/") || !secretTag(name, attrs)) continue;
+    // A trailing "/" is not trusted as an empty element: in HTML it is part of
+    // an unquoted attribute value (name=password/) or ignored.
+    if (!secretTag(name, attrs)) continue;
     const start = m.index + whole.length;
     if (!closed) {
       out += `${text.slice(last, start)}(hidden)`;
@@ -428,7 +430,9 @@ export function createCollector({
       if (rec && noHeaders.has(p.requestId) && !p.canceled) track(rec);
       done(p.requestId);
       if (rec && waiting.has(rec))
-        settle(rec, { bodyError: p.errorText ?? "loading failed" });
+        settle(rec, {
+          bodyError: p.errorText || p.blockedReason || "loading failed",
+        });
     }
   }
   async function report() {

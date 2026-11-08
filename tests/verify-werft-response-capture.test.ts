@@ -671,9 +671,7 @@ describe("maskBody: werft#1327 review", () => {
   });
 
   test("a slash before > does not make an HTML element empty", () => {
-    expect(leaked("<textarea name=password/>syn-pw-12</textarea>")).toEqual(
-      [],
-    );
+    expect(leaked("<textarea name=password/>syn-pw-12</textarea>")).toEqual([]);
     expect(leaked("<password/>syn-pw-12</password>")).toEqual([]);
   });
 });
