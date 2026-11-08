@@ -205,6 +205,7 @@ type Routed = Omit<
   | "promptIdentity"
   | "rolloutRelease"
   | "migrateAgent"
+  | "unlockTools"
   | "revertMigration"
 >;
 
@@ -883,7 +884,7 @@ describe("POST /v1/agents/{id}/releases", () => {
     });
   });
 
-  test("a card tool outside the profile or an unknown profile is 422", async () => {
+  test("a card tool outside the profile is not read; an unknown profile is 422", async () => {
     const wide = {
       ...detail.versions[0],
       card: {
@@ -897,8 +898,7 @@ describe("POST /v1/agents/{id}/releases", () => {
       path,
       body,
     );
-    expect(tooWide.status).toBe(422);
-    expect(await codeOf(tooWide)).toBe("UNSUPPORTED_CAPABILITY");
+    expect(tooWide.status).toBe(200);
     expect(
       (
         await send(app(), "POST", path, {

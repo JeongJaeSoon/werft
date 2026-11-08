@@ -303,7 +303,7 @@ describe("resolveReleaseContent", () => {
     expect(text).not.toContain("catalog-provider-key");
     expect(identity.runtime_config_snapshot).toEqual({
       model: "claude-sonnet-5",
-      tools: ["Read", "Grep"],
+      tools: ["Read", "Grep", "Edit", "Bash"],
       permission_mode: "default",
       provider: { kind: "litellm", endpoint: "https://litellm.invalid" },
     });
@@ -335,111 +335,85 @@ describe("resolveReleaseContent", () => {
     );
   });
 
-  test("keeps the profile's tool order, minus what the card forbids", () => {
-    const all = identityOf(
-      agentCardSchema.parse({
-        ...card,
-        capabilities: { tools: null, mcp: null, forbidden: ["Bash"] },
-      }),
-    );
-    expect(all.effective_tools).toEqual({
-      tools: ["Read", "Grep", "Edit"],
-      mcp: [],
-    });
-    const none = identityOf(
-      agentCardSchema.parse({
-        ...card,
-        capabilities: { tools: [], mcp: null, forbidden: [] },
-      }),
-    );
-    expect(none.effective_tools.tools).toEqual([]);
+  test("runs every tool the profile allows, whatever the card lists or forbids", () => {
+    const withTools = (capabilities: AgentCard["capabilities"]) =>
+      identityOf(agentCardSchema.parse({ ...card, capabilities }));
+    for (const capabilities of [
+      { tools: null, mcp: null, forbidden: ["Bash"] },
+      { tools: [], mcp: null, forbidden: [] },
+      { tools: ["Read", "WebFetch"], mcp: null, forbidden: ["Read", "Edit"] },
+    ]) {
+      const identity = withTools(capabilities);
+      expect(identity.effective_tools).toEqual({
+        tools: ["Read", "Grep", "Edit", "Bash"],
+        mcp: [],
+      });
+      expect(identity.runtime_config_snapshot.tools).toEqual([
+        "Read",
+        "Grep",
+        "Edit",
+        "Bash",
+      ]);
+    }
   });
 
-  test("refuses a card asking for a tool the profile does not allow", () => {
-    const resolved = resolveReleaseContent(
+  test("a card's tools, forbidden and built-in policy change nothing the release runs", () => {
+    const plain = resolveReleaseContent(
       agentCardSchema.parse({
         ...card,
-        capabilities: { tools: ["Read", "WebFetch"], mcp: null, forbidden: [] },
+        capabilities: { tools: null, mcp: null, forbidden: [] },
       }),
       "coding",
       profile,
     );
-    expect(resolved.ok).toBe(false);
-    expect(!resolved.ok && resolved.error.field).toBe(
-      "card.capabilities.tools",
+    const edited = resolveReleaseContent(
+      agentCardSchema.parse({
+        ...card,
+        capabilities: {
+          tools: ["Read"],
+          mcp: null,
+          forbidden: ["Bash"],
+          tool_policy: {
+            default: { builtin: "deny", mcp: "deny" },
+            per_tool: { Bash: "ask", Grep: "deny", NotATool: "allow" },
+          },
+        },
+      }),
+      "coding",
+      profile,
     );
-    expect(!resolved.ok && resolved.error.message).toContain("WebFetch");
+    expect(edited).toEqual(plain);
   });
 
-  test("pins built-in allow and MCP ask unless the card says otherwise", () => {
+  test("pins the default policy for every built-in tool", () => {
     expect(identityOf().policy_pins).toEqual({
       tools: {
         default: { builtin: "allow", mcp: "ask" },
-        per_tool: { Read: "allow", Grep: "allow" },
+        per_tool: {
+          Read: "allow",
+          Grep: "allow",
+          Edit: "allow",
+          Bash: "allow",
+        },
       },
     });
+  });
+
+  test("keeps the card's MCP per_tool entries", () => {
     const declared = identityOf(
       agentCardSchema.parse({
         ...card,
         capabilities: {
-          tools: ["Read", "Grep", "Bash"],
+          tools: null,
           mcp: null,
           forbidden: [],
-          tool_policy: {
-            default: { mcp: "deny" },
-            per_tool: { Bash: "ask", Grep: "deny", mcp__docs__search: "allow" },
-          },
+          tool_policy: { per_tool: { mcp__docs__search: "allow" } },
         },
       }),
     );
-    expect(declared.policy_pins).toEqual({
-      tools: {
-        default: { builtin: "allow", mcp: "deny" },
-        per_tool: {
-          Read: "allow",
-          Grep: "deny",
-          Bash: "ask",
-          mcp__docs__search: "allow",
-        },
-      },
-    });
-  });
-
-  test("a changed policy is a different release", () => {
-    const asked = identityOf(
-      agentCardSchema.parse({
-        ...card,
-        capabilities: {
-          ...card.capabilities,
-          tool_policy: { per_tool: { Read: "ask" } },
-        },
-      }),
+    expect(declared.policy_pins.tools?.per_tool.mcp__docs__search).toBe(
+      "allow",
     );
-    expect(asked.policy_pins.tools?.per_tool.Read).toBe("ask");
-    expect(deriveReleaseId(asked)).not.toBe(deriveReleaseId(identityOf()));
-  });
-
-  test("refuses a policy for a built-in tool the release does not run", () => {
-    for (const capabilities of [
-      { tools: ["Read"], mcp: null, forbidden: [] },
-      { tools: null, mcp: null, forbidden: ["Bash"] },
-    ]) {
-      const resolved = resolveReleaseContent(
-        agentCardSchema.parse({
-          ...card,
-          capabilities: {
-            ...capabilities,
-            tool_policy: { per_tool: { Bash: "allow" } },
-          },
-        }),
-        "coding",
-        profile,
-      );
-      expect(!resolved.ok && resolved.error.field).toBe(
-        "card.capabilities.tool_policy.per_tool",
-      );
-      expect(!resolved.ok && resolved.error.message).toContain("Bash");
-    }
   });
 
   test("refuses a per_tool policy for a built-in github server tool; other MCP servers keep theirs", () => {
@@ -519,7 +493,7 @@ describe("a card naming a remote MCP server", () => {
   test("pins the server's allowed tools, and only those", () => {
     const resolved = resolve(mcpCard);
     expect(resolved.ok && resolved.content.effective_tools).toEqual({
-      tools: ["Read", "Grep"],
+      tools: ["Read", "Grep", "Edit", "Bash"],
       mcp: ["mcp__fake__whoami"],
     });
     expect(JSON.stringify(resolved)).not.toContain("sa-value");

@@ -824,8 +824,29 @@ export function behaviorKey(
   runtimeProfileId: string,
 ): string {
   const { role: _role, instructions: _instructions, ...behavior } = card;
+  // A release ignores the card's built-in tool fields, so they are not part of
+  // what the card does. MCP entries still decide the release and stay.
+  const {
+    tools: _tools,
+    forbidden,
+    tool_policy: policy,
+    ...capabilities
+  } = behavior.capabilities;
+  const mcpPolicy = Object.fromEntries(
+    Object.entries(policy?.per_tool ?? {}).filter(([tool]) =>
+      tool.startsWith(MCP_TOOL_PREFIX),
+    ),
+  );
   return canonicalJsonOfJson({
-    card: { ...behavior, model },
+    card: {
+      ...behavior,
+      capabilities: {
+        ...capabilities,
+        forbidden: forbidden.filter((tool) => tool.startsWith(MCP_TOOL_PREFIX)),
+        per_tool: mcpPolicy,
+      },
+      model,
+    },
     runtime_profile_id: runtimeProfileId,
   });
 }

@@ -312,7 +312,10 @@ describe("agent service", () => {
     const service = serviceOver(store);
     const first = await service.createRelease(owner, AGENT, release);
     expect(first.created).toBe(true);
-    expect(first.release.effective_tools).toEqual({ tools: ["Read"], mcp: [] });
+    expect(first.release.effective_tools).toEqual({
+      tools: ["Read", "Grep"],
+      mcp: [],
+    });
     // The path accepts an upper-case uuid; the hash is over the stored id.
     const again = await service.createRelease(
       owner,
@@ -419,7 +422,7 @@ describe("agent service", () => {
     expect(none.release.policy_pins.github).toBeUndefined();
   });
 
-  test("an unknown profile or a tool the profile lacks is UNSUPPORTED_CAPABILITY", async () => {
+  test("an unknown profile is UNSUPPORTED_CAPABILITY; a tool the profile lacks is not read from the card", async () => {
     expect(
       await codeOf(
         serviceOver(memoryStore().store).createRelease(owner, AGENT, {
@@ -436,7 +439,7 @@ describe("agent service", () => {
           release,
         ),
       ),
-    ).toBe("UNSUPPORTED_CAPABILITY");
+    ).toBe("resolved");
   });
 
   test("a blocked ceiling refuses a new release and the activation of one made before by name", async () => {

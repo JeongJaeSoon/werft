@@ -29,6 +29,7 @@ export function registerAgentRoutes(
     | "promptIdentity"
     | "rolloutRelease"
     | "migrateAgent"
+    | "unlockTools"
     | "revertMigration"
   >,
 ) {

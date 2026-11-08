@@ -1137,7 +1137,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       agent_id: created.agent.id,
       version_id: second.id,
       card_sha256: second.content_sha256,
-      effective_tools: { tools: ["Read"], mcp: [] },
+      effective_tools: { tools: ["Read", "Grep", "Edit", "Bash"], mcp: [] },
       created_by: owner.actor?.userId,
       approved_by: null,
       approved_at: null,
@@ -1620,7 +1620,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(activated.active_release_id).toBe(release.id);
   });
 
-  test("a card asking for more than the profile allows is not released", async () => {
+  test("a card asking for more than the profile allows is released on the profile's tools; an unknown profile is not", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const created = await newAgent(
@@ -1630,11 +1630,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     );
     const version = created.versions[0];
     if (!version) throw new Error("no version");
+    const made = await service().createRelease(owner, created.agent.id, {
+      version_id: version.id,
+      runtime_profile_id: "coding",
+    });
+    expect(made.release.effective_tools.tools).not.toContain("WebFetch");
     expect(
       await codeOf(
         service().createRelease(owner, created.agent.id, {
           version_id: version.id,
-          runtime_profile_id: "coding",
+          runtime_profile_id: "missing",
         }),
       ),
     ).toBe("UNSUPPORTED_CAPABILITY");
@@ -1807,14 +1812,15 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const agentsService = service();
-    const withPolicy = (bash: "ask" | "deny") =>
+    // Only MCP entries still decide the release; built-in ones are not read.
+    const withPolicy = (search: "ask" | "deny") =>
       agentCardRequestSchema.parse({
         ...cardWith("policy", ["Read", "Bash"]),
         capabilities: {
           tools: ["Read", "Bash"],
           mcp: null,
           forbidden: [],
-          tool_policy: { per_tool: { Bash: bash } },
+          tool_policy: { per_tool: { mcp__docs__search: search } },
         },
       });
     const created = await newAgent(agentsService, owner, withPolicy("ask"));
@@ -1828,7 +1834,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(r1.policy_pins).toEqual({
       tools: {
         default: { builtin: "allow", mcp: "ask" },
-        per_tool: { Read: "allow", Bash: "ask" },
+        per_tool: {
+          Read: "allow",
+          Grep: "allow",
+          Edit: "allow",
+          Bash: "allow",
+          mcp__docs__search: "ask",
+        },
       },
     });
     await agentsService.activateAgent(owner, created.agent.id, {
@@ -1856,7 +1868,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       { version_id: v2.id, runtime_profile_id: "coding" },
     );
     expect(r2.id).not.toBe(r1.id);
-    expect(r2.policy_pins.tools?.per_tool.Bash).toBe("deny");
+    expect(r2.policy_pins.tools?.per_tool.mcp__docs__search).toBe("deny");
     await agentsService.activateAgent(owner, created.agent.id, {
       release_id: r2.id,
       expected_revision: 0,
@@ -1871,7 +1883,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       session?.agentReleaseId ?? "",
     );
-    expect(pinned.policy_pins.tools?.per_tool.Bash).toBe("ask");
+    expect(pinned.policy_pins.tools?.per_tool.mcp__docs__search).toBe("ask");
   });
 
   test("a release stored before tool policies still reads, verifies and activates", async () => {
@@ -1921,7 +1933,12 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       { version_id: v1.id, runtime_profile_id: "coding" },
     );
     expect(release.id).not.toBe(legacyId);
-    expect(release.policy_pins.tools?.per_tool).toEqual({ Read: "allow" });
+    expect(release.policy_pins.tools?.per_tool).toEqual({
+      Read: "allow",
+      Grep: "allow",
+      Edit: "allow",
+      Bash: "allow",
+    });
   });
 
   test("a card stored with a tone reads without it and its release still verifies", async () => {
