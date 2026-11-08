@@ -5,6 +5,7 @@ import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
+import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
 /**
  * What runs on the profiles of a connection, read in SQL when a person opens
@@ -48,8 +49,14 @@ async function agent(profile: string, status = "active", past?: string) {
   const versionId = randomUUID();
   const releaseId = `sha256:${randomUUID()}`;
   await client.query(
-    "INSERT INTO agents (id, workspace_id, slug, name, status) VALUES ($1, $2, $3, 'a', $4)",
-    [agentId, workspaceId, `a-${agentId.slice(0, 8)}`, status],
+    "INSERT INTO agents (id, workspace_id, slug, name, status, managing_team_id) VALUES ($1, $2, $3, 'a', $4, $5)",
+    [
+      agentId,
+      workspaceId,
+      `a-${agentId.slice(0, 8)}`,
+      status,
+      await fixtureTeamSql(client, workspaceId),
+    ],
   );
   await client.query(
     `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
