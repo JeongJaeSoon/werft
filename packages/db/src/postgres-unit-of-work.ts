@@ -94,6 +94,7 @@ import { enqueueWithin } from "./enqueue.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
+import { captureMcpStart } from "./mcp-settings.ts";
 import {
   AWAITABLE_STATUSES,
   actionableOfSession,
@@ -276,12 +277,21 @@ export function createPostgresSessionUnitOfWork(
         ) {
           return { outcome: "agent_use_refused" };
         }
+        // The settings are locked and read before the names are judged, so
+        // the session stores the very list that was checked.
+        const mcpStart =
+          input.agentReleaseId === undefined
+            ? null
+            : await captureMcpStart(tx, input.agentReleaseId);
         if (
           input.agentReleaseId !== undefined &&
           (
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: input.agentReleaseId,
+              ...(mcpStart === null
+                ? { fromRelease: true as const }
+                : { names: mcpStart.credential_refs }),
             })
           ).length > 0
         ) {
@@ -321,6 +331,7 @@ export function createPostgresSessionUnitOfWork(
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
+          mcpStart,
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
@@ -461,6 +472,7 @@ export function createPostgresSessionUnitOfWork(
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: session.agentReleaseId,
+              sessionId,
             })
           ).length > 0
         ) {

@@ -50,6 +50,69 @@ describe("database schema", () => {
     expect(receiptStatus.enumValues).toEqual([...RECEIPT_STATUS_VALUES]);
   });
 
+  test("agent_mcp_settings holds only well-formed names for its server", async () => {
+    const { client } = await migratedDatabase();
+    // The agent's foreign key is not what this checks.
+    await client.query("SET session_replication_role = replica");
+    const outcome = async (
+      server: string | null,
+      tools: unknown,
+      refs: unknown,
+    ) => {
+      try {
+        await client.query(
+          `INSERT INTO agent_mcp_settings (agent_id, workspace_id, server, allowed_tools, credential_refs)
+           VALUES (gen_random_uuid(), gen_random_uuid(), $1, $2::jsonb, $3::jsonb)`,
+          [server, JSON.stringify(tools), JSON.stringify(refs)],
+        );
+        return "accepted";
+      } catch (error) {
+        return (
+          /agent_mcp_settings_\w+_check/.exec(String(error))?.[0] ?? "error"
+        );
+      }
+    };
+    expect(await outcome("docs", ["mcp__docs__read"], ["docs-key"])).toBe(
+      "accepted",
+    );
+    expect(await outcome(null, [], [])).toBe("accepted");
+    expect(await outcome("docs", ["mcp__wiki__read"], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome("docs", ["mcp__docs__"], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome("docs", [3], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome(null, ["mcp__docs__read"], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome("docs", [], [7])).toBe(
+      "agent_mcp_settings_credential_refs_check",
+    );
+    expect(await outcome("docs", [], ["Has Space"])).toBe(
+      "agent_mcp_settings_credential_refs_check",
+    );
+    expect(await outcome("a__b", [], [])).toBe(
+      "agent_mcp_settings_server_check",
+    );
+    // A nested array is not unwrapped into names, and a name the snapshot
+    // schema would refuse (over 128 characters) is refused here.
+    expect(await outcome("docs", [["mcp__docs__read"]], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome("docs", [], [["docs-key"]])).toBe(
+      "agent_mcp_settings_credential_refs_check",
+    );
+    expect(await outcome("docs", [`mcp__docs__${"x".repeat(117)}`], [])).toBe(
+      "accepted",
+    );
+    expect(await outcome("docs", [`mcp__docs__${"x".repeat(118)}`], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+  });
+
   test("applies the migration twice without changing the schema", async () => {
     const { client, db } = await migratedDatabase();
     await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
@@ -68,6 +131,7 @@ describe("database schema", () => {
       "agent_admins",
       "agent_github_settings",
       "agent_identities",
+      "agent_mcp_settings",
       "agent_pull_request_settings",
       "agent_releases",
       "agent_versions",

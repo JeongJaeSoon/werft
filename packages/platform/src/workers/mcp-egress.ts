@@ -5,7 +5,6 @@ import {
   type EgressUpstream,
   mcpBinding,
   mcpUpstreamOf,
-  pinnedMcpTools,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 
@@ -161,10 +160,9 @@ export function createMcpEgress(deps: {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
     if (method === "tools/call") {
-      const pinned = pinnedMcpTools(state.server, state.perTool);
       const named =
         tool === null ? null : `${MCP_TOOL_PREFIX}${state.server}__${tool}`;
-      if (named === null || !pinned.includes(named)) {
+      if (named === null || !state.tools.includes(named)) {
         return forbidden("The release does not allow this MCP tool");
       }
     }

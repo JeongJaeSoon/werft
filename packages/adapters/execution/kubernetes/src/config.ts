@@ -42,8 +42,10 @@ export type KubernetesBackendConfig = {
   imagePullSecrets: string[];
   nodeSelector: Record<string, string>;
   tolerations: Toleration[];
-  /** The workspace PVC's requested size: its ceiling. */
+  /** The workspace PVC's requested size; enforcement depends on storage. */
   workspaceSizeBytes: number;
+  /** Operator declaration covering all workspace PVCs, including existing ones. */
+  workspaceEnforcedByStorage?: boolean;
   /** See `LocalDockerBackendConfig.workspaceGcMinAgeMs`. */
   workspaceGcMinAgeMs: number;
   /**
@@ -176,6 +178,7 @@ export function kubernetesConfigFromEnv(
       environment.EXECUTION_K8S_WORKER_SERVICE_ACCOUNT,
     ),
     workspaceDir: "/workspace",
+    workspaceEnforcedByStorage: workspaceEnforcedByStorageFromEnv(environment),
     // Zero is a real setting: reclaim as soon as the session is finished.
     workspaceGcMinAgeMs:
       integerSetting(environment, "EXECUTION_WORKSPACE_GC_MIN_AGE_SEC", {
@@ -362,4 +365,15 @@ function required(
 
 function nonEmpty(value: string | undefined): string | null {
   return value === undefined || value.trim() === "" ? null : value.trim();
+}
+
+function workspaceEnforcedByStorageFromEnv(
+  environment: KubernetesBackendEnvironment,
+): boolean {
+  const value = environment.EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE;
+  if (value === undefined || value === "false") return false;
+  if (value === "true") return true;
+  throw new Error(
+    "EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE must be true or false",
+  );
 }
