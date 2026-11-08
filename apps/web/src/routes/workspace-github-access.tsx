@@ -189,14 +189,18 @@ export function FeatureList({
     (connection) => connection.role === "reviewer",
   );
 
+  // The workspace alone sets merge; no release holds it, so nothing counts it.
+  const agentsUsing = (feature: OfferedFeature) =>
+    feature === "merge" ? null : (data?.agents_using[feature] ?? 0);
+
   const featureRow = (feature: OfferedFeature) => {
     const on = value(feature);
     const busy = (saving.current[feature] ?? 0) > 0;
     // A review needs a reviewer App; one already on can still be turned off.
     const locked = feature === "review" && reviewer === undefined && !on;
-    const using = t("github.ceiling.agentsUsing", {
-      count: data?.agents_using[feature] ?? 0,
-    });
+    const count = agentsUsing(feature);
+    const using =
+      count === null ? null : t("github.ceiling.agentsUsing", { count });
     return (
       <SettingRow
         key={feature}
@@ -204,11 +208,13 @@ export function FeatureList({
         badge={mark(feature)}
         description={t(`github.feature.${feature}Hint`)}
         meta={
-          <Text as="div" variant="meta">
-            {feature === "review" && reviewer
-              ? t("github.ceiling.viaApp", { name: reviewer.name, using })
-              : using}
-          </Text>
+          using === null ? undefined : (
+            <Text as="div" variant="meta">
+              {feature === "review" && reviewer
+                ? t("github.ceiling.viaApp", { name: reviewer.name, using })
+                : using}
+            </Text>
+          )
         }
         control={
           <Switch
@@ -277,10 +283,14 @@ export function FeatureList({
         consequence={
           lowering === null
             ? ""
-            : t("github.ceiling.lowerBody", {
-                feature: featureName(t, lowering),
-                count: data?.agents_using[lowering] ?? 0,
-              })
+            : lowering === "merge"
+              ? t("github.ceiling.lowerBodyNoCount", {
+                  feature: featureName(t, lowering),
+                })
+              : t("github.ceiling.lowerBody", {
+                  feature: featureName(t, lowering),
+                  count: agentsUsing(lowering) ?? 0,
+                })
         }
         confirmLabel={t("github.ceiling.lowerConfirm")}
         cancelLabel={t("common.cancel")}
