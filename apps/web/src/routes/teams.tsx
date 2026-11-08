@@ -74,10 +74,6 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { Notice } from "../components/auth-page.tsx";
-import {
-  INACTIVE_ROW_CLASS,
-  InactiveBadge,
-} from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -589,14 +585,9 @@ function TeamMembers({
   const shown = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  const inactive = new Set(
-    members.data?.items
-      .filter((member) => member.disabled_at !== null)
-      .map((member) => member.user_id),
-  );
   // Every track is fixed: each row is its own grid, so a max-content track
   // would size to that row's buttons and the header's "Actions" alone, and
-  // push the columns before it out from under their headers. Below 640px the
+  // push the columns before it out from under their headers. Below 820px the
   // date and the workspace role drop out; the name keeps what the team role
   // and the buttons leave.
   const columns = [
@@ -667,110 +658,109 @@ function TeamMembers({
               }
             />
           ) : (
-            <GridTable
-              aria-label={t("teams.tableLabel")}
-              columns={columns}
-              narrowAt={640}
-              narrowColumns={narrowColumns}
-              framed={true}
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>
-                  {t("members.column.name")}
-                </GridTableColumnHeader>
-                {roles && (
+            // Below the narrow template's width the fixed tracks would leave
+            // the name no room, so the table scrolls instead; the padding
+            // keeps the row opener's focus ring inside the scroller's clip.
+            <div className="-m-1 grid overflow-x-auto p-1">
+              <GridTable
+                aria-label={t("teams.tableLabel")}
+                columns={columns}
+                narrowAt={820}
+                narrowColumns={narrowColumns}
+                framed={true}
+                className={manages ? "min-w-[480px]" : undefined}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("members.column.name")}
+                  </GridTableColumnHeader>
+                  {roles && (
+                    <GridTableColumnHeader hideNarrow={true}>
+                      {t("teams.column.workspaceRole")}
+                    </GridTableColumnHeader>
+                  )}
+                  <GridTableColumnHeader>
+                    {t("teams.column.teamRole")}
+                  </GridTableColumnHeader>
                   <GridTableColumnHeader hideNarrow={true}>
-                    {t("teams.column.workspaceRole")}
+                    {t("teams.column.addedAt")}
                   </GridTableColumnHeader>
-                )}
-                <GridTableColumnHeader>
-                  {t("teams.column.teamRole")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("teams.column.addedAt")}
-                </GridTableColumnHeader>
-                {manages && (
-                  <GridTableColumnHeader action={true}>
-                    {t("members.column.actions")}
-                  </GridTableColumnHeader>
-                )}
-              </GridTableHeader>
-              {shown.map((member) => {
-                const name = member.display_name ?? member.email;
-                const memberRole = roles?.get(member.user_id);
-                const off = inactive.has(member.user_id);
-                return (
-                  <GridTableRow
-                    key={member.user_id}
-                    inactive={off}
-                    className={off ? INACTIVE_ROW_CLASS : undefined}
-                    data-disabled={off}
-                  >
-                    <GridTableCell>
-                      <Avatar
-                        initials={avatarInitials(name)}
-                        tone={avatarTone(member.user_id)}
-                      />
-                      <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <span className="flex min-w-0 items-center gap-1.5">
+                  {manages && (
+                    <GridTableColumnHeader action={true}>
+                      {t("members.column.actions")}
+                    </GridTableColumnHeader>
+                  )}
+                </GridTableHeader>
+                {shown.map((member) => {
+                  const name = member.display_name ?? member.email;
+                  const memberRole = roles?.get(member.user_id);
+                  return (
+                    <GridTableRow key={member.user_id}>
+                      <GridTableCell>
+                        <Avatar
+                          initials={avatarInitials(name)}
+                          tone={avatarTone(member.user_id)}
+                        />
+                        <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                           <Text as="span" weight="medium" truncate>
                             {name}
                           </Text>
-                          {off ? <InactiveBadge /> : null}
+                          {member.display_name !== null && (
+                            <Text
+                              as="span"
+                              variant="meta"
+                              truncate
+                              title={member.email}
+                            >
+                              {member.email}
+                            </Text>
+                          )}
                         </span>
-                        {member.display_name !== null && (
-                          <Text
-                            as="span"
-                            variant="meta"
-                            truncate
-                            title={member.email}
-                          >
-                            {member.email}
-                          </Text>
-                        )}
-                      </span>
-                    </GridTableCell>
-                    {roles && (
-                      <GridTableCell hideNarrow={true}>
-                        {memberRole && (
-                          <Badge
-                            variant={memberRole === "member" ? "gray" : "blue"}
-                          >
-                            {roleLabel(t, memberRole)}
-                          </Badge>
-                        )}
                       </GridTableCell>
-                    )}
-                    <GridTableCell>
-                      <TeamRoleBadge role={member.role} />
-                    </GridTableCell>
-                    <GridTableCell
-                      hideNarrow={true}
-                      className="text-caption text-muted-foreground tabular-nums"
-                    >
-                      {formatTimestamp(member.added_at, locale)}
-                    </GridTableCell>
-                    {manages && (
-                      <GridTableCell align="end">
-                        <TeamRoleDialog
-                          team={team}
-                          member={member}
-                          onOutcome={onOutcome}
-                        />
-                        <RowAction
-                          variant="danger"
-                          disabled={remove.isPending}
-                          aria-label={t("teams.removeMemberFor", { name })}
-                          onClick={() => setRemoving(member)}
-                        >
-                          {t("teams.removeMember")}
-                        </RowAction>
+                      {roles && (
+                        <GridTableCell hideNarrow={true}>
+                          {memberRole && (
+                            <Badge
+                              variant={
+                                memberRole === "member" ? "gray" : "blue"
+                              }
+                            >
+                              {roleLabel(t, memberRole)}
+                            </Badge>
+                          )}
+                        </GridTableCell>
+                      )}
+                      <GridTableCell>
+                        <TeamRoleBadge role={member.role} />
                       </GridTableCell>
-                    )}
-                  </GridTableRow>
-                );
-              })}
-            </GridTable>
+                      <GridTableCell
+                        hideNarrow={true}
+                        className="text-caption text-muted-foreground tabular-nums"
+                      >
+                        {formatTimestamp(member.added_at, locale)}
+                      </GridTableCell>
+                      {manages && (
+                        <GridTableCell align="end">
+                          <TeamRoleDialog
+                            team={team}
+                            member={member}
+                            onOutcome={onOutcome}
+                          />
+                          <RowAction
+                            variant="danger"
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </RowAction>
+                        </GridTableCell>
+                      )}
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
+            </div>
           )}
         </div>
       )}
