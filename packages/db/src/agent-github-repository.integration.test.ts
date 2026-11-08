@@ -426,6 +426,46 @@ integration("turning one repository on or off on PostgreSQL", () => {
     expect(await settingsOf(f)).toBeUndefined();
   });
 
+  test("a repository the catalog dropped or never held can be turned off while the settings list it", async () => {
+    const f = await fixture();
+    await settingsRow(f);
+    await pool.query(
+      "UPDATE agent_github_settings SET repositories = $2 WHERE agent_id = $1",
+      [f.agentId, JSON.stringify([f.sample, "ghost"])],
+    );
+    await pool.query(
+      "UPDATE catalog_repositories SET removed_at = now() WHERE id = $1",
+      [f.sample],
+    );
+    const off = (id: string) =>
+      toggle(f, { enabled: false, target: { kind: "catalog", id } });
+
+    // Dropped from the catalog: turned off, and the start repository goes.
+    expect(await off(f.sample)).toMatchObject({
+      outcome: "saved",
+      repository: { id: f.sample },
+    });
+    expect(await settingsOf(f)).toMatchObject({
+      repositories: ["ghost"],
+      start_repository_id: null,
+    });
+    // Never in the catalog: only its id is known.
+    expect(await off("ghost")).toMatchObject({
+      outcome: "saved",
+      repository: { id: "ghost", owner: "", name: "ghost" },
+    });
+    expect((await settingsOf(f))?.repositories).toEqual([]);
+
+    // Nothing lists them now, so there is nothing to turn off.
+    expect(await off(f.sample)).toEqual({ outcome: "repository_not_found" });
+    expect(await off("ghost")).toEqual({ outcome: "repository_not_found" });
+    // Turning on still needs an active catalog row.
+    expect(
+      await toggle(f, { target: { kind: "catalog", id: f.sample } }),
+    ).toEqual({ outcome: "repository_not_found" });
+    expect((await settingsOf(f))?.repositories).toEqual([]);
+  });
+
   test("a pick writes the catalog row, the settings, the receipts and the pin together", async () => {
     const f = await fixture();
     const target = pick(f, { name: "TogetherRepo", githubRepositoryId: 41 });

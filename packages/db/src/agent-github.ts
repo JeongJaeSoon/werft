@@ -7,7 +7,7 @@ import type {
   AgentGitHubStore,
   SetAgentGitHubRepositoryResult,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { lockAgentToChange } from "./agents.ts";
 import {
   createPostgresCatalogRepositoryStore,
@@ -358,7 +358,12 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           let githubRepositoryId: number | null;
           let authKind: string;
           let catalogReceiptId: string | null = null;
+          // Turning off may name a repository the catalog dropped or never
+          // held, when the settings still list it: the console shows it.
+          let offAfterCatalog = false;
           if (pick === null) {
+            const wanted =
+              input.target.kind === "catalog" ? input.target.id : "";
             const [row] = await tx
               .select({
                 id: catalogRepositories.id,
@@ -366,21 +371,18 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
                 name: catalogRepositories.name,
                 githubRepositoryId: catalogRepositories.githubRepositoryId,
                 authKind: catalogRepositories.authKind,
+                removedAt: catalogRepositories.removedAt,
               })
               .from(catalogRepositories)
-              .where(
-                and(
-                  eq(
-                    catalogRepositories.id,
-                    input.target.kind === "catalog" ? input.target.id : "",
-                  ),
-                  isNull(catalogRepositories.removedAt),
-                ),
-              );
-            if (row === undefined)
+              .where(eq(catalogRepositories.id, wanted));
+            const active = row !== undefined && row.removedAt === null;
+            if (!active && input.enabled) {
               throw new Abort({ outcome: "repository_not_found" });
-            ({ authKind, githubRepositoryId } = row);
-            repository = row;
+            }
+            offAfterCatalog = !active;
+            repository = row ?? { id: wanted, owner: "", name: wanted };
+            authKind = row?.authKind ?? "none";
+            githubRepositoryId = row?.githubRepositoryId ?? null;
           } else {
             const actor = receiptActorOf(input.principal);
             // A pick is made by a person; nobody behind the principal means
@@ -416,6 +418,10 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
             current ?? (await seedOf(tx, locked.agent.activeReleaseId));
           if (base === null) throw new Abort({ outcome: "seed_unavailable" });
           const has = base.repositories.includes(repository.id);
+          // A typo or a long-gone id that nothing lists has nothing to turn off.
+          if (offAfterCatalog && !has) {
+            throw new Abort({ outcome: "repository_not_found" });
+          }
           if (input.enabled && !has) {
             input.check(
               {
@@ -506,7 +512,10 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
                 change: "repository",
                 agent_settings_revision: revision,
                 repository_id: repository.id,
-                repository: `${repository.owner}/${repository.name}`,
+                repository:
+                  repository.owner === ""
+                    ? repository.name
+                    : `${repository.owner}/${repository.name}`,
                 github_repository_id: githubRepositoryId,
                 enabled: input.enabled,
                 before: held === undefined ? null : valuesOf(held),
