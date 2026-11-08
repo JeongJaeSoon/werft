@@ -90,7 +90,6 @@ export function shortBranch(branch: string): string {
   return branch.replace(/^(agent\/[0-9a-f]{8})[0-9a-f-]{20,}$/i, "$1…");
 }
 
-/** `owner/repo` by catalog key, from the session's own repository list. */
 type Names = ReadonlyMap<string, string | null>;
 
 function Target({
