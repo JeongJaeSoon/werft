@@ -25,6 +25,7 @@ type ProfileRow = {
   id: string;
   version: number;
   definition: Record<string, unknown>;
+  deny: string[] | null;
   lineage: string | null;
   created_by: string | null;
 };
@@ -35,6 +36,7 @@ const profileOf = (row: ProfileRow): RolloutProfile => ({
   id: row.id,
   version: row.version,
   definition: row.definition,
+  deny: row.deny,
 });
 
 const rows = async <T>(db: Database, query: SQL): Promise<T[]> =>
@@ -139,9 +141,9 @@ export async function runsLineageOf(
 async function latestPerLineage(tx: Database) {
   const found = await rows<ProfileRow>(
     tx,
-    sql`SELECT DISTINCT ON (lineage) id, version, definition, lineage, created_by
+    sql`SELECT DISTINCT ON (lineage) id, version, definition, deny, lineage, created_by
       FROM (
-        SELECT p.id, p.version, p.definition, p.created_by, ${LINEAGE("p")} AS lineage
+        SELECT p.id, p.version, p.definition, p.deny, p.created_by, ${LINEAGE("p")} AS lineage
         FROM installation_profiles p WHERE p.origin = 'console'
       ) l WHERE lineage IS NOT NULL
       ORDER BY lineage, version DESC`,
@@ -154,7 +156,7 @@ async function followers(tx: Database, lineage?: string): Promise<Follower[]> {
   const found = await rows<Follower>(
     tx,
     sql`SELECT a.id AS agent_id, a.activation_revision AS revision,
-        p.id, p.version, p.definition, p.created_by, ${LINEAGE("p")} AS lineage
+        p.id, p.version, p.definition, p.deny, p.created_by, ${LINEAGE("p")} AS lineage
       FROM agents a
       JOIN agent_releases r ON r.id = a.active_release_id
       JOIN installation_profiles p ON p.id = r.runtime_profile_id
@@ -168,12 +170,16 @@ export async function writeProfileRollout(
   tx: Database,
   input: {
     profileId: string;
-    previous: { definition: Record<string, unknown> };
+    previous: {
+      definition: Record<string, unknown>;
+      deny: readonly string[] | null | undefined;
+    };
     definition: Record<string, unknown>;
+    deny: readonly string[] | null | undefined;
     createdBy: string;
   },
 ): Promise<{ rolloutId: string; items: number } | null> {
-  if (sameExecutionForm(input.previous.definition, input.definition)) {
+  if (sameExecutionForm(input.previous, input)) {
     return null;
   }
   const [named] = await rows<{ lineage: string | null }>(
@@ -203,10 +209,7 @@ export async function writeProfileRollout(
   );
   let items = 0;
   for (const agent of await followers(tx, lineage)) {
-    if (
-      agent.id === input.profileId ||
-      sameExecutionForm(agent.definition, input.definition)
-    ) {
+    if (agent.id === input.profileId || sameExecutionForm(agent, input)) {
       continue;
     }
     const put = await rows(
@@ -228,7 +231,7 @@ async function behindLatest(tx: Database) {
     return (
       newest !== undefined &&
       newest.id !== agent.id &&
-      !sameExecutionForm(agent.definition, newest.definition)
+      !sameExecutionForm(agent, newest)
     );
   });
   return { latest, behind };
@@ -483,17 +486,15 @@ export function createPostgresProfileRolloutStore(
           const [current] = await rows<{
             id: string;
             definition: ProfileRow["definition"];
+            deny: ProfileRow["deny"];
           }>(
             tx,
-            sql`SELECT r.id, p.definition FROM profile_rollouts r
+            sql`SELECT r.id, p.definition, p.deny FROM profile_rollouts r
               JOIN installation_profiles p ON p.id = r.target_profile_id
               WHERE r.kind = 'profile_update' AND ${LINEAGE("p")} = ${lineage}
               ORDER BY p.version DESC LIMIT 1`,
           );
-          if (
-            current !== undefined &&
-            sameExecutionForm(current.definition, newest.definition)
-          ) {
+          if (current !== undefined && sameExecutionForm(current, newest)) {
             headOf.set(lineage, current.id);
             continue;
           }
@@ -547,7 +548,7 @@ export function createPostgresProfileRolloutStore(
       );
       const found = await rows<ProfileRow>(
         db,
-        sql`SELECT p.id, p.version, p.definition, p.created_by, ${LINEAGE("p")} AS lineage
+        sql`SELECT p.id, p.version, p.definition, p.deny, p.created_by, ${LINEAGE("p")} AS lineage
           FROM installation_profiles p WHERE p.id IN (${targetProfileId}, ${activeProfileId})`,
       );
       const target = found.find((row) => row.id === targetProfileId);
@@ -558,7 +559,7 @@ export function createPostgresProfileRolloutStore(
           ? []
           : await rows<ProfileRow>(
               db,
-              sql`SELECT p.id, p.version, p.definition, p.created_by, ${LINEAGE("p")} AS lineage
+              sql`SELECT p.id, p.version, p.definition, p.deny, p.created_by, ${LINEAGE("p")} AS lineage
                 FROM installation_profiles p
                 WHERE p.origin = 'console' AND ${LINEAGE("p")} = ${lineage}
                 ORDER BY p.version DESC LIMIT 1`,

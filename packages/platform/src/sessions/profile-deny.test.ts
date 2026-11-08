@@ -637,3 +637,199 @@ describe("a workspace version saved with a deny", () => {
     );
   });
 });
+
+// A stored row may hold `mcp__` names (the writer comes in a later change);
+// these put them there by hand and read them back.
+describe("mcp__ names in a stored deny", () => {
+  const MCP = ["mcp__a__b", "mcp__docs__read", "mcp__docs__read:all"];
+
+  async function withStoredMcp(deny: string[] | null) {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!row) throw new Error("no row");
+    row.deny = deny;
+    await made.catalog.workspace_profiles.refresh();
+    return made;
+  }
+
+  test("the profile carries them sorted as mcp_deny, names that break any name rule included", async () => {
+    const { catalog } = await withStoredMcp(["WebSearch", ...MCP]);
+    expect(catalogProfile(catalog, "op_coding_v1")?.mcp_deny).toEqual([
+      "mcp__a__b",
+      "mcp__docs__read",
+      "mcp__docs__read:all",
+    ]);
+  });
+
+  test("none, or only catalog names, leave the key out", async () => {
+    for (const deny of [null, [], ["WebSearch"]]) {
+      const { catalog } = await withStoredMcp(deny);
+      const profile = catalogProfile(catalog, "op_coding_v1");
+      expect(profile).toBeDefined();
+      expect(Object.keys(profile as object)).not.toContain("mcp_deny");
+    }
+  });
+
+  test("they change the profile fingerprint only when present", async () => {
+    const plain = await withStoredMcp(["WebSearch"]);
+    const blocked = await withStoredMcp(["WebSearch", "mcp__a__b"]);
+    const of = (m: typeof plain) =>
+      profileFingerprint(catalogProfile(m.catalog, "op_coding_v1") as never);
+    expect(of(blocked)).not.toBe(of(plain));
+    const bare = await withStoredMcp(["WebSearch"]);
+    expect(of(bare)).toBe(of(plain));
+  });
+
+  test("a ceiling write still refuses an mcp__ name as mcp_tool", async () => {
+    const { ceilings } = setup();
+    expect(
+      await refused(
+        ceilings.create(owner(), { ...CEILING, deny: ["mcp__docs__read"] }),
+      ),
+    ).toMatchObject({ code: "BAD_REQUEST", reason_code: "mcp_tool" });
+  });
+
+  test("a workspace version write still refuses an mcp__ name as mcp_tool", async () => {
+    const { workspace } = await withStoredMcp(null);
+    expect(
+      await refused(
+        workspace.create(owner(), { ...VERSION, deny: ["mcp__docs__read"] }),
+      ),
+    ).toMatchObject({ code: "BAD_REQUEST", reason_code: "mcp_tool" });
+  });
+
+  test("the next ceiling version keeps them, over a deny or an allow list", async () => {
+    const made = await withStoredMcp(["WebSearch", ...MCP]);
+    const next = await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      deny: ["WebSearch", "Bash"],
+    });
+    expect(made.writes.at(-1)?.deny).toEqual(["Bash", "WebSearch", ...MCP]);
+    expect(next.profile.deny).toEqual(["Bash", "WebSearch"]);
+    const viaTools = await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: next.profile.id,
+      tools: ["Read"],
+    });
+    const stored = made.writes.at(-1);
+    expect(stored?.deny).toEqual(expect.arrayContaining(MCP));
+    expect(stored?.deny).toEqual(expect.arrayContaining(["Bash", "WebSearch"]));
+    expect(stored?.toolCatalogId).toBe(CATALOG.id);
+    expect(viaTools.profile.id).toBeDefined();
+  });
+
+  test("an allow-list save with nothing to carry stores no deny, as before", async () => {
+    const made = await withStoredMcp(["WebSearch"]);
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      tools: ["Read"],
+    });
+    expect(made.writes.at(-1)?.deny ?? null).toBeNull();
+  });
+
+  test("a version over a base that blocks mcp__ names must hold them: omitted, an allow list or a deny all refuse", async () => {
+    const { workspace } = await withStoredMcp(["WebSearch", ...MCP]);
+    const bodies: Array<{ tools?: string[]; deny?: string[] }> = [
+      {},
+      { tools: ["Read"] },
+      { deny: ["WebSearch"] },
+    ];
+    for (const body of bodies) {
+      expect(
+        await refused(workspace.create(owner(), { ...VERSION, ...body })),
+      ).toMatchObject({
+        code: "BAD_REQUEST",
+        reason_code: "base_mcp_deny_dropped",
+      });
+    }
+  });
+
+  test("a request over a base that blocks mcp__ names is refused even when the version before it holds them", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    await made.workspace.create(owner(), { ...VERSION, deny: ["WebSearch"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    const first = made.versions[0];
+    if (!row || !first) throw new Error("no rows");
+    row.deny = ["WebSearch", "mcp__a__b"];
+    first.deny = ["WebSearch", "mcp__a__b"];
+    await made.catalog.workspace_profiles.refresh();
+    first.base_fingerprint = profileFingerprint(
+      catalogProfile(made.catalog, "op_coding_v1") as CatalogProfile,
+    );
+    await made.catalog.workspace_profiles.refresh();
+    for (const body of [{ tools: ["Read"] }, { deny: ["WebSearch"] }]) {
+      expect(
+        await refused(made.workspace.create(owner(), { ...VERSION, ...body })),
+      ).toMatchObject({ reason_code: "base_mcp_deny_dropped" });
+    }
+  });
+
+  test("the next workspace version keeps what the one before it blocked", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    await made.workspace.create(owner(), { ...VERSION, deny: ["WebSearch"] });
+    const first = made.versions[0];
+    if (!first) throw new Error("no version");
+    first.deny = ["WebSearch", ...MCP];
+    await made.catalog.workspace_profiles.refresh();
+    await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", "Bash"],
+    });
+    expect(made.versionWrites.at(-1)?.deny).toEqual([
+      "Bash",
+      "WebSearch",
+      ...MCP,
+    ]);
+    await made.workspace.create(owner(), { ...VERSION, tools: ["Read"] });
+    expect(made.versionWrites.at(-1)?.deny).toEqual(
+      expect.arrayContaining(MCP),
+    );
+  });
+
+  test("a workspace version runs with its base's names and its own", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    await made.workspace.create(owner(), { ...VERSION, deny: ["WebSearch"] });
+    const version = made.versions[0];
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!version || !row) throw new Error("no version");
+    version.deny = ["WebSearch", "mcp__own__x"];
+    await made.catalog.workspace_profiles.refresh();
+    expect(catalogProfile(made.catalog, version.id)?.mcp_deny).toEqual([
+      "mcp__own__x",
+    ]);
+    // The base gains a name after the version was made; the version, tied to
+    // the base it saw again, still runs with it.
+    row.deny = ["WebSearch", "mcp__base__x"];
+    await made.catalog.workspace_profiles.refresh();
+    const base = catalogProfile(made.catalog, "op_coding_v1");
+    version.base_fingerprint = profileFingerprint(base as CatalogProfile);
+    await made.catalog.workspace_profiles.refresh();
+    expect(catalogProfile(made.catalog, version.id)?.mcp_deny).toEqual([
+      "mcp__base__x",
+      "mcp__own__x",
+    ]);
+  });
+
+  test("an allow-list save with no tool catalog still keeps the names, under the catalog id the version named", async () => {
+    const made = setup({ catalogs: false });
+    await made.ceilings.create(owner(), { ...CEILING, tools: ["Read"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!row) throw new Error("no row");
+    row.deny = ["WebSearch", ...MCP];
+    row.tool_catalog_id = "engine@old";
+    await made.catalog.workspace_profiles.refresh();
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      tools: ["Read", "Edit"],
+    });
+    expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", ...MCP]);
+    expect(made.writes.at(-1)?.toolCatalogId).toBe("engine@old");
+  });
+});

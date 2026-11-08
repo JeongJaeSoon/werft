@@ -364,6 +364,7 @@ describe("planMigration", () => {
       version: index + 1,
       derivedFrom: "coding",
       definition: p.target?.definition as Record<string, unknown>,
+      deny: p.target?.deny ?? null,
       retired: false,
     }));
     const again = planOf(
@@ -644,5 +645,120 @@ describe("planMigration", () => {
       sessions: 1,
       judged_by_ceiling: 1,
     });
+  });
+});
+
+describe("planMigration and mcp__ deny", () => {
+  const blockedBase: CatalogProfile = { ...base, mcp_deny: ["mcp__a__b"] };
+
+  function blockedCatalog(records: WorkspaceProfileRecord[]) {
+    const catalog = catalogWith(records);
+    (catalog.profiles as Record<string, CatalogProfile>).coding = blockedBase;
+    const record = catalog.installation?.get("coding")?.record;
+    if (record) {
+      record.deny = ["WebSearch", "mcp__a__b"];
+      record.tool_catalog_id = "engine@old";
+    }
+    return catalog;
+  }
+  const own = (overrides: Partial<WorkspaceProfileRecord> = {}) =>
+    version("strict", 1, {
+      base_fingerprint: profileFingerprint(blockedBase),
+      ...overrides,
+    });
+
+  // The whole report, hashed: a field, a value or an order that moves for a
+  // profile with no mcp__ name changes this. Pinned from the code before
+  // mcp__ names were read.
+  test("without mcp__ names the whole plan is byte for byte what it was", () => {
+    const records = [
+      version("strict", 1, { deny: ["WebSearch"] }),
+      version("strict", 2),
+      version("loose", 1, { tools: ["Read", "Edit"] }),
+    ];
+    const plan = planMigration(
+      input(catalogWith(records), [
+        agent("a1", "ws_acme_strict_v1"),
+        agent("a2", "ws_acme_loose_v1", { tracking: "follow" }),
+      ]),
+    );
+    const hash = new Bun.CryptoHasher("sha256")
+      .update(JSON.stringify(plan))
+      .digest("hex");
+    expect(hash).toBe(
+      "7513c55a1460bf05321a719056384af269b83778e782c94a180b18b096ef0051",
+    );
+  });
+
+  test("without mcp__ names the plan is what it was: the version's deny, no mcp key anywhere", () => {
+    const plan = planOf(
+      input(catalogWith([version("strict", 1, { deny: ["WebSearch"] })]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    const [profile] = plan.profiles;
+    expect(profile?.target?.deny).toEqual(["WebSearch"]);
+    expect(Object.keys(profile?.target?.definition ?? {})).not.toContain(
+      "mcp_deny",
+    );
+    expect(Object.keys(profile?.effective ?? {})).not.toContain("mcp_deny");
+    const none = planOf(
+      input(catalogWith([version("strict", 1)]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    expect(none.profiles[0]?.target?.deny).toBeNull();
+  });
+
+  test("a copy takes the base's names the version lacks, into the deny column and not the definition", () => {
+    const plan = planOf(
+      input(blockedCatalog([own({ deny: ["WebSearch"] })]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    const [profile] = plan.profiles;
+    expect(profile?.decision).toBe("copy");
+    expect(profile?.target?.deny).toEqual(["WebSearch", "mcp__a__b"]);
+    expect(Object.keys(profile?.target?.definition ?? {})).not.toContain(
+      "mcp_deny",
+    );
+    expect(Object.keys(profile?.effective ?? {})).not.toContain("mcp_deny");
+  });
+
+  test("a version with no deny column still copies the base's names", () => {
+    const plan = planOf(
+      input(blockedCatalog([own()]), [agent("a1", "ws_acme_strict_v1")]),
+    );
+    expect(plan.profiles[0]?.target?.deny).toEqual(["mcp__a__b"]);
+    // The table wants a catalog id beside any deny: the base's, here.
+    expect(plan.profiles[0]?.target?.tool_catalog_id).toBe("engine@old");
+  });
+
+  test("an earlier copy counts as the same only when its mcp__ names match", () => {
+    const records = [own({ deny: ["WebSearch", "mcp__a__b"] })];
+    const first = planOf(
+      input(blockedCatalog(records), [agent("a1", "ws_acme_strict_v1")]),
+    );
+    const target = first.profiles[0]?.target;
+    const copy = (deny: string[] | null) => ({
+      id: target?.id as string,
+      migratedFrom: "ws_acme_strict_v1",
+      name: target?.lineage_name as string,
+      displayName: "strict",
+      workspaceId: W,
+      version: 1,
+      derivedFrom: "coding",
+      definition: target?.definition as Record<string, unknown>,
+      deny,
+      retired: false,
+    });
+    const decisionWith = (deny: string[] | null) =>
+      planOf(
+        input(blockedCatalog(records), [agent("a1", "ws_acme_strict_v1")], {
+          copies: [copy(deny)],
+        }),
+      ).profiles[0]?.decision;
+    expect(decisionWith(["WebSearch", "mcp__a__b"])).toBe("exists");
+    expect(decisionWith(["WebSearch"])).toBe("skip");
   });
 });

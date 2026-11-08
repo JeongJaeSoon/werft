@@ -541,6 +541,28 @@ integration("profile migration on PostgreSQL (U5)", () => {
     );
   });
 
+  test("a version over a base that blocks mcp__ names is copied with them, under the base's catalog id, and the table takes the row", async () => {
+    await seedBase();
+    await db
+      .update(installationProfiles)
+      .set({ deny: ["mcp__a__b"], toolCatalogId: "engine@old" })
+      .where(eq(installationProfiles.id, BASE_ID));
+    const ws = await workspace();
+    const v1 = await wsVersion(ws, await catalogOf(), "strict");
+    const catalog = await catalogOf();
+    await agentOn(ws, catalog, v1);
+    const report = await dryRun(catalog);
+    const applied = await run(
+      ["--apply", "--report", report.out, "--report-sha256", report.sha],
+      catalog,
+    );
+    expect(applied.last).toMatchObject({ dry_run: false, complete: true });
+    const [row] = await copies();
+    expect(row?.deny).toEqual(["mcp__a__b"]);
+    expect(row?.toolCatalogId).toBe("engine@old");
+    expect(row?.definition).not.toHaveProperty("mcp_deny");
+  });
+
   test("a second run changes nothing: no new row, release, receipt or ceiling value", async () => {
     const { catalog } = await world();
     const first = await dryRun(catalog);

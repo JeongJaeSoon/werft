@@ -295,6 +295,42 @@ describe("deriveReleaseId", () => {
   });
 });
 
+describe("resolveReleaseContent and mcp_deny", () => {
+  test("a profile with no mcp__ deny keeps its digest, snapshot and release id", () => {
+    const identity = identityOf();
+    expect(Object.keys(identity.runtime_config_snapshot)).not.toContain(
+      "mcp_deny",
+    );
+    expect(
+      Object.keys(
+        identityOf(card, { ...profile, mcp_deny: [] }).runtime_config_snapshot,
+      ),
+    ).not.toContain("mcp_deny");
+    // Pinned from the code before mcp_deny existed.
+    expect(identity.profile_digest).toBe(
+      "sha256:92cc3e8a92fdbfe720590f535b087346da8ab6b9d76f509c1cbb3980288a2517",
+    );
+    expect(deriveReleaseId(identity)).toBe(
+      "sha256:e36018a6078119d3094de9a6d8c2aeb05d2ccc881343270e5e9e51fceafb5af5",
+    );
+  });
+
+  test("names are carried sorted, and make a different digest and release id", () => {
+    const blocked: CatalogProfile = {
+      ...profile,
+      mcp_deny: ["mcp__docs__read", "mcp__a__b"],
+    };
+    const identity = identityOf(card, blocked);
+    expect(identity.runtime_config_snapshot.mcp_deny).toEqual([
+      "mcp__a__b",
+      "mcp__docs__read",
+    ]);
+    expect(identity.profile_digest).not.toBe(identityOf().profile_digest);
+    expect(deriveReleaseId(identity)).not.toBe(deriveReleaseId(identityOf()));
+    expect(() => releaseOf(identity)).not.toThrow();
+  });
+});
+
 describe("resolveReleaseContent", () => {
   test("pins the profile digest and a snapshot without the credential", () => {
     const identity = identityOf();

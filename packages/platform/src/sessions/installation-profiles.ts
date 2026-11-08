@@ -32,6 +32,7 @@ import {
   deniedTools,
   previousChoice,
   type ToolCatalogs,
+  withKeptMcpDeny,
 } from "./profile-tools.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import { operatorSummary } from "./workspace-profiles.ts";
@@ -211,10 +212,35 @@ export function createInstallationProfileService(deps: {
   async function toolsOf(
     request: CreateInstallationProfileRequest,
     runtime: { kind: RuntimeKind; version: string },
-    base?: { readonly tools: readonly string[]; readonly sameCatalog: boolean },
+    base?: {
+      readonly tools: readonly string[];
+      readonly sameCatalog: boolean;
+      readonly mcpDeny?: readonly string[] | undefined;
+    },
   ) {
+    const toolCatalog = catalog.tool_catalogs?.for(
+      runtime.kind,
+      runtime.version,
+    );
     if (request.deny === undefined) {
-      return { tools: [...new Set(request.tools ?? [])], denied: undefined };
+      const tools = [...new Set(request.tools ?? [])];
+      // An allow list is not a deny, but a version still keeps the `mcp__`
+      // blocks of the one it follows. Read from memory: a missing previous
+      // is refused where the save is stored.
+      const kept = withKeptMcpDeny({
+        catalog: toolCatalog,
+        tools,
+        denied: undefined,
+        previous:
+          request.previous_id === undefined
+            ? undefined
+            : catalog.installation?.get(request.previous_id)?.record,
+        baseMcpDeny: base?.mcpDeny,
+      });
+      return {
+        tools,
+        denied: kept && { ...kept, previousDrift: false },
+      };
     }
     const previous =
       request.previous_id === undefined
@@ -228,8 +254,8 @@ export function createInstallationProfileService(deps: {
         catalogProfileConfigSchema.safeParse(previous.definition).data?.tools ??
           [],
       );
-    const denied = deniedTools({
-      catalog: catalog.tool_catalogs?.for(runtime.kind, runtime.version),
+    const asked = deniedTools({
+      catalog: toolCatalog,
       deny: request.deny,
       accept: request.accept_added_tools,
       // An admin's profile may not open what its source blocks, under the
@@ -237,8 +263,16 @@ export function createInstallationProfileService(deps: {
       ...(base === undefined ? {} : { base }),
       previous: previousRead,
     });
+    const denied =
+      withKeptMcpDeny({
+        catalog: toolCatalog,
+        tools: asked.tools,
+        denied: asked,
+        previous,
+        baseMcpDeny: base?.mcpDeny,
+      }) ?? asked;
     return {
-      tools: denied.tools,
+      tools: asked.tools,
       denied: { ...denied, previousDrift: previousRead?.drift === true },
     };
   }
@@ -473,6 +507,7 @@ export function createInstallationProfileService(deps: {
         { kind: fixed.runtime_kind, version: fixed.runtime_version },
         admin && {
           tools: admin.base.tools,
+          mcpDeny: admin.base.mcp_deny,
           // An allow-list source names no catalog: only its tools bound it.
           sameCatalog:
             catalog.installation?.get(admin.sourceId)?.record

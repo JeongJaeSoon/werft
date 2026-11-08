@@ -967,7 +967,7 @@ export function createAgentService(deps: {
     return (
       seen.latest !== null &&
       seen.active !== null &&
-      !sameExecutionForm(seen.active.definition, seen.latest.definition)
+      !sameExecutionForm(seen.active, seen.latest)
     );
   }
 

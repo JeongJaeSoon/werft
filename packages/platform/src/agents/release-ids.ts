@@ -146,6 +146,10 @@ export function resolveReleaseContent(
         ...(profile.project_settings?.claude_md === true
           ? { project_settings: profile.project_settings }
           : {}),
+        // Absent, not empty, so a release of a profile with none keeps its id.
+        ...(profile.mcp_deny !== undefined && profile.mcp_deny.length > 0
+          ? { mcp_deny: [...profile.mcp_deny].sort() }
+          : {}),
       },
       effective_tools,
       policy_pins,

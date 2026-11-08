@@ -192,8 +192,8 @@ function raiseOver(reads: AgentRecord[]) {
       inspect: async () => ({
         tracking: "pinned",
         sameLineage: true,
-        latest: { id: "next", version: 2, definition: {} },
-        active: { id: "old", version: 1, definition: {} },
+        latest: { id: "next", version: 2, definition: {}, deny: null },
+        active: { id: "old", version: 1, definition: {}, deny: null },
       }),
     },
   });

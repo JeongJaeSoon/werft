@@ -215,10 +215,10 @@ export function createPostgresInstallationProfileStore(
           latest &&
           latest.retiredAt === null &&
           latest.blockedAt === null &&
-          sameExecutionForm(
-            latest.definition,
-            input.definition as Record<string, unknown>,
-          )
+          sameExecutionForm(latest, {
+            definition: input.definition as Record<string, unknown>,
+            deny: input.deny,
+          })
         ) {
           return { outcome: "unchanged" as const, record: recordOf(latest) };
         }
@@ -358,8 +358,9 @@ export function createPostgresInstallationProfileStore(
         if (latest) {
           await writeProfileRollout(tx, {
             profileId: record.id,
-            previous: { definition: latest.definition },
+            previous: latest,
             definition: row.definition,
+            deny: row.deny,
             createdBy: actor.userId,
           });
         }
