@@ -1,0 +1,1 @@
+ALTER TABLE "push_intents" ADD COLUMN "source_ref" text;

@@ -31,6 +31,7 @@ export function publicPushIntent(row: Row): PushIntent {
     status: row.status as PushIntent["status"],
     refusal_code: row.refusalCode as PushIntentRefusal | null,
     push_request_id: row.pushRequestId,
+    source_ref: row.sourceRef,
     created_at: row.createdAt.toISOString(),
   };
 }
@@ -113,27 +114,49 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
         const taken = await tx
           .select()
           .from(pushIntents)
-          .where(
-            and(
-              eq(pushIntents.turnId, input.turnId),
-              eq(pushIntents.repositoryId, input.repositoryId),
-            ),
-          )
+          .where(eq(pushIntents.turnId, input.turnId))
           .orderBy(asc(pushIntents.createdAt), asc(pushIntents.id));
-        // The exact target first: rows written before the one-target rule
-        // may hold several, and asking for any of them is still the same call.
+        const sourceRef = input.sourceRef ?? null;
         const existing = taken.find(
-          (row) => row.targetBranch === input.targetBranch,
+          (row) =>
+            row.repositoryId === input.repositoryId &&
+            row.targetBranch === input.targetBranch,
         );
-        if (existing) {
+        // The same call again, or one that adds nothing to a settled intent.
+        if (
+          existing &&
+          (sourceRef === null ||
+            existing.sourceRef === sourceRef ||
+            existing.status !== "deferred")
+        ) {
           return { outcome: "existing", intent: publicPushIntent(existing) };
         }
-        const [first] = taken;
-        if (first) {
+        // Every intent of a turn pins the same checkpoint, so two intents
+        // that both mean "the snapshot" would push one commit twice, and an
+        // unnamed one would take whatever HEAD ends on. With two or more,
+        // each names its own source.
+        const after = [
+          ...taken.filter((row) => row !== existing),
+          { sourceRef, targetBranch: input.targetBranch },
+        ];
+        const lacking =
+          after.length > 1
+            ? after.find((row) => row.sourceRef === null)
+            : undefined;
+        if (lacking) {
           return {
-            outcome: "turn_target_taken",
-            targetBranch: first.targetBranch,
+            outcome: "source_ref_required",
+            targetBranch: lacking.targetBranch,
           };
+        }
+        if (existing) {
+          const [updated] = await tx
+            .update(pushIntents)
+            .set({ sourceRef, updatedAt: sql`now()` })
+            .where(eq(pushIntents.id, existing.id))
+            .returning();
+          if (!updated) throw new Error("push intent update returned no row");
+          return { outcome: "existing", intent: publicPushIntent(updated) };
         }
         const [row] = await tx
           .insert(pushIntents)
@@ -145,6 +168,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
             attemptId: input.attemptId,
             repositoryId: input.repositoryId,
             targetBranch: input.targetBranch,
+            sourceRef,
             actor: input.actor,
             approvalBasis: input.pushClass,
             policySource: input.policySource,
@@ -211,6 +235,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           repositoryId: intent.repositoryId,
           targetBranch: intent.targetBranch,
           pinnedRevision: intent.pinnedRevision ?? 0,
+          sourceRef: intent.sourceRef,
           actor: intent.actor as ReceiptActor,
           pushClass: intent.approvalBasis as "push.primary" | "push.attached",
           pullRequest: intent.pullRequest,
