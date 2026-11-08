@@ -89,6 +89,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
   });
   const pendingChannels = new Set<string>();
   const readyChannels = new Map<string, "public_channel" | "private_channel">();
+  const rejectedChannels = new Set<string>();
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
@@ -108,6 +109,8 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
           ? null
           : ({ status: "ready", channelKind: kind } as SurfaceBindingRecord);
       },
+      wasRejected: async (_installationId, channelId) =>
+        rejectedChannels.has(channelId),
     },
     now: () => clock,
   });
@@ -185,6 +188,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     lookups,
     pendingChannels,
     readyChannels,
+    rejectedChannels,
     install,
     signed,
     event,
@@ -591,6 +595,7 @@ describe("Slack events service", () => {
     expect(JSON.stringify(stored[0])).not.toContain("1234");
     expect(outcomes.G0OK).toMatchObject({ status: "received" });
 
+    w.rejectedChannels.add("G0REJECTED");
     const mention = await w.service.receive(
       w.signed(
         w.event({
@@ -603,6 +608,25 @@ describe("Slack events service", () => {
       ),
     );
     expect(mention).toMatchObject({ status: "received" });
+    // A channel the bot was just invited to has no binding yet: its first
+    // mention keeps the text the invite handler's binding will need.
+    await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0P",
+          text: `<@${BOT_USER}> summarize this incident`,
+          channel: "C0NEW",
+          ts: "1.3",
+        }),
+      ),
+    );
+    const texts = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" ? [JSON.stringify(row.payload)] : [],
+    );
+    expect(texts.some((text) => text.includes("summarize this incident"))).toBe(
+      true,
+    );
     const kept = [...w.inbox.rows.values()].flatMap((row) =>
       row.status === "received" &&
       (row.payload as { event: { channel: string } }).event.channel ===

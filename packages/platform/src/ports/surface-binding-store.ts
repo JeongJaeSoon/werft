@@ -124,6 +124,11 @@ export interface SurfaceBindingStore {
     channelId: string,
   ): Promise<SurfaceBindingRecord | null>;
   /**
+   * Whether the channel's last binding was a private one rejected before it
+   * was ever approved; for a channel with no live binding.
+   */
+  wasRejected(installationId: string, channelId: string): Promise<boolean>;
+  /**
    * The binding of a private channel that waits for approval, or null.
    * `revision` changes every time it waits again, so a notice can be sent
    * once per wait.

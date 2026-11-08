@@ -381,6 +381,22 @@ export function createPostgresSurfaceBindingStore(
     },
     findLiveSlackChannel: (installationId, channelId) =>
       liveChannel(db, installationId, channelId),
+    async wasRejected(installationId, channelId) {
+      const [row] = await db
+        .select({ id: surfaceBindings.id })
+        .from(surfaceBindings)
+        .where(
+          and(
+            eq(surfaceBindings.installationId, installationId),
+            eq(surfaceBindings.externalSurfaceId, channelId),
+            eq(surfaceBindings.status, "revoked"),
+            eq(surfaceBindings.surfaceKind, "private_channel"),
+            isNull(surfaceBindings.approvedAt),
+          ),
+        )
+        .limit(1);
+      return row !== undefined;
+    },
     async findPendingApproval(installationId, channelId) {
       const binding = await liveChannel(db, installationId, channelId);
       return binding?.status === "pending_approval"

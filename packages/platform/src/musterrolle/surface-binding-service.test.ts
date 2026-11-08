@@ -79,6 +79,7 @@ function service(
     },
     findLiveSlackChannel: async () => null,
     findPendingApproval: async () => null,
+    wasRejected: async () => false,
     requireApproval: async () => null,
     approve: async () => ({ outcome: "not_found" }),
     reject: async () => ({ outcome: "not_found" }),

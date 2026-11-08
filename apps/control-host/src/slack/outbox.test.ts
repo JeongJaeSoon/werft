@@ -1305,6 +1305,13 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       approverRoles: ["owner", "admin"],
     });
     expect(rejected.outcome).toBe("resolved");
+    const store = createPostgresSurfaceBindingStore(db);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", CHANNEL),
+    ).toBe(true);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", "C0OTHER"),
+    ).toBe(false);
 
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
     await outboxPass({ botToken: null });

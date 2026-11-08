@@ -98,7 +98,10 @@ const service = createSlackEventsService({
   inbox: inbox.store,
   apps: apps.store,
   identities: identities.store,
-  bindings: { findLiveSlackChannel: async () => null },
+  bindings: {
+    findLiveSlackChannel: async () => null,
+    wasRejected: async () => false,
+  },
   installs: installs.store,
 });
 const receives = { count: 0 };

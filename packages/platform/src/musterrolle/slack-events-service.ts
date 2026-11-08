@@ -167,7 +167,7 @@ export function createSlackEventsService(deps: {
   apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
-  bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel">;
+  bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -235,9 +235,14 @@ export function createSlackEventsService(deps: {
               bound?.status === "ready" &&
               bound.channelKind === "private_channel"
             )) ||
-          // No binding to read the kind from, and the event does not say it
-          // is a public channel (an app_mention carries no channel_type).
-          (bound === null && event.channel_type !== "channel");
+          // An app_mention carries no channel_type, so a channel with no
+          // live binding is told apart by what became of its last one.
+          (bound === null &&
+            event.channel_type !== "channel" &&
+            (await deps.bindings.wasRejected(
+              resolved.installationId,
+              event.channel,
+            )));
         if (unapproved) {
           const mentioned =
             event.type === "app_mention" ||
