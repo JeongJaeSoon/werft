@@ -691,6 +691,26 @@ describe("the agent's repositories read as owner/repo", () => {
     ]);
   });
 
+  test("a row without a GitHub id listed first does not swallow differently numbered rows of its name", async () => {
+    const rowOf = (id: string, githubId: number | null) => ({
+      ...ROW,
+      id,
+      github_repository_id: githubId,
+    });
+    // Catalog order puts the id-less row first.
+    const { agentPage } = serviceWith(pageOf(), apps, null, [
+      rowOf("a", null),
+      rowOf("b", 5),
+      rowOf("c", 8),
+    ]);
+    const choices = (await agentPage()).all_repositories ?? [];
+    expect(choices.map((entry) => entry.github_repository_id)).toEqual([5, 8]);
+    expect(choices.map((entry) => entry.ref)).toEqual([
+      repositoryRefOf("b"),
+      repositoryRefOf("c"),
+    ]);
+  });
+
   test("a name an older repository held is not taken for the repository that has it now", async () => {
     const { agentPage } = serviceWith(
       pageOf(repository(8, "widget")),

@@ -424,7 +424,13 @@ export function createGitHubRepositoryService(deps: {
         ref: row === undefined ? null : repositoryRefOf(row.id),
       });
     }
-    for (const row of allowed) {
+    // Rows with an id go first: a row without one is folded by name, and
+    // placed first it would swallow every differently numbered row of that name.
+    const idFirst = [
+      ...allowed.filter((row) => row.github_repository_id !== null),
+      ...allowed.filter((row) => row.github_repository_id === null),
+    ];
+    for (const row of idFirst) {
       const name = `${row.owner}/${row.name}`;
       if (held(row.github_repository_id, name)) continue;
       choices.push({
