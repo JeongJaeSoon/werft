@@ -83,6 +83,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     claimAtomic: unimplemented,
     resolveCredential: unimplemented,
     authorizeEgressAtomic: unimplemented,
+    recordModelCutAtomic: unimplemented,
     recordProviderUsageAtomic: unimplemented,
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
@@ -3024,11 +3025,17 @@ describe("authorizeEgress", () => {
     },
   ) {
     const asked: Array<{ tokenHash: Uint8Array; purpose: string }> = [];
+    const cuts: Array<{ sessionId: string; attemptId: string; model: string }> =
+      [];
     const instance = createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async (input) => {
           asked.push(input);
           return answer;
+        },
+        recordModelCutAtomic: async (input) => {
+          cuts.push(input);
+          return { recorded: true };
         },
       }),
       catalog: withSeededInstallation(catalog),
@@ -3048,8 +3055,42 @@ describe("authorizeEgress", () => {
         leaseTtlMs: 30_000,
       },
     });
-    return { asked, instance };
+    return { asked, cuts, instance };
   }
+
+  test("a model taken off the list is cut with the reason written to the session, other moves are not", async () => {
+    const binding = profileFingerprint(profile);
+    const retired = { ...granted(binding), model: "retired-model" };
+    const cut = authorizer(retired);
+    await expect(
+      cut.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(cut.cuts).toEqual([
+      {
+        sessionId: scope.session_id,
+        attemptId: "att_1",
+        model: "retired-model",
+      },
+    ]);
+    // Still on the list: nothing to say.
+    const kept = authorizer(granted(binding));
+    await kept.instance.authorizeEgress({ token: "tok", purpose: "provider" });
+    expect(kept.cuts).toEqual([]);
+    // The profile itself changed: the catalog's own cut, no model note.
+    const changed = authorizer(granted(binding), {
+      profiles: {
+        p: {
+          ...profile,
+          provider: { ...profile.provider, endpoint: "https://x.invalid" },
+        },
+      },
+      repositories: { app: repository },
+    });
+    await expect(
+      changed.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(changed.cuts).toEqual([]);
+  });
 
   test("a provider token is answered with the endpoint and the key to inject", async () => {
     const { asked, instance } = authorizer(

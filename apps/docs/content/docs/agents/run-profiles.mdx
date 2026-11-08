@@ -77,6 +77,8 @@ provider 주소와 자격 증명은 목록에 나오지 않는다. 그 값은 wo
 
 세션을 만들 때 `profile_id`로 고른다. 프로필이 모델을 여럿 허용하면 `model`로 그중 하나를 고르고, 빼면 기본 모델로 돈다.
 
+도는 중인 세션의 모델이 허용 목록에서 빠지면 모델 요청이 곧 끊긴다. 세션 이벤트에 `error` 이벤트(`code: MODEL_NOT_ALLOWED`, `model`)가 한 번 남고, 세션 상세 타임라인에 "모델 허용 목록에서 …이(가) 빠져 세션이 끊겼습니다"로 보인다. 허용 목록을 되돌리거나 다른 모델로 새 세션을 연다.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 

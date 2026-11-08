@@ -235,6 +235,8 @@ export const sessionsKo = {
   "session.event.kind.question": "질문",
   "session.event.kind.result": "턴 끝",
   "session.event.kind.error": "오류",
+  "session.event.error.modelNotAllowed":
+    "모델 허용 목록에서 {model}이(가) 빠져 세션이 끊겼습니다 — 허용 목록을 되돌리거나 다른 모델로 새 세션을 여세요.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.init": "세션 시작",
@@ -485,6 +487,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.question": "Question",
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
+  "session.event.error.modelNotAllowed":
+    "The session was cut off because {model} was removed from the model allow-list — restore it to the list, or start a new session on another model.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.init": "Session started",
@@ -708,6 +712,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.question": "質問",
   "session.event.kind.result": "ターン終了",
   "session.event.kind.error": "エラー",
+  "session.event.error.modelNotAllowed":
+    "モデルの許可リストから {model} が外れたため、セッションが切断されました — 許可リストを元に戻すか、別のモデルで新しいセッションを開始してください。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.init": "セッション開始",

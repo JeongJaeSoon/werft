@@ -32,6 +32,8 @@ const COPY: Record<TurnEventMessageKey, string> = {
   "session.event.kind.question": "Question",
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
+  "session.event.error.modelNotAllowed":
+    "The session was cut off because {model} was removed from the model allow-list",
   "session.event.init": "Session started",
   "session.event.vcsChanged": "Working tree changed",
   "session.event.thinkingTokens": "Thinking ({count})",

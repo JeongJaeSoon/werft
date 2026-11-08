@@ -3,6 +3,7 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  MODEL_NOT_ALLOWED_EVENT_CODE,
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
@@ -2172,6 +2173,55 @@ export function createPostgresWorkerUnitOfWork(
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,
         };
+      });
+    },
+
+    recordModelCutAtomic(input: {
+      sessionId: string;
+      attemptId: string;
+      model: string;
+    }): Promise<{ recorded: boolean }> {
+      return db.transaction(async (tx) => {
+        // The attempt row serializes the exchanges the proxy refuses at
+        // once, so the check below and the insert see each other.
+        const [attempt] = await tx
+          .select({ id: attempts.id })
+          .from(attempts)
+          .where(
+            and(
+              eq(attempts.id, input.attemptId),
+              eq(attempts.sessionId, input.sessionId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!attempt) return { recorded: false };
+        const [seen] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, input.sessionId),
+              eq(events.attemptId, input.attemptId),
+              eq(events.type, "error"),
+              sql`${events.payload}->>'code' = ${MODEL_NOT_ALLOWED_EVENT_CODE}`,
+            ),
+          )
+          .limit(1);
+        if (seen) return { recorded: false };
+        await recordEvent(tx, {
+          sessionId: input.sessionId,
+          type: "error",
+          payload: {
+            code: MODEL_NOT_ALLOWED_EVENT_CODE,
+            message: `The model ${input.model} is no longer on the profile's allowed list, so its provider access was cut`,
+            model: input.model,
+          },
+          turnRowId: null,
+          attemptId: input.attemptId,
+          now: await dbNow(tx),
+        });
+        return { recorded: true };
       });
     },
 

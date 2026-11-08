@@ -129,6 +129,7 @@ import {
   type ProfilePin,
   profileAllowsRepository,
   profileFingerprint,
+  profileModels,
   profilePins,
   providerUpstreamOf,
   refreshWorkspaceProfilesFor,
@@ -1952,6 +1953,23 @@ export function createWorkerGateway(deps: {
             acceptedRuntimeVersions(catalog),
           )
         ) {
+          // Only a model left off the list is told to the session; the
+          // profile changing or going away stays the catalog's own cut.
+          if (
+            listed &&
+            result.model !== null &&
+            !profileModels(listed).includes(result.model)
+          ) {
+            // The cut happens either way; a failed note must not turn it
+            // into a 500 the proxy would read as an outage.
+            await work
+              .recordModelCutAtomic({
+                sessionId: result.sessionId,
+                attemptId: result.attemptId,
+                model: result.model,
+              })
+              .catch(() => undefined);
+          }
           moved("session's profile");
         }
         return grant(providerUpstreamOf(listed));
