@@ -105,7 +105,7 @@ ap_post "/v1/sessions/$SID/push-requests/$P1/pull-request" '{}'      # 409 PUSH_
 for B in refs/heads/main HEAD ../main main/x; do ap_post "/v1/sessions/$SID/push-requests" "$(jq -nc --arg b "$B" '{branch:$b}')"; done   # 모두 400 BAD_REQUEST
 ```
 
-기대: 위 주석대로다. 오류 본문에 `details.refusal`(`not_pushed`·`already_resolved`)과 `receipt_id`가 있다. 대상 브랜치는 계약상 항상 `agent/<SID>[-접미사]`라 기본 브랜치를 가리킬 수 없다. 접미사 칸에 `main`·`master`를 넣으면 거절이 아니라 `agent/<SID>-main` 요청이 201로 만들어진다(기본 브랜치에는 닿지 않는다). 그 요청은 reject로 정리한다. worker의 직접 `git push`는 egress proxy에 receive-pack 경로가 없어 막힌다(`apps/egress-proxy/src/credential.ts`).
+기대: 위 주석대로다. 409 거절의 오류 본문에는 `details.refusal`(`not_pushed`·`already_resolved`)과 `receipt_id`가 있다. 400은 서비스를 부르기 전의 입력 검증이라 둘 다 없고 `details.issues`만 있다. 대상 브랜치는 계약상 항상 `agent/<SID>[-접미사]`라 기본 브랜치를 가리킬 수 없다. 접미사 칸에 `main`·`master`를 넣으면 거절이 아니라 각각 `agent/<SID>-main`·`agent/<SID>-master` 요청이 201로 만들어진다(기본 브랜치에는 닿지 않는다). 그 요청은 reject로 정리한다. worker의 직접 `git push`는 egress proxy에 receive-pack 경로가 없어 막힌다(`apps/egress-proxy/src/credential.ts`).
 
 ```sh
 # 5. push 요청 → 승인 → push → PR
@@ -165,7 +165,7 @@ orch release verify-stack
 |---|---|---|
 | App 등록 | 통과 | PUT `200`(`app_id` 5513262, `werft-sandbox-agent`, `receipt_id` 224102b3), GET `check.state: "ok"`, 설치 176243287 |
 | 1 clone | 통과 | 세션 518de2c6 turn 1 `completed`, `mint_github_token` `clone` 07a7e7ba(만료 17:08:26Z) |
-| 1 재발급 | 통과 | 같은 세션 두 번째 turn의 `git fetch`와 두 번째 세션은 receipt가 늘지 않는다(게이트가 캐시 토큰을 쓰고, 새로 발급할 때만 receipt를 남긴다). api 컨테이너만 재시작한 뒤 세 번째 세션에서 `mint_github_token` `clone` d315cd9b(만료 17:25:17Z)가 새로 남았다 |
+| 1 재발급 | 통과 | 같은 세션 두 번째 turn의 `git fetch`와 두 번째 세션은 receipt가 늘지 않는다(게이트가 캐시 토큰을 쓰고, 새로 발급할 때만 성공 `mint_github_token` receipt를 남긴다). api 컨테이너만 재시작한 뒤 세 번째 세션에서 `mint_github_token` `clone` d315cd9b(만료 17:25:17Z)가 새로 남았다 |
 | 2 승인 전 | 통과 | `requested` 상태의 PR 열기 `409 PUSH_NOT_PUSHED`, 원격 브랜치 404 |
 | 3 rejected | 통과 | reject `200`, 이어서 approve `409 PUSH_REQUEST_RESOLVED`(`already_resolved`), PR 열기 `409 PUSH_NOT_PUSHED`(`rejected`), 브랜치 404 |
 | 4 기본 브랜치 | 통과(구조) | `refs/heads/main`·`HEAD`·`../main`·`main/x`는 `400`, `main`·`master`는 `agent/<SID>-main`·`-master`로만 만들어져 reject로 정리 |
