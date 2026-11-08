@@ -153,34 +153,36 @@ export async function managingTeamAllowed(
 ): Promise<"ok" | "team_not_found" | "team_not_allowed" | "team_holding"> {
   if (!UUID.test(teamId)) return "team_not_found";
   const id = teamId.toLowerCase();
-  const [held] = await tx
-    .select({ holds: memberTeams.holdsUnassigned })
-    .from(memberTeams)
-    .where(
-      and(eq(memberTeams.workspaceId, workspaceId), eq(memberTeams.id, id)),
-    )
-    .for("share");
-  if (held?.holds && id !== keep) return "team_holding";
+  let eligible: "ok" | "team_not_found" | "team_not_allowed";
   if (!actor.manager) {
-    return (await lockedTeamRow(tx, workspaceId, id, actor.userId, [
+    eligible = (await lockedTeamRow(tx, workspaceId, id, actor.userId, [
       "lead",
       "member",
     ]))
       ? "ok"
       : "team_not_allowed";
+  } else {
+    const [team] = await tx
+      .select({ id: memberTeams.id })
+      .from(memberTeams)
+      .where(
+        and(
+          eq(memberTeams.workspaceId, workspaceId),
+          eq(memberTeams.id, id),
+          isNull(memberTeams.archivedAt),
+        ),
+      )
+      .for("share");
+    eligible = team ? "ok" : "team_not_found";
   }
-  const [team] = await tx
-    .select({ id: memberTeams.id })
+  // Said only to one who could name the team anyway, so the answer does not
+  // tell anyone else which team is the holding one.
+  if (eligible !== "ok" || id === keep) return eligible;
+  const [held] = await tx
+    .select({ holds: memberTeams.holdsUnassigned })
     .from(memberTeams)
-    .where(
-      and(
-        eq(memberTeams.workspaceId, workspaceId),
-        eq(memberTeams.id, id),
-        isNull(memberTeams.archivedAt),
-      ),
-    )
-    .for("share");
-  return team ? "ok" : "team_not_found";
+    .where(eq(memberTeams.id, id));
+  return held?.holds ? "team_holding" : "ok";
 }
 
 async function setManagingTeam(

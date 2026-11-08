@@ -972,6 +972,43 @@ integration("the managing team on PostgreSQL", () => {
     expect(await name(owner, agentId, holding)).toMatchObject({
       outcome: "unchanged",
     });
+
+    // Leaving it is one way: coming back is a move into it, and refused.
+    const real = await newTeam(owner);
+    expect(await name(owner, agentId, real)).toMatchObject({ outcome: "set" });
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "team_holding",
+    });
+  });
+
+  test("the answer for the holding team tells no one what an ordinary team would not", async () => {
+    const { workspaceId, owner, member } = await cast();
+    const holding = randomUUID();
+    await db.insert(schema.memberTeams).values({
+      id: holding,
+      workspaceId,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    const ordinary = await newTeam(owner);
+    const create = (by: Caller, team: string) =>
+      codeOf(
+        service().createAgent(by, {
+          slug: `agent-${randomUUID().slice(0, 8)}`,
+          name: "새 에이전트",
+          card: card("v1"),
+          managing_team_id: team,
+        }),
+      );
+    // A member outside both teams hears the same about each.
+    expect(await create(member, holding)).toBe("FORBIDDEN:team_not_allowed");
+    expect(await create(member, ordinary)).toBe("FORBIDDEN:team_not_allowed");
+    // An archived holding team is as gone as any archived team.
+    await db
+      .update(schema.memberTeams)
+      .set({ archivedAt: new Date() })
+      .where(eq(schema.memberTeams.id, holding));
+    expect(await create(owner, holding)).toBe("NOT_FOUND");
   });
 
   test("a team joins an agent's admins only by a manager or its lead", async () => {
