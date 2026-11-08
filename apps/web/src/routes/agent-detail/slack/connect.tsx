@@ -24,6 +24,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
+import { useProfileDisplay } from "../../../components/profile-options.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useAppServices } from "../../../services.tsx";
 import type { Notify } from "../toast.tsx";
@@ -65,6 +66,7 @@ export function SlackConnect({
   readonly notify?: Notify;
 }) {
   const { t } = useI18n();
+  const profile = useProfileDisplay();
   const { client } = useWerft();
   const cache = useQueryClient();
   const me = useMe();
@@ -217,7 +219,10 @@ export function SlackConnect({
             <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
             <AlertDescription>
               {t(SLACK_WARNING_KEY[warning.code].body, {
-                profile: "profile_id" in warning ? warning.profile_id : "",
+                profile:
+                  "profile_id" in warning
+                    ? profile.show(warning.profile_id)
+                    : "",
                 previous:
                   "previous_user_id" in warning ? warning.previous_user_id : "",
                 user: "user_id" in warning ? warning.user_id : "",

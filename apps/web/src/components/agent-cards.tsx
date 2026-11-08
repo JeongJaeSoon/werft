@@ -34,6 +34,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
 import { AgentStateBadge } from "./agent-state.tsx";
 import { ManagingTeamName } from "./managing-team.tsx";
+import { useProfileDisplay } from "./profile-options.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 import { SlackActionLink } from "./slack-action-link.tsx";
@@ -287,6 +288,7 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
   const { t, locale } = useI18n();
   const { facts, bound } = settings;
   const version = facts.data?.version;
+  const profile = useProfileDisplay();
   return (
     <>
       <Fact term={t("agents.cards.release")}>
@@ -301,12 +303,17 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
         </Detail>
       </Fact>
       <Fact term={t("agents.cards.profile")}>
+        {/* A slow or refused profile list leaves the id, not a placeholder. */}
         <Detail query={facts}>
-          {facts.data
-            ? (facts.data.runtime_profile_id ?? (
-                <Dash label={t("agent.panel.none")} />
-              ))
-            : null}
+          {facts.data ? (
+            facts.data.runtime_profile_id ? (
+              <span title={facts.data.runtime_profile_id}>
+                {profile.show(facts.data.runtime_profile_id)}
+              </span>
+            ) : (
+              <Dash label={t("agent.panel.none")} />
+            )
+          ) : null}
         </Detail>
       </Fact>
       <Fact term={t("agents.cards.mcp")}>

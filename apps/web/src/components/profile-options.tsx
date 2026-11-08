@@ -1,5 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import type { ProfileSummary } from "@werft-ai/contracts";
+import { useWerft } from "@werft-ai/react";
 import { NativeSelectOption } from "@werft-ai/ui";
+import { profilesQuery } from "../api/queries.ts";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 
 const stateOf = (profile: ProfileSummary) =>
@@ -45,6 +48,32 @@ export const profileLabel = (t: Translate, profile: ProfileSummary): string => {
     model: profile.model,
   });
 };
+
+/**
+ * A profile id as people read it: "name vN". The id itself stands in when the
+ * list has no entry for it (not loaded, not readable, an older version the
+ * list leaves out) or names it with no name.
+ */
+export const profileDisplay = (
+  t: Translate,
+  profiles: readonly ProfileSummary[] | undefined,
+  id: string,
+): string => {
+  const profile = profiles?.find((listed) => listed.id === id);
+  const named = profile?.workspace?.name ?? profile?.installation?.name;
+  if (profile === undefined || named == null) return id;
+  return `${named} ${t("profiles.versionTag", { version: versionOf(profile) })}`;
+};
+
+/** `profileDisplay` over the shared profile list, for any role that reads it. */
+export function useProfileDisplay(): {
+  readonly show: (id: string) => string;
+} {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const items = useQuery(profilesQuery(client)).data?.items;
+  return { show: (id) => profileDisplay(t, items, id) };
+}
 
 /**
  * One option per profile: those that `fit` first, each part installation

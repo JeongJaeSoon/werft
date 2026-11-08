@@ -38,7 +38,7 @@ import {
   USER_ID,
 } from "../test-support/fake-api.ts";
 import { fakeIntersection } from "../test-support/intersection.ts";
-import { denyFor } from "../test-support/profiles.ts";
+import { denyFor, imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, cleanup, render, renderAt, screen, waitFor, within } =
@@ -228,6 +228,23 @@ describe("agentRefusal", () => {
     );
     expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
       "Profile claude-coding-local does not run the card's model custom model, so no release was created. Choose a profile that runs the card's model.",
+    );
+  });
+
+  test("프로필 이름을 줄 수 있으면 거부 문구의 id가 이름으로 바뀐다", () => {
+    const named = (id: string) =>
+      id === "claude-coding-local" ? "readonly-review v1" : id;
+    const message =
+      "card.model: model custom model is not the model of runtime profile claude-coding-local";
+    expect(
+      agentRefusal(
+        (key, vars) => translate("en", key, vars),
+        { code: "UNSUPPORTED_CAPABILITY", message, status: 422 } as ApiError,
+        "owner",
+        named,
+      ),
+    ).toBe(
+      "Profile readonly-review v1 does not run the card's model custom model, so no release was created. Choose a profile that runs the card's model.",
     );
   });
 
@@ -600,6 +617,33 @@ describe("에이전트 카드", () => {
     expect(dot?.getAttribute("data-status")).toBe("failed");
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
     expect(card.textContent).toContain("관리자: Owner");
+  });
+
+  test("프로필 줄은 표시 이름이 있으면 이름과 버전으로 보이고, id는 title로 남는다", async () => {
+    const named = imported(PROFILE);
+    await openAdministered({
+      ...releasedServer(),
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [
+            {
+              ...named,
+              installation: {
+                ...(named.installation as NonNullable<
+                  typeof named.installation
+                >),
+                name: "readonly-review",
+                version: 3,
+              },
+            },
+          ],
+        }),
+    });
+    const card = await cardFor("결제 담당");
+    await waitFor(() =>
+      expect(fact(card, "프로필")).toBe("readonly-review v3"),
+    );
+    expect(card.querySelector(`[title="${PROFILE}"]`)).not.toBeNull();
   });
 
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {

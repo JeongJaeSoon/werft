@@ -55,6 +55,7 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
+import { useProfileDisplay } from "../components/profile-options.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SlackActionLink } from "../components/slack-action-link.tsx";
@@ -75,6 +76,8 @@ export function agentRefusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
+  // Names a profile id from the shared list; without it the id is shown.
+  profileText: (id: string) => string = (id) => id,
 ): string {
   if (error.code === "FORBIDDEN")
     return permissionReason(t, "agent.manage", role);
@@ -90,7 +93,7 @@ export function agentRefusal(
         details.reason_code === "base_blocked"
           ? "agent.releases.baseProfileBlocked"
           : "agent.releases.profileBlocked",
-        { profile: details.profile_id },
+        { profile: profileText(details.profile_id) },
       );
   }
   const model =
@@ -100,7 +103,7 @@ export function agentRefusal(
   if (model)
     return t("agent.releases.modelRefused", {
       card: model[1] ?? "",
-      profile: model[2] ?? "",
+      profile: profileText(model[2] ?? ""),
     });
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
@@ -457,8 +460,11 @@ export { agentState } from "../components/agent-state.tsx";
 export function NewAgentScreen() {
   const { t } = useI18n();
   const role = useRole();
+  const profile = useProfileDisplay();
   const refuse = (error: unknown) =>
-    isApiError(error) ? agentRefusal(t, error, role) : t(errorKey("UNKNOWN"));
+    isApiError(error)
+      ? agentRefusal(t, error, role, profile.show)
+      : t(errorKey("UNKNOWN"));
   return (
     <Page title={t("agents.newTitle")} description={t("agents.newIntro")}>
       <NewAgentFlow refuse={refuse} />

@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ProfileSummary } from "@werft-ai/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { I18nProvider } from "../i18n/i18n.tsx";
-import { ProfileOptions, pickable } from "./profile-options.tsx";
+import { I18nProvider, type Translate, translate } from "../i18n/i18n.tsx";
+import {
+  ProfileOptions,
+  pickable,
+  profileDisplay,
+} from "./profile-options.tsx";
 
 const ceiling = (
   id: string,
@@ -38,6 +42,31 @@ describe("profile options", () => {
       ["ws_a", true],
       ["ws_b", false],
     ]);
+  });
+
+  test("profileDisplay names a listed profile and keeps the id for any other", () => {
+    const named = {
+      ...version("op_wl_d970266b_v1", "usable"),
+      installation: { name: "readonly-review", version: 2, state: "usable" },
+    } as ProfileSummary;
+    const nameless = {
+      ...ceiling("op_old_v1", "usable"),
+      installation: { name: null, version: 1, state: "usable" },
+    } as ProfileSummary;
+    for (const locale of ["ko", "en", "ja"] as const) {
+      const t: Translate = (key, vars) => translate(locale, key, vars);
+      const show = (
+        profiles: readonly ProfileSummary[] | undefined,
+        id: string,
+      ) => profileDisplay(t, profiles, id);
+      expect(show([named, nameless], "op_wl_d970266b_v1")).toBe(
+        "readonly-review v2",
+      );
+      expect(show([named, nameless], "op_old_v1")).toBe("op_old_v1");
+      // Not listed, not loaded, or not readable by this role.
+      expect(show([named], "ws_gone_v1")).toBe("ws_gone_v1");
+      expect(show(undefined, "op_wl_d970266b_v1")).toBe("op_wl_d970266b_v1");
+    }
   });
 
   test("a ceiling that cannot be picked is disabled and says why", () => {
