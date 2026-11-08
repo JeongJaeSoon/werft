@@ -101,6 +101,7 @@ function appWith(
   const store: AgentGitHubStore = {
     settings: () => Promise.resolve(null),
     repositoryCeiling: () => Promise.resolve(null),
+    repositoryNames: () => Promise.resolve(new Map()),
     async enabled(_workspaceId, agentId) {
       return agentId === AGENT ? enabled : null;
     },
@@ -212,6 +213,7 @@ describe("the agent GitHub API", () => {
     expect(activity.status).toBe(200);
     expect(agentGitHubActivityResponseSchema.parse(activity.json)).toEqual({
       items: [],
+      receipt_repositories: [],
     });
   });
 

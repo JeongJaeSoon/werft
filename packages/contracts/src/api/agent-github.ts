@@ -4,6 +4,7 @@ import {
   agentGitHubSettingsSchema,
   pushAttachedSchema,
 } from "../kollegium/agents.ts";
+import { repositoryRefSchema } from "../musterrolle/github-repository.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 import { receiptSchema } from "./receipt.ts";
 
@@ -45,6 +46,22 @@ export const agentGitHubResponseSchema = z.object({
    * save sends it back as `expected_revision`.
    */
   settings_revision: z.number().int().nullable(),
+  /**
+   * `github.repositories`, in its order, read as `owner/repo`. A row the
+   * catalog dropped still answers; one it never held has a null
+   * `repository`. Optional so a client written before it still type-checks;
+   * the server always sends it.
+   */
+  selected_repositories: z
+    .array(
+      z.object({
+        id: z.string(),
+        repository: z.string().min(1).nullable(),
+        private: z.boolean().nullable(),
+        ref: repositoryRefSchema,
+      }),
+    )
+    .optional(),
   /** The repository a session that names none starts on. */
   start_repository_id: z.string().nullable(),
   /**
@@ -65,6 +82,15 @@ export const agentGitHubResponseSchema = z.object({
       z.object({
         id: z.string(),
         url: z.string(),
+        // The next four are optional only so a client written before them
+        // still type-checks; the server always sends them.
+        /** `owner/repo` of the catalog row. */
+        repository: z.string().min(1).optional(),
+        full_name: z.string().min(1).optional(),
+        /** Always null here: reading this does not ask GitHub. */
+        private: z.boolean().nullable().optional(),
+        /** Hand it back to keep the repository; shows nothing to a person. */
+        ref: repositoryRefSchema.optional(),
         available: z.boolean(),
         reason: z.enum(AGENT_GITHUB_REPOSITORY_UNAVAILABLE_VALUES).nullable(),
         /**
@@ -138,6 +164,21 @@ export const AGENT_GITHUB_ACTIVITY_LIMIT = 20;
  */
 export const agentGitHubActivityResponseSchema = z.object({
   items: z.array(receiptSchema).max(AGENT_GITHUB_ACTIVITY_LIMIT),
+  /**
+   * `owner/repo` per receipt in `items` that is about a repository: the name
+   * it recorded, else the repository's name now (an older receipt only held
+   * its catalog id). A receipt naming none, or a repository the catalog
+   * never held, has no entry. Optional only for clients written before it;
+   * the server always sends it.
+   */
+  receipt_repositories: z
+    .array(
+      z.object({
+        receipt_id: receiptIdSchema,
+        repository: z.string().min(1),
+      }),
+    )
+    .optional(),
 });
 
 export type AgentGitHubResponse = z.infer<typeof agentGitHubResponseSchema>;

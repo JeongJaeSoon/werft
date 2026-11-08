@@ -32,6 +32,11 @@ interface RepositoryWrite {
 export interface CatalogRepositoryStore {
   listActive(): Promise<CatalogRepositoryRow[]>;
   /**
+   * `listActive` and the rows with an App of their own (`github_app_explicit`):
+   * every repository an agent can be given, since a PAT one cannot.
+   */
+  listAgentChoosable(): Promise<CatalogRepositoryRow[]>;
+  /**
    * `listActive`, or null while the table has never held a row.
    */
   readCatalog(): Promise<CatalogRepositoryRow[] | null>;
