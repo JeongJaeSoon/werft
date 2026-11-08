@@ -296,6 +296,8 @@ export const RESOURCE_KIND_VALUES = [
   // Receipt targets only: no action is granted on a key or a team.
   "api_key",
   "team",
+  // Receipt targets only: a stored extension bundle (94S-865).
+  "extension_bundle",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z

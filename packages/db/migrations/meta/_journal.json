@@ -1072,6 +1072,13 @@
       "when": 1794165257317,
       "tag": "0243_agent_managing_team_required",
       "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1794175033506,
+      "tag": "0244_extension_bundles",
+      "breakpoints": true
     }
   ]
 }

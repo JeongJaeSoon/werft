@@ -4132,6 +4132,79 @@ export const credentialBindings = pgTable(
   ],
 );
 
+// Kept equal to the platform port's lists by extension-bundles.integration.test.ts.
+export const EXTENSION_BUNDLE_REVIEWS = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
+
+// A skill-only extension bundle, registered once per workspace and digest
+// (94S-865). `digest` is the sha256 of the validator's canonical file list;
+// every other column is bookkeeping, so a review or a label never moves it.
+// The files are in the object store at workspaces/<id>/bundles/<digest>.tar.
+// Workspace-owned bundles only; an operator-wide bundle is a later ticket.
+export const extensionBundles = pgTable(
+  "extension_bundles",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    digest: text().notNull(),
+    label: text().notNull(),
+    source: text().notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    manifest: jsonb().notNull(),
+    review: text().notNull().default("pending"),
+    registeredBy: uuid("registered_by")
+      .notNull()
+      .references(() => users.id),
+    registeredAt: timestamp("registered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("extension_bundles_workspace_digest_idx").on(
+      table.workspaceId,
+      table.digest,
+    ),
+    check(
+      "extension_bundles_digest_check",
+      sql`${table.digest} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "extension_bundles_name_check",
+      sql`${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "extension_bundles_label_check",
+      sql`char_length(${table.label}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "extension_bundles_source_check",
+      sql`${table.source} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_SOURCES))})`,
+    ),
+    check(
+      "extension_bundles_review_check",
+      sql`${table.review} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_REVIEWS))})`,
+    ),
+    check(
+      "extension_bundles_review_actor_check",
+      sql`(${table.review} = 'pending') = (${table.reviewedBy} IS NULL AND ${table.reviewedAt} IS NULL)`,
+    ),
+    check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
+    check(
+      "extension_bundles_manifest_check",
+      sql`jsonb_typeof(${table.manifest}) = 'object'`,
+    ),
+  ],
+);
+
 export const agentActivationEvents = pgTable(
   "agent_activation_events",
   {
