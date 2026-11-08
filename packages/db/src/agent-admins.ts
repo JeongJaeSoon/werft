@@ -93,10 +93,7 @@ export async function lockedAdministers(
       .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
     if (held.length > 0) return true;
   }
-  return (
-    agent.managingTeamId !== null &&
-    lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"])
-  );
+  return lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"]);
 }
 
 /**
@@ -143,35 +140,49 @@ export async function lockedTeamRow(
  * Whether `teamId` may become an agent's managing team for this actor: any
  * live team of the workspace for an owner or admin, else only one the actor
  * is in (agent-rbac design (d)). Locks what it read, as `lockedTeamRow`.
+ * The holding team of migration 0243 is never a destination, for anyone: its
+ * agents keep their old session visibility, which another agent must not get
+ * by being moved there. `keep` is the agent's current team, which may stay.
  */
 export async function managingTeamAllowed(
   tx: Database,
   workspaceId: string,
   teamId: string,
   actor: { userId: string; manager: boolean },
-): Promise<"ok" | "team_not_found" | "team_not_allowed"> {
+  keep?: string,
+): Promise<"ok" | "team_not_found" | "team_not_allowed" | "team_holding"> {
   if (!UUID.test(teamId)) return "team_not_found";
   const id = teamId.toLowerCase();
+  let eligible: "ok" | "team_not_found" | "team_not_allowed";
   if (!actor.manager) {
-    return (await lockedTeamRow(tx, workspaceId, id, actor.userId, [
+    eligible = (await lockedTeamRow(tx, workspaceId, id, actor.userId, [
       "lead",
       "member",
     ]))
       ? "ok"
       : "team_not_allowed";
+  } else {
+    const [team] = await tx
+      .select({ id: memberTeams.id })
+      .from(memberTeams)
+      .where(
+        and(
+          eq(memberTeams.workspaceId, workspaceId),
+          eq(memberTeams.id, id),
+          isNull(memberTeams.archivedAt),
+        ),
+      )
+      .for("share");
+    eligible = team ? "ok" : "team_not_found";
   }
-  const [team] = await tx
-    .select({ id: memberTeams.id })
+  // Said only to one who could name the team anyway, so the answer does not
+  // tell anyone else which team is the holding one.
+  if (eligible !== "ok" || id === keep) return eligible;
+  const [held] = await tx
+    .select({ holds: memberTeams.holdsUnassigned })
     .from(memberTeams)
-    .where(
-      and(
-        eq(memberTeams.workspaceId, workspaceId),
-        eq(memberTeams.id, id),
-        isNull(memberTeams.archivedAt),
-      ),
-    )
-    .for("share");
-  return team ? "ok" : "team_not_found";
+    .where(eq(memberTeams.id, id));
+  return held?.holds ? "team_holding" : "ok";
 }
 
 async function setManagingTeam(
@@ -196,16 +207,19 @@ async function setManagingTeam(
     const manager = (input.managerRoles as readonly string[]).includes(
       people[0]?.role ?? "",
     );
-    const allowed = await managingTeamAllowed(tx, workspaceId, input.teamId, {
-      userId: actor.userId,
-      manager,
-    });
-    if (allowed !== "ok") return { outcome: allowed };
-    const teamId = input.teamId.toLowerCase();
     const [before] = await tx
       .select({ teamId: agents.managingTeamId })
       .from(agents)
       .where(eq(agents.id, agentId));
+    const allowed = await managingTeamAllowed(
+      tx,
+      workspaceId,
+      input.teamId,
+      { userId: actor.userId, manager },
+      before?.teamId,
+    );
+    if (allowed !== "ok") return { outcome: allowed };
+    const teamId = input.teamId.toLowerCase();
     if (before?.teamId === teamId) {
       return { outcome: "unchanged", agent: await agentRow(tx, agentId) };
     }

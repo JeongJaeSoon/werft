@@ -13,7 +13,7 @@
       "!apps/docs/.source",
       "!apps/docs/next-env.d.ts",
       "!!.claude",
-      "!.scratch/**",
+      "!.scratch",
       "!docs/openapi.json",
       "!packages/client/src/schema.gen.ts",
       "!docs/api/index.html",

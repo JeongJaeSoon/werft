@@ -57,7 +57,13 @@ export type AgentRecord = Omit<AgentDetail, "effective_behavior">;
 
 export type CreateAgentResult =
   | { outcome: "created"; detail: AgentRecord }
-  | { outcome: "slug_taken" | "team_not_found" | "team_not_allowed" }
+  | {
+      outcome:
+        | "slug_taken"
+        | "team_not_found"
+        | "team_not_allowed"
+        | "team_holding";
+    }
   | Inactive;
 
 /**

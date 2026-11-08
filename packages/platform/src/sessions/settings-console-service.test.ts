@@ -126,6 +126,7 @@ function service(
     setValue: record("setValue"),
     convertConnection: record("convertConnection"),
     disable: record("disable"),
+    enableConnection: record("enableConnection"),
     setMcpWorkspaces: record("setMcpWorkspaces"),
   };
   const settings = createSettingsConsoleService({
@@ -401,6 +402,58 @@ describe("settings console service", () => {
       if (reason !== undefined) {
         expect(refused.details).toMatchObject({ reason_code: reason });
       }
+      expect(rereads()).toBe(0);
+    }
+  });
+
+  test("enabling a connection is the owner's, writes through the store and rereads", async () => {
+    const { settings, writes, rereads } = service();
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      expect(
+        (await refusal(settings.enableConnection(who, "console"))).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(writes).toEqual([]);
+    expect(rereads()).toBe(0);
+    expect(await settings.enableConnection(caller("owner"), "console")).toEqual(
+      { id: "console", receipt_id: RECEIPT },
+    );
+    expect(writes).toEqual([["enableConnection", "console"]]);
+    expect(rereads()).toBe(1);
+  });
+
+  test("an enable the store refuses says why, and the settings are not read again", async () => {
+    for (const [result, code, reason, message] of [
+      [{ outcome: "actor_inactive" }, "FORBIDDEN", "role", undefined],
+      [{ outcome: "not_found" }, "NOT_FOUND", undefined, undefined],
+      [
+        { outcome: "conflict", reason: "not_disabled" },
+        "REVISION_CONFLICT",
+        "not_disabled",
+        "is not disabled",
+      ],
+      [
+        { outcome: "conflict", reason: "definition_active" },
+        "REVISION_CONFLICT",
+        "definition_active",
+        "another connection in use",
+      ],
+      [
+        { outcome: "conflict", reason: "needs_value" },
+        "REVISION_CONFLICT",
+        "needs_value",
+        "stored value is gone",
+      ],
+    ] as const) {
+      const { settings, rereads } = service({ result });
+      const refused = await refusal(
+        settings.enableConnection(caller("owner"), "console"),
+      );
+      expect(refused.code).toBe(code);
+      if (reason !== undefined) {
+        expect(refused.details).toMatchObject({ reason_code: reason });
+      }
+      if (message !== undefined) expect(refused.message).toContain(message);
       expect(rereads()).toBe(0);
     }
   });

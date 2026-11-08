@@ -23,6 +23,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSlackInboundEventStore } from "./slack-inbound-events.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const migrations = join(import.meta.dir, "../migrations");
 const LEASE = { leaseMs: 60_000, maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS };
@@ -54,6 +55,7 @@ async function agentApp() {
   await db.insert(agents).values({
     id: agentId,
     workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
     slug: `a-${agentId.slice(0, 8)}`,
     name: "Notes",
   });

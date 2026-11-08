@@ -35,6 +35,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -97,6 +98,8 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       id: workspaceId,
       slug: `ws-${workspaceId.slice(0, 8)}`,
       name: "ws",
+      // Outsiders of an agent's team keep seeing its workspace sessions.
+      settings: { agent_outsider_session_visibility: "workspace" },
     });
     for (const [who, name] of [
       ["alice", "Alice Kim"],
@@ -145,6 +148,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       await db.insert(agents).values({
         id: agentId,
         workspaceId,
+        managingTeamId: await fixtureTeam(db, workspaceId),
         slug: name.toLowerCase().replace(" ", "-"),
         name,
       });

@@ -30,6 +30,7 @@ import {
   verifySlackInstallation,
   workspaces,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   type AuthorizationPolicy,
   agentForSlackEvent,
@@ -172,7 +173,13 @@ integration("agent identities over HTTP on PostgreSQL", () => {
 
   async function newAgent(slug: string, adminId?: string) {
     const id = crypto.randomUUID();
-    await db.insert(agents).values({ id, workspaceId, slug, name: slug });
+    await db.insert(agents).values({
+      id,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug,
+      name: slug,
+    });
     if (adminId) {
       await db
         .insert(agentAdmins)
@@ -468,9 +475,13 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       .insert(workspaces)
       .values({ id: elsewhere, slug: "elsewhere", name: "Elsewhere" });
     const foreign = crypto.randomUUID();
-    await db
-      .insert(agents)
-      .values({ id: foreign, workspaceId: elsewhere, slug: "x", name: "x" });
+    await db.insert(agents).values({
+      id: foreign,
+      workspaceId: elsewhere,
+      managingTeamId: await fixtureTeam(db, elsewhere),
+      slug: "x",
+      name: "x",
+    });
     for (const [cookie, agent, listStatus] of [
       [member, agentId, 403],
       [admin, crypto.randomUUID(), 404],

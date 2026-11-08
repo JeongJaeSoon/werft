@@ -21,7 +21,7 @@ const TITLE_MAX_TOKENS = 64;
 const EXCERPT_CHARS = 2_000;
 
 const TITLE_SYSTEM =
-  "You name conversations. Reply with a title for the conversation the user shows you: at most eight words, in the language the user wrote in, plain text, no quotes and no ending punctuation. Reply with the title only.";
+  "You name conversations. Write a title for the conversation the user shows you: at most eight words, in the language the user wrote in, plain text, no quotes and no ending punctuation. Reply with the title inside <title></title> tags and nothing else: no label, no explanation.";
 
 /**
  * Names a session after its first turn, through the egress proxy's provider
@@ -155,7 +155,12 @@ function promptOf(message: string, result: string | null): string {
   return parts.join("\n");
 }
 
-/** The answer's text as a title, or null when nothing usable is left. */
+/**
+ * The text inside the answer's <title> tag as a title, or null when there is
+ * no tag or nothing usable is left. Untagged text is never a title: a model
+ * that explains itself instead of answering would otherwise leak that
+ * explanation into the session name.
+ */
 export function titleOf(answer: unknown): string | null {
   if (typeof answer !== "object" || answer === null) return null;
   const { content } = answer as { content?: unknown };
@@ -170,7 +175,11 @@ export function titleOf(answer: unknown): string | null {
     )
     .map((block) => block.text)
     .join("");
-  const line = text.trim().split("\n")[0] ?? "";
+  // Exactly one single-line tag: several tags or a multi-line body mean the
+  // model was thinking aloud, and which part is the title cannot be told.
+  const tags = [...text.matchAll(/<title>([^<]*)<\/title>/g)];
+  const line = tags.length === 1 ? (tags[0]?.[1] ?? "").trim() : "";
+  if (line === "" || line.includes("\n")) return null;
   const unquoted = line.replace(/^[\s"'`“”‘’「」]+|[\s"'`“”‘’「」.。]+$/g, "");
   return deriveSessionTitle(unquoted);
 }

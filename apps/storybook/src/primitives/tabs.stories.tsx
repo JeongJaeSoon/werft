@@ -62,7 +62,7 @@ export const LineWithCounts: Story = {
         <TabsList variant="line" aria-label="세션 보기">
           <TabsTrigger value="timeline">타임라인</TabsTrigger>
           <TabsTrigger value="artifacts" count={4}>
-            결과물
+            성과물
           </TabsTrigger>
           <TabsTrigger value="requests" count={0} countLabel="열린 요청 없음">
             요청
@@ -71,7 +71,7 @@ export const LineWithCounts: Story = {
         </TabsList>
       </div>
       <TabsContent value="timeline">이벤트 목록</TabsContent>
-      <TabsContent value="artifacts">결과물 목록</TabsContent>
+      <TabsContent value="artifacts">성과물 목록</TabsContent>
       <TabsContent value="requests">요청 목록</TabsContent>
       <TabsContent value="info">세션 정보</TabsContent>
     </Tabs>

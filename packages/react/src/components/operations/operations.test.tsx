@@ -645,7 +645,7 @@ const LIMITS = {
 };
 
 describe("InstallationLimits", () => {
-  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨', 결과물 저장은 '한도 없음'이다", () => {
+  test("한도 행마다 현재·한도를 쓰고, 토큰 한도가 null이면 '설정 안 됨', 성과물 저장은 '한도 없음'이다", () => {
     const { getByRole } = withPlatform(
       <InstallationLimits limits={LIMITS} timeZone="Asia/Seoul" />,
     );
@@ -661,7 +661,7 @@ describe("InstallationLimits", () => {
     expect(rows).toEqual([
       ["동시 실행 슬롯", "7 / 10", "10"],
       ["입력 메시지 저장", "2 GB", "10 GB"],
-      ["결과물 저장", "512 MB", "한도 없음"],
+      ["성과물 저장", "512 MB", "한도 없음"],
       ["세션당 비용", "세션마다 셉니다", "$25.00"],
       ["세션당 토큰", "세션마다 셉니다", "설정 안 됨"],
       ["세션당 대기 입력", "세션마다 셉니다", "20건"],
@@ -672,7 +672,7 @@ describe("InstallationLimits", () => {
     );
   });
 
-  test("결과물 행은 받은 그대로 설명하고, 빠진 checkpoint가 있으면 값을 하한으로 쓰고 적게 셀 수 있다고 쓴다", () => {
+  test("성과물 행은 받은 그대로 설명하고, 빠진 checkpoint가 있으면 값을 하한으로 쓰고 적게 셀 수 있다고 쓴다", () => {
     // Item, current and note of the storage and outputs rows.
     const rows = (limits: typeof LIMITS) => {
       const { getByRole, unmount } = withPlatform(
@@ -694,12 +694,12 @@ describe("InstallationLimits", () => {
       [
         "입력 메시지 저장",
         "2 GB",
-        "세션에 보낸 입력 메시지만 셉니다. 결과물은 따로 셉니다",
+        "세션에 보낸 입력 메시지만 셉니다. 성과물은 따로 셉니다",
       ],
       [
-        "결과물 저장",
+        "성과물 저장",
         "512 MB",
-        "세션 결과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
+        "세션 성과물이 차지한 용량. 보여 주기만 하고 막지 않습니다",
       ],
     ]);
     // The current cell stays on narrow screens, where the note column hides.
@@ -712,9 +712,9 @@ describe("InstallationLimits", () => {
         },
       })[1],
     ).toEqual([
-      "결과물 저장",
+      "성과물 저장",
       "512 MB 이상",
-      "결과물을 세기 전 체크포인트가 남아 있어 실제보다 적을 수 있습니다",
+      "성과물을 세기 전 체크포인트가 남아 있어 실제보다 적을 수 있습니다",
     ]);
   });
 

@@ -1,8 +1,8 @@
 {
   "runtime": {
-    "cliVersion": "2.1.270",
+    "cliVersion": "2.1.319",
     "engine": "claude",
-    "sdkVersion": "0.3.270"
+    "sdkVersion": "0.3.319"
   },
   "profileDigestScheme": 1,
   "profileSha256": {

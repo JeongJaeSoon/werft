@@ -8,6 +8,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { launchSession } from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
@@ -118,6 +119,7 @@ async function seeded(slug = "default") {
   await db.insert(schema.agents).values({
     id: agentId,
     workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
     slug: "mcp-agent",
     name: "mcp agent",
   });

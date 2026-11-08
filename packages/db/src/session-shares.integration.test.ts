@@ -26,6 +26,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSessionShareStore } from "./session-shares.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -82,9 +83,13 @@ integration("session share scopes on PostgreSQL", () => {
   async function agentKey(workspaceId: string) {
     const id = randomUUID();
     const agentId = randomUUID();
-    await db
-      .insert(schema.agents)
-      .values({ id: agentId, workspaceId, slug: agentId, name: "bot" });
+    await db.insert(schema.agents).values({
+      id: agentId,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: agentId,
+      name: "bot",
+    });
     await db.insert(apiKeys).values({
       id,
       keyHash: Buffer.from(randomUUID()),

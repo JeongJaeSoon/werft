@@ -470,4 +470,230 @@ integration("settings console writes", () => {
       ).toEqual([]);
     });
   });
+
+  describe("enabling a connection again", () => {
+    const external = (valueEnv: string) => ({
+      kind: "anthropic",
+      endpoint: "http://fake-model:8080",
+      billing: "none",
+      auth: { kind: "api_key", value_env: valueEnv },
+    });
+    const importExternal = (connections: Record<string, unknown>) =>
+      store().importEntries(
+        parseSettingsDocument({
+          version: 1,
+          connections,
+          repositories: {},
+          mcp_servers: {},
+        }),
+        { dryRun: false, allowExternal: true, actor: null },
+      );
+    const rowOf = async (id: string) =>
+      (
+        await db
+          .select()
+          .from(providerConnections)
+          .where(eq(providerConnections.id, id))
+      )[0];
+    const enableReceipts = async (id: string) =>
+      (await receiptsOf("enable_connection")).filter(
+        (one) =>
+          (one.result as { connection_id?: string }).connection_id === id,
+      );
+    const off = (owner: TeamActor, id: string) =>
+      store().disable({ kind: "connection", id }, owner);
+
+    test("a disabled stored connection is live again, with one receipt, and the registry reads it", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "en-stored", CONNECTION),
+        "stored-key-1111",
+        owner,
+      );
+      await off(owner, "en-stored");
+      expect(
+        (await settings().read({ openStored: true })).connections.some(
+          (one) => one.id === "en-stored",
+        ),
+      ).toBe(false);
+
+      const enabled = await store().enableConnection("en-stored", owner);
+      expect(enabled.outcome).toBe("done");
+      expect(await rowOf("en-stored")).toMatchObject({
+        disabledAt: null,
+        disabledBy: null,
+      });
+      const read = await settings().read({ openStored: true });
+      expect(read.connections.some((one) => one.id === "en-stored")).toBe(true);
+      expect(read.stored.get("connection:en-stored")).toBe("stored-key-1111");
+      const receipts = await enableReceipts("en-stored");
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]?.result).toEqual({
+        connection_id: "en-stored",
+        source: "console",
+      });
+      expect(JSON.stringify(receipts[0]?.result)).not.toContain("stored-key");
+    });
+
+    test("one in use, a missing one, and a role that is not an owner's change nothing", async () => {
+      const owner = await person("owner");
+      const admin = await person("admin");
+      await store().create(
+        add("connections", "en-live", CONNECTION),
+        "live-key-2222",
+        owner,
+      );
+      expect(await store().enableConnection("en-live", owner)).toEqual({
+        outcome: "conflict",
+        reason: "not_disabled",
+      });
+      expect(await store().enableConnection("en-nobody", owner)).toEqual({
+        outcome: "not_found",
+      });
+
+      await off(owner, "en-live");
+      expect(await store().enableConnection("en-live", admin)).toEqual({
+        outcome: "actor_inactive",
+      });
+      expect((await rowOf("en-live"))?.disabledAt).not.toBeNull();
+      expect(await enableReceipts("en-live")).toEqual([]);
+    });
+
+    test("another connection in use holding the same definition refuses it; one disabled does not", async () => {
+      const owner = await person("owner");
+      await importExternal({
+        "en-twin-a": external("EN_TWIN_KEY"),
+        "en-twin-b": external("EN_TWIN_KEY"),
+      });
+      await off(owner, "en-twin-a");
+      expect(await store().enableConnection("en-twin-a", owner)).toEqual({
+        outcome: "conflict",
+        reason: "definition_active",
+      });
+      expect((await rowOf("en-twin-a"))?.disabledAt).not.toBeNull();
+      expect(await enableReceipts("en-twin-a")).toEqual([]);
+
+      await off(owner, "en-twin-b");
+      expect((await store().enableConnection("en-twin-a", owner)).outcome).toBe(
+        "done",
+      );
+      // The twin now waits on the one in use, the same way.
+      expect(await store().enableConnection("en-twin-b", owner)).toEqual({
+        outcome: "conflict",
+        reason: "definition_active",
+      });
+    });
+
+    test("a live connection that is, or was, exactly this one's old reference refuses it", async () => {
+      const owner = await person("owner");
+      await importExternal({ "en-moved": external("EN_MOVED_KEY") });
+      await store().convertConnection("en-moved", "moved-key-3333", owner);
+      await off(owner, "en-moved");
+      // The row now says `stored`; a live row spelled as the old reference
+      // would be found by the ceilings made over it.
+      const moved = await rowOf("en-moved");
+      await db.insert(providerConnections).values({
+        id: "en-spelled-old",
+        definition: { ...moved?.definition, auth: moved?.replacesAuth },
+        credentialSource: "external",
+        origin: "import",
+      });
+      expect(await store().enableConnection("en-moved", owner)).toEqual({
+        outcome: "conflict",
+        reason: "definition_active",
+      });
+      await off(owner, "en-spelled-old");
+      expect((await store().enableConnection("en-moved", owner)).outcome).toBe(
+        "done",
+      );
+    });
+
+    test("a stored connection whose value is gone needs one first; a deployment's reference is let through", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "en-lost", CONNECTION),
+        "lost-key-4444",
+        owner,
+      );
+      await off(owner, "en-lost");
+      await db
+        .delete(secretValues)
+        .where(eq(secretValues.ownerRef, "connection:en-lost"));
+      expect(await store().enableConnection("en-lost", owner)).toEqual({
+        outcome: "conflict",
+        reason: "needs_value",
+      });
+      expect((await rowOf("en-lost"))?.disabledAt).not.toBeNull();
+      expect(await enableReceipts("en-lost")).toEqual([]);
+
+      await importExternal({ "en-ref": external("EN_REF_KEY") });
+      await off(owner, "en-ref");
+      expect((await store().enableConnection("en-ref", owner)).outcome).toBe(
+        "done",
+      );
+    });
+
+    test("two twins enabled at once: one is done and the other sees it, so never two live", async () => {
+      const owner = await person("owner");
+      await importExternal({
+        "en-pair-a": external("EN_PAIR_KEY"),
+        "en-pair-b": external("EN_PAIR_KEY"),
+      });
+      await off(owner, "en-pair-a");
+      await off(owner, "en-pair-b");
+      const results = await Promise.all([
+        store().enableConnection("en-pair-a", owner),
+        store().enableConnection("en-pair-b", owner),
+      ]);
+      expect(results.map((one) => one.outcome).sort()).toEqual([
+        "conflict",
+        "done",
+      ]);
+      const live = (await db.select().from(providerConnections)).filter(
+        (one) => one.id.startsWith("en-pair-") && one.disabledAt === null,
+      );
+      expect(live).toHaveLength(1);
+    });
+
+    test("a live connection that once held the same old reference refuses it, though their definitions differ", async () => {
+      const owner = await person("owner");
+      await importExternal({ "en-old-a": external("EN_OLD_KEY") });
+      await store().convertConnection("en-old-a", "old-key-7777", owner);
+      await off(owner, "en-old-a");
+      const first = await rowOf("en-old-a");
+      await db.insert(providerConnections).values({
+        id: "en-old-b",
+        definition: {
+          ...first?.definition,
+          auth: { kind: "api_key", stored: "connection:en-old-b" },
+        },
+        credentialSource: "stored",
+        origin: "console",
+        replacesAuth: first?.replacesAuth ?? null,
+      });
+      expect(await store().enableConnection("en-old-a", owner)).toEqual({
+        outcome: "conflict",
+        reason: "definition_active",
+      });
+    });
+
+    test("two enables at once: one is done, one is told it is no longer disabled, one receipt", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "en-race", CONNECTION),
+        "race-key-5555",
+        owner,
+      );
+      await off(owner, "en-race");
+      const results = await Promise.all([
+        store().enableConnection("en-race", owner),
+        store().enableConnection("en-race", owner),
+      ]);
+      expect(results.map((one) => one.outcome).sort()).toEqual([
+        "conflict",
+        "done",
+      ]);
+      expect(await enableReceipts("en-race")).toHaveLength(1);
+    });
+  });
 });

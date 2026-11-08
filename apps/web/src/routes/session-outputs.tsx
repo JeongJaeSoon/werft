@@ -262,7 +262,7 @@ function SessionUsageLine({ session }: { readonly session: SessionDetail }) {
   if (usage === undefined) return null;
   const tokens = new Intl.NumberFormat(locale).format(usage.token_count);
   return (
-    <Text variant="sub">
+    <Text variant="meta">
       {usage.cost.kind === "unmetered"
         ? t("session.outcomes.usageUnmetered", { tokens })
         : t("session.outcomes.usage", {
@@ -294,7 +294,12 @@ function SessionPullRequests({
   if (items.length === 0) return null;
   return (
     <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <Heading id={titleId}>{t("session.outcomes.title")}</Heading>
+      <Heading id={titleId}>
+        {t("session.outcomes.title")}{" "}
+        <Text as="span" variant="sub">
+          {items.length}
+        </Text>
+      </Heading>
       <Text variant="sub">{t("session.outcomes.description")}</Text>
       <RowList variant="joined">
         {items.map((outcome) =>
@@ -305,7 +310,6 @@ function SessionPullRequests({
           ),
         )}
       </RowList>
-      <SessionUsageLine session={session} />
     </section>
   );
 }
@@ -357,8 +361,10 @@ function SessionGitHubRefusals({
 }
 
 /**
- * The outputs tab: whom commits name, the pull requests the session opened
- * with its tokens and cost, recent GitHub refusals, then its `out/` files.
+ * The outputs tab (성과물): achievements, the evidence (pull requests,
+ * reviews), `out/` files, the GitHub work and its refusals, then one meta
+ * line with whom commits name and the session's tokens and cost. The tab's
+ * count is the sum of the three counted lists above it.
  */
 export function SessionOutputsTab({
   session,
@@ -385,10 +391,7 @@ export function SessionOutputsTab({
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
       <SessionAchievements session={session} />
-      <SessionAttribution session={session} />
       <SessionPullRequests session={session} outcomes={outcomes} />
-      <SessionGitHubWork session={session} />
-      <SessionGitHubRefusals session={session} />
       {filesRead && pullsRead && files.length === 0 && pulls.length === 0 ? (
         outputs.error && !isApiError(outputs.error, "NOT_FOUND") ? (
           <SessionOutputs session={session} />
@@ -401,6 +404,12 @@ export function SessionOutputsTab({
       ) : (
         <SessionOutputs session={session} />
       )}
+      <SessionGitHubWork session={session} />
+      <SessionGitHubRefusals session={session} />
+      <div className="flex flex-col gap-1">
+        <SessionAttribution session={session} />
+        <SessionUsageLine session={session} />
+      </div>
     </div>
   );
 }
@@ -482,16 +491,18 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
       className="flex flex-col gap-2"
       aria-labelledby={titleId}
     >
-      <Heading id={titleId}>{t("session.outputs.files")}</Heading>
-      <ul className="m-0 flex list-none flex-col gap-2 rounded-card border bg-card p-4">
+      <Heading id={titleId}>
+        {t("session.outputs.files")}{" "}
+        <Text as="span" variant="sub">
+          {items.length}
+        </Text>
+      </Heading>
+      <RowList variant="joined">
         {items.map((item) => {
           const name = item.path.replace(/^out\//, "");
           return (
-            <li
-              key={item.path}
-              className="flex min-w-0 items-center justify-between gap-3 text-control"
-            >
-              <div className="flex min-w-0 flex-col">
+            <RowListItem key={item.path} className="justify-between">
+              <RowLines>
                 <Code className="text-control [overflow-wrap:anywhere]">
                   {name}
                 </Code>
@@ -500,7 +511,7 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
                     ? formatBytes(item.bytes, locale)
                     : `${formatBytes(item.bytes, locale)} · ${t("session.outputs.tooLarge")}`}
                 </Text>
-              </div>
+              </RowLines>
               {item.omitted === null ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -519,10 +530,10 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
                   </TooltipContent>
                 </Tooltip>
               ) : null}
-            </li>
+            </RowListItem>
           );
         })}
-      </ul>
+      </RowList>
     </section>
   );
 }

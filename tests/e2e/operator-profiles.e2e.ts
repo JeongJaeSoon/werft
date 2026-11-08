@@ -79,7 +79,7 @@ const CEILING = {
   name: NAME,
   connection_id: CONNECTION,
   runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
+  runtime_version: "0.3.319",
   model: "claude-sonnet-5",
   models: ["claude-sonnet-5", "claude-haiku-4-5"],
   tools: ["Read", "Write", "Bash"],

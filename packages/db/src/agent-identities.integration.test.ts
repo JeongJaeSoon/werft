@@ -33,6 +33,7 @@ import {
   revokeSlackInstallation,
   verifySlackInstallation,
 } from "./slack-installations.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -100,9 +101,13 @@ integration("agent identities on PostgreSQL", () => {
 
   async function agent(workspaceId: string, admin?: Caller) {
     const id = randomUUID();
-    await db
-      .insert(agents)
-      .values({ id, workspaceId, slug: `a-${id.slice(0, 8)}`, name: "bot" });
+    await db.insert(agents).values({
+      id,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: `a-${id.slice(0, 8)}`,
+      name: "bot",
+    });
     if (admin?.actor?.userId) {
       await db
         .insert(agentAdmins)

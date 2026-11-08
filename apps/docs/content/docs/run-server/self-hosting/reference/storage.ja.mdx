@@ -78,6 +78,7 @@ PVC がまだ bind されていないか、scheduler に PVC の `get` 権限が
 - 最後に commit した checkpoint が復元地点として残ります。上限を超えた一つの turn には checkpoint がなく、worker 交代後はその turn の context を引き継げません（セッション詳細の attention は `CONTEXT_GAP`）。
 
 <a id="결과물out-색인-상한" />
+<a id="성과물out-색인-상한" />
 ## 成果物（`out/`）の索引上限
 
 worker は checkpoint ごとに作業ディレクトリの `out/` 配下の通常ファイルを git 状態に関係なく索引化して manifest の `outputs` に入れ、ファイルごとに object を一つ upload します。上限は `apps/worker/src/workspace-outputs.ts` の `DEFAULT_OUTPUT_LIMITS` です。

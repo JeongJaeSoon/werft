@@ -27,6 +27,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -98,9 +99,13 @@ integration("GET /v1/api-keys pages on PostgreSQL", () => {
 
   async function agent(workspaceId: string, adminId?: string) {
     const id = randomUUID();
-    await db
-      .insert(agents)
-      .values({ id, workspaceId, slug: `a-${id.slice(0, 8)}`, name: "a" });
+    await db.insert(agents).values({
+      id,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: `a-${id.slice(0, 8)}`,
+      name: "a",
+    });
     if (adminId) {
       await db
         .insert(agentAdmins)

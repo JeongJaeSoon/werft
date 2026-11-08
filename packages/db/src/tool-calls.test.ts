@@ -21,6 +21,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { projectToolCalls, toolCallTotals } from "./tool-calls.ts";
 import { bucketMs, histMedianMs } from "./tool-calls-hist.ts";
 
@@ -45,9 +46,13 @@ beforeAll(async () => {
     { id: OTHER, email: "other@example.invalid", displayName: "other" },
   ]);
   await db.insert(workspaces).values({ id: WORKSPACE, slug: "ws", name: "ws" });
-  await db
-    .insert(agents)
-    .values({ id: AGENT, workspaceId: WORKSPACE, slug: "bot", name: "bot" });
+  await db.insert(agents).values({
+    id: AGENT,
+    workspaceId: WORKSPACE,
+    managingTeamId: await fixtureTeam(db, WORKSPACE),
+    slug: "bot",
+    name: "bot",
+  });
   const versionId = crypto.randomUUID();
   await db.insert(agentVersions).values({
     id: versionId,

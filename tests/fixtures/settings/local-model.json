@@ -30,7 +30,7 @@
   "profiles": {
     "local-ollama": {
       "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
+      "runtime_version": "0.3.319",
       "model": "gemma4:26b-mlx",
       "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
       "permission_mode": "default",
@@ -43,7 +43,7 @@
     },
     "local-litellm": {
       "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
+      "runtime_version": "0.3.319",
       "model": "gemma4-local",
       "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
       "permission_mode": "default",

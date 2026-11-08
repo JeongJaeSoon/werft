@@ -20,6 +20,7 @@ import {
   receipts,
   users,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   createAuthorizationPolicy,
   createInviteService,
@@ -394,6 +395,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     await db.insert(schema.agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `listed-${agentId.slice(0, 8)}`,
       name: "Listed agent",
     });

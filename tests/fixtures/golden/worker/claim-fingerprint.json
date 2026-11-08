@@ -1,71 +1,71 @@
 {
   "default": {
     "repository": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce"
     },
     "repositoryless": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "cdfd8f2d9b20d7fdef97e0e41bad9f41d778b6c4b4e180a6b3d8e0495ed157b2"
     }
   },
   "claude-md": {
     "repository": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "11264a133b88785aea552a70fe41191476cde610102801b3af6f0c421b9908a0"
     },
     "repositoryless": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "75cdc5ebc253209ae529bbfdb6609d3be03ad6fe1ac203fe280ea5c22b53ef06"
     }
   },
   "claude-md-off": {
     "repository": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce"
     },
     "repositoryless": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "cdfd8f2d9b20d7fdef97e0e41bad9f41d778b6c4b4e180a6b3d8e0495ed157b2"
     }
   },
   "mcp": {
     "repository": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "6f4464929c3cf7a6e24b35bd7960b703338d72b0307d4ba51eb1028a9af52ab8"
     },
     "repositoryless": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "45411e2596abeb0a270a8bf26e4ad36cb47bf0799ebb5130635fe0c01f3be905"
     }
   },
   "litellm": {
     "repository": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "ba8b24fe064ab1e27a890dc67285edd9835c7d8af42dcda0e883fca5af5c86c7"
     },
     "repositoryless": {
-      "cliVersion": "2.1.270",
+      "cliVersion": "2.1.319",
       "engine": "claude",
-      "sdkVersion": "0.3.270",
+      "sdkVersion": "0.3.319",
       "profileSha256": "5b904485d2cdc9b49c790a7d499b7421c2dbfaf7eb91286e8f54206dfc46a1ac"
     }
   }

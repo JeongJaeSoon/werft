@@ -68,7 +68,7 @@ describe("Tabs", () => {
             <button type="button">개요</button>
           </TabsTrigger>
           <TabsTrigger value="b" asChild count={2}>
-            <button type="button">결과물</button>
+            <button type="button">성과물</button>
           </TabsTrigger>
         </TabsList>
       </Tabs>,
@@ -76,7 +76,7 @@ describe("Tabs", () => {
     const plain = getByRole("tab", { name: "개요" });
     expect(plain.tagName).toBe("BUTTON");
     expect(plain.querySelector('[data-slot="item-count"]')).toBeNull();
-    const counted = getByRole("tab", { name: "결과물 2" });
+    const counted = getByRole("tab", { name: "성과물 2" });
     expect(counted.getAttribute("data-slot")).toBe("tabs-trigger");
     expect(counted.querySelector('[data-slot="item-count"]')?.textContent).toBe(
       "2",

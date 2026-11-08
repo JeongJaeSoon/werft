@@ -199,6 +199,7 @@ describe("the agent MCP settings API", () => {
       settings_revision: null,
       active_release_id: "rel_1",
       bound_credential_refs: ["docs-key"],
+      available_servers: ["docs"],
     });
   });
 

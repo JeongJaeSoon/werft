@@ -156,6 +156,8 @@ test("repository metadata and agent notes count as prose", () => {
     "AGENTS.md",
     "CONTRIBUTING.md",
     ".claude/skills/verify/SKILL.md",
+    ".claude/skills/verify/run.sh",
+    ".claude/skills/verify/scripts/shot.mjs",
     ".github/ISSUE_TEMPLATE/bug.yml",
     ".github/pull_request_template.md",
   ]) {
@@ -169,7 +171,7 @@ test("repository metadata and agent notes count as prose", () => {
 test("generated, executable and workflow files next to prose are not prose", () => {
   for (const path of [
     "THIRD_PARTY_NOTICES.md",
-    ".claude/skills/verify/run.sh",
+    ".claude/skills/verify-werft/github-sandbox/settings.json",
     ".github/workflows/ci.yml",
     ".github/actions/setup/README.md",
     ".github/scripts/ci-plan.sh",

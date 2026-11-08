@@ -1065,6 +1065,13 @@
       "when": 1794108873340,
       "tag": "0242_agent_mcp_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "7",
+      "when": 1794165257317,
+      "tag": "0243_agent_managing_team_required",
+      "breakpoints": true
     }
   ]
 }

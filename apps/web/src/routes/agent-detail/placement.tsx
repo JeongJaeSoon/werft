@@ -1,7 +1,13 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { type Outcome, OutcomeLine } from "../../components/outcome.tsx";
 
-export type Place = "page" | "card" | "credentials" | "releases" | "admins";
+export type Place =
+  | "page"
+  | "card"
+  | "mcp"
+  | "credentials"
+  | "releases"
+  | "admins";
 
 /** An outcome shows in the section whose button caused it. */
 export interface Placed {

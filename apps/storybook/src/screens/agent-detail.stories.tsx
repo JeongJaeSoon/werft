@@ -150,6 +150,7 @@ export const AgentDetail: Story = {
       "개요",
       "상세 설정",
       "릴리스",
+      "접근",
       "관리자",
       "Slack",
       "GitHub",
