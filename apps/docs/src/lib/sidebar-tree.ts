@@ -1,0 +1,151 @@
+import type { Folder, Node, Root } from "fumadocs-core/page-tree";
+import type { Locale } from "./i18n";
+
+export interface SidebarLabels {
+  use: string;
+  start: string;
+  features: string;
+  reference: string;
+  deploy: string;
+  observabilityLink: string;
+}
+
+export const sidebarLabels: Record<Locale, SidebarLabels> = {
+  ko: {
+    use: "사용하기",
+    start: "시작",
+    features: "기능",
+    reference: "레퍼런스",
+    deploy: "배포하기",
+    observabilityLink: "관측 (사용하기)",
+  },
+  en: {
+    use: "Use",
+    start: "Get started",
+    features: "Features",
+    reference: "Reference",
+    deploy: "Deploy",
+    observabilityLink: "Observability (Use)",
+  },
+  ja: {
+    use: "使う",
+    start: "はじめに",
+    features: "機能",
+    reference: "リファレンス",
+    deploy: "設置する",
+    observabilityLink: "観測 (使う)",
+  },
+};
+
+// Each top-level content entry belongs to one of two tabs. The files and URLs
+// stay where they are; only the tree the sidebar shows is rebuilt.
+const START = ["index", "getting-started"];
+const FEATURES = [
+  "agents",
+  "sessions",
+  "messages",
+  "approvals",
+  "integrations",
+  "api-keys",
+  "achievements",
+  "observability",
+];
+const UI = ["ui"];
+const REFERENCE = ["reference", "sdk"];
+
+/** `/en/sessions/start` -> `sessions`; the home page `/en` -> `index`. */
+function slugOf(node: Node): string {
+  const url =
+    node.type === "page"
+      ? node.url
+      : node.type === "folder"
+        ? (node.index?.url ?? firstUrl(node.children))
+        : undefined;
+  return url?.split("/")[2] || "index";
+}
+
+function firstUrl(nodes: Node[]): string | undefined {
+  for (const n of nodes) {
+    if (n.type === "page") return n.url;
+    if (n.type === "folder") {
+      const u = n.index?.url ?? firstUrl(n.children);
+      if (u) return u;
+    }
+  }
+}
+
+/** A folder's own page followed by its children, so a group lists them flat. */
+function flatten(node: Node): Node[] {
+  if (node.type !== "folder") return [node];
+  return [...(node.index ? [node.index] : []), ...node.children];
+}
+
+function group(name: string, children: Node[]): Folder {
+  return { type: "folder", name, children, defaultOpen: true };
+}
+
+/** Turns the `---label---` sections of a folder into collapsible groups. */
+function sectionsToFolders(children: Node[]): Node[] {
+  const out: Node[] = [];
+  let current: Folder | undefined;
+  for (const child of children) {
+    if (child.type === "separator") {
+      current = { type: "folder", name: child.name ?? "", children: [] };
+      out.push(current);
+    } else if (current) {
+      current.children.push(child);
+    } else {
+      out.push(child);
+    }
+  }
+  return out;
+}
+
+/** Splits the content tree into the two tabs, "use" and "deploy". */
+export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
+  const top = new Map<string, Node[]>();
+  for (const node of tree.children) {
+    const key = slugOf(node);
+    top.set(key, [...(top.get(key) ?? []), node]);
+  }
+  const pick = (slugs: string[]) => slugs.flatMap((s) => top.get(s) ?? []);
+
+  // `run-server` holds the trial server page and the self-hosting folder.
+  const runServer = (top.get("run-server") ?? []).flatMap(flatten);
+  const trialServer = runServer.filter((n) => n.type === "page");
+  const selfHosting = runServer.find((n): n is Folder => n.type === "folder");
+  const observability = pick(["observability"]).find((n) => n.type === "page");
+
+  const use: Folder = {
+    type: "folder",
+    name: labels.use,
+    root: true,
+    children: [
+      group(labels.start, [...pick(START).flatMap(flatten), ...trialServer]),
+      group(labels.features, pick(FEATURES)),
+      ...pick(UI),
+      group(labels.reference, pick(REFERENCE).flatMap(flatten)),
+    ],
+  };
+
+  const sections = sectionsToFolders(selfHosting?.children ?? []);
+  // Observability is documented under "use"; the deploy tab only links to it.
+  // `external` keeps the link out of the deploy tab's own URL set.
+  const metrics = sections[3]; // "operations": metrics and diagnosis live here
+  if (metrics?.type === "folder" && observability?.type === "page") {
+    metrics.children.push({
+      type: "page",
+      name: labels.observabilityLink,
+      url: observability.url,
+      external: true,
+    });
+  }
+  const deploy: Folder = {
+    type: "folder",
+    name: labels.deploy,
+    root: true,
+    children: [...(selfHosting?.index ? [selfHosting.index] : []), ...sections],
+  };
+
+  return { ...tree, children: [use, deploy] };
+}

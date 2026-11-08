@@ -334,6 +334,7 @@ jobs:
               - tests/docs-self-hosting-commands.
               - tests/docs-self-hosting-facts.
               - tests/docs-self-hosting-urls.
+              - tests/docs-sidebar-tree.
               - tests/docs-site-links.
               - tests/e2e/local-model.
               - tests/e2e/real-model.

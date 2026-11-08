@@ -4,6 +4,7 @@ import { defineDocs } from "fumadocs-mdx/macro";
 import { i18n, type Locale, messages } from "./i18n";
 import { openapi, slugifyTag } from "./openapi";
 import { withBasePath } from "./shared";
+import { buildSidebarTree, sidebarLabels } from "./sidebar-tree";
 
 const docs = defineDocs({
   dir: "content/docs",
@@ -30,6 +31,10 @@ const pageTreeFixes: LoaderPlugin = {
       return folderPath === "reference/http-api"
         ? { ...node, name: "HTTP API" }
         : node;
+    },
+    root(tree) {
+      const locale = (this.locale ?? i18n.defaultLanguage) as Locale;
+      return buildSidebarTree(tree, sidebarLabels[locale]);
     },
   },
 };
