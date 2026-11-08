@@ -26,6 +26,7 @@ export const teamsKo = {
   "teams.rename": "이름 바꾸기",
   "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
   "teams.delete": "팀 삭제",
+  "teams.deleted": "{name} 팀을 삭제했습니다.",
   "teams.deleteHint":
     "팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다. 이 팀이 담당 팀인 에이전트가 있으면 그 에이전트의 담당 팀을 먼저 바꿔야 삭제할 수 있습니다.",
   "teams.deleteTitle": "{name} 팀을 삭제할까요?",
@@ -49,7 +50,7 @@ export const teamsKo = {
   "teams.memberAdded": "{name}님을 팀에 추가했습니다.",
   "teams.membersAdded": "{count}명을 팀에 추가했습니다.",
   "teams.addFailed": "{names}님을 추가하지 못했습니다. {reason}",
-  "teams.memberRemoved": "{name}님을 팀에서 뺐습니다.",
+  "teams.memberRemoved": "{name}님을 팀에서 제외했습니다.",
   "teams.noMembers": "아직 구성원이 없습니다.",
   "teams.search": "이름이나 이메일로 구성원 찾기",
   "teams.noMatch": "찾는 구성원이 이 팀에 없습니다.",
@@ -108,6 +109,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.rename": "Rename",
   "teams.renamed": "Renamed the team to {name}.",
   "teams.delete": "Delete team",
+  "teams.deleted": "Deleted the {name} team.",
   "teams.deleteHint":
     "Deleting a team also removes it from every agent it administers. While the team is an agent's responsible team, give that agent another responsible team first.",
   "teams.deleteTitle": "Delete the {name} team?",
@@ -191,6 +193,7 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.rename": "名前を変更",
   "teams.renamed": "チーム名を「{name}」に変更しました。",
   "teams.delete": "チームを削除",
+  "teams.deleted": "チーム「{name}」を削除しました。",
   "teams.deleteHint":
     "チームを削除すると、このチームが管理者になっているエージェントからも外れます。このチームが担当チームのエージェントがある場合は、先にそのエージェントの担当チームを変更してください。",
   "teams.deleteTitle": "チーム「{name}」を削除しますか？",
