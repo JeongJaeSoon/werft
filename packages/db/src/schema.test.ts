@@ -97,6 +97,20 @@ describe("database schema", () => {
     expect(await outcome("a__b", [], [])).toBe(
       "agent_mcp_settings_server_check",
     );
+    // A nested array is not unwrapped into names, and a name the snapshot
+    // schema would refuse (over 128 characters) is refused here.
+    expect(await outcome("docs", [["mcp__docs__read"]], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
+    expect(await outcome("docs", [], [["docs-key"]])).toBe(
+      "agent_mcp_settings_credential_refs_check",
+    );
+    expect(await outcome("docs", [`mcp__docs__${"x".repeat(117)}`], [])).toBe(
+      "accepted",
+    );
+    expect(await outcome("docs", [`mcp__docs__${"x".repeat(118)}`], [])).toBe(
+      "agent_mcp_settings_allowed_tools_check",
+    );
   });
 
   test("applies the migration twice without changing the schema", async () => {

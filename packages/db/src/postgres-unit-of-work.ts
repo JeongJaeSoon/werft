@@ -289,7 +289,9 @@ export function createPostgresSessionUnitOfWork(
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: input.agentReleaseId,
-              ...(mcpStart === null ? {} : { names: mcpStart.credential_refs }),
+              ...(mcpStart === null
+                ? { fromRelease: true as const }
+                : { names: mcpStart.credential_refs }),
             })
           ).length > 0
         ) {

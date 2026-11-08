@@ -1537,11 +1537,11 @@
       "checkConstraints": {
         "agent_mcp_settings_allowed_tools_check": {
           "name": "agent_mcp_settings_allowed_tools_check",
-          "value": "jsonb_typeof(\"agent_mcp_settings\".\"allowed_tools\") = 'array' AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"allowed_tools\", '$[*] ? (@.type() != \"string\")') AND (\"agent_mcp_settings\".\"server\" IS NOT NULL OR jsonb_array_length(\"agent_mcp_settings\".\"allowed_tools\") = 0) AND (\"agent_mcp_settings\".\"server\" IS NULL OR NOT jsonb_path_exists(\"agent_mcp_settings\".\"allowed_tools\", '$[*] ? (!(@ starts with $p) || @ == $p)', jsonb_build_object('p', 'mcp__' || \"agent_mcp_settings\".\"server\" || '__')))"
+          "value": "jsonb_typeof(\"agent_mcp_settings\".\"allowed_tools\") = 'array' AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"allowed_tools\", 'strict $[*] ? (@.type() != \"string\")') AND (\"agent_mcp_settings\".\"server\" IS NOT NULL OR jsonb_array_length(\"agent_mcp_settings\".\"allowed_tools\") = 0) AND (\"agent_mcp_settings\".\"server\" IS NULL OR NOT jsonb_path_exists(\"agent_mcp_settings\".\"allowed_tools\", 'strict $[*] ? (!(@ starts with $p) || @ == $p || @ like_regex \"^.{129,}$\")', jsonb_build_object('p', 'mcp__' || \"agent_mcp_settings\".\"server\" || '__')))"
         },
         "agent_mcp_settings_credential_refs_check": {
           "name": "agent_mcp_settings_credential_refs_check",
-          "value": "jsonb_typeof(\"agent_mcp_settings\".\"credential_refs\") = 'array' AND jsonb_array_length(\"agent_mcp_settings\".\"credential_refs\") <= 32 AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"credential_refs\", '$[*] ? (@.type() != \"string\")') AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"credential_refs\", '$[*] ? (!(@ like_regex \"^[a-z0-9][a-z0-9._:/-]{0,127}$\"))')"
+          "value": "jsonb_typeof(\"agent_mcp_settings\".\"credential_refs\") = 'array' AND jsonb_array_length(\"agent_mcp_settings\".\"credential_refs\") <= 32 AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"credential_refs\", 'strict $[*] ? (@.type() != \"string\")') AND NOT jsonb_path_exists(\"agent_mcp_settings\".\"credential_refs\", 'strict $[*] ? (!(@ like_regex \"^[a-z0-9][a-z0-9._:/-]{0,127}$\"))')"
         },
         "agent_mcp_settings_server_check": {
           "name": "agent_mcp_settings_server_check",

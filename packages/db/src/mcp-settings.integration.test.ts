@@ -229,10 +229,30 @@ integration("agent MCP settings on PostgreSQL", () => {
     expect((await stateOf(sessionId))?.tools).toEqual([]);
 
     // Another server closes it, and the claim keeps the server it started on.
-    await saveSettings(workspaceId, agentId, { server: "wiki" });
+    await saveSettings(workspaceId, agentId, {
+      server: "wiki",
+      allowedTools: ["mcp__wiki__read"],
+    });
     expect(await stateOf(sessionId)).toMatchObject({
       server: "docs",
       tools: [],
+    });
+  });
+
+  test("a session that will follow its release is judged on the card's names, whatever a row says", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId);
+    // A row that appeared after the create read none, with no names.
+    await saveSettings(workspaceId, agentId, { credentialRefs: [] });
+    await db.transaction(async (tx) => {
+      expect(
+        await lockUnboundRefs(tx, {
+          workspaceId,
+          releaseId,
+          fromRelease: true,
+        }),
+      ).toEqual(["docs-key"]);
+      expect(await lockUnboundRefs(tx, { workspaceId, releaseId })).toEqual([]);
     });
   });
 

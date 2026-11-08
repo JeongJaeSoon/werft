@@ -207,8 +207,13 @@ async function unboundRefsOn(
   releaseId: string,
   sessionId: string | null = null,
   names: readonly string[] | null = null,
+  fromRelease = false,
 ): Promise<string[]> {
-  const needed = sessionId === null ? CURRENT_REFS : SESSION_REFS;
+  const needed = fromRelease
+    ? sql.raw(CARD_REFS_TEXT)
+    : sessionId === null
+      ? CURRENT_REFS
+      : SESSION_REFS;
   const list =
     names === null
       ? sql`CASE WHEN jsonb_typeof(${needed}) = 'array' THEN ${needed} ELSE '[]'::jsonb END`
@@ -247,6 +252,8 @@ export async function lockUnboundRefs(
     sessionId?: string;
     /** The names of a snapshot the caller already holds locked: judged as given. */
     names?: readonly string[];
+    /** The session will follow its release: judge the release card's names, whatever a row says now. */
+    fromRelease?: true;
   },
 ): Promise<string[]> {
   await tx.execute(sql`
@@ -263,6 +270,7 @@ export async function lockUnboundRefs(
     input.releaseId,
     input.sessionId ?? null,
     input.names ?? null,
+    input.fromRelease === true,
   );
 }
 
