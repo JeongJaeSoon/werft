@@ -964,7 +964,7 @@ describe("홈 요약", () => {
           rows: [
             ["세션", "12"],
             ["동시 실행", "3 / 8 슬롯"],
-            ["결과물 저장", "300 MB"],
+            ["성과물 저장", "300 MB"],
           ],
         },
         {
@@ -1142,7 +1142,7 @@ describe("홈 요약", () => {
     });
   });
 
-  test("결과물을 다 세지 못한 응답이면 전체 사용량의 결과물 저장은 하한으로 보인다", async () => {
+  test("성과물을 다 세지 못한 응답이면 전체 사용량의 성과물 저장은 하한으로 보인다", async () => {
     renderAt("/", {
       ...homeRoutes(),
       "GET /v1/limits": () =>
@@ -1158,7 +1158,7 @@ describe("홈 요약", () => {
     await waitFor(() =>
       expect(
         cards(overview).find((card) => card.title === "전체 사용량")?.rows,
-      ).toContainEqual(["결과물 저장", "300 MB 이상"]),
+      ).toContainEqual(["성과물 저장", "300 MB 이상"]),
     );
   });
 

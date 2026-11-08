@@ -36,7 +36,7 @@ afterEach(async () => {
   server = undefined;
 });
 
-describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
+describe.serial("Agent SDK 0.3.319 and Claude Code 2.1.319", () => {
   test("loads project instructions and the Claude Code system preset", async () => {
     context = await createProbeContext();
     server = startFakeAnthropicServer(() => textReply("contract passed"));

@@ -263,6 +263,7 @@ const TEAM: TeamDetailView = {
       role: "lead",
       added_by: ID.owner,
       added_at: "2026-10-16T01:00:00Z",
+      disabled_at: null,
     },
     {
       user_id: ID.minji,
@@ -271,6 +272,7 @@ const TEAM: TeamDetailView = {
       role: "member",
       added_by: ID.owner,
       added_at: "2026-10-17T02:30:00Z",
+      disabled_at: null,
     },
   ],
 };

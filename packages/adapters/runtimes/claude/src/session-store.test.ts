@@ -1429,6 +1429,45 @@ describe("Claude session store writing a resumed transcript to disk", () => {
       .map((line) => JSON.parse(line));
   }
 
+  test("reports the cost the transcript saved last, with its session", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const realCostState = {
+      type: "cost-state",
+      sessionId,
+      totalCostUSD: 0,
+      totalAPIDuration: 15,
+      totalAPIDurationWithoutRetries: 14,
+      totalToolDuration: 0,
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
+      totalDuration: 335,
+      startTime: 1794151687760,
+      modelUsage: {},
+    };
+    await first.append(root, [
+      entry("a", "first"),
+      { ...realCostState, totalCostUSD: 3 },
+    ]);
+    await first.append(root, [{ ...realCostState, totalCostUSD: 4.5 }]);
+    const transcripts = await first.captureTranscripts(sessionId);
+    if (transcripts === null) throw new Error("expected transcripts");
+    const second = new ClaudeSessionStore({
+      generation: 2,
+      inherit: { sessionId, transcripts },
+      objects,
+      prefix,
+    });
+    const projects = await mkdtemp(join(tmpdir(), "materialize-"));
+    try {
+      expect(second.resumedSavedCost()).toBeUndefined();
+      await second.materialize(projects);
+      expect(second.resumedSavedCost()).toEqual({ usd: 4.5, sessionId });
+    } finally {
+      await rm(projects, { force: true, recursive: true });
+    }
+  });
+
   test("lays the session out as the SDK does, each entry as load returned it", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const loaded = await adopted(objects);

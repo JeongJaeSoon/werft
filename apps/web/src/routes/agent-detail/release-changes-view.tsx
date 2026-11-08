@@ -41,8 +41,6 @@ const FIELD: Record<string, MessageKey> = {
   defaultRepository: "agent.releases.field.defaultRepository",
   model: "agent.releases.field.model",
   tools: "agent.releases.field.tools",
-  mcpServers: "agent.releases.field.mcpServers",
-  mcpTools: "agent.releases.field.mcpTools",
   toolPolicy: "agent.releases.field.toolPolicy",
   instructions: "agent.releases.field.instructions",
   profile: "agent.releases.field.profile",
@@ -51,7 +49,6 @@ const FIELD: Record<string, MessageKey> = {
   actionsAllow: "agent.releases.field.actionsAllow",
   rules: "agent.releases.field.rules",
   language: "agent.releases.field.language",
-  credentials: "agent.releases.field.credentials",
   card: "agent.releases.field.card",
 };
 

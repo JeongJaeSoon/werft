@@ -1,3 +1,4 @@
+import type { SavedCost } from "@werft-ai/runtime-core";
 import type { NativeSdkMessage } from "./driver.ts";
 
 /** The provider failure a turn ended on, as the engine classified it. */
@@ -46,6 +47,32 @@ export class TurnAccounting {
    */
   get restarted(): boolean {
     return this.countRestarted;
+  }
+
+  /**
+   * A resumed query's first total continues from the cost its transcript
+   * saved (since SDK 0.3.277), so that cost is the baseline, not part of the first
+   * turn. Without a saved figure the total is counted in full, as before.
+   * A total below the baseline is an engine that counts from zero again, and
+   * counts in full too.
+   */
+  continueFrom(saved: SavedCost | undefined): void {
+    // Without the session, a `/clear` before the first result would look like
+    // the same session and be charged only what it spent past the saved cost;
+    // such a figure is not a baseline.
+    // The baseline is used only as a finite, non-negative number no larger
+    // than the first total (a larger one reads as a restart in `observe`);
+    // anything else, a corrupt entry included, charges the total in full.
+    if (
+      saved?.sessionId === undefined ||
+      this.lastSessionId !== undefined ||
+      !Number.isFinite(saved.usd) ||
+      saved.usd < 0
+    ) {
+      return;
+    }
+    this.lastTotalUsd = saved.usd;
+    this.lastSessionId = saved.sessionId;
   }
 
   observe(native: NativeSdkMessage): void {

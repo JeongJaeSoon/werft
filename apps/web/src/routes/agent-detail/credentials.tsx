@@ -45,7 +45,7 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { nextVersion } from "./versions.tsx";
+import { mcpSettingsKey, mcpSettingsQuery } from "./mcp-settings.ts";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
 const bindingsKey = (client: ApiClient, agentId: string) =>
@@ -95,11 +95,16 @@ export function Credentials({
   const invalidateBindings = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: bindingsKey(client, agentId) }),
+      queryClient.invalidateQueries({
+        queryKey: mcpSettingsKey(client, agentId),
+      }),
       queryClient.invalidateQueries(agentListsFilter(client)),
     ]);
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
   const bindings = useQuery(credentialBindingsQuery(client, agentId));
+  const settings = useQuery(mcpSettingsQuery(client, agentId));
+  const named = settings.data?.settings.credential_refs ?? [];
 
   const refused = (error: ApiError) =>
     error.code === "CREDENTIAL_REF_IN_USE"
@@ -165,7 +170,9 @@ export function Credentials({
     (binding) => binding.revoked_at === null,
   );
   const bound = new Set(active.map((binding) => binding.credential_ref));
-  const unbound = namedRefs(detail, missing).filter((ref) => !bound.has(ref));
+  const unbound = [...new Set([...missing, ...named])].filter(
+    (ref) => !bound.has(ref),
+  );
   const busy = bind.isPending || revoke.isPending;
 
   return (
@@ -307,24 +314,24 @@ export function Credentials({
 
 /**
  * The names a 409 CREDENTIAL_UNBOUND from activation reports, or null for any
- * other error. Only names one of this agent's cards holds are kept: the
- * server checked those against the name pattern when the card was saved,
- * and anything else in a malformed answer never reaches the screen or a bind.
+ * other error.
  */
 export function unboundRefs(
   error: ApiError,
   detail: AgentDetail,
+  settingsRefs: readonly string[] = [],
 ): readonly string[] | null {
   if (error.code !== "CREDENTIAL_UNBOUND") return null;
   const details = error.details as Partial<ActivationCredentialUnboundDetails>;
   if (details?.reason_code !== "credential_unbound") return [];
   const missing: unknown = details.missing;
   if (!Array.isArray(missing)) return [];
-  const named = new Set(
-    detail.versions.flatMap(
+  const named = new Set([
+    ...settingsRefs,
+    ...detail.versions.flatMap(
       (version) => version.card.capabilities.credential_refs ?? [],
     ),
-  );
+  ]);
   return missing.filter((ref) => named.has(ref));
 }
 
@@ -356,20 +363,6 @@ export function CredentialUnbound({
       </section>
     </Alert>
   );
-}
-
-/** What the agent's cards name, the newest first, then what activation found missing. */
-function namedRefs(detail: AgentDetail, missing: readonly string[]) {
-  const activeVersion = detail.versions.find(
-    (version) => version.id === detail.active_release?.version_id,
-  );
-  return [
-    ...new Set([
-      ...missing,
-      ...(nextVersion(detail)?.card.capabilities.credential_refs ?? []),
-      ...(activeVersion?.card.capabilities.credential_refs ?? []),
-    ]),
-  ];
 }
 
 function revokeConsequence(

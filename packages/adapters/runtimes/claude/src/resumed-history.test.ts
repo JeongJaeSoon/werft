@@ -38,6 +38,21 @@ afterEach(async () => {
   scratch = undefined;
 });
 
+/** What the engine writes: the fields beside the total are part of the shape. */
+const REAL_COST_STATE = {
+  type: "cost-state",
+  sessionId: "s1",
+  totalCostUSD: 0,
+  totalAPIDuration: 15,
+  totalAPIDurationWithoutRetries: 14,
+  totalToolDuration: 0,
+  totalLinesAdded: 0,
+  totalLinesRemoved: 0,
+  totalDuration: 335,
+  startTime: 1794151687760,
+  modelUsage: {},
+};
+
 describe("resumed history", () => {
   test("a new session holds nothing", async () => {
     expect(await ResumedHistory.empty().uuids()).toEqual(new Set());
@@ -105,5 +120,44 @@ describe("resumed history", () => {
 
     const absent = ResumedHistory.fromLocalDisk(scratch, cwd, "s2");
     await expect(absent.uuids()).rejects.toThrow("could not be read");
+    expect(await absent.savedCost()).toBeUndefined();
+  });
+
+  test("reads the cost the transcript saved last, and none when it saved none", async () => {
+    const withCost: TranscriptEntry[] = [
+      { type: "user", uuid: "input-1" },
+      { ...REAL_COST_STATE, totalCostUSD: 3 },
+      { ...REAL_COST_STATE, totalCostUSD: 4.5 },
+      // Each of these the engine ignores, and so must we.
+      { type: "cost-state", totalCostUSD: 9, sessionId: "s1" },
+      { ...REAL_COST_STATE, totalCostUSD: 9, totalDuration: undefined },
+      { ...REAL_COST_STATE, totalCostUSD: 9, totalAPIDuration: -1 },
+      { ...REAL_COST_STATE, totalCostUSD: 9, modelUsage: [] },
+    ];
+    const watched = ResumedHistory.watching(mirror(async () => withCost));
+    await watched.store.load(ROOT);
+    expect(await watched.history.savedCost()).toEqual({
+      usd: 4.5,
+      sessionId: "s1",
+    });
+
+    const without = ResumedHistory.watching(
+      mirror(async () => [{ type: "user", uuid: "input-1" }]),
+    );
+    await without.store.load(ROOT);
+    expect(await without.history.savedCost()).toBeUndefined();
+    expect(await ResumedHistory.empty().savedCost()).toBeUndefined();
+  });
+
+  test("a mirror that wrote the transcript to disk hands over its saved cost", async () => {
+    const base = mirror(async () => null);
+    const { history, store } = ResumedHistory.watching({
+      ...base,
+      resumedEntryIds: () => new Set(["a"]),
+      resumedSavedCost: () => ({ usd: 3, sessionId: "s1" }),
+    });
+    expect(await store.load(ROOT)).toBeNull();
+    expect(await history.uuids()).toEqual(new Set(["a"]));
+    expect(await history.savedCost()).toEqual({ usd: 3, sessionId: "s1" });
   });
 });

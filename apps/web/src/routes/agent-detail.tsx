@@ -55,6 +55,7 @@ import { RevisionDiff } from "../components/revision-diff.tsx";
 import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { McpSettings } from "./agent-detail/access.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
 import {
   Credentials,
@@ -62,6 +63,7 @@ import {
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
 import { EffectiveBehavior } from "./agent-detail/effective-behavior.tsx";
+import { mcpSettingsQuery } from "./agent-detail/mcp-settings.ts";
 import {
   NewSessionButton,
   NewSessionReason,
@@ -97,6 +99,7 @@ export const AGENT_TABS = [
   "overview",
   "card",
   "release",
+  "access",
   "admins",
   "slack",
   "github",
@@ -255,7 +258,8 @@ function OutsideAgentView({ agent }: { readonly agent: Agent }) {
 const PLACE_TAB = {
   page: undefined,
   card: "card",
-  credentials: "release",
+  mcp: "access",
+  credentials: "access",
   releases: "release",
   admins: "admins",
 } as const satisfies Record<Place, AgentTab | undefined>;
@@ -319,6 +323,16 @@ function AgentView({
   const { agent } = detail;
   const access = useAgentAccess(agent);
   const manages = access === "manage";
+  const settingsRefs =
+    useQuery({ ...mcpSettingsQuery(client, agent.id), enabled: manages }).data
+      ?.settings.credential_refs ?? [];
+  const [focusCredentials, setFocusCredentials] = useState(false);
+  useEffect(() => {
+    if (focusCredentials && tab === "access") {
+      credentialsTitle.current?.focus();
+      setFocusCredentials(false);
+    }
+  }, [focusCredentials, tab]);
   const newSessionReason = useNewSessionReason(detail);
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
@@ -443,7 +457,7 @@ function AgentView({
         openTab("release");
         return;
       }
-      const missing = unboundRefs(error, detail);
+      const missing = unboundRefs(error, detail, settingsRefs);
       if (missing) {
         setUnbound(missing);
         openTab("release");
@@ -583,7 +597,10 @@ function AgentView({
                 {unbound ? (
                   <CredentialUnbound
                     missing={unbound}
-                    onGo={() => credentialsTitle.current?.focus()}
+                    onGo={() => {
+                      openTab("access");
+                      setFocusCredentials(true);
+                    }}
                   />
                 ) : null}
               </TakesFocus>
@@ -658,6 +675,13 @@ function AgentView({
               },
             })
           }
+        />
+      </TabsContent>
+      <TabsContent {...tabPanel("access")}>
+        <McpSettings
+          agentId={agent.id}
+          result={<PlacedOutcome placed={placed} at="mcp" />}
+          onOutcome={outcomeAt("mcp")}
         />
         <Credentials
           detail={detail}

@@ -60,6 +60,30 @@ export const CLAUDE_TOOL_CATALOGS: readonly BuiltinToolCatalog[] = [
       Task: "Agent",
     },
   },
+  {
+    id: "claude_agent_sdk@0.3.319+claude-code@2.1.319",
+    runtimeKind: CLAUDE_RUNTIME_KIND,
+    sdkVersion: "0.3.319",
+    engineVersion: "2.1.319",
+    tools: [
+      { name: "Read", boundary: "local" },
+      { name: "Edit", boundary: "local" },
+      { name: "Write", boundary: "local" },
+      { name: "Glob", boundary: "local" },
+      { name: "Grep", boundary: "local" },
+      { name: "NotebookEdit", boundary: "local" },
+      { name: "Bash", boundary: "local" },
+      { name: "AskUserQuestion", boundary: "local" },
+      { name: "WebFetch", boundary: "egress" },
+      { name: "WebSearch", boundary: "provider" },
+    ],
+    aliases: {
+      BashOutput: "TaskOutput",
+      KillBash: "TaskStop",
+      KillShell: "TaskStop",
+      Task: "Agent",
+    },
+  },
 ];
 
 /** The catalog of the build this package pins, which the engine harness runs against. */

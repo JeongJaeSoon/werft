@@ -1,29 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer, CARD } from "../../test-support/fake-agents.ts";
+import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
 import { apiError, json, keys, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
-const DETAIL = `/agents/${AGENT_ID}?tab=release`;
+const DETAIL = `/agents/${AGENT_ID}?tab=access`;
+const RELEASE_TAB = `/agents/${AGENT_ID}?tab=release`;
 const PROFILE = "claude-coding-local";
 const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
-/** A server whose only version names these credentials. */
 function serverNaming(...refs: string[]) {
-  const server = agentServer();
-  const first = server.versions[0];
-  if (!first) throw new Error("agentServer starts with a version");
-  server.versions[0] = {
-    ...first,
-    card: {
-      ...CARD,
-      capabilities: { ...CARD.capabilities, credential_refs: refs },
-    },
-  };
-  return server;
+  return agentServer({
+    mcpSettings: { server: null, allowed_tools: [], credential_refs: refs },
+  });
 }
 
 const step = async () =>
@@ -116,13 +108,13 @@ describe("자격 연결 단계", () => {
     );
   });
 
-  test("카드가 자격을 쓰지 않으면 연결할 것이 없다고 하고, 자격을 적는 칸은 어디에도 없다", async () => {
+  test("에이전트 설정이 자격을 쓰지 않으면 연결할 것이 없다고 하고, 자격을 적는 칸은 어디에도 없다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const section = await step();
     expect(
       await within(section).findByText(
-        "카드가 쓰는 자격이 없어 연결할 것이 없습니다.",
+        "에이전트 설정이 쓰는 자격이 없어 연결할 것이 없습니다.",
       ),
     ).toBeDefined();
     // A free-text field would let a pasted value through as a "name".
@@ -183,7 +175,6 @@ describe("자격 연결 단계", () => {
         .getAll()
         .map((m) => m.state.variables)
         .filter((v) => v !== undefined);
-      // The bind sends a name from the card; the unbind, the listed binding.
       expect(variables[0]).toBe("github/app");
       expect(Object.keys(variables[1] as object).sort()).toEqual([
         "agent_id",
@@ -234,7 +225,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
   test("되돌리기가 거절되면 빠진 이름과 자격 연결로 가는 행동을 보이고, 연결 뒤 다시 되돌려진다", async () => {
     const server = serverNaming("github/app", "slack:bot");
     await releasedTwice(server);
-    const { api } = renderAt(DETAIL, { ...meOk, ...server.routes });
+    const { api } = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const user = await setupUser();
     await rollBackToFirst(user);
 
@@ -270,6 +261,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
+    await user.click(screen.getByRole("tab", { name: "릴리스" }));
     await rollBackToFirst(user);
     expect(await screen.findByText(/되돌렸습니다/)).toBeDefined();
     expect(
@@ -284,7 +276,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     const server = serverNaming("github/app");
     await releasedTwice(server);
     const stray = "NOT A NAME 0123456789abcdef";
-    const { services } = renderAt(DETAIL, {
+    const { services } = renderAt(RELEASE_TAB, {
       ...meOk,
       ...server.routes,
       [`POST /v1/agents/${AGENT_ID}/activate`]: () =>
@@ -307,6 +299,9 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(alert.textContent).toContain(
       "이 릴리스가 쓰는 자격 증명 github/app이(가)",
     );
+    await user.click(
+      within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
+    );
     const section = await step();
     await user.click(
       within(section).getByRole("button", { name: "github/app 연결" }),
@@ -323,7 +318,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
   test("details가 계약 모양이 아니어도 이름 없이 안내한다", async () => {
     const server = agentServer();
     await releasedTwice(server);
-    renderAt(DETAIL, {
+    renderAt(RELEASE_TAB, {
       ...meOk,
       ...server.routes,
       [`POST /v1/agents/${AGENT_ID}/activate`]: () =>

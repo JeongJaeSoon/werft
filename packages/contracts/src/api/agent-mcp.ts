@@ -44,6 +44,12 @@ export const agentMcpResponseSchema = z
     active_release_id: z.string().min(1).nullable(),
     /** Those of `settings.credential_refs` with a live binding on the agent. */
     bound_credential_refs: z.array(credentialRefSchema),
+    /**
+     * Ids of the servers a save may choose in this workspace, sorted: the
+     * ids only, so a manager who cannot read the installation settings can
+     * still pick one. Absent from an API that predates the field.
+     */
+    available_servers: z.array(mcpServerIdSchema).optional(),
   })
   .strict();
 export type AgentMcpResponse = z.infer<typeof agentMcpResponseSchema>;

@@ -237,6 +237,7 @@ export function createInstallationProfileService(deps: {
             ? undefined
             : catalog.installation?.get(request.previous_id)?.record,
         baseMcpDeny: base?.mcpDeny,
+        unblock: request.unblock_mcp_tools,
       });
       return {
         tools,
@@ -273,6 +274,7 @@ export function createInstallationProfileService(deps: {
         previous,
         baseMcpDeny: base?.mcpDeny,
         requested: asked.mcpDeny,
+        unblock: request.unblock_mcp_tools,
       }) ?? asked;
     return {
       tools: asked.tools,

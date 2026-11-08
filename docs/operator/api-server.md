@@ -176,7 +176,7 @@ worker의 작업 디렉터리는 세션의 workspace volume(Kubernetes backend�
 **보장 범위:** 마지막으로 commit된 checkpoint까지는 S3 + DB에 있다. 그 뒤의 작업, 추적되지 않은 ignored·exclude 파일, 작업 디렉터리 밖 상태는 volume을 잃으면 없다.
 
 - 마지막 checkpoint가 어느 turn까지인지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. `durability.last_checkpointed_turn_id`가 `durability.last_completed_turn_id`와 같으면 마지막으로 완료된 turn까지 checkpoint에 들었다. `durability.checkpoint_pending_reason`은 앞서 checkpoint가 거절된 사유이고, 뒤의 checkpoint가 그 turn을 덮은 뒤에도 남을 수 있으므로 이것만으로 마지막 turn이 빠졌다고 보지 않는다.
-- 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 결과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
+- 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 성과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
 - 작업 디렉터리 밖(tmpfs HOME의 `git config --global` 등)은 volume과 상관없이 worker가 바뀌면 사라진다.
 - `tests/e2e/workspace-loss.e2e.ts`가 CI `e2e` job에서 Docker backend로 이 경로를 확인한다(Kubernetes backend는 이 e2e가 다루지 않는다). 저장소 없는 세션과 있는 세션 각각에서 파일을 쓰고 pause한 뒤 workspace volume을 지우고 resume한다. 그다음 turn이 파일 내용과 이전 대화를 읽는지, volume 이름이 바뀌었는지 본다.
 
@@ -320,7 +320,7 @@ SELECT status, count(*) FROM push_intents
 WHERE status IN ('deferred', 'pinned') GROUP BY status;
 ```
 
-- **보는 곳:** 세션의 결과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
+- **보는 곳:** 세션의 성과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
 - **아직 없는 것:** 실행기는 의도를 만든 사람의 세션 공유 권한을 다시 확인하지 않고, 릴리스 정책과 게이트만 다시 판정한다. `ceiling` 판정은 기존 push 실행기의 게이트가 맡는다. PR을 여는 단계는 다음 변경에서 붙는다.
 
 ### 승인된 요청의 push
@@ -782,7 +782,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람의 state·GitHub가 거절한 code는 모두 `400`이다.
 3. API가 `code`를 user access token으로 바꿔 `GET /user`로 id·login만 읽고, token은 그 자리에서 버린다(저장하지 않는다). 그 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 내게 이미 GitHub 연결이 있으면 `409 LINK_EXISTS`, GitHub가 답하지 않으면 `503`이다. 성공하면 `201`과 `link_account` receipt가 남는다. 해제는 Slack과 같은 `DELETE /v1/linked-accounts/{id}`다.
 
-**commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 결과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
+**commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 성과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
 
 **commit 작성자.** 세션 저장소가 콘솔에 등록한 작성용 App(`auth: { kind: github_app }`)을 쓰면, commit의 author와 committer는 그 App의 bot 계정 `<slug>[bot] <<bot user id>+<slug>[bot]@users.noreply.github.com>`이다. GitHub가 App bot의 noreply 주소로 정한 형식이다([actions/checkout README](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token), [actions/create-github-app-token README](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). bot user id는 App id와 다른 값이라 control-host가 `GET https://api.github.com/users/<slug>[bot]`(인증 없음)으로 한 번 읽어 프로세스에 둔다. 실패하면 5분 동안 다시 묻지 않고, 그 사이 claim은 이미지 기본값 `Werft <noreply@werft.invalid>`로 commit한다. claim의 `git_author`를 worker가 `$HOME/.werft/git-identity`에 쓰고, 이미지의 system git 설정이 기본값 뒤에서 그 파일을 include한다. 카탈로그에 App id를 직접 적은 저장소와 GitHub Enterprise Server는 이미지 기본값 그대로다. 저장소에서 `git config user.*`로 정한 값은 여전히 이긴다.
 

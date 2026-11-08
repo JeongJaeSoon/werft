@@ -2660,7 +2660,7 @@ describe("세션 상세 레이아웃", () => {
         within(list)
           .getAllByRole("tab")
           .map((tab) => tab.textContent),
-      ).toEqual(["진행", "결과물0", "정보"]),
+      ).toEqual(["진행", "성과물0", "정보"]),
     );
     await user.click(screen.getByRole("tab", { name: "진행" }));
     // The list wraps, so the last tab is one step left of the first.
