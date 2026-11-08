@@ -280,8 +280,12 @@ export function buildSdkOptions(
         }),
     settings: {
       attribution: ENGINE_ATTRIBUTION_OFF,
-      // Plan mode promises no side effects, so nothing is pre-approved there.
-      ...(config.permissionMode === "plan" || preApproved.allow.length === 0
+      // Plan mode promises no side effects, and auto mode leaves these calls
+      // to its classifier, whose rules know what a secret is; a rule here
+      // would settle a commit before the classifier saw it.
+      ...(config.permissionMode === "plan" ||
+      config.permissionMode === "auto" ||
+      preApproved.allow.length === 0
         ? {}
         : { permissions: preApproved }),
       ...(config.permissionMode === "auto"

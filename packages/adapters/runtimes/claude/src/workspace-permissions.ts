@@ -56,7 +56,8 @@ const LOCAL_GIT = [
   "git add",
   "git commit",
   "git branch",
-  "git checkout",
+  // Not a bare `git checkout`: with a path it restores the working tree.
+  "git checkout -b",
   "git switch",
   "git stash",
   // Only the unstaging form; a restore of the working tree discards edits
@@ -78,10 +79,14 @@ const GIT_ASK = [
   "git * -f *",
   "git * -D",
   "git * -D *",
-  "git checkout *--*",
-  "git checkout .",
+  // Short flags can be bundled; `*` is the only wildcard the engine reads,
+  // so the usual bundles are spelled out.
+  ...["qf", "fq", "cf", "fc", "qD", "Dq"].flatMap((bundle) => [
+    `git * -${bundle}`,
+    `git * -${bundle} *`,
+  ]),
   "git restore *--worktree*",
-  "git restore * -W*",
+  "git restore *W*",
   "git stash drop*",
   "git stash clear*",
   "git add *.env*",
