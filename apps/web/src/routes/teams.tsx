@@ -38,6 +38,7 @@ import {
   EmptyState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   FieldLegend,
   FieldSet,
@@ -73,10 +74,8 @@ import {
   useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
-import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
-import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import {
   SEARCH_MAX,
@@ -84,6 +83,7 @@ import {
   useSearchTerm,
 } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 // The name and its button share a row; the button drops under the field only
@@ -115,9 +115,12 @@ function ListError({
 function TeamNameField({
   value,
   onChange,
+  error,
 }: {
   readonly value: string;
   readonly onChange: (value: string) => void;
+  /** Why this name was refused; it stays with the box that holds the name. */
+  readonly error?: string | undefined;
 }) {
   const { t } = useI18n();
   return (
@@ -130,6 +133,7 @@ function TeamNameField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      <FieldError>{error}</FieldError>
     </Field>
   );
 }
@@ -288,7 +292,6 @@ function TeamPage({ id }: { readonly id: string }) {
   const team = useQuery(teamQuery(client, id));
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const back = (
     <Link
       to="/members/teams"
@@ -314,44 +317,29 @@ function TeamPage({ id }: { readonly id: string }) {
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
         <>
-          <OutcomeLine outcome={outcome} live={true} />
-          {manages && <TeamSettings team={team.data} onOutcome={setOutcome} />}
-          <TeamMembers
-            team={team.data}
-            manages={manages}
-            onOutcome={setOutcome}
-          />
-          {manages && (
-            <TeamDangerZone team={team.data} onOutcome={setOutcome} />
-          )}
+          {manages && <TeamSettings team={team.data} />}
+          <TeamMembers team={team.data} manages={manages} />
+          {manages && <TeamDangerZone team={team.data} />}
         </>
       )}
     </div>
   );
 }
 
-function TeamSettings({
-  team,
-  onOutcome,
-}: {
-  readonly team: TeamDetail;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function TeamSettings({ team }: { readonly team: TeamDetail }) {
   const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [name, setName] = useState(team.name);
+  const [nameTaken, setNameTaken] = useState(false);
   const path = { params: { path: { team_id: team.id } } };
 
-  const fail = (error: ApiError) =>
-    onOutcome({
-      kind: "error",
-      text:
-        error.code === "ALREADY_EXISTS"
-          ? t("teams.nameTaken")
-          : refusalText(t, error, "team.manage", role),
-    });
+  const fail = (error: ApiError) => {
+    if (error.code === "ALREADY_EXISTS") setNameTaken(true);
+    else notify(refusalText(t, error, "team.manage", role), { tone: "error" });
+  };
 
   const rename = useMutation<TeamChangeResponse, ApiError>({
     mutationFn: () =>
@@ -361,12 +349,9 @@ function TeamSettings({
           body: { name: name.trim() },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => setNameTaken(false),
     onSuccess: async ({ team: renamed }) => {
-      onOutcome({
-        kind: "notice",
-        text: t("teams.renamed", { name: renamed.name }),
-      });
+      notify(t("teams.renamed", { name: renamed.name }));
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).teams,
       });
@@ -382,7 +367,14 @@ function TeamSettings({
   return (
     <Section title={t("teams.settings")} titleAs="h3">
       <form className={INLINE_FORM} onSubmit={submit}>
-        <TeamNameField value={name} onChange={setName} />
+        <TeamNameField
+          value={name}
+          onChange={(value) => {
+            setNameTaken(false);
+            setName(value);
+          }}
+          error={nameTaken ? t("teams.nameTaken") : undefined}
+        />
         <Button
           type="submit"
           variant="outline"
@@ -396,14 +388,9 @@ function TeamSettings({
 }
 
 /** Deleting the team, last on the page, in the settings' danger zone. */
-function TeamDangerZone({
-  team,
-  onOutcome,
-}: {
-  readonly team: TeamDetail;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function TeamDangerZone({ team }: { readonly team: TeamDetail }) {
   const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -419,10 +406,7 @@ function TeamDangerZone({
           params: { path: { team_id: team.id } },
         }),
       ),
-    onMutate: () => {
-      onOutcome(null);
-      setManaged(null);
-    },
+    onMutate: () => setManaged(null),
     onSuccess: async () => {
       setConfirming(false);
       queryClient.removeQueries({
@@ -432,6 +416,8 @@ function TeamDangerZone({
         queryKey: queryKeysOf(client).teams,
       });
       await navigate({ to: "/members/teams" });
+      // This page is gone; the toast belongs to the tabs above it.
+      notify(t("teams.deleted", { name: team.name }));
     },
     onError: (error) => {
       setConfirming(false);
@@ -440,9 +426,10 @@ function TeamDangerZone({
         setManaged(ids);
         return;
       }
-      onOutcome({
-        kind: "error",
-        text: refusalText(t, error, "team.manage", role),
+      // The confirmation has closed: the person reads why it did not happen.
+      notify(refusalText(t, error, "team.manage", role), {
+        tone: "error",
+        persistent: true,
       });
     },
   });
@@ -530,13 +517,12 @@ function ManagedAgents({ ids }: { readonly ids: readonly string[] }) {
 function TeamMembers({
   team,
   manages,
-  onOutcome,
 }: {
   readonly team: TeamDetail;
   readonly manages: boolean;
-  readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -560,21 +546,18 @@ function TeamMembers({
           params: { path: { team_id: team.id, user_id: member.user_id } },
         }),
       ),
-    onMutate: () => onOutcome(null),
     onSettled: () => setRemoving(null),
     onSuccess: async (_result, member) => {
-      onOutcome({
-        kind: "notice",
-        text: t("teams.memberRemoved", {
-          name: member.display_name ?? member.email,
-        }),
-      });
+      notify(
+        t("teams.memberRemoved", { name: member.display_name ?? member.email }),
+      );
       await refreshTeam(queryClient, client, team.id);
     },
+    // The confirmation has closed: the person reads why it did not happen.
     onError: (error) =>
-      onOutcome({
-        kind: "error",
-        text: refusalText(t, error, "team.manage", role),
+      notify(refusalText(t, error, "team.manage", role), {
+        tone: "error",
+        persistent: true,
       }),
   });
 
@@ -620,11 +603,7 @@ function TeamMembers({
           {t("teams.memberTotal", { count: team.members.length })}
         </Badge>
       }
-      actions={
-        manages ? (
-          <AddMembersDialog team={team} onOutcome={onOutcome} />
-        ) : undefined
-      }
+      actions={manages ? <AddMembersDialog team={team} /> : undefined}
     >
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
@@ -741,11 +720,7 @@ function TeamMembers({
                       </GridTableCell>
                       {manages && (
                         <GridTableCell align="end">
-                          <TeamRoleDialog
-                            team={team}
-                            member={member}
-                            onOutcome={onOutcome}
-                          />
+                          <TeamRoleDialog team={team} member={member} />
                           <RowAction
                             variant="danger"
                             disabled={remove.isPending}
@@ -804,13 +779,12 @@ export function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
 function TeamRoleDialog({
   team,
   member,
-  onOutcome,
 }: {
   readonly team: TeamDetail;
   readonly member: TeamMember;
-  readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -830,24 +804,14 @@ function TeamRoleDialog({
           body: { role: next },
         }),
       ),
-    onMutate: () => onOutcome(null),
     onSuccess: async (_result, next) => {
       setOpen(false);
-      onOutcome({
-        kind: "notice",
-        text: t("teams.roleChanged", {
-          name,
-          role: t(`teams.role.${next}`),
-        }),
-      });
+      notify(t("teams.roleChanged", { name, role: t(`teams.role.${next}`) }));
       await refreshTeam(queryClient, client, team.id);
     },
     onError: (error) => {
       setOpen(false);
-      onOutcome({
-        kind: "error",
-        text: refusalText(t, error, "team.manage", role),
-      });
+      notify(refusalText(t, error, "team.manage", role), { tone: "error" });
     },
   });
 
@@ -935,22 +899,18 @@ type AddResult = {
   }[];
 };
 
-function AddMembersDialog({
-  team,
-  onOutcome,
-}: {
-  readonly team: TeamDetail;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function AddMembersDialog({ team }: { readonly team: TeamDetail }) {
   const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<readonly MemberView[]>([]);
-  // What the last try came to, said inside the dialog while it stays open:
-  // the page behind is hidden from assistive tech until it closes.
-  const [result, setResult] = useState<Outcome | null>(null);
+  // Who was refused, said inside the dialog while it stays open: the page
+  // behind is hidden from assistive tech until it closes. Who joined is the
+  // toast's to say.
+  const [refused, setRefused] = useState<string | null>(null);
 
   const add = useMutation<AddResult, never, readonly MemberView[]>({
     mutationFn: async (people) => {
@@ -971,10 +931,7 @@ function AddMembersDialog({
       }
       return { added, failed };
     },
-    onMutate: () => {
-      setResult(null);
-      onOutcome(null);
-    },
+    onMutate: () => setRefused(null),
     onSuccess: async ({ added, failed }) => {
       // Only who joined leaves the picks: the refused stay for a retry, and
       // anyone picked while the requests ran waits for the next one.
@@ -988,23 +945,16 @@ function AddMembersDialog({
           ? t("teams.memberAdded", { name: first.display_name })
           : t("teams.membersAdded", { count: added.length })
         : null;
-      if (joinedText) onOutcome({ kind: "notice", text: joinedText });
+      if (joinedText) notify(joinedText);
       const byReason = new Map<string, string[]>();
       for (const { member, error: refusal } of failed) {
         const why = refusalText(t, refusal, "team.manage", role);
         byReason.set(why, [...(byReason.get(why) ?? []), member.display_name]);
       }
-      const refused = [...byReason].map(([reason, names]) =>
+      const refusedLines = [...byReason].map(([reason, names]) =>
         t("teams.addFailed", { names: names.join(", "), reason }),
       );
-      const said = [joinedText, ...refused].filter((line) => line !== null);
-      setResult(
-        refused.length > 0
-          ? { kind: "error", text: said.join(" ") }
-          : joinedText
-            ? { kind: "notice", text: joinedText }
-            : null,
-      );
+      setRefused(refusedLines.length > 0 ? refusedLines.join(" ") : null);
       if (added.length > 0) await refreshTeam(queryClient, client, team.id);
     },
   });
@@ -1014,7 +964,7 @@ function AddMembersDialog({
       open={open}
       onOpenChange={(next) => {
         if (add.isPending) return;
-        setResult(null);
+        setRefused(null);
         setPicked([]);
         setOpen(next);
       }}
@@ -1032,7 +982,7 @@ function AddMembersDialog({
           picked={picked}
           onPickedChange={setPicked}
           pending={add.isPending}
-          result={result}
+          refused={refused}
           onSubmit={() => {
             if (picked.length > 0 && !add.isPending) add.mutate(picked);
           }}
@@ -1048,14 +998,14 @@ function AddMembersForm({
   picked,
   onPickedChange,
   pending,
-  result,
+  refused,
   onSubmit,
 }: {
   readonly team: TeamDetail;
   readonly picked: readonly MemberView[];
   readonly onPickedChange: (picked: readonly MemberView[]) => void;
   readonly pending: boolean;
-  readonly result: Outcome | null;
+  readonly refused: string | null;
   readonly onSubmit: () => void;
 }) {
   const { t } = useI18n();
@@ -1100,14 +1050,13 @@ function AddMembersForm({
         <DialogTitle>{t("teams.addTitle", { team: team.name })}</DialogTitle>
         <DialogDescription>{t("teams.addHint")}</DialogDescription>
       </DialogHeader>
-      {[result?.kind === "error" ? result.text : null, reason].map((text) =>
+      {[refused, reason].map((text) =>
         text === null ? null : (
           <Alert key={text} variant="red" role="alert">
             <AlertDescription>{text}</AlertDescription>
           </Alert>
         ),
       )}
-      <Notice>{result?.kind === "notice" ? result.text : undefined}</Notice>
       <Field>
         <FieldLabel htmlFor={pickerId}>{t("teams.pickMember")}</FieldLabel>
         <Combobox

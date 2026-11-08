@@ -28,14 +28,14 @@ import { useI18n } from "../i18n/i18n.tsx";
 
 /**
  * The 팀 tab's head button: a team's name in a dialog, then the new team.
- * `onCreated` gets the new team's name, and null when another try starts.
+ * `onCreated` gets the new team's name.
  */
 export function TeamCreateDialog({
   reason,
   onCreated,
 }: {
   readonly reason: string | undefined;
-  readonly onCreated: (name: string | null) => void;
+  readonly onCreated: (name: string) => void;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -55,15 +55,11 @@ export function TeamCreateDialog({
 
   const create = useMutation<TeamChangeResponse, ApiError, string>({
     mutationFn: (name) => unwrap(client.POST("/v1/teams", { body: { name } })),
-    onMutate: () => {
-      setError(null);
-      onCreated(null);
-    },
+    onMutate: () => setError(null),
     onSuccess: async ({ team }) => {
-      if (mounted.current) {
-        setOpen(false);
-        onCreated(team.name);
-      }
+      if (mounted.current) setOpen(false);
+      // The toast belongs to the page, so it says so even after a visit away.
+      onCreated(team.name);
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).teams,
       });
