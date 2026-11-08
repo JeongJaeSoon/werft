@@ -602,8 +602,10 @@ export function useRowActions(
       (button) => button.getAttribute("aria-label") === label,
     );
     if (next === undefined) return;
+    // The button stays disabled while the other refetches are in flight, and
+    // focus() on a disabled button does nothing: keep waiting until it lands.
     next.focus();
-    setRefocus(null);
+    if (document.activeElement === next) setRefocus(null);
   });
 
   const enable = useSettingsWrite(
