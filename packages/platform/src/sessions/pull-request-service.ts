@@ -1217,7 +1217,9 @@ export function createPullRequestService(deps: {
         return await refuse("head_moved", fields);
       }
       // GitHub's async merge also merges every open pull request this one is
-      // stacked on, so it only goes to the base it was opened against.
+      // stacked on. The base recorded at open is not proof of no stack (an
+      // adopted pull request records the base it had then), so the stack
+      // itself is looked for: a base that is another open pull request's head.
       if (before.base !== pullRequest.base) {
         return await refuse("merge_blocked", fields);
       }
@@ -1227,6 +1229,9 @@ export function createPullRequestService(deps: {
         return await refuse("merge_blocked", fields);
       }
       try {
+        if ((await forge.findPullRequestForBranch(before.base)) !== null) {
+          return await refuse("merge_blocked", fields);
+        }
         const merged = await forge.mergePullRequest({
           number: pullRequest.number,
           sha: source.gitCommit,
@@ -1259,6 +1264,24 @@ export function createPullRequestService(deps: {
           if (error.status === 400 || error.status === 405)
             return await refuse("merge_blocked", fields);
           if (error.status === 409) return await refuse("head_moved", fields);
+          if (error.status === 202) {
+            // Accepted and still queued when the wait ended: it may have
+            // merged since, and may yet. A retry finds it merged.
+            const after = await forge
+              .getPullRequest(pullRequest.number)
+              .then((read) => read.pullRequest)
+              .catch(() => null);
+            if (
+              after !== null &&
+              after.mergedAt !== null &&
+              after.headSha === source.gitCommit
+            ) {
+              return await answer(
+                { sha: after.mergeCommitSha, method: "squash" },
+                true,
+              );
+            }
+          }
           return await refuse(
             error.status === 404 ? "no_pull_request" : "forge_failed",
             fields,

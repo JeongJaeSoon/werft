@@ -218,8 +218,11 @@ function harness(
   let patchAnswer: ForgePullRequest["state"] | null = null;
   let mergeable: string | null = "clean";
   let mergeStatus: number | null = null;
+  let mergesLater = false;
   let declined: { headMoves: boolean } | null = null;
   let raced: { headMoves: boolean } | null = null;
+  /** Open pull requests of other sessions, by their head branch. */
+  const parents = new Map<string, ForgePullRequest>();
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -245,7 +248,9 @@ function harness(
     findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();
-      return open;
+      const parent = parents.get(branch);
+      if (parent !== undefined) return parent;
+      return open !== null && open.head === branch ? open : null;
     },
     createPullRequest: async (input) => {
       calls.push(`create ${input.head}`);
@@ -321,6 +326,9 @@ function harness(
     mergePullRequest: async ({ number, sha }) => {
       calls.push(`merge ${number} ${sha.slice(0, 1)}`);
       if (mergeStatus !== null) {
+        if (mergesLater && open !== null) {
+          open = { ...open, state: "closed", mergedAt: "2026-11-08T00:00:00Z" };
+        }
         throw new GitHubCallError("pull request merge", mergeStatus, null);
       }
       if (open === null || open.number !== number) {
@@ -461,8 +469,23 @@ function harness(
     setMergeable: (state: string | null) => {
       mergeable = state;
     },
-    failMerge: (status: number) => {
+    /** The merge call fails with `status`; the pull request may merge anyway. */
+    failMerge: (status: number, merges = false) => {
       mergeStatus = status;
+      mergesLater = merges;
+    },
+    /** Another open pull request has `branch` as its head. */
+    stackOn: (branch: string) => {
+      parents.set(branch, {
+        number: 3,
+        url: "https://github.com/acme/app/pull/3",
+        state: "open",
+        head: branch,
+        headSha: "9".repeat(40),
+        base: "main",
+        mergedAt: null,
+        closedAt: null,
+      });
     },
     /** Someone merged it between our read and our request. */
     raceMerge: (headMoves: boolean) => {
@@ -2291,7 +2314,7 @@ describe("merging the pull request", () => {
       merge_commit_sha: "c".repeat(40),
       method: "squash",
     });
-    expect(h.calls).toEqual(["read 7", `merge 7 a`]);
+    expect(h.calls).toEqual(["read 7", "find develop", `merge 7 a`]);
     expect(h.works.map((work) => work.purpose)).toEqual(["merge"]);
     expect(h.receipts.at(-1)).toMatchObject({
       operation: "merge_pull_request",
@@ -2368,12 +2391,44 @@ describe("merging the pull request", () => {
     expect((await refusal(merge(blocked))).details).toMatchObject({
       refusal: "merge_blocked",
     });
-    expect(blocked.calls).toEqual(["read 7", "merge 7 a", "read 7"]);
+    expect(blocked.calls).toEqual([
+      "read 7",
+      "find develop",
+      "merge 7 a",
+      "read 7",
+    ]);
     const moved = withPullRequest();
     moved.declineMerge(true);
     expect((await refusal(merge(moved))).details).toMatchObject({
       refusal: "head_moved",
     });
+  });
+
+  test("a pull request whose base is another open pull request's head is not sent, since GitHub would merge that one too", async () => {
+    const h = withPullRequest();
+    h.stackOn("develop");
+    expect((await refusal(merge(h))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
+    expect(h.calls).toEqual(["read 7", "find develop"]);
+  });
+
+  test("a merge still queued when the wait ends is forge_failed unless it has merged by then, and the retry finds it merged", async () => {
+    const queued = withPullRequest();
+    queued.failMerge(202);
+    expect((await refusal(merge(queued))).details).toMatchObject({
+      refusal: "forge_failed",
+    });
+    const done = withPullRequest();
+    done.failMerge(202, true);
+    expect(await merge(done)).toMatchObject({
+      merged: true,
+      changed: true,
+      method: "squash",
+      head_sha: "a".repeat(40),
+    });
+    const retry = await merge(done);
+    expect(retry).toMatchObject({ merged: true, changed: false, method: null });
   });
 
   test("a pull request merged by someone between the read and the request is answered unchanged, with no method", async () => {
