@@ -92,6 +92,27 @@ export function createExtensionBundleService(deps: {
         return { outcome: "rejected", issues: validation.issues };
       }
       const { bundle } = validation;
+      // The validator adds plugin.json to what it was given, so a tree at the
+      // file-count limit grows past it. Judge the tree that will be stored by
+      // the same rules `read` applies, or it would be stored and never served.
+      const again = validateExtensionBundle(
+        {
+          slug: bundle.slug,
+          files: bundle.files.map((file) => ({
+            path: file.path,
+            kind: "file" as const,
+            mode: file.mode,
+            bytes: file.bytes,
+          })),
+        },
+        limits,
+      );
+      if (!again.ok) return { outcome: "rejected", issues: again.issues };
+      if (again.bundle.digest !== bundle.digest) {
+        throw new BundleIntegrityError(
+          "The validated tree does not validate to its own digest.",
+        );
+      }
       const may = await store.mayManage({
         workspaceId,
         principal: input.principal,

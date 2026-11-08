@@ -134,6 +134,27 @@ describe("register", () => {
     expect(objects.keys()).toEqual([]);
   });
 
+  test("a bundle whose rebuilt tree would pass the file limit is refused, not stored unreadable", async () => {
+    const { service, rows, objects } = setup();
+    // 256 files in: the validator accepts them, then adds plugin.json.
+    const files = [
+      ...clean(),
+      ...Array.from({ length: 255 }, (_, i) =>
+        file(`skills/research/notes-${i}.md`, `n${i}\n`),
+      ),
+    ];
+    const result = await register(service, files);
+    expect(result.outcome).toBe("rejected");
+    expect(rows).toEqual([]);
+    expect(objects.keys()).toEqual([]);
+    // One fewer fits, and reads back.
+    const fits = await register(service, files.slice(0, 255));
+    if (fits.outcome !== "registered") throw new Error(fits.outcome);
+    expect((await service.read(WS_A, fits.bundle.digest))?.files).toHaveLength(
+      256,
+    );
+  });
+
   test("an actor who may not manage bundles leaves no object behind", async () => {
     const { service, rows, objects } = setup();
     const result = await register(service, clean(), DENIED);

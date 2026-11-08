@@ -198,6 +198,35 @@ integration("extension bundles on PostgreSQL", () => {
     expect(made[0]?.result).toMatchObject({ digest: first.digest });
   });
 
+  test("two registrations of the same content at once leave one row and one receipt", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const results = await Promise.all(
+      [0, 1, 2, 3].map(() =>
+        service.register({
+          principal: owner,
+          slug: "acme",
+          files: clean(),
+          label: "Research",
+          source: "upload",
+        }),
+      ),
+    );
+    expect(results.map((r) => r.outcome).sort()).toEqual([
+      "already_registered",
+      "already_registered",
+      "already_registered",
+      "registered",
+    ]);
+    const rows = await db
+      .select()
+      .from(extensionBundles)
+      .where(eq(extensionBundles.workspaceId, workspaceId));
+    expect(rows).toHaveLength(1);
+    expect(await receiptsOf(workspaceId, "register_extension")).toHaveLength(1);
+  });
+
   test("a review changes the state and leaves the digest as it was", async () => {
     const { service, store } = build();
     const workspaceId = await workspace();
