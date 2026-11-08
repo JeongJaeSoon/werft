@@ -1,6 +1,7 @@
 import {
   type CreateWorkspaceProfileRequest,
   type ListProfilesResponse,
+  mcpNamesOf,
   type ProfileDerivationPolicy,
   type ProfileSummary,
   WORKSPACE_PROFILE_POLICY,
@@ -31,6 +32,7 @@ import {
 import { latestReads } from "./profile-registry.ts";
 import {
   deniedTools,
+  mcpDenyScope,
   previousChoice,
   type StoredDeny,
   shownDeny,
@@ -82,6 +84,14 @@ function denyField(
     : { deny: shownDeny(catalog.tool_catalogs, stored ?? {}, tools, runtime) };
 }
 
+/** The `mcp__` blocks beside `deny`, which stays the catalog's; no key when none. */
+function mcpDenyField(names: readonly string[] | null | undefined): {
+  mcp_deny?: string[];
+} {
+  const mcp = mcpNamesOf(names);
+  return mcp.length > 0 ? { mcp_deny: mcp } : {};
+}
+
 /** `trustedId` is the operator profile a repository's allow list names. */
 function summaryOf(
   catalog: SessionCatalogView,
@@ -99,6 +109,7 @@ function summaryOf(
       kind: profile.runtime_kind,
       version: profile.runtime_version,
     }),
+    ...mcpDenyField(profile.mcp_deny),
     permission_mode: profile.permission_mode,
     runtime_kind: profile.runtime_kind,
     runtime_version: profile.runtime_version,
@@ -140,6 +151,7 @@ export function workspaceSummary(
             ...record.models.filter((m) => m !== record.model),
           ],
           tools: [...record.tools],
+          ...mcpDenyField(record.deny),
           permission_mode: record.permission_mode,
           runtime_kind: "claude_agent_sdk" as const,
           runtime_version: record.base_runtime_version,
@@ -455,6 +467,11 @@ export function createWorkspaceProfileService(deps: {
                     ?.tool_catalog_id === baseCatalog.id,
               },
               previous: previousRead,
+              mcp: mcpDenyScope(
+                catalog.mcp_servers,
+                base.mcp_deny,
+                previous?.deny,
+              ),
             });
       const narrowing = {
         model: request.model,
@@ -470,6 +487,7 @@ export function createWorkspaceProfileService(deps: {
         denied: asked,
         previous,
         baseMcpDeny: base.mcp_deny,
+        requested: asked?.mcpDeny,
       });
       const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
       if (refusal !== null) {

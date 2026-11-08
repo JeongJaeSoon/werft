@@ -113,6 +113,7 @@ function appWith(options: { row?: AgentMcpRow | null } = {}) {
               id: "rel_1",
               card: releaseCard,
               policyPins: releasePins,
+              mcpDeny: [],
             },
           }
         : null;
@@ -123,7 +124,7 @@ function appWith(options: { row?: AgentMcpRow | null } = {}) {
     async put(input) {
       if (input.agentId !== AGENT) return { outcome: "not_found" };
       // The real store runs the service's check under its lock, on the held row.
-      input.check(row, "docs");
+      input.check(row, "docs", []);
       if (input.expectedRevision === STALE_REVISION) {
         return { outcome: "conflict", revision: 1 };
       }

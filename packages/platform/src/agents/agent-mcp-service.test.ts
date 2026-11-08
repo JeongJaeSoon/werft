@@ -40,14 +40,21 @@ const releaseNaming = (server: string | null) =>
         id: "rel_1",
         card: { capabilities: { mcp: [{ server }] } },
         policyPins: {},
+        mcpDeny: [],
       };
 
 /**
  * `readServer` is the server of the release the service read before the
- * save; `lockedServer` the one the store reads under the agent's lock.
+ * save; `lockedServer` the one the store reads under the agent's lock, and
+ * `lockedDeny` the `mcp_deny` of that release. `held` is the saved row.
  */
 function serviceWith(
-  options: { readServer?: string | null; lockedServer?: string | null } = {},
+  options: {
+    readServer?: string | null;
+    lockedServer?: string | null;
+    lockedDeny?: string[];
+    held?: Parameters<Put["check"]>[0];
+  } = {},
 ) {
   const puts: Put[] = [];
   const store: AgentMcpStore = {
@@ -59,7 +66,11 @@ function serviceWith(
     boundRefs: async () => [],
     async put(input) {
       // Like the real store: a refusing check writes nothing.
-      input.check(null, options.lockedServer ?? null);
+      input.check(
+        options.held ?? null,
+        options.lockedServer ?? null,
+        options.lockedDeny ?? [],
+      );
       puts.push(input);
       return { outcome: "saved", revision: 1, receiptId: "receipt-1" };
     },
@@ -170,6 +181,93 @@ describe("the agent MCP service", () => {
     expect(await refusal(save("wiki"))).toBe("BAD_REQUEST:server_unknown");
     // Still the active release's server: narrowing it stays possible.
     expect(await refusal(save("retired"))).toBe("saved");
+  });
+
+  const row = (allowedTools: string[], server: string | null = "docs") => ({
+    server,
+    allowedTools,
+    credentialRefs: ["docs-key"],
+    revision: 1,
+    updatedBy: USER,
+  });
+  const save = (
+    options: Parameters<typeof serviceWith>[0],
+    allowed: string[],
+    server = "docs",
+  ) =>
+    serviceWith({
+      readServer: "docs",
+      lockedServer: "docs",
+      ...options,
+    }).service.put(
+      owner("web"),
+      AGENT,
+      request({ server, allowed_tools: allowed }),
+    );
+
+  test("a tool the active release's profile blocks cannot be added, one it leaves open can", async () => {
+    const lockedDeny = ["mcp__docs__write"];
+    expect(await refusal(save({ lockedDeny }, ["mcp__docs__write"]))).toBe(
+      "BAD_REQUEST:mcp_tool_denied",
+    );
+    expect(await refusal(save({ lockedDeny }, ["mcp__docs__read"]))).toBe(
+      "saved",
+    );
+  });
+
+  test("only what the save adds is judged: a held blocked tool can be narrowed past", async () => {
+    const lockedDeny = ["mcp__docs__write"];
+    const held = row(["mcp__docs__read", "mcp__docs__write"]);
+    // Keeping the held tool beside a removal is not an addition.
+    expect(
+      await refusal(save({ lockedDeny, held }, ["mcp__docs__write"])),
+    ).toBe("saved");
+    // Adding another blocked tool in the same save is.
+    expect(
+      await refusal(
+        save({ lockedDeny, held: row(["mcp__docs__read"]) }, [
+          "mcp__docs__read",
+          "mcp__docs__write",
+        ]),
+      ),
+    ).toBe("BAD_REQUEST:mcp_tool_denied");
+  });
+
+  test("a blocked addition is refused even when the server has left the catalog", async () => {
+    // The early return that lets a retired server be narrowed must not skip it.
+    const { service } = serviceWith({
+      readServer: "retired",
+      lockedServer: "retired",
+      lockedDeny: ["mcp__retired__write"],
+      held: row(["mcp__retired__read"], "retired"),
+    });
+    expect(
+      await refusal(
+        service.put(
+          owner("web"),
+          AGENT,
+          request({
+            server: "retired",
+            allowed_tools: ["mcp__retired__read", "mcp__retired__write"],
+          }),
+        ),
+      ),
+    ).toBe("BAD_REQUEST:mcp_tool_denied");
+  });
+
+  test("an added name must be a tool of the server in the one name rule", async () => {
+    for (const name of [
+      "mcp__docs__",
+      "mcp__docs__read all",
+      "mcp__docs__a\u0000b",
+      "mcp__wiki__read",
+      `mcp__docs__${"x".repeat(200)}`,
+    ]) {
+      expect(await refusal(save({}, [name]))).toBe(
+        "BAD_REQUEST:tool_outside_server",
+      );
+    }
+    expect(await refusal(save({}, ["mcp__docs__read:all"]))).toBe("saved");
   });
 
   test("the server's credential must be among the names", async () => {

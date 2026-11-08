@@ -15,6 +15,8 @@ export type AgentMcpRelease = {
   id: string;
   card: unknown;
   policyPins: unknown;
+  /** The `mcp__` names the release's snapshot blocks (`mcp_deny`); none when absent. */
+  mcpDeny: readonly string[];
 };
 
 /**
@@ -51,7 +53,8 @@ export interface AgentMcpStore {
    * revision must be `expectedRevision` (null: no row yet). `updated_by` is
    * always `userId`, so a save also marks a copied row a person's. `check`
    * runs on the locked current row, with the server the agent's active
-   * release names read under the same lock, and may refuse the write.
+   * release names and blocks (`releaseMcpDeny`) read under the same lock,
+   * and may refuse the write.
    */
   put(input: {
     workspaceId: string;
@@ -61,6 +64,10 @@ export interface AgentMcpStore {
     userId: string;
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
-    check: (current: AgentMcpRow | null, releaseServer: string | null) => void;
+    check: (
+      current: AgentMcpRow | null,
+      releaseServer: string | null,
+      releaseMcpDeny: readonly string[],
+    ) => void;
   }): Promise<PutAgentMcpSettingsResult>;
 }

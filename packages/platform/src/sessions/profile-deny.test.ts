@@ -23,6 +23,7 @@ import type {
 } from "../ports/installation-profile-store.ts";
 import type { WorkspaceProfileStore } from "../ports/workspace-profile-store.ts";
 import {
+  type CatalogMcpServer,
   type CatalogProfile,
   type CatalogProfileConfig,
   catalogProfile,
@@ -189,14 +190,29 @@ function stores(rows: InstallationProfileRecord[]) {
   return { installation, workspace, writes, versions, versionWrites };
 }
 
+const listedServer = {
+  url: "https://mcp.invalid/",
+  credential_ref: "mcp-key",
+  auth: { kind: "bearer" },
+  workspaces: ["acme"],
+} as unknown as CatalogMcpServer;
+const SERVERS = Object.fromEntries(
+  ["a", "docs", "wiki"].map((id) => [id, listedServer]),
+);
+
 function setup(
-  options: { rows?: InstallationProfileRecord[]; catalogs?: boolean } = {},
+  options: {
+    rows?: InstallationProfileRecord[];
+    catalogs?: boolean;
+    mcpServers?: Record<string, CatalogMcpServer>;
+  } = {},
 ) {
   const rows = options.rows ?? catalogRows({ seed: SEED });
   const made = stores(rows);
   const catalog = profileCatalog(
     {
       repositories: {},
+      mcp_servers: options.mcpServers ?? SERVERS,
       ...(options.catalogs === false ? {} : { tool_catalogs: TOOL_CATALOGS }),
     },
     createProfileRegistry({
@@ -340,10 +356,13 @@ describe("a ceiling saved with a deny", () => {
     expect(saved.profile.deny).toEqual(ALL);
   });
 
-  test("names only whole catalog tools: MCP tools, patterns and unknown names are 400", async () => {
+  test("names only whole catalog tools or listed servers' mcp__ tools: the rest are 400", async () => {
     const { ceilings, writes } = setup();
     for (const [name, reason] of [
-      ["mcp__github__get_file", "mcp_tool"],
+      ["mcp__github__get_file", "github_server"],
+      ["mcp__github__*", "github_server"],
+      ["mcp__nowhere__read", "unknown_mcp_server"],
+      ["mcp__docs__read all", "mcp_tool_name"],
       ["Bash(rm:*)", "tool_pattern"],
       ["Task", "unknown_tool"],
       ["TodoWrite", "unknown_tool"],
@@ -681,24 +700,6 @@ describe("mcp__ names in a stored deny", () => {
     expect(of(bare)).toBe(of(plain));
   });
 
-  test("a ceiling write still refuses an mcp__ name as mcp_tool", async () => {
-    const { ceilings } = setup();
-    expect(
-      await refused(
-        ceilings.create(owner(), { ...CEILING, deny: ["mcp__docs__read"] }),
-      ),
-    ).toMatchObject({ code: "BAD_REQUEST", reason_code: "mcp_tool" });
-  });
-
-  test("a workspace version write still refuses an mcp__ name as mcp_tool", async () => {
-    const { workspace } = await withStoredMcp(null);
-    expect(
-      await refused(
-        workspace.create(owner(), { ...VERSION, deny: ["mcp__docs__read"] }),
-      ),
-    ).toMatchObject({ code: "BAD_REQUEST", reason_code: "mcp_tool" });
-  });
-
   test("the next ceiling version keeps them, over a deny or an allow list", async () => {
     const made = await withStoredMcp(["WebSearch", ...MCP]);
     const next = await made.ceilings.create(owner(), {
@@ -831,5 +832,159 @@ describe("mcp__ names in a stored deny", () => {
     });
     expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", ...MCP]);
     expect(made.writes.at(-1)?.toolCatalogId).toBe("engine@old");
+  });
+});
+
+describe("writing mcp__ names in a deny", () => {
+  const DOCS = "mcp__docs__read:all";
+
+  test("a ceiling stores them beside the catalog's, runs without them in tools, and lists them as mcp_deny", async () => {
+    const { ceilings, writes, catalog } = setup();
+    const saved = await ceilings.create(owner(), {
+      ...CEILING,
+      deny: ["WebSearch", "mcp__wiki__b", DOCS, "mcp__wiki__b"],
+    });
+    expect(writes[0]?.deny).toEqual(["WebSearch", DOCS, "mcp__wiki__b"]);
+    expect(writes[0]?.toolCatalogId).toBe(CATALOG.id);
+    expect(writes[0]?.definition).toMatchObject({
+      tools: without("WebSearch"),
+    });
+    // `deny` stays the catalog's; the `mcp__` names have a field of their own.
+    expect(saved.profile.deny).toEqual(["WebSearch"]);
+    expect(saved.profile.mcp_deny).toEqual([DOCS, "mcp__wiki__b"]);
+    expect(catalogProfile(catalog, "op_coding_v1")?.mcp_deny).toEqual([
+      DOCS,
+      "mcp__wiki__b",
+    ]);
+    // The response schema keeps the field (a strict parse drops nothing).
+    const listed = listCatalogProfiles(catalog, WORKSPACE);
+    expect(listProfilesResponseSchema.parse(listed)).toEqual(listed);
+    expect(
+      listed.items.find((item) => item.id === "op_coding_v1")?.mcp_deny,
+    ).toEqual([DOCS, "mcp__wiki__b"]);
+  });
+
+  test("a profile that blocks none lists no mcp_deny", async () => {
+    const { ceilings } = setup();
+    const saved = await ceilings.create(owner(), { ...CEILING, deny: [] });
+    expect(Object.keys(saved.profile)).not.toContain("mcp_deny");
+  });
+
+  test("the next version keeps the ones before it and adds the ones it names", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      deny: ["WebSearch", DOCS],
+    });
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      deny: ["WebSearch", "mcp__wiki__b"],
+    });
+    expect(made.writes.at(-1)?.deny).toEqual([
+      "WebSearch",
+      DOCS,
+      "mcp__wiki__b",
+    ]);
+    // Naming a held name again is no change; an allow list keeps them too.
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v2",
+      tools: ["Read"],
+    });
+    expect(made.writes.at(-1)?.deny).toEqual(
+      expect.arrayContaining([DOCS, "mcp__wiki__b"]),
+    );
+  });
+
+  test("a name of a server the installation no longer lists is 400 when new, accepted when already held", async () => {
+    const made = setup({ mcpServers: {} });
+    expect(
+      await refused(
+        made.ceilings.create(owner(), { ...CEILING, deny: [DOCS] }),
+      ),
+    ).toMatchObject({ reason_code: "unknown_mcp_server", field: "deny" });
+    // A version made while the server was listed holds the name.
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!row) throw new Error("no row");
+    row.deny = ["WebSearch", DOCS];
+    await made.catalog.workspace_profiles.refresh();
+    const next = {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      deny: ["WebSearch", DOCS],
+    };
+    // Naming it again is not judged; a new name of that server still is.
+    await made.ceilings.create(owner(), next);
+    expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", DOCS]);
+    expect(
+      await refused(
+        made.ceilings.create(owner(), {
+          ...next,
+          deny: ["WebSearch", DOCS, "mcp__docs__other"],
+        }),
+      ),
+    ).toMatchObject({ reason_code: "unknown_mcp_server" });
+  });
+
+  test("a workspace version over a base that blocks mcp__ names must name them, and may add its own", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!row) throw new Error("no row");
+    row.deny = ["WebSearch", "mcp__docs__read"];
+    await made.catalog.workspace_profiles.refresh();
+    const saved = await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", "mcp__docs__read", "mcp__wiki__b"],
+    });
+    expect(made.versionWrites.at(-1)?.deny).toEqual([
+      "WebSearch",
+      "mcp__docs__read",
+      "mcp__wiki__b",
+    ]);
+    expect(saved.profile.mcp_deny).toEqual(["mcp__docs__read", "mcp__wiki__b"]);
+    expect(saved.profile.deny).toEqual(["WebSearch"]);
+    // Leaving the base's name out is the refusal PR3a left in place.
+    expect(
+      await refused(
+        made.workspace.create(owner(), {
+          ...VERSION,
+          deny: ["WebSearch", "mcp__wiki__b"],
+        }),
+      ),
+    ).toMatchObject({ reason_code: "base_mcp_deny_dropped" });
+  });
+
+  test("a workspace version cannot name the built-in server or an unlisted one", async () => {
+    const { workspace, ceilings } = setup();
+    await ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    for (const [name, reason] of [
+      ["mcp__github__get_file", "github_server"],
+      ["mcp__nowhere__x", "unknown_mcp_server"],
+    ] as const) {
+      expect(
+        await refused(workspace.create(owner(), { ...VERSION, deny: [name] })),
+      ).toMatchObject({ reason_code: reason, field: "deny" });
+    }
+  });
+
+  test("accept_added_tools cannot carry an mcp__ name", async () => {
+    const { ceilings } = setup();
+    await ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    expect(
+      await refused(
+        ceilings.create(owner(), {
+          ...CEILING,
+          previous_id: "op_coding_v1",
+          deny: ["WebSearch"],
+          accept_added_tools: [DOCS],
+        }),
+      ),
+    ).toMatchObject({
+      reason_code: "mcp_tool",
+      field: "accept_added_tools",
+    });
   });
 });

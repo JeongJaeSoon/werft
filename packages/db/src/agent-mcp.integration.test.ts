@@ -404,6 +404,39 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
     expect(await receiptsOf(agentId)).toHaveLength(0);
   });
 
+  test("a tool the active release's snapshot blocks cannot be added; one it leaves open can; a held one can be narrowed past", async () => {
+    const { agentId, releaseId, owner } = await setup();
+    await db
+      .update(agentReleases)
+      .set({ runtimeConfigSnapshot: { mcp_deny: [SEARCH] } })
+      .where(eq(agentReleases.id, releaseId));
+    expect(await refusal(service().put(owner, agentId, request(null)))).toBe(
+      "BAD_REQUEST:mcp_tool_denied",
+    );
+    expect(await rowOf(agentId)).toBeUndefined();
+    expect(
+      await refusal(
+        service().put(owner, agentId, request(null, { allowed_tools: [READ] })),
+      ),
+    ).toBe("saved");
+    // The deny lands after a row already held the tool: narrowing still works.
+    await db
+      .update(agentMcpSettings)
+      .set({ allowedTools: [READ, SEARCH] })
+      .where(eq(agentMcpSettings.agentId, agentId));
+    const held = await rowOf(agentId);
+    expect(
+      await refusal(
+        service().put(
+          owner,
+          agentId,
+          request(held?.revision ?? null, { allowed_tools: [SEARCH] }),
+        ),
+      ),
+    ).toBe("saved");
+    expect((await rowOf(agentId))?.allowedTools).toEqual([SEARCH]);
+  });
+
   test("a save narrows a running session at once and widens only sessions that start after it", async () => {
     const { agentId, releaseId, workspaceId, owner } = await setup();
     await service().put(

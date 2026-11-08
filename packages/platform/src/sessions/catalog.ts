@@ -671,6 +671,11 @@ export type SessionCatalogView = {
   runtime_versions?: RuntimeVersions;
   /** What a profile's deny names; read on the write path and for listing only. */
   tool_catalogs?: ToolCatalogs;
+  /**
+   * The MCP servers this installation lists (keys only are read): the
+   * servers a profile's deny may name tools of. Absent lists none.
+   */
+  mcp_servers?: Readonly<Record<string, unknown>> | undefined;
 };
 
 /** A remote MCP server the session's agent release names, as claimed. */

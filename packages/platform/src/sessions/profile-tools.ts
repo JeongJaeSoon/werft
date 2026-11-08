@@ -3,6 +3,7 @@ import {
   canonicalTool,
   denyOf,
   MCP_TOOL_PREFIX,
+  type McpDenyScope,
   mcpDenyDropped,
   mcpNamesOf,
   parseToolNames,
@@ -126,18 +127,22 @@ export function withKeptMcpDeny<
   denied: D | undefined;
   previous: StoredDeny | undefined;
   baseMcpDeny: readonly string[] | undefined;
+  /** The `mcp__` names the request itself blocks (none for an allow list). */
+  requested?: readonly string[] | undefined;
 }): D | { deny: string[]; toolCatalogId: string } | undefined {
-  const kept = mcpNamesOf(input.previous?.deny);
+  const requested = input.requested ?? [];
   // The request itself must name the base's `mcp__` blocks, not lean on the
-  // previous version; a write cannot carry `mcp__` names yet, so over such a
-  // base every request is refused until it can.
-  if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: [] })) {
+  // previous version: an allow list or a deny that leaves one out is refused.
+  if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: requested })) {
     throw badRequest(
       "The base profile blocks MCP tools this version would leave open: a version keeps the base's blocks",
       "base_mcp_deny_dropped",
       "deny",
     );
   }
+  // What the request names and what the previous version held; a request
+  // cannot drop the latter (nothing here spells "unblock" yet).
+  const kept = mcpNamesOf([...requested, ...(input.previous?.deny ?? [])]);
   if (kept.length === 0) return input.denied;
   if (input.denied) {
     return { ...input.denied, deny: [...input.denied.deny, ...kept] };
@@ -180,7 +185,15 @@ export function deniedTools(input: {
     readonly sameCatalog: boolean;
   };
   previous: ToolChoice | undefined;
-}): { tools: string[]; deny: string[]; toolCatalogId: string } {
+  /** Lets the deny name `mcp__` tools of these servers; absent: it may not. */
+  mcp?: McpDenyScope | undefined;
+}): {
+  tools: string[];
+  deny: string[];
+  /** The `mcp__` names `deny` named; kept apart because they are not the catalog's. */
+  mcpDeny: string[];
+  toolCatalogId: string;
+} {
   const { catalog } = input;
   if (!catalog) {
     throw badRequest(
@@ -189,7 +202,7 @@ export function deniedTools(input: {
       "deny",
     );
   }
-  const deny = parseToolNames(catalog, input.deny);
+  const deny = parseToolNames(catalog, input.deny, input.mcp);
   if ("refusal" in deny) {
     throw badRequest(deny.refusal.message, deny.refusal.reason_code, "deny");
   }
@@ -232,6 +245,21 @@ export function deniedTools(input: {
   return {
     tools,
     deny: denyOf(catalog, tools),
+    mcpDeny: deny.mcp,
     toolCatalogId: catalog.id,
+  };
+}
+
+/**
+ * Where a deny may name `mcp__` tools: the servers the installation lists,
+ * and the names the base and the previous version already block.
+ */
+export function mcpDenyScope(
+  servers: Readonly<Record<string, unknown>> | undefined,
+  ...held: (readonly string[] | null | undefined)[]
+): McpDenyScope {
+  return {
+    servers: new Set(Object.keys(servers ?? {})),
+    existing: new Set(held.flatMap((names) => mcpNamesOf(names))),
   };
 }

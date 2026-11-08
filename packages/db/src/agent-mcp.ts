@@ -9,6 +9,7 @@ import type {
 } from "@werft-ai/platform";
 import {
   copyValuesOf,
+  mcpDenyOf,
   mcpValuesOfCard,
   planMcpSettingsMigration,
 } from "@werft-ai/platform";
@@ -66,9 +67,10 @@ async function releaseOf(
     id: string;
     card: unknown;
     policy_pins: unknown;
+    runtime_config_snapshot: unknown;
   }>(
     await executor.execute(
-      sql`SELECT r.id, v.card, r.policy_pins
+      sql`SELECT r.id, v.card, r.policy_pins, r.runtime_config_snapshot
         FROM agent_releases r
         JOIN agent_versions v ON v.id = r.version_id
         WHERE r.id = ${releaseId}`,
@@ -76,7 +78,12 @@ async function releaseOf(
   );
   return release === undefined
     ? null
-    : { id: release.id, card: release.card, policyPins: release.policy_pins };
+    : {
+        id: release.id,
+        card: release.card,
+        policyPins: release.policy_pins,
+        mcpDeny: mcpDenyOf(release.runtime_config_snapshot),
+      };
 }
 
 export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
@@ -150,6 +157,7 @@ export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
           release === null
             ? null
             : mcpValuesOfCard(release.card, release.policyPins).server,
+          release?.mcpDeny ?? [],
         );
         const next = {
           server: input.settings.server,

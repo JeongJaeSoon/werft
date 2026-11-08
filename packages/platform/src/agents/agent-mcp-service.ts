@@ -2,7 +2,7 @@ import {
   type AgentMcpResponse,
   type AgentMcpSettings,
   GITHUB_MCP_SERVER,
-  MCP_TOOL_PREFIX,
+  mcpToolOfServer,
   type PutAgentMcpSettingsRequest,
   type PutAgentMcpSettingsResponse,
 } from "@werft-ai/contracts";
@@ -140,18 +140,6 @@ export function createAgentMcpService(deps: {
       if (given.server === GITHUB_MCP_SERVER) {
         throw refused("settings.server", "server_builtin");
       }
-      if (given.server !== null) {
-        const prefix = `${MCP_TOOL_PREFIX}${given.server}__`;
-        const outside = given.allowed_tools.findIndex(
-          (tool) => !tool.startsWith(prefix) || tool.length === prefix.length,
-        );
-        if (outside >= 0) {
-          throw refused(
-            `settings.allowed_tools.${outside}`,
-            "tool_outside_server",
-          );
-        }
-      }
       const settings: AgentMcpSettings = {
         server: given.server,
         allowed_tools: sortedUnique(given.allowed_tools),
@@ -168,8 +156,28 @@ export function createAgentMcpService(deps: {
         userId,
         principal: caller,
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
-        check: (current, releaseServer) => {
+        check: (current, releaseServer, releaseMcpDeny) => {
           if (settings.server === null) return;
+          // Only what this save adds is judged: a tool the row already holds
+          // can still be narrowed away, whatever the profile blocks since.
+          // This runs before the server checks, which return early.
+          const already =
+            current !== null && current.server === settings.server
+              ? new Set(current.allowedTools)
+              : new Set<string>();
+          const blocked = new Set(releaseMcpDeny);
+          given.allowed_tools.forEach((tool, at) => {
+            if (already.has(tool)) return;
+            if (!mcpToolOfServer(tool, settings.server ?? "")) {
+              throw refused(
+                `settings.allowed_tools.${at}`,
+                "tool_outside_server",
+              );
+            }
+            if (blocked.has(tool)) {
+              throw refused(`settings.allowed_tools.${at}`, "mcp_tool_denied");
+            }
+          });
           const entry = server(settings.server);
           // What the agent has now: its row, or its release while it has none.
           // Both come from under the agent's lock, not from the read above.
