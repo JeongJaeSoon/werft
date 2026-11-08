@@ -540,10 +540,19 @@ describe("a deny read back", () => {
     const options = await ceilings.options(owner());
     expect(
       options.tool_catalogs?.map((entry) => [entry.id, entry.runtime_version]),
-    ).toEqual([
-      [CATALOG.id, CATALOG.sdkVersion],
-      [CATALOG.id, CATALOG.engineVersion],
-    ]);
+    ).toEqual(
+      installedToolCatalogs.flatMap((installed) => [
+        [installed.id, installed.sdkVersion],
+        [installed.id, installed.engineVersion],
+      ]),
+    );
+    // The pinned 0.3.270 catalog is still offered beside the current one.
+    expect(
+      options.tool_catalogs?.some(
+        (entry) =>
+          entry.id === CATALOG.id && entry.runtime_version === "0.3.270",
+      ),
+    ).toBe(true);
     expect(options.tool_catalogs?.[0]?.tools).toEqual(
       CATALOG.tools.map((tool) => ({ ...tool })),
     );
