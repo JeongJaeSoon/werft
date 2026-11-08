@@ -139,13 +139,18 @@ function fakeApi() {
                   request_id: "smoke-request",
                   kind: "permission",
                   tool: "Bash",
-                  input: { command: "echo alpha > hello.txt" },
+                  input: { command: "echo alpha | tee hello.txt" },
                   created_at: "2026-10-28T00:00:00Z",
                 },
               ],
         });
       }
       if (path.endsWith("/answers")) {
+        // A deny would also end the turn, so the smoke has to see the action.
+        const answer = (await request.json()) as { action?: string };
+        if (answer.action !== "allow") {
+          return json({ error: { code: "BAD_REQUEST", message: "" } }, 400);
+        }
         answered = true;
         return json(
           { receipt_id: "answer-receipt", receipt_status: "accepted" },

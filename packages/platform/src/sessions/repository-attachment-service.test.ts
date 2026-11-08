@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ReceiptActor } from "@werft-ai/contracts";
+import {
+  LISTED_REPOSITORY_MEANING as MEANING,
+  type ReceiptActor,
+} from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../ports/github-gate.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import { refusal } from "../testing/refusal.ts";
@@ -15,6 +18,8 @@ import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const COMMIT = "c".repeat(40);
+const APP = { id: "app", name: "acme/app", branch: "main" };
+const DOCS = { id: "docs", name: "acme/docs", branch: "trunk" };
 const actor: ReceiptActor = {
   principal: { kind: "user", id: "user-1" },
   actor_user_id: "user-1",
@@ -82,13 +87,14 @@ describe("list", () => {
     const s = service();
     expect(await s.list()).toEqual({
       repositories: [
-        { id: "app", name: "acme/app", branch: "main", status: "primary" },
-        { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+        { ...APP, status: "primary", meaning: MEANING.primary },
+        { ...DOCS, status: "available", meaning: MEANING.available },
         {
           id: "tools",
           name: "acme/tools",
           branch: "main",
           status: "available",
+          meaning: MEANING.available,
         },
       ],
       next_cursor: null,
@@ -122,7 +128,7 @@ describe("list", () => {
       { policy: releasePolicy(null) },
     ]) {
       expect((await service({ context }).list()).repositories).toEqual([
-        { id: "app", name: "acme/app", branch: "main", status: "primary" },
+        { ...APP, status: "primary", meaning: MEANING.primary },
       ]);
     }
   });
@@ -283,13 +289,14 @@ describe("a repository only the agent's active release allows", () => {
         }).list()
       ).repositories,
     ).toEqual([
-      { id: "app", name: "acme/app", branch: "main", status: "primary" },
-      { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+      { ...APP, status: "primary", meaning: MEANING.primary },
+      { ...DOCS, status: "available", meaning: MEANING.available },
       {
         id: "tools",
         name: "acme/tools",
         branch: "main",
         status: "allowed_in_newer_release",
+        meaning: MEANING.allowed_in_newer_release,
       },
     ]);
     expect(

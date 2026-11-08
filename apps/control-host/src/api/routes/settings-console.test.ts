@@ -3,6 +3,7 @@ import {
   apiErrorResponseSchema,
   listSettingsConnectionsResponseSchema,
   settingsChangeResponseSchema,
+  settingsConnectionImpactResponseSchema,
 } from "@werft-ai/contracts";
 import {
   SessionServiceError,
@@ -192,6 +193,54 @@ describe("GET /v1/installation/settings/{kind}", () => {
         503,
       );
     }
+  });
+});
+
+describe("GET /v1/installation/settings/connections/{id}/impact", () => {
+  const path = `${BASE}/connections/console/impact`;
+  const IMPACT = {
+    id: "console",
+    profile_count: 2,
+    agent_count: 3,
+    session_count: 1,
+    judge_used: false,
+  };
+
+  test("asks the service for the id in the path and answers its counts", async () => {
+    const asked: unknown[][] = [];
+    const response = await request(
+      {
+        connectionImpact: async (_caller, id) => {
+          asked.push([id]);
+          return IMPACT;
+        },
+      },
+      "GET",
+      path,
+    );
+    expect(response.status).toBe(200);
+    expect(
+      settingsConnectionImpactResponseSchema.parse(await response.json()),
+    ).toEqual(IMPACT);
+    expect(asked).toEqual([["console"]]);
+  });
+
+  test("every refusal maps to its status", async () => {
+    for (const [code, status] of [
+      ["FORBIDDEN", 403],
+      ["NOT_FOUND", 404],
+    ] as const) {
+      const response = await request(
+        { connectionImpact: refusing(code) },
+        "GET",
+        path,
+      );
+      expect(response.status).toBe(status);
+      apiErrorResponseSchema.parse(await response.json());
+    }
+    expect(
+      (await request({ connectionImpact: outage }, "GET", path)).status,
+    ).toBe(503);
   });
 });
 

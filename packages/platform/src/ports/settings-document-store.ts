@@ -59,6 +59,18 @@ export interface SettingsDocumentStore {
   >;
 
   /**
+   * What runs on `profileIds` right now, and whether a workspace's judge
+   * setting names `connectionId`: the active agents whose active release
+   * runs one of them, and the sessions not yet `failed` or `stopped` whose
+   * profile, or whose current attempt's profile, is one of them. Counts
+   * only; read when a person asks what disabling a connection would stop.
+   */
+  connectionUse(input: {
+    profileIds: readonly string[];
+    connectionId: string;
+  }): Promise<{ agents: number; sessions: number; judgeNamed: boolean }>;
+
+  /**
    * Every row of one kind, disabled and removed ones too; for repositories
    * only those that are not the console App's.
    */

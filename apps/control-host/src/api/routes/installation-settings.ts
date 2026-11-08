@@ -9,6 +9,7 @@ import {
   setSettingsCredentialRequestSchema,
   setSettingsMcpServerRequestSchema,
   settingsChangeResponseSchema,
+  settingsConnectionImpactResponseSchema,
   settingsDocumentSchema,
   settingsIdParamsSchema,
 } from "@werft-ai/contracts";
@@ -62,6 +63,17 @@ export function registerSettingsConsoleRoutes(
       context,
       listSettingsConnectionsResponseSchema,
       listed,
+    );
+  });
+  apiRoute(router, "getSettingsConnectionImpact", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const impact = await mapped(() =>
+      settings.connectionImpact(context.get("caller"), id),
+    );
+    return jsonWithSchema(
+      context,
+      settingsConnectionImpactResponseSchema,
+      impact,
     );
   });
   apiRoute(router, "listSettingsMcpServers", async (context) => {

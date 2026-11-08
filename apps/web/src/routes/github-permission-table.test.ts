@@ -31,6 +31,19 @@ describe("GitHub 기능별 권한 판정", () => {
     expect(neededFor(short)).toEqual({ actions: "write", workflows: "write" });
   });
 
+  test("머지는 계약이 묻는 권한(Contents 쓰기, Pull requests 읽기)만 요구한다", () => {
+    const held = githubConnection({
+      permissions: { contents: "write", pull_requests: "read" },
+    });
+    expect(featureMark("merge", [held], { ...OFF, merge: true })).toBeNull();
+    const short = githubConnection({
+      permissions: { contents: "read", pull_requests: "read" },
+    });
+    expect(featureMark("merge", [short], { ...OFF, merge: true })).toBe(
+      "appShort",
+    );
+  });
+
   test("아직 읽지 못한 App은 모자라다고 하지 않는다", () => {
     expect(
       appShortfalls(githubConnection({ permissions: null }), {

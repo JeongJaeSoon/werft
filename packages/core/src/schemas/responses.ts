@@ -130,6 +130,7 @@ import {
   setAgentManagingTeamResponseSchema,
   setSessionShareResponseSchema,
   settingsChangeResponseSchema,
+  settingsConnectionImpactResponseSchema,
   slackAppSettingsSchema,
   slackConfigTokenSummarySchema,
   slackEventsResponseSchema,
@@ -405,6 +406,8 @@ export const responseSchemas = {
   "GET /v1/installation/settings/connections":
     listSettingsConnectionsResponseSchema,
   "POST /v1/installation/settings/connections": settingsChangeResponseSchema,
+  "GET /v1/installation/settings/connections/{id}/impact":
+    settingsConnectionImpactResponseSchema,
   "POST /v1/installation/settings/connections/{id}/credential":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/convert":

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
+import { useToast } from "../components/toast.tsx";
 import { initialLocale, type Locale, translate } from "../i18n/i18n.tsx";
-import { useToast } from "../routes/agent-detail/toast.tsx";
 
 export type DemoNoticeKind = "write" | "leave" | "download";
 

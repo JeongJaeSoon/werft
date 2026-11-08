@@ -44,6 +44,9 @@ jobs:
       site: ${{ steps.plan.outputs.site }}
       quickstart: ${{ steps.plan.outputs.quickstart }}
       docs_only: ${{ steps.plan.outputs.docs_only }}
+      helm: ${{ steps.plan.outputs.helm }}
+      k8s: ${{ steps.plan.outputs.k8s }}
+      domains: ${{ steps.plan.outputs.domains }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -437,23 +440,35 @@ jobs:
       EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A job-level `if` cannot read the matrix, and the entries stay declared
+      # here once for integration-jobs.ts, so a domain no changed path reaches
+      # still starts, ends in seconds, and reports success. Every step below
+      # waits on this one.
+      - id: gate
+        env:
+          PLANNED: ${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}
+        run: echo "run=$PLANNED" >>"$GITHUB_OUTPUT"
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Not `services:`, which the runner starts one by one before the first
       # step and polls on a 2·4·8s backoff (46s for api). From here the pulls
       # overlap each other and the install below; `wait` then probes every
       # second, and fails with the container's log if one never gets ready.
-      - if: matrix.postgres || matrix.localstack
+      - if: steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
           POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
           LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
         run: .github/scripts/ci-services.sh start
-      - uses: ./.github/actions/bun-setup
-      - run: bun install --frozen-lockfile
+      - if: steps.gate.outputs.run == 'true'
+        uses: ./.github/actions/bun-setup
+      - if: steps.gate.outputs.run == 'true'
+        run: bun install --frozen-lockfile
       # Unset rather than empty where the service is absent: a test reading
       # `?? default` would take an empty string as a value.
-      - name: Opt-in variables of this job's services
+      - if: steps.gate.outputs.run == 'true'
+        name: Opt-in variables of this job's services
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
@@ -481,17 +496,18 @@ jobs:
       # VM is gone, and the client only sees its own timeout. The
       # daemon's events say whether the container got as far as starting; the
       # step after the tests keeps them, with the daemon's log, when it fails.
-      - if: matrix.docker
+      - if: steps.gate.outputs.run == 'true' && matrix.docker
         name: Record the daemon's events
         run: |
           echo "DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')" >>"$GITHUB_ENV"
           nohup docker events --format '{{json .}}' >"$RUNNER_TEMP/docker-events.jsonl" 2>&1 &
-      - if: matrix.postgres || matrix.localstack
+      - if: steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
         run: .github/scripts/ci-services.sh wait
-      - name: Tests of this domain
+      - if: steps.gate.outputs.run == 'true'
+        name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
         # An assignment, not process substitution, so a failed assignment
@@ -504,7 +520,7 @@ jobs:
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
-      - if: '!cancelled()'
+      - if: steps.gate.outputs.run == 'true' && !cancelled()
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
       # SIGUSR1 makes dockerd write every goroutine's stack, so a call still
@@ -527,7 +543,7 @@ jobs:
             ${{ runner.temp }}/goroutine-stacks-*.log
           if-no-files-found: ignore
           retention-days: 14
-      - if: always()
+      - if: always() && steps.gate.outputs.run == 'true'
         run: .github/scripts/ci-services.sh stop
 
   # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
@@ -781,6 +797,7 @@ jobs:
     if: >-
       !cancelled() && needs.check.result != 'failure'
       && needs.changes.outputs.product == 'true'
+      && contains(fromJSON(needs.changes.outputs.domains), 'docker')
       && contains(fromJSON('["all","workspace-quota"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -968,6 +985,7 @@ jobs:
           case "$QUICKSTART:$DOCS_ONLY" in
             true:true | true:false) echo "quickstart: product or guide inputs changed; running both guides" ;;
             false:true) echo "quickstart: documentation-only PR; executable guides unchanged" ;;
+            false:false) echo "quickstart: changed paths reach neither the images nor the guides" ;;
             *) echo "::error::invalid executable guide plan"; exit 1 ;;
           esac
       - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
@@ -1011,7 +1029,7 @@ jobs:
           [ "$PLAN" = success ] || exit 1
           case "$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE" in
             true:false:success:success | true:true:success:success) echo "quickstart: both guides passed" ;;
-            false:true:skipped:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
+            false:true:skipped:skipped | false:false:skipped:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
             *) echo "::error::required executable guide did not pass"; exit 1 ;;
           esac
       - id: cancelled
@@ -1028,7 +1046,7 @@ jobs:
   helm-chart:
     needs: changes
     if: >-
-      needs.changes.outputs.product == 'true'
+      needs.changes.outputs.helm == 'true'
       && contains(fromJSON('["all","helm-chart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1087,7 +1105,7 @@ jobs:
   k8s-smoke:
     needs: changes
     if: >-
-      needs.changes.outputs.product == 'true'
+      needs.changes.outputs.k8s == 'true'
       && contains(fromJSON('["all","k8s-smoke"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
