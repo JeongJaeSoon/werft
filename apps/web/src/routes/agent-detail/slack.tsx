@@ -197,6 +197,7 @@ export default function SlackTab({
               agentId={agentId}
               active={active}
               inPage
+              invite={`/invite @${slug}`}
               notify={notify}
             />
           ) : null}

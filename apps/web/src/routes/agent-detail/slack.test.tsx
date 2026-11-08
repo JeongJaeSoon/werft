@@ -1186,7 +1186,7 @@ describe("Slack management", () => {
   });
 
   for (const refused of [false, true]) {
-    test(`copies the app ID from Advanced${refused ? " and asks for a manual copy when the clipboard refuses" : ""}`, async () => {
+    test(`copies the /invite line from Advanced and keeps the app ID as a link${refused ? ", selecting it when the clipboard refuses" : ""}`, async () => {
       renderAt(DETAIL, routes(APP, true));
       const user = await setupUser();
       const copied: string[] = [];
@@ -1203,18 +1203,24 @@ describe("Slack management", () => {
       try {
         const advanced = await screen.findByRole("region", { name: "고급" });
         const button = within(advanced).getByRole("button", {
-          name: "앱 ID 복사",
+          name: "/invite 명령 복사",
         });
         await user.click(button);
         await waitFor(() =>
           expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
             refused
-              ? "클립보드에 복사하지 못했습니다. 앱 ID를 직접 선택해 복사하세요."
+              ? "클립보드에 복사하지 못했습니다. 선택된 명령을 직접 복사하세요."
               : "복사됨",
           ),
         );
-        expect(copied).toEqual(refused ? [] : ["A123"]);
-        expect(document.activeElement === button).toBe(true);
+        expect(copied).toEqual(refused ? [] : ["/invite @billing"]);
+        expect(within(advanced).getByText("채널에 초대")).toBeDefined();
+        if (refused) {
+          const field = within(advanced).getByRole("textbox", {
+            name: "/invite 명령",
+          }) as HTMLInputElement;
+          expect(field.value).toBe("/invite @billing");
+        } else expect(document.activeElement === button).toBe(true);
         const open = within(advanced).getByRole("link", {
           name: "Slack에서 열기 (새 탭에서 열림)",
         });
