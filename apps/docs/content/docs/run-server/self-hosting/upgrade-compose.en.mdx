@@ -90,7 +90,7 @@ Compare target changelog actions with your deployed version. Meet every applicab
 | Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
 | Manifest `outputs` | All APIs → workers | Both api and workers must remain on outputs-aware builds |
 | `AGENT_ACTION_FLOWS` | Update all components, including GC/session archive CronJobs, before activation | Pending intents continue processing after disabling |
-| Required managing team (migration 0243) | Update every API that includes the migration | After 0243, images from before the managing team was required cannot create agents (`NOT NULL` violation). Going lower means stopping writes and dropping `NOT NULL`, and agents moved to the holding team are not restored |
+| Required managing team (migration 0243) | Update every API that includes the migration | Rolling back after 0243 to the previous image, which already required a team, still creates agents but hides the holding team's agents' sessions again. Older images that insert without a team cannot create agents (`NOT NULL` violation). Going lower means stopping writes and dropping `NOT NULL`, and neither the backfill nor the earlier visibility is restored |
 
 Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute.
 

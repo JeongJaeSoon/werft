@@ -38,6 +38,7 @@ import {
   ACTOR_INACTIVE,
   NOT_FOUND,
   OUTRANKED,
+  TEAM_HOLDING,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "../musterrolle/service-errors.ts";
@@ -1418,6 +1419,8 @@ export function createAgentService(deps: {
           throw TEAM_NOT_FOUND();
         case "team_not_allowed":
           throw TEAM_NOT_ALLOWED();
+        case "team_holding":
+          throw TEAM_HOLDING();
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         default:

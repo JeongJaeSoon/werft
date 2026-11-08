@@ -935,6 +935,45 @@ integration("the managing team on PostgreSQL", () => {
     ]);
   });
 
+  test("the holding team of 0243 is no destination for a new agent or a move, but an agent already in it may stay", async () => {
+    const { workspaceId, owner, agentId } = await cast();
+    const holding = randomUUID();
+    await db.insert(schema.memberTeams).values({
+      id: holding,
+      workspaceId,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    const create = (team: string) =>
+      codeOf(
+        service().createAgent(owner, {
+          slug: `agent-${randomUUID().slice(0, 8)}`,
+          name: "새 에이전트",
+          card: card("v1"),
+          managing_team_id: team,
+        }),
+      );
+    expect(await create(holding)).toBe("FORBIDDEN:team_holding");
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "team_holding",
+    });
+    // The agent did not move.
+    const [row] = await db
+      .select({ team: schema.agents.managingTeamId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    expect(row?.team).not.toBe(holding);
+
+    // One that is already there is not forced out by a repeat of its team.
+    await db
+      .update(schema.agents)
+      .set({ managingTeamId: holding })
+      .where(eq(schema.agents.id, agentId));
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "unchanged",
+    });
+  });
+
   test("a team joins an agent's admins only by a manager or its lead", async () => {
     const { workspaceId, owner, member, agentId } = await cast();
     const direct = await person(workspaceId, "member");

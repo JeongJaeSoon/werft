@@ -90,7 +90,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |
 | manifest の `outputs` | API 全部 → worker | api・worker の両方が outputs を知るビルドまでだけ rollback 可能 |
 | `AGENT_ACTION_FLOWS` | GC・セッション保管 CronJob まで全コンポーネントを更新してから有効化 | 進行中 intent は無効化後も処理します |
-| 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後は、担当チームを必須にする前のイメージがエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、保管チームに移したエージェントは元に戻りません |
+| 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
 
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
 
