@@ -11,6 +11,7 @@ import {
   createPostgresAgentAdminStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
+  createPostgresAgentMcpStore,
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresCatalogRepositoryStore,
@@ -79,6 +80,7 @@ import {
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
+  createAgentMcpService,
   createAgentPullRequestService,
   createAgentService,
   createApiKeyService,
@@ -222,6 +224,7 @@ import {
 } from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
+import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
 import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
@@ -908,6 +911,11 @@ const agentGitHub = createAgentGitHubService({
     ? {}
     : { pinned: { apps: githubAppStore, pins: githubPins } }),
 });
+const agentMcp = createAgentMcpService({
+  authorization,
+  store: createPostgresAgentMcpStore(db),
+  catalog,
+});
 const agentPullRequest = createAgentPullRequestService({
   authorization,
   agents: agentStore,
@@ -1273,6 +1281,7 @@ const app = createApiApp({
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
     registerAgentGitHubRoutes(router, agentGitHub);
+    registerAgentMcpRoutes(router, agentMcp);
     registerAgentPullRequestRoutes(router, agentPullRequest);
     registerSessionRoutes(router, sessions);
     registerSessionOutputRoutes(router, sessionOutputs);

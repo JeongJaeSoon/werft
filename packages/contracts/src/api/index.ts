@@ -1,6 +1,7 @@
 export * from "./achievements.ts";
 export * from "./action-broker.ts";
 export * from "./agent-github.ts";
+export * from "./agent-mcp.ts";
 export * from "./answer.ts";
 export * from "./control.ts";
 export * from "./event.ts";

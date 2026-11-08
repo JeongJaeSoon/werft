@@ -428,6 +428,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/github/enabled",
         "/v1/agents/{id}/github/repositories",
         "/v1/agents/{id}/github/settings",
+        "/v1/agents/{id}/mcp/settings",
         "/v1/agents/{id}/github/pull-request",
         "/v1/agents/{id}/github/activity",
         "/v1/agents/{id}/slack-channels",

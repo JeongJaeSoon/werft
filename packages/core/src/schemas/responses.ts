@@ -13,6 +13,7 @@ import {
   agentDetailSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
+  agentMcpResponseSchema,
   agentPullRequestResponseSchema,
   apiRootResponseSchema,
   auditReadResponseSchema,
@@ -100,6 +101,7 @@ import {
   pushRequestSchema,
   putAgentGitHubEnabledResponseSchema,
   putAgentGitHubSettingsResponseSchema,
+  putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
@@ -237,6 +239,8 @@ export const responseSchemas = {
   "GET /v1/agents/{id}/github": agentGitHubResponseSchema,
   "PUT /v1/agents/{id}/github/enabled": putAgentGitHubEnabledResponseSchema,
   "PUT /v1/agents/{id}/github/settings": putAgentGitHubSettingsResponseSchema,
+  "GET /v1/agents/{id}/mcp/settings": agentMcpResponseSchema,
+  "PUT /v1/agents/{id}/mcp/settings": putAgentMcpSettingsResponseSchema,
   "GET /v1/agents/{id}/github/repositories":
     listAgentGitHubRepositoriesResponseSchema,
   "POST /v1/agents/{id}/github/repositories":
