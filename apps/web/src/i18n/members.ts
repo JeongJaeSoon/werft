@@ -11,8 +11,9 @@ export const membersKo = {
   "members.tableLabel": "구성원 표",
   "members.state.disabled": "비활성",
   "members.you": "나",
-  "members.roleChanged": "{name}의 역할을 {role}(으)로 바꿨습니다.",
-  "members.roleChangeTitle": "{name}의 역할을 {role}(으)로 바꿀까요?",
+  "members.roleChanged":
+    "{name}의 역할을 바꿨습니다. 지금 역할은 {role}입니다.",
+  "members.edit.result": "바꾸면 {name}의 역할은 {role}입니다.",
   "members.roleChangeConsequence":
     "바꾸는 즉시 이 사람이 할 수 있는 일이 새 역할에 맞게 바뀝니다.",
   "members.roleChangeOwnerConsequence":
@@ -49,7 +50,7 @@ export const membersKo = {
   "members.invite.submit": "초대 링크 만들기",
   "members.invite.submitting": "만드는 중…",
   "members.invite.disabledHint":
-    "{name}은(는) 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
+    "{name}님은 비활성 상태의 구성원입니다. 다시 초대하지 말고 목록에서 다시 활성화하세요. Google로만 로그인하던 계정은 비밀번호가 없어 초대를 수락할 수 없습니다.",
   "members.invite.link": "초대 링크",
   "members.invite.linkOnce":
     "이 링크는 지금 한 번만 보입니다. {expires}까지 쓸 수 있습니다. 초대할 사람에게 직접 전하세요.",
@@ -69,8 +70,13 @@ export const membersKo = {
     "이 초대 링크는 다시 볼 수 없습니다. 나중에 링크가 필요하면 대기 중인 초대를 회수하고 새로 만들어야 합니다.",
   "members.invite.leave.confirm": "복사하지 않고 나가기",
   "members.invite.leave.cancel": "링크로 돌아가기",
-  "members.invites.tableLabel": "대기 중인 초대 표",
-  "members.invites.empty": "대기 중인 초대가 없습니다.",
+  "members.invites.tableLabel": "초대 표",
+  "members.invites.empty": "남아 있는 초대가 없습니다.",
+  "members.invites.search": "이메일로 찾기",
+  "members.invites.noMatch": "검색어에 맞는 초대가 없습니다",
+  "members.invites.noMatchHint": "다른 이메일로 찾아 보세요.",
+  "members.invites.state.expired": "만료",
+  "members.invites.expiredAt": "{expires}에 만료됨",
   "members.invites.expires": "{expires}까지",
   "members.invites.revoke": "회수",
   "members.invites.revokeFor": "{email} 초대 회수",
@@ -111,7 +117,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.state.disabled": "Inactive",
   "members.you": "You",
   "members.roleChanged": "{name} is now {role}.",
-  "members.roleChangeTitle": "Make {name} {role}?",
+  "members.edit.result": "If you change it, {name}'s role is {role}.",
   "members.roleChangeConsequence":
     "What they can do changes to match the new role as soon as you confirm.",
   "members.roleChangeOwnerConsequence":
@@ -166,8 +172,13 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
     "This invite link can't be shown again. If you need it later, revoke the pending invite and create a new one.",
   "members.invite.leave.confirm": "Leave without copying",
   "members.invite.leave.cancel": "Back to the link",
-  "members.invites.tableLabel": "Pending invites table",
-  "members.invites.empty": "No pending invites.",
+  "members.invites.tableLabel": "Invites table",
+  "members.invites.empty": "No invites waiting.",
+  "members.invites.search": "Find by email",
+  "members.invites.noMatch": "No invites match",
+  "members.invites.noMatchHint": "Try another email.",
+  "members.invites.state.expired": "Expired",
+  "members.invites.expiredAt": "Expired {expires}",
   "members.invites.expires": "Expires {expires}",
   "members.invites.revoke": "Revoke",
   "members.invites.revokeFor": "Revoke the invite for {email}",
@@ -209,7 +220,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.state.disabled": "無効",
   "members.you": "自分",
   "members.roleChanged": "{name}のロールを{role}に変更しました。",
-  "members.roleChangeTitle": "{name}のロールを{role}に変更しますか？",
+  "members.edit.result": "変更すると、{name}のロールは{role}になります。",
   "members.roleChangeConsequence":
     "変更するとすぐに、この人ができる操作が新しいロールに合わせて変わります。",
   "members.roleChangeOwnerConsequence":
@@ -246,7 +257,7 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
   "members.invite.submit": "招待リンクを作成",
   "members.invite.submitting": "作成中…",
   "members.invite.disabledHint":
-    "{name}は無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。Google ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
+    "{name}さんは無効化されたメンバーです。招待し直さずに、一覧から再有効化してください。Google ログインのみで利用していたアカウントにはパスワードがないため、招待を承諾できません。",
   "members.invite.link": "招待リンク",
   "members.invite.linkOnce":
     "このリンクは今回のみ表示されます。{expires}まで使えます。招待する人に直接伝えてください。",
@@ -266,8 +277,13 @@ export const membersJa: Record<keyof typeof membersKo, string> = {
     "この招待リンクは再表示できません。あとでリンクが必要になった場合は、保留中の招待を取り消して新しく作成してください。",
   "members.invite.leave.confirm": "コピーせずに閉じる",
   "members.invite.leave.cancel": "リンクに戻る",
-  "members.invites.tableLabel": "保留中の招待の表",
-  "members.invites.empty": "保留中の招待はありません。",
+  "members.invites.tableLabel": "招待の表",
+  "members.invites.empty": "残っている招待はありません。",
+  "members.invites.search": "メールで探す",
+  "members.invites.noMatch": "検索語に合う招待はありません",
+  "members.invites.noMatchHint": "別のメールで探してみてください。",
+  "members.invites.state.expired": "期限切れ",
+  "members.invites.expiredAt": "{expires}に期限切れ",
   "members.invites.expires": "{expires}まで",
   "members.invites.revoke": "取り消し",
   "members.invites.revokeFor": "{email}への招待を取り消し",

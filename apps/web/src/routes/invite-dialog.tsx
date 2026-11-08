@@ -115,6 +115,7 @@ export function InviteDialog({
           consequence={t("members.invite.leave.consequence")}
           confirmLabel={t("members.invite.leave.confirm")}
           cancelLabel={t("members.invite.leave.cancel")}
+          tone="danger"
           onConfirm={() => {
             leaving?.();
             setLeaving(null);

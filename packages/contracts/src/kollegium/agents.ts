@@ -304,14 +304,11 @@ export const agentSchema = z
     description: agentDescriptionSchema.nullable(),
     /**
      * The team whose leads administer the agent and whose members work with
-     * it. Null only on agents made before managing teams.
+     * it. Every agent has one.
      */
-    managing_team_id: z.uuid().nullable(),
-    /**
-     * The managing team's name, for whoever reads the row, team member or
-     * not. Null exactly when `managing_team_id` is.
-     */
-    managing_team_name: z.string().min(1).nullable(),
+    managing_team_id: z.uuid(),
+    /** The managing team's name, for whoever reads the row, team member or not. */
+    managing_team_name: z.string().min(1),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
     activation_revision: activationRevisionSchema,
@@ -1119,10 +1116,6 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     description:
       "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
   }),
-  managing_team: z.literal("unassigned").optional().meta({
-    description:
-      "`unassigned` keeps the agents with no managing team (`managing_team_id` null), the ones made before managing teams.",
-  }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();
@@ -1145,10 +1138,6 @@ export const countAgentsResponseSchema = z.object({
         description:
           "How many of `all` are not `archived` and have no `active_release_id` yet.",
       }),
-      unassigned: agentCountSchema.meta({
-        description:
-          "How many of `all` have no managing team: what `managing_team=unassigned` lists.",
-      }),
     })
     .strict(),
 });
@@ -1161,7 +1150,7 @@ export const createAgentRequestSchema = z
     description: agentDescriptionSchema.optional(),
     /**
      * Owners and admins name any live team; anyone else only a team they are
-     * in. Agents made before this was required keep a null one.
+     * in.
      */
     managing_team_id: z.uuid({
       error: (issue) =>

@@ -54,6 +54,7 @@ import { lockSessionReach } from "./requester-locks.ts";
 import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -171,18 +172,19 @@ integration("team roles and the managing team, expand", () => {
       expect(
         (await pool.query("SELECT role FROM member_team_members")).rows,
       ).toEqual([{ role: "member" }]);
+      // 0243 gave the agent a managing team, so none is null any more.
       expect(
-        (await pool.query("SELECT managing_team_id FROM agents")).rows,
-      ).toEqual([{ managing_team_id: null }]);
+        (
+          await pool.query(
+            "SELECT t.name FROM agents a JOIN member_teams t ON t.id = a.managing_team_id",
+          )
+        ).rows,
+      ).toEqual([{ name: "Unassigned agents" }]);
 
       // The previous image names neither column.
       await pool.query(
         "INSERT INTO member_team_members (id, workspace_id, team_id, user_id, removed_at) VALUES ($1, $2, $3, $4, now())",
         [randomUUID(), ws, team, user],
-      );
-      await pool.query(
-        "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'b', 'b')",
-        [randomUUID(), ws],
       );
       expect(
         (await pool.query("SELECT DISTINCT role FROM member_team_members"))
@@ -203,6 +205,140 @@ integration("team roles and the managing team, expand", () => {
           refused = error.message;
         });
       expect(refused).toContain("agents_managing_team_fk");
+    } finally {
+      await pool.end();
+      await database.drop();
+      await rm(before, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
+
+integration("0243 gives every agent a managing team", () => {
+  test("agents without one go to a memberless holding team per workspace, and nothing is lost", async () => {
+    const database = await createTempDatabase({
+      migrate: false,
+      prefix: "managing_team_backfill_it",
+    });
+    const pool = new Pool({ connectionString: database.url, max: 2 });
+    const db = drizzle(pool, { schema });
+    const before = await migrationsThrough("0242_agent_mcp_settings");
+    const query = async (text: string, values: unknown[] = []) =>
+      (await pool.query(text, values)).rows;
+    const workspace = async (slug: string) => {
+      const id = randomUUID();
+      await query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, $2)",
+        [id, slug],
+      );
+      return id;
+    };
+    const team = async (ws: string, name: string, archived = false) => {
+      const id = randomUUID();
+      await query(
+        `INSERT INTO member_teams (id, workspace_id, name, archived_at)
+         VALUES ($1, $2, $3, CASE WHEN $4 THEN now() ELSE NULL END)`,
+        [id, ws, name, archived],
+      );
+      return id;
+    };
+    const agent = async (ws: string, slug: string, managing: string | null) => {
+      const id = randomUUID();
+      await query(
+        "INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, $3, $3, $4)",
+        [id, ws, slug, managing],
+      );
+      return id;
+    };
+    const adminTeam = (
+      ws: string,
+      agentId: string,
+      teamId: string,
+      at: string,
+    ) =>
+      query(
+        "INSERT INTO agent_admin_teams (workspace_id, agent_id, team_id, created_at) VALUES ($1, $2, $3, $4)",
+        [ws, agentId, teamId, at],
+      );
+    try {
+      await migrate(db, { migrationsFolder: before });
+      const ws = await workspace("backfill-a");
+      const clean = await workspace("backfill-b");
+      const older = await team(ws, "older");
+      const newer = await team(ws, "newer");
+      const gone = await team(ws, "gone", true);
+      // A name that a holding team would take.
+      await team(ws, "Unassigned agents");
+      const kept = await agent(ws, "kept", newer);
+      const viaAdminTeams = await agent(ws, "via", null);
+      const onlyArchived = await agent(ws, "archived", null);
+      const bare = await agent(ws, "bare", null);
+      await adminTeam(ws, viaAdminTeams, newer, "2026-01-02T00:00:00Z");
+      await adminTeam(ws, viaAdminTeams, older, "2026-01-01T00:00:00Z");
+      await adminTeam(ws, onlyArchived, gone, "2026-01-01T00:00:00Z");
+      const tidy = await agent(clean, "tidy", await team(clean, "t"));
+
+      await migrate(db, { migrationsFolder: MIGRATIONS });
+
+      const teamOf = async (id: string) =>
+        (
+          await query(
+            "SELECT a.managing_team_id AS id, t.name, t.created_by, t.archived_at FROM agents a JOIN member_teams t ON t.id = a.managing_team_id WHERE a.id = $1",
+            [id],
+          )
+        )[0];
+      expect((await teamOf(kept))?.id).toBe(newer);
+      // An admin team is no evidence of which team owns the agent.
+      const holding = await teamOf(bare);
+      expect((await teamOf(viaAdminTeams))?.id).toBe(holding?.id);
+      expect(older).not.toBe(holding?.id);
+      expect(holding?.name).toStartWith("Unassigned agents (");
+      expect(holding?.created_by).toBeNull();
+      expect(holding?.archived_at).toBeNull();
+      expect((await teamOf(onlyArchived))?.id).toBe(holding?.id);
+      expect((await teamOf(tidy))?.name).toBe("t");
+      // One holding team per workspace that needed it, with no members, and
+      // none where every agent already had a team.
+      expect(
+        await query(
+          "SELECT workspace_id FROM member_teams WHERE name LIKE 'Unassigned agents (%'",
+        ),
+      ).toEqual([{ workspace_id: ws }]);
+      expect(
+        await query(
+          "SELECT count(*)::int AS n FROM member_team_members WHERE team_id = $1",
+          [holding?.id],
+        ),
+      ).toEqual([{ n: 0 }]);
+      // Only the holding team is flagged, so only its agents keep their
+      // workspace sessions visible past axis B.
+      expect(
+        await query(
+          "SELECT id FROM member_teams WHERE holds_unassigned = true",
+        ),
+      ).toEqual([{ id: holding?.id }]);
+      // Admin links stay: nothing about who administers an agent changed.
+      expect(
+        await query(
+          "SELECT agent_id, team_id FROM agent_admin_teams ORDER BY agent_id, team_id",
+        ),
+      ).toEqual(
+        [
+          { agent_id: viaAdminTeams, team_id: newer },
+          { agent_id: viaAdminTeams, team_id: older },
+          { agent_id: onlyArchived, team_id: gone },
+        ].sort((a, b) =>
+          a.agent_id === b.agent_id
+            ? a.team_id.localeCompare(b.team_id)
+            : a.agent_id.localeCompare(b.agent_id),
+        ),
+      );
+      // No agent was deleted, and the column refuses null from here on.
+      expect(await query("SELECT count(*)::int AS n FROM agents")).toEqual([
+        { n: 5 },
+      ]);
+      await expect(
+        query("UPDATE agents SET managing_team_id = NULL"),
+      ).rejects.toThrow("managing_team_id");
     } finally {
       await pool.end();
       await database.drop();
@@ -500,7 +636,6 @@ integration("the managing team on PostgreSQL", () => {
       administered: 0,
       active: 0,
       draft: 1,
-      unassigned: 0,
     });
     const [team] = await db
       .select({ name: schema.memberTeams.name })
@@ -509,14 +644,6 @@ integration("the managing team on PostgreSQL", () => {
     const [row] = (await agentsService.listAgents(outsider, { limit: 50 }))
       .items;
     expect(row?.managing_team_name).toBe(team?.name ?? "missing");
-    expect(
-      (
-        await agentsService.listAgents(outsider, {
-          limit: 50,
-          managing_team: "unassigned",
-        })
-      ).items,
-    ).toEqual([]);
     for (const read of settings) {
       expect(await codeOf(read(outsider))).toBe("FORBIDDEN:role");
     }
@@ -549,8 +676,8 @@ integration("the managing team on PostgreSQL", () => {
   test("the list's rows and cards follow who is inside each agent now, under either axis A", async () => {
     const { workspaceId, owner, member, outsider, teamId, agentId } =
       await cast();
-    // A second agent with no managing team, as one made before it was
-    // required: only W and its creator inside.
+    // A second agent whose managing team has no one in it: only W and its
+    // creator inside.
     const other = (
       await service().createAgent(owner, {
         slug: `other-${randomUUID().slice(0, 8)}`,
@@ -561,7 +688,7 @@ integration("the managing team on PostgreSQL", () => {
     ).agent.id;
     await db
       .update(schema.agents)
-      .set({ managingTeamId: null })
+      .set({ managingTeamId: await fixtureTeam(db, workspaceId) })
       .where(eq(schema.agents.id, other));
     const store = createPostgresAgentStore(db);
     const reader = (who: Caller, outsideAccess: "use" | "none") => ({
@@ -606,29 +733,6 @@ integration("the managing team on PostgreSQL", () => {
     expect((await store.count(workspaceId, reader(outsider, "none"))).all).toBe(
       0,
     );
-    // The unassigned agent is counted and found only where it is read.
-    const unassigned = async (who: Caller, outsideAccess: "use" | "none") => ({
-      count: (await store.count(workspaceId, reader(who, outsideAccess)))
-        .unassigned,
-      ids: (
-        await store.list(
-          workspaceId,
-          { limit: 50, managing_team: "unassigned" },
-          reader(who, outsideAccess),
-        )
-      ).items.map((a) => a.id),
-    });
-    expect(await unassigned(outsider, "use")).toEqual({
-      count: 1,
-      ids: [other],
-    });
-    expect(await unassigned(outsider, "none")).toEqual({ count: 0, ids: [] });
-    expect(await unassigned(member, "none")).toEqual({ count: 0, ids: [] });
-    expect(await unassigned(owner, "none")).toEqual({
-      count: 1,
-      ids: [other],
-    });
-
     expect(await cards(owner)).toEqual([...both].sort());
     expect(await cards(member)).toEqual([agentId]);
     expect(await cards(outsider)).toEqual([]);
@@ -694,50 +798,33 @@ integration("the managing team on PostgreSQL", () => {
     expect(await roleIn(member)).toEqual(["member"]);
   });
 
-  test("an agent made before the managing team was required still reads, changes and runs", async () => {
-    const { workspaceId, owner, member, teamId } = await cast();
-    const agentId = (
-      await service().createAgent(member, {
-        slug: `legacy-${randomUUID().slice(0, 8)}`,
-        name: "legacy",
-        card: card("v1"),
-        managing_team_id: teamId,
-      })
-    ).agent.id;
-    await db
-      .update(schema.agents)
-      .set({ managingTeamId: null })
-      .where(eq(schema.agents.id, agentId));
-
-    for (const who of [owner, member]) {
-      const detail = await service().getAgent(who, agentId);
-      expect(detail.agent.managing_team_id).toBeNull();
-      expect(detail.agent.managing_team_name).toBeNull();
-    }
-    // Its creator still administers it with no team to go through.
-    const updated = await service().updateAgent(member, agentId, {
-      name: "legacy renamed",
-      card: card("v2"),
-    });
-    expect(updated.agent.name).toBe("legacy renamed");
-    expect(updated.agent.managing_team_id).toBeNull();
-    const released = await service().createRelease(member, agentId, {
-      version_id: updated.versions.find((v) => v.version_no === 2)
-        ?.id as string,
-      runtime_profile_id: "coding",
-    });
-    await service().activateAgent(member, agentId, {
-      release_id: released.release.id,
-      expected_revision: -1,
-    });
-    const running = await service().resolveRelease(
-      workspaceId,
-      released.release.id,
-    );
-    expect(running.agent_id).toBe(agentId);
+  test("the database refuses an agent with no managing team", async () => {
+    const { workspaceId, agentId } = await cast();
+    const refusal = async (work: Promise<unknown>) => {
+      try {
+        await work;
+        return "accepted";
+      } catch (error) {
+        // drizzle wraps the driver error; the constraint text is on its cause.
+        const cause = (error as { cause?: unknown }).cause ?? error;
+        return String((cause as Error).message);
+      }
+    };
     expect(
-      (await service().getAgent(owner, agentId)).agent.active_release_id,
-    ).toBe(released.release.id);
+      await refusal(
+        pool.query("UPDATE agents SET managing_team_id = NULL WHERE id = $1", [
+          agentId,
+        ]),
+      ),
+    ).toContain("managing_team_id");
+    expect(
+      await refusal(
+        pool.query(
+          "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'bare', 'bare')",
+          [randomUUID(), workspaceId],
+        ),
+      ),
+    ).toContain("managing_team_id");
   });
 
   test("who may name the managing team, at creation and after", async () => {
@@ -846,6 +933,82 @@ integration("the managing team on PostgreSQL", () => {
         result: { from: teamId, to: outsiderTeam },
       },
     ]);
+  });
+
+  test("the holding team of 0243 is no destination for a new agent or a move, but an agent already in it may stay", async () => {
+    const { workspaceId, owner, agentId } = await cast();
+    const holding = randomUUID();
+    await db.insert(schema.memberTeams).values({
+      id: holding,
+      workspaceId,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    const create = (team: string) =>
+      codeOf(
+        service().createAgent(owner, {
+          slug: `agent-${randomUUID().slice(0, 8)}`,
+          name: "새 에이전트",
+          card: card("v1"),
+          managing_team_id: team,
+        }),
+      );
+    expect(await create(holding)).toBe("FORBIDDEN:team_holding");
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "team_holding",
+    });
+    // The agent did not move.
+    const [row] = await db
+      .select({ team: schema.agents.managingTeamId })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, agentId));
+    expect(row?.team).not.toBe(holding);
+
+    // One that is already there is not forced out by a repeat of its team.
+    await db
+      .update(schema.agents)
+      .set({ managingTeamId: holding })
+      .where(eq(schema.agents.id, agentId));
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "unchanged",
+    });
+
+    // Leaving it is one way: coming back is a move into it, and refused.
+    const real = await newTeam(owner);
+    expect(await name(owner, agentId, real)).toMatchObject({ outcome: "set" });
+    expect(await name(owner, agentId, holding)).toMatchObject({
+      outcome: "team_holding",
+    });
+  });
+
+  test("the answer for the holding team tells no one what an ordinary team would not", async () => {
+    const { workspaceId, owner, member } = await cast();
+    const holding = randomUUID();
+    await db.insert(schema.memberTeams).values({
+      id: holding,
+      workspaceId,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    const ordinary = await newTeam(owner);
+    const create = (by: Caller, team: string) =>
+      codeOf(
+        service().createAgent(by, {
+          slug: `agent-${randomUUID().slice(0, 8)}`,
+          name: "새 에이전트",
+          card: card("v1"),
+          managing_team_id: team,
+        }),
+      );
+    // A member outside both teams hears the same about each.
+    expect(await create(member, holding)).toBe("FORBIDDEN:team_not_allowed");
+    expect(await create(member, ordinary)).toBe("FORBIDDEN:team_not_allowed");
+    // An archived holding team is as gone as any archived team.
+    await db
+      .update(schema.memberTeams)
+      .set({ archivedAt: new Date() })
+      .where(eq(schema.memberTeams.id, holding));
+    expect(await create(owner, holding)).toBe("NOT_FOUND");
   });
 
   test("a team joins an agent's admins only by a manager or its lead", async () => {

@@ -3203,11 +3203,8 @@ export const agents = pgTable(
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
     /** Read at every GitHub token request, so turning it off is immediate. */
     githubEnabled: boolean("github_enabled").notNull().default(true),
-    /**
-     * Null only on agents from before managing teams; the API refuses to
-     * clear it. Its leads administer the agent.
-     */
-    managingTeamId: uuid("managing_team_id"),
+    /** Its leads administer the agent. An agent is never without one. */
+    managingTeamId: uuid("managing_team_id").notNull(),
     // Nothing writes the five columns below yet; they hold their defaults.
     /** `follow` takes a profile's newer versions by rollout; `pinned` stays. */
     profileTracking: text("profile_tracking").notNull().default("follow"),
@@ -3261,9 +3258,7 @@ export const agents = pgTable(
       foreignColumns: [memberTeams.workspaceId, memberTeams.id],
     }),
     // A team's archive looks for the agents it manages.
-    index("agents_managing_team_idx")
-      .on(table.managingTeamId)
-      .where(sql`${table.managingTeamId} IS NOT NULL`),
+    index("agents_managing_team_idx").on(table.managingTeamId),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.
     unique("agents_workspace_id_key").on(table.workspaceId, table.id),
@@ -3465,6 +3460,12 @@ export const memberTeams = pgTable(
       .defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     revision: integer().notNull().default(1),
+    /**
+     * Set only by migration 0243 on the team that took the agents which had
+     * no managing team. Such agents keep the visibility they had: axis B does
+     * not hide their workspace sessions, until an agent moves to a real team.
+     */
+    holdsUnassigned: boolean("holds_unassigned").notNull().default(false),
   },
   (table) => [
     unique("member_teams_workspace_id_key").on(table.workspaceId, table.id),

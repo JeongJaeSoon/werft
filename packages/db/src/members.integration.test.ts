@@ -34,6 +34,7 @@ import {
   webSessions,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
@@ -152,9 +153,13 @@ integration("members, identity and takeover on PostgreSQL", () => {
     // Without a person, the key is an agent's: no key reaches a workspace.
     const agentId = options.personalFor === undefined ? randomUUID() : null;
     if (agentId !== null) {
-      await db
-        .insert(agents)
-        .values({ id: agentId, workspaceId, slug: agentId, name: "bot" });
+      await db.insert(agents).values({
+        id: agentId,
+        workspaceId,
+        managingTeamId: await fixtureTeam(db, workspaceId),
+        slug: agentId,
+        name: "bot",
+      });
       const versionId = randomUUID();
       await db.insert(schema.agentVersions).values({
         id: versionId,

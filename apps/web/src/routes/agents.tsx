@@ -175,14 +175,12 @@ function AgentList({
   const [view, setView] = useAgentView(
     principal?.kind === "user" ? principal.id : undefined,
   );
-  const [scope, setScope] = useState<"all" | "unassigned" | "administered">(
-    "all",
-  );
+  const [scope, setScope] = useState<"all" | "administered">("all");
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
-    ...agentPagesQuery(client, q, scope === "unassigned"),
+    ...agentPagesQuery(client, q),
     enabled: paged,
   });
   const administered = useQuery(administeredAgentsQuery(client));
@@ -214,14 +212,6 @@ function AgentList({
             <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
             </SegmentedControlItem>
-            {counts.unassigned > 0 || scope === "unassigned" ? (
-              <SegmentedControlItem
-                value="unassigned"
-                count={counts.unassigned}
-              >
-                {t("agents.tabs.unassigned")}
-              </SegmentedControlItem>
-            ) : null}
             <SegmentedControlItem
               value="administered"
               count={counts.administered}
@@ -260,12 +250,8 @@ function AgentList({
           : t("agents.shown", { count: shown.length })}
       </output>
       {paged ? (
-        (scope === "all" ? counts.all : counts.unassigned) === 0 ? (
-          <EmptyState
-            title={t(
-              scope === "all" ? "agents.empty" : "agents.unassignedEmpty",
-            )}
-          />
+        counts.all === 0 ? (
+          <EmptyState title={t("agents.empty")} />
         ) : pages.isPending ? (
           <StatusScreen kind="loading" />
         ) : pages.error && !shown?.length ? (

@@ -88,8 +88,8 @@ const detail: AgentRecord = {
     slug: "finance",
     name: "재무 분석가",
     description: null,
-    managing_team_id: null,
-    managing_team_name: null,
+    managing_team_id: "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b",
+    managing_team_name: "Finance",
     status: "active",
     active_release_id: null,
     activation_revision: -1,
@@ -119,7 +119,6 @@ function memoryStore(
       administered: 0,
       active: 1,
       draft: 0,
-      unassigned: 1,
     }),
     summaries: async () => new Map(),
     get: async () => detail,
@@ -236,7 +235,7 @@ describe("agent service", () => {
       count: async (_workspace, reader) => {
         reached = true;
         readers.push(reader);
-        return { all: 0, administered: 0, active: 0, draft: 0, unassigned: 0 };
+        return { all: 0, administered: 0, active: 0, draft: 0 };
       },
     });
     const key = callerFor(

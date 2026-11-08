@@ -1,5 +1,5 @@
 {
-  "id": "45d92634-3afb-4fbb-8da3-792e997129d8",
+  "id": "e6ecdef2-df5b-43aa-b3a5-c9e4f0d61f05",
   "prevId": "b5d8f3dd-4985-40ef-84e2-4ab90979383f",
   "version": "7",
   "dialect": "postgresql",
@@ -1990,7 +1990,7 @@
           "name": "managing_team_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "profile_tracking": {
           "name": "profile_tracking",
@@ -2091,7 +2091,6 @@
             }
           ],
           "isUnique": false,
-          "where": "\"agents\".\"managing_team_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -6299,6 +6298,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
+        },
+        "holds_unassigned": {
+          "name": "holds_unassigned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {
@@ -7988,12 +7994,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "source_ref": {
-          "name": "source_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "status": {
           "name": "status",

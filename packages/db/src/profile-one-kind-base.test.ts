@@ -188,7 +188,7 @@ describe("profile one-kind base migration", () => {
     await applyMigration();
     const agent = crypto.randomUUID();
     await client.query(
-      `INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'A')`,
+      `WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, 'a', 'A', (SELECT id FROM t))`,
       [agent, WORKSPACE],
     );
     await expect(
@@ -229,7 +229,7 @@ describe("profile one-kind base migration", () => {
     await seedProfile("op_ops_v1", { origin: "console", ids: [] });
     const agent = crypto.randomUUID();
     await client.query(
-      `INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'A')`,
+      `WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, 'a', 'A', (SELECT id FROM t))`,
       [agent, WORKSPACE],
     );
     const rollout = crypto.randomUUID();
