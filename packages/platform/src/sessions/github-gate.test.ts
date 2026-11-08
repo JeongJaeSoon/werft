@@ -735,6 +735,42 @@ describe("merge", () => {
     ]);
   });
 
+  test("with the ceiling off the resolver is never asked: no pin read or written, no installation probed", async () => {
+    const a = registered(CONNECTION_A, 101);
+    const b = registered(CONNECTION_B, 102);
+    const { pins } = memoryPins();
+    const touched: string[] = [];
+    const probed = (entry: typeof a.entry) => ({
+      ...entry,
+      connection: {
+        ...entry.connection,
+        installedOn: async (repos: readonly RepoRef[]) => {
+          touched.push(`installedOn:${entry.id}`);
+          return entry.connection.installedOn(repos);
+        },
+      },
+    });
+    const { grant } = harness({
+      registered: { author: [probed(a.entry), probed(b.entry)] },
+      pins: {
+        get: async (...args) => {
+          touched.push("pins.get");
+          return pins.get(...args);
+        },
+        pinFirst: async (input) => {
+          touched.push("pins.pinFirst");
+          return pins.pinFirst(input);
+        },
+      },
+    });
+    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
+      "merge_off",
+    );
+    expect(touched).toEqual([]);
+    expect(a.fake.issued).toEqual([]);
+    expect(b.fake.issued).toEqual([]);
+  });
+
   test("another repository's pull request cannot be merged", async () => {
     const { grant, state, author } = harness();
     state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };

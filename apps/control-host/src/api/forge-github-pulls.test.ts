@@ -298,6 +298,58 @@ describe("GitHub pull requests", () => {
     }
   });
 
+  test("a merge is one PUT that squashes and pins the head sha, and answers what GitHub did", async () => {
+    const sent: Array<{ method: string; path: string; body: unknown }> = [];
+    const stub = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        sent.push({
+          method: request.method,
+          path: new URL(request.url).pathname,
+          body: await request.json(),
+        });
+        return Response.json({ merged: true, sha: "d".repeat(40) });
+      },
+    });
+    try {
+      const forge = await appForgeAt(stub.port);
+      expect(
+        await forge.mergePullRequest({ number: 7, sha: "a".repeat(40) }),
+      ).toEqual({
+        merged: true,
+        sha: "d".repeat(40),
+      });
+      expect(sent).toEqual([
+        {
+          method: "PUT",
+          path: "/repos/acme/app/pulls/7/merge",
+          body: { merge_method: "squash", sha: "a".repeat(40) },
+        },
+      ]);
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
+  test("a merge GitHub refuses with 405 or 409 reaches the caller as a status, not a merge", async () => {
+    for (const status of [405, 409]) {
+      const stub = Bun.serve({
+        port: 0,
+        fetch: () => Response.json({ message: "secret echo" }, { status }),
+      });
+      try {
+        const forge = await appForgeAt(stub.port);
+        const error = await forge
+          .mergePullRequest({ number: 7, sha: "a".repeat(40) })
+          .catch((caught: unknown) => caught);
+        expect(error).toMatchObject({ status });
+        expect(JSON.stringify(error)).not.toContain("secret echo");
+      } finally {
+        await stub.stop(true);
+      }
+    }
+  });
+
   test("isAncestor asks one compare and reads only ahead and identical as yes", async () => {
     const statuses = ["ahead", "identical", "behind", "diverged"];
     const paths: string[] = [];
