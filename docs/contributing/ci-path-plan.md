@@ -9,7 +9,7 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 - 루트의 `.md` 파일(`README.md`, `CHANGELOG.md`, `AGENTS.md` 등). 라이선스 고지 `THIRD_PARTY_NOTICES.md`는 lockfile에서 생성되므로 제외한다
 - `docs/` 아래 `.md`
 - `apps/docs/content/` 아래 `.mdx`
-- `.claude/` 아래 `.md` (같은 디렉터리의 스크립트·설정은 제외)
+- `.claude/` 아래 모든 파일 (스킬 스크립트·설정 포함. 워크플로와 이미지가 읽지 않고, 이를 검증하는 시험은 `tests/`에 있어 `docs-checks`가 덮는다)
 - `.github/ISSUE_TEMPLATE/` 아래 파일과 `.github/` 바로 아래 `.md`
 
 소스·workflow·lockfile·사이트 설정·의존성·배포 파일은 이 목록에 없다. 새 경로도 기본적으로 전체 검증이다. 대소문자가 다른 확장자도 자동으로 허용하지 않는다.

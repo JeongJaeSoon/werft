@@ -16,14 +16,15 @@ domains=$all_domains
 count=0
 
 # Paths that only carry prose or repository metadata. THIRD_PARTY_NOTICES.md is
-# generated from the lockfile, so it is not prose; .claude holds scripts as
-# well as Markdown, so only its .md files count.
+# generated from the lockfile, so it is not prose. Everything under .claude counts,
+# scripts included: no workflow and no image reads it, and the policy tests
+# that exercise those scripts live in tests/, which docs-checks runs whole.
 is_doc_path() {
   case "$1" in
     THIRD_PARTY_NOTICES.md) return 1 ;;
     README.md | CHANGELOG.md) return 0 ;;
     docs/*.md | apps/docs/content/*.mdx) return 0 ;;
-    .claude/*.md | .github/ISSUE_TEMPLATE/*) return 0 ;;
+    .claude/* | .github/ISSUE_TEMPLATE/*) return 0 ;;
     .github/*/*) return 1 ;;
     .github/*.md) return 0 ;;
     */*) return 1 ;;
