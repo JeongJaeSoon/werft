@@ -171,6 +171,7 @@ test("repository metadata and agent notes count as prose", () => {
 test("generated, executable and workflow files next to prose are not prose", () => {
   for (const path of [
     "THIRD_PARTY_NOTICES.md",
+    ".claude/skills/verify-werft/github-sandbox/settings.json",
     ".github/workflows/ci.yml",
     ".github/actions/setup/README.md",
     ".github/scripts/ci-plan.sh",

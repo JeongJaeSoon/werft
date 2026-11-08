@@ -19,11 +19,14 @@ count=0
 # generated from the lockfile, so it is not prose. Everything under .claude counts,
 # scripts included: no workflow and no image reads it, and the policy tests
 # that exercise those scripts live in tests/, which docs-checks runs whole.
+# The one exception is the sandbox seed that apps/control-host tests parse.
 is_doc_path() {
   case "$1" in
     THIRD_PARTY_NOTICES.md) return 1 ;;
     README.md | CHANGELOG.md) return 0 ;;
     docs/*.md | apps/docs/content/*.mdx) return 0 ;;
+    # control-host's settings and catalog tests parse this seed document.
+    .claude/skills/verify-werft/github-sandbox/*) return 1 ;;
     .claude/* | .github/ISSUE_TEMPLATE/*) return 0 ;;
     .github/*/*) return 1 ;;
     .github/*.md) return 0 ;;
