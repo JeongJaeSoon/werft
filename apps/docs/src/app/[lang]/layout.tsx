@@ -37,7 +37,7 @@ export default async function Layout({ children, params }: Props) {
     );
   }
 
-  const { nav, ...base } = baseOptions();
+  const { nav, ...base } = baseOptions(lang);
   return (
     <html lang={lang} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
@@ -45,6 +45,8 @@ export default async function Layout({ children, params }: Props) {
           <DocsLayout
             tree={source.getPageTree(lang)}
             {...base}
+            // Both tabs stay visible in the header instead of a sidebar dropdown.
+            tabMode="navbar"
             nav={{
               ...nav,
               mode: "top",
