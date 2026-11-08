@@ -20,6 +20,7 @@ import {
 import { createPostgresSlackAppStore } from "./slack-apps.ts";
 import { createPostgresSlackInboundEventStore } from "./slack-inbound-events.ts";
 import { createPostgresSlackInstallStore } from "./slack-install-states.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -52,6 +53,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `a-${agentId.slice(0, 8)}`,
       name: "Notes",
     });

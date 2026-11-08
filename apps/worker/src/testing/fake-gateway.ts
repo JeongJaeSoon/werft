@@ -188,7 +188,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       restore: options.restore ?? null,
       runtime: options.runtime ?? {
         kind: "claude_agent_sdk",
-        version: "0.3.270",
+        version: "0.3.319",
         profile_id: "fake-profile",
       },
       runtimeConfig: options.runtimeConfig ?? {

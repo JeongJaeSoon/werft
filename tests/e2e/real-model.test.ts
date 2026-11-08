@@ -140,7 +140,7 @@ printf '%s\\n' "$*" >>"$STUB_ARGV"
 case "$*" in
   "version --format"*) echo 28.1.0 ;;
   *" exec -T api "*) echo e2e-platform-key ;;
-  *" logs --no-color worker") echo "worker-1  | 2.1.270 (Claude Code)" ;;
+  *" logs --no-color worker") echo "worker-1  | 2.1.319 (Claude Code)" ;;
   *" logs --no-color --timestamps")
     echo "api-1  | listening"
     if [ -n "\${STUB_LEAK:-}" ]; then echo "api-1  | \${${KEY_VARIABLE}}"; fi ;;

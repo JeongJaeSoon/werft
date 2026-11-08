@@ -2248,7 +2248,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), and `managing_team=unassigned` the agents with no managing team; each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out); each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2276,7 +2276,7 @@ export interface paths {
         };
         /**
          * How many agents the workspace has, by state, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, `draft` how many are not `archived` and have none yet, and `unassigned` how many have no managing team, whatever their state. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2686,7 +2686,7 @@ export interface paths {
         };
         /**
          * The agent's MCP server, tools and credential names
-         * @description `source` is `agent` when the agent has saved settings (`settings_revision` is their revision) and `release` while it has none: `settings` then holds what the active release's card and policy pins say, which is what a session of that release does today. `settings.allowed_tools` are full `mcp__<server>__<tool>` names and empty when `server` is null; `settings.credential_refs` are credential names, never values. `bound_credential_refs` lists those of `settings.credential_refs` that have a live binding on the agent; a name without one blocks a new session until it is bound. Saved with `PUT …/mcp/settings`, never as a release. Whoever manages the agent reads it, and so do the live members of its managing team.
+         * @description `source` is `agent` when the agent has saved settings (`settings_revision` is their revision) and `release` while it has none: `settings` then holds what the active release's card and policy pins say, which is what a session of that release does today. `settings.allowed_tools` are full `mcp__<server>__<tool>` names and empty when `server` is null; `settings.credential_refs` are credential names, never values. `bound_credential_refs` lists those of `settings.credential_refs` that have a live binding on the agent; a name without one blocks a new session until it is bound. `available_servers` lists, sorted and by id only, the servers a save may choose for this agent's workspace (never the built-in `github`, never a server's address or credentials). Saved with `PUT …/mcp/settings`, never as a release. Whoever manages the agent reads it, and so do the live members of its managing team.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2764,7 +2764,7 @@ export interface paths {
         };
         /**
          * The agent's latest GitHub receipts
-         * @description Up to 20 receipts, newest first: `set_agent_github`, the `create_agent_release` and `activate_agent` receipts that changed the GitHub settings (`result.github_changed`), and for the agent's sessions `mint_github_token` (a refusal is `failed` with `result.reason_code`), `dispatch_workflow`, `rerun_workflow` and `review_pull_request`. Found by target, not by actor, so a release a person made is listed. Session receipts come only from sessions the caller can see, filtered before the 20 are cut: an agent manager is not shown a private session nobody shared with them. Whoever manages the agent reads it, and so do the live members of its managing team.
+         * @description Up to 20 receipts, newest first: `set_agent_github`, `set_agent_mcp` (a save of the agent's MCP settings, with the names before and after and no values), the `create_agent_release` and `activate_agent` receipts that changed the GitHub settings (`result.github_changed`), and for the agent's sessions `mint_github_token` (a refusal is `failed` with `result.reason_code`), `dispatch_workflow`, `rerun_workflow` and `review_pull_request`. Found by target, not by actor, so a release a person made is listed. Session receipts come only from sessions the caller can see, filtered before the 20 are cut: an agent manager is not shown a private session nobody shared with them. Whoever manages the agent reads it, and so do the live members of its managing team.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3159,7 +3159,7 @@ export interface paths {
         get?: never;
         /**
          * Set an agent's managing team
-         * @description The managing team's leads administer the agent; its other members do not. Owners, admins and the agent's own admins. An owner or admin names any live team; anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A team that is not in the workspace or is deleted is 404 for an owner or admin. `team_id` cannot be null: an agent made before managing teams is given one here, and nothing takes one away. The former team's leads lose the agent from their next request. Writes a `set_agent_managing_team` receipt unless the team is unchanged (`receipt_id` null).
+         * @description The managing team's leads administer the agent; its other members do not. Owners, admins and the agent's own admins. An owner or admin names any live team; anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A team that is not in the workspace or is deleted is 404 for an owner or admin. `team_id` cannot be null: every agent has a managing team, and this changes which one. The former team's leads lose the agent from their next request. Writes a `set_agent_managing_team` receipt unless the team is unchanged (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3226,7 +3226,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of a workspace profile
-         * @description Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. Writes a `create_workspace_profile` receipt.
+         * @description Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. A version keeps every `mcp__` block of the one before; `unblock_mcp_tools` lifts a held one (refusals as for `POST /v1/installation-profiles`) and needs `previous_id`, the version the form read: another latest version is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`). Writes a `create_workspace_profile` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3558,7 +3558,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of a profile
-         * @description The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_<name>_v<n>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_<uuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers with that latest version and a null `receipt_id` (the status stays 201: tell it from a new version by `receipt_id`); a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. `deny` may also name `mcp__<server>__<tool>` tools of the MCP servers the installation lists, matched exactly; they are kept beside the catalog's, listed as `mcp_deny` (the response `deny` stays the catalog's), and a next version keeps those of the one before. A version derived from a profile that blocks such names must name every one of them in `deny` (400 `base_mcp_deny_dropped`). 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `tool_pattern` (`Bash(rm:*)`: whole built-in tool names only), `mcp_tool_name` (not `mcp__<server>__<tool>`, at most 128 characters, no spaces or control characters), `github_server` (the built-in server's tools follow the agent's GitHub settings) or `unknown_mcp_server` (new name of a server the installation does not list); `accept_added_tools` takes catalog tools only (`mcp_tool`). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.
+         * @description The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_<name>_v<n>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_<uuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers with that latest version and a null `receipt_id` (the status stays 201: tell it from a new version by `receipt_id`); a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. `deny` may also name `mcp__<server>__<tool>` tools of the MCP servers the installation lists, matched exactly; they are kept beside the catalog's, listed as `mcp_deny` (the response `deny` stays the catalog's), and a next version keeps those of the one before. A version derived from a profile that blocks such names must name every one of them in `deny` (400 `base_mcp_deny_dropped`). 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `tool_pattern` (`Bash(rm:*)`: whole built-in tool names only), `mcp_tool_name` (not `mcp__<server>__<tool>`, at most 128 characters, no spaces or control characters), `github_server` (the built-in server's tools follow the agent's GitHub settings) or `unknown_mcp_server` (new name of a server the installation does not list); `accept_added_tools` takes catalog tools only (`mcp_tool`). A next version lifts a held `mcp__` block only by naming it in `unblock_mcp_tools` (400 `details.field: unblock_mcp_tools`: `mcp_unblock_unknown` when the previous version does not hold it, `mcp_unblock_conflict` when `deny` names it too, `mcp_unblock_no_previous` for a first version, `base_mcp_deny_dropped` when the base blocks it). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3805,12 +3805,34 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Disable a provider connection for good
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`. Writes a `disable_connection` receipt.
+         * Disable a provider connection
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`. Writes a `disable_connection` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["disableSettingsConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/installation/settings/connections/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable a disabled provider connection again
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Brings a disabled connection back: ceilings over it match it again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["enableSettingsConnection"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4217,11 +4239,6 @@ export interface components {
             ids?: string;
             /** @description Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them. */
             runtime_profile_id?: string;
-            /**
-             * @description `unassigned` keeps the agents with no managing team (`managing_team_id` null), the ones made before managing teams.
-             * @constant
-             */
-            managing_team?: "unassigned";
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -4960,8 +4977,11 @@ export interface components {
             deny?: string[];
             /** @description With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400. */
             accept_added_tools?: string[];
+            /** @description `mcp__<server>__<tool>` names the previous version blocked that this next version no longer blocks: the only way to lift one, as a version otherwise keeps every `mcp__` name of the one before. Each must be held by the previous version (400 `mcp_unblock_unknown`), not named in `deny` too (400 `mcp_unblock_conflict`) and not blocked by the base (400 `base_mcp_deny_dropped`); a version with no previous one cannot lift any (400 `mcp_unblock_no_previous`). A workspace version names its previous version in `previous_id`. */
+            unblock_mcp_tools?: string[];
             /** @enum {string} */
             permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
+            previous_id?: string;
         };
         CreateInstallationProfileRequest: {
             name: string;
@@ -4978,6 +4998,8 @@ export interface components {
             deny?: string[];
             /** @description With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400. */
             accept_added_tools?: string[];
+            /** @description `mcp__<server>__<tool>` names the previous version blocked that this next version no longer blocks: the only way to lift one, as a version otherwise keeps every `mcp__` name of the one before. Each must be held by the previous version (400 `mcp_unblock_unknown`), not named in `deny` too (400 `mcp_unblock_conflict`) and not blocked by the base (400 `base_mcp_deny_dropped`); a version with no previous one cannot lift any (400 `mcp_unblock_no_previous`). A workspace version names its previous version in `previous_id`. */
+            unblock_mcp_tools?: string[];
             /** @enum {string} */
             permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             project_settings?: {
@@ -5905,7 +5927,7 @@ export interface components {
             revision: number;
             updated_by: string | null;
             updated_at: string | null;
-            /** @description True when `workspace` reaches only those inside the session's agent, whatever `scope` is now: the agent has a managing team and the workspace's `agent_outsider_session_visibility` is `managing_team`. Owners, admins, the agent's admins and its managing team's members are inside. `people` and `team` still reach whom they name. */
+            /** @description True when `workspace` reaches only those inside the session's agent, whatever `scope` is now: the workspace's `agent_outsider_session_visibility` is `managing_team` and the agent's managing team is not the holding team that took agents which had none (those stay visible to every member until moved to a real team). Owners, admins, the agent's admins and its managing team's members are inside. `people` and `team` still reach whom they name. */
             audience_limited: boolean;
         };
         SetSessionShareResponse: {
@@ -6885,6 +6907,7 @@ export interface components {
             settings_revision: number | null;
             active_release_id: string | null;
             bound_credential_refs: string[];
+            available_servers?: string[];
         };
         PutAgentMcpSettingsResponse: {
             settings_revision: number;
@@ -6916,7 +6939,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "disable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -8189,8 +8212,9 @@ export interface components {
                 slug: string;
                 name: string;
                 description: string | null;
-                managing_team_id: string | null;
-                managing_team_name: string | null;
+                /** Format: uuid */
+                managing_team_id: string;
+                managing_team_name: string;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8229,8 +8253,6 @@ export interface components {
                 active: number;
                 /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
                 draft: number;
-                /** @description How many of `all` have no managing team: what `managing_team=unassigned` lists. */
-                unassigned: number;
             };
         };
         ListProfilesResponse: {
@@ -8739,8 +8761,9 @@ export interface components {
                 slug: string;
                 name: string;
                 description: string | null;
-                managing_team_id: string | null;
-                managing_team_name: string | null;
+                /** Format: uuid */
+                managing_team_id: string;
+                managing_team_name: string;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8953,8 +8976,9 @@ export interface components {
                 slug: string;
                 name: string;
                 description: string | null;
-                managing_team_id: string | null;
-                managing_team_name: string | null;
+                /** Format: uuid */
+                managing_team_id: string;
+                managing_team_name: string;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -9376,6 +9400,7 @@ export interface components {
                 added_by: string | null;
                 /** Format: date-time */
                 added_at: string;
+                disabled_at: string | null;
             }[];
         };
         TeamChangeResponse: {
@@ -9429,8 +9454,9 @@ export interface components {
                 slug: string;
                 name: string;
                 description: string | null;
-                managing_team_id: string | null;
-                managing_team_name: string | null;
+                /** Format: uuid */
+                managing_team_id: string;
+                managing_team_name: string;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -9452,8 +9478,9 @@ export interface components {
                 slug: string;
                 name: string;
                 description: string | null;
-                managing_team_id: string | null;
-                managing_team_name: string | null;
+                /** Format: uuid */
+                managing_team_id: string;
+                managing_team_name: string;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -25117,7 +25144,6 @@ export interface operations {
                 q?: string;
                 ids?: string;
                 runtime_profile_id?: string;
-                managing_team?: "unassigned";
             };
             header?: never;
             path?: never;
@@ -25393,8 +25419,7 @@ export interface operations {
                      *         "all": 128,
                      *         "administered": 3,
                      *         "active": 97,
-                     *         "draft": 24,
-                     *         "unassigned": 5
+                     *         "draft": 24
                      *       }
                      *     }
                      */
@@ -28411,6 +28436,9 @@ export interface operations {
                      *       "active_release_id": "rel_example",
                      *       "bound_credential_refs": [
                      *         "docs-key"
+                     *       ],
+                     *       "available_servers": [
+                     *         "docs"
                      *       ]
                      *     }
                      */
@@ -30992,7 +31020,8 @@ export interface operations {
                      *           "display_name": "Ada Owner",
                      *           "role": "lead",
                      *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "added_at": "2026-10-23T09:00:00Z"
+                     *           "added_at": "2026-10-23T09:00:00Z",
+                     *           "disabled_at": null
                      *         },
                      *         {
                      *           "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
@@ -31000,7 +31029,8 @@ export interface operations {
                      *           "display_name": null,
                      *           "role": "member",
                      *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "added_at": "2026-10-24T09:00:00Z"
+                     *           "added_at": "2026-10-24T09:00:00Z",
+                     *           "disabled_at": "2026-10-25T09:00:00Z"
                      *         }
                      *       ]
                      *     }
@@ -36785,6 +36815,130 @@ export interface operations {
         };
     };
     disableSettingsConnection: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry's id and the change's receipt. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "anthropic-console",
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000f3"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SettingsChangeResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    enableSettingsConnection: {
         parameters: {
             query?: never;
             header?: {

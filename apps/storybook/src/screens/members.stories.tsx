@@ -263,6 +263,7 @@ const TEAM: TeamDetailView = {
       role: "lead",
       added_by: ID.owner,
       added_at: "2026-10-16T01:00:00Z",
+      disabled_at: null,
     },
     {
       user_id: ID.minji,
@@ -271,6 +272,7 @@ const TEAM: TeamDetailView = {
       role: "member",
       added_by: ID.owner,
       added_at: "2026-10-17T02:30:00Z",
+      disabled_at: null,
     },
   ],
 };
@@ -309,7 +311,29 @@ const INVITES: readonly InviteRow[] = [
     revoked_at: null,
     created_at: "2026-10-28T00:00:00Z",
   },
+  {
+    id: "c0ffee00-0000-4000-8000-000000000003",
+    workspace_id: WORKSPACE,
+    email: "lapsed@example.test",
+    role: "member",
+    invited_by: ID.owner,
+    status: "expired",
+    expires_at: "2026-10-26T00:00:00Z",
+    accepted_at: null,
+    revoked_at: null,
+    created_at: "2026-10-19T00:00:00Z",
+  },
 ];
+
+// Past ten, the 초대 tab shows its search box like the 구성원 tab.
+const MANY_INVITES: readonly InviteRow[] = Array.from(
+  { length: 12 },
+  (_, index) => ({
+    ...(INVITES[0] as InviteRow),
+    id: `c0ffee00-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`,
+    email: `person${index + 1}@example.test`,
+  }),
+);
 
 const ERROR = {
   title: "불러오지 못했습니다",
@@ -527,17 +551,10 @@ function MembersTab({
   );
   const find = (id: string | undefined) =>
     rows.find((member) => member.user_id === id) ?? null;
-  const [editing, setEditing] = useState(find(initialEdit));
+  const [editing, setEditing] = useState(
+    find(initialRoleChange?.id ?? initialEdit),
+  );
   const [confirming, setConfirming] = useState(find(initialDisable));
-  const [roleChange, setRoleChange] = useState<{
-    member: MemberRow;
-    role: WorkspaceRole;
-  } | null>(() => {
-    const member = find(initialRoleChange?.id);
-    return member && initialRoleChange
-      ? { member, role: initialRoleChange.role }
-      : null;
-  });
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -597,11 +614,9 @@ function MembersTab({
       {editing ? (
         <MemberEditDialog
           member={editing}
+          initialRole={initialRoleChange?.role}
           onClose={() => setEditing(null)}
-          onSave={(role) => {
-            setEditing(null);
-            setRoleChange({ member: editing, role });
-          }}
+          onSave={() => setEditing(null)}
         />
       ) : null}
       <ConfirmDialog
@@ -615,23 +630,6 @@ function MembersTab({
         cancelLabel="취소"
         tone="danger"
         onConfirm={() => setConfirming(null)}
-      />
-      <ConfirmDialog
-        open={roleChange !== null}
-        onOpenChange={(open) => {
-          if (!open) setRoleChange(null);
-        }}
-        title={`${roleChange?.member.display_name ?? ""}의 역할을 ${
-          roleChange ? ROLE_LABEL[roleChange.role] : ""
-        }(으)로 바꿀까요?`}
-        consequence={
-          roleChange?.role === "owner"
-            ? "소유자는 워크스페이스 설정과 다른 소유자의 역할까지 바꿀 수 있습니다. 소유자 역할은 소유자만 다시 거둘 수 있습니다."
-            : "바꾸는 즉시 이 사람이 할 수 있는 일이 새 역할에 맞게 바뀝니다."
-        }
-        confirmLabel="역할 바꾸기"
-        cancelLabel="취소"
-        onConfirm={() => setRoleChange(null)}
       />
     </div>
   );
@@ -737,14 +735,17 @@ function MemberTableRow({
 /** 구성원 편집: the server's verdicts decide which roles can be picked. */
 function MemberEditDialog({
   member,
+  initialRole,
   onClose,
   onSave,
 }: {
   readonly member: MemberRow;
+  readonly initialRole?: WorkspaceRole | undefined;
   readonly onClose: () => void;
   readonly onSave: (role: WorkspaceRole) => void;
 }) {
-  const [role, setRole] = useState<WorkspaceRole>(member.role);
+  const [role, setRole] = useState<WorkspaceRole>(initialRole ?? member.role);
+  const changed = role !== member.role;
   const legendId = useId();
   const reasonId = useId();
   const roleReasonId = useId();
@@ -808,16 +809,24 @@ function MemberEditDialog({
             })}
           </RadioGroup>
         </FieldSet>
+        {changed && !blocked ? (
+          <FieldDescription role="status">
+            {`바꾸면 ${member.display_name}의 역할은 ${ROLE_LABEL[role]}입니다.`}{" "}
+            {role === "owner"
+              ? "소유자는 워크스페이스 설정과 다른 소유자의 역할까지 바꿀 수 있습니다. 소유자 역할은 소유자만 다시 거둘 수 있습니다."
+              : "바꾸는 즉시 이 사람이 할 수 있는 일이 새 역할에 맞게 바뀝니다."}
+          </FieldDescription>
+        ) : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             취소
           </Button>
           <Button
             type="button"
-            disabled={blocked || !verdictOf[role].allowed}
+            disabled={blocked || !changed || !verdictOf[role].allowed}
             onClick={() => onSave(role)}
           >
-            저장
+            역할 바꾸기
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -830,22 +839,49 @@ function MemberEditDialog({
 function InvitesTab({
   invites,
   initialRevoke,
+  initialQuery = "",
 }: {
   readonly invites: readonly InviteRow[];
   readonly initialRevoke?: string | undefined;
+  readonly initialQuery?: string;
 }) {
   const [revoking, setRevoking] = useState(
     invites.find((invite) => invite.id === initialRevoke) ?? null,
   );
-  const pending = invites.filter((invite) => invite.status === "pending");
+  const [query, setQuery] = useState(initialQuery);
+  // Revoked and accepted invites are history; waiting and lapsed ones stay.
+  const listed = invites.filter(
+    (invite) => invite.status === "pending" || invite.status === "expired",
+  );
+  const pending = listed.filter((invite) => matches(query, invite.email));
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
-      {pending.length === 0 ? (
-        <EmptyState title="대기 중인 초대가 없습니다." />
+      {listed.length > 10 || query !== "" ? (
+        <ListToolbar
+          filter={null}
+          search={{
+            type: "search",
+            "aria-label": "이메일로 찾기",
+            placeholder: "이메일로 찾기",
+            maxLength: SEARCH_MAX,
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+          }}
+        />
+      ) : null}
+      {listed.length === 0 ? (
+        <EmptyState title="남아 있는 초대가 없습니다." />
+      ) : pending.length === 0 ? (
+        <EmptyState
+          className="w-full"
+          title="검색어에 맞는 초대가 없습니다"
+          description="다른 이메일로 찾아 보세요."
+          action={<ClearSearch onClick={() => setQuery("")} />}
+        />
       ) : (
         <div className="-m-1 grid overflow-x-auto p-1">
           <GridTable
-            aria-label="대기 중인 초대 표"
+            aria-label="초대 표"
             columns={MEMBER_COLUMNS}
             narrowAt={640}
             narrowColumns={MEMBER_NARROW_COLUMNS}
@@ -857,32 +893,58 @@ function InvitesTab({
               <GridTableColumnHeader>역할</GridTableColumnHeader>
               <GridTableColumnHeader action={true}>관리</GridTableColumnHeader>
             </GridTableHeader>
-            {pending.map((invite) => (
-              <GridTableRow key={invite.id}>
-                <GridTableCell lines={true}>
-                  <Text as="span" weight="medium" truncate title={invite.email}>
-                    {invite.email}
-                  </Text>
-                  <Text as="span" variant="meta">
-                    {`${formatTimestamp(invite.expires_at, "ko")}까지`}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={invite.role === "member" ? "gray" : "blue"}>
-                    {ROLE_LABEL[invite.role]}
-                  </Badge>
-                </GridTableCell>
-                <GridTableCell align="end">
-                  <RowAction
-                    variant="danger"
-                    aria-label={`${invite.email} 초대 회수`}
-                    onClick={() => setRevoking(invite)}
-                  >
-                    회수
-                  </RowAction>
-                </GridTableCell>
-              </GridTableRow>
-            ))}
+            {pending.map((invite) => {
+              const lapsed = invite.status === "expired";
+              return (
+                <GridTableRow
+                  key={invite.id}
+                  inactive={lapsed}
+                  className={lapsed ? INACTIVE_ROW : undefined}
+                  data-expired={lapsed}
+                >
+                  <GridTableCell lines={true}>
+                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+                      <Text
+                        as="span"
+                        weight="medium"
+                        truncate
+                        title={invite.email}
+                      >
+                        {invite.email}
+                      </Text>
+                      {lapsed ? (
+                        <Badge
+                          variant="gray"
+                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                        >
+                          만료
+                        </Badge>
+                      ) : null}
+                    </span>
+                    <Text as="span" variant="meta">
+                      {lapsed
+                        ? `${formatTimestamp(invite.expires_at, "ko")}에 만료됨`
+                        : `${formatTimestamp(invite.expires_at, "ko")}까지`}
+                    </Text>
+                  </GridTableCell>
+                  <GridTableCell>
+                    <Badge variant={invite.role === "member" ? "gray" : "blue"}>
+                      {ROLE_LABEL[invite.role]}
+                    </Badge>
+                  </GridTableCell>
+                  <GridTableCell align="end">
+                    {lapsed ? null : (
+                      <RowAction
+                        aria-label={`${invite.email} 초대 회수`}
+                        onClick={() => setRevoking(invite)}
+                      >
+                        회수
+                      </RowAction>
+                    )}
+                  </GridTableCell>
+                </GridTableRow>
+              );
+            })}
           </GridTable>
         </div>
       )}
@@ -1599,6 +1661,8 @@ type Screen =
   | "team-as-member"
   | "invites"
   | "invites-empty"
+  | "invites-many"
+  | "invites-no-match"
   | "invite-revoke"
   | "member-view";
 
@@ -1677,7 +1741,14 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   } else if (tab === "invites") {
     content = (
       <InvitesTab
-        invites={screen === "invites-empty" ? [] : INVITES}
+        invites={
+          screen === "invites-empty"
+            ? []
+            : screen.startsWith("invites-many") || screen === "invites-no-match"
+              ? MANY_INVITES
+              : INVITES
+        }
+        initialQuery={screen === "invites-no-match" ? "nobody" : ""}
         initialRevoke={screen === "invite-revoke" ? INVITES[0]?.id : undefined}
       />
     );
@@ -1821,6 +1892,8 @@ export const TeamAddMembers: Story = {
 };
 export const Invites: Story = { args: { screen: "invites" } };
 export const InvitesEmpty: Story = { args: { screen: "invites-empty" } };
+export const InvitesWithSearch: Story = { args: { screen: "invites-many" } };
+export const InvitesNoMatch: Story = { args: { screen: "invites-no-match" } };
 export const InviteRevoke: Story = { args: { screen: "invite-revoke" } };
 export const MemberView: Story = {
   name: "As member (내가 속한 팀)",

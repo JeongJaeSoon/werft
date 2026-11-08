@@ -176,7 +176,7 @@ worker의 작업 디렉터리는 세션의 workspace volume(Kubernetes backend�
 **보장 범위:** 마지막으로 commit된 checkpoint까지는 S3 + DB에 있다. 그 뒤의 작업, 추적되지 않은 ignored·exclude 파일, 작업 디렉터리 밖 상태는 volume을 잃으면 없다.
 
 - 마지막 checkpoint가 어느 turn까지인지는 세션 상세의 `checkpoint_revision`과 `durability.last_checkpointed_turn_id`로 본다. `durability.last_checkpointed_turn_id`가 `durability.last_completed_turn_id`와 같으면 마지막으로 완료된 turn까지 checkpoint에 들었다. `durability.checkpoint_pending_reason`은 앞서 checkpoint가 거절된 사유이고, 뒤의 checkpoint가 그 turn을 덮은 뒤에도 남을 수 있으므로 이것만으로 마지막 turn이 빠졌다고 보지 않는다.
-- 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 결과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
+- 추적되지 않은 파일 중 `.gitignore`·`.git/info/exclude`에 걸린 것은 checkpoint에 들어가지 않는다. 빌드 결과, 의존성, ignore된 `.env`도 마찬가지다. 이미 추적되는 파일은 ignore 규칙에 걸려도 checkpoint에 든다. 남겨야 하는 성과물은 ignore되지 않은 경로(예: `out/`)에 쓴다.
 - 작업 디렉터리 밖(tmpfs HOME의 `git config --global` 등)은 volume과 상관없이 worker가 바뀌면 사라진다.
 - `tests/e2e/workspace-loss.e2e.ts`가 CI `e2e` job에서 Docker backend로 이 경로를 확인한다(Kubernetes backend는 이 e2e가 다루지 않는다). 저장소 없는 세션과 있는 세션 각각에서 파일을 쓰고 pause한 뒤 workspace volume을 지우고 resume한다. 그다음 turn이 파일 내용과 이전 대화를 읽는지, volume 이름이 바뀌었는지 본다.
 
@@ -320,7 +320,7 @@ SELECT status, count(*) FROM push_intents
 WHERE status IN ('deferred', 'pinned') GROUP BY status;
 ```
 
-- **보는 곳:** 세션의 결과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
+- **보는 곳:** 세션의 성과물 탭 "GitHub 작업"과 `GET /v1/sessions/{id}/push-requests`(`items`의 `origin`·`flow`·`pr_state`, `intents`)에서 의도의 상태와 끝난 이유를 읽는다. 열려 있는 동안 웹은 10초마다, 아니면 1분마다 다시 읽는다.
 - **아직 없는 것:** 실행기는 의도를 만든 사람의 세션 공유 권한을 다시 확인하지 않고, 릴리스 정책과 게이트만 다시 판정한다. `ceiling` 판정은 기존 push 실행기의 게이트가 맡는다. PR을 여는 단계는 다음 변경에서 붙는다.
 
 ### 승인된 요청의 push
@@ -656,10 +656,10 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 구성원은 판정 때마다 읽는다. 팀에서 빠지거나 팀이 지워지면 그 팀으로 얻은 관리 권한이 다음 요청부터 `403`이다. 비활성 멤버는 팀에 있어도 아무 권한이 없다. 다만 비활성화는 팀 구성원 자격과 에이전트 관리자 지정을 지우지 않으므로, 다시 초대해 활성화하면 그 권한이 그대로 돌아온다. 돌려주지 않으려면 비활성화할 때 팀에서도 빼고 관리자 지정도 해제한다. 팀을 지우면 그 팀의 에이전트 관리자 지정도 함께 지워진다.
 - 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다. owner·admin이 아니면 새로 관리자 팀으로 넣을 수 있는 팀은 자기가 `lead`인 팀뿐이다(아니면 `403`, `reason_code: team_not_allowed`). 이미 들어가 있는 관리자 팀은 그대로 남는다.
 - 팀 구성원에는 역할(`lead`·`member`)이 있다. 처음 넣으면 `member`이고, owner·admin이 `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`로 바꾼다. 바꿀 때마다 `set_team_member_role` receipt가 남는다. `GET /v1/my-teams`는 팀마다 내 `role`을 함께 준다.
-- 에이전트에는 담당 팀(`managing_team_id`)이 하나 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없고 설정을 읽기만 한다(아래). 담당 팀을 필수로 받기 전에 만든 에이전트는 담당 팀이 비어 있을 수 있다. 마이그레이션은 그 값을 채우지 않는다. 그런 에이전트는 지금처럼 읽고 고치고 실행하며, 담당 팀을 정하는 것은 사람이다(`PUT …/managing-team`).
-- 에이전트 읽기는 두 단계다. **정보**(이름·slug·설명·담당 팀 id와 이름·상태·활성 릴리스 id, `GET /v1/agents`의 행)는 workspace의 모든 멤버가 읽는다(`agent.read`). 담당 팀 이름(`managing_team_name`)은 그 팀을 읽지 못하는 멤버에게도 행과 함께 간다. `GET /v1/agents`와 `GET /v1/agents/counts`는 행마다 이 판정으로 거른다. 그 뒤에 `managing_team=unassigned`가 담당 팀이 없는 에이전트만 남기고, 개수의 `unassigned`가 그 수다. **설정**(카드·버전·릴리스, 관리자, 자격 증명 연결, GitHub, Slack 연결·앱·identity)은 owner·admin, 그 에이전트의 관리자, 담당 팀의 살아 있는 구성원만 읽는다(`agent.settings_read`). `GET /v1/agents/{id}`와 설정 조회가 여기에 든다. 그 밖의 멤버는 `403`(`reason_code: role`)이고, 그 에이전트는 목록의 `ids`로 행만 읽는다. `include=summary`의 요약은 설정을 읽을 수 있는 에이전트에만 붙는다. 설정을 바꾸는 요청은 지금처럼 owner·admin과 관리자만 한다. Slack 채널 이름 조회·검색(`…/slack-channels`, `…/slack/channels`)과 GitHub 저장소 후보(`…/github/repositories`)는 연결·고르기에 쓰는 것이라 바꾸는 사람만 쓴다. 허용된 읽기는 `authz_decisions`에 남지 않고 거절만 남는다.
+- 에이전트에는 담당 팀(`managing_team_id`)이 하나 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없고 설정을 읽기만 한다(아래). 담당 팀은 비울 수 없고 바꾸기만 한다(`PUT …/managing-team`). 열은 `NOT NULL`이다(0243). 담당 팀을 필수로 받기 전에 만든 에이전트는 마이그레이션이 채웠다. 담당 팀이 없던 에이전트는 모두 워크스페이스마다 하나씩 만든 구성원 없는 `Unassigned agents` 팀(`created_by` 없음)이 맡았다. 관리자 팀은 소유 조직의 근거가 아니라서 쓰지 않는다. 되돌릴 때 이 팀 하나가 이행 대상 목록이다. 이름이 겹치면 `Unassigned agents (<8자리 id>)`다. 이름은 영어 하나로 고정되어 있으니, 소유자·관리자는 팀 목록에서 이 이름으로 찾아 이름을 바꾸고 에이전트를 맞는 팀으로 옮긴다(`PUT …/managing-team`). 새로 얻는 구성원이나 `lead`가 없으므로 이 단계에서 아무도 권한을 더 얻지 않는다. 이 팀에는 `member_teams.holds_unassigned`가 켜져 있어, 그 에이전트들의 `workspace` 세션은 축 B가 `managing_team`이어도 이전처럼 멤버 모두에게 보인다. 에이전트를 다른 팀으로 옮기면 그 순간부터 그 팀의 규칙이 적용된다. 이 플래그는 마이그레이션만 켜고 API로는 바꾸지 못한다. 보관 팀에 구성원을 넣으면 `member`는 그 에이전트들의 설정을 읽고 사용할 수 있게 되고 `lead`는 설정을 바꾸는 관리까지 하게 되니, 에이전트를 옮기기 전에는 넣지 않는다. 이름을 바꾸거나 구성원을 넣어도 플래그는 그대로다.
+- 에이전트 읽기는 두 단계다. **정보**(이름·slug·설명·담당 팀 id와 이름·상태·활성 릴리스 id, `GET /v1/agents`의 행)는 workspace의 모든 멤버가 읽는다(`agent.read`). 담당 팀 이름(`managing_team_name`)은 그 팀을 읽지 못하는 멤버에게도 행과 함께 간다. `GET /v1/agents`와 `GET /v1/agents/counts`는 행마다 이 판정으로 거른다. 담당 팀이 없는 에이전트는 없으므로 `managing_team=unassigned` 필터와 개수의 `unassigned`는 없다(쿼리는 엄격하지 않아 `managing_team` 값을 보내도 무시되고 전체가 온다). **설정**(카드·버전·릴리스, 관리자, 자격 증명 연결, GitHub, Slack 연결·앱·identity)은 owner·admin, 그 에이전트의 관리자, 담당 팀의 살아 있는 구성원만 읽는다(`agent.settings_read`). `GET /v1/agents/{id}`와 설정 조회가 여기에 든다. 그 밖의 멤버는 `403`(`reason_code: role`)이고, 그 에이전트는 목록의 `ids`로 행만 읽는다. `include=summary`의 요약은 설정을 읽을 수 있는 에이전트에만 붙는다. 설정을 바꾸는 요청은 지금처럼 owner·admin과 관리자만 한다. Slack 채널 이름 조회·검색(`…/slack-channels`, `…/slack/channels`)과 GitHub 저장소 후보(`…/github/repositories`)는 연결·고르기에 쓰는 것이라 바꾸는 사람만 쓴다. 허용된 읽기는 `authz_decisions`에 남지 않고 거절만 남는다.
 - 에이전트 설정을 바꾼 receipt(`target_ref.resource`가 그 에이전트이거나 그 Slack 연결)는 설정을 읽을 수 있는 사람과 그 사람의 개인 key만 `GET /v1/receipts/{id}`로 읽는다. 자격 증명이 연결되지 않아 거절된 세션 시작(`create_session`)의 receipt는 지금처럼 workspace의 누구나 읽는다.
-- 담당 팀은 만들 때(`POST /v1/agents`의 `managing_team_id`) 꼭 넣는다. 빠지면 `400 BAD_REQUEST`이고 `details.issues`에 `path: managing_team_id`, `message: managing_team_id is required`가 있다. 그래서 속한 팀이 없는 member는 에이전트를 만들지 못한다. 이 필드 없이 만들던 API 호출(SDK·스크립트)은 이 이미지부터 실패한다. 이전 이미지로 롤백하면 담당 팀 없는 생성이 다시 받아들여지고, 그렇게 만든 에이전트는 담당 팀이 비어 있다. 담당 팀은 `PUT /v1/agents/{id}/managing-team` `{"team_id"}`로 바꾼다. 바꾸는 것은 owner·admin과 그 에이전트의 관리자다. owner·admin은 살아 있는 팀 아무것이나, 그 밖의 사람은 자기가 속한 팀만 고른다(아니면 `403`, `reason_code: team_not_allowed`). 담당 팀을 비우는 요청은 없다. 바꿀 때마다 `set_agent_managing_team` receipt가 남고 `result`에 바꾸기 전후 팀 id가 있다.
+- 담당 팀은 만들 때(`POST /v1/agents`의 `managing_team_id`) 꼭 넣는다. 빠지면 `400 BAD_REQUEST`이고 `details.issues`에 `path: managing_team_id`, `message: managing_team_id is required`가 있다. 그래서 속한 팀이 없는 member는 에이전트를 만들지 못한다. 이 필드 없이 만들던 API 호출(SDK·스크립트)은 이 이미지부터 실패한다. 롤백 하한은 이 마이그레이션(0243)이다. 담당 팀을 이미 필수로 받던 직전 이미지로 내리면 생성은 계속 되지만 `holds_unassigned`를 모르므로, 보관 팀 에이전트의 `workspace` 세션이 축 B(`managing_team`)에서 바깥 멤버에게 다시 숨겨진다. 담당 팀 없이 INSERT하던 더 오래된 이미지는 `NOT NULL` 위반으로 생성이 실패한다(500). 그 아래로 내리려면 쓰기를 멈추고 `managing_team_id`의 `NOT NULL`을 풀어야 하며, 풀어도 백필과 이전 가시성은 되돌려지지 않는다. 보관 팀은 새로 담당 팀으로 고를 수 없다(`403`, `reason_code: team_holding`, 만들 때도 같다). 에이전트가 이미 거기 있는 채로 같은 팀을 다시 보내는 요청만 `unchanged`다. 담당 팀은 `PUT /v1/agents/{id}/managing-team` `{"team_id"}`로 바꾼다. 바꾸는 것은 owner·admin과 그 에이전트의 관리자다. owner·admin은 살아 있는 팀 아무것이나, 그 밖의 사람은 자기가 속한 팀만 고른다(아니면 `403`, `reason_code: team_not_allowed`). 담당 팀을 비우는 요청은 없다. 바꿀 때마다 `set_agent_managing_team` receipt가 남고 `result`에 바꾸기 전후 팀 id가 있다.
 - 보관되지 않은 에이전트의 담당 팀인 팀은 지울 수 없다(`409 TEAM_MANAGES_AGENTS`, `details.agent_ids`). 먼저 그 에이전트들의 담당 팀을 옮기거나 에이전트를 보관한다.
 - 담당 팀을 옮기거나 `lead`를 `member`로 내리면, 그 권한으로 진행 중이던 에이전트 설정 쓰기(수정·릴리스·켜기, GitHub 켜기, 저장소 고르기)도 저장 직전에 다시 판정되어 `403`(`reason_code: role`)으로 끝난다.
 - 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트의 에이전트 key를 발급한다.
@@ -699,9 +699,9 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | `private` | 만든 사람만 |
 | `people` | 만든 사람과 지정한 멤버 |
 | `team` | 만든 사람과 지정한 팀의 지금 구성원 |
-| `workspace` | workspace 멤버 모두(기본값). 단 담당 팀이 있는 에이전트이고 축 B가 `managing_team`이면 안쪽만 |
+| `workspace` | workspace 멤버 모두(기본값). 단 축 B가 `managing_team`이면 에이전트의 안쪽만(0243이 만든 보관 팀의 에이전트는 예외로 멤버 모두) |
 
-- "안쪽"은 그 에이전트의 owner·admin, 에이전트 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`), 담당 팀 구성원이다. 나머지 멤버가 바깥쪽이다. 담당 팀이 없는 에이전트(담당 팀 전의 에이전트)는 안쪽이 owner·admin과 관리자뿐이고, 축 B가 적용되지 않는다.
+- "안쪽"은 그 에이전트의 owner·admin, 에이전트 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`), 담당 팀 구성원이다. 나머지 멤버가 바깥쪽이다.
 - 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
 - 에이전트 key는 멤버가 아니다. 그 에이전트의 세션 가운데 `workspace` 범위인 것과 자기가 만든 것만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다. 축 B에서는 자기 에이전트의 안쪽이다.
@@ -718,9 +718,9 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | B. `workspace` 범위 세션이 바깥쪽에 보이는가 | `agent_outsider_session_visibility` | `managing_team`: 안쪽에만 / `workspace`: 멤버 모두 | `managing_team` |
 
 - 축 A는 모든 에이전트에 적용한다. 웹·API·Slack 세션 시작이 같은 판정을 거치고, 세션을 만드는 쓰기도 같은 트랜잭션에서 워크스페이스 행과 에이전트·팀·구성원 행을 잠근 채 다시 본다. 이미 있는 세션에 메시지를 보내는 것은 축 A를 보지 않는다.
-- 축 B는 담당 팀이 있는 에이전트의 세션에만 적용한다. 목록·개수·상세·SSE·메시지·승인 쓰기의 재확인·사용량 최근 성과·도구 호출 목록이 같은 판정을 쓴다. 자기 세션(지금 그 세션을 가진 사람)과 `people`·`team` 공유는 그대로 닿는다. 사용량 최근 성과는 볼 수 없는 세션의 행을 통째로 빼고, 합계 수치는 그대로 센다.
+- 축 B는 모든 에이전트의 세션에 적용한다. 목록·개수·상세·SSE·메시지·승인 쓰기의 재확인·사용량 최근 성과·도구 호출 목록이 같은 판정을 쓴다. 자기 세션(지금 그 세션을 가진 사람)과 `people`·`team` 공유는 그대로 닿는다. 사용량 최근 성과는 볼 수 없는 세션의 행을 통째로 빼고, 합계 수치는 그대로 센다.
 - 판정 시점의 상한이라 공유 행을 쓰지 않는다. 담당 팀을 정하거나 바꾸는 순간, 설정을 바꾸는 순간, 팀 구성원이 빠지는 순간 기존 세션에도 다음 요청부터 적용된다. 열린 SSE는 다음 페이지를 읽을 때 다시 판정해 끊는다.
-- `GET /v1/sessions/{id}/share`의 `audience_limited`는 이 세션을 `workspace`로 두면 안쪽에만 닿는지(담당 팀이 있고 축 B가 `managing_team`)를 지금 범위와 상관없이 알려 준다.
+- `GET /v1/sessions/{id}/share`의 `audience_limited`는 이 세션을 `workspace`로 두면 안쪽에만 닿는지(축 B가 `managing_team`이고 보관 팀의 에이전트가 아님)를 지금 범위와 상관없이 알려 준다.
 - 바꾼 키가 있을 때만 `set_agent_access_settings` receipt(`result.from`·`result.to`, 바뀐 키만)를 남기고, 없으면 `receipt_id`가 `null`이다.
 - 사람이 없는 key(에이전트에 묶이지 않은 key)는 어느 에이전트의 안쪽도 아니다.
 - 이 설정이 들어간 이미지는 롤백 하한이다. 그 아래로 롤백하면 축 B로 숨긴 세션이 바깥쪽에 다시 보이고 축 A가 사라진다. 이 설정을 한 번이라도 저장한 워크스페이스는 하한 아래 이미지의 `GET /v1/auth/me`가 응답 검증에서 실패한다.
@@ -782,7 +782,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 2. GitHub가 콜백 URL로 `code`·`state`를 붙여 돌려보낸다. 웹 화면이 둘을 `POST /v1/linked-accounts/github/callback`에 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·재사용·다른 사람의 state·GitHub가 거절한 code는 모두 `400`이다.
 3. API가 `code`를 user access token으로 바꿔 `GET /user`로 id·login만 읽고, token은 그 자리에서 버린다(저장하지 않는다). 그 GitHub 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 내게 이미 GitHub 연결이 있으면 `409 LINK_EXISTS`, GitHub가 답하지 않으면 `503`이다. 성공하면 `201`과 `link_account` receipt가 남는다. 해제는 Slack과 같은 `DELETE /v1/linked-accounts/{id}`다.
 
-**commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 결과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
+**commit 트레일러.** claim의 `git.co_author`(시작자가 연결했을 때만)와 `git.session_url`을 worker가 `$HOME/.werft/git-trailers`에 쓰고, worker 이미지의 system `core.hooksPath`(`/usr/local/share/werft/git-hooks`)에 있는 `commit-msg` hook이 `git interpret-trailers --if-exists addIfDifferent`로 `Co-authored-by:`·`Agent-Session:`을 붙인다. 같은 줄은 한 번만 붙고, 저장소의 원래 hook(`.git/hooks/<이름>`)은 먼저 돈다. 시작자는 첫 turn을 보낸 사람, 없으면 세션을 만든 사람이다. web·개인 key·Slack은 사람이고, 에이전트 key·운영자 key는 사람이 없어 `Agent-Session`만 붙는다. 콘솔 origin이 없으면 `Agent-Session:`에는 세션 URL 대신 세션 id가 들어간다(PR 꼬리와 같은 값). 세션 상세의 성과물 탭 위 한 줄이 이 판정(`GET /v1/sessions/{id}/github/attribution`)을 보여 준다.
 
 **commit 작성자.** 세션 저장소가 콘솔에 등록한 작성용 App(`auth: { kind: github_app }`)을 쓰면, commit의 author와 committer는 그 App의 bot 계정 `<slug>[bot] <<bot user id>+<slug>[bot]@users.noreply.github.com>`이다. GitHub가 App bot의 noreply 주소로 정한 형식이다([actions/checkout README](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token), [actions/create-github-app-token README](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). bot user id는 App id와 다른 값이라 control-host가 `GET https://api.github.com/users/<slug>[bot]`(인증 없음)으로 한 번 읽어 프로세스에 둔다. 실패하면 5분 동안 다시 묻지 않고, 그 사이 claim은 이미지 기본값 `Werft <noreply@werft.invalid>`로 commit한다. claim의 `git_author`를 worker가 `$HOME/.werft/git-identity`에 쓰고, 이미지의 system git 설정이 기본값 뒤에서 그 파일을 include한다. 카탈로그에 App id를 직접 적은 저장소와 GitHub Enterprise Server는 이미지 기본값 그대로다. 저장소에서 `git config user.*`로 정한 값은 여전히 이긴다.
 

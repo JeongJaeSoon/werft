@@ -33,9 +33,9 @@ import {
 } from "./schema.ts";
 import { sessionVisibleTo } from "./session-shares.ts";
 
-/** Receipts naming the agent; a release or activation only when it moved `github`. */
 const AGENT_OPERATIONS = [
   "set_agent_github",
+  "set_agent_mcp",
   "create_agent_release",
   "activate_agent",
 ] as const;
@@ -568,7 +568,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         inArray(receipts.operation, [...AGENT_OPERATIONS]),
         sql`${receipts.targetRef} -> 'resource' = ${JSON.stringify({ kind: "agent", id })}::jsonb`,
         or(
-          eq(receipts.operation, "set_agent_github"),
+          inArray(receipts.operation, ["set_agent_github", "set_agent_mcp"]),
           sql`${receipts.result} -> 'github_changed' = 'true'::jsonb`,
         ),
       );

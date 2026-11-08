@@ -14,6 +14,7 @@ export class MirrorProgress {
 
   watch(store: TranscriptMirror): TranscriptMirror {
     const resumedEntryIds = store.resumedEntryIds;
+    const resumedSavedCost = store.resumedSavedCost;
     return {
       ...(store.revisionScoped === undefined
         ? {}
@@ -27,6 +28,9 @@ export class MirrorProgress {
       ...(resumedEntryIds === undefined
         ? {}
         : { resumedEntryIds: () => resumedEntryIds.call(store) }),
+      ...(resumedSavedCost === undefined
+        ? {}
+        : { resumedSavedCost: () => resumedSavedCost.call(store) }),
     };
   }
 

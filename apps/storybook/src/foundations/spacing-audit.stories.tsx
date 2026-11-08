@@ -358,13 +358,13 @@ function SpacingAudit() {
             <TabsList variant="line" aria-label="세션 보기" data-audit="tabs">
               <TabsTrigger value="timeline">타임라인</TabsTrigger>
               <TabsTrigger value="artifacts" count={4}>
-                결과물
+                성과물
               </TabsTrigger>
               <TabsTrigger value="info">정보</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="timeline">이벤트 목록</TabsContent>
-          <TabsContent value="artifacts">결과물 목록</TabsContent>
+          <TabsContent value="artifacts">성과물 목록</TabsContent>
           <TabsContent value="info">세션 정보</TabsContent>
         </Tabs>
       </Specimen>

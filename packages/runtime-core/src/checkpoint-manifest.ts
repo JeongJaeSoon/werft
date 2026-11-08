@@ -482,7 +482,18 @@ export interface TranscriptMirror {
    * uuids, which that `load` would otherwise have returned.
    */
   resumedEntryIds?(): ReadonlySet<string> | undefined;
+  /** The same mirror's answer for the running cost the transcript saved last. */
+  resumedSavedCost?(): SavedCost | undefined;
 }
+
+/**
+ * The running cost an engine saved in a transcript, and the session it
+ * belongs to. A resumed engine continues its totals from it.
+ */
+export type SavedCost = {
+  readonly sessionId?: string;
+  readonly usd: number;
+};
 
 /**
  * The layout every transcript mirror shares under a session's object prefix

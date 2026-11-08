@@ -54,6 +54,8 @@ export const teamMemberViewSchema = z
     role: teamMemberRoleSchema,
     added_by: userIdSchema.nullable(),
     added_at: timestampSchema,
+    /** The person's workspace membership state, as in the members list: null while active. */
+    disabled_at: timestampSchema.nullable(),
   })
   .strict();
 
@@ -163,8 +165,8 @@ export const listAdministeredAgentsResponseSchema = z
   .strict();
 
 /**
- * The agent's managing team. Null is refused: an agent from before managing
- * teams is given one, never had one taken.
+ * The agent's managing team. Null is refused: an agent always has one, and
+ * this changes which.
  */
 export const setAgentManagingTeamRequestSchema = z
   .object({ team_id: teamIdSchema })

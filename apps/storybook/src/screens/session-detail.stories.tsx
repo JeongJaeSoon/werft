@@ -98,9 +98,9 @@ function SessionDetailPage({
         tabs={() => [
           {
             value: "outputs",
-            label: "결과물",
+            label: "성과물",
             count: 0,
-            content: <EmptyState title="아직 결과물이 없습니다." />,
+            content: <EmptyState title="아직 성과물이 없습니다." />,
           },
         ]}
       />

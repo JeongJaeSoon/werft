@@ -13,6 +13,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import { createTempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -101,6 +102,7 @@ async function agentOf(db: Db, workspaceId: string) {
   await db.insert(agents).values({
     id,
     workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
     slug: `a-${id.slice(0, 8)}`,
     name: `agent-${id.slice(0, 4)}`,
   });

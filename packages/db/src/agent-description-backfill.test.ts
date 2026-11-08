@@ -38,10 +38,13 @@ const applyBackfill = () =>
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 
-async function seedAgent(slug: string): Promise<string> {
+// After the migrations an agent needs a managing team; before 0243 it has none.
+async function seedAgent(slug: string, withTeam = false): Promise<string> {
   const id = crypto.randomUUID();
   await client.query(
-    `INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, $3, $3)`,
+    withTeam
+      ? `WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, $3, $3, (SELECT id FROM t))`
+      : `INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, $3, $3)`,
     [id, WORKSPACE, slug],
   );
   return id;
@@ -140,7 +143,7 @@ describe("agent description backfill", () => {
 
   test("the column holds at most 2000 characters", async () => {
     await applyBackfill();
-    const id = await seedAgent("long");
+    const id = await seedAgent("long", true);
     await client.query(`UPDATE agents SET description = $1 WHERE id = $2`, [
       "x".repeat(2000),
       id,

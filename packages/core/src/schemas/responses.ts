@@ -414,6 +414,8 @@ export const responseSchemas = {
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/enable":
+    settingsChangeResponseSchema,
   "GET /v1/installation/settings/mcp-servers":
     listSettingsMcpServersResponseSchema,
   "POST /v1/installation/settings/mcp-servers": settingsChangeResponseSchema,

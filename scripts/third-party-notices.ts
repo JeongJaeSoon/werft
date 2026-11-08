@@ -141,7 +141,7 @@ export const BUN_BUILDS: Record<
  * pair is read and added.
  */
 export const CLAUDE_CODE_BUN: Record<string, string> = {
-  "0.3.270": "1.4.3",
+  "0.3.319": "1.4.4",
 };
 
 const AGENT_SDK = "@anthropic-ai/claude-agent-sdk";

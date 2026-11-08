@@ -178,6 +178,7 @@ describe("supply-chain-verdict.sh", () => {
     results: Record<string, string>,
     noVerdict: string,
     exceptions = "[]",
+    env: Record<string, string> = {},
   ) => {
     const directory = await mkdtemp(join(tmpdir(), "supply-chain-"));
     const script = join(directory, ".github/scripts/supply-chain-verdict.sh");
@@ -193,7 +194,7 @@ describe("supply-chain-verdict.sh", () => {
     for (const [scan, result] of Object.entries(results))
       await writeFile(join(directory, `${scan}.txt`), `${result}\n`);
     const run = Bun.spawnSync(["bash", script, directory, noVerdict], {
-      env: { PATH: process.env.PATH ?? "" },
+      env: { PATH: process.env.PATH ?? "", ...env },
     });
     return { code: run.exitCode, out: run.stdout.toString() };
   };
@@ -259,6 +260,119 @@ describe("supply-chain-verdict.sh", () => {
   test("refuses an unknown mode", async () => {
     expect((await verdict(all("clean"), "maybe")).code).toBe(2);
   });
+
+  describe("image build plan", () => {
+    const plan = (images: string, result: string, event = "pull_request") => ({
+      IMAGES_PLAN: images,
+      IMAGES_PLAN_RESULT: "success",
+      IMAGES_BUILD_RESULT: result,
+      GITHUB_EVENT_NAME: event,
+    });
+    const npmOnly = { npm: "clean" };
+
+    test("a planned build passes only as success with every scan", async () => {
+      const ok = await verdict(
+        all("clean"),
+        "warn",
+        "[]",
+        plan("build", "success"),
+      );
+      expect(ok.code).toBe(0);
+      for (const result of ["failure", "cancelled", "skipped", ""]) {
+        const run = await verdict(
+          all("clean"),
+          "warn",
+          "[]",
+          plan("build", result),
+        );
+        expect(run.code).toBe(1);
+        expect(run.out).toContain("build was planned");
+      }
+    });
+
+    test("scan artifacts do not rescue a planned build that failed", async () => {
+      const run = await verdict(
+        all("clean"),
+        "warn",
+        "[]",
+        plan("build", "failure"),
+      );
+      expect(run.code).toBe(1);
+    });
+
+    test("a planned build with a missing scan still fails", async () => {
+      const { "worker-arm64": _, ...rest } = all("clean");
+      const run = await verdict(rest, "warn", "[]", plan("build", "success"));
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("::error::worker-arm64: no result");
+    });
+
+    test("a planner that did not succeed fails, even with a valid output", async () => {
+      for (const planResult of ["failure", "cancelled", "skipped", ""]) {
+        for (const [images, build] of [
+          ["skip", "skipped"],
+          ["build", "success"],
+        ] as const) {
+          const run = await verdict(
+            images === "skip" ? { npm: "clean" } : all("clean"),
+            "warn",
+            "[]",
+            { ...plan(images, build), IMAGES_PLAN_RESULT: planResult },
+          );
+          expect(run.code).toBe(1);
+          expect(run.out).toContain("image build plan finished");
+        }
+      }
+    });
+
+    test("an empty, missing or unknown plan fails", async () => {
+      for (const images of ["", "none", "BUILD", "[]"]) {
+        const run = await verdict(
+          all("clean"),
+          "warn",
+          "[]",
+          plan(images, "skipped"),
+        );
+        expect(run.code).toBe(1);
+        expect(run.out).toContain("no valid image build plan");
+      }
+    });
+
+    test("a skipped build judges only the npm audit", async () => {
+      expect(
+        (await verdict(npmOnly, "fail", "[]", plan("skip", "skipped"))).code,
+      ).toBe(0);
+      const found = await verdict(
+        { npm: "found 1" },
+        "warn",
+        "[]",
+        plan("skip", "skipped"),
+      );
+      expect(found.code).toBe(1);
+      const missing = await verdict({}, "warn", "[]", plan("skip", "skipped"));
+      expect(missing.code).toBe(1);
+      expect(missing.out).toContain("::error::npm: no result");
+    });
+
+    test("skipping is for pull requests whose build really was skipped", async () => {
+      for (const [event, result] of [
+        ["push", "skipped"],
+        ["schedule", "skipped"],
+        ["workflow_dispatch", "skipped"],
+        ["pull_request", "success"],
+        ["pull_request", "failure"],
+        ["pull_request", ""],
+      ] as const) {
+        const run = await verdict(
+          npmOnly,
+          "warn",
+          "[]",
+          plan("skip", result, event),
+        );
+        expect(run.code).toBe(1);
+      }
+    });
+  });
 });
 
 describe("images.yml supply-chain", () => {
@@ -275,7 +389,7 @@ describe("images.yml supply-chain", () => {
   test("is one job, on pull requests, judging every build", () => {
     // Branch protection requires it by this name.
     expect(Object.keys(workflow.on)).toContain("pull_request");
-    expect(job?.needs).toBe("build");
+    expect(job?.needs).toEqual(["plan", "build"]);
     // Skipped would count as passed.
     expect(job?.if).toBe("always()");
     expect(job?.steps?.some((step) => step.run?.includes("npm-audit.ts"))).toBe(
@@ -284,6 +398,25 @@ describe("images.yml supply-chain", () => {
     expect(existsSync(join(root, ".github/workflows/supply-chain.yml"))).toBe(
       false,
     );
+  });
+
+  test("the build runs by the plan and the verdict reads plan and result", () => {
+    const plan = workflow.jobs.plan as Job & {
+      outputs?: Record<string, string>;
+    };
+    expect(plan.outputs?.images).toBe("${{ steps.images.outputs.images }}");
+    expect(workflow.jobs.build?.needs).toBe("plan");
+    expect(workflow.jobs.build?.if).toBe(
+      "needs.plan.outputs.images == 'build'",
+    );
+    const verdict = job?.steps?.find((step) =>
+      step.run?.includes("supply-chain-verdict.sh"),
+    );
+    expect(verdict?.env?.IMAGES_PLAN).toBe("${{ needs.plan.outputs.images }}");
+    expect(verdict?.env?.IMAGES_PLAN_RESULT).toBe("${{ needs.plan.result }}");
+    expect(verdict?.env?.IMAGES_BUILD_RESULT).toBe("${{ needs.build.result }}");
+    // The planner decides with the same script CI does.
+    expect(JSON.stringify(plan.steps)).toContain("ci-plan.sh");
   });
 
   test("a publish waits for it and judges its own digest the same way", () => {

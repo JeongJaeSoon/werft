@@ -1,6 +1,10 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
+import type {
+  SavedCost,
+  TranscriptEntry,
+  TranscriptMirror,
+} from "@werft-ai/runtime-core";
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid
@@ -14,6 +18,7 @@ import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
  */
 export class ResumedHistory {
   readonly #settle = Promise.withResolvers<ReadonlySet<string>>();
+  readonly #cost = Promise.withResolvers<SavedCost | undefined>();
 
   private constructor() {
     // Nobody may ask before the run ends, and an unobserved rejection is noise.
@@ -24,6 +29,7 @@ export class ResumedHistory {
   static empty(): ResumedHistory {
     const history = new ResumedHistory();
     history.#settle.resolve(new Set());
+    history.#cost.resolve(undefined);
     return history;
   }
 
@@ -54,15 +60,14 @@ export class ResumedHistory {
           `${sessionId}.jsonl`,
         );
         const text = await readFile(path, "utf8");
-        history.#settle.resolve(
-          uuidsOf(
-            text
-              .split("\n")
-              .filter(Boolean)
-              .map((line) => JSON.parse(line) as TranscriptEntry),
-          ),
-        );
+        const entries = text
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as TranscriptEntry);
+        history.#settle.resolve(uuidsOf(entries));
+        history.#cost.resolve(savedCostOf(entries, sessionId));
       } catch (error) {
+        history.#cost.resolve(undefined);
         history.#settle.reject(
           new Error(
             `The resumed transcript for session ${sessionId} could not be read: ${describe(error)}`,
@@ -90,6 +95,9 @@ export class ResumedHistory {
       ...(store.revisionScoped === undefined
         ? {}
         : { revisionScoped: store.revisionScoped }),
+      ...(store.resumedSavedCost === undefined
+        ? {}
+        : { resumedSavedCost: () => store.resumedSavedCost?.() }),
       append: (key, entries) => store.append(key, entries),
       listSubkeys: (key) => store.listSubkeys(key),
       load: async (key) => {
@@ -100,7 +108,9 @@ export class ResumedHistory {
             entries === null ? store.resumedEntryIds?.() : undefined;
           if (written !== undefined) {
             history.#settle.resolve(written);
+            history.#cost.resolve(store.resumedSavedCost?.());
           } else if (entries === null) {
+            history.#cost.resolve(undefined);
             history.#settle.reject(
               new Error(
                 `The resumed transcript for session ${key.sessionId} is empty`,
@@ -108,9 +118,11 @@ export class ResumedHistory {
             );
           } else {
             history.#settle.resolve(uuidsOf(entries));
+            history.#cost.resolve(savedCostOf(entries, key.sessionId));
           }
           return entries;
         } catch (error) {
+          history.#cost.resolve(undefined);
           history.#settle.reject(
             new Error(
               `The resumed transcript for session ${key.sessionId} could not be loaded: ${describe(error)}`,
@@ -127,8 +139,17 @@ export class ResumedHistory {
     return this.#settle.promise;
   }
 
+  /**
+   * The running cost the resumed transcript saved, which the engine reports
+   * again in its first result. Undefined when the transcript holds none.
+   */
+  savedCost(): Promise<SavedCost | undefined> {
+    return this.#cost.promise;
+  }
+
   /** The engine is gone; a load it never made will not come. No-op once settled. */
   abandon(): void {
+    this.#cost.resolve(undefined);
     this.#settle.reject(
       new Error("The engine ended before it loaded the resumed transcript"),
     );
@@ -141,6 +162,128 @@ function uuidsOf(entries: readonly TranscriptEntry[]): ReadonlySet<string> {
       typeof entry.uuid === "string" ? [entry.uuid] : [],
     ),
   );
+}
+
+/**
+ * The engine saves its running cost as `cost-state` entries. It resumes from
+ * the last valid one of the session, so that is the one taken here.
+ */
+function savedCostOf(
+  entries: readonly TranscriptEntry[],
+  sessionId: string,
+): SavedCost | undefined {
+  let saved: SavedCost | undefined;
+  for (const entry of entries) {
+    saved = savedCostOfEntry(entry, sessionId) ?? saved;
+  }
+  return saved;
+}
+
+const COST_STATE_NUMBERS = [
+  "totalAPIDuration",
+  "totalAPIDurationWithoutRetries",
+  "totalToolDuration",
+  "totalLinesAdded",
+  "totalLinesRemoved",
+  "totalDuration",
+  "startTime",
+] as const;
+
+const MODEL_USAGE_REQUIRED = [
+  "inputTokens",
+  "outputTokens",
+  "cacheReadInputTokens",
+  "cacheCreationInputTokens",
+  "webSearchRequests",
+  "costUSD",
+] as const;
+
+const MODEL_USAGE_OPTIONAL = [
+  "thinkingTokens",
+  "cacheCreationEphemeral5mInputTokens",
+  "cacheCreationEphemeral1hInputTokens",
+] as const;
+
+/** The four token counts the engine also bounds as a sum over all models. */
+const MODEL_USAGE_SUMMED = [
+  "inputTokens",
+  "outputTokens",
+  "cacheReadInputTokens",
+  "cacheCreationInputTokens",
+] as const;
+
+const MAX_COUNT = 1e15;
+const MAX_COST_USD = 1e9;
+
+function within(value: unknown, max: number): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= max
+  );
+}
+
+/** A model name the engine accepts: not empty, no control or format characters. */
+function isModelName(name: string): boolean {
+  return name !== "" && !/[\p{Cc}\p{Cf}]/u.test(name);
+}
+
+/**
+ * Whether `modelUsage` is what the engine accepts. Anything it would drop is
+ * dropped here, since a baseline taken from an entry the engine ignored is
+ * larger than the total it starts from and charges the run short.
+ */
+function isModelUsage(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const sums = MODEL_USAGE_SUMMED.map(() => 0);
+  for (const [name, usage] of Object.entries(value)) {
+    if (!isModelName(name)) return false;
+    if (typeof usage !== "object" || usage === null || Array.isArray(usage)) {
+      return false;
+    }
+    const fields = usage as Record<string, unknown>;
+    if (!MODEL_USAGE_REQUIRED.every((key) => within(fields[key], MAX_COUNT))) {
+      return false;
+    }
+    for (const key of MODEL_USAGE_OPTIONAL) {
+      if (fields[key] !== undefined && !within(fields[key], MAX_COUNT)) {
+        return false;
+      }
+    }
+    MODEL_USAGE_SUMMED.forEach((key, i) => {
+      sums[i] = (sums[i] ?? 0) + (fields[key] as number);
+    });
+  }
+  return sums.every((sum) => sum <= MAX_COUNT);
+}
+
+/**
+ * The cost one `cost-state` entry of `sessionId` saved. Undefined for any
+ * other entry, for another session's, and for one the engine (0.3.319) would
+ * drop for not matching its schema. Charging in full is the safe side when
+ * unsure, so this errs toward rejecting.
+ */
+export function savedCostOfEntry(
+  entry: TranscriptEntry,
+  sessionId: string,
+): SavedCost | undefined {
+  if (entry.type !== "cost-state" || entry.sessionId !== sessionId) {
+    return undefined;
+  }
+  const usd = entry.totalCostUSD;
+  if (
+    !within(usd, MAX_COST_USD) ||
+    !COST_STATE_NUMBERS.every((key) => within(entry[key], MAX_COUNT)) ||
+    !isModelUsage(entry.modelUsage) ||
+    (entry.hasUnknownModelCost !== undefined &&
+      typeof entry.hasUnknownModelCost !== "boolean")
+  ) {
+    return undefined;
+  }
+  return { usd, sessionId };
 }
 
 function describe(error: unknown): string {

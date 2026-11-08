@@ -24,6 +24,7 @@ import {
   workers,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -605,9 +606,13 @@ describe("API key queries", () => {
     const personal = new Uint8Array(32).fill(9);
     const agentKey = new Uint8Array(32).fill(10);
     const agentId = crypto.randomUUID();
-    await db
-      .insert(agents)
-      .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "bot",
+      name: "bot",
+    });
     const id = crypto.randomUUID();
     await createApiKey(db, {
       id,
