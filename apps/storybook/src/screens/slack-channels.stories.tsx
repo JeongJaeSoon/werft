@@ -112,8 +112,8 @@ const meta = {
     // Each tag is text in the same row as its control.
     for (const list of ["연결된 채널", "추가할 채널"]) {
       const rows = within(canvas.getByRole("list", { name: list }));
-      expect(rows.getByText("공개")).toBeDefined();
-      expect(rows.getByText("비공개")).toBeDefined();
+      expect(rows.getAllByText("공개")).toHaveLength(2);
+      expect(rows.getAllByText("비공개")).toHaveLength(1);
     }
   },
 } satisfies Meta<typeof SlackChannels>;
