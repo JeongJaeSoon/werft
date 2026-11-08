@@ -3397,11 +3397,13 @@ export const agentMcpSettings = pgTable(
     }),
     check(
       "agent_mcp_settings_allowed_tools_check",
-      sql`jsonb_typeof(${table.allowedTools}) = 'array'`,
+      // Strings that name a tool of the row's server, and none without one.
+      sql`jsonb_typeof(${table.allowedTools}) = 'array' AND NOT jsonb_path_exists(${table.allowedTools}, '$[*] ? (@.type() != "string")') AND (${table.server} IS NOT NULL OR jsonb_array_length(${table.allowedTools}) = 0) AND (${table.server} IS NULL OR NOT jsonb_path_exists(${table.allowedTools}, '$[*] ? (!(@ starts with $p) || @ == $p)', jsonb_build_object('p', 'mcp__' || ${table.server} || '__')))`,
     ),
     check(
       "agent_mcp_settings_credential_refs_check",
-      sql`jsonb_typeof(${table.credentialRefs}) = 'array' AND jsonb_array_length(${table.credentialRefs}) <= 32`,
+      // Uniqueness is the writer's: a CHECK cannot compare elements.
+      sql`jsonb_typeof(${table.credentialRefs}) = 'array' AND jsonb_array_length(${table.credentialRefs}) <= 32 AND NOT jsonb_path_exists(${table.credentialRefs}, '$[*] ? (@.type() != "string")') AND NOT jsonb_path_exists(${table.credentialRefs}, '$[*] ? (!(@ like_regex "^[a-z0-9][a-z0-9._:/-]{0,127}$"))')`,
     ),
     check(
       "agent_mcp_settings_server_check",

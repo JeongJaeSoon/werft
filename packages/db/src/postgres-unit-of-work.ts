@@ -277,12 +277,19 @@ export function createPostgresSessionUnitOfWork(
         ) {
           return { outcome: "agent_use_refused" };
         }
+        // The settings are locked and read before the names are judged, so
+        // the session stores the very list that was checked.
+        const mcpStart =
+          input.agentReleaseId === undefined
+            ? null
+            : await captureMcpStart(tx, input.agentReleaseId);
         if (
           input.agentReleaseId !== undefined &&
           (
             await lockUnboundRefs(tx, {
               workspaceId: scope.principal,
               releaseId: input.agentReleaseId,
+              ...(mcpStart === null ? {} : { names: mcpStart.credential_refs }),
             })
           ).length > 0
         ) {
@@ -315,10 +322,6 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId !== undefined
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
-        const mcpStart =
-          input.agentReleaseId === undefined
-            ? null
-            : await captureMcpStart(tx, input.agentReleaseId);
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,

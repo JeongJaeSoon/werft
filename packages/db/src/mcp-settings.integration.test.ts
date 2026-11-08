@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { scopesForRole } from "@werft-ai/contracts";
+import { type Caller, callerFor } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -11,6 +13,7 @@ import { Pool } from "pg";
 import { lockUnboundRefs } from "./credential-bindings.ts";
 import { createPostgresMcpEgressStore, sessionMcpOf } from "./mcp-egress.ts";
 import { captureMcpStart } from "./mcp-settings.ts";
+import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   agentMcpSettings,
@@ -18,6 +21,7 @@ import {
   agents,
   agentVersions,
   credentialBindings,
+  memberships,
   sessions,
   users,
   workspaces,
@@ -298,6 +302,117 @@ integration("agent MCP settings on PostgreSQL", () => {
       expect(
         await lockUnboundRefs(tx, { workspaceId, releaseId, sessionId }),
       ).toEqual([]);
+    });
+  });
+
+  describe("through the session unit of work", () => {
+    const uow = () => createPostgresSessionUnitOfWork(db);
+    const limits = {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+    };
+
+    async function owner(workspaceId: string) {
+      const userId = await person();
+      await db
+        .insert(memberships)
+        .values({ workspaceId, userId, role: "owner" });
+      return callerFor(
+        {
+          kind: "user",
+          id: userId,
+          workspace_id: workspaceId,
+          role: "owner",
+          scopes: [...scopesForRole("owner")],
+        },
+        { kind: "web" },
+        randomUUID(),
+      );
+    }
+
+    async function bound(workspaceId: string, agentId: string, ref: string) {
+      await db.insert(credentialBindings).values({
+        id: randomUUID(),
+        workspaceId,
+        credentialRef: ref,
+        target: "agent",
+        targetId: agentId,
+        boundBy: await person(),
+      });
+    }
+
+    const create = (caller: Caller, releaseId: string) =>
+      uow().acceptInputAtomic({
+        limits,
+        principal: caller,
+        idempotencyKey: randomUUID(),
+        payloadHash: randomUUID(),
+        profileId: "coding",
+        repository: "none",
+        agentReleaseId: releaseId,
+        message: "hello",
+      });
+
+    const startOf = async (releaseId: string) =>
+      (
+        await db
+          .select({ mcpStart: sessions.mcpStart })
+          .from(sessions)
+          .where(eq(sessions.agentReleaseId, releaseId))
+      ).map((row) => row.mcpStart);
+
+    test("create stores the snapshot of the row, or none without a row", async () => {
+      const workspaceId = await workspace();
+      const caller = await owner(workspaceId);
+      const plain = await agentOnRelease(workspaceId);
+      await bound(workspaceId, plain.agentId, "docs-key");
+      expect((await create(caller, plain.releaseId)).outcome).toBe("accepted");
+      expect(await startOf(plain.releaseId)).toEqual([null]);
+
+      const set = await agentOnRelease(workspaceId);
+      await bound(workspaceId, set.agentId, "docs-key");
+      await saveSettings(workspaceId, set.agentId, { allowedTools: [READ] });
+      expect((await create(caller, set.releaseId)).outcome).toBe("accepted");
+      expect(await startOf(set.releaseId)).toEqual([
+        {
+          server: "docs",
+          allowed_tools: [READ],
+          credential_refs: ["docs-key"],
+          revision: 1,
+        },
+      ]);
+    });
+
+    test("create judges the names it stores, a message the names it started with", async () => {
+      const workspaceId = await workspace();
+      const caller = await owner(workspaceId);
+      const { agentId, releaseId } = await agentOnRelease(workspaceId);
+      await bound(workspaceId, agentId, "docs-key");
+      await saveSettings(workspaceId, agentId);
+      const first = await create(caller, releaseId);
+      expect(first.outcome).toBe("accepted");
+      const [session] = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.agentReleaseId, releaseId));
+
+      // The settings gain a name nobody bound.
+      await saveSettings(workspaceId, agentId, {
+        credentialRefs: ["docs-key", "wiki-key"],
+      });
+      expect((await create(caller, releaseId)).outcome).toBe(
+        "credential_unbound",
+      );
+      expect(await startOf(releaseId)).toHaveLength(1);
+      const appended = await uow().appendInputAtomic({
+        principal: caller,
+        sessionId: session?.id ?? "",
+        idempotencyKey: randomUUID(),
+        payloadHash: randomUUID(),
+        message: "again",
+        limits,
+      });
+      expect(appended.outcome).toBe("accepted");
     });
   });
 

@@ -206,17 +206,20 @@ async function unboundRefsOn(
   workspaceId: string,
   releaseId: string,
   sessionId: string | null = null,
+  names: readonly string[] | null = null,
 ): Promise<string[]> {
   const needed = sessionId === null ? CURRENT_REFS : SESSION_REFS;
+  const list =
+    names === null
+      ? sql`CASE WHEN jsonb_typeof(${needed}) = 'array' THEN ${needed} ELSE '[]'::jsonb END`
+      : sql`${JSON.stringify(names)}::jsonb`;
   const result = await executor.execute<{ ref: string }>(sql`
     SELECT DISTINCT ref FROM agent_releases r
     JOIN agents a ON a.id = r.agent_id AND a.workspace_id = ${workspaceId}
     JOIN agent_versions v ON v.id = r.version_id
     LEFT JOIN agent_mcp_settings m ON m.agent_id = r.agent_id AND m.workspace_id = a.workspace_id
     LEFT JOIN sessions s ON s.id = ${sessionId}
-    CROSS JOIN LATERAL jsonb_array_elements_text(
-      CASE WHEN jsonb_typeof(${needed}) = 'array' THEN ${needed} ELSE '[]'::jsonb END
-    ) AS ref
+    CROSS JOIN LATERAL jsonb_array_elements_text(${list}) AS ref
     WHERE r.id = ${releaseId}
       AND NOT EXISTS (
         SELECT 1 FROM credential_bindings b
@@ -238,7 +241,13 @@ async function unboundRefsOn(
  */
 export async function lockUnboundRefs(
   tx: Database,
-  input: { workspaceId: string; releaseId: string; sessionId?: string },
+  input: {
+    workspaceId: string;
+    releaseId: string;
+    sessionId?: string;
+    /** The names of a snapshot the caller already holds locked: judged as given. */
+    names?: readonly string[];
+  },
 ): Promise<string[]> {
   await tx.execute(sql`
     SELECT 1 FROM credential_bindings b
@@ -253,6 +262,7 @@ export async function lockUnboundRefs(
     input.workspaceId,
     input.releaseId,
     input.sessionId ?? null,
+    input.names ?? null,
   );
 }
 
