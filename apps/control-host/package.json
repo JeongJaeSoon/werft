@@ -17,7 +17,8 @@
     "slack-app": "bun run src/api/slack-app.ts",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "migrate-workspace": "bun run src/scheduler/migrate-workspace.ts",
-    "profile-backfill": "bun run src/api/profile-backfill.ts"
+    "profile-backfill": "bun run src/api/profile-backfill.ts",
+    "profile-migration": "bun run src/api/profile-migration.ts"
   },
   "dependencies": {
     "@werft-ai/contracts": "workspace:*",

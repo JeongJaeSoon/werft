@@ -129,6 +129,7 @@ export * from "./sessions/output-service.ts";
 export * from "./sessions/pending-service.ts";
 export * from "./sessions/platform-prompt.ts";
 export * from "./sessions/profile-execution-form.ts";
+export * from "./sessions/profile-migration.ts";
 export * from "./sessions/profile-registry.ts";
 export * from "./sessions/profile-tools.ts";
 export * from "./sessions/pull-request-drain.ts";
