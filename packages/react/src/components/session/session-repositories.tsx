@@ -137,7 +137,7 @@ export function RepositorySummary({
     );
   }
   return (
-    <span className={cn("flex min-w-0 items-center gap-1.5", className)}>
+    <span className={cn("flex min-w-0 items-center gap-2", className)}>
       <RepositoryName repository={first} unknown={messages.unknown} />
       {more.length > 0 ? (
         <Tooltip>
@@ -145,7 +145,7 @@ export function RepositorySummary({
             <button
               type="button"
               aria-label={messages.more(more.length)}
-              className="relative flex-none rounded-full border bg-background px-1.5 font-mono text-caption text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
+              className="relative flex-none rounded-full border bg-background px-2 font-mono text-caption text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
             >
               +{more.length}
             </button>

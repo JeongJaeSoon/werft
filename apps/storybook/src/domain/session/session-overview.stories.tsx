@@ -240,6 +240,80 @@ export const MixedMobile: Story = {
   globals: { locale: "en", ...MOBILE },
 };
 
+const OWN = { id: "web", full_name: "acme/web", branch: "main" };
+
+const REPOSITORY_ROWS = [
+  {
+    // Its own plus two attached: the first in id order, then "+2".
+    ...SESSION,
+    id: "a1000000-0b6c-4a51-9d6e-1f3b2a0c9d01",
+    title: "Own and two attached",
+    repository_id: OWN.id,
+    repository: OWN,
+    attached_repository_ids: ["api", "docs"],
+    attached_repositories: [
+      { id: "api", full_name: "acme/api" },
+      { id: "docs", full_name: "acme/docs-with-a-very-long-repository-name" },
+    ],
+  },
+  {
+    // No repository of its own: attached ones alone make the list.
+    ...SESSION,
+    id: "a2000000-0b6c-4a51-9d6e-1f3b2a0c9d02",
+    title: "Attached only",
+    repository_id: null,
+    repository: null,
+    attached_repository_ids: ["api", "web"],
+    attached_repositories: [
+      { id: "api", full_name: "acme/api" },
+      { id: "web", full_name: null },
+    ],
+  },
+  {
+    ...SESSION,
+    id: "a3000000-0b6c-4a51-9d6e-1f3b2a0c9d03",
+    title: "One repository",
+    repository_id: OWN.id,
+    repository: OWN,
+    attached_repository_ids: [],
+    attached_repositories: [],
+  },
+  {
+    ...SESSION,
+    id: "a4000000-0b6c-4a51-9d6e-1f3b2a0c9d04",
+    title: "No repository",
+    repository_id: null,
+    repository: null,
+    attached_repository_ids: [],
+    attached_repositories: [],
+  },
+] satisfies readonly SessionSummary[];
+
+/** 0, 1 and 3 repositories, and a session whose repositories are all attached. */
+export const Repositories: Story = {
+  render: (args) => (
+    <SessionOverviewTable label="Sessions" messages={HEAD}>
+      {REPOSITORY_ROWS.map((session) => (
+        <SessionOverviewRow
+          {...args}
+          key={session.id}
+          session={session}
+          now={NOW}
+          renderLink={(link) => (
+            <a href={`/sessions/${session.id}`} {...link} />
+          )}
+        />
+      ))}
+    </SessionOverviewTable>
+  ),
+};
+
+export const RepositoriesMobile: Story = {
+  ...Repositories,
+  name: "Repositories (390px)",
+  globals: { locale: "en", ...MOBILE },
+};
+
 /** Every status, so dark and 390px cover the dot and the turning ring. */
 export const States: Story = {
   render: (args) => (

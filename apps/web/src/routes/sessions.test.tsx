@@ -2891,6 +2891,40 @@ describe("세션 상세 레이아웃", () => {
       expect(within(tab).queryAllByRole("link")).toHaveLength(0);
     });
 
+    test("push 요청을 읽지 못하면 이름은 두고 실패를 알리며 다시 불러올 수 있다", async () => {
+      const user = await setupUser();
+      let fail = true;
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...attachedOnly([pushRequest({})]),
+        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+          fail
+            ? json(500, {
+                error: {
+                  code: "INTERNAL",
+                  message: "boom",
+                  retryable: false,
+                  request_id: "r1",
+                  details: null,
+                },
+              })
+            : json(200, { items: [pushRequest({})], intents: [] }),
+      });
+      await screen.findByRole("button", { name: "일시 정지" });
+      await user.click(await screen.findByRole("tab", { name: "정보" }));
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      const alert = await within(tab).findByRole("alert");
+      expect(alert.textContent).toContain(
+        "push·PR 상태를 불러오지 못했습니다.",
+      );
+      expect(tab.textContent).toContain("acme/web");
+      fail = false;
+      await user.click(
+        within(alert).getByRole("button", { name: "다시 불러오기" }),
+      );
+      expect(await within(tab).findByText("push 완료")).toBeTruthy();
+      expect(within(tab).queryByRole("alert")).toBeNull();
+    });
+
     test("저장소가 없는 세션은 없다고 말하고 push 요청을 묻지 않는다", async () => {
       const { api } = renderAt(`/sessions/${SESSION_ID}`, {
         ...detailRoutes,
@@ -2900,9 +2934,7 @@ describe("세션 상세 레이아웃", () => {
       await screen.findByRole("button", { name: "일시 정지" });
       await setupInfo();
       const tab = screen.getByRole("tabpanel", { name: "정보" });
-      expect(
-        within(tab).getByText("이 세션은 저장소 없이 시작했습니다."),
-      ).toBeTruthy();
+      expect(within(tab).getByText("기록된 저장소가 없습니다.")).toBeTruthy();
       expect(
         api.calls.some((call) => call.path.endsWith("/push-requests")),
       ).toBe(false);

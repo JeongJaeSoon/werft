@@ -732,7 +732,7 @@ function Repositories({ session }: { readonly session: SessionDetailData }) {
   const { t } = useBlockText();
   return (
     <TitledBlock
-      titleAs="h3"
+      titleAs="h2"
       title={t("session.repositories.title", {
         count: sessionRepositoriesOf(session).length,
       })}
@@ -821,6 +821,22 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
           })}
         </ul>
       )}
+      {work.error && !isApiError(work.error, "NOT_FOUND") ? (
+        <p
+          role="alert"
+          className="m-0 mt-2 flex flex-wrap items-center gap-2 text-caption text-destructive"
+        >
+          {t("session.repositories.workFailed")}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void work.refetch()}
+          >
+            {t("session.repositories.retry")}
+          </Button>
+        </p>
+      ) : null}
     </>
   );
 }
