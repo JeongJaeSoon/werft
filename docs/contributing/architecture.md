@@ -77,6 +77,8 @@ credential 경계: provider key와 저장소·object store credential은 worker�
 
 ## 경계
 
+이 저장소는 포트-어댑터(헥사고날) 구조다. `packages/platform`이 도메인과 port(`src/ports`)를 갖고, `packages/adapters`와 `packages/db`가 그 port를 구현하는 어댑터이며, `apps/control-host`가 이를 조립한다. 의존은 어댑터에서 platform 쪽으로만 향하고 `tests/architecture.test.ts`가 이를 강제한다. 웹 콘솔과 SDK는 BFF 없이 같은 `/v1` API(`packages/client`)를 쓰고, Slack은 `/v1`을 거치지 않고 platform 서비스를 직접 부르는 입력 어댑터다.
+
 `tests/architecture.test.ts`가 아래 규칙을 import와 package 의존성으로 검사한다. 규칙을 바꾸려면 그 테스트를 먼저 고친다.
 
 - `@anthropic-ai/claude-agent-sdk`는 Claude adapter의 `runtime`·`run` 모듈만 import한다. 그 dependency를 선언하는 패키지도 adapter 하나다.
