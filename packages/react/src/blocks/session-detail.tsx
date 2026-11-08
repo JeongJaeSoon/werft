@@ -39,7 +39,9 @@ import {
   StatusLabel,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
+import { useWerft } from "../provider.tsx";
 import {
+  useAgentOpenable,
   usePendingRequests,
   useSession,
   useSessionEvents,
@@ -308,7 +310,7 @@ export function SessionDetail({
           items={[
             {
               label: t("session.info.agent"),
-              value: agentName(detail, t),
+              value: <AgentName session={detail} />,
             },
             {
               label: t("session.meta.model"),
@@ -412,8 +414,25 @@ function idleNote(status: SessionDetailData["status"]) {
   }
 }
 
-function agentName(session: SessionDetailData, t: BlockText) {
-  return session.agent?.name ?? t("session.agent.none");
+/**
+ * The agent's name, opening its page when the viewer can read that agent;
+ * plain text for a session with no agent, a deleted one, or one the viewer
+ * may not read.
+ */
+function AgentName({ session }: { readonly session: SessionDetailData }) {
+  const { t } = useBlockText();
+  const { renderLink } = useWerft();
+  const agent = session.agent;
+  const openable = useAgentOpenable(agent?.id);
+  if (!agent) return t("session.agent.none");
+  if (!openable) return agent.name;
+  return renderLink({
+    to: "agent",
+    id: agent.id,
+    className:
+      "text-(color:--werft-color-link) underline-offset-2 hover:underline focus-visible:underline",
+    children: agent.name,
+  });
 }
 
 /**
@@ -476,7 +495,7 @@ function SessionMeta({
         </output>
       </span>
       <MetaItem icon={Bot} label={t("session.info.agent")}>
-        {agentName(session, t)}
+        <AgentName session={session} />
       </MetaItem>
       <MetaItem icon={UserRound} label={t("session.info.startedBy")}>
         {startedBy(session, t)}
@@ -658,7 +677,7 @@ function Overview({ session }: { readonly session: SessionDetailData }) {
             axisLabel={t("sessions.column.admission")}
           />,
         ],
-        [t("session.info.agent"), agentName(session, t)],
+        [t("session.info.agent"), <AgentName key="agent" session={session} />],
         [t("session.info.startedBy"), startedBy(session, t)],
         [
           t("session.meta.repository"),
