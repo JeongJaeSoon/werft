@@ -157,6 +157,50 @@ describe("session contracts", () => {
     }
   });
 
+  test("summary attached_repositories is absent when unconfirmed and [] when none", () => {
+    const summary = {
+      id: SESSION_ID,
+      title: null,
+      revision: 0,
+      admission_state: "active",
+      status: "queued",
+      runtime: null,
+      model: null,
+      repository_id: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: null,
+      created_at: AT,
+      updated_at: AT,
+    };
+    expect(
+      sessionSummarySchema.parse(summary).attached_repositories,
+    ).toBeUndefined();
+    expect(
+      sessionSummarySchema.parse({ ...summary, attached_repositories: [] })
+        .attached_repositories,
+    ).toEqual([]);
+    const named = [
+      { id: "a", full_name: "acme/a" },
+      { id: "b", full_name: null },
+    ];
+    expect(
+      sessionSummarySchema.parse({ ...summary, attached_repositories: named })
+        .attached_repositories,
+    ).toEqual(named);
+    for (const attached_repositories of [
+      [{ id: "", full_name: "acme/a" }],
+      [{ id: "a", full_name: "" }],
+      [{ id: "a" }],
+      null,
+    ]) {
+      expect(
+        sessionSummarySchema.safeParse({ ...summary, attached_repositories })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   test("a summary from a server before titles reads title null", () => {
     const { title: _omitted, ...older } = {
       id: SESSION_ID,

@@ -5150,6 +5150,13 @@ export interface components {
             repository: components["schemas"]["SessionRepository"] | null;
             /** @description The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
             attached_repository_ids?: string[] | null;
+            /** @description `attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable). */
+            attached_repositories?: {
+                /** @description The catalog key. */
+                id: string;
+                /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
+                full_name: string | null;
+            }[];
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -5313,6 +5320,13 @@ export interface components {
             repository: components["schemas"]["SessionRepository"] | null;
             /** @description The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
             attached_repository_ids?: string[] | null;
+            /** @description `attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable). */
+            attached_repositories?: {
+                /** @description The catalog key. */
+                id: string;
+                /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
+                full_name: string | null;
+            }[];
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;

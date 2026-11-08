@@ -1,4 +1,7 @@
-import type { SessionRepository } from "@werft-ai/contracts";
+import type {
+  SessionAttachedRepository,
+  SessionRepository,
+} from "@werft-ai/contracts";
 
 const NAME_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
@@ -28,6 +31,28 @@ export function pathNameOf(url: string): string | null {
         NAME_SEGMENT.test(segment) && segment !== "." && segment !== "..",
     );
   return plain ? segments.join("/") : null;
+}
+
+/**
+ * The attached ids with a name each, in id order, from the catalog as it is
+ * now. Absent for a list the session does not hold (`null`): its release's
+ * repositories may be reachable, which no list says. An id the catalog no
+ * longer has keeps its place with no name.
+ */
+export function attachedRepositoriesOf(
+  ids: readonly string[] | null | undefined,
+  repositories: Readonly<Record<string, { url: string }>>,
+): SessionAttachedRepository[] | undefined {
+  if (ids === null || ids === undefined) return undefined;
+  return [...new Set(ids)]
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .map((id) => {
+      const listed = repositories[id];
+      return {
+        id,
+        full_name: listed ? (pathNameOf(listed.url) ?? id) : null,
+      };
+    });
 }
 
 /**
