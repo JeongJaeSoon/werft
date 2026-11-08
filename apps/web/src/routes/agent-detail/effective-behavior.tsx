@@ -152,11 +152,9 @@ export function EffectiveBehavior({
   const values = (v: BehaviorValues) => [
     {
       label: t("agent.effective.profile"),
-      // The id stays reachable as the tooltip; until the list has answered the
-      // row holds its line instead of flashing the id.
-      value: profiles.isPending ? (
-        <span aria-busy="true">&nbsp;</span>
-      ) : (
+      // The id is the tooltip, and the text until the list names it: a slow
+      // or refused list never hides the value.
+      value: (
         <span className="[overflow-wrap:anywhere]" title={v.runtime_profile_id}>
           {profileDisplay(t, profiles.data?.items, v.runtime_profile_id)}
         </span>

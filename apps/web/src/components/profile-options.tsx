@@ -65,22 +65,14 @@ export const profileDisplay = (
   return `${named} ${t("profiles.versionTag", { version: versionOf(profile) })}`;
 };
 
-/**
- * `profileDisplay` over the shared profile list, for any role that reads it.
- * `pending` lets a value row hold its place instead of showing the id first.
- */
+/** `profileDisplay` over the shared profile list, for any role that reads it. */
 export function useProfileDisplay(): {
   readonly show: (id: string) => string;
-  readonly pending: boolean;
 } {
   const { t } = useI18n();
   const { client } = useWerft();
-  const profiles = useQuery(profilesQuery(client));
-  const items = profiles.data?.items;
-  return {
-    show: (id) => profileDisplay(t, items, id),
-    pending: profiles.isPending,
-  };
+  const items = useQuery(profilesQuery(client)).data?.items;
+  return { show: (id) => profileDisplay(t, items, id) };
 }
 
 /**

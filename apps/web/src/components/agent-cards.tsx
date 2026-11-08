@@ -303,14 +303,8 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
         </Detail>
       </Fact>
       <Fact term={t("agents.cards.profile")}>
-        {/* A refused profile list falls back to the id, not to "unavailable". */}
-        <Detail
-          query={{
-            data: facts.data,
-            isError: facts.isError,
-            isPending: facts.isPending || profile.pending,
-          }}
-        >
+        {/* A slow or refused profile list leaves the id, not a placeholder. */}
+        <Detail query={facts}>
           {facts.data ? (
             facts.data.runtime_profile_id ? (
               <span title={facts.data.runtime_profile_id}>

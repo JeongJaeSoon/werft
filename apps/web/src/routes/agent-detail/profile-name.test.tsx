@@ -31,7 +31,7 @@ const copy = (name: string | null): ProfileSummary => {
 /** An agent whose active release runs on `profile`, with the list `listed`. */
 function agentOn(
   profile: string,
-  listed: Response | (() => Response),
+  listed: Response | (() => Response | Promise<Response>),
   releases = [seedRelease(1, { profile })],
 ) {
   const server = agentServer();
@@ -105,15 +105,35 @@ describe("에이전트 상세의 프로필 이름", () => {
   });
 
   test("프로필 목록을 읽을 수 없는 역할은 id를 보이고 오류 알림은 없다", async () => {
+    let refused = 0;
     renderAt(
       `${DETAIL}?tab=card`,
-      agentOn(COPY_ID, () =>
-        apiError(403, "FORBIDDEN", "profile.read is required"),
-      ),
+      agentOn(COPY_ID, () => {
+        refused += 1;
+        return apiError(403, "FORBIDDEN", "profile.read is required");
+      }),
     );
     const value = await profileValue();
-    await waitFor(() => expect(value.textContent).toBe(COPY_ID));
+    // The refusal has been answered before the value and the screen are read.
+    await waitFor(() => expect(refused).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(value.textContent).toBe(COPY_ID);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("프로필 목록이 아직 오지 않아도 id를 보이고, 이름이 오면 같은 칸이 바뀐다", async () => {
+    let answer: (response: Response) => void = () => {};
+    const held = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    renderAt(
+      `${DETAIL}?tab=card`,
+      agentOn(COPY_ID, () => held),
+    );
+    const value = await profileValue();
+    expect(value.textContent).toBe(COPY_ID);
+    answer(listing(copy("readonly-review")));
+    await waitFor(() => expect(value.textContent).toBe("readonly-review v1"));
   });
 
   test("릴리스 탭의 되돌리기 버튼 이름이 표시 이름을 쓴다", async () => {
