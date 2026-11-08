@@ -176,6 +176,14 @@ describe("markdownPlainText", () => {
     );
   });
 
+  test("alt 없는 참조형 이미지도 첫 정의의 주소를 보인다", () => {
+    expect(
+      markdownPlainText(
+        "![][img]\n\n[img]: https://example.com/a\n[img]: https://example.com/b",
+      ),
+    ).toBe("https://example.com/a");
+  });
+
   test("max를 넘으면 …으로 끝내고, 원문 끝의 짝 잃은 기호도 글자로 둔다", () => {
     expect(markdownPlainText("가".repeat(300), 200)).toBe(
       `${"가".repeat(200)}…`,

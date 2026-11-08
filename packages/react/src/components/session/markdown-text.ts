@@ -1,4 +1,4 @@
-import type { Nodes, Root, RootContent } from "mdast";
+import type { Definition, Nodes, Root, RootContent } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -36,7 +36,24 @@ const BLOCK_CONTAINERS: ReadonlySet<Nodes["type"]> = new Set([
   "footnoteDefinition",
 ]);
 
-function plain(node: Nodes): string {
+/** Link definitions by name; the first definition of a name wins, as in CommonMark. */
+export function collectDefinitions(
+  node: Nodes,
+  found = new Map<string, Definition>(),
+): Map<string, Definition> {
+  if (node.type === "definition" && !found.has(node.identifier))
+    found.set(node.identifier, node);
+  if ("children" in node) {
+    for (const child of node.children as Nodes[])
+      collectDefinitions(child, found);
+  }
+  return found;
+}
+
+function plain(
+  node: Nodes,
+  definitions: ReadonlyMap<string, Definition>,
+): string {
   switch (node.type) {
     case "text":
     case "inlineCode":
@@ -47,14 +64,14 @@ function plain(node: Nodes): string {
     case "image":
       return node.alt || node.url;
     case "imageReference":
-      return node.alt ?? "";
+      return node.alt || (definitions.get(node.identifier)?.url ?? "");
     case "break":
     case "thematicBreak":
       return " ";
     default:
       return "children" in node
         ? (node.children as Nodes[])
-            .map(plain)
+            .map((child) => plain(child, definitions))
             .join(BLOCK_CONTAINERS.has(node.type) ? " " : "")
         : "";
   }
@@ -65,7 +82,10 @@ function plain(node: Nodes): string {
  * show only a start of it. `max` ends it with "…".
  */
 export function markdownPlainText(source: string, max?: number): string {
-  const text = plain(parseMarkdown(source)).replace(/\s+/g, " ").trim();
+  const root = parseMarkdown(source);
+  const text = plain(root, collectDefinitions(root))
+    .replace(/\s+/g, " ")
+    .trim();
   if (max === undefined || text.length <= max) return text;
   // A cut between a surrogate pair's halves would leave a lone half.
   return `${text.slice(0, max).replace(/[\uD800-\uDBFF]$/, "")}…`;

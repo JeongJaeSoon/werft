@@ -16,7 +16,11 @@ import type {
 } from "mdast";
 import { type JSX, type ReactNode, useId, useMemo, useState } from "react";
 
-import { foldedBlocks, parseMarkdown } from "./markdown-text.ts";
+import {
+  collectDefinitions,
+  foldedBlocks,
+  parseMarkdown,
+} from "./markdown-text.ts";
 
 export interface MarkdownProps {
   readonly text: string;
@@ -48,16 +52,6 @@ function safeHref(url: string): string | null {
     return SAFE_PROTOCOLS.has(parsed.protocol) ? parsed.href : null;
   } catch {
     return null;
-  }
-}
-
-function collectDefinitions(node: Nodes, found: Map<string, Definition>) {
-  // The first definition of a name wins, as in CommonMark.
-  if (node.type === "definition" && !found.has(node.identifier))
-    found.set(node.identifier, node);
-  if ("children" in node) {
-    for (const child of node.children as Nodes[])
-      collectDefinitions(child, found);
   }
 }
 
@@ -267,11 +261,7 @@ export function Markdown({
   className,
 }: MarkdownProps): JSX.Element {
   const root: Root = useMemo(() => parseMarkdown(text), [text]);
-  const definitions = useMemo(() => {
-    const found = new Map<string, Definition>();
-    collectDefinitions(root, found);
-    return found;
-  }, [root]);
+  const definitions = useMemo(() => collectDefinitions(root), [root]);
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const { shown, hidden } = fold
