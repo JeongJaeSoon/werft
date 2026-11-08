@@ -13,6 +13,7 @@ import type {
   CheckpointPreparation,
   ParkReadiness,
   RejectedCheckpoint,
+  SavedCost,
 } from "@werft-ai/runtime-core";
 
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
@@ -181,8 +182,8 @@ export class ClaudeSdkRun implements DriverRun {
     await this.sdkQuery.initializationResult();
   }
 
-  priorCostUsd(): Promise<number | undefined> {
-    return this.history.priorCostUsd();
+  savedCost(): Promise<SavedCost | undefined> {
+    return this.history.savedCost();
   }
 
   async holdsInput(uuid: string): Promise<boolean> {

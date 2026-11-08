@@ -297,7 +297,7 @@ class ClaudeContractRun implements AgentRun {
 
   async ready(): Promise<NegotiatedCapabilities> {
     await this.driver.ready();
-    this.accounting.continueFrom(await this.driver.priorCostUsd?.());
+    this.accounting.continueFrom(await this.driver.savedCost?.());
     const { capabilities } = CLAUDE_DESCRIPTOR;
     return {
       effective: {

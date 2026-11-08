@@ -16,6 +16,7 @@ import {
   type CheckpointTranscripts,
   type ObjectRef,
   type PutImmutableResult,
+  type SavedCost,
   TRANSCRIPT_LIMITS,
   type TranscriptEntry,
   type TranscriptInheritance,
@@ -28,6 +29,8 @@ import {
   transcriptGenerationDirectory,
   transcriptSizeProblem,
 } from "@werft-ai/runtime-core";
+
+import { savedCostOfEntry } from "./resumed-history.ts";
 
 /** Give up rather than spin if a slot keeps being taken from under us. */
 const SLOT_ATTEMPTS = 64;
@@ -114,7 +117,11 @@ export class ClaudeSessionStore implements TranscriptStore {
    * reads them: the project key they went under, and the root's entry uuids.
    */
   #materialized:
-    | { readonly projectKey: string; readonly uuids: ReadonlySet<string> }
+    | {
+        readonly cost: SavedCost | undefined;
+        readonly projectKey: string;
+        readonly uuids: ReadonlySet<string>;
+      }
     | undefined;
   /**
    * The store's version of each part this store wrote, as `putImmutable`
@@ -328,6 +335,11 @@ export class ClaudeSessionStore implements TranscriptStore {
     return this.#materialized?.uuids;
   }
 
+  /** The running cost the root transcript saved last, once `materialize` wrote it. */
+  resumedSavedCost(): SavedCost | undefined {
+    return this.#materialized?.cost;
+  }
+
   /**
    * Fetches, checks and parses every part this store adopted, one at a time,
    * so a restore can refuse a checkpoint whose transcript is gone or was
@@ -397,6 +409,7 @@ export class ClaudeSessionStore implements TranscriptStore {
       const session = join(staging, projectKey);
       await mkdir(session, { mode: 0o700 });
       let uuids: ReadonlySet<string> = new Set();
+      let cost: SavedCost | undefined;
       for (const [lane, parts] of inherit.parts) {
         const path =
           lane === ""
@@ -409,8 +422,10 @@ export class ClaudeSessionStore implements TranscriptStore {
           lane !== "",
           signal,
         );
-        if (lane === "") uuids = written.uuids;
-        else if (written.metadata !== undefined) {
+        if (lane === "") {
+          uuids = written.uuids;
+          cost = written.cost;
+        } else if (written.metadata !== undefined) {
           const { type: _type, ...metadata } = written.metadata;
           await writeSynced(
             join(session, inherit.sessionId, `${lane}.meta.json`),
@@ -427,7 +442,7 @@ export class ClaudeSessionStore implements TranscriptStore {
         join(staging, "superseded"),
       );
       await syncDirectory(projects);
-      this.#materialized = { projectKey, uuids };
+      this.#materialized = { cost, projectKey, uuids };
     } catch (error) {
       kept = error instanceof PublishRollbackFailed;
       throw error;
@@ -1175,9 +1190,14 @@ async function writeTranscript(
   body: (part: ObjectRef) => Promise<Uint8Array>,
   subagent: boolean,
   signal: AbortSignal | undefined,
-): Promise<{ uuids: Set<string>; metadata?: TranscriptEntry }> {
+): Promise<{
+  cost?: SavedCost;
+  uuids: Set<string>;
+  metadata?: TranscriptEntry;
+}> {
   const check = deduplicator();
   const uuids = new Set<string>();
+  let cost: SavedCost | undefined;
   let metadata: TranscriptEntry | undefined;
   let file: FileHandle | undefined;
   let position = 0;
@@ -1191,6 +1211,7 @@ async function writeTranscript(
           continue;
         }
         if (typeof entry.uuid === "string") uuids.add(entry.uuid);
+        cost = savedCostOfEntry(entry) ?? cost;
         lines += `${JSON.stringify(entry)}\n`;
       }
       if (lines === "") continue;
@@ -1207,7 +1228,11 @@ async function writeTranscript(
   } finally {
     await file?.close();
   }
-  return metadata === undefined ? { uuids } : { metadata, uuids };
+  return {
+    ...(cost === undefined ? {} : { cost }),
+    ...(metadata === undefined ? {} : { metadata }),
+    uuids,
+  };
 }
 
 async function writeSynced(path: string, contents: string): Promise<void> {

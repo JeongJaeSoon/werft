@@ -1,3 +1,4 @@
+import type { SavedCost } from "@werft-ai/runtime-core";
 import type { NativeSdkMessage } from "./driver.ts";
 
 /** The provider failure a turn ended on, as the engine classified it. */
@@ -55,10 +56,12 @@ export class TurnAccounting {
    * A total below the baseline is an engine that counts from zero again, and
    * counts in full too.
    */
-  continueFrom(savedUsd: number | undefined): void {
-    if (savedUsd !== undefined && this.lastSessionId === undefined) {
-      this.lastTotalUsd = savedUsd;
-    }
+  continueFrom(saved: SavedCost | undefined): void {
+    if (saved === undefined || this.lastSessionId !== undefined) return;
+    this.lastTotalUsd = saved.usd;
+    // Without it a `/clear` before the first result would look like the same
+    // session and be charged only what it spent past the saved cost.
+    this.lastSessionId = saved.sessionId;
   }
 
   observe(native: NativeSdkMessage): void {

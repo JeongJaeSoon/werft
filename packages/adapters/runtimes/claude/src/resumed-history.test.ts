@@ -105,24 +105,39 @@ describe("resumed history", () => {
 
     const absent = ResumedHistory.fromLocalDisk(scratch, cwd, "s2");
     await expect(absent.uuids()).rejects.toThrow("could not be read");
-    expect(await absent.priorCostUsd()).toBeUndefined();
+    expect(await absent.savedCost()).toBeUndefined();
   });
 
   test("reads the cost the transcript saved last, and none when it saved none", async () => {
     const withCost: TranscriptEntry[] = [
       { type: "user", uuid: "input-1" },
-      { type: "cost-state", totalCostUSD: 3 },
-      { type: "cost-state", totalCostUSD: 4.5 },
+      { type: "cost-state", totalCostUSD: 3, sessionId: "s1" },
+      { type: "cost-state", totalCostUSD: 4.5, sessionId: "s1" },
     ];
     const watched = ResumedHistory.watching(mirror(async () => withCost));
     await watched.store.load(ROOT);
-    expect(await watched.history.priorCostUsd()).toBe(4.5);
+    expect(await watched.history.savedCost()).toEqual({
+      usd: 4.5,
+      sessionId: "s1",
+    });
 
     const without = ResumedHistory.watching(
       mirror(async () => [{ type: "user", uuid: "input-1" }]),
     );
     await without.store.load(ROOT);
-    expect(await without.history.priorCostUsd()).toBeUndefined();
-    expect(await ResumedHistory.empty().priorCostUsd()).toBeUndefined();
+    expect(await without.history.savedCost()).toBeUndefined();
+    expect(await ResumedHistory.empty().savedCost()).toBeUndefined();
+  });
+
+  test("a mirror that wrote the transcript to disk hands over its saved cost", async () => {
+    const base = mirror(async () => null);
+    const { history, store } = ResumedHistory.watching({
+      ...base,
+      resumedEntryIds: () => new Set(["a"]),
+      resumedSavedCost: () => ({ usd: 3, sessionId: "s1" }),
+    });
+    expect(await store.load(ROOT)).toBeNull();
+    expect(await history.uuids()).toEqual(new Set(["a"]));
+    expect(await history.savedCost()).toEqual({ usd: 3, sessionId: "s1" });
   });
 });

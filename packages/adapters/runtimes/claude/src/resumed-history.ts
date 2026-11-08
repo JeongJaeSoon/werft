@@ -1,6 +1,10 @@
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
+import type {
+  SavedCost,
+  TranscriptEntry,
+  TranscriptMirror,
+} from "@werft-ai/runtime-core";
 
 /**
  * The entry uuids of the transcript a resumed run continues. A send whose uuid
@@ -14,7 +18,7 @@ import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
  */
 export class ResumedHistory {
   readonly #settle = Promise.withResolvers<ReadonlySet<string>>();
-  readonly #cost = Promise.withResolvers<number | undefined>();
+  readonly #cost = Promise.withResolvers<SavedCost | undefined>();
 
   private constructor() {
     // Nobody may ask before the run ends, and an unobserved rejection is noise.
@@ -91,6 +95,9 @@ export class ResumedHistory {
       ...(store.revisionScoped === undefined
         ? {}
         : { revisionScoped: store.revisionScoped }),
+      ...(store.resumedSavedCost === undefined
+        ? {}
+        : { resumedSavedCost: () => store.resumedSavedCost?.() }),
       append: (key, entries) => store.append(key, entries),
       listSubkeys: (key) => store.listSubkeys(key),
       load: async (key) => {
@@ -101,7 +108,7 @@ export class ResumedHistory {
             entries === null ? store.resumedEntryIds?.() : undefined;
           if (written !== undefined) {
             history.#settle.resolve(written);
-            history.#cost.resolve(undefined);
+            history.#cost.resolve(store.resumedSavedCost?.());
           } else if (entries === null) {
             history.#cost.resolve(undefined);
             history.#settle.reject(
@@ -134,10 +141,9 @@ export class ResumedHistory {
 
   /**
    * The running cost the resumed transcript saved, which the engine reports
-   * again in its first result. Undefined when the transcript holds none or
-   * was not read (a mirror that wrote it to disk before the engine asked).
+   * again in its first result. Undefined when the transcript holds none.
    */
-  priorCostUsd(): Promise<number | undefined> {
+  savedCost(): Promise<SavedCost | undefined> {
     return this.#cost.promise;
   }
 
@@ -159,16 +165,26 @@ function uuidsOf(entries: readonly TranscriptEntry[]): ReadonlySet<string> {
 }
 
 /** The engine saves its running cost as `cost-state` entries; the last one wins. */
-function savedCostOf(entries: readonly TranscriptEntry[]): number | undefined {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (entry?.type !== "cost-state") continue;
-    const total = entry.totalCostUSD;
-    return typeof total === "number" && Number.isFinite(total) && total >= 0
-      ? total
-      : undefined;
+function savedCostOf(
+  entries: readonly TranscriptEntry[],
+): SavedCost | undefined {
+  let saved: SavedCost | undefined;
+  for (const entry of entries) saved = savedCostOfEntry(entry) ?? saved;
+  return saved;
+}
+
+/** The cost one `cost-state` entry saved; undefined for any other entry. */
+export function savedCostOfEntry(
+  entry: TranscriptEntry,
+): SavedCost | undefined {
+  if (entry.type !== "cost-state") return undefined;
+  const usd = entry.totalCostUSD;
+  if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) {
+    return undefined;
   }
-  return undefined;
+  return typeof entry.sessionId === "string"
+    ? { usd, sessionId: entry.sessionId }
+    : { usd };
 }
 
 function describe(error: unknown): string {
