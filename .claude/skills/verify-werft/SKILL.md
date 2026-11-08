@@ -58,6 +58,8 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 - 주소 풀 확인: Docker 네트워크 하나가 기본 주소 풀에서 항목 하나를 가져간다. 풀은 머신마다 다르므로 `docker info --format '{{json .DefaultAddressPools}}'`로 본다(풀 하나의 항목 수는 2^(Size − base prefix)). 데몬이 풀을 보고하지 않으면 Docker 내장 기본값(172.17–31.0.0/16 각 1개, 192.168.0.0/16의 /20 16개)으로 센다. `up.sh`는 run 디렉터리를 만들기 전에 `scripts/address-pool.sh <슬롯 + 1>`로 남은 풀을 읽기만 해서 센다. 모자라면 아무것도 만들지 않고 exit 1이다. Docker를 읽지 못해도(daemon 무응답 등) 아무것도 만들지 않고 exit 1이며, 이때는 `check that Docker answers`라고 따로 안내한다. 부족 메시지는 `address-pool.sh: Docker's address pools are short: 7 free of 30, 41 needed` 다음에 쥐고 있는 풀 항목 수를 compose project(scheduler가 만든 네트워크는 installation id)별로 적는다(보통 네트워크 하나가 한 항목). 이때는 자기가 띄운 스택을 `down.sh`로 내리거나 `VERIFY_SLOT_LIMIT`를 줄인다. 남의 스택은 지우지 않는다. 확인과 실제 생성 사이에 다른 스택이 풀을 가져갈 수는 있다.
 - 준비 표시: stderr 끝에 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`. 로그는 `evidence/up.log`.
 - 이미지 태그도 run마다 따로 둔다(`werft-*:verify-ap-…`, `tests/e2e/run.sh`와 같은 방식). 기본 `:dev` 태그를 덮어쓰면 다른 스택의 scheduler가 이 checkout의 worker를 띄우게 된다. `down.sh`가 이 태그만 지운다.
+  - 공용 태그로 바꾸지 않는 이유: 빌드 캐시는 태그가 아니라 레이어 내용으로 맞춰지므로 새 태그로 빌드해도 같은 소스의 레이어를 재사용한다. 반면 scheduler가 `WORKER_IMAGE`로 worker를 띄우므로 공용 태그는 한 run의 빌드가 다른 run의 worker를 바꾼다. 비용은 태그가 남는 것이었고 `down.sh`가 푼다.
+  - compose가 `image:` 없이 빌드하는 서비스의 이미지(`<project>-migrate`·`-fake-git`·`-gitea`, 태그 `latest`)도 이 project 이름이 붙는다. `down.sh`는 위 세 태그와 이 셋을 정확한 이름으로만 지운다.
 - 시간: 첫 빌드는 5–10분. 이 checkout에서 이미지를 매번 다시 빌드한다. bash 도구의 timeout을 15분으로 주거나 background로 돌린다.
 - 왜 ephemeral 포트인가: 기본 포트(3000·5432·4566·4567·3001)는 다른 스택이 쓰고 있을 수 있다. 이 머신에서는 3000을 다른 컨테이너가 쥐고 있어 기본값으로는 `local.sh`의 포트 점검에서 멈춘다. overlay는 `tests/e2e/compose.yml`과 같은 `ports: !override` 방식이다.
 
@@ -113,12 +115,28 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 
 - `scripts/local.sh down`을 같은 env로 돌린다(volume까지 지우고, installation label이 붙은 worker 컨테이너·네트워크·volume도 지운다).
 - 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down -v --remove-orphans --rmi local`(compose가 이름 붙인 `<project>-migrate` 이미지까지)을 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
-- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 그리고 같은 두 label로 남은 네트워크를 보여 주고 `evidence/leftovers.txt`에 쓴다. 남은 것이 있으면 exit 1.
+- 지우기 전에 대상(컨테이너 수, 네트워크, 볼륨, 이미지)을 출력하고 `evidence/teardown-targets.txt`에 남긴다. 대상은 label 값이나 태그가 이 run과 정확히 같은 것뿐이다. 접두어·glob은 쓰지 않는다. 장기 실행 스택의 project 이름도 `verify-ap-`로 시작하기 때문이다. `COMPOSE_PROJECT_NAME`과 installation id가 `verify-ap-<run id>`와 정확히 같지 않으면 `down.sh`는 아무것도 지우지 않고 exit 1이다.
+- 컴포즈가 모르는 것도 지운다. worker의 익명 볼륨(`local.sh`가 worker를 `rm -f`로 지워 남는다)은 컨테이너의 마운트에서 미리 읽어 두었다가 지우고, `werft-ws-*` 작업공간 볼륨과 `werft-net-*-exec-*` 네트워크는 installation label로 지운다. 이미지는 `docker image rm`을 `-f` 없이 쓰므로 다른 곳에서 쓰는 이미지는 실패하고 건너뛴다. 레이어를 공유하는 다른 태그는 남는다.
+- `up.sh`가 스택을 못 띄우고 실패하면 같은 `down.sh`로 그 run만 정리한다(`evidence/up.log`는 남는다).
+- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 그리고 같은 두 label로 남은 네트워크와 볼륨, 이 run의 이미지 태그를 보여 주고 `evidence/leftovers.txt`에 쓴다. 컨테이너·네트워크·볼륨이 남았으면 exit 1.
 - volume을 남기려면 `down.sh <run id> --keep-volumes`를 쓴다. `local.sh down --keep-volumes`와 `-v` 없는 두 번째 compose down을 돌려 컨테이너·네트워크(worker의 `ap-net-*` 포함)는 지우고 volume은 남긴다. `ports.yml`과 run 목록의 항목도 남으므로 나중에 `down.sh <run id>`로 volume까지 지운다. 스택을 `docker compose -p <project> down`으로 직접 내리지 않는다. scheduler가 만든 worker 컨테이너와 `ap-net-*` 네트워크는 compose label이 없어 그대로 남고, 네트워크마다 Docker 주소 풀 하나를 계속 쥔다.
 - 처음에 `browser/pid`가 있으면 `browser.mjs stop`으로 그 Chrome만 끝낸다.
 - 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. `--keep-volumes`로 내리던 중이었으면 그 옵션을 붙여 다시 돌린다(빼면 volume까지 지운다). 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
 - `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
 - 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.
+
+## 오래 남은 run 정리 (janitor)
+
+```sh
+.claude/skills/verify-werft/scripts/janitor.sh                 # 드라이런: 목록만, 아무것도 지우지 않는다
+.claude/skills/verify-werft/scripts/janitor.sh --hours 6 --exclude <run id>
+.claude/skills/verify-werft/scripts/janitor.sh --apply         # 목록에 나온 것만 지운다
+```
+
+- 대상: 가장 새 자원(컨테이너·이미지·네트워크·볼륨)이 `--hours`(기본 24)보다 오래됐고 실행 중인 컨테이너가 없는 `verify-ap-<날짜>-<시각>-<pid>` project. 이미지·볼륨·네트워크를 project별로 출력한다.
+- 제외 판별: 실행 중인 컨테이너가 있으면 건너뛴다(쓰는 중인 스택). `werft.keep` label이 붙은 컨테이너·볼륨·네트워크가 있어도 건너뛴다. 그 밖에는 `--exclude <run id>`(여러 번 가능)로 이름을 준다. 완전히 멈춘 장기 실행 스택은 오래된 run과 구별되지 않으므로 `--apply` 전에 드라이런 목록을 읽고 제외한다.
+- 컨테이너가 이미 사라진 project의 익명 볼륨은 소유자를 알 수 없어 목록에 없다. 이것이 `down.sh`가 컨테이너를 지우기 전에 볼륨을 수집하는 이유다.
+- 삭제는 `down.sh`와 같은 정확한 이름 삭제이고 `-f`가 없다. 시험: `bash .claude/skills/verify-werft/scripts/teardown.test.sh`(가짜 `docker`, 실제 Docker를 건드리지 않는다).
 
 ## 알려진 함정
 
