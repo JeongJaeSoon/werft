@@ -16,13 +16,11 @@ main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이
 
 ## 영역별 계획
 
-문서 전용이 아니어도, 바뀐 경로가 모두 다른 곳이 가져다 쓰지 않는 앱(`apps/web/`, `apps/storybook/`, `apps/egress-proxy/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다.
+문서 전용이 아니어도, 바뀐 경로가 모두 웹 콘솔(`apps/web/`, `apps/storybook/`)이거나 문서 경로면 닿지 않는 job을 건너뛴다. 다른 곳이 가져다 쓰지 않고, 이 파일을 읽는 테스트도 서비스 없이 `check`에서 돌기 때문이다. 그 밖의 경로가 하나라도 있으면(공용 `packages/`, `apps/control-host/`, `apps/worker/`, `apps/egress-proxy/`, lockfile, workflow, `tests/`, `scripts/`, `deploy/` 등) 전체 검증이다. `apps/egress-proxy/`는 말단처럼 보이지만 LocalStack·Docker가 필요한 `tests/`가 직접 가져다 쓰므로 좁히지 않는다.
 
 | 바뀐 영역 | integration 도메인 | `helm-chart` | `k8s-smoke` | `quickstart` | `workspace-quota` |
 | --- | --- | --- | --- | --- | --- |
 | `apps/web/`, `apps/storybook/` | `surface` | 생략 | 생략 | 가이드 경로가 바뀔 때만 | 생략 |
-| `apps/egress-proxy/` | `egress` | 생략 | 실행 | 실행 | 생략 |
-| 둘 다 | `surface`, `egress` | 생략 | 실행 | 실행 | 생략 |
 
 control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에서도 그대로 돈다. 닿지 않는 도메인도 job은 시작해 몇 초 안에 성공으로 끝난다. job 단위 `if`는 matrix 값을 읽지 못하고, 도메인 선언은 `integration-jobs.ts`가 읽는 한 곳(ci.yml)에 두기 때문이다. 계획 스크립트의 `domains` 목록은 그 matrix와 같아야 하며 `tests/ci-plan.test.ts`가 비교한다.
 
