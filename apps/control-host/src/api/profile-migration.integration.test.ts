@@ -691,6 +691,15 @@ integration("profile migration on PostgreSQL (U5)", () => {
       (await releaseOf((await agentRow(onV2))?.activeReleaseId))
         ?.runtimeProfileId,
     ).toStartWith("ws_");
+    // The pinned agent did move onto the first copy; the newer version can
+    // still be copied behind it by the next report.
+    const next = await dryRun(await catalogOf());
+    const finished = await run(
+      ["--apply", "--report", next.out, "--report-sha256", next.sha],
+      await catalogOf(),
+    );
+    expect(finished.code).toBe(0);
+    expect(await copies()).toHaveLength(3);
   });
 
   test("a revert of a migration that wrote nothing refuses", async () => {

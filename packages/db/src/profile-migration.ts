@@ -348,10 +348,15 @@ export async function writeProfileCopy(
         .from(agents)
         .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
         .where(
-          sql`${agentReleases.runtimeProfileId} IN (${sql.join(
-            lineage.map((row) => sql`${row.id}`),
-            sql`, `,
-          )})`,
+          and(
+            // A pinned agent stays where it is when a version is added; a
+            // follower would be rolled out onto it.
+            eq(agents.profileTracking, "follow"),
+            sql`${agentReleases.runtimeProfileId} IN (${sql.join(
+              lineage.map((row) => sql`${row.id}`),
+              sql`, `,
+            )})`,
+          ),
         )
         .limit(1);
       if (inUse !== undefined) {
