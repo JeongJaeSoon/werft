@@ -819,7 +819,7 @@ export function createSessionService(deps: {
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
       const identity =
-        release !== null && deps.promptRevision === 1
+        release !== null && (deps.promptRevision ?? 0) >= 1
           ? await deps.releases?.promptIdentity?.(actor.ownerId, release.id)
           : undefined;
       const platformPrompt = identity

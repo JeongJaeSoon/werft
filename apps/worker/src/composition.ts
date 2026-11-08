@@ -32,7 +32,10 @@ import {
 import { placeInstructionFiles } from "./instruction-files.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
-import { platformPromptText } from "./platform-prompt.ts";
+import {
+  platformPromptText,
+  startsWithoutRepository,
+} from "./platform-prompt.ts";
 import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
@@ -265,6 +268,14 @@ export const OUT_DIRECTORY_PROMPT =
   "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
 
 /**
+ * Its wording for the sessions of revisions 4 and 5, which start without a
+ * repository and may attach one later; the sentence above would be false
+ * after that.
+ */
+export const OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY =
+  "This workspace starts without a repository. Put files meant for people in `out/` at the workspace root; a repository you attach is a git remote, not this directory.";
+
+/**
  * What a claim runs, short of how it resumes: shared by the launcher and by
  * the fingerprint a checkpoint is stamped with, so the two cannot describe
  * different runs.
@@ -324,7 +335,16 @@ export function instructionParts(
           },
         ]),
     ...(workspace?.repository === null
-      ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
+      ? [
+          {
+            scope: "platform" as const,
+            text:
+              runtimeConfig.platform_prompt !== undefined &&
+              startsWithoutRepository(runtimeConfig.platform_prompt)
+                ? OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY
+                : OUT_DIRECTORY_PROMPT,
+          },
+        ]
       : []),
     ...agentInstructionsOf(runtimeConfig),
   ];

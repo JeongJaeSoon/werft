@@ -317,6 +317,20 @@ describe("a session pinned to an agent release", () => {
       ).toBeUndefined();
     });
 
+    test("setting 2 is read and gives what 1 gives, and no setting gives revision 4 or 5", async () => {
+      for (const actionFlows of [false, true]) {
+        expect(
+          await create({ promptRevision: 2, identity, actionFlows }),
+        ).toEqual(await create({ promptRevision: 1, identity, actionFlows }));
+        expect(
+          (await create({ promptRevision: 2, identity, actionFlows }))
+            ?.prompt_revision,
+        ).toBe(actionFlows ? 3 : 1);
+      }
+      expect(await create({ promptRevision: 0, identity })).toBeUndefined();
+      expect(await create({ identity })).toBeUndefined();
+    });
+
     test("GitHub settings change nothing in it, and a blank description is none", async () => {
       expect(await create({ promptRevision: 1, identity })).toEqual(
         await create({ promptRevision: 1, identity, github }),

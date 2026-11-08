@@ -11,9 +11,10 @@ import { pathNameOf } from "./session-repository.ts";
  * The revisions of the platform prompt a new session may be given. 0 gives
  * none, as every session from before it; an installation raises it only once
  * every control-host replica and every worker image it runs knows the
- * revision (`SESSION_PROMPT_REVISION`).
+ * revision (`SESSION_PROMPT_REVISION`). 2 is read but not turned on yet: until
+ * the release that gives it a meaning, a new session gets what 1 gives.
  */
-export const PLATFORM_PROMPT_REVISIONS = [0, 1] as const;
+export const PLATFORM_PROMPT_REVISIONS = [0, 1, 2] as const;
 export type PlatformPromptRevision = (typeof PLATFORM_PROMPT_REVISIONS)[number];
 
 export function platformPromptRevisionFromEnv(
