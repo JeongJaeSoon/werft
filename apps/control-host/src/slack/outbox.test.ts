@@ -80,7 +80,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -1321,6 +1321,51 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       status: "failed",
       errorCode: "not_addressed",
     });
+  });
+
+  test("a channel bound again after a rejection is no longer a rejected one", async () => {
+    const fixture = await agentInSlack();
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const store = createPostgresSurfaceBindingStore(db);
+    const [binding] = await db.select().from(surfaceBindings);
+    const installationId = binding?.installationId ?? "";
+    await store.reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(true);
+
+    const rebound = await store.set({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      channelId: CHANNEL,
+      channelKind: "public_channel",
+      mode: "on",
+      home: false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      managerRoles: MANAGERS,
+    });
+    expect(rebound.outcome).toBe("set");
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", revokedAt: new Date(), approvedAt: new Date() })
+      .where(
+        and(
+          eq(surfaceBindings.externalSurfaceId, CHANNEL),
+          isNull(surfaceBindings.revokedAt),
+        ),
+      );
+    // The newest binding was approved and unbound: the old rejection is history.
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
   });
 
   test("each request a turn waits on gets its own card once, with the buttons that settle it", async () => {
