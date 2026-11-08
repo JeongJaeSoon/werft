@@ -200,21 +200,12 @@ test("a web-only PR drops the domains, chart jobs and guides no changed path rea
   }
 });
 
-test("an egress-proxy PR keeps its domain, the cluster smoke and the guides", () => {
+test("the egress proxy stays on the full plan: service-backed suites import it", () => {
   const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
-  expect(result.output).toMatchObject({
-    quickstart: "true",
-    helm: "false",
-    k8s: "true",
-    domains: '["egress"]',
-  });
+  expect(result.output).toEqual(full);
 });
 
-test("leaf apps together select both domains; any shared path brings back everything", () => {
-  const both = plan(
-    fixture(undefined, ["apps/web/src/a.ts", "apps/egress-proxy/src/a.ts"]),
-  );
-  expect(both.output.domains).toBe('["surface","egress"]');
+test("any shared path next to a web change brings back everything", () => {
   for (const shared of [
     "packages/core/src/a.ts",
     "apps/control-host/src/a.ts",
