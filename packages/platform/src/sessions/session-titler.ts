@@ -175,9 +175,11 @@ export function titleOf(answer: unknown): string | null {
     )
     .map((block) => block.text)
     .join("");
-  const tagged = /<title>([^<]*)<\/title>/.exec(text)?.[1];
-  if (tagged === undefined) return null;
-  const line = tagged.trim().split("\n")[0] ?? "";
+  // Exactly one single-line tag: several tags or a multi-line body mean the
+  // model was thinking aloud, and which part is the title cannot be told.
+  const tags = [...text.matchAll(/<title>([^<]*)<\/title>/g)];
+  const line = tags.length === 1 ? (tags[0]?.[1] ?? "").trim() : "";
+  if (line === "" || line.includes("\n")) return null;
   const unquoted = line.replace(/^[\s"'`“”‘’「」]+|[\s"'`“”‘’「」.。]+$/g, "");
   return deriveSessionTitle(unquoted);
 }

@@ -118,6 +118,17 @@ describe("createSessionTitler", () => {
     expect(String(errors[0])).toContain("529");
   });
 
+  test("an untagged answer settles with no title so the derived one stays", async () => {
+    const { titler, settled } = harness({
+      answer: () =>
+        Response.json({
+          content: [{ type: "text", text: "제목: 사용자가 묻는 질문 분석" }],
+        }),
+    });
+    await titler.afterFirstTurn(session);
+    expect(settled.map((entry) => entry.title)).toEqual([null]);
+  });
+
   test("a thrown fetch never rejects", async () => {
     const { titler, settled } = harness({
       answer: () => {
@@ -151,7 +162,7 @@ describe("titleOf", () => {
   const answer = (text: string) => ({ content: [{ type: "text", text }] });
 
   test("keeps the first line, without quotes or a closing period", () => {
-    expect(titleOf(answer('<title>"Fix checkout."\nMore text</title>'))).toBe(
+    expect(titleOf(answer('<title>"Fix checkout."</title>\n'))).toBe(
       "Fix checkout",
     );
     expect(titleOf(answer("<title>「결제 테스트 수정」</title>"))).toBe(
@@ -165,13 +176,15 @@ describe("titleOf", () => {
     const leaked =
       '접근 가능한 저장소 제목: 사용자가 묻는 "어떤 저장소들에 접근 가능해"는 Korean question about accessible repositories';
     expect(titleOf(answer(leaked))).toBeNull();
+    // Ambiguous shapes are refused rather than guessed at.
+    expect(
+      titleOf(answer(`<title>${leaked}\n저장소 접근 문의</title>`)),
+    ).toBeNull();
     expect(
       titleOf(
-        answer(
-          `Here is the analysis: ${leaked}\n<title>저장소 접근 문의</title>`,
-        ),
+        answer(`<title>${leaked}</title>\n<title>저장소 접근 문의</title>`),
       ),
-    ).toBe("저장소 접근 문의");
+    ).toBeNull();
   });
 
   test("cuts a long answer like a derived title", () => {
