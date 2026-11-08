@@ -636,8 +636,13 @@ describe("maskBody: werft#1327 review", () => {
     ).toEqual([]);
     expect(leaked('<field name="password">syn-pw-12</field>')).toEqual([]);
     expect(leaked("<sid>syn-sid-13")).toEqual([]);
-    expect(maskBody("<password>x</password><error>kept</error>")).toContain(
-      "kept",
+    // Markup with a secret-like name is withheld whole (werft#1327 round 4:
+    // every close-tag scan was bypassed); markup without one stays readable.
+    expect(maskBody("<password>x</password><error>kept</error>")).toBe(
+      "(markup with secret-like names withheld, 41 chars)",
+    );
+    expect(maskBody("<error>Invalid payload</error>")).toContain(
+      "Invalid payload",
     );
   });
 
@@ -673,6 +678,18 @@ describe("maskBody: werft#1327 review", () => {
   test("a slash before > does not make an HTML element empty", () => {
     expect(leaked("<textarea name=password/>syn-pw-12</textarea>")).toEqual([]);
     expect(leaked("<password/>syn-pw-12</password>")).toEqual([]);
+  });
+
+  test("a close tag inside a processing instruction, and names spelled with character references", () => {
+    expect(
+      leaked("<password><?probe </password> ?>syn-pw-12</password>"),
+    ).toEqual([]);
+    expect(
+      leaked('<textarea name="pass&#119;ord">syn-pw-12</textarea>'),
+    ).toEqual([]);
+    expect(leaked("<textarea name=pass&#x77ord>syn-pw-12</textarea>")).toEqual(
+      [],
+    );
   });
 });
 
