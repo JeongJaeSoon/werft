@@ -1,7 +1,7 @@
 export const teamsKo = {
   "teams.title": "팀",
   "teams.intro":
-    "팀은 사람 묶음입니다. 에이전트의 담당 팀이 되면 팀 관리자는 그 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 팀을 에이전트 관리자로 지정하면 팀의 구성원 모두가 그 에이전트를 관리합니다.",
+    "팀은 사람 묶음입니다. 에이전트의 담당 팀이나 관리자로 지정해 함께 관리하고 씁니다.",
   "teams.name": "팀 이름",
   "teams.create": "팀 만들기",
   "teams.createDescription":
@@ -9,7 +9,10 @@ export const teamsKo = {
   "teams.creating": "만드는 중…",
   "teams.created": "{name} 팀을 만들었습니다.",
   "teams.nameTaken": "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
-  "teams.listTitle": "팀 목록",
+  "teams.listLabel": "팀 표",
+  "teams.column.team": "팀",
+  "teams.column.members": "구성원",
+  "teams.open": "팀 열기: {name}",
   "teams.empty": "아직 팀이 없습니다.",
   "teams.listSearch": "이름으로 팀 찾기",
   "teams.listNoMatch": "검색어에 맞는 팀이 없습니다.",
@@ -79,7 +82,7 @@ export const teamsKo = {
 export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.title": "Teams",
   "teams.intro":
-    "A team is a group of people. When it is an agent's responsible team, its leads manage that agent and its members see the agent's settings and use it. Make a team an agent admin, and everyone on it can manage that agent.",
+    "A team is a group of people. Assign it as an agent's responsible team or admin to manage and use that agent together.",
   "teams.name": "Team name",
   "teams.create": "Create team",
   "teams.createDescription":
@@ -88,7 +91,10 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.created": "Created the {name} team.",
   "teams.nameTaken":
     "A team with that name already exists — choose another name.",
-  "teams.listTitle": "All teams",
+  "teams.listLabel": "Teams table",
+  "teams.column.team": "Team",
+  "teams.column.members": "Members",
+  "teams.open": "Open team {name}",
   "teams.empty": "No teams yet.",
   "teams.listSearch": "Search teams by name",
   "teams.listNoMatch": "No team matches the search.",
@@ -159,7 +165,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
 export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.title": "チーム",
   "teams.intro":
-    "チームはメンバーのグループです。エージェントの担当チームになると、チーム管理者はそのエージェントを管理し、メンバーは設定を見て利用します。チームをエージェントの管理者に指定すると、チームのメンバー全員がそのエージェントを管理できます。",
+    "チームはメンバーのグループです。エージェントの担当チームや管理者に指定して、一緒に管理・利用します。",
   "teams.name": "チーム名",
   "teams.create": "チームを作成",
   "teams.createDescription":
@@ -168,7 +174,10 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.created": "チーム「{name}」を作成しました。",
   "teams.nameTaken":
     "同じ名前のチームがすでにあります。別の名前を入力してください。",
-  "teams.listTitle": "チーム一覧",
+  "teams.listLabel": "チーム一覧の表",
+  "teams.column.team": "チーム",
+  "teams.column.members": "メンバー",
+  "teams.open": "チーム {name} を開く",
   "teams.empty": "チームはまだありません。",
   "teams.listSearch": "名前でチームを検索",
   "teams.listNoMatch": "検索語に一致するチームはありません。",

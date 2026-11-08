@@ -108,7 +108,7 @@ export type GitHubMcpServices = {
   >;
   pullRequests: Pick<
     PullRequestService,
-    "open" | "schedule" | "update" | "comment" | "setState"
+    "open" | "schedule" | "update" | "comment" | "setState" | "merge"
   >;
   githubWork: Pick<
     GitHubWorkService,
@@ -713,6 +713,12 @@ async function run(
         push_request_id,
         tool === "close_pull_request" ? "closed" : "open",
       );
+    }
+    case "merge_pull_request": {
+      const { push_request_id } = args as z.infer<
+        (typeof GITHUB_MCP_TOOL_ARGUMENTS)["merge_pull_request"]
+      >;
+      return services.pullRequests.merge(actor, sessionId, push_request_id);
     }
     case "dispatch_workflow":
       return services.githubWork.dispatch(

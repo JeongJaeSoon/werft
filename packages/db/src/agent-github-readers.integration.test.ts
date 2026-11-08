@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -40,7 +41,7 @@ const COMMIT = "b".repeat(40);
 const PIN_OFF = {
   repositories: ["sample-app"],
   push_approval: false,
-  features: { ...GITHUB_CEILING_NONE },
+  features: { ...GITHUB_FEATURES_NONE },
   actions_allow: [],
 };
 
@@ -51,7 +52,7 @@ const START_ATTACHED_ALLOW = {
   settings: {
     repositories: ["sample-app"],
     push_approval: true,
-    features: { ...GITHUB_CEILING_NONE },
+    features: { ...GITHUB_FEATURES_NONE },
     actions_allow: [],
   },
   push_attached: "allow",
@@ -181,7 +182,7 @@ integration("the readers of an agent's GitHub settings", () => {
         workspaceId,
         JSON.stringify(row.repositories ?? ["sample-app"]),
         row.pushApproval ?? true,
-        JSON.stringify(row.features ?? GITHUB_CEILING_NONE),
+        JSON.stringify(row.features ?? GITHUB_FEATURES_NONE),
         JSON.stringify(row.actionsAllow ?? []),
         row.revision ?? 1,
         row.updatedBy ?? null,
@@ -316,7 +317,7 @@ integration("the readers of an agent's GitHub settings", () => {
   });
 
   test("the feature count reads each agent's policy; a row that cannot be read counts for nothing", async () => {
-    const features = { ...GITHUB_CEILING_NONE, review: true };
+    const features = { ...GITHUB_FEATURES_NONE, review: true };
     const { workspaceId, agentId } = await fixture({
       pins: { github: { ...PIN_OFF, features } },
     });
@@ -325,7 +326,7 @@ integration("the readers of an agent's GitHub settings", () => {
     await settingsRow(workspaceId, agentId, { features });
     expect((await store.agentsUsing(workspaceId)).review).toBe(1);
     await settingsRow(workspaceId, agentId, {
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
     });
     expect((await store.agentsUsing(workspaceId)).review).toBe(0);
     await settingsRow(workspaceId, agentId, {
@@ -512,7 +513,7 @@ integration("the readers of an agent's GitHub settings", () => {
         settings: {
           repositories: ["sample-app"],
           push_approval: input.pushApproval,
-          features: { ...GITHUB_CEILING_NONE },
+          features: { ...GITHUB_FEATURES_NONE },
           actions_allow: [],
         },
         startRepositoryId: null,
@@ -679,7 +680,7 @@ integration("the readers of an agent's GitHub settings", () => {
 
   describe("a session started under a snapshot of the agent's settings", () => {
     const PERSON = randomUUID();
-    const REVIEW_ON = { ...GITHUB_CEILING_NONE, review: true };
+    const REVIEW_ON = { ...GITHUB_FEATURES_NONE, review: true };
     const snapshot = (
       repositories: string[],
       overrides: { enabled?: boolean } = {},
@@ -969,7 +970,7 @@ integration("the readers of an agent's GitHub settings", () => {
     const row = {
       repositories: ["sample-app", "docs"],
       pushApproval: true,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
     };
 
     test("the gate, the built-in server and push all narrow the pin; a migration's row does not", async () => {

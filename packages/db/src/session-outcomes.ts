@@ -116,6 +116,7 @@ const GATE_OPERATIONS = [
   "dispatch_workflow",
   "rerun_workflow",
   "review_pull_request",
+  "merge_pull_request",
 ] as const;
 
 export function createPostgresSessionOutcomes(

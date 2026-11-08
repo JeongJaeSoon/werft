@@ -794,17 +794,46 @@ describe("프로필 만들기 (설치 프로필)", () => {
     );
   });
 
-  test("with no connection there is no form, and the page says why", async () => {
+  test("with no connection there is no form, and the owner is sent to the connections screen", async () => {
     renderAt(
       "/profiles/new",
       catalog(undefined, me(), { ...OPTIONS, connections: [] }).routes,
     );
+    await screen.findByText(
+      "이 설치에 모델 연결이 없습니다. 연결을 먼저 추가한 뒤 프로필을 만드세요.",
+    );
+    expect(screen.getByRole("main").querySelector("form") === null).toBe(true);
+    const link = screen.getByRole("link", { name: "모델 연결로 가기" });
     expect(
-      await screen.findByText(
-        "이 설치에 연결이 없습니다. 모델 연결에서 연결을 더한 뒤 다시 여세요.",
+      link.getAttribute("href") === "/settings/workspace/connections",
+    ).toBe(true);
+  });
+
+  test("with a connection but no runtime the page says so, without a link to connections", async () => {
+    renderAt(
+      "/profiles/new",
+      catalog(undefined, me(), { ...OPTIONS, runtimes: [] }).routes,
+    );
+    await screen.findByText("이 설치의 worker가 받는 런타임이 없습니다.");
+    expect(
+      screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
+    ).toBe(true);
+  });
+
+  test("an admin with no profile to start from is told to ask the owner, with no link", async () => {
+    renderAt("/profiles/new", catalog([], me(undefined, "admin")).routes);
+    await screen.findByText(
+      "바탕으로 쓸 수 있는 프로필이 없습니다. 설치 소유자가 모델 연결과 프로필을 먼저 만들어야 합니다.",
+    );
+    expect(
+      screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
+    ).toBe(true);
+    expect(
+      Array.from(screen.getByRole("main").querySelectorAll("a")).some(
+        (anchor) =>
+          anchor.getAttribute("href") === "/settings/workspace/connections",
       ),
-    ).toBeDefined();
-    expect(screen.getByRole("main").querySelector("form")).toBeNull();
+    ).toBe(false);
   });
 
   test("English speaks the same refusals", async () => {

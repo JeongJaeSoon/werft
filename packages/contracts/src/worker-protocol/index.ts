@@ -16,6 +16,7 @@ import {
   AGENT_CARD_LANGUAGE_VALUES,
   mcpServerIdSchema,
 } from "../kollegium/agents.ts";
+import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_INSTRUCTIONS_MAX_LENGTH,
@@ -79,13 +80,16 @@ export const checkpointRefSchema = z.object({
 //   platform_tool_trust: an `mcp_servers` entry may carry `platform` and
 //     `trusted`, and the worker lets the named tools past the engine's
 //     permission stage
+//   user_env: `runtime_config` may carry `env`, the user variables the engine
+//     process is started with
 // A server older than a key refuses the body as a 400 whose `details.issues`
-// names it; the worker sends once more without `platform_tool_trust`, so
-// neither side has to deploy first.
+// names it; the worker sends once more without the refused key, so neither
+// side has to deploy first.
 export const workerCapabilitiesSchema = z
   .object({
     approval_remember: z.literal(true).optional(),
     platform_tool_trust: z.literal(true).optional(),
+    user_env: z.literal(true).optional(),
   })
   .strict();
 
@@ -274,9 +278,18 @@ export const platformPromptSchema = z
     // 2 differs from 1 only in how the worker words `request_push`: this
     // turn's commit is pushed (AGENT_ACTION_FLOWS on at session creation).
     // 3 adds to 2 that the pull request is scheduled in the same turn and
-    // that a push carries one repository's commit per turn. A session keeps
-    // the revision it was created with: the wording is in its fingerprint.
-    prompt_revision: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    // that a push carries one repository's commit per turn. 4 and 5 are 1 and
+    // 3 with the paragraph for a session that starts without a repository;
+    // nothing creates them yet, and an older worker refuses them, so they are
+    // turned on only after every worker knows them. A session keeps the
+    // revision it was created with: the wording is in its fingerprint.
+    prompt_revision: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+    ]),
     agent_identity: z
       .object({
         name: z.string().min(1).max(120),
@@ -331,6 +344,11 @@ export const runtimeConfigSchema = z
     // `agent_instructions`. Absent for a session created without it
     // (revision 0), so its claims and fingerprints stay what they were.
     platform_prompt: platformPromptSchema.optional(),
+    // The user variables the session's engine process starts with. Only sent
+    // to a worker that announced `user_env`, and absent when there are none,
+    // so a session without variables claims exactly as before. Not part of
+    // any fingerprint: changing a value must not break a running session.
+    env: runtimeEnvSchema.optional(),
   })
   .strict();
 

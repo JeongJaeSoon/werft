@@ -599,6 +599,30 @@ describe("the session's GitHub pull requests", () => {
     ]);
     expect(rows[0]?.querySelector("time")?.getAttribute("datetime")).toBe(AT);
   });
+
+  test("a refused merge reads as words, not as its keys", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      pulled([], outputs, [
+        {
+          receipt_id: "019a0000-0000-7000-8000-0000000000b3",
+          operation: "merge_pull_request",
+          purpose: "merge",
+          reason_code: "merge_off",
+          created_at: AT,
+        },
+      ]),
+    );
+    await openOutputs();
+    const refusals = await screen.findByRole("region", {
+      name: "최근 GitHub 거절",
+    });
+    const rows = within(refusals).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/^워크스페이스가 머지를 허용하지 않음PR 머지 · /),
+    ]);
+    expect(refusals.textContent).not.toMatch(/merge_off|agentGitHub/);
+  });
 });
 
 describe("the session's GitHub work", () => {

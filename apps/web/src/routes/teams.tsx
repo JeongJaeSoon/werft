@@ -47,13 +47,12 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  GridTableRowOpener,
   Heading,
   Input,
   RadioGroup,
   RadioGroupItem,
   RowAction,
-  RowList,
-  RowListItem,
   Section,
   Text,
   Link as TextLink,
@@ -79,13 +78,11 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
-import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
 import {
   SEARCH_MAX,
   SEARCH_SETTLE_MS,
   useSearchTerm,
 } from "../components/search-term.ts";
-import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -163,86 +160,109 @@ export function TeamsScreen() {
     );
   }
 
-  // Creating a team is the page head's button (TeamCreateDialog).
+  // Creating a team is the page head's button (TeamCreateDialog). The intro
+  // is the page's description line here, so the tab opens on the search box
+  // like the 구성원 tab does.
   return (
-    <TeamsTab>
-      <Section title={t("teams.listTitle")}>
-        <div className={SECTION_BODY}>
-          {isApiError(teams.error, "FORBIDDEN") ? null : (
-            <ListToolbar
-              filter={null}
-              search={{
-                ref: search,
-                type: "search",
-                "aria-label": t("teams.listSearch"),
-                placeholder: t("teams.listSearch"),
-                maxLength: SEARCH_MAX,
-                value: query,
-                onChange: (event) => setQuery(event.target.value),
-              }}
-            />
-          )}
-          {teams.isPending ? (
-            <StatusScreen kind="loading" />
-          ) : teams.error && items.length === 0 ? (
-            <ListError
-              error={teams.error}
-              onRetry={() => void teams.refetch()}
-            />
-          ) : items.length === 0 && q !== undefined ? (
-            <EmptyState
-              title={t("teams.listNoMatch")}
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={clear}
-                >
-                  {t("members.clearSearch")}
-                </Button>
-              }
-            />
-          ) : items.length === 0 ? (
-            <EmptyState title={t("teams.empty")} />
-          ) : (
-            <>
-              <RowList>
-                {items.map((team) => (
-                  <RowListItem key={team.id} className={OPENS_ROW}>
-                    <TextLink
-                      asChild
-                      className={`${ROW_LINK} [overflow-wrap:anywhere]`}
-                    >
-                      <Link
-                        to="/members/teams/$teamId"
-                        params={{ teamId: team.id }}
-                      >
-                        {team.name}
-                      </Link>
-                    </TextLink>
-                    <Text
-                      as="span"
-                      variant="meta"
-                      numeric
-                      className="ml-auto [overflow-wrap:anywhere]"
-                    >
-                      {t("teams.memberCount", { count: team.member_count })}
-                    </Text>
-                    <ChevronRight
-                      aria-hidden="true"
-                      className="size-4 shrink-0 text-subtle-foreground"
-                    />
-                  </RowListItem>
-                ))}
-              </RowList>
-              <PagedListFooter list={teams} />
-            </>
-          )}
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      {isApiError(teams.error, "FORBIDDEN") ? null : (
+        <ListToolbar
+          filter={null}
+          search={{
+            ref: search,
+            type: "search",
+            "aria-label": t("teams.listSearch"),
+            placeholder: t("teams.listSearch"),
+            maxLength: SEARCH_MAX,
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+          }}
+        />
+      )}
+      {teams.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : teams.error && items.length === 0 ? (
+        <ListError error={teams.error} onRetry={() => void teams.refetch()} />
+      ) : items.length === 0 && q !== undefined ? (
+        <EmptyState
+          className="w-full"
+          title={t("teams.listNoMatch")}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={clear}>
+              {t("members.clearSearch")}
+            </Button>
+          }
+        />
+      ) : items.length === 0 ? (
+        <EmptyState title={t("teams.empty")} />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <TeamTable items={items} />
+          <PagedListFooter list={teams} />
         </div>
-      </Section>
+      )}
       {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
-    </TeamsTab>
+    </div>
+  );
+}
+
+// The same frame as the 구성원 table; the count and its arrow share the
+// second track, so every row's arrow lines up.
+const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
+// "Change role" and "Remove" side by side in the longest language.
+const TEAM_ACTIONS_COLUMN = "12rem";
+
+function TeamTable({
+  items,
+}: {
+  readonly items: readonly { id: string; name: string; member_count: number }[];
+}) {
+  const { t } = useI18n();
+  return (
+    // The padding keeps the opener's focus ring inside the scroller's clip.
+    <div className="-m-1 grid overflow-x-auto p-1">
+      <GridTable
+        aria-label={t("teams.listLabel")}
+        columns={TEAM_COLUMNS}
+        framed={true}
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("teams.column.team")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("teams.column.members")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {items.map((team) => (
+          <GridTableRow key={team.id}>
+            <GridTableCell>
+              <GridTableRowOpener
+                asChild
+                aria-label={t("teams.open", { name: team.name })}
+              >
+                <Link
+                  to="/members/teams/$teamId"
+                  params={{ teamId: team.id }}
+                />
+              </GridTableRowOpener>
+              <Text as="span" weight="medium" truncate title={team.name}>
+                {team.name}
+              </Text>
+            </GridTableCell>
+            <GridTableCell>
+              <Text as="span" variant="meta" numeric truncate>
+                {t("teams.memberCount", { count: team.member_count })}
+              </Text>
+              <ChevronRight
+                aria-hidden="true"
+                className="ml-auto size-4 shrink-0 text-subtle-foreground"
+              />
+            </GridTableCell>
+          </GridTableRow>
+        ))}
+      </GridTable>
+    </div>
   );
 }
 
@@ -565,21 +585,24 @@ function TeamMembers({
   const shown = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  // Below 640px the date and the workspace role drop out; the name keeps
-  // what the team role and the buttons leave.
+  // Every track is fixed: each row is its own grid, so a max-content track
+  // would size to that row's buttons and the header's "Actions" alone, and
+  // push the columns before it out from under their headers. Below 820px the
+  // date and the workspace role drop out; the name keeps what the team role
+  // and the buttons leave.
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
     "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "max-content",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    "max-content",
-    manages && "max-content",
+    "96px",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -635,101 +658,109 @@ function TeamMembers({
               }
             />
           ) : (
-            <GridTable
-              aria-label={t("teams.tableLabel")}
-              columns={columns}
-              narrowAt={640}
-              narrowColumns={narrowColumns}
-              framed={true}
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>
-                  {t("members.column.name")}
-                </GridTableColumnHeader>
-                {roles && (
+            // Below the narrow template's width the fixed tracks would leave
+            // the name no room, so the table scrolls instead; the padding
+            // keeps the row opener's focus ring inside the scroller's clip.
+            <div className="-m-1 grid overflow-x-auto p-1">
+              <GridTable
+                aria-label={t("teams.tableLabel")}
+                columns={columns}
+                narrowAt={820}
+                narrowColumns={narrowColumns}
+                framed={true}
+                className={manages ? "min-w-[480px]" : undefined}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("members.column.name")}
+                  </GridTableColumnHeader>
+                  {roles && (
+                    <GridTableColumnHeader hideNarrow={true}>
+                      {t("teams.column.workspaceRole")}
+                    </GridTableColumnHeader>
+                  )}
+                  <GridTableColumnHeader>
+                    {t("teams.column.teamRole")}
+                  </GridTableColumnHeader>
                   <GridTableColumnHeader hideNarrow={true}>
-                    {t("teams.column.workspaceRole")}
+                    {t("teams.column.addedAt")}
                   </GridTableColumnHeader>
-                )}
-                <GridTableColumnHeader>
-                  {t("teams.column.teamRole")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader hideNarrow={true}>
-                  {t("teams.column.addedAt")}
-                </GridTableColumnHeader>
-                {manages && (
-                  <GridTableColumnHeader action={true}>
-                    {t("members.column.actions")}
-                  </GridTableColumnHeader>
-                )}
-              </GridTableHeader>
-              {shown.map((member) => {
-                const name = member.display_name ?? member.email;
-                const memberRole = roles?.get(member.user_id);
-                return (
-                  <GridTableRow key={member.user_id}>
-                    <GridTableCell>
-                      <Avatar
-                        initials={avatarInitials(name)}
-                        tone={avatarTone(member.user_id)}
-                      />
-                      <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
-                        {member.display_name !== null && (
-                          <Text
-                            as="span"
-                            variant="meta"
-                            truncate
-                            title={member.email}
-                          >
-                            {member.email}
-                          </Text>
-                        )}
-                      </span>
-                    </GridTableCell>
-                    {roles && (
-                      <GridTableCell hideNarrow={true}>
-                        {memberRole && (
-                          <Badge
-                            variant={memberRole === "member" ? "gray" : "blue"}
-                          >
-                            {roleLabel(t, memberRole)}
-                          </Badge>
-                        )}
-                      </GridTableCell>
-                    )}
-                    <GridTableCell>
-                      <TeamRoleBadge role={member.role} />
-                    </GridTableCell>
-                    <GridTableCell
-                      hideNarrow={true}
-                      className="text-caption text-muted-foreground tabular-nums"
-                    >
-                      {formatTimestamp(member.added_at, locale)}
-                    </GridTableCell>
-                    {manages && (
-                      <GridTableCell align="end">
-                        <TeamRoleDialog
-                          team={team}
-                          member={member}
-                          onOutcome={onOutcome}
+                  {manages && (
+                    <GridTableColumnHeader action={true}>
+                      {t("members.column.actions")}
+                    </GridTableColumnHeader>
+                  )}
+                </GridTableHeader>
+                {shown.map((member) => {
+                  const name = member.display_name ?? member.email;
+                  const memberRole = roles?.get(member.user_id);
+                  return (
+                    <GridTableRow key={member.user_id}>
+                      <GridTableCell>
+                        <Avatar
+                          initials={avatarInitials(name)}
+                          tone={avatarTone(member.user_id)}
                         />
-                        <RowAction
-                          variant="danger"
-                          disabled={remove.isPending}
-                          aria-label={t("teams.removeMemberFor", { name })}
-                          onClick={() => setRemoving(member)}
-                        >
-                          {t("teams.removeMember")}
-                        </RowAction>
+                        <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
+                          <Text as="span" weight="medium" truncate>
+                            {name}
+                          </Text>
+                          {member.display_name !== null && (
+                            <Text
+                              as="span"
+                              variant="meta"
+                              truncate
+                              title={member.email}
+                            >
+                              {member.email}
+                            </Text>
+                          )}
+                        </span>
                       </GridTableCell>
-                    )}
-                  </GridTableRow>
-                );
-              })}
-            </GridTable>
+                      {roles && (
+                        <GridTableCell hideNarrow={true}>
+                          {memberRole && (
+                            <Badge
+                              variant={
+                                memberRole === "member" ? "gray" : "blue"
+                              }
+                            >
+                              {roleLabel(t, memberRole)}
+                            </Badge>
+                          )}
+                        </GridTableCell>
+                      )}
+                      <GridTableCell>
+                        <TeamRoleBadge role={member.role} />
+                      </GridTableCell>
+                      <GridTableCell
+                        hideNarrow={true}
+                        className="text-caption text-muted-foreground tabular-nums"
+                      >
+                        {formatTimestamp(member.added_at, locale)}
+                      </GridTableCell>
+                      {manages && (
+                        <GridTableCell align="end">
+                          <TeamRoleDialog
+                            team={team}
+                            member={member}
+                            onOutcome={onOutcome}
+                          />
+                          <RowAction
+                            variant="danger"
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </RowAction>
+                        </GridTableCell>
+                      )}
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
+            </div>
           )}
         </div>
       )}

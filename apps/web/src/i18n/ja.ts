@@ -175,9 +175,9 @@ export const slackJa = {
   "slack.inviteCommand": "/invite コマンド",
   "slack.copied": "コピーしました",
   "slack.copy": "コピー",
-  "slack.copyAppId": "アプリ ID をコピー",
-  "slack.copyAppIdFailed":
-    "クリップボードにコピーできませんでした。アプリ ID を選択して手動でコピーしてください。",
+  "slack.inviteTitle": "チャンネルに招待",
+  "slack.inviteHint":
+    "Slack のチャンネルのメッセージ欄に貼り付けて送信すると、ボットがそのチャンネルに招待されます。",
   "slack.openInSlack": "Slack で開く",
   "slack.newTab": "(新しいタブで開きます)",
   "slack.copyFailed":

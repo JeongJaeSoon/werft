@@ -5,6 +5,7 @@ import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
+  buttonVariants,
   EmptyState,
   Page,
   PageBreadcrumb,
@@ -52,6 +53,7 @@ export function ProfileNewScreen() {
   const role = useRole();
   const manages = useHasPermission("workspace.manage");
   const operates = useHasPermission("profile.installation.manage");
+  const owns = useHasPermission("installation.settings.manage");
   const profiles = useQuery(profilesQuery(client));
   const items = profiles.data?.items ?? [];
   const operators = items.filter((item) => item.source === "operator");
@@ -141,17 +143,29 @@ export function ProfileNewScreen() {
       if (
         options.data.connections.length === 0 ||
         options.data.runtimes.length === 0
-      )
+      ) {
+        const noConnections = options.data.connections.length === 0;
         return (
           <EmptyState
             title={t("profiles.new.cannotMake")}
             description={t(
-              options.data.connections.length === 0
+              noConnections
                 ? "profiles.new.noConnections"
                 : "profiles.new.noRuntimes",
             )}
+            action={
+              noConnections && owns ? (
+                <Link
+                  className={buttonVariants({ variant: "outline" })}
+                  to="/settings/workspace/connections"
+                >
+                  {t("profiles.new.goToConnections")}
+                </Link>
+              ) : undefined
+            }
           />
         );
+      }
       const template = from;
       return (
         <>

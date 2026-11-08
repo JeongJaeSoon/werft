@@ -15,6 +15,7 @@ import {
   DangerZoneRow,
   FieldError,
   Heading,
+  Input,
   Link,
   RowAction,
   RowList,
@@ -56,8 +57,11 @@ export function SlackConnect({
   manage = true,
   inPage = false,
   notify,
+  invite,
 }: {
   readonly agentId: string;
+  /** The `/invite` line a user pastes into a channel to add the bot. */
+  readonly invite?: string;
   readonly active?: boolean;
   readonly manage?: boolean;
   /** Rendered as the side list's Advanced section, below the status strip. */
@@ -80,6 +84,11 @@ export function SlackConnect({
   useEffect(() => {
     if (notice) outcome.current?.focus();
   }, [notice]);
+  const [inviteManual, setInviteManual] = useState(false);
+  const inviteField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (inviteManual) inviteField.current?.focus();
+  }, [inviteManual]);
   const [deleting, setDeleting] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const identity = identities.data?.items.find(
@@ -238,33 +247,53 @@ export function SlackConnect({
                 meta={<Code>{record.app_id}</Code>}
                 actions={
                   notify ? (
-                    <>
-                      <CopyButton
-                        value={record.app_id}
-                        variant="outline"
-                        size="sm"
-                        aria-label={t("slack.copyAppId")}
-                        label={t("slack.copy")}
-                        icon="copy"
-                        iconClassName="stroke-[1.5]"
-                        onResult={(ok) =>
-                          notify(
-                            t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
-                          )
-                        }
-                      />
-                      <RowAction asChild>
-                        <Link
-                          href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
-                          target="_blank"
-                          newTabLabel={t("slack.newTab")}
-                          className="text-inherit hover:no-underline"
-                        >
-                          {t("slack.openInSlack")}
-                        </Link>
-                      </RowAction>
-                    </>
+                    <RowAction asChild>
+                      <Link
+                        href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
+                        target="_blank"
+                        newTabLabel={t("slack.newTab")}
+                        className="text-inherit hover:no-underline"
+                      >
+                        {t("slack.openInSlack")}
+                      </Link>
+                    </RowAction>
                   ) : null
+                }
+              />
+            ) : null}
+            {invite && notify && identity ? (
+              <SettingRow
+                title={t("slack.inviteTitle")}
+                description={t("slack.inviteHint")}
+                meta={<Code>{invite}</Code>}
+                actions={
+                  <>
+                    <CopyButton
+                      value={invite}
+                      variant="outline"
+                      size="sm"
+                      aria-label={t("slack.copyInvite")}
+                      label={t("slack.copy")}
+                      icon="copy"
+                      iconClassName="stroke-[1.5]"
+                      fallbackField={inviteField}
+                      onResult={(ok) => {
+                        setInviteManual(!ok);
+                        notify(t(ok ? "slack.copied" : "slack.copyFailed"));
+                      }}
+                    />
+                    {inviteManual ? (
+                      <Input
+                        ref={inviteField}
+                        readOnly
+                        value={invite}
+                        size={invite.length}
+                        aria-label={t("slack.inviteCommand")}
+                        className="h-8 w-auto px-2 font-mono text-caption"
+                        onFocus={(event) => event.currentTarget.select()}
+                      />
+                    ) : null}
+                  </>
                 }
               />
             ) : null}

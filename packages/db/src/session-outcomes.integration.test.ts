@@ -1126,4 +1126,33 @@ integration("postgres session outcomes and the outcome refresher", () => {
       ),
     ).toEqual([dispatched, ...written.slice(2).reverse()]);
   });
+
+  test("a merge the gate refused is listed, and one the pull request service refused is not", async () => {
+    const gate = createPostgresGitHubGateStore(db);
+    const sessionId = await session(repository());
+    const record = (result: Record<string, unknown>) =>
+      gate.recordReceipt({
+        ownerId: OWNER,
+        sessionId,
+        actor: null,
+        operation: "merge_pull_request",
+        status: "failed",
+        result: { session_id: sessionId, ...result },
+        error: { code: "GITHUB_REFUSED", message: "GitHub work refused" },
+      });
+    const refused = await record({
+      purpose: "merge",
+      reason_code: "merge_off",
+    });
+    // The service's refusals name a pull request reason and no purpose.
+    await record({ reason_code: "merge_blocked" });
+    expect(await store.refusals(OWNER, sessionId, 10)).toEqual([
+      expect.objectContaining({
+        receipt_id: refused,
+        operation: "merge_pull_request",
+        purpose: "merge",
+        reason_code: "merge_off",
+      }),
+    ]);
+  });
 });

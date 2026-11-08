@@ -106,6 +106,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "comment_pull_request",
   "close_pull_request",
   "reopen_pull_request",
+  "merge_pull_request",
   // A remote MCP exchange the egress proxy refused for the agent's
   // credential: unbound, not for this workspace, or moved in the catalog.
   "call_mcp",
@@ -186,6 +187,13 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_achievement_judge",
   "rejudge_session",
   "review_achievement",
+  // User variables (E-41). Names, kinds and versions only: a value is never
+  // written, and a plain variable's session record keeps a keyed hash.
+  "set_env_variable",
+  "delete_env_variable",
+  "set_env_variable_grants",
+  "resolve_session_env",
+  "reject_session_env",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

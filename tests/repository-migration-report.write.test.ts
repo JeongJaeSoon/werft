@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
+import { GITHUB_CEILING_NONE, GITHUB_FEATURES_NONE } from "@werft-ai/contracts";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -29,7 +29,7 @@ const PIN = (repositories: unknown, pushApproval = false) => ({
   github: {
     repositories,
     push_approval: pushApproval,
-    features: { ...GITHUB_CEILING_NONE, issues: true },
+    features: { ...GITHUB_FEATURES_NONE, issues: true },
     actions_allow: [],
   },
 });
@@ -341,12 +341,12 @@ integration("the repository migration write", () => {
     const a3 = await f.rowOf("a3");
     expect(a3.repositories).toEqual(["orphan-x", "private-a"]);
     expect(a3.push_approval).toBe(true);
-    expect(a3.features).toEqual(GITHUB_CEILING_NONE);
+    expect(a3.features).toEqual(GITHUB_FEATURES_NONE);
     // workspace-judged profile: the workspace ceiling it had, minus the URL
     const a4 = await f.rowOf("a4");
     expect(a4.repositories).toEqual(["held-x"]);
     expect(a4.push_approval).toBe(true);
-    expect(a4.features).toEqual(GITHUB_CEILING_NONE);
+    expect(a4.features).toEqual(GITHUB_FEATURES_NONE);
     // the dry-run says which agents these are and that nothing else moved
     expect(plan.pinless).toEqual({
       agents: 2,

@@ -160,6 +160,7 @@ export * from "./workers/github-packages.ts";
 export * from "./workers/github-packages-egress.ts";
 export * from "./workers/package-registries.ts";
 export * from "./workers/worker-gateway.ts";
+export * from "./extensions/bundle-validator.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
 export * from "./sessions/achievements/achievement-judgment-store.ts";

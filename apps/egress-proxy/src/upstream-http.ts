@@ -23,10 +23,33 @@ const WRITE_SLICE_BYTES = 64 * 1024;
 /** What the response body buffers before the socket is paused. */
 const BODY_HIGH_WATER_BYTES = 256 * 1024;
 
+/**
+ * Errors from a dial that never wrote a request byte. Only these are safe to
+ * retry for a POST: the upstream cannot have seen the request.
+ */
+const BEFORE_REQUEST = new WeakSet<Error>();
+const CONNECT_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+]);
+
+/** True for a connection-stage failure that sent nothing. */
+export function failedBeforeRequest(error: unknown): boolean {
+  if (!(error instanceof Error) || !BEFORE_REQUEST.has(error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && CONNECT_CODES.has(code);
+}
+
 export type UpstreamTarget = {
   /** The judged address, dialled as is. */
   address: string;
   port: number;
+  /** Fail with ETIMEDOUT when the connection is not up by then. */
+  connectTimeoutMs?: number;
   /** For https: the name the certificate must carry, and extra roots. */
   tls: { serverName: string; ca?: string } | null;
 };
@@ -66,11 +89,15 @@ export function upstreamExchange(
     let body: ReadableStreamDefaultController<Uint8Array> | null = null;
     let decoder: BodyDecoder | null = null;
     let head: Buffer = Buffer.alloc(0);
+    let written = false;
+    let connectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fail = (error: Error) => {
       socket?.destroy();
+      if (connectTimer !== null) clearTimeout(connectTimer);
       if (!settled) {
         settled = true;
+        if (!written) BEFORE_REQUEST.add(error);
         reject(error);
         return;
       }
@@ -181,6 +208,8 @@ export function upstreamExchange(
     };
 
     const send = () => {
+      if (connectTimer !== null) clearTimeout(connectTimer);
+      written = true;
       const lines = [`${call.method} ${call.target} HTTP/1.1`];
       for (const [name, value] of call.headers) {
         const lower = name.toLowerCase();
@@ -280,6 +309,15 @@ export function upstreamExchange(
       });
       // Fires only once the certificate verified for `servername`.
       socket.once("secureConnect", send);
+    }
+    if (target.connectTimeoutMs !== undefined) {
+      connectTimer = setTimeout(() => {
+        fail(
+          Object.assign(new Error("upstream connect timed out"), {
+            code: "ETIMEDOUT",
+          }),
+        );
+      }, target.connectTimeoutMs);
     }
     socket.on("data", onHead);
     socket.on("error", (error) => fail(error));

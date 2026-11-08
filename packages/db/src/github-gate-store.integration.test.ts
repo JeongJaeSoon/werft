@@ -308,6 +308,48 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     ]);
   });
 
+  test("a stored ceiling without the merge key reads as off, and saving it on is read back and seen by the gate's context", async () => {
+    const { workspaceId, userId } = await workspace();
+    await pool.query(
+      "INSERT INTO github_workspace_settings (workspace_id, ceiling, revision) VALUES ($1, $2, 1)",
+      [
+        workspaceId,
+        JSON.stringify({
+          workflows: false,
+          actions: true,
+          checks: false,
+          issues: false,
+          review: false,
+        }),
+      ],
+    );
+    const store = createPostgresGitHubSettingsStore(db);
+    expect(await store.get(workspaceId)).toEqual({
+      ceiling: { ...GITHUB_CEILING_NONE, actions: true },
+      revision: 1,
+    });
+    const on: GitHubCeiling = {
+      ...GITHUB_CEILING_NONE,
+      actions: true,
+      merge: true,
+    };
+    expect(
+      await store.putCeiling({
+        workspaceId,
+        ceiling: on,
+        revision: 1,
+        updatedBy: userId,
+        actor: ownerActor(userId),
+      }),
+    ).toEqual({ outcome: "stored", settings: { ceiling: on, revision: 2 } });
+    expect((await store.get(workspaceId)).ceiling.merge).toBe(true);
+    await pool.query(
+      "UPDATE github_workspace_settings SET ceiling = $2 WHERE workspace_id = $1",
+      [workspaceId, JSON.stringify({ merge: "yes" })],
+    );
+    expect((await store.get(workspaceId)).ceiling).toEqual(GITHUB_CEILING_NONE);
+  });
+
   test("the ceiling is written under its revision with a receipt, and counts agents using each feature", async () => {
     const { workspaceId, userId } = await workspace();
     await agent(workspaceId, { github: GITHUB });

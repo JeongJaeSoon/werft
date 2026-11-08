@@ -219,19 +219,21 @@ describe("구성원 화면", () => {
     expect(roleIn("Owner")).toBe("소유자");
     const goneRow = screen.getByText(/^Gone/).closest("[role=row]");
     expect(goneRow?.getAttribute("data-disabled")).toBe("true");
-    // The tone says "inactive" to the eye; the name says it to a reader, and
-    // no badge repeats it.
+    // The grey fill is for the eye; the badge names the state in text so
+    // colour is not the only signal, and only an inactive row gets either.
     expect(goneRow?.getAttribute("data-inactive")).toBe("true");
+    expect(goneRow?.classList.contains("bg-hover")).toBe(true);
     expect(
-      within(goneRow as HTMLElement).queryByText("비활성", {
+      within(goneRow as HTMLElement).getByText("비활성", {
+        selector: "[data-slot=badge]",
+      }),
+    ).toBeDefined();
+    expect(mateRow.classList.contains("bg-hover")).toBe(false);
+    expect(
+      within(mateRow).queryByText("비활성", {
         selector: "[data-slot=badge]",
       }),
     ).toBeNull();
-    expect(
-      within(goneRow as HTMLElement)
-        .getAllByRole("cell")[0]
-        ?.textContent?.includes("(비활성)"),
-    ).toBe(true);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
         name: "Gone 편집 (비활성)",
@@ -1553,6 +1555,14 @@ describe("구성원 · 팀 · 초대 탭", () => {
     expect(tabsOf()[2]).toEqual(["초대", "/members/invites", "page"]);
     expect(screen.getByRole("button", { name: "구성원 초대" })).toBeDefined();
     expect(screen.queryByRole("table", { name: "구성원 표" })).toBeNull();
+    // Same shape as the 구성원 table: header row, then one row per invite.
+    const table = screen.getByRole("table", { name: "대기 중인 초대 표" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["초대", "역할", "관리"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
   });
 
   test("초대 탭에서 구성원 목록을 못 불러오면 초대 버튼 대신 오류와 다시 시도를 보인다", async () => {

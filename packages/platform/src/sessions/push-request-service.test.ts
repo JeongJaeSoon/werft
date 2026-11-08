@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type Principal,
   type PushAttached,
   type PushRequest,
@@ -491,7 +491,7 @@ describe("a push to another repository", () => {
           attached,
           github: {
             repositories: released,
-            features: GITHUB_CEILING_NONE,
+            features: GITHUB_FEATURES_NONE,
             actions_allow: [],
             push_approval: true,
           },

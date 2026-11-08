@@ -116,6 +116,7 @@ function harness(
     },
     getPullRequest: unused,
     setPullRequestState: unused,
+    mergePullRequest: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
