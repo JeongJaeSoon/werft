@@ -46,11 +46,12 @@ if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; th
     docs_only=true
     guide=false
     site=false
-    # Leaf apps that nothing else imports. Any path outside these and the
-    # prose list is shared or unknown, and keeps the full plan.
+    # The web console and its Storybook: nothing else imports them, and the
+    # only test that reads their files needs no service, so `check` covers it.
+    # apps/egress-proxy looks like a leaf too, but service-backed tests import
+    # it. Any path outside these and the prose list is shared or unknown, and
+    # keeps the full plan.
     shared=false
-    web=false
-    egress=false
     while IFS= read -r -d '' path; do
       count=$((count + 1))
       is_doc_path "$path" || docs_only=false
@@ -62,8 +63,7 @@ if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; th
       esac
       if ! is_doc_path "$path"; then
         case "$path" in
-          apps/web/* | apps/storybook/*) web=true ;;
-          apps/egress-proxy/*) egress=true ;;
+          apps/web/* | apps/storybook/*) ;;
           *) shared=true ;;
         esac
       fi
@@ -79,20 +79,15 @@ if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; th
       k8s=false
       domains='[]'
     elif [ "$shared" = false ]; then
-      # Only leaf apps (and prose) changed. The control-host image bundles
-      # apps/web, so e2e and the product jobs stay on; what drops out is the
-      # work no changed path can reach.
+      # Only the web console (and prose) changed. The control-host image
+      # bundles apps/web, so e2e and the product jobs stay on; what drops out
+      # is the work no changed path can reach. The surface domain owns
+      # apps/web and apps/storybook.
       site=true
       helm=false
-      k8s=$egress
+      k8s=false
       quickstart=$guide
-      [ "$egress" = true ] && quickstart=true
-      selected=()
-      [ "$web" = true ] && selected+=('"surface"')
-      [ "$egress" = true ] && selected+=('"egress"')
-      domains="[$(IFS=,; echo "${selected[*]}")]"
-      # Prose-only PRs return above, so a leaf app changed and one domain is
-      # selected at least; an empty matrix would fail the job.
+      domains='["surface"]'
     else
       site=true
       quickstart=true
