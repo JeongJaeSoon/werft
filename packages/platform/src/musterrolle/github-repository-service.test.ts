@@ -165,11 +165,16 @@ function serviceWith(
   registered: GitHubAppStore = apps,
   pins: ReturnType<typeof memoryPins> | null = null,
   active: readonly CatalogRepositoryRow[] = [],
+  /** Rows with an App of their own: not the console App's list. */
+  explicit: readonly CatalogRepositoryRow[] = [],
 ) {
   const resolved: string[] = [];
   const store = {
     async listActive() {
       return [...active];
+    },
+    async listAgentChoosable() {
+      return [...active, ...explicit];
     },
     async agentCounts() {
       return new Map();
@@ -546,6 +551,38 @@ describe("the agent's repositories read as owner/repo", () => {
         private: null,
         ref: repositoryRefOf("widget"),
       },
+    ]);
+  });
+
+  test("a row with an App of its own is a choice only where the ceiling names it", async () => {
+    const OWN = {
+      ...ROW,
+      id: "ghe",
+      github_repository_id: null,
+      name: "ghe",
+      url: "https://ghe.example.invalid/acme/ghe.git",
+    };
+    const { agentPage } = serviceWith(pageOf(), apps, null, [ROW], [OWN]);
+    const names = async () =>
+      ((await agentPage()).all_repositories ?? []).map(
+        (entry) => entry.repository,
+      );
+    // `installed` opens the console App's rows, not this one.
+    expect(await names()).toEqual(["acme/widget"]);
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "installed",
+    };
+    expect(await names()).toEqual(["acme/ghe", "acme/widget"]);
+    // Under a list the console App's rows need naming too.
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "listed",
+    };
+    const page = await agentPage();
+    expect(page.unavailable).toBe("ceiling_listed");
+    expect((page.all_repositories ?? []).map((entry) => entry.ref)).toEqual([
+      repositoryRefOf("ghe"),
     ]);
   });
 

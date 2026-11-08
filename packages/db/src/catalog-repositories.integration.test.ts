@@ -380,6 +380,56 @@ integration("catalog repositories on PostgreSQL", () => {
     ).toBe(0);
   });
 
+  test("an agent can be given a console App row or one with an App of its own, never a PAT or removed one", async () => {
+    const own = { source: "seed" as const, branch: "main" };
+    await db.insert(catalogRepositories).values([
+      {
+        ...own,
+        id: "choose-console",
+        owner: "Acme",
+        name: "Console",
+        url: "https://github.com/Acme/Console.git",
+      },
+      {
+        ...own,
+        id: "choose-explicit",
+        owner: "Acme",
+        name: "Explicit",
+        url: "https://ghe.example.invalid/Acme/Explicit.git",
+        authKind: "github_app_explicit",
+        auth: { kind: "github_app", app_id: 1, installation_id: 2 },
+        credentialSource: "external",
+      },
+      {
+        ...own,
+        id: "choose-pat",
+        owner: "Acme",
+        name: "Pat",
+        url: "https://github.com/Acme/Pat.git",
+        authKind: "basic",
+        auth: { kind: "basic", username: "u" },
+        credentialSource: "external",
+      },
+      {
+        ...own,
+        id: "choose-removed",
+        owner: "Acme",
+        name: "Removed",
+        url: "https://github.com/Acme/Removed.git",
+        removedAt: new Date(),
+      },
+    ]);
+    const store = createPostgresCatalogRepositoryStore(db);
+    const ids = (rows: { id: string }[]) =>
+      rows.map((row) => row.id).filter((id) => id.startsWith("choose-"));
+    expect(ids(await store.listAgentChoosable())).toEqual([
+      "choose-console",
+      "choose-explicit",
+    ]);
+    // The console App's list leaves the explicit one out.
+    expect(ids(await store.listActive())).toEqual(["choose-console"]);
+  });
+
   test("counts agents by the repositories their active release names, reviewers apart", async () => {
     const store = createPostgresCatalogRepositoryStore(db);
     const workspaceId = randomUUID();
