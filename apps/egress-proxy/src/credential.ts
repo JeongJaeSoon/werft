@@ -11,7 +11,11 @@ import {
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
 import { REDACTED, sanitizeText } from "./redaction.ts";
-import { type UpstreamBody, upstreamExchange } from "./upstream-http.ts";
+import {
+  failedBeforeRequest,
+  type UpstreamBody,
+  upstreamExchange,
+} from "./upstream-http.ts";
 import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
 
 /**
@@ -72,6 +76,16 @@ const DEFAULT_REGRANT_INTERVAL_MS = 30_000;
 const DEFAULT_REGRANT_GRACE_MS = 90_000;
 const DEFAULT_MAX_EXCHANGES_PER_CLIENT = 32;
 /** An error body bigger than this is not relayed at all. */
+/**
+ * The built-in MCP server's restart window: connection-stage failures are
+ * dialled again, each time from a fresh lookup, until this budget is spent.
+ * A dial is cut at the budget's end, so the wait stays under three seconds
+ * plus the lookups.
+ */
+const BUILTIN_RETRY_BUDGET_MS = 3_000;
+const BUILTIN_RETRY_BACKOFF_MS = [200, 400, 800];
+const BUILTIN_CONNECT_TIMEOUT_MS = 500;
+const BUILTIN_RETRY_AFTER_SECONDS = 5;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 /** How much of a refusing provider's error body the warn log keeps. */
 const REFUSAL_EXCERPT_CHARS = 512;
@@ -984,6 +998,19 @@ export function startCredentialProxy(
     });
   }
 
+  function builtinUnavailable(): Response {
+    return new Response(
+      "the control plane is unreachable, probably restarting; retry the tool call in a few seconds\n",
+      {
+        status: 503,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "retry-after": String(BUILTIN_RETRY_AFTER_SECONDS),
+        },
+      },
+    );
+  }
+
   // In the Messages API's error shape, so the engine shows why it was
   // refused. The turn's reason comes from the session's spend at finalize,
   // not from this text.
@@ -1196,11 +1223,13 @@ export function startCredentialProxy(
     upstream: URL,
     at: Dialable,
     exchange: Parameters<typeof upstreamExchange>[1],
+    connectTimeoutMs?: number,
   ): Promise<Response> {
     return upstreamExchange(
       {
         address: at.address,
         port: at.port,
+        ...(connectTimeoutMs === undefined ? {} : { connectTimeoutMs }),
         tls:
           upstream.protocol === "https:"
             ? {
@@ -1419,13 +1448,35 @@ export function startCredentialProxy(
     // The one exception is the API's own built-in MCP server, named by a
     // path on the authorizer's listener: this process's control line, which
     // no allowlist names on purpose. A catalog URL to that origin is not it.
-    const first = await dialable(
-      grant.upstream,
-      route.purpose === "mcp" && grant.builtin ? null : options.policy,
-      route.purpose,
-      who,
-      signal,
-    );
+    const retryable = route.purpose === "mcp" && grant.builtin;
+    const deadline = Date.now() + BUILTIN_RETRY_BUDGET_MS;
+    const dialUpstream = () =>
+      dialable(
+        grant.upstream,
+        retryable ? null : options.policy,
+        route.purpose,
+        who,
+        signal,
+      );
+    let first = await dialUpstream();
+    // The built-in server's name stops resolving while its container is
+    // replaced; that is the same restart window as a refused connection.
+    for (
+      let tried = 0;
+      retryable &&
+      first instanceof Response &&
+      first.status === 502 &&
+      !signal.aborted;
+      tried++
+    ) {
+      const backoff = BUILTIN_RETRY_BACKOFF_MS[tried];
+      if (backoff === undefined || Date.now() + backoff > deadline) {
+        return builtinUnavailable();
+      }
+      await first.body?.cancel();
+      await untilEnded(Bun.sleep(backoff), signal);
+      first = await dialUpstream();
+    }
     if (first instanceof Response) return first;
     const upstream = grant.upstream;
     const fields = { ...who, host: first.host, port: first.port };
@@ -1459,21 +1510,60 @@ export function startCredentialProxy(
         headers.set("accept", LFS_MEDIA_TYPE);
         headers.set("content-type", LFS_MEDIA_TYPE);
       }
-      response = await send(upstream, first, {
+      const call = {
         method: route.lfs === undefined ? request.method : "POST",
         target,
         // Only what the authorizer signed: the worker's own headers are
         // what it was judged on, not what goes upstream.
         headers: objectStore
-          ? [
+          ? ([
               ["host", upstream.host],
               ["accept-encoding", "identity"],
               ...grant.headers,
-            ]
+            ] as Array<[string, string]>)
           : [...headers],
         body,
         signal,
-      });
+      };
+      let at = first;
+      for (let tried = 0; ; tried++) {
+        try {
+          response = await send(
+            upstream,
+            at,
+            call,
+            retryable
+              ? Math.max(
+                  1,
+                  Math.min(BUILTIN_CONNECT_TIMEOUT_MS, deadline - Date.now()),
+                )
+              : undefined,
+          );
+          break;
+        } catch (error) {
+          // Only a connection that never took a byte is dialled again, and
+          // against a fresh lookup: the replaced container has a new address.
+          if (!retryable || !failedBeforeRequest(error) || signal.aborted) {
+            throw error;
+          }
+          const backoff = BUILTIN_RETRY_BACKOFF_MS[tried];
+          if (backoff === undefined || Date.now() + backoff > deadline) {
+            logger.warn("Credential route upstream unavailable", {
+              ...fields,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return builtinUnavailable();
+          }
+          await untilEnded(Bun.sleep(backoff), signal);
+          const again = await dialUpstream();
+          if (again instanceof Response) {
+            // Only a lookup that came back empty keeps the address judged
+            // before; a refusal (an address that turned public) ends it.
+            if (again.status !== 502) return again;
+            await again.body?.cancel();
+          } else at = again;
+        }
+      }
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
