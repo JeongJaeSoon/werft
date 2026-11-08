@@ -46,10 +46,13 @@ export {
   addedTools,
   canonicalTool,
   carriedDeny,
+  credentialRefSchema,
   firstVersionDeny,
   GITHUB_APP_PERMISSION_GUIDANCE,
   githubAppWarnings,
+  isMcpToolName,
   MCP_TOOL_PREFIX,
+  mcpToolOfServer,
   WORKSPACE_PROFILE_POLICY,
   workspaceProfileId,
 } from "@werft-ai/contracts";

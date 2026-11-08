@@ -130,7 +130,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
       checkpoint: {
         engine: "claude",
         resume: sessionId,
-        sdkVersion: "0.3.270",
+        sdkVersion: "0.3.319",
       },
     });
     const init = frames.find(
@@ -138,8 +138,8 @@ describe("actual Claude SDK adapter with local Messages API", () => {
         frame.envelope.message.type === "system" &&
         frame.envelope.message.subtype === "init",
     );
-    expect(init?.envelope.message.claude_code_version).toBe("2.1.270");
-    expect(init?.envelope.sdk_version).toBe("0.3.270");
+    expect(init?.envelope.message.claude_code_version).toBe("2.1.319");
+    expect(init?.envelope.sdk_version).toBe("0.3.319");
     expect(
       frames.every((frame) => frame.envelope.message.type.length > 0),
     ).toBe(true);

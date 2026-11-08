@@ -134,7 +134,7 @@ The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Li
 2. In the GitHub row of **Settings → Linked accounts**, choose "Link" and approve on GitHub's consent screen. The platform reads only the GitHub account's id and login and keeps no GitHub token.
 3. The linked row shows the line commits get (`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`). After you unlink, sessions started from then on leave it out.
 
-Sessions started from the web console, a personal API key, or Slack follow the starter's link. A session started with an agent key or an operator key has no person who started it, so no co-author is added. Either way, commits carry an `Agent-Session:` trailer: the session's address where the operator has set the console's address, else the session's id. The line above the Outputs tab in session details shows which case a session is.
+Sessions started from the web console, a personal API key, or Slack follow the starter's link. A session started with an agent key or an operator key has no person who started it, so no co-author is added. Either way, commits carry an `Agent-Session:` trailer: the session's address where the operator has set the console's address, else the session's id. The last line of the Outputs tab in session details shows which case a session is.
 
 A GitHub account links to one person only. Linking an account someone else already linked is refused.
 

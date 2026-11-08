@@ -241,18 +241,6 @@ export function releaseChanges(
       before.effective_tools.tools,
       after.effective_tools.tools,
     ),
-    ...listChange(
-      "tools",
-      "mcpServers",
-      (cardA?.capabilities.mcp ?? []).map((item) => item.server),
-      (cardB?.capabilities.mcp ?? []).map((item) => item.server),
-    ),
-    ...listChange(
-      "tools",
-      "mcpTools",
-      before.effective_tools.mcp,
-      after.effective_tools.mcp,
-    ),
     ...leafChanges(
       "tools",
       "tool_policy.default",
@@ -325,17 +313,6 @@ export function releaseChanges(
       cardA?.language,
       cardB?.language,
     ),
-    // Names, not values, but the console shows credentials as changed only.
-    ...(shown([...(cardA?.capabilities.credential_refs ?? [])].sort()) ===
-    shown([...(cardB?.capabilities.credential_refs ?? [])].sort())
-      ? []
-      : [
-          {
-            area: "secrets",
-            field: { key: "credentials" },
-            kind: "changed",
-          } as const,
-        ]),
   ];
   // A card field no row above reads, such as a legacy `instructions`.
   if (changes.length === 0 && before.card_sha256 !== after.card_sha256)

@@ -191,6 +191,7 @@ export const AGENT_TABS = [
   ["overview", "개요"],
   ["card", "상세 설정"],
   ["release", "릴리스"],
+  ["access", "접근"],
   ["admins", "관리자"],
   ["slack", "Slack"],
   ["github", "GitHub"],

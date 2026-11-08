@@ -193,6 +193,7 @@ function teamServer({
                 role: "member",
                 added_by: USER_ID,
                 added_at: AT,
+                disabled_at: null,
               },
             ],
           };
@@ -525,6 +526,7 @@ describe("팀 화면", () => {
           role: "member",
           added_by: USER_ID,
           added_at: AT,
+          disabled_at: null,
         },
       ],
     };
@@ -569,6 +571,7 @@ describe("팀 화면", () => {
       role: "member",
       added_by: USER_ID,
       added_at: AT,
+      disabled_at: null,
     });
     const server = teamServer({
       members: [teamMember(owner), teamMember(mate)],
@@ -1005,6 +1008,7 @@ describe("팀 화면", () => {
     role: "member",
     added_by: USER_ID,
     added_at: AT,
+    disabled_at: null,
   };
 
   test("관리자는 대화상자에서 팀 역할을 골라 저장하고, 표가 바뀐 역할을 보인다", async () => {

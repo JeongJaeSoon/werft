@@ -181,7 +181,9 @@ integration("a settings document seeding an empty PostgreSQL", () => {
         for (const [id, digest] of Object.entries(ON_MAIN[name] ?? {})) {
           const stored = fromDatabase.profiles[id];
           if (!stored) throw new Error(`${name}: no ${id}`);
-          expect(profilePinned(stored, digest, [])).toBe(true);
+          // The digests were taken under runtime 0.3.270; the fixtures now say
+          // 0.3.319, so an old pin matches while 0.3.270 is an accepted version.
+          expect(profilePinned(stored, digest, ["0.3.270"])).toBe(true);
         }
         const catalog = {
           ...stageZero,

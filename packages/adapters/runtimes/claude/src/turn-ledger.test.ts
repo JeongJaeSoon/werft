@@ -4,7 +4,7 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const ready = {
   status: "ready" as const,
-  checkpoint: { engine: "claude", resume: "s1", sdkVersion: "0.3.270" },
+  checkpoint: { engine: "claude", resume: "s1", sdkVersion: "0.3.319" },
 };
 const running = {
   status: "rejected" as const,

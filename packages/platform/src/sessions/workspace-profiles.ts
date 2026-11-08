@@ -444,6 +444,30 @@ export function createWorkspaceProfileService(deps: {
               : latest,
           undefined,
         );
+      if (
+        request.unblock_mcp_tools?.length &&
+        request.previous_id === undefined
+      ) {
+        throw new SessionServiceError(
+          "BAD_REQUEST",
+          "unblock_mcp_tools needs previous_id: the version it was read from",
+          undefined,
+          { reason_code: "mcp_unblock_no_previous", field: "previous_id" },
+        );
+      }
+      if (
+        request.previous_id !== undefined &&
+        request.previous_id !== previous?.id
+      ) {
+        throw new SessionServiceError(
+          "REVISION_CONFLICT",
+          previous === undefined
+            ? `${request.name} has no version yet`
+            : `The latest version of ${request.name} is ${previous.id}: make the next one from it`,
+          undefined,
+          { reason_code: "stale_previous", latest_id: previous?.id ?? null },
+        );
+      }
       const previousRead =
         previous &&
         previousChoice(catalog.tool_catalogs, previous, previous.tools);
@@ -488,6 +512,7 @@ export function createWorkspaceProfileService(deps: {
         previous,
         baseMcpDeny: base.mcp_deny,
         requested: asked?.mcpDeny,
+        unblock: request.unblock_mcp_tools,
       });
       const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
       if (refusal !== null) {
@@ -516,7 +541,7 @@ export function createWorkspaceProfileService(deps: {
         narrowing,
         deny: denied?.deny ?? null,
         toolCatalogId: denied?.toolCatalogId ?? null,
-        ...(denied
+        ...(denied || request.unblock_mcp_tools?.length
           ? {
               previousVersion: previous?.version ?? null,
               ...(previousRead?.drift ? { previousDenyDrift: true } : {}),

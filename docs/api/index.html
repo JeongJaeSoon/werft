@@ -3518,6 +3518,16 @@
               "maxLength": 200
             }
           },
+          "unblock_mcp_tools": {
+            "description": "`mcp__\u003cserver>__\u003ctool>` names the previous version blocked that this next version no longer blocks: the only way to lift one, as a version otherwise keeps every `mcp__` name of the one before. Each must be held by the previous version (400 `mcp_unblock_unknown`), not named in `deny` too (400 `mcp_unblock_conflict`) and not blocked by the base (400 `base_mcp_deny_dropped`); a version with no previous one cannot lift any (400 `mcp_unblock_no_previous`). A workspace version names its previous version in `previous_id`.",
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
           "permission_mode": {
             "type": "string",
             "enum": [
@@ -3528,6 +3538,11 @@
               "bypassPermissions",
               "auto"
             ]
+          },
+          "previous_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           }
         },
         "required": [
@@ -3606,6 +3621,16 @@
           },
           "accept_added_tools": {
             "description": "With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400.",
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "unblock_mcp_tools": {
+            "description": "`mcp__\u003cserver>__\u003ctool>` names the previous version blocked that this next version no longer blocks: the only way to lift one, as a version otherwise keeps every `mcp__` name of the one before. Each must be held by the previous version (400 `mcp_unblock_unknown`), not named in `deny` too (400 `mcp_unblock_conflict`) and not blocked by the base (400 `base_mcp_deny_dropped`); a version with no previous one cannot lift any (400 `mcp_unblock_no_previous`). A workspace version names its previous version in `previous_id`.",
             "maxItems": 64,
             "type": "array",
             "items": {
@@ -12935,6 +12960,13 @@
             "items": {
               "type": "string",
               "pattern": "^[a-z0-9][a-z0-9._:/-]{0,127}$"
+            }
+          },
+          "available_servers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
             }
           }
         },
@@ -26454,6 +26486,18 @@
                   "type": "string",
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "disabled_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -26462,7 +26506,8 @@
                 "display_name",
                 "role",
                 "added_by",
-                "added_at"
+                "added_at",
+                "disabled_at"
               ],
               "additionalProperties": false
             }
@@ -67591,7 +67636,7 @@
           "Agents"
         ],
         "summary": "The agent's MCP server, tools and credential names",
-        "description": "`source` is `agent` when the agent has saved settings (`settings_revision` is their revision) and `release` while it has none: `settings` then holds what the active release's card and policy pins say, which is what a session of that release does today. `settings.allowed_tools` are full `mcp__\u003cserver>__\u003ctool>` names and empty when `server` is null; `settings.credential_refs` are credential names, never values. `bound_credential_refs` lists those of `settings.credential_refs` that have a live binding on the agent; a name without one blocks a new session until it is bound. Saved with `PUT …/mcp/settings`, never as a release. Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
+        "description": "`source` is `agent` when the agent has saved settings (`settings_revision` is their revision) and `release` while it has none: `settings` then holds what the active release's card and policy pins say, which is what a session of that release does today. `settings.allowed_tools` are full `mcp__\u003cserver>__\u003ctool>` names and empty when `server` is null; `settings.credential_refs` are credential names, never values. `bound_credential_refs` lists those of `settings.credential_refs` that have a live binding on the agent; a name without one blocks a new session until it is bound. `available_servers` lists, sorted and by id only, the servers a save may choose for this agent's workspace (never the built-in `github`, never a server's address or credentials). Saved with `PUT …/mcp/settings`, never as a release. Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -67635,6 +67680,9 @@
                   "active_release_id": "rel_example",
                   "bound_credential_refs": [
                     "docs-key"
+                  ],
+                  "available_servers": [
+                    "docs"
                   ]
                 },
                 "schema": {
@@ -69054,7 +69102,7 @@
           "Agents"
         ],
         "summary": "The agent's latest GitHub receipts",
-        "description": "Up to 20 receipts, newest first: `set_agent_github`, the `create_agent_release` and `activate_agent` receipts that changed the GitHub settings (`result.github_changed`), and for the agent's sessions `mint_github_token` (a refusal is `failed` with `result.reason_code`), `dispatch_workflow`, `rerun_workflow` and `review_pull_request`. Found by target, not by actor, so a release a person made is listed. Session receipts come only from sessions the caller can see, filtered before the 20 are cut: an agent manager is not shown a private session nobody shared with them. Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Up to 20 receipts, newest first: `set_agent_github`, `set_agent_mcp` (a save of the agent's MCP settings, with the names before and after and no values), the `create_agent_release` and `activate_agent` receipts that changed the GitHub settings (`result.github_changed`), and for the agent's sessions `mint_github_token` (a refusal is `failed` with `result.reason_code`), `dispatch_workflow`, `rerun_workflow` and `review_pull_request`. Found by target, not by actor, so a release a person made is listed. Session receipts come only from sessions the caller can see, filtered before the 20 are cut: an agent manager is not shown a private session nobody shared with them. Whoever manages the agent reads it, and so do the live members of its managing team.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -72978,7 +73026,8 @@
                       "display_name": "Ada Owner",
                       "role": "lead",
                       "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                      "added_at": "2026-10-23T09:00:00Z"
+                      "added_at": "2026-10-23T09:00:00Z",
+                      "disabled_at": null
                     },
                     {
                       "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
@@ -72986,7 +73035,8 @@
                       "display_name": null,
                       "role": "member",
                       "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                      "added_at": "2026-10-24T09:00:00Z"
+                      "added_at": "2026-10-24T09:00:00Z",
+                      "disabled_at": "2026-10-25T09:00:00Z"
                     }
                   ]
                 },
@@ -76275,7 +76325,7 @@
           "Agents"
         ],
         "summary": "Save a new version of a workspace profile",
-        "description": "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_\u003cworkspace slug>_\u003cname>_v\u003cn>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. Writes a `create_workspace_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_\u003cworkspace slug>_\u003cname>_v\u003cn>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. A version keeps every `mcp__` block of the one before; `unblock_mcp_tools` lifts a held one (refusals as for `POST /v1/installation-profiles`) and needs `previous_id`, the version the form read: another latest version is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`). Writes a `create_workspace_profile` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -81352,7 +81402,7 @@
           "Agents"
         ],
         "summary": "Save a new version of a profile",
-        "description": "The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_\u003cname>_v\u003cn>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_\u003cuuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers with that latest version and a null `receipt_id` (the status stays 201: tell it from a new version by `receipt_id`); a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. `deny` may also name `mcp__\u003cserver>__\u003ctool>` tools of the MCP servers the installation lists, matched exactly; they are kept beside the catalog's, listed as `mcp_deny` (the response `deny` stays the catalog's), and a next version keeps those of the one before. A version derived from a profile that blocks such names must name every one of them in `deny` (400 `base_mcp_deny_dropped`). 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `tool_pattern` (`Bash(rm:*)`: whole built-in tool names only), `mcp_tool_name` (not `mcp__\u003cserver>__\u003ctool>`, at most 128 characters, no spaces or control characters), `github_server` (the built-in server's tools follow the agent's GitHub settings) or `unknown_mcp_server` (new name of a server the installation does not list); `accept_added_tools` takes catalog tools only (`mcp_tool`). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The one way to define a profile (`profile.define`: the workspace owner or an admin), signed in; an API key is 403 whatever its scopes. The owner sends `connection_id`, `runtime_kind` and `runtime_version` (400 `missing_field` without them) and saves an installation-wide profile `op_\u003cname>_v\u003cn>`, whose provider the server copies in from the connection. An admin saves a profile of their own workspace that narrows a version they may see: `derived_from` names it for a first version, a later one names `previous_id` and keeps its source. The server copies the runtime, connection, billing and title model from the source, so an admin sending `connection_id`, `runtime_kind`, `runtime_version`, `title_model` or `project_settings` is 400 `source_field`, and a model, tool or mode wider than the source's is 400 `widens_base`; a source that is unknown, another workspace's or not usable is 400 `unknown_base`, `retired` or another state. A workspace profile's `name` is its display name; the server keeps it under a key it makes (`wl_\u003cuuid>`) and `installation.name` answers the display name. A new profile whose name the workspace already sees is 409 `name_taken`. A new version of an existing profile sends its latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A version that runs the same as the latest (the same models, tools, mode, provider and settings, whatever the `deny` spelling) writes nothing and answers with that latest version and a null `receipt_id` (the status stays 201: tell it from a new version by `receipt_id`); a retired or blocked latest takes a new version instead. A first owner version may name the profile it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A profile names no repository: the request has no repository fields, and the repositories a session reaches come from the agent's GitHub settings. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. `deny` may also name `mcp__\u003cserver>__\u003ctool>` tools of the MCP servers the installation lists, matched exactly; they are kept beside the catalog's, listed as `mcp_deny` (the response `deny` stays the catalog's), and a next version keeps those of the one before. A version derived from a profile that blocks such names must name every one of them in `deny` (400 `base_mcp_deny_dropped`). 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `tool_pattern` (`Bash(rm:*)`: whole built-in tool names only), `mcp_tool_name` (not `mcp__\u003cserver>__\u003ctool>`, at most 128 characters, no spaces or control characters), `github_server` (the built-in server's tools follow the agent's GitHub settings) or `unknown_mcp_server` (new name of a server the installation does not list); `accept_added_tools` takes catalog tools only (`mcp_tool`). A next version lifts a held `mcp__` block only by naming it in `unblock_mcp_tools` (400 `details.field: unblock_mcp_tools`: `mcp_unblock_unknown` when the previous version does not hold it, `mcp_unblock_conflict` when `deny` names it too, `mcp_unblock_no_previous` for a first version, `base_mcp_deny_dropped` when the base blocks it). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

@@ -16,6 +16,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { createPostgresAgentMcpStore } from "./agent-mcp.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import { createPostgresMcpEgressStore } from "./mcp-egress.ts";
@@ -233,6 +234,7 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       settings_revision: null,
       active_release_id: expect.any(String),
       bound_credential_refs: [],
+      available_servers: ["docs"],
     });
     await service().put(
       owner,
@@ -306,6 +308,44 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       },
     });
     expect(second?.id).toBe(next.receipt_id ?? "");
+  });
+
+  test("the agent's activity list carries the save as an access change, names only", async () => {
+    const { agentId, workspaceId, owner, ownerId } = await setup();
+    const saved = await service().put(
+      owner,
+      agentId,
+      request(null, { allowed_tools: [READ] }),
+    );
+    const items = await createPostgresAgentGitHubStore(db).activity(
+      workspaceId,
+      agentId,
+      { userId: ownerId, apiKeyId: null },
+      20,
+    );
+    const receipt = items.find((item) => item.id === saved.receipt_id);
+    expect(receipt).toMatchObject({
+      operation: "set_agent_mcp",
+      status: "succeeded",
+      result: {
+        change: "settings",
+        before: null,
+        after: {
+          server: "docs",
+          allowed_tools: [READ],
+          credential_refs: ["docs-key"],
+        },
+      },
+    });
+    const other = await setup();
+    await service().put(other.owner, other.agentId, request(null));
+    const again = await createPostgresAgentGitHubStore(db).activity(
+      workspaceId,
+      agentId,
+      { userId: ownerId, apiKeyId: null },
+      20,
+    );
+    expect(again.map((item) => item.id)).toEqual(items.map((i) => i.id));
   });
 
   test("a save with the revision it did not read is a conflict and writes nothing", async () => {

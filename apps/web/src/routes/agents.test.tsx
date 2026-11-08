@@ -2275,6 +2275,75 @@ describe("에이전트 상세", () => {
     expect(within(access).queryByRole("button")).toBeNull();
   });
 
+  test("MCP 설정 저장은 접근 변경 줄에 이전·이후 이름만 싣고, 저장하지 못한 것은 싣지 않는다", async () => {
+    const receipt = (
+      n: number,
+      status: "succeeded" | "failed",
+      result: unknown,
+    ) => ({
+      id: `00000000-0000-4000-8000-0000000000e${n}`,
+      operation: "set_agent_mcp",
+      target_ref: {
+        resource: { kind: "agent", id: AGENT_ID },
+        workspace_id: null,
+      },
+      status,
+      result,
+      error:
+        status === "failed"
+          ? { code: "REVISION_CONFLICT", message: "not saved" }
+          : null,
+      created_at: `2026-10-11T01:00:${10 + n}.000Z`,
+      updated_at: `2026-10-11T01:00:${10 + n}.000Z`,
+    });
+    const server = agentServer({
+      activity: [
+        receipt(1, "succeeded", {
+          before: null,
+          after: {
+            server: "docs",
+            allowed_tools: ["mcp__docs__read"],
+            credential_refs: ["docs-key"],
+            token: "sk-LEAKED-VALUE",
+          },
+        }),
+        receipt(2, "succeeded", {
+          before: {
+            server: "docs",
+            allowed_tools: ["mcp__docs__read"],
+            credential_refs: ["docs-key"],
+          },
+          after: { server: null, allowed_tools: [], credential_refs: [] },
+        }),
+        receipt(3, "failed", {}),
+      ],
+    });
+    await releasedTwice(server);
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const table = await screen.findByRole("table");
+    const rows = () =>
+      [
+        ...screen.getByRole("table").querySelectorAll('[data-kind="access"]'),
+      ] as HTMLElement[];
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    const [second, first] = rows();
+    expect(first?.textContent).toContain("MCP 설정 저장");
+    expect(first?.textContent).toContain("새 릴리스를 만들지 않습니다.");
+    expect(first?.textContent).not.toContain("저장소와 GitHub");
+    expect(first?.textContent).toContain("처음 저장");
+    expect(first?.textContent).toContain(
+      "이후: 서버 docs · 도구 mcp__docs__read · 자격 증명 docs-key",
+    );
+    expect(second?.textContent).toContain(
+      "이전: 서버 docs · 도구 mcp__docs__read · 자격 증명 docs-key",
+    );
+    expect(second?.textContent).toContain(
+      "이후: 서버 없음 · 도구 없음 · 자격 증명 없음",
+    );
+    expect(table.textContent).not.toContain("sk-LEAKED-VALUE");
+    expect(within(first as HTMLElement).queryByRole("button")).toBeNull();
+  });
+
   test("GitHub 기록을 못 읽어도 릴리스 기록은 그대로 보인다", async () => {
     const server = agentServer();
     await releasedTwice(server);
@@ -2288,7 +2357,7 @@ describe("에이전트 상세", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(table.querySelector('[data-kind="access"]')).toBeNull();
   });
-  test("릴리스마다 직전 릴리스 대비 바뀐 것을 보이고, 자격 증명은 값 없이 변경됨으로만 보인다", async () => {
+  test("릴리스마다 직전 릴리스 대비 바뀐 것을 보이고, 자격 증명은 값 없이 변경됨으로만 보이며 카드의 이름은 싣지 않는다", async () => {
     const user = await setupUser();
     const server = agentServer();
     await seedRelease(server);
@@ -2352,9 +2421,10 @@ describe("에이전트 상세", () => {
     });
     expect(within(repositories).getByText("+ agent-skills")).toBeTruthy();
     const secrets = within(dialog).getByRole("region", { name: "자격 증명" });
-    expect(within(secrets).getAllByText("변경됨")).toHaveLength(2);
+    expect(within(secrets).getAllByText("변경됨")).toHaveLength(1);
     for (const value of ["OLD_SECRET_NAME", "NEW_SECRET_NAME", "github-token"])
       expect(dialog.textContent).not.toContain(value);
+    expect(within(dialog).queryByText("자격 증명 이름")).toBeNull();
     expect(dialog.textContent).toContain(`직전 릴리스 ${older.label}와 비교`);
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
