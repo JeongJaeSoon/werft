@@ -171,6 +171,28 @@ describe("the commit-msg hook", () => {
     expect(log).toContain(`Agent-Session: ${SESSION_URL}`);
   });
 
+  test("a repository hook that appends a paragraph after the trailers does not make them repeat (94S-1444)", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    repoHook("commit-msg", `printf '\\nHusky-Ran: yes\\n' >>"$1"`);
+    git(["commit", "-q", "--allow-empty", "-m", "Fix the thing"]);
+    expect(lastMessage()).toBe(
+      [
+        "Fix the thing",
+        "",
+        "Husky-Ran: yes",
+        `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+        `Agent-Session: ${SESSION_URL}`,
+      ].join("\n"),
+    );
+    const parsed = git(["log", "-1", "--format=%(trailers:only,unfold)"]).out;
+    expect(
+      parsed.split("\n").filter((l) => l.startsWith("Agent-Session:")),
+    ).toHaveLength(1);
+    expect(
+      parsed.split("\n").filter((l) => l.startsWith("Co-authored-by:")),
+    ).toHaveLength(1);
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,
