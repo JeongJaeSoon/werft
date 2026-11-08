@@ -51,8 +51,8 @@ ap_web GET "/v1/workspaces/$WS/github-app" | tee "$EVIDENCE/gh-app-get.txt"
 
 ```sh
 # 3. 상한(Actions)과 에이전트 릴리스
-ap_web GET "/v1/workspaces/$WS/github-settings"            # revision 0, 모두 false
-ap_web PUT "/v1/workspaces/$WS/github-settings" '{"ceiling":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"revision":0}'
+REV=$(ap_web GET "/v1/workspaces/$WS/github-settings" | head -1 | jq -r .revision)   # 모두 false. App 등록이 revision을 올려 새 설치도 0이 아니다(2026-11-09 run: 2)
+ap_web PUT "/v1/workspaces/$WS/github-settings" "$(jq -nc --argjson r "$REV" '{ceiling:{workflows:false,actions:true,checks:false,issues:false,review:false},revision:$r}')"
 CARD='{"role":"sandbox","instructions":"Follow the script.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read","Bash"],"mcp":null,"forbidden":[]},"rules":[]}'
 TEAM=$(ap_web POST /v1/teams '{"name":"sandbox"}' | head -1 | jq -r .team.id)
 A=$(ap_web POST /v1/agents "{\"slug\":\"sandbox\",\"name\":\"sandbox\",\"managing_team_id\":\"$TEAM\",\"card\":$CARD}" | head -1)
@@ -75,7 +75,7 @@ ap_web GET "/v1/workspaces/$WS/achievement-judge" | head -1 | jq -c '.achievemen
 
 기대: 규칙 `{"title":"PR 열기","judge":"always","version":1}`, 판정 설정 `connection_id: null`, `on_evidence: true`. type의 key 칸은 jq에서 `.["key"]`로 읽는다(점 표기는 agent-guard의 키 파일 경로 패턴에 걸린다).
 
-기대: 상한 PUT `200` `revision: 1`. 릴리스 `200` `release.id`(`sha256:…`), 활성화 `200`. `GET …/github`는 `enabled: true`, `github`가 보낸 값, `active_release_id`가 `REL`.
+기대: 상한 PUT `200` `revision`이 읽은 값 + 1. 상한 PUT이 실패하면 릴리스가 `actions_off`로 거절되어 아래 `REL`이 비므로 먼저 이 응답을 본다. 릴리스 `200` `release.id`(`sha256:…`), 활성화 `200`. `GET …/github`는 `enabled: true`, `github`가 보낸 값, `active_release_id`가 `REL`.
 
 ```sh
 # 4. 세션: clone → commit(Bash 권한 허용)
@@ -92,6 +92,20 @@ ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
 기대: 세션 `201`(저장소 `sandbox`), `needs_input`에 Bash 권한 요청 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+
+```sh
+# 4b. push 거절 3종 (승인 전 push 요청이 없는 상태에서, 5보다 먼저)
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+P=$(ap_post "/v1/sessions/$SID/push-requests" '{}' | head -1); P1=$(echo "$P" | jq -r .id); C1=$(echo "$P" | jq -r .git_commit)
+ap_post "/v1/sessions/$SID/push-requests/$P1/pull-request" '{}'      # 승인 전: 409 PUSH_NOT_PUSHED
+gh api "repos/JeongJaeSoon/werft-sandbox/branches/agent/$SID" --jq .name   # 404, 아직 원격에 브랜치가 없다
+ap_web POST "/v1/sessions/$SID/push-requests/$P1/reject" "$(jq -nc --arg c "$C1" '{git_commit:$c, reason:"verify reject"}')"   # 200 rejected
+ap_web POST "/v1/sessions/$SID/push-requests/$P1/approve" "$(jq -nc --arg c "$C1" '{git_commit:$c}')"   # 409 PUSH_REQUEST_RESOLVED
+ap_post "/v1/sessions/$SID/push-requests/$P1/pull-request" '{}'      # 409 PUSH_NOT_PUSHED (push_request_state: rejected)
+for B in refs/heads/main HEAD ../main main/x; do ap_post "/v1/sessions/$SID/push-requests" "$(jq -nc --arg b "$B" '{branch:$b}')"; done   # 모두 400 BAD_REQUEST
+```
+
+기대: 위 주석대로다. 오류 본문에 `details.refusal`(`not_pushed`·`already_resolved`)과 `receipt_id`가 있다. 대상 브랜치는 계약상 항상 `agent/<SID>[-접미사]`라 기본 브랜치를 가리킬 수 없다. 접미사 칸에 `main`·`master`를 넣으면 거절이 아니라 `agent/<SID>-main` 요청이 201로 만들어진다(기본 브랜치에는 닿지 않는다). 그 요청은 reject로 정리한다. worker의 직접 `git push`는 egress proxy에 receive-pack 경로가 없어 막힌다(`apps/egress-proxy/src/credential.ts`).
 
 ```sh
 # 5. push 요청 → 승인 → push → PR
@@ -145,7 +159,25 @@ orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id> --k
 orch release verify-stack
 ```
 
+2026-11-09 run `20261109-010523-64012`(main `2e0f1eb0`)가 fresh main에서 한 run으로 1–4b, 5–7을 확인했다.
+
+| 단계 | 결과 | 근거 |
+|---|---|---|
+| App 등록 | 통과 | PUT `200`(`app_id` 5513262, `werft-sandbox-agent`, `receipt_id` 224102b3), GET `check.state: "ok"`, 설치 176243287 |
+| 1 clone | 통과 | 세션 518de2c6 turn 1 `completed`, `mint_github_token` `clone` 07a7e7ba(만료 17:08:26Z) |
+| 1 재발급 | 통과 | 같은 세션 두 번째 turn의 `git fetch`와 두 번째 세션은 receipt가 늘지 않는다(게이트가 캐시 토큰을 쓰고, 새로 발급할 때만 receipt를 남긴다). api 컨테이너만 재시작한 뒤 세 번째 세션에서 `mint_github_token` `clone` d315cd9b(만료 17:25:17Z)가 새로 남았다 |
+| 2 승인 전 | 통과 | `requested` 상태의 PR 열기 `409 PUSH_NOT_PUSHED`, 원격 브랜치 404 |
+| 3 rejected | 통과 | reject `200`, 이어서 approve `409 PUSH_REQUEST_RESOLVED`(`already_resolved`), PR 열기 `409 PUSH_NOT_PUSHED`(`rejected`), 브랜치 404 |
+| 4 기본 브랜치 | 통과(구조) | `refs/heads/main`·`HEAD`·`../main`·`main/x`는 `400`, `main`·`master`는 `agent/<SID>-main`·`-master`로만 만들어져 reject로 정리 |
+| 5 승인 뒤 push | 통과 | 요청 fd99c084 승인 `200` → `pushed`, 원격 `agent/518de2c6-…` 커밋 0c8bd23(`werft-sandbox-agent[bot]`), `push` receipt c8b9882f |
+| 6 PR | 통과 | [werft-sandbox#134](https://github.com/JeongJaeSoon/werft-sandbox/pull/134) `201 created: true`, GitHub 작성자 `app/werft-sandbox-agent` |
+| 7 코멘트 | 통과 | `POST …/pull-request/comments` `201`, [코멘트](https://github.com/JeongJaeSoon/werft-sandbox/pull/134#issuecomment-6723821686), 작성자 `werft-sandbox-agent` |
+
+receipt의 actor: `open_pull_request`(1fb91f38)와 `comment_pull_request`(e780458c)는 세션을 만든 개인 key(`principal.kind: api_key`)와 그 소유자(`actor_user_id`)다. `push` receipt(c8b9882f)의 `actor`는 null이고 `result.approved_by`가 승인한 사람이다. `mint_github_token` `push`·`pull_request`·`outcome_refresh`는 같은 run에서 `succeeded`다. 즉 receipt는 플랫폼 쪽 행위자(사람과 key)를 적고, 작성용 App은 GitHub 쪽 결과(브랜치 커밋 작성자, PR 작성자, 코멘트 작성자)에서 확인한다. 두 쪽이 서로 어긋나지 않는다. 시험 PR은 닫고 브랜치를 지웠다. 세션의 `open_pull_request` `failed` receipt 둘은 2·3단계 거절의 기록이고, `resolve_push` `failed` 하나는 3단계의 approve 거절이다. `down.sh --keep-volumes` 뒤 컨테이너·네트워크 0.
+
 ## Gotchas
+
+- **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
 
 - **운영자 단계가 남은 항목.** 2026-10-30 기준 App에는 Actions 권한이 없고 werft-sandbox `main`에는 `.github/workflows/`가 없다(설계 문서 9절의 운영자 단계 1·4). 그래서 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 운영자 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
 - **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/sessions/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
