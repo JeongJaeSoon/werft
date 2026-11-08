@@ -16,6 +16,7 @@ import {
   AGENT_CARD_LANGUAGE_VALUES,
   mcpServerIdSchema,
 } from "../kollegium/agents.ts";
+import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_INSTRUCTIONS_MAX_LENGTH,
@@ -79,13 +80,16 @@ export const checkpointRefSchema = z.object({
 //   platform_tool_trust: an `mcp_servers` entry may carry `platform` and
 //     `trusted`, and the worker lets the named tools past the engine's
 //     permission stage
+//   user_env: `runtime_config` may carry `env`, the user variables the engine
+//     process is started with
 // A server older than a key refuses the body as a 400 whose `details.issues`
-// names it; the worker sends once more without `platform_tool_trust`, so
-// neither side has to deploy first.
+// names it; the worker sends once more without the refused key, so neither
+// side has to deploy first.
 export const workerCapabilitiesSchema = z
   .object({
     approval_remember: z.literal(true).optional(),
     platform_tool_trust: z.literal(true).optional(),
+    user_env: z.literal(true).optional(),
   })
   .strict();
 
@@ -331,6 +335,11 @@ export const runtimeConfigSchema = z
     // `agent_instructions`. Absent for a session created without it
     // (revision 0), so its claims and fingerprints stay what they were.
     platform_prompt: platformPromptSchema.optional(),
+    // The user variables the session's engine process starts with. Only sent
+    // to a worker that announced `user_env`, and absent when there are none,
+    // so a session without variables claims exactly as before. Not part of
+    // any fingerprint: changing a value must not break a running session.
+    env: runtimeEnvSchema.optional(),
   })
   .strict();
 

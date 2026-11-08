@@ -21,6 +21,7 @@ import {
   userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
+import { cardEnvDeclarationSchema } from "./env-variables.ts";
 
 export {
   AGENT_DESCRIPTION_MAX_LENGTH,
@@ -146,6 +147,11 @@ export const agentCapabilitiesSchema = z
         "credential_refs must not repeat a name",
       )
       .optional(),
+    /**
+     * The variable names the release takes as input; only these reach a
+     * session. Optional for the same reason as `tool_policy`.
+     */
+    env: cardEnvDeclarationSchema.optional(),
   })
   .strict();
 

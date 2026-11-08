@@ -50,6 +50,10 @@ import { messageOf as message } from "./message-of.ts";
 
 import type { WorkerGatewaySession } from "./worker-host.ts";
 
+// The capability keys a control-host older than the key refuses as a 400.
+// `approval_remember` is not among them: no server old enough exists.
+const REFUSABLE_CAPABILITIES = ["platform_tool_trust", "user_env"] as const;
+
 // Only what a response body has to answer, so the worker never imports zod.
 type Decoder<T> = { parse(value: unknown): T };
 
@@ -93,33 +97,43 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   bootstrapClaim(
     request: BootstrapClaimRequest,
   ): Promise<BootstrapClaimResponse> {
-    return this.withTrustFallback(request, (body) =>
+    return this.withCapabilityFallback(request, (body) =>
       this.post("/bootstrap-claim", body, bootstrapClaimResponseSchema),
     );
   }
 
-  // A control-host older than `platform_tool_trust` refuses the whole body for
-  // that one key. Rather than leave the worker to exit while the two sides are
-  // mid-deploy, send once more without it: the server then hands out no
-  // `trusted`, and the tools stay behind the engine's permission stage. Once
-  // refused, the key stays off for this client's lifetime.
-  private trustRefused = false;
+  // A control-host older than a capability key refuses the whole body for that
+  // one key. Rather than leave the worker to exit while the two sides are
+  // mid-deploy, send once more without the keys it named: for
+  // `platform_tool_trust` the server then hands out no `trusted`, and the
+  // tools stay behind the engine's permission stage; for `user_env` it sends
+  // no `env` (and a session that needs one waits, see the claim). Once
+  // refused, a key stays off for this client's lifetime.
+  private readonly refusedCapabilities = new Set<string>();
 
-  private async withTrustFallback<
+  private async withCapabilityFallback<
     R extends { capabilities?: WorkerCapabilities | undefined },
     T,
   >(request: R, send: (body: R) => Promise<T>): Promise<T> {
     const without = (): R => {
-      const { platform_tool_trust: _dropped, ...rest } =
-        request.capabilities ?? {};
-      return { ...request, capabilities: rest };
+      const kept = { ...(request.capabilities ?? {}) } as Record<
+        string,
+        unknown
+      >;
+      for (const key of this.refusedCapabilities) delete kept[key];
+      return { ...request, capabilities: kept as WorkerCapabilities };
     };
-    if (this.trustRefused) return send(without());
+    if (this.refusedCapabilities.size > 0) return send(without());
     try {
       return await send(request);
     } catch (error) {
-      if (!refusesCapability(error, "platform_tool_trust")) throw error;
-      this.trustRefused = true;
+      const refused = REFUSABLE_CAPABILITIES.filter(
+        (key) =>
+          request.capabilities?.[key] !== undefined &&
+          refusesCapability(error, key),
+      );
+      if (refused.length === 0) throw error;
+      for (const key of refused) this.refusedCapabilities.add(key);
       return send(without());
     }
   }
@@ -149,7 +163,7 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   pendingControl(
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
-    return this.withTrustFallback(request, (body) =>
+    return this.withCapabilityFallback(request, (body) =>
       this.post("/pending-control", body, pendingControlResponseSchema),
     );
   }
