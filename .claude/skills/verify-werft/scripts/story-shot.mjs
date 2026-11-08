@@ -30,6 +30,8 @@ try {
   const page = await browser.newPage({
     viewport: { width, height },
     colorScheme: theme,
+    // A story takes the locale from its globals; a demo page from the browser.
+    locale,
     isMobile: width < 600,
   });
   const errors = [];
@@ -50,8 +52,11 @@ try {
     .first()
     .waitFor();
   await page.evaluate(() => document.fonts.ready);
-  // Demo-mode data arrives after first paint; a story is settled by here.
-  if (isPage) await page.waitForTimeout(1500);
+  // First paint is not the wanted state: demo data arrives later and a story's
+  // async `play` can open a dialog after render. SETTLE overrides the pause.
+  await page.waitForTimeout(
+    Number(process.env.SETTLE ?? (isPage ? 1500 : 500)),
+  );
   await page.screenshot({ path: out, fullPage: full === "full" });
   const { sw, iw } = await page.evaluate(() => ({
     sw: document.documentElement.scrollWidth,
