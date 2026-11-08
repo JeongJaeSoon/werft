@@ -123,14 +123,23 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
 };
 
 // Only the notice that a channel waits for approval may go to a channel
-// whose binding waits.
+// whose binding waits, or was rejected and has no live binding since.
 const channelNotWaiting = (row: SQL) => sql`(
   ${row}.kind = 'notice' OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
-      AND b.status = 'pending_approval'
-      AND b.revoked_at IS NULL
+      AND (
+        (b.status = 'pending_approval' AND b.revoked_at IS NULL)
+        OR (b.status = 'revoked' AND b.approved_at IS NULL
+            AND b.surface_kind = 'private_channel')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM surface_bindings r
+        WHERE r.installation_id = b.installation_id
+          AND r.external_surface_id = b.external_surface_id
+          AND r.status = 'ready' AND r.revoked_at IS NULL
+      )
   )
 )`;
 

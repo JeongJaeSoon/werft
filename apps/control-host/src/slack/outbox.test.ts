@@ -1287,6 +1287,35 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(posted()).toEqual([]);
   });
 
+  test("a reply made after its channel was rejected is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const [binding] = await db.select().from(surfaceBindings);
+    const rejected = await createPostgresSurfaceBindingStore(db).reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(rejected.outcome).toBe("resolved");
+
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
   test("each request a turn waits on gets its own card once, with the buttons that settle it", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

@@ -402,6 +402,7 @@ describe("Slack events service", () => {
   test("bots and other subtypes are dropped; plain, thread_broadcast and mentions are kept", async () => {
     const w = world();
     await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
     const message = { type: "message", channel: "C0CHAN", ts: "1.1" };
     const cases = [
       [
@@ -538,6 +539,7 @@ describe("Slack events service", () => {
       ).toMatchObject({ status: "received" });
     }
     w.pendingChannels.delete("G0WAIT");
+    w.readyChannels.set("G0WAIT", "private_channel");
     const result = await w.service.receive(
       w.signed(
         w.event({
@@ -588,6 +590,28 @@ describe("Slack events service", () => {
     expect(stored).toHaveLength(1);
     expect(JSON.stringify(stored[0])).not.toContain("1234");
     expect(outcomes.G0OK).toMatchObject({ status: "received" });
+
+    const mention = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0P",
+          text: `<@${BOT_USER}> the launch code is 1234`,
+          channel: "G0REJECTED",
+          ts: "1.2",
+        }),
+      ),
+    );
+    expect(mention).toMatchObject({ status: "received" });
+    const kept = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" &&
+      (row.payload as { event: { channel: string } }).event.channel ===
+        "G0REJECTED"
+        ? [row.payload]
+        : [],
+    );
+    expect(kept).toHaveLength(1);
+    expect(JSON.stringify(kept[0])).not.toContain("1234");
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {

@@ -234,7 +234,10 @@ export function createSlackEventsService(deps: {
             !(
               bound?.status === "ready" &&
               bound.channelKind === "private_channel"
-            ));
+            )) ||
+          // No binding to read the kind from, and the event does not say it
+          // is a public channel (an app_mention carries no channel_type).
+          (bound === null && event.channel_type !== "channel");
         if (unapproved) {
           const mentioned =
             event.type === "app_mention" ||
