@@ -12,31 +12,50 @@ import {
 } from "@werft-ai/ui";
 import { useState } from "react";
 
-const PROFILES = [
-  {
-    id: "claude-coding-local",
-    label: "claude-coding-local v1 · claude-sonnet-5",
-    deny: ["Bash", "WebFetch", "WebSearch"] as readonly string[] | null,
-  },
-  {
-    id: "general",
-    label: "general v1 · claude-sonnet-5",
-    deny: [] as readonly string[] | null,
-  },
-  {
-    id: "legacy-runtime",
-    label: "legacy-runtime v1 · claude-sonnet-5",
-    deny: null as readonly string[] | null,
-  },
+// The pinned build's tool catalog, as profiles.stories.tsx lists it.
+const CATALOG_TOOLS = [
+  "Read",
+  "Edit",
+  "Write",
+  "Glob",
+  "Grep",
+  "NotebookEdit",
+  "Bash",
+  "AskUserQuestion",
+  "WebFetch",
+  "WebSearch",
 ] as const;
 
-type State = (typeof PROFILES)[number]["id"];
+// The profiles the card editor stories used before, with the tools they run.
+// What a profile blocks is the catalog without them.
+const PROFILE_TOOLS = {
+  "claude-coding-local": [
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep",
+    "Bash",
+    "AskUserQuestion",
+  ],
+  general: ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
+} as const;
+
+const PROFILES = (
+  Object.keys(PROFILE_TOOLS) as (keyof typeof PROFILE_TOOLS)[]
+).map((id) => ({
+  id,
+  label: `${id} v1 · claude-sonnet-5`,
+  deny: CATALOG_TOOLS.filter(
+    (tool) => !(PROFILE_TOOLS[id] as readonly string[]).includes(tool),
+  ),
+}));
+
+type State = keyof typeof PROFILE_TOOLS;
 
 function AgentCardToolsScreen({ state }: { readonly state: State }) {
   const [previewId, setPreviewId] = useState<string>(state);
-  const preview =
-    PROFILES.find((profile) => profile.id === previewId) ?? PROFILES[0];
-  const deny = preview.deny;
+  const deny = PROFILES.find((profile) => profile.id === previewId)?.deny ?? [];
   return (
     <form
       key={state}
@@ -62,22 +81,13 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
             카드에는 저장하지 않습니다.
           </FieldDescription>
         </Field>
-        {deny === null ? (
-          <FieldDescription>
-            이 프로필은 도구 목록을 알 수 없는 런타임이라 막은 도구를 보여 줄 수
-            없습니다.
-          </FieldDescription>
-        ) : deny.length === 0 ? (
-          <FieldDescription>이 프로필이 막은 도구는 없습니다.</FieldDescription>
-        ) : (
-          <ul className="flex flex-wrap gap-1">
-            {deny.map((tool) => (
-              <li key={tool}>
-                <Badge variant="mono">{tool}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="flex flex-wrap gap-1">
+          {deny.map((tool) => (
+            <li key={tool}>
+              <Badge variant="mono">{tool}</Badge>
+            </li>
+          ))}
+        </ul>
         <FieldDescription>
           에이전트가 쓰는 도구는 프로필이 정합니다. 에이전트마다 따로 고르지
           않습니다.
@@ -111,13 +121,9 @@ const MOBILE = { viewport: { value: "mobile390", isRotated: false } };
 export const AgentCardToolsBlocked: Story = {
   name: "Tools the profile blocks",
 };
-export const AgentCardToolsNoneBlocked: Story = {
-  name: "No tool blocked",
+export const AgentCardToolsBlockedGeneral: Story = {
+  name: "Tools the profile blocks (general)",
   args: { state: "general" },
-};
-export const AgentCardToolsUnknown: Story = {
-  name: "Runtime with no tool list",
-  args: { state: "legacy-runtime" },
 };
 export const AgentCardToolsBlockedMobile: Story = {
   name: "Tools the profile blocks (390px)",
