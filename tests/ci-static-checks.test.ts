@@ -326,7 +326,7 @@ test("all product and site consumers use the same explicit plan", () => {
   expect(
     workflow.jobs.changes?.steps.find((step) => step.id === "plan")?.env
       ?.BASE_REF,
-  ).toBe(`\${{ github.event.pull_request.base.ref }}`);
+  ).toBe("main");
   for (const key of [
     "tests",
     "product",
