@@ -637,6 +637,10 @@ function MembersTab({
   );
 }
 
+// Same fill the web app gives an inactive member's row.
+const INACTIVE_ROW =
+  "bg-hover has-[[data-slot=grid-table-row-opener]]:hover:bg-active";
+
 function MemberTableRow({
   member,
   self,
@@ -670,7 +674,11 @@ function MemberTableRow({
     </RowAction>
   );
   return (
-    <GridTableRow inactive={disabled} data-disabled={disabled}>
+    <GridTableRow
+      inactive={disabled}
+      className={disabled ? INACTIVE_ROW : undefined}
+      data-disabled={disabled}
+    >
       <GridTableCell lines={true}>
         <GridTableRowOpener
           aria-label={disabled ? `${name} 편집 (비활성)` : `${name} 편집`}
@@ -685,9 +693,12 @@ function MemberTableRow({
             {name}
           </Text>
           {disabled ? (
-            <Text as="span" className="sr-only">
-              {" (비활성)"}
-            </Text>
+            <Badge
+              variant="gray"
+              className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+            >
+              비활성
+            </Badge>
           ) : null}
           {self ? (
             <Badge
@@ -1205,20 +1216,21 @@ function TeamMembers({
   const shown = team.members.filter((member) =>
     matches(query, member.display_name, member.email),
   );
+  const inactive = new Set(
+    PEOPLE.filter((person) => person.disabled_at !== null).map(
+      (person) => person.user_id,
+    ),
+  );
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
     "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "max-content",
+    manages && "12rem",
   ]
     .filter(Boolean)
     .join(" ");
-  const narrowColumns = [
-    "minmax(0,1fr)",
-    "max-content",
-    manages && "max-content",
-  ]
+  const narrowColumns = ["minmax(0,1fr)", "96px", manages && "12rem"]
     .filter(Boolean)
     .join(" ");
   return (
@@ -1281,17 +1293,26 @@ function TeamMembers({
               {shown.map((member) => {
                 const name = member.display_name ?? member.email;
                 const role = roles?.get(member.user_id);
+                const off = inactive.has(member.user_id);
                 return (
-                  <GridTableRow key={member.user_id}>
+                  <GridTableRow
+                    key={member.user_id}
+                    inactive={off}
+                    className={off ? INACTIVE_ROW : undefined}
+                    data-disabled={off}
+                  >
                     <GridTableCell>
                       <Avatar
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
                       <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <Text as="span" weight="medium" truncate>
+                            {name}
+                          </Text>
+                          {off ? <Badge variant="gray">비활성</Badge> : null}
+                        </div>
                         {member.display_name !== null && (
                           <Text
                             as="span"

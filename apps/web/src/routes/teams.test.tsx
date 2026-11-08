@@ -549,6 +549,53 @@ describe("팀 화면", () => {
     expect(api.calls.some((c) => c.path === "/v1/members")).toBe(false);
   });
 
+  test("관리자의 팀 상세는 비활성 구성원 행만 회색 배경과 배지로 구분하고 모든 열이 고정 폭이다", async () => {
+    const teamMember = (person: MemberView): TeamDetail["members"][number] => ({
+      user_id: person.user_id,
+      email: person.email,
+      display_name: person.display_name,
+      role: "member",
+      added_by: USER_ID,
+      added_at: AT,
+    });
+    const server = teamServer({
+      members: [teamMember(owner), teamMember(mate)],
+    });
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      "GET /v1/members": () =>
+        json(
+          200,
+          memberPage({
+            items: [owner, { ...mate, disabled_at: AT }],
+            next_cursor: null,
+          }),
+        ),
+    });
+    const table = await screen.findByRole("table", { name: "팀 구성원" });
+    await waitFor(() =>
+      expect(within(table).getAllByRole("row")).toHaveLength(3),
+    );
+    await waitFor(() =>
+      expect(within(table).getAllByText("소유자").length).toBeGreaterThan(0),
+    );
+    const ownerRow = within(table).getAllByRole("row")[1] as HTMLElement;
+    const mateRow = within(table).getAllByRole("row")[2] as HTMLElement;
+    const badge = (row: HTMLElement) =>
+      within(row).queryByText("비활성", { selector: "[data-slot=badge]" });
+    expect(badge(mateRow)).not.toBeNull();
+    expect(mateRow.getAttribute("data-inactive")).toBe("true");
+    expect(mateRow.classList.contains("bg-hover")).toBe(true);
+    expect(badge(ownerRow)).toBeNull();
+    expect(ownerRow.hasAttribute("data-inactive")).toBe(false);
+    expect(ownerRow.classList.contains("bg-hover")).toBe(false);
+    // A max-content track would size to each row's own buttons.
+    const template = (table as HTMLElement).style.getPropertyValue(
+      "--grid-table-columns",
+    );
+    expect(template).not.toContain("max-content");
+  });
+
   test("팀 상세를 볼 수 없는 사람에게도 화면 제목이 있다", async () => {
     renderAt(`/members/teams/${TEAM_ID}`, {
       "GET /v1/auth/me": () => json(200, memberMe()),

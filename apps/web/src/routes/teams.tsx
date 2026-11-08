@@ -74,6 +74,10 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { Notice } from "../components/auth-page.tsx";
+import {
+  INACTIVE_ROW_CLASS,
+  InactiveBadge,
+} from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -209,6 +213,8 @@ export function TeamsScreen() {
 // The same frame as the 구성원 table; the count and its arrow share the
 // second track, so every row's arrow lines up.
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
+// "Change role" and "Remove" side by side in the longest language.
+const TEAM_ACTIONS_COLUMN = "12rem";
 
 function TeamTable({
   items,
@@ -583,21 +589,29 @@ function TeamMembers({
   const shown = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  // Below 640px the date and the workspace role drop out; the name keeps
-  // what the team role and the buttons leave.
+  const inactive = new Set(
+    members.data?.items
+      .filter((member) => member.disabled_at !== null)
+      .map((member) => member.user_id),
+  );
+  // Every track is fixed: each row is its own grid, so a max-content track
+  // would size to that row's buttons and the header's "Actions" alone, and
+  // push the columns before it out from under their headers. Below 640px the
+  // date and the workspace role drop out; the name keeps what the team role
+  // and the buttons leave.
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
     "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "max-content",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    "max-content",
-    manages && "max-content",
+    "96px",
+    manages && TEAM_ACTIONS_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -684,17 +698,26 @@ function TeamMembers({
               {shown.map((member) => {
                 const name = member.display_name ?? member.email;
                 const memberRole = roles?.get(member.user_id);
+                const off = inactive.has(member.user_id);
                 return (
-                  <GridTableRow key={member.user_id}>
+                  <GridTableRow
+                    key={member.user_id}
+                    inactive={off}
+                    className={off ? INACTIVE_ROW_CLASS : undefined}
+                    data-disabled={off}
+                  >
                     <GridTableCell>
                       <Avatar
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
                       <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <Text as="span" weight="medium" truncate>
+                            {name}
+                          </Text>
+                          {off ? <InactiveBadge /> : null}
+                        </span>
                         {member.display_name !== null && (
                           <Text
                             as="span"
