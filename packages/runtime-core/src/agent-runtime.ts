@@ -4,6 +4,7 @@ import type { AgentRun } from "./agent-run.ts";
 import type { TranscriptMirror } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor } from "./descriptor.ts";
 import type { GitEnvironment } from "./git-environment.ts";
+import type { UserEnvironment } from "./user-environment.ts";
 
 export type AgentInput = {
   message: string;
@@ -48,6 +49,14 @@ export type RuntimeStartConfig = RuntimeMode & {
   maxTurns?: number;
   model: string;
   permissionMode: PermissionMode;
+  /**
+   * The user variables the session's engine side runs with, from the claim's
+   * `runtime_config.env`. An adapter applies them the way its descriptor's
+   * `toolEnv` says, merges them before its own keys so a platform key always
+   * wins, and checks them with `assertUserEnvironment`. Absent when the
+   * session has none. Never part of a checkpoint's fingerprint.
+   */
+  userEnvironment?: UserEnvironment;
   tools: readonly string[];
 };
 

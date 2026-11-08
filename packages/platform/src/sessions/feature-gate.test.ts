@@ -27,6 +27,7 @@ const full: RuntimeDescriptor = {
   },
   extraFeatures: {},
   toolEnv: "engine_inherited",
+  secretEnv: "none",
   instructionFiles: [],
 };
 // No classifier, and MCP only by emulation.

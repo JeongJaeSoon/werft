@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { releaseLabelSchema } from "../kollegium/agents.ts";
+import { envRefusalSchema } from "../kollegium/env-variables.ts";
 import {
   slackPermalinkSchema,
   surfaceKindSchema,
@@ -242,6 +243,14 @@ export const sessionAttentionSchema = z.discriminatedUnion("code", [
     reason: z.enum(TRANSCRIPT_LIMIT_REASON_VALUES),
     transcript_bytes: z.number().int().nonnegative().nullable(),
     limit_bytes: z.number().int().positive(),
+  }),
+  // A name the release's card declares no longer reaches the session (deleted,
+  // not granted any more, or the runtime cannot carry it), so no worker runs
+  // it. It names the cause, never the variable: the requester is not the
+  // administrator.
+  z.object({
+    code: z.literal("VARIABLE_REFUSED"),
+    reason: envRefusalSchema,
   }),
 ]);
 export const sessionDurabilitySchema = z.object({

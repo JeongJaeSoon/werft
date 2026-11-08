@@ -31,6 +31,7 @@ export * from "./git-environment.ts";
 export * from "./image-runtime.ts";
 export * from "./module.ts";
 export * from "./transcript-store.ts";
+export * from "./user-environment.ts";
 export * from "./worker-gateway-client.ts";
 export * from "./workspace.ts";
 export * from "./workspace-restore.ts";
