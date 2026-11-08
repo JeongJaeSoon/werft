@@ -1,0 +1,110 @@
+---
+title: "プラットフォームのメトリクス契約"
+description: "メトリクス名、label、集計基準を確認します"
+pageId: "P25"
+docType: "レファレンス"
+audience: "監視ルール作成者"
+outcome: "メトリクス名、label、集計基準を確認します"
+---
+
+<a id="계약" />
+## 契約
+
+設置環境全体の Prometheus メトリクスの名前、型、label、集計基準を定めます。コレクターの接続は[メトリクス収集](/run-server/self-hosting/collect-metrics)に従います。
+
+<a id="값을-만드는-방식" />
+## 値の生成方法
+
+- **scrape 時に DB から計算します。** `metrics` role（`bun run apps/control-host/src/main.ts metrics`）は状態を持ちません。要求ごとに `packages/db/src/metrics-reader.ts` のクエリで DB を読み、`apps/control-host/src/metrics/families.ts` がメトリクスに変換します。そのため Pod が再起動しても counter は 0 に戻りません。
+- **target は一つです。** 値は環境全体の合計なので、replica が二つなら同じ値を二度返します。chart は replica を 1 に固定し、`Recreate` で置き換えます。
+- **読み取り専用の接続です。** DB 接続は `default_transaction_read_only=on` で開くため、誤って送った書き込みは DB が拒否します。ただしセッション設定であり DB 権限ではありません。`DATABASE_URL` のアカウントは他の role と同じで書き込み権限があり、接続内で設定を戻せば書き込めます。この設定は接続開始パラメーターの `options` で送るため、`options` を拒否する接続 pooler（`ignore_startup_parameters` に `options` がない PgBouncer など）を経由すると metrics role だけが接続できません。
+- **同時 scrape では一度だけ読み取ります。** 読み取り中に来た要求には同じ結果を返します。読み取りに失敗すると 503 を返し、以前の値は返しません（コレクターでは scrape 失敗、Prometheus の `up` = 0）。
+- **`/healthz`** はプロセスが応答するかだけを確認します。probe は DB を読みません。
+
+scrape ごとに DB を読んで集計します。scrape 間隔を短くするほど DB 負荷が増えます。収集時間が scrape 間隔の半分を超えたら、間隔を延ばすことを検討します。
+
+<a id="지표" />
+## メトリクス
+
+接頭辞は `werft_` です。コードでは `apps/control-host/src/metrics/families.ts` の `METRIC_PREFIX` 一箇所で定めます。
+
+| 名前 | 型 | label | 意味 |
+|---|---|---|---|
+| `werft_sessions` | gauge | `state`、`status`、`admission` | セッション数。`state` は下の状態表で決まります。`status` は API が示す状態（`needs_input` を含む）、`admission` は `sessions.admission_state` です |
+| `werft_turns_total` | counter | `status` | `completed`・`failed`・`interrupted`・`cancelled` で終了した turn 数 |
+| `werft_turn_duration_seconds` | histogram | `status`、`le` | 上記 turn のうち開始したものの開始から終了までの時間。bucket は 1、5、15、30、60、120、300、600、1800、3600 秒 |
+| `werft_turns_outcome_unknown` | gauge | なし | execution が消失し、結果が不明な turn 数。運用者の復旧判断を待ちます |
+| `werft_tool_calls_total` | counter | `tool` | エンジンが呼び出したツールの呼び出し数 |
+| `werft_tool_calls` | gauge | `tool`、`outcome` | 現在の結果別ツール呼び出し数。`ok`、`failed`、`denied`、`unknown`（結果がまだない） |
+| `werft_provider_tokens_total` | counter | `model`、`priced_by`、`kind` | provider 呼び出しで測定したトークン数。`kind` は `input`・`output`・`cache_read`・`cache_creation` |
+| `werft_provider_cost_usd_total` | counter | `model`、`priced_by` | provider の推定費用（USD）。Kubernetes インフラ費用ではありません |
+| `werft_launch_queue_sessions` | gauge | なし | worker launch を待つセッション数 |
+| `werft_launch_queue_oldest_wait_seconds` | gauge | なし | launch キューで最も長く待つセッションの待ち時間。空なら 0 |
+| `werft_input_queue_oldest_age_seconds` | gauge | なし | worker が未取得の入力のうち最も古いものの経過時間。空なら 0 |
+
+`tool_calls` が counter ではなく gauge なのは、ツールの結果が後で変わることがあるためです。結果イベントが遅れて届くと `unknown` が `ok` や `failed` になり、より早い結果が後から届くと既存結果を置き換えます（`packages/db/src/tool-calls.ts` の projection）。counter の値が減るとコレクターは reset と解釈し、増分が跳ねます。呼び出し数の増分は `tool_calls_total`、結果別の比率は `tool_calls` で確認します。
+
+`outcome_unknown` の turn を `turns_total` に含めない理由も同じです。運用者が復旧すると `completed` または `cancelled` に変わり、終了時刻もその時点に変わります。変更された turn はその時点で `turns_total` と histogram に入ります。
+
+<a id="세션-상태표" />
+### セッション状態表
+
+上から最初に一致する行が `state` です。各セッションは必ず一行だけに入るため、`state` 別の合計は全セッション数に等しくなります。
+
+| `state` | 条件 | 利用者に見える状態 |
+|---|---|---|
+| `ended` | `admission` が `stopping`・`stopped`・`closing`・`closed`、または保存された status が `stopped` | 終了 |
+| `paused` | `admission` が `pausing`・`paused` | 一時停止 |
+| `recovery_required` | `admission` が `recovery_required` | — |
+| `awaiting_approval` | API status が `needs_input` で、人が回答できる permission 要求があります | 承認待ち |
+| `awaiting_answer` | API status が `needs_input` で、人が回答できる要求は question だけです | — |
+| `running`・`queued`・`idle`・`failed` | API status のまま | 実行中は `running` |
+
+`needs_input` は DB に保存しません。実行中または turn を park したセッションに、人が回答できる要求があれば、読み取り時に `needs_input` になります（`packages/db/src/pending-requests.ts` の `publicStatus`）。メトリクスも同じ規則（`actionableOfSession`）を使います。`ended` は閉じたセッションを削除しないため増え続けます。現在の負荷は `ended` を除いた合計で見ます。
+
+<a id="도구-결과와-거절" />
+### ツールの結果と拒否
+
+- `ok`・`failed`・`unknown` は `tool_calls.outcome`（ツール結果ブロックの `is_error`）です。
+- `denied` は人が permission 要求に `deny` と回答した呼び出しです。`pending_requests`（`kind = 'permission'`、`answer.decision = 'deny'`）と `tool_calls` を `(session_id, tool_use_id)` で結びます。tool_use id は provider が与える一意の値なので、park した要求に次の attempt が回答した場合も同じ呼び出しとして結びます。同じ tool_use に一つでも `deny` 回答があれば、その後再許可されて実行されても `denied` に数えます。
+- エージェントのツールポリシーによる `deny`、期限切れやキャンセルされた要求、`tool_use_id` を送らない以前の worker による拒否は、`denied` ではなく結果ブロックどおり（`failed` など）に数えます。
+
+<a id="비용과-토큰" />
+### 費用とトークン
+
+- 費用は `provider_usage.cost_usd` の合計です。呼び出しの記録時にプラットフォーム価格表（`packages/platform/src/limits/model-prices.ts` の `priceProviderUsage`、`MODEL_PRICES`）が計算した値です。メトリクスは単価を再計算せず、別の単価設定も持ちません。
+- `priced_by` はその呼び出しの価格根拠です。`table`（価格表にあるモデル）、`fallback`（価格表にないため最高単価で計算）、`unmetered`（profile が `billing: none` のため費用 0）があります。セルフホストモデルなど費用 0 の呼び出しの使用量は、`priced_by="unmetered"` のトークン数で確認します。
+- **期間の基準は呼び出しの記録時刻（`provider_usage.recorded_at`）です。** 期間費用は `increase(werft_provider_cost_usd_total[1h])` のように counter の増分で見ます。
+- `GET /v1/usage/summary` とは三点異なります。期間内に作成して期間内に課金したセッションだけなら、両者は一致します（`packages/db/src/metrics-reader.test.ts`）。
+  - summary は期間内に**作成した**セッション（`sessions.created_at`）を選び、そのセッションの費用全体を足します。期間前に作成したセッションが期間内に使った費用はメトリクスにだけ入ります。
+  - summary は `sessions.cost_usd` を足します。この値はセッション費用欄の上限（99,999,999.999999 USD）で止まりますが、呼び出し別費用は止まりません。
+  - summary には呼び出し単位の記録ができる前（migration 0169 より前）のセッション費用（`session_pre_metering_cost`）が含まれますが、メトリクスには含まれません。
+- トークンは `provider_usage` の呼び出し別の値を足します。`cache_creation` は 1 時間 cache の書き込みを含む、全 cache 書き込みです。
+
+<a id="대기열" />
+### キュー
+
+- **launch キュー**：scheduler が次の pass に worker を起動できるセッションです。scheduler と同じ SQL 条件（`packages/db/src/scheduler-store.ts` の `awaitingLaunch`）で数えます。launch 可能な admission、execution 回収・takeover なし、費用・トークン上限以内、restore 再試行時刻を経過、slot を取得した launch なし、が条件です。上限は scheduler と同じ `config.limits` から読みます。待ち時間は `unassigned_sessions.signaled_at` から測ります。
+- **入力キュー**：`queue_messages` のうち、どの worker も取得しておらず、可視時刻を過ぎた入力です。compose の `werft.queue.oldest_age_seconds` と同じ意味です。
+
+<a id="라벨-규칙" />
+## label の規則
+
+- セッション id、turn id、利用者 id、API key id、エージェント id、attempt id は label にしません。エージェント別費用は `GET /v1/usage/*` で確認します。
+- `state`・`status`・`admission`・`outcome`・`priced_by`・`kind`・`le` には定義済みの値だけが出ます。
+- `tool` と `model` はデータに由来します。MCP ツールの `mcp__<server>__<tool>` は `mcp__<server>` にまとめます。その後、初出順に `tool` は 100 個、`model` は 50 個まで名前を保持し、残りは `other` にまとめます。行を削除しないため、名前を得た値は通常そのまま残ります。ただし上限到達後、projection が遅れて追加した行（`tool`）や遅れて commit された行（`model`、`recorded_at` は transaction 開始時刻）の時刻がより早いと、名前が一つ `other` と入れ替わる場合があります。そのとき押し出された名前の series は途切れ、入った名前は新しい series として始まり、`other` は一度跳ねるか reset として読まれます。
+- テスト：`apps/control-host/src/metrics/families.test.ts` の cardinality 節で、label 名の一覧、id 形式の値がないこと、上限を確認します。
+
+<a id="compose-지표와의-대응" />
+## compose メトリクスとの対応
+
+compose の Datadog overlay は PostgreSQL custom query で類似の値を出します（[Datadog の監視基準](/run-server/self-hosting/operate/monitoring-datadog)、`infra/datadog/conf.d/postgres.d/conf.yaml`）。Kubernetes 環境ではこのメトリクスを読み取れます。
+
+| compose（DB query） | このメトリクス |
+|---|---|
+| `werft.queue.oldest_age_seconds` | `werft_input_queue_oldest_age_seconds`（同じ意味） |
+| `werft.provider.cost_usd_1h` | `increase(werft_provider_cost_usd_total[1h])` |
+| `werft.provider.unmetered_tokens_1h` | `increase(werft_provider_tokens_total{priced_by="unmetered"}[1h])` の合計 |
+| `werft.provider.fallback_pricing_count_1h` | 対応なし（呼び出し数ではなく `priced_by="fallback"` の費用・トークンを見ます） |
+| `werft.turn.outcome_unknown_count` | 対応なし。`werft_turns_outcome_unknown` は直近 5 分の発生数ではなく、現在残っている数です |
+| `werft.checkpoint.pending_age_seconds`、`werft.lease.stale_count` | 対応なし |

@@ -1,0 +1,61 @@
+---
+title: "Kubernetesの停止・削除"
+description: "残るリソースとデータを確認してchartを削除します"
+pageId: "P14"
+docType: "作業"
+audience: "クラスター運用担当者"
+outcome: "残るリソースとデータを確認してchartを削除します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+セッションを先に止めてchartを削除し、残るworker・PVC・Secret・hook Jobを区別します。
+
+<a id="준비물" />
+## 準備
+
+正しいkubectl context・namespace・Helm release、DBとbucketのバックアップ、終了するセッション一覧が必要です。PVC削除はcheckpointにない作業を失わせます。
+
+<a id="단계" />
+## 手順
+
+<a id="1-실행-중지와-데이터-확인" />
+### 1. 実行を止めてデータを確認する
+
+新しいセッションの受付を止め、進行中のturnを完了させます。セッションの終了またはcheckpointと、workerが動いていないことを確認してください。schedulerを止めるだけではworkerは終了しません。
+
+<a id="2-chart-제거" />
+### 2. chartを削除する
+
+```bash
+helm -n werft uninstall werft
+```
+
+<a id="3-남은-리소스-조사" />
+### 3. 残ったリソースを調べる
+
+`helm uninstall` 後には次が残ります。
+
+- schedulerが作ったworker Pod、nonce Secret、workspace PVC。削除前にセッション終了またはcheckpointを確認します。PVCを消すと未checkpointの作業を失います。一覧は `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId>` で確認します。
+- migrate・upgrade-checkのhook Job、ExternalSecretとその作成Secret（creationPolicy: Orphan）、手動Secret。残ったJobは次の設置を妨げません。同名hookの実行前にHelmが削除します。今削除するなら `kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found` を使います。
+
+<a id="확인" />
+## 確認
+
+Helm releaseと制御領域Deploymentの削除を確認し、残るworker Pod・nonce Secret・workspace PVC・hook Job・ExternalSecret・ユーザーSecretを別に記録します。chartはDBとS3 bucketを作成・削除しません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+worker終了前にschedulerを削除すると実行とPVCが残り得ます。必要なデータがあるPVCは削除しないでください。hook Jobは次の同名hookで置き換わるため設置を妨げません。
+
+<a id="되돌리기" />
+## 元に戻す
+
+同じnamespaceと保全したDB・Secret・bucketで正確なchart versionを再設置します。先に互換性検査を読んでください。削除済みPVCの未checkpoint作業は再設置しても戻りません。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[Kubernetes設置](/run-server/self-hosting/kubernetes)、[Kubernetes更新](/run-server/self-hosting/upgrade-kubernetes)。

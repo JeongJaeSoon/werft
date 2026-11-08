@@ -1,0 +1,213 @@
+---
+title: "Kubernetes 設置"
+description: "公開 chart で運用サーバーを設置します"
+pageId: "P03"
+docType: "設置"
+audience: "クラスタ設置担当者"
+outcome: "公開 chart で運用サーバーを設置します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+公開 Helm chart で運用サーバーを設置します。PostgreSQL と永続 S3 互換 bucket は別途準備します。chart の設置成功とセッションデータの復元成功を区別します。
+
+<a id="준비물" />
+## 準備
+
+| 項目 | 要件 |
+| --- | --- |
+| クラスタ | Kubernetes。NetworkPolicy を強制する CNI が必要です。強制しなければ worker は隔離されません |
+| ツール | `helm` 3、`kubectl`、`curl` |
+| PostgreSQL | 16。クラスタ内から到達できるアドレス |
+| S3 互換 object store | bucket 一つ。既定の保護モード `locked` では versioning、Object Lock、既定暗号化 SSE-S3（`AES256`）が有効な bucket が必要です。満たさなければ api は起動を拒否します |
+| 外部 | `ghcr.io` から chart とイメージを取得できること。パッケージはログイン不要です |
+
+chart とパッケージの選び方は[配布パッケージ契約](/run-server/self-hosting/reference/packages)に従います。AWS 以外の endpoint では `config.aws.endpointUrl` と credential allowlist を併せて設定し、保護契約を確認します。実際の AWS 設置は実行確認していません。
+
+chart は PostgreSQL、object store、Secret の値を作りません。worker Pod も作らず、scheduler がセッションごとに作ります。公開イメージは `linux/amd64` と `linux/arm64` を含む index なので、ノードが自分のアーキテクチャを取得します。
+
+chart は Git サーバーも作りません。設定文書のリポジトリ URL は worker から egress proxy 経由で到達できる必要があります。kind の試験 Git サーバーは運用リポジトリではありません。
+
+次の例は namespace と release がともに `werft` の環境です。実行前に `kubectl config current-context` と `KUBECONFIG` が今回のクラスタを選ぶことを確認します。他の環境ではすべての `-n`・`--namespace`・release 名と `deploy/werft-*`・`svc/werft-*` を実際の fullname に変更します。release 名に `werft` がなければ fullname は `<release>-werft` です。
+
+先に [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)と [workspace ストレージ契約](/run-server/self-hosting/reference/storage)を確認します。設置 id は backend が受け付ける **32 文字以下の小文字 DNS label** でなければなりません。chart がより広く許可してもこの制約に従います。リモート bootstrap 前に[アクセス経路](/run-server/self-hosting/access)を準備します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-정확한-chart-버전-선택" />
+### 1. 正確な chart バージョンの選択
+
+```bash
+VERSION='<published-chart-version>'
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+`images` 配下に三つのイメージの `digest` と `worker.runtime` が出力されればよい状態です。値は chart に含まれるため、環境ごとの values に再記入しません。記入すると、次の chart の値を上書きし続けます。
+
+<a id="2-namespace와-secret" />
+### 2. namespace と Secret
+
+Secret は key ごとに一つのファイルを置いたディレクトリ（`0700`、ファイル名が key）から作ります。値をコマンドラインやシェル history に残しません。
+
+| key | 値 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL 接続 URL |
+| `EGRESS_AUTHORIZER_TOKEN` | ランダムな値。api と egress proxy で同じ値を使います |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。保存した資格情報を封印します。なければ Pod は起動しません |
+| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | object store key。IRSA で署名する場合は両 key を外し、values に `secrets.objectStoreKeys: false` と `serviceAccounts.api.annotations` を設定します |
+| `BOOTSTRAP_TOKEN` | 既定 API replica 2 個へ同じ 32–256 文字のトークンを渡す必要があります。Secret に作成し、下記 values の `secrets.catalogEnv` に含めます |
+| `ANTHROPIC_API_KEY` | 任意。セッション用 Anthropic key の既定経路は、設置後のコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**です。この key は環境変数で渡す代替経路で、設定すると api だけに渡されます。設定しなければ下記 values の `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します。chart の既定値はこの key を api に渡すため、Secret にないと Pod は起動しません |
+
+```bash
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
+```
+
+Secret ディレクトリは 0700、ファイルは運用者だけが読める権限にします。既定 API replica は 2 個です。replica が二つ以上なら同じ `BOOTSTRAP_TOKEN`（32–256 文字）を Secret に追加し、`secrets.catalogEnv` に含めます。モデル key をコンソールで入力する場合、一覧は `["BOOTSTRAP_TOKEN"]` にします。環境変数も使う場合は必要な名前も記入します。一覧の全 key が Secret に存在する必要があります。
+
+<a id="3-설치별-values" />
+### 3. 環境ごとの values
+
+環境固有の値は一つの `values-<installation>.yaml` に置きます。最低限、checkpoint bucket と worker が bucket に到達する経路を含めます。
+
+```yaml
+installationId: werft-main
+secrets:
+  catalogEnv: ["BOOTSTRAP_TOKEN"]
+config:
+  checkpoints:
+    bucket: <bucket>
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+```
+
+`credentialAllowlist` は既定値全体を置き換えます。既定一覧（provider とパッケージ registry）をすべて再記入し、リポジトリ host（`github.com:443`、他の Git host を使う場合はその host も）と bucket host を追加します。
+
+`config.aws.region` の既定値は `ap-northeast-1` です。他の region の bucket なら変更します。接続、リポジトリ、MCP サーバー、上限は values にありません。設置後に Web コンソールで追加します。代わりに `bun run settings:k8s import` を使う場合は、設置バージョンのリポジトリ checkout とホストの Bun・kubectl が必要です。既定値と説明は `helm show values` にあります。
+
+`config.egress.credentialAllowlist` は既定値全体を置き換えるため、GitHub・checkpoint bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。API と proxy は同じ二つの credential 一覧を読みます。
+
+他の環境と重複しない `installationId` を同じファイルに置きます。`images.*` の digest は公開 chart の値を維持します。DB・S3・Secret・CNI の準備を確認してから進みます。
+
+<a id="4-설치와-rollout" />
+### 4. 設置と rollout
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+migrate Job が先に schema を更新し、完了後に api、egress proxy、reconciler、scheduler、slack を一度に適用します。初回設置がイメージパスや pull 権限のエラーで失敗したら、値を直して同じコマンドを再実行します。
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+release 名に `werft` が含まれなければ、リソース名は `<release>-werft-…` になります。
+
+初回設置が失敗したら、値を直して同じコマンドを再実行します。Deployment が作成された段階で失敗し、worker イメージを変えた場合はアップグレード検査規則が適用されます。セッションがなければ [Kubernetes の削除](/run-server/self-hosting/remove-kubernetes)で環境を整理し、やり直します。
+
+<a id="확인" />
+## 確認
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+ready の本文と 200、docs 200 を確認します。30 回以内に ready にならなければ、このシェルが起動した port-forward の PID を終了し、失敗として記録します。実際の利用者経路では[アクセス経路の検査](/run-server/self-hosting/access)も実行します。この確認は空の環境の準備状態であり、worker 実行・checkpoint 復元を証明しません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+初日は設置直後、1 時間後、業務終了前に `kubectl -n werft get job,deploy,pods,pvc` と api・scheduler・reconciler のログ、各 `--health`、ディスク・inode・PVC の空き容量を確認します。バックアップ失敗通知、checkpoint GC 日程、key 廃止時の連絡先、provider 費用上限を点検します。release と namespace が例と違えば、すべてのコマンドを当該環境の値へ変更します。
+
+NetworkPolicy を強制しない CNI では worker は隔離されません。Secret key の欠落、不正な installationId、S3 保護設定エラー、image pull 失敗を Pod・Job ログで切り分けます。fixture chart の render 成功と公開 chart の設置成功は異なります。
+
+<a id="되돌리기" />
+## 元に戻す
+
+以前の revision に自動 rollback しません。初回設置の失敗は、この namespace のリソースを確認してから[削除](/run-server/self-hosting/remove-kubernetes)に従います。PVC と bucket の未回収 checkpoint は保持します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[アクセス経路](/run-server/self-hosting/access) → [最初の owner と key](/run-server/self-hosting/users-and-keys) → [モデル接続](/run-server/self-hosting/model-connections)。バージョン変更は [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)に従います。
+
+
+## 以前の URL [#이전-주소-안내]
+
+
+<details>
+<summary>以前の節から現在の文書を探す</summary>
+
+<a id="requirements" />
+<a id="1-choose-a-version" />
+<a id="2-create-the-namespace-and-secret" />
+<a id="3-write-the-values-file" />
+<a id="4-install" />
+<a id="5-check" />
+<a id="next" />
+<a id="必要なもの" />
+<a id="1-バージョンを決める" />
+<a id="2-namespace-と-secret-を作る" />
+<a id="3-values-ファイルを作る" />
+<a id="4-設置する" />
+<a id="5-確認する" />
+<a id="次のステップ" />
+<a id="1-버전-정하기" />
+<a id="2-namespace와-secret-만들기" />
+<a id="3-values-파일-만들기" />
+<a id="4-설치하기" />
+<a id="5-확인하기" />
+<a id="다음-단계" />
+
+[Kubernetes 設置](/run-server/self-hosting/kubernetes#무엇을-하게-되나)
+
+<a id="workspace-storage-and-its-limits" />
+<a id="workspace-のストレージと上限" />
+<a id="workspace-저장소와-상한" />
+
+[ストレージと上限](/run-server/self-hosting/reference/storage#계약)
+
+<a id="6-first-owner-and-api-key" />
+<a id="6-最初の-owner-と-api-key" />
+<a id="6-첫-owner와-api-key" />
+
+[最初の owner と利用者 key の発行](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
+
+<a id="try-it-on-kind-first" />
+<a id="まず-kind-で試す" />
+<a id="kind에서-먼저-해-보기" />
+
+[kind での試験設置](/run-server/self-hosting/try-kind#무엇을-하게-되나)
+
+<a id="upgrade-and-remove" />
+<a id="アップグレードと削除" />
+<a id="업그레이드와-제거" />
+
+[Kubernetes の停止・削除](/run-server/self-hosting/remove-kubernetes#무엇을-하게-되나)
+
+</details>

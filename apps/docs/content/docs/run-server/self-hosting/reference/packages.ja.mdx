@@ -1,0 +1,90 @@
+---
+title: "配布パッケージの契約"
+description: "イメージ、chart、manifest のフィールドの意味を確認します"
+pageId: "P27"
+docType: "レファレンス"
+audience: "設置担当者"
+outcome: "イメージ、chart、manifest のフィールドの意味を確認します"
+---
+
+<a id="계약" />
+## 契約
+
+デプロイ入力は移動するタグではなく digest で固定します。公開イメージは `linux/amd64` と `linux/arm64` を含む index です。タグは commit を探すために使い、設置では同じソース commit と三つのイメージ digest を一組で使用します。
+
+| パッケージ | アドレス | `main` マージ | `v*` タグ |
+| --- | --- | --- | --- |
+| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-egress-proxy` | タグ `main-<12>` | タグ `v<version>` |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `<Chart.yaml version>-main-<12>` | バージョン `<version>`（`v` なし） |
+| SDK | npm `@werft-ai/sdk` | main イメージの公開とは別です。[SDK のインストール](/getting-started/install)で配布バージョンを確認します | SDK の配布バージョンを別途確認します |
+
+イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart には三つのイメージの digest と worker runtime が含まれます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭 12 文字です。`main` バージョン同士の順序には意味がないため、Images workflow で正常終了した run の commit を選んで正確に指定します。
+
+| イメージ | 内容 | 実行主体 |
+|---|---|---|
+| `werft-control-host` | `apps/control-host` の一つの実行物で api・scheduler・reconciler の全 role を実行します。`--filter` でそのアプリの closure だけをインストールし、Agent SDK・Claude Code executable は含みません（ビルドで `node_modules/@anthropic-ai` がないことを確認）。既定 uid は 1000 で、scheduler role だけ compose の `user: "0:0"` で root になり Docker socket を扱います | `bun run apps/control-host/src/main.ts <role>`（CMD の既定は `api`） |
+| `werft-worker` | `--filter ./apps/worker` で worker と依存 workspace の closure だけをインストールします（pg・drizzle・Web コンソールのパッケージは含みません）。SDK 0.3.270 と同梱 Claude Code 2.1.270、git、non-root（uid 1000）、所有者 1000 の `/workspace` を事前作成します（LocalDockerBackend の volume 契約）。ビルド時に `resolvePinnedClaudeExecutable()` で executable パスを確定して `/usr/local/bin/claude` にリンクし、`claude --version` を実行します | `bun run apps/worker/src/main.ts` — scheduler が env で渡した bootstrap identity で一つのセッションを claim し、WorkerHost ループを実行します |
+| （scheduler role） | Docker socket を mount する唯一のサービスで、root で実行します（socket 所有者は daemon ホストの root と同等であり、socket gid は daemon ごとに異なるため、固定 uid は移植性を下げるだけです） | compose では監督ループ（`main.ts scheduler`）が `SCHEDULER_INTERVAL_SEC`（既定 5 秒）ごとに子プロセス（`--serve`）へ一つの pass を要求します。失敗または kill された pass は子とともに終了し、次の pass は新しい子で実行します（[実行](/run-server/self-hosting/explanation/isolation)）。pass の失敗が `SCHEDULER_MAX_CONSECUTIVE_FAILURES`（3）回続くと（degraded exit 76 は除外）、ループが exit 1 で終了し、`restart: unless-stopped` により再起動します（`compose ps` に現れます）。`SCHEDULER_HEALTH_STALE_SEC`（200 秒）間、完了した pass（成功または degraded）がなければ healthcheck（`main.ts scheduler --health`）は unhealthy になります。DB が停止すると pass 自身が exit 1 で終了します。scheduler・reconciler pool は API と同じ timeout（connect 5 秒・statement 10 秒・read 20 秒、`packages/db/src/pool.ts` の `JOB_POOL_TIMEOUTS`）を使い、一度接続を失った後の store 呼び出しは待たず即座に失敗するため、DB 待ちの上限は失敗した statement（5+20 秒）と pass lock 解放（20 秒）を合わせた約 45 秒です。`SCHEDULER_PASS_TIMEOUT_SEC`（180 秒）は、この 45 秒と worker 停止一回（stop timeout 120 秒 + request timeout 30 秒）より大きく設定する外側の watchdog です。他の hang を kill して失敗に数えます（unhealthy だけでは Docker は再起動しません）。pool timeout を延ばす場合、この値も `connect + 2 × read` より大きくします |
+| `werft-egress-proxy` | `apps/egress-proxy` のソースだけです（依存関係なし、単一 stage）。コードは root 所有、実行は uid 1000 とし、proxy が次回起動用のコードを書き換えられないようにします | `bun run src/main.ts` — compose の `egress-proxy`、すべての worker ネットワークに接続する唯一の外部経路です |
+
+<a id="릴리스-manifest-읽기" />
+## リリース manifest の読み方
+
+`v*` タグごとに GitHub Release が一つ作られ、`release-manifest.json` が添付されます。運用者は run や artifact を探す必要はありません。リポジトリの checkout も不要で、`gh` と `jq` があれば取得できます。次の `TAG` に対象 Release のタグを指定します。
+
+```bash
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
+helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
+```
+
+リポジトリは公開されているため、`gh` なしで `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"` でも取得できます。registry と照合するには、digest を一つ `docker buildx imagetools inspect <image>@<digest>` に指定します。
+
+| フィールド | 値 |
+|---|---|
+| `schema` | manifest 形式のバージョン。現在は `1` |
+| `tag`、`commit` | リリースタグとその commit（40 文字の hex） |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`。`<app>` は `control-host`、`worker`、`egress-proxy` |
+| `images.<app>.digest` | 両アーキテクチャを含む index の digest。デプロイはこの値で固定します |
+| `images.<app>.platforms.amd64`、`.arm64` | そのアーキテクチャの manifest digest |
+| `workerRuntime` | worker イメージに含まれる Claude 実行環境（`engine`、`sdkVersion`、`cliVersion`、`profileDigestScheme`） |
+| `chart.name`、`chart.version`、`chart.appVersion`、`chart.ref` | 同じ run が公開した chart。`chart.ref` は `oci://` の場所 |
+
+値は `promote` が registry から再取得して確認した digest と、`chart-publish` がログインなしで取得・確認した chart に由来します。manifest 作成時には chart パッケージの `Chart.yaml`・`values.yaml` にも同じ digest とバージョンが含まれることを照合します。一度添付した manifest は変更しません。同じタグを再実行して異なる内容になれば job が失敗します。
+
+設置する運用者は、この manifest から[単一サーバー設置](/run-server/self-hosting/single-server)に指定するイメージ行を取得します。
+
+<a id="main-패키지와-릴리스" />
+## main パッケージとリリース
+
+`main-<12>` はリリースではありません。その commit の Images 実行で三つのイメージと chart がすべて公開されたことを確認し、正確なバージョンを選びます。SHA 文字列は時系列のバージョンではないため、Helm の `--devel` で最新を選ばないでください。main 公開の `unverifiedSources` が空配列ならすべてのソース保存を確認済み、フィールドがなければ確認記録がないことを意味します。正式リリースはすべてのソース保存を確認してから公開します。
+
+公開 chart には三つのイメージ digest と worker runtime が含まれます。環境ごとの values にこれらを再記入したり `--reuse-values` を使ったりすると、次の chart の新しい値を上書きします。worker runtime は engine・SDK・CLI・profile digest 方式で構成され、イメージ digest 自体とは異なります。
+
+`unverifiedSources` が残っていれば、該当 Debian ソースが実際には保存されていない可能性もあります。正式リリースと同水準のソース保存保証とは見なさないでください。multi-arch 公開導入前の古い `main-<12>` は amd64 しか含まない場合があるため、ARM サーバーでは index の platform 一覧も確認します。公開が一部しか完了していない、または取得に失敗した三つの digest を一つのデプロイセットとして使わないでください。
+
+<a id="checkout-없이-설치하기-릴리스-번들" />
+## checkout なしで設置する：リリースバンドル
+
+`v*` リリースの GitHub Release には、compose ファイル、`scripts/test-ops.sh`、設定例を含む `werft-test-ops-<tag>.tar.gz` が添付されます。イメージは含まず、リリースの `release-manifest.json` の digest で公開済みイメージを取得します。バンドルなら[単一サーバー設置](/run-server/self-hosting/single-server)の checkout 準備とホストの bun は不要です。ダウンロードから `deploy` までのコマンドはリポジトリの `docs/operator/test-ops.md`（「リリースバンドルで設置」）にあります。
+
+| | checkout 設置 | バンドル設置 |
+|---|---|---|
+| 必要なもの | git、jq、curl、bun 1.3.14、デプロイ commit の checkout | docker、jq、curl |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | 対応 | 対応 |
+| `upgrade` `backup` `reseed` `restore-drill` | 対応 | 拒否。checkout で実行します |
+
+<a id="직접-빌드한-이미지의-runtime" />
+## 自前ビルドのイメージの runtime
+
+API と slack role は `WORKER_IMAGE_RUNTIME` と `WORKER_IMAGE_PREVIOUS_RUNTIME` から現在・直前の worker イメージの runtime の組み合わせを読み取ります。値は手入力せず、images.yml が出力した worker digest JSON の `runtime` フィールドをそのまま使います（`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`）。`engine` は現在 `claude` のみで、chart は他の名前をレンダリング時に `images.worker.runtime.engine must be one of: claude` として拒否します。自前ビルドのイメージにはその JSON がありません。images.yml と同じコマンドでイメージから読み取ります。
+
+```bash
+docker run --rm -i --network none --entrypoint bun <worker-image> \
+  run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+```
+
+[自分の registry でのビルド](/run-server/self-hosting/build-images)では、自前イメージの digest を最後まで維持します。公開・昇格手順は[コントリビューター向け文書](/ko/contributing#릴리스-게시와-공급망)に従います。

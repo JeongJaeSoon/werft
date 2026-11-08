@@ -1,0 +1,81 @@
+---
+title: "checkpoint bucketの準備"
+description: "保護契約に合うbucketと最小権限を準備します"
+pageId: "P07"
+docType: "作業"
+audience: "ストレージ担当者"
+outcome: "保護契約に合うbucketと最小権限を準備します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+既定のlocked保護を満たす永続bucketとAPIの最小権限を準備します。共通契約とAWSでの作成手順は別です。
+
+<a id="준비물" />
+## 準備
+
+bucket作成権限と費用承認が必要です。設置ごとに1つ、復元訓練ごとに別の空bucketを使います。AWS以外のS3互換ストレージは[共通保護契約](/run-server/self-hosting/reference/storage#공통-object-store-보호)と、条件付き書き込み・legal hold・version読み取り/削除を先に確認します。Compose test-opsのs3経路はAWS endpointを使い、任意endpoint向けの汎用設置経路ではありません。
+
+<a id="단계" />
+## 手順
+
+<a id="1-공통-계약" />
+### 1. 共通契約
+
+- versioning、Object Lock、既定SSE-S3（AES256）を有効にします。
+- public accessをすべて遮断します。
+- 既定retentionとobject versionを期限切れにするlifecycleを設定しません。
+- 運用資格情報にはbucket作成権限を与えません。
+
+<a id="2-aws-bucket-만들기" />
+### 2. AWS bucketを作る
+
+BUCKETを世界で一意な名前に置き換えます。既存運用bucketを上書きする手順ではありません。
+
+```bash
+BUCKET=<unique-bucket>
+AWS_REGION=ap-northeast-1
+aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" \
+  --create-bucket-configuration "LocationConstraint=$AWS_REGION" \
+  --object-lock-enabled-for-bucket
+aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Object Lockを有効にするとversioningも有効になります。
+
+<a id="3-최소-권한과-경로" />
+### 3. 最小権限とアクセス経路
+
+- API用IAMユーザーには、このbucketのs3:PutObject、s3:GetObject、s3:GetObjectVersion、s3:GetObjectLegalHold、s3:PutObjectLegalHold、s3:DeleteObjectVersionと、設定参照用s3:ListBucket、s3:ListBucketVersions、s3:GetBucketVersioning、s3:GetBucketObjectLockConfiguration、s3:GetEncryptionConfigurationだけを与えます。bucket作成権限は与えません。
+- object versionを期限切れにするlifecycle ruleを置きません。組織ポリシーがある場合はこのbucketを除外します。
+- 訓練も同じ資格情報で書き込みます。bucket名を `<bucket>-drill-*` とし、その範囲に同じ権限を与えます。作成は運用者自身の権限で行います。
+
+資格情報はAPIとmaintenanceコンテナだけに渡します。workerはegress proxyを経由し、APIがセッション範囲で要求に署名します。[単一サーバー手順4](/run-server/self-hosting/single-server#4-s3를-명시해-검사설치)の `TEST_OPS_OBJECT_STORE=s3 preflight` がupload・hold・version読み取り・hold解除・scratch version削除の往復に成功して初めて設置できます。
+
+API権限はbucket側のs3:ListBucket、s3:ListBucketVersions、s3:GetBucketVersioning、s3:GetBucketObjectLockConfiguration、s3:GetEncryptionConfigurationと、object側のs3:PutObject、s3:GetObject、s3:GetObjectVersion、s3:GetObjectLegalHold、s3:PutObjectLegalHold、s3:DeleteObjectVersionです。ARNを設置bucketと許可した訓練bucketに限定します。GCにs3:DeleteObjectは不要です。
+
+EGRESS_CREDENTIAL_ALLOWLISTは既定全体を置き換えます。virtual-hosted bucket endpointを加える際はprovider・package registry・Git hostなど必要な項目をすべて書き直します。ドット入りbucketはリージョンのpath-style endpointを使います。AWS keyをworkerへ渡しません。
+
+<a id="확인" />
+## 確認
+
+単一サーバーではS3指定preflightでscratchのcreate-only put → hold → hold確認/version読み取り → hold解除 → version削除がすべて成功する必要があります。bucket設定を読むAPI起動検査は書き込み・hold・削除権限の証明にはなりません。AWS作成手順と実際のS3運用設置は実行確認していません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+既定retentionはscratch削除とcheckpoint GCを妨げます。暗号化・versioning・Object LockのいずれかがなければAPIは起動しません。allowlistのendpointが違うとworkerはcheckpointを保存できません。
+
+<a id="되돌리기" />
+## 元に戻す
+
+既存運用bucketの削除やholdの一括解除はしません。今回の空試験bucketだけ、object versionとdelete markerがないことを確認し、組織の削除手順で除去します。保全データがあれば先に[復元訓練](/run-server/self-hosting/backup-and-restore)を実施します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[単一サーバー設置](/run-server/self-hosting/single-server)または[Kubernetes設置](/run-server/self-hosting/kubernetes)。

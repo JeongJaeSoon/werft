@@ -1,0 +1,85 @@
+---
+title: "Compose の停止・再起動・削除"
+description: "データの保持範囲を確認し、設置環境のライフサイクルを管理します"
+pageId: "P14"
+docType: "作業"
+audience: "Compose 運用者"
+outcome: "データの保持範囲を確認し、設置環境のライフサイクルを管理します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+設置データを保持して Compose サービスを停止・再起動し、削除が必要な場合の範囲を確認します。
+
+<a id="준비물" />
+## 準備
+
+この環境の project、env、状態ディレクトリと直近の成功したバックアップを確認します。進行中の turn と未回収 checkpoint 数を先に確認し、利用者に停止を知らせます。
+
+<a id="단계" />
+## 手順
+
+<a id="중지와-재시작" />
+### 停止と再起動
+
+状態は `scripts/test-ops.sh status` で確認します。出力の未回収 checkpoint 数を確認し、取得できない状態を 0 件と解釈しないでください。データを保持して停止するには `stop`、同じ volume で再起動するには `start` を使います。次の二つのコマンドは、停止・再起動それぞれに必要な方を実行します。
+
+```bash
+scripts/test-ops.sh stop
+scripts/test-ops.sh start
+```
+
+`stop` は api、scheduler、reconciler とセッションが作った worker を停止し、コンテナと network を削除しますが、volume は残します。`start` は状態ディレクトリの `current.json` が示す release をそのまま起動し、healthcheck を待ちます。`stop`、`compose down`、ホスト再起動のいずれで停止した場合も同じです。`deploy` は使いません。release が記録済みなら `deploy` は `use upgrade` と表示して拒否し、停止中の環境では postgres がないため `upgrade` が失敗します。一度も deploy していないホストや、未完了のアップグレード（`pending.json`）がある環境では `start` も拒否します。後者は同じ release ファイルで `upgrade` を再実行して解消します。
+
+`start` は checkout が release の source commit と違っても、`infra/` がその commit と同じなら起動します。checkout から読み込むのは compose ファイルだけだからです。
+
+env ファイルの値を変えた環境には、`scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で同じ release を再適用します。start が env の変更を反映するとは考えないでください。
+
+DB と workspace volume は残ります。LocalStack は volume を使わずメモリに保存するため、コンテナを削除すると `-v` がなくても checkpoint object が消えます。DB に未回収 checkpoint があるのに bucket が空なら、API は起動を拒否します。[試験環境の再起動](/run-server/self-hosting/try-localstack#자주-막히는-곳)で reseed の条件を確認してください。未回収 checkpoint がある LocalStack 環境の start と、運用 S3 環境の再起動全体は実行確認していません。
+
+<a id="호스트-재부팅" />
+### ホストの再起動
+
+常駐サービスは `restart: unless-stopped` なので、Docker が自動起動し、コンテナが残っていれば再起動後に再び起動します。`stop` または `compose down` でコンテナを削除した場合は `scripts/test-ops.sh start` で起動します。以前の release で restart ポリシーが異なっていた環境は、新しいポリシーでコンテナを作り直すまで以前の動作を維持します。LocalStack コンテナの再作成では object を失うため、[試験環境の再起動に関する警告](/run-server/self-hosting/try-localstack#자주-막히는-곳)に従います。
+
+再起動前に進行中の turn、status、ホスト外のバックアップを確認します。再起動後に NTP、XFS prjquota、Docker の自動起動、ディスクと inode、status、ready を確認し、既存セッションを再開して新しい worker が checkpoint を引き継ぐことを確認します。
+
+<a id="첫날-점검" />
+### 初日の点検
+
+- 設置直後、1 時間後、業務終了前に `scripts/test-ops.sh status` でサービス、release、object store、ready、scheduler/reconciler health を確認します。
+- api、scheduler、reconciler のログとディスク、inode、quota を確認します。ディスク空き容量が 20% を下回る前に対応します。
+- 自動バックアップと失敗通知を試験し、[GC dry-run](/run-server/self-hosting/backup-and-restore)を別途定期実行します。
+- [key 廃止時の連絡](/run-server/self-hosting/users-and-keys)と[費用・トークン上限](/run-server/self-hosting/reference/configuration#설치-상한)（Compose・chart の `SESSION_COST_LIMIT_USD` 既定値は 25 USD）を利用者に案内します。
+- Anthropic などの provider コンソールに月間上限を設定し、セッションごとの上限とプラットフォームの推定費用を provider の実際の費用と照合します。
+- [Datadog の基準](/run-server/self-hosting/operate/monitoring-datadog)に沿って監視します。
+
+<a id="설치-전체-삭제를-선택한-경우" />
+### 環境全体を削除する場合
+
+reset は停止・再起動コマンドではありません。この環境のコンテナと volume（DB・LocalStack）、worker コンテナと workspace volume、セッション、checkpoint、API key を削除します。今回の project の削除範囲を照合し、[バックアップ](/run-server/self-hosting/backup-and-restore)と別の対象への復元を確認した場合だけ、次を実行します。
+
+```bash
+scripts/test-ops.sh reset --yes
+```
+
+<a id="확인" />
+## 確認
+
+stop 後に対象 project のコンテナが停止したこと、start 後に同じ release、owner、データ、ready が維持されたことを実際の出力で確認します。未回収 checkpoint がある環境の再起動と AWS S3 環境の再起動全体は実行確認していません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+`pending.json` があると start と以前の release の適用を拒否します。原因を直し、pending と同じ対象 release で upgrade を再実行します。ready 200 だけでセッション context の保持を判断しないでください。
+
+<a id="되돌리기" />
+## 元に戻す
+
+停止状態から戻すには start を使います。reset は DB、checkpoint、workspace を失う別の破壊的操作であり、停止の逆操作ではありません。削除前に復元できるバックアップと今回の project のリソース一覧を照合します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[バックアップと復元](/run-server/self-hosting/backup-and-restore)、[Compose アップグレード](/run-server/self-hosting/upgrade-compose)。

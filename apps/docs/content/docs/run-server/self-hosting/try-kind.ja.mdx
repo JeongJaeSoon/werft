@@ -1,0 +1,123 @@
+---
+title: "kind での試験設置"
+description: "試験用 chart を設置して後片付けします"
+pageId: "P04"
+docType: "設置"
+audience: "ローカル試験担当者"
+outcome: "試験用 chart を設置して後片付けします"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+ノート PC の隔離した kind クラスタで chart と API の準備状態を試験し、最後に削除します。この PostgreSQL・LocalStack は運用データの保存先ではありません。
+
+<a id="준비물" />
+## 準備
+
+Docker、kind、Helm 3、kubectl、git、Bun 1.3.14 とリポジトリ checkout が必要です。設置・削除するクラスタ名と registry ポートが他の作業と重複しないことを確認します。NetworkPolicy を強制する kind バージョンを使います。
+
+<a id="단계" />
+## 手順
+
+<a id="1-checkout의-시험-harness" />
+### 1. checkout の試験 harness
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+CLUSTER_NAME=werft-try REGISTRY_PORT=15001 deploy/kind/up.sh
+export KUBECONFIG=~/.cache/werft/kind/werft-try/kubeconfig
+```
+
+スクリプトは cluster、registry、イメージ、namespace、DB、LocalStack、Secret、chart を準備し、rollout と ready/docs を確認します。生成された kubeconfig だけを使います。`EXTRA_VALUES` で環境ごとの値を上書きできますが、harness の worker イメージの `--set` 値は変わりません。
+
+<a id="2-게시-chart를-직접-시험하는-경우" />
+### 2. 公開 chart を直接試験する場合
+
+harness の代わりに公開パッケージを試験するには、別のクラスタを作成し、次の依存サービスを準備します。`VERSION` は[パッケージ契約](/run-server/self-hosting/reference/packages)で選んだ正確な公開 chart バージョンです。
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
+kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
+SECRETS="$(mktemp -d)"
+```
+
+次の `read -rs` はプロンプトを出さず入力を待ちます。入力するのは `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` です。値をコマンドラインに書かないよう、ターミナルから読み取ります。ターミナルなしのスクリプトでは同じ値を標準入力に渡してこの行を満たします。Secret の値はすべてこの kind 試験専用です。実サーバーでは [Kubernetes 設置の 2. namespace と Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret)で自分で作った値を使います。Secret 作成後は変数と一時ディレクトリを削除します。
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+```
+
+Secret ディレクトリは作成後にアクセス権限が 0700 であることを確認し、ターミナルなしでは DB パスワードを標準入力に渡します。実運用の資格情報をこの試験に入れないでください。上記 Secret ブロックと fixture chart の試験成功を、公開 chart 試験全体の成功と混同しないでください。
+
+<a id="확인" />
+## 確認
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+ready 200 と docs 200 は空の設置環境の準備状態です。セッションと worker Pod を起動し、checkpoint 復元まで確認した結果ではありません。kind の PVC Bound だけで byte 上限の強制を証明することはできません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+直接設置で Secret の必須 key が欠けると Pod は起動しません。公開 chart を取得できない場合、fixture のレンダリングで成功扱いにせず、その公開パッケージの設置失敗として記録します。クラスタ外の DB・S3 アドレスと試験依存サービスのアドレスを混在させないでください。
+
+<a id="되돌리기" />
+## 元に戻す
+
+harness で作成した場合：
+
+```bash
+CLUSTER_NAME=werft-try deploy/kind/up.sh down
+```
+
+直接作成した `werft-try` クラスタは `kind delete cluster --name werft-try` で削除します。失敗時も今回の試験クラスタだけを整理し、他の context のリソースには触れません。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+運用環境は [Kubernetes 設置](/run-server/self-hosting/kubernetes)、バージョン更新の試験は [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)を参照してください。

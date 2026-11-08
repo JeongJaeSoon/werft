@@ -1,0 +1,142 @@
+---
+title: "停止したセッションの復旧"
+description: "原因と外部への効果を確認してから復旧判断を適用します"
+pageId: "P18"
+docType: "作業"
+audience: "障害対応運用者"
+outcome: "原因と外部への効果を確認してから復旧判断を適用します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+復元失敗、起動失敗、結果不明の turn を切り分け、外部への影響を確認してから、明示的な復旧判断を適用します。
+
+<a id="준비물" />
+## 準備
+
+セッション詳細、worker・scheduler・reconciler のログ、sessions:recover scope の API key が必要です。最後の checkpoint と外部ツールの効果を確認します。ストレージが回復したという理由で outcome_unknown の turn を自動再実行しません。
+
+<a id="단계" />
+## 手順
+
+<a id="1-감독-루프와-일시-장애-구분" />
+### 1. 監督ループと一時障害の切り分け
+
+reconciler の対象だけを先に見るには、dry-run を直接一度実行します。compose の繰り返し reconciler には dry-run 環境変数は渡されません。
+
+```bash
+RECONCILER_CONTAINER='<this-installation-reconciler-container-id>'
+docker exec -e RECONCILER_DRY_RUN=true "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
+
+docker exec -e RECONCILER_DRY_RUN=false "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
+```
+
+コンテナは今回の環境の status と project label で確認します。コンテナの実際の設置 env を使い、開発用 DB アドレスは設定しません。二つ目のコマンドは実際に DB を変更するため、最初の結果を確認してからだけ実行します。
+
+最近の結果は、同じコンテナの `/tmp/reconciler-status.json` と `Reconciler pass completed`・`Reconciler pass failed` ログで確認します。reconciler は Docker socket を持たず、epoch fence と `desired_state = terminated` を DB に記録します。実際のコンテナ削除・不在確認は scheduler が行うため、reconciler pass の成功をコンテナ削除完了とは判断しません。重複 pass の各書き込みは row lock の下で再判定し、同じ lease・interrupt・orphan を二度処理しません。
+
+<a id="격리-계약-변경을-적용할-때" />
+### 隔離契約の変更を適用する場合
+
+Docker daemon を先に 28 以上へ更新し、その後に隔離契約を変更したサーバーイメージを適用します。以前の daemon では preflight が pass 全体を遮断し、既存 worker も交代できません。claim 済み worker は最大 `MAX_TURN_SECONDS` + 5 分 drain するため、その間は以前の契約のコンテナと待機入力が残ります。即時遮断すべき隔離欠陥なら、影響セッションを terminate します。rollback でコンテナが current になっても drain 要求は残り、新 turn なしで終了して次の launch へ続きます。
+
+<a id="2-checkpoint-복원과-시작-실패" />
+### 2. checkpoint 復元と起動失敗
+
+<a id="checkpoint-복원이-계속-실패하는-세션" />
+#### checkpoint 復元が繰り返し失敗するセッション
+
+復元を引き受けた worker が ready 報告前に終了しても、scheduler はすぐには再起動しません。二回目までは 30 秒、60 秒待ち、三回目にはセッションが `recovery_required` で止まり、新しい generation を作りません。待機中も停止後も、セッション詳細の attention は `RESTORE_FAILED` です。
+- `reason`：最後の worker が残したエラー。release せず終了した場合は `execution_gone` です。
+- `failures`：連続失敗回数です。
+- `retry_at`：次の試行時刻。停止後は null です。
+
+`INCOMPATIBLE_CHECKPOINT` は、同じ worker runtime・profile では再試行しても成功しない決定的失敗です。この場合は最初の launch 後すぐ `recovery_required` で停止し、attention と `checkpoint_restore_failed` イベントの `reason` は `incompatible_checkpoint`、`failures` は 1、`retry_at` は null です。運用者は互換 runtime・profile に戻し、`retry_restore` で同じ checkpoint を再試行するか、以前の context を破棄してよければ `start_fresh`、セッションを終了するなら `close` を選びます。
+
+イベントストリームには失敗ごとに system の `checkpoint_restore_failed` が残ります。worker ログの `worker.checkpoint.restore_refused`、`worker.failed` で原因を確認します。ストレージ応答の checksum 不一致（転送中の破損）も `CHECKPOINT_UNAVAILABLE` です。
+- ストレージや egress-proxy の `/object-store` 経路の一時的な応答不能は失敗に数えません。接続失敗、DNS 失敗、request/body timeout、途中で切れた body、HTTP 408・429・5xx は一時障害です。checkpoint 復元は `worker.checkpoint.restore_unavailable`、checkpoint がまだない新 generation の transcript ストレージ確認は `worker.checkpoint.store_unavailable` 警告を残します。いずれも同じ worker 内で 1 秒から倍増し、最大 30 秒間隔で `WORKER_STARTUP_TIMEOUT_SEC`（既定 3600 秒）まで再試行します。回復すれば同じ worker が続行するため generation は新しくしません。
+- 起動予算を使い切るまで障害が続くと、その worker の終了を起動失敗 1 回に数えます。次 generation はセッションの 30 秒、60 秒の backoff 後だけ起動し、三回目で `recovery_required` に止まります。ストレージ障害で worker を無制限に即再起動することはありません。`WORKER_STARTUP_TIMEOUT_SEC` は scheduler が別値を渡さないため、現在のデプロイではコード既定値に固定です。
+- object が実際にない（404/`NoSuchKey`）、401・403 で拒否される、checksum・digest が不一致の場合は一時障害ではありません。manifest またはその参照 object がなければ `CHECKPOINT_UNAVAILABLE` で、再起動による回復とは見なしません。bucket 全体が空で DB pointer が残れば、API 起動検査が先に止めます。`restore_refused` はストレージ経路ではなく checkpoint の恒久的破損・不一致を調べる合図です。
+- 原因がセッション外（proxy の転送中破損、ストレージ経路の設定ミス）なら、修正してから `retry_restore` で同じ checkpoint を再復元します。回数が 0 に戻り、queued 入力が再通知されます。次 worker は失敗 worker と同じ pointer から復元計画を再取得します。
+
+```sh
+# KEY: an API key with the sessions:recover scope
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"retry_restore","expected_revision":<revision>,"reason":"proxy fixed"}'
+```
+
+失敗上限で停止したセッションだけが受け付けます。backoff 中、または別の理由（context gap、unknown turn、復元なしの `STARTUP_FAILED`）で停止したセッションは 409 `REQUEST_STALE` です。
+- checkpoint を放棄してよければ `start_fresh` で継続します。checkpoint なしの新しい engine session が始まります。
+- セッションを終了するなら `close` を使います。
+
+<a id="시작-단계에서-계속-죽는-세션" />
+#### 起動段階で繰り返し終了するセッション
+
+checkpoint がないセッションも同じ規則です。worker が claim 後、一度も入力を要求せず終了すると失敗 1 回です。workspace 準備（git clone・fetch）やエンジン起動で終了した場合が該当します。二回目までは 30 秒、60 秒待ち、三回目には `recovery_required` で止まります。attention は `STARTUP_FAILED` で、`reason`・`failures`・`retry_at` は上記と同じです。イベントストリームには失敗ごとに system の `startup_failed` が残ります。
+- よくある原因はリポジトリ URL・branch の消失、リポジトリ資格情報の拒否、worker の object store・proxy 設定エラーです。worker ログの `worker.stopping kind=failed`、`worker.failed` で確認します。
+- 原因を直し、`start_fresh` で再起動します。このセッションには破棄する checkpoint がないため損失はありません。終了するなら `close` を使います。
+- pause、terminate、close、実行権限の取り消しで終了した worker は数えません。
+- SIGTERM で drain された worker も数えません。worker は release に `stop_kind: "drain"` を含めます。フィールドを知らない以前の API は strict schema のため 400 `BAD_REQUEST` で拒否します。その場合、worker は `worker.release.stop_kind_refused` を記録し、フィールドなしで一度再 release します。セッションは lease 期限を待たずすぐ戻ります。ただし以前の API は以前の規則で終了を数えます。復元付き claim なら失敗 1 回です。
+- **デプロイ順序：** 制御ホストイメージ（`API_IMAGE`、api・scheduler 共用）を先に更新し、`WORKER_IMAGE` は後に変えます。worker protocol の要求 schema は strict なので、新 worker の新フィールドを以前の API が 400 で拒否します。代替経路があるのは release、pending-control の `reason`・`answer_result`、`platform_tool_trust` です（以前の API が拒否すると worker はフィールドを外して一度再送）。他の新フィールドにはありません。
+
+<a id="3-interrupt-뒤-결과-불명" />
+### 3. interrupt 後の結果不明
+
+<a id="interrupt-뒤-결과를-알-수-없는-turn" />
+#### interrupt 後に結果を確定できない turn
+
+interrupt した turn が `interrupted` で終わるには、engine の停止応答と、その turn までカバーする checkpoint の両方が必要です。一つでもなければ、transcript に何が残ったか確定できません。そのため turn は `outcome_unknown` となり、turn 取得（`GET /v1/sessions/{id}/turns/{turn_id}`）の `terminal_reason` が原因を示します。
+- `interrupt_checkpoint_unavailable`：engine は停止しましたが checkpoint を commit できませんでした。worker は drain で終了します。
+- `interrupt_unanswered`：engine が期限内に interrupt に応答しませんでした。worker ログに `gave no terminal within …ms of its interrupt` または `ended before its interrupt was answered` が残り、worker は失敗で終了します。
+
+worker ログの `worker.turn.interrupt.stage` を同じ `session_id`・`turn_id`・`control_id` で集めると、`control_received` → `sdk_interrupt_called` → `sdk_interrupt_answered` → `engine_terminal` → `capture_started` → `capture_finished` → `finalize_started` → `finalize_finished` の順序と、interrupt 受信後の `elapsed_ms` を確認できます。最終 finalize 後、`control.result` は `operation=interrupt`、最終 turn の `outcome`、安定した `reason_code`、durable 受理時刻から turn terminal までの `effect_ms`（`duration_ms` と同じ）を記録します。既に終了した turn への no-op は受理 transaction 直後に `effect_ms=0`、期限までに完了しない receipt は `outcome=unknown`・`reason_code=deadline_exceeded` で同じ event を残します。SDK 応答が engine terminal の後に届いた場合、通常順序には挿入せず `late_sdk_interrupt_answered` と記録します。`engine_terminal outcome=timeout` は 5 秒の grace 内に SDK/engine terminal が来ない場合です。`capture_finished outcome=timeout` と `budget_ms=30000` は checkpoint capture 予算を使い切った場合で、`outcome=failed` の `reason` はストレージ要求など capture 自体の失敗です。capture が終わっても `finalize_finished outcome=failed` に `CHECKPOINT_UNAVAILABLE` があれば、API が manifest または ref を拒否したためで、capture timeout や S3 要求失敗には分類しません。5 秒の grace は変えません。timeout なら次の入力を同じ engine に渡さず worker を失敗で終了し、復旧判断を要求します。
+
+どちらの場合もセッションは `status: failed`、`admission_state: recovery_required` となり、queued 入力は dispatch されません。interrupt receipt は `unknown`、error は `RECOVERY_REQUIRED` です。復旧には `sessions:recover` scope を使います。
+ストレージが正常に戻っても `outcome_unknown` turn は自動再実行しません。ストレージの回復は次 worker が checkpoint を読めるようにするだけで、実行済み turn の外部への効果を判定できないためです。下記 `abandon`・`confirm_completed`・`close` のうち、運用者が選んだ判断だけが queue head を整理します。
+1. `abandon`・`confirm_completed` は worker 不在の確認後だけ受け付けます。それ以前は 409 `RECOVERY_REQUIRED`（`The previous execution has not been confirmed gone`）です。次の scheduler pass がコンテナ不在を確認すると受け付けます。`close` は待たず、残る execution に終了を要求して即受理します。
+2. その turn のツールが外部で行ったことを確認します。ファイル書き込み、push、外部呼び出しは元に戻りません。
+3. 判断を送ります。
+
+```sh
+# KEY: an API key with the sessions:recover scope
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"abandon","expected_revision":<revision>,"reason":"interrupt had no confirmed effect","target_turn_id":"<turn_id>"}'
+```
+
+- `abandon`：turn を `cancelled` で閉じます。
+- `confirm_completed`：commit 済み checkpoint がその turn までカバーする場合だけ受け付けます（`evidence_ref` 必須）。`interrupt_checkpoint_unavailable` には通常その checkpoint がないため、409 `CHECKPOINT_UNAVAILABLE` です。
+- `close`：セッションを終了します。元には戻せません。
+
+4. `abandon`・`confirm_completed` 後のセッションは `stopped` です。判断 receipt の `result.resumable` が `true` なら resume します。`false` は、引き継ぐ checkpoint がない、または最後の checkpoint 後に実行した turn があり、その context を引き継げないことを意味します（セッション詳細の attention は `CONTEXT_GAP`）。`start_fresh` でその context なしに継続するか、`close` します。
+
+<a id="4-stopped-workspace-회수와-resume" />
+### 4. stopped workspace の回収と resume
+
+[stopped TTL 契約](/run-server/self-hosting/reference/storage)に従い、volume は期限切れになる場合があります。commit 済み checkpoint のない stopped セッションは resume できず、volume だけにあった作業は期限後に消えます。必要なファイルは TTL 内に保存します。回収 claim 中の resume は `503 BACKEND_UNAVAILABLE`、retryable true で、receipt・idempotency 記録を残しません。回収完了後に同じ要求を再試行します。
+
+<a id="확인" />
+## 確認
+
+判断 receipt の状態と、セッションの revision・admission・resumable を併せて確認します。受理は worker 不在や実際の再開成功とは異なります。再開後、新 turn が checkpoint の context を引き継いだか別途確認します。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+原因が変わらない incompatible checkpoint は、同じ runtime・profile で再試行しても成功しません。start_fresh は以前の context を破棄します。confirm_completed には、その turn までカバーする commit 済み checkpoint と evidence_ref が必要です。
+
+<a id="되돌리기" />
+## 元に戻す
+
+外部ファイル書き込み・push・呼び出しは復旧判断では元に戻りません。close は取り消せません。原因修正前に判断を繰り返したり、新 worker を強制起動したりして覆い隠さないでください。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[ストレージと上限](/run-server/self-hosting/reference/storage)、[アップグレードの互換性](/run-server/self-hosting/explanation/compatibility)。

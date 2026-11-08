@@ -1,0 +1,40 @@
+---
+title: "アップグレードの互換性"
+description: "checkpoint、runtime、schema のサポート範囲を理解します"
+pageId: "P30"
+docType: "説明"
+audience: "デプロイ運用者"
+outcome: "checkpoint、runtime、schema のサポート範囲を理解します"
+---
+
+<a id="개요" />
+## 概要
+
+アップグレードの安全性は API の準備応答一つでは判断できません。DB schema、worker protocol、engine・SDK・CLI・profile digest 方式、checkpoint 形式が揃って初めてセッションを継続できます。実行順序と禁止条件は[共通の実行前ゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います。
+
+<a id="현재직전-이미지의-지원-창" />
+## 現在・直前のイメージのサポート範囲
+
+scheduler は checkpoint に記録された runtime の組み合わせに合うイメージを、現在・直前の順に選びます。digest が異なる再ビルドでも runtime の組み合わせは同じ場合があります。どちらのイメージも合わなければ recovery_required になります。直前のイメージで動く worker が残っていれば、検査後も以前の組み合わせの checkpoint を作成できます。
+
+<a id="rolling-update가-중요한-이유" />
+## rolling update が重要な理由
+
+新しいフィールドを知らない strict API は worker の報告を拒否します。そのため migration と制御領域の更新が worker より先でなければなりません。billing:none、session prompt、transcript reason、outputs などの意味は有効化後のデータに残るため、設定を無効にすることと以前のバイナリへ戻すことは同じではありません。
+
+<a id="checkpoint와-복원" />
+## checkpoint と復元
+
+incremental bundle の鎖、profile のツール一覧、release のツール一覧も復元契約に含まれます。以前のビルドが知らない形式は、そのビルドの ready が成功しても読み取れません。start_fresh は以前の context を破棄する復旧判断であり、互換性の維持ではありません。
+
+<a id="schema와-실행-중-worker" />
+## schema と実行中の worker
+
+Helm migrate は rollout より先に実行されます。以前の API と worker が新しい schema 上で共存する期間があるため、拡張 → 切り替え → 整理の順序が必要です。worker イメージを変更しても、実行中の Pod は直ちには置き換わりません。隔離 stamp が変わった worker は turn 境界まで drain し、期限を超えると outcome_unknown が残る場合があります。
+
+| 変更対象 | 実行中の worker Pod | セッションの継続方法 |
+|---|---|---|
+| worker イメージ（`images.worker`） | 終了するまで以前のイメージで動作します | 次の launch が checkpoint ポインターの engine・SDK・CLI・profile digest 方式に合うイメージを、新イメージ（`images.worker`）、直前のイメージ（`images.workerPrevious`）の順に選んで復元します。両方合わなければ launch 前に `recovery_required` で停止します。このようなセッションは [Kubernetes 事前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)が upgrade 前に示します |
+| 隔離設定（stamp に含む値：egress proxy アドレス、保存容量、worker ServiceAccount、上限など） | stale になります。claim 済み Pod は turn 境界まで drain して終了します | 最後に完了した turn まで checkpoint がカバーしていれば、新しい Pod が PostgreSQL ポインターと S3 checkpoint から継続します。checkpoint のない完了 turn があれば、セッションは `recovery_required` で停止します（`CONTEXT_GAP`）。drain 期限（`MAX_TURN_SECONDS` + 5 分）を超えた turn は `outcome_unknown` となり、セッションは `recovery_required` で停止して運用者の判断を待ちます（[claim 済み worker の drain](/run-server/self-hosting/explanation/isolation#계약이-오를-때-claim된-worker의-drain)） |
+| ノード交換、Kubernetes アップグレード | Pod が消えます。SIGTERM を受ければ drain で release し、受けなければ heartbeat が途絶えます | release 済みなら直ちに、そうでなければ scheduler が Pod の消失を確認するか lease が切れた後に回収します。実行中の turn がなく、最後に完了した turn まで checkpoint がカバーしていれば、次の launch がその checkpoint から継続します。checkpoint が遅れていればセッションは `recovery_required` で停止します（セッション詳細の attention は `CONTEXT_GAP`）。未確定の turn があれば、その turn は `outcome_unknown`、セッションは `recovery_required` で停止します（[実行基盤と worker の隔離](/run-server/self-hosting/explanation/isolation)） |
+| checkpoint bucket（`config.checkpoints.bucket`） | bucket は stamp に含まれるため stale となり、置き換えられます | 自動では継続しません。以前の bucket の object は新しい bucket にはありません。未回収 checkpoint 行があるのに新 bucket に object version が一つもなければ api は起動しません（[api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)）。Kubernetes 環境には checkpoint を別 bucket へ移す手順がありません。復元も同じ bucket の version を参照します（[backup-restore.md の Kubernetes 設置](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)）。未回収 checkpoint がある間は bucket を変更しません |

@@ -1,0 +1,120 @@
+---
+title: "自分の registry 用イメージのビルド"
+description: "自分の registry の digest でデプロイ入力を作成します"
+pageId: "P21"
+docType: "作業"
+audience: "デプロイイメージ作成者"
+outcome: "自分の registry の digest でデプロイ入力を作成します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+公開イメージを使えない場合や別のパッケージ runtime が必要な場合に、自分の registry 向けにイメージを作り、その digest でデプロイ入力を作成します。
+
+<a id="준비물" />
+## 準備
+
+ソース commit、Buildx、対象 registry への書き込み権限、アーキテクチャが必要です。コードや依存関係を変更したイメージには、別途安全性・ライセンス・脆弱性の検証が必要です。worker の engine・SDK・CLI の組み合わせを勝手に変更しないでください。
+
+<a id="단계" />
+## 手順
+
+<a id="1-registry에-빌드" />
+### 1. registry 向けにビルド
+
+公開イメージを取得できない（未公開 commit の）場合の経路です。対応アーキテクチャは `amd64` と `arm64` だけです。設置する commit の checkout で三つのイメージをビルドし、ホストから取得できる registry に公開し、push が返した digest を手順 2 の release ファイルに記入します。イメージはビルドするマシンのアーキテクチャになるため、ホストと同じアーキテクチャでビルドします。この経路は実行確認していません。
+
+```bash
+REGISTRY=<your-registry>
+PREFIX=werft
+TAG=rc
+export API_IMAGE="$REGISTRY/$PREFIX-control-host:$TAG" WORKER_IMAGE="$REGISTRY/$PREFIX-worker:$TAG" \
+  EGRESS_PROXY_IMAGE="$REGISTRY/$PREFIX-egress-proxy:$TAG"
+docker build -f apps/control-host/Dockerfile --target release \
+  --build-arg APT_UPGRADE_KEY="$(date -u +%F)" -t "$API_IMAGE" .
+docker compose -f infra/compose.yml --profile worker build worker egress-proxy
+for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
+done
+unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+```
+
+自分の registry 名と三つの repository 名を決め、すべての build・push・digest 取得で同じ値を使います。公式 ghcr アドレスから digest を取り直すと、自前ビルドのイメージをデプロイできません。
+
+control-host はリポジトリルートを context にして `release` target をビルドします。`infra/compose.yml` の api ビルドは開発用 `local` target で、testkit とデモツールを含むため、運用イメージとしてデプロイしません。同じ control-host イメージを api・scheduler・reconciler・slack が共用します。公開イメージにはデモ CLI がないため、`DEMO_ACCOUNTS=local` で呼ぶと失敗します。
+
+base digest を固定しても Debian のセキュリティ更新はビルド時点によって変わり得るため、実際のデプロイ digest を記録します。`APT_UPGRADE_KEY` は更新 layer の cache を分けます。上の control-host ビルドは UTC 日付を渡します。worker の Compose ビルドでも新しいセキュリティ修正を取り込むには `--build-arg APT_UPGRADE_KEY="$(date -u +%F)"` または `--no-cache` を指定します。
+
+<a id="2-배포-입력에-같은-digest-유지" />
+### 2. デプロイ入力でも同じ digest を維持
+
+```bash
+CONTROL_IMAGE="$REGISTRY/$PREFIX-control-host@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-control-host:$TAG" --format '{{.Manifest.Digest}}')"
+WORKER_IMAGE="$REGISTRY/$PREFIX-worker@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-worker:$TAG" --format '{{.Manifest.Digest}}')"
+EGRESS_IMAGE="$REGISTRY/$PREFIX-egress-proxy@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-egress-proxy:$TAG" --format '{{.Manifest.Digest}}')"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
+jq -n --arg commit "$(git rev-parse HEAD)" --arg control "$CONTROL_IMAGE" \
+  --arg worker "$WORKER_IMAGE" --arg egress "$EGRESS_IMAGE" --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit:$commit,images:{control_host:$control,worker:$worker,egress_proxy:$egress},settings_digest:$settings}' \
+  > /var/lib/werft/test-ops/release.json
+```
+
+上の registry/prefix/tag は手順 1 で実際に使った値と一致させます。Kubernetes では `images.registry` と各 `images.*.repository`・digest、worker runtime を同じ自前イメージの値に設定します。runtime の抽出は[パッケージ契約](/run-server/self-hosting/reference/packages#직접-빌드한-이미지의-runtime)に従います。
+
+<a id="3-패키지-runtime을-추가하는-파생-worker" />
+### 3. パッケージ runtime を追加した派生 worker
+
+出荷 worker イメージには Bun（Node 互換 shim を含む）と engine だけがあり、npm・pnpm・yarn・Ruby・Bundler・Go はありません。セッションでこれらを使って依存パッケージをインストールするには、運用者が `WORKER_IMAGE` をこのイメージの派生イメージに変更します。派生イメージは `/workspace` 以外の `VOLUME` を宣言せず（実行基盤文書のイメージ契約）、engine・SDK・CLI の組み合わせを変えてはいけません。registry へのアクセスはイメージによらず、egress proxy の `packages` route だけを通ります（[実行基盤の egress](/run-server/self-hosting/explanation/isolation)）。worker が claim 時に HOME へ npm・Bundler・Go の user 設定を書くため、派生イメージに registry 設定を入れる必要はありません。
+
+worker が書く npm 設定は user レベルなので、リポジトリの `.npmrc` に `registry=` があればそちらが優先されます。その registry host には forward proxy で到達できないため、インストールは `403` で失敗します。派生イメージでの `config get registry` の優先順位は次のとおりです（リポジトリの `.npmrc` は `registry=https://registry.npmjs.org/`、user 設定は route）。
+
+| ツール | user 設定のみ | `npm_config_registry` 環境変数 | CLI の `--registry` | 備考 |
+|---|---|---|---|---|
+| npm 10.9.9 | リポジトリの値が優先 | 環境変数が優先 | CLI が優先 | リポジトリの `.npmrc` がなければ user 設定（route）を使います |
+| pnpm 9.15.0 | リポジトリの値が優先 | 環境変数が優先 | `config get` はオプションを受け付けません | npm と同じ順序です |
+| yarn 1.22.22 | npm user 設定を読みません（`registry.yarnpkg.com`） | 読みません | CLI が優先 | `YARN_REGISTRY` が優先します。`registry.yarnpkg.com` は一覧にありません |
+
+そのためリポジトリが registry を固定していれば、セッションで `npm ci --registry <route>/packages/npm/` のように CLI で上書きします。worker はエンジンに定めた環境変数だけを渡すため、`npm_config_registry` は渡しません。yarn 1 は `--registry` または `YARN_REGISTRY` を使う必要があります。
+
+npm cache がないセッションにも同じ制約があります。公開 registry を固定したプロジェクトでは、`npm ci` は `403 Forbidden - GET https://registry.npmjs.org/...` で失敗しました。`pnpm install` はリポジトリの registry にアクセスする際、route アドレスだけに設定した token を見つけられず、`No authorization header was set for the request` で失敗しました。固定していないプロジェクトの `npm ci`・`bundle install` は route から取得しました。
+
+Go は公式リリース tarball を checksum で固定して、派生イメージの `/usr/local/go` に展開し、`PATH` に追加します。`GOTOOLCHAIN=local` も設定します。そうしなければ `go.mod` の `go` 行がイメージより新しいと、Go が新しい toolchain を取得しに行きます。ユーザーは元のイメージのユーザー（`USER 1000:1000`）に戻します。local-docker 実行基盤の worker の `/tmp` は tmpfs オプションに `exec` がなく、Docker が `noexec` で mount します。そのため `go run` と `go test` は `/tmp` に作成した実行ファイルを起動できず、`fork/exec /tmp/go-build…: permission denied` で失敗します。HOME も同じ tmpfs なので、`go install` が `~/go/bin` に置くファイルも実行できません。`go test` は `GOTMPDIR` に workspace 内の既存ディレクトリを指定すれば合格します。`go run` は `GOCACHE`（既定は HOME 配下）から実行ファイルを起動するため、`GOCACHE` も workspace へ移す必要があります（例：`mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`）。実行ファイルは `go build -o` で workspace に作成します。
+
+```dockerfile
+FROM <shipped worker image>
+USER root
+ADD --checksum=sha256:<release sha256> https://go.dev/dl/go<version>.linux-<arch>.tar.gz /tmp/go.tar.gz
+RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+USER 1000:1000
+```
+
+出荷イメージの `bun install` は user の `.npmrc` の registry と token を使い、metadata を route から取得します。しかし tarball は metadata の `dist.tarball` にある `https://registry.npmjs.org/...` に直接取得しようとするため、forward proxy が `403` で遮断します。npm は `replace-registry-host` の既定値（`npmjs`）によって、その host を設定した registry に置き換えて取得します。Bun にはその設定がなく、現在 Bun では公開 npm パッケージをインストールできません。
+
+<a id="사설-패키지-registry-허용" />
+#### プライベートなパッケージ registry の許可
+
+1. `EGRESS_CREDENTIAL_ALLOWLIST` に `npm.pkg.github.com:443,rubygems.pkg.github.com:443` を含め、必要な既定項目もすべて再記入します。欠けていると登録済み token があっても要求は `403 egress denied` になります。
+2. `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` に `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443` を追加します。GitHub は tarball と `.gem` をこれらの host に 302 redirect します。proxy は token を付けずに redirect を追跡します。
+3. GitHub Enterprise Server なら `GITHUB_PACKAGES_*_URL` を設定します（[設定レファレンス](/run-server/self-hosting/reference/configuration)）。
+
+<a id="확인" />
+## 確認
+
+各 digest を対象アーキテクチャで pull し、image smoke・依存関係検査と設置準備検査に合格する必要があります。release 入力または helm template の最終イメージが、自分の registry の正確な digest か照合します。イメージの pull と実際のセッション実行は別の検査です。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+出荷 Bun は metadata の tarball URL を直接要求し、proxy で 403 になる場合があります。npm・pnpm・yarn の registry 優先順位は異なります。Go の実行 cache は tmpfs の noexec パスを避け、workspace へ移します。詳しい境界は[隔離の説明](/run-server/self-hosting/explanation/isolation)に従います。
+
+<a id="되돌리기" />
+## 元に戻す
+
+対象 digest を適用する前ならデプロイ入力を以前のものに戻します。適用後なら[アップグレードゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)の runtime・checkpoint 対応期間を確認して戻します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[単一サーバー設置](/run-server/self-hosting/single-server)、[Kubernetes 設置](/run-server/self-hosting/kubernetes)、[パッケージ契約](/run-server/self-hosting/reference/packages)。

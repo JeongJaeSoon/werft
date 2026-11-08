@@ -1,0 +1,49 @@
+---
+title: "DB接続の契約"
+description: "役割ごとの接続数とtimeoutを確認します"
+pageId: "P26"
+docType: "レファレンス"
+audience: "DB運用担当者"
+outcome: "役割ごとの接続数とtimeoutを確認します"
+---
+
+<a id="계약" />
+## 契約
+
+PostgreSQL 16を使います。接続の飽和、遅いSQL、ロックの調査は[DB遅延の診断](/run-server/self-hosting/diagnose-database)を参照してください。
+
+<a id="역할별-연결-수" />
+## 役割ごとの接続数
+
+すべての役割は `packages/db/src/pool.ts` の `createEnforcedPool` でプールを作ります。上限は役割ごとに異なります。
+
+| 役割 | プール上限 | 理由 |
+|---|---|---|
+| api | 10 + readiness probe 1 + LISTEN 1 | リクエストを並列処理します。probeは専用プール（上限1）を使い、通常のリクエストと競合しません。イベント通知用LISTEN接続（`werft:api-listen`）はプール外に1本あります |
+| metrics | 10 | 1回のscrapeで7つの集計を並列に読みます |
+| scheduler | 4 | pass内のSQLは逐次実行ですが、pass lockが別の接続を保持します |
+| reconciler | 4 | pass内のSQLを逐次実行します |
+| slack | 4 | inboxとoutboxを順番に処理します |
+| checkpoint GC、upgrade check、migrate、運用CLI（`keys`・`grants`など） | 10 | 短時間で終了します |
+
+Helmの既定値（api 2、slack 1、scheduler・reconciler各1、metrics無効）では、常時開き得る接続はapi 24 + scheduler 4 + reconciler 4 + slack 4 = 36です。`metrics.enabled` を有効にすると10、GC・upgrade check・migrate Jobが重なると最大30が加わります。Composeではapi 12 + scheduler 4 + reconciler 4 + slack 4 = 24です。PostgreSQLの既定 `max_connections` は100で、3はsuperuser用です。apiを増やす場合はreplicaごとに12、slackは4を足し、max_connectionsと比較してください。管理DBはインスタンスによって100未満の場合があるため、実際の値を確認します。
+
+<a id="연결마다-거는-세션-설정" />
+## 接続ごとのセッション設定
+
+createEnforcedPoolが接続時に適用します。DATABASE_URLに同名のquery parameterがあってもtimeoutはコードの値が優先されます。
+
+| 設定 | api・job | migrate | 意味 |
+|---|---|---|---|
+| 接続待ち（`connectionTimeoutMillis`） | 5秒 | 5秒 | プールに空きがなければこの時間で失敗します。apiは503を返します |
+| `statement_timeout` | 10秒 | 300秒 | サーバーがSQLを取り消します。ロック待ちも含みます |
+| 応答読み取り（`query_timeout`） | 20秒 | 330秒 | 応答しないソケットをクライアントが破棄します |
+| `idle_in_transaction_session_timeout` | 30秒 | 30秒 | transactionを開いたまま30秒SQLを送らない接続を切り、保持ロックも解放します |
+| `application_name` | `werft:<role>` | `werft:migrate` | pg_stat_activityとログで役割を区別します。DATABASE_URLにapplication_nameがあればその値を使います |
+
+<a id="migration이-잠그는-시간" />
+## migrationによるロック時間
+
+古いmainから更新する場合、0127_session_provider_tokensはusage INSERT triggerを作って既存usageをbackfillし、0129_session_provider_tokens_capは合計をJavaScriptの安全な整数範囲に制限するtriggerへ置き換えます。0169_usage_breakdown_rollupはSHARE lockでusage INSERTを止めてセッション・モデル集計をbackfillするため、データ量によって書き込み停止が長くなります。適用済みの3つは再実行されません。未適用なら保守時間とDB量を確認し、変更履歴のバージョン別手順に従ってください。
+
+migrateのSQL上限は各300秒です。手動db:migrateとHelm hookなどが重なった場合、後の処理は先の終了を待ち、残りだけを適用します。Helm hook Jobはmigrate.activeDeadlineSeconds（既定600秒）で終了します。成長する表のindexはCREATE INDEX CONCURRENTLYで書き込みを止めずに作成します。300秒を超えそうなmigrationはrelease notesで告知します。CONCURRENTLYは開始時に開いていたtransactionの終了を待つため、運用者のpsqlでBEGINを開いたままだとその分遅れます。

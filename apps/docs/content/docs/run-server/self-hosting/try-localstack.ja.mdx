@@ -1,0 +1,153 @@
+---
+title: "LocalStack での試験設置"
+description: "非永続の試験サーバーを設置し、後片付けします"
+pageId: "P05"
+docType: "設置"
+audience: "ローカル試験担当者"
+outcome: "非永続の試験サーバーを設置し、後片付けします"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+Linux 試験サーバーに LocalStack を使う Compose 環境を設置します。ホストや Docker の再起動で object が消失する場合がある、非永続の試験経路です。
+
+<a id="준비물" />
+## 準備
+
+| 項目 | 要件 |
+| --- | --- |
+| OS | Linux。`x86_64` と `arm64` の両方に対応します |
+| Docker Engine | 28 以上 |
+| Docker Compose | 2.24.6 以上 |
+| ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` はこれを確認しません。満たさなければ `deploy` で scheduler の quota 検査が失敗し、設置が止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
+| 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
+| ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon にアクセスできるアカウント |
+| 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
+
+設置にはリポジトリ checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout でビルドしません。
+
+運用データから分離した Linux サーバーで、先に [XFS の準備](/run-server/self-hosting/prepare-xfs)を完了します。試験専用の project、設置 id、ポート、状態・秘密情報ディレクトリを選びます。test-ops の既定 project 名は `werft-test-ops` で、`TEST_OPS_PROJECT` で変更します。次の例の既定パスが既存環境で使われている場合は、別のパスと `TEST_OPS_*` 値を指定します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-이미지와-소스" />
+### 1. イメージとソース
+
+```bash
+TAG='<published-image-tag>'
+SOURCE_REF='<matching-source-commit-or-release-tag>'
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout "$SOURCE_REF"
+bun install --frozen-lockfile
+```
+
+三つのイメージがすべて digest を返し、同じ source commit を checkout したことを確認します。
+
+<a id="2-시험-설정" />
+### 2. 試験設定
+
+秘密の値はリポジトリ外の env ファイルだけに置きます。運用者だけが読める必要があります。group や other に権限があるとスクリプトが拒否します。
+
+```bash
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+```
+
+エディターで `/etc/werft/test-ops.env` を開き、次を設定します。`sed -i` のように一時ファイルを作るツールは `/etc/werft` で `Permission denied` となるため、その場で書き込むエディターを使います。
+
+| 変数 | 値 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
+| `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
+| `BOOTSTRAP_TOKEN` | コメントを外し、32–256 文字のランダムな値を設定します。最初の owner を作るトークンです。未設定なら API が生成し、コンテナログに出力します |
+
+`EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on` を使います。credential allowlist は `api.anthropic.com:443,github.com:443`、private credential allowlist は `localstack:4566` です。AWS key・region・bucket 変数は例のまま空にします。LocalStack は固定の試験 key と `claude-sessions` bucket を使います。
+
+設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ import 時にそのリポジトリが除外され、`preflight` が設置を止めます。非公開リポジトリの認証は [API サーバー文書](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)に従います。
+
+migrate コンテナが読む必要があるため、ファイルは `0644` にします。先に空のファイルを作り、エディターで次の内容を入れます。
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": { "kind": "github_app" }
+    }
+  },
+  "mcp_servers": {}
+}
+```
+
+<a id="3-release-입력과-설치" />
+### 3. release 入力と設置
+
+release の生成は[単一サーバーの手順 3](/run-server/self-hosting/single-server#3-release-입력-생성)と同じです。生成先は checkout 外の `/var/lib/werft/test-ops/release.json` とします。この段階では S3 用 preflight は実行せず、次を使います。
+
+```bash
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh preflight /var/lib/werft/test-ops/release.json
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh deploy /var/lib/werft/test-ops/release.json
+```
+
+quota 検査とサービス health が成功する必要があります。モデル key は設置後にコンソールへ入力します。
+
+<a id="확인" />
+## 確認
+
+`scripts/test-ops.sh status`、ready の本文と 200、docs 200 を確認します。[最初の owner と key](/run-server/self-hosting/users-and-keys)で認証を確認します。この試験では運用 AWS S3 の権限やデータがある状態での復元を証明しません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+最初の `deploy` が失敗すると、起動したコンテナが残り、`current.json` がないため `stop` は使えません。失敗ログで quota・network・Secret などの原因を確認し、今回の project 名を確認してから次のように停止・削除します。`-v` は付けません。
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+原因を直し、同じ release ファイルと同じ環境で `deploy` を再実行します。成功済みの環境を再起動するときは `start` を使います。
+
+最初に restart ポリシーが変わるアップグレードで LocalStack コンテナを再作成すると、object を失う場合があります。`status` で未回収 checkpoint が 0 件と確認できなければアップグレードを延期します。API 起動失敗と `pending.json` が重なると `reseed` も拒否され、`reset` は全データを破棄します。`backup --stop` もこの遮断を解除しません。
+
+LocalStack はコンテナを再作成するとメモリの object を失います。DB に未回収 checkpoint が残り bucket が空なら、API は起動を拒否します。自動再起動と手動 start の条件は [Compose のライフサイクル](/run-server/self-hosting/stop-compose)に従います。
+
+計画的な再起動では、先にバックアップして writer を停止します。
+
+```bash
+# Back up, leave the writers stopped, restart the host, then restore the objects
+scripts/test-ops.sh backup --stop
+sudo reboot
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
+```
+
+この一連の手順と checkpoint がある環境の再起動は実行確認していません。`reseed` は原本の project・bucket・checksum、空の bucket、最後のバックアップ後に checkpoint の変更がないことを検査します。条件を満たさなければ拒否します。object を失い、API 起動失敗と pending upgrade が残る状態では `reseed` は拒否されます。`backup --stop` のバックアップがあっても遮断は解除されません。この状態で `reset` を選ぶと DB・セッション・checkpoint を破棄します。通常の再起動の復旧コマンドとして使わないでください。
+
+<a id="되돌리기" />
+## 元に戻す
+
+[Compose の停止・削除](/run-server/self-hosting/stop-compose)に従います。成功した環境は `scripts/test-ops.sh stop` で今回の project を停止・削除し、volume を保持します。最初の deploy 失敗では、上記の明示的な project と stdin の compose model による後片付け手順に従います。checkpoint がない試験という理由で、運用 bucket や他の環境を整理しないでください。reset は削除範囲を確認したうえで別途選ぶ操作です。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[運用向け単一サーバー設置](/run-server/self-hosting/single-server)、[バックアップと復元](/run-server/self-hosting/backup-and-restore)。

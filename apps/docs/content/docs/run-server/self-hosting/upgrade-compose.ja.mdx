@@ -1,0 +1,194 @@
+---
+title: "単一サーバーのアップグレード"
+description: "互換性とバックアップを確認して新 release を適用します"
+pageId: "P11"
+docType: "作業"
+audience: "Compose 運用者"
+outcome: "互換性とバックアップを確認して新 release を適用します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+バックアップと互換性検査を経て、Compose 環境を新しい release へ更新します。checkpoint を失う承認は、影響セッションを正確に確認してからだけ行います。
+
+<a id="준비물" />
+## 準備
+
+[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)で対象バージョンの運用者向け作業を先に読みます。
+
+現在・対象の source commit、release 入力、settings digest、イメージ digest が必要です。直近の成功バックアップと復元訓練を確認し、利用者に停止を知らせます。この Compose アップグレード全体は公開イメージで実行確認していません。
+
+先に[共通の実行前ゲート](#실행-전-게이트)を確認します。LocalStack 試験環境は、最初の restart ポリシー変更でコンテナを再作成すると checkpoint object を失う場合があります。`status` の未回収 checkpoint が 0 件と確認できない、または 0 でなければ更新を延期します。API が起動失敗し `pending.json` まで残ると、reseed では迂回できません。その場合に残る手段の `reset` は全データを破棄するため、先にバックアップから復元可能か判断します。`backup --stop` も遮断を解除しません。
+
+<a id="단계" />
+## 手順
+
+<a id="1-대상-입력과-백업" />
+### 1. 対象入力とバックアップ
+
+[パッケージ契約](/run-server/self-hosting/reference/packages)から対象タグを選び、[設置時の release 生成](/run-server/self-hosting/single-server#3-release-입력-생성)と同じ方法で checkout 外に release-new.json を作ります。生成前に対象 source commit を checkout し、`bun install --frozen-lockfile` を実行します。release の `source_commit` はこの checkout の HEAD でなければなりません。先に[バックアップ](/run-server/self-hosting/backup-and-restore)を実行します。
+
+<a id="2-api--proxy--worker-순서" />
+### 2. API → proxy → worker の順序
+
+protocol または[実行前ゲート](#실행-전-게이트)のフィールドに変更があれば、全イメージを一度に変えません。先に新 source commit を checkout して依存関係をインストールし、対象 release の control_host だけを新イメージに変え、worker・egress_proxy は現在のままにした中間 release ファイルを作ります。同じ settings digest・source_commit 条件を守ります。中間 release で upgrade し、API が ready で全 API インスタンスが新バージョンになったことを確認します。
+
+次に egress proxy と worker を対象 digest に変えた最終 release で upgrade します。これにより API より先に proxy・worker が新フィールドを送ることを防ぎます。test-ops 環境は中間・最終 release 入力をそれぞれ `scripts/test-ops.sh upgrade` で適用します。
+
+<a id="3-upgrade와-영향-세션" />
+### 3. upgrade と影響セッション
+
+手順 1 で対象 source commit・digest から作った `release-new.json` で `upgrade` を実行します。worker イメージが変われば新イメージで現在の checkpoint を検査し、非互換セッションがあれば終了コード 3 で拒否します。影響セッション id は `$TEST_OPS_STATE_DIR/upgrade-<timestamp>.sessions` に記録します。一覧を確認して利用者へ知らせ、正確にその id を含むファイルで `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` を再実行します。一つでも違えば拒否し、続行時は状態ディレクトリに承認記録を残します。非互換セッションを `start_fresh` で復旧すると以前の checkpoint の context を失います。影響セッションがなければ承認なしで進みます。
+
+upgrade 直前に一度[バックアップ](/run-server/self-hosting/backup-and-restore)を取ります。戻す操作も以前の release ファイルでの `upgrade` であり、worker イメージが再び変わるため同じ規則を適用します。
+
+新 release 起動前に upgrade が停止した場合（例：scheduler の quota 検査失敗）、環境は停止したままで、状態ディレクトリに `pending.json` が残ります。この状態では `status`、`reset`、`pending.json` と同内容の release ファイルを使う `upgrade` だけを許可し、以前の release へ戻す `upgrade` を含む他のコマンドは拒否します。原因を直し、同じ対象 release ファイルで `upgrade` を再実行すると解消します。
+
+upgrade ではなく `compose down` やホスト再起動で停止しただけなら、`upgrade`・`deploy` ではなく `scripts/test-ops.sh start` で同じ volume を使って再起動します（[停止](/run-server/self-hosting/stop-compose)）。`pending.json` があれば `start` は拒否します。
+
+```bash
+scripts/test-ops.sh upgrade release-new.json
+```
+
+`release-new.json` と承認ファイルは checkout 外の実際の絶対パスで渡します。対象 checkout の HEAD は release の source_commit と一致する必要があります。
+
+<a id="확인" />
+## 確認
+
+status の適用 release、サービス health、ready を確認します。既存セッションを新 worker で再開し、context、最終 checkpoint、turn 完了を照合します。メトリクス名が変われば Datadog 定義・クエリ・フィルターと Prometheus ルールを新名に変更し、実際の series を確認します。
+
+上書きした CSS 名も変更履歴の運用者作業と照合し、新名に変えます。以前のメトリクス・CSS 名に alias があるとは考えないでください。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+pending.json が残ると start と以前の release への upgrade は拒否されます。原因を直し、pending と同じ対象 release で再 upgrade します。影響セッション一覧が変わったら以前の承認ファイルは再利用しません。start_fresh は以前の context を破棄します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+以前の release の適用も、upgrade 検査と[実行前ゲート](#실행-전-게이트)の rollback 下限に従います。新 schema・checkpoint を知らないビルドへ、単にイメージタグだけを戻さないでください。新 release がまだ起動していない pending 失敗では以前の release は拒否されるため、同じ対象で復旧します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[アップグレードの互換性](/run-server/self-hosting/explanation/compatibility)、[セッション復旧](/run-server/self-hosting/recover-sessions)、[Compose のライフサイクル](/run-server/self-hosting/stop-compose)。
+
+<a id="실행-전-게이트" />
+## 実行前ゲート
+
+incremental checkpoint と release ツール復元候補の下限を両方含む最初の正式リリースは `v0.1.0` です。リリース設置者はそれより前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
+
+対象の変更履歴と現在のデプロイバージョンを照合します。次に該当する場合、機能の有効化や worker 変更前にすべてを満たします。
+
+| 変更 | 先に完了する作業 | 戻せない境界 |
+| --- | --- | --- |
+| provider usage の `inference_geo` | migration を含め API を先に更新し、ready 確認後に egress proxy を更新 | 以前の API は新 proxy 報告を 400 で拒否し、費用計測が欠落します |
+| `billing: none` | 全 API replica と全 scheduler の WORKER_IMAGE を更新してから新 none セッションを作成 | unmetered セッションが残る間、以前の API・worker への rollback 禁止 |
+| `SESSION_PROMPT_REVISION=1` | migration 0229 → claim 処理 API 全部・現在/直前 worker イメージ全部を更新 → 1 を有効化 | 0 は新規セッションだけに影響。有効化後、以前の API・worker への rollback は非対応 |
+| transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |
+| manifest の `outputs` | API 全部 → worker | api・worker の両方が outputs を知るビルドまでだけ rollback 可能 |
+| `AGENT_ACTION_FLOWS` | GC・セッション保管 CronJob まで全コンポーネントを更新してから有効化 | 進行中 intent は無効化後も処理します |
+
+新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
+
+<a id="v010-이후-변경을-처음-적용할-때" />
+### v0.1.0 以降の変更を初めて適用する場合
+
+- `v0.1.0` より後、対象バージョンまでの全 migration（現在 `0241` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
+- control-host を先、worker を後に更新します。`platform_tool_trust` fallback があっても、更新の間は以前の権限経路を使うため順序を守ります。
+- `AGENT_ACTION_FLOWS` 有効化前に API、Compose maintenance、Kubernetes の checkpointGc・sessionArchive CronJob、worker をすべて対象イメージにし、**以前のイメージで開始した Job が終了したこと**を確認します。以前の GC は固定 revision を削除する場合があります。
+- 有効化後の新規セッションの prompt revision 2 は以前の worker では読めません。有効化前の更新と、有効化後の rollback 下限を別々に確認します。`v0.1.1` の公開状況を変更履歴の見出しだけでは判断しません。
+
+次の条件は、現在の環境に該当変更が既に含まれるか照合して適用します。rollback が必要なら、先に影響セッションを読み取り SQL で数えます。データ損失を承認せず roll-forward できるか先に判断します。
+
+<a id="compose-전용-checkpoint-검사" />
+### Compose 専用 checkpoint 検査
+
+単一サーバー（compose）の upgrade 検査で worker イメージが変わると、新イメージの engine・SDK・CLI・profile digest で各現在 checkpoint の restore plan を計算します。四値がすべて同じで互換のセッションは承認なしで継続し、`INCOMPATIBLE_CHECKPOINT` のものだけ利用者に知らせ、正確な一覧を承認してもらいます。検査を完走できない、または他の検証失敗が混在する場合は、未回収 checkpoint のある全セッションを影響一覧にする fail-closed 動作で、ログに残します。writer 停止後も同じ検査を繰り返します。非互換セッションに `start_fresh` を選ぶと以前の checkpoint の context を破棄します。Kubernetes（helm）の pre-upgrade hook はイメージを実行せず、ポインターの組み合わせで同じ判定をします（[Kubernetes アップグレードの 3. 検査結果と例外 — アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)）。
+
+worker イメージが変わると、upgrade は変更前イメージを直前イメージとして残します（upgrade スクリプトの状態ディレクトリの `previous-worker`）。scheduler はセッションごとに checkpoint ポインターの組み合わせ（engine・SDK・CLI・profile digest scheme）に合うイメージを現在・直前から選び、両方合えば現在を使います（[設定レファレンスの scheduler・worker コンテナ・egress 設定](/run-server/self-hosting/reference/configuration)）。そのためゲートは、新イメージで復元できず直前イメージでも復元できないセッションだけを影響一覧に入れます。新・直前いずれかの検査が fail-closed なら、新イメージ基準の一覧をそのまま使います。同じ組み合わせで再ビルドしたイメージなら scheduler は新イメージで起動するため、新イメージで復元可能と確認できないセッションは、直前で復元できても一覧から外しません。どちらかが自分の組み合わせを出力できない以前のイメージなら（`apps/worker/src/image-runtime.ts` がないビルド）、直前イメージを使わず、ゲートも新イメージ基準の一覧を維持します。サポート範囲は一リリースです。もう一度更新すると、それより前のイメージに残るセッションは再び影響一覧に入ります。
+
+<a id="runtime-프로필의-공통-준비" />
+### runtime プロファイルの共通準備
+
+SDK 更新リリースでは設定文書例（`tests/fixtures/settings/`）の `runtime_version` も上げ、運用環境の上限は新バージョンとして保存します。現在のイメージにない `runtime_version` の profile は新規セッションを受け付けません。同じリリースに新 engine 組み合わせの組み込みツール対応一覧（`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`）も含めます。一覧のないバージョンの上限は `deny` にできません。新一覧に追加されたツールは各上限の新バージョンでも遮断したまま継続し、`accept_added_tools` で受け入れると開きます（[api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)）。Kubernetes（helm）の戻し方と注意点は [Kubernetes アップグレードの元に戻す手順](/run-server/self-hosting/upgrade-kubernetes#되돌리기)にあります。
+
+<a id="workercontrol-host-롤백과-incremental-checkpoint" />
+### worker・control-host の rollback と incremental checkpoint
+
+`v0.1.0` の worker は、直前 checkpoint の bundle の鎖に、新 object だけを含む incremental bundle を追加します。鎖は manifest の `workspace.baseBundles` に記録します。manifest の `version` は 2 のままで、incremental かどうかはこのフィールドの有無だけで区別します。**それ以前のビルドへ rollback すると、このフィールドのある checkpoint を復元できません。** 以前の manifest schema は未知の key を拒否するためです。
+
+- **以前の worker イメージ。** 復元時に manifest decode が `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"` で失敗します。workspace を空にしたり bundle を取得したりする前に失敗するため、途中まで復元した workspace は残りません。ただし manifest は固定なので、再 launch しても同じ理由で `worker.failed` になります。
+- **以前の control-host。** 復元計画が `CHECKPOINT_UNAVAILABLE` で拒否され、前 revision へは戻りません。finalize も incremental manifest を拒否し、pointer が進みません。新 worker と混在すると最初の checkpoint のような単独 bundle だけが commit されます。以前の GC は decode できないセッションを省略するため、base bundle は削除しません。
+- **影響セッションの特定。** DB に manifest 本文はありません。`sessions.checkpoint_revision` が指す `checkpoints` 行（`collected_at IS NULL`）の `manifest_ref`・`manifest_version` で object store から manifest を取得し、`jq -e '.workspace.baseBundles | length > 0'` で分類します。復元は `parent_revision` をたどって戻る場合があるため、親行も確認します。worker ログ `worker.checkpoint.published` の `base_bundles` が 0 より大きければ incremental で公開したものです。
+- **rollback 前の作業。** 影響セッションがあれば rollback せず roll-forward します。新しい full bundle で checkpoint を取り直す運用手段（環境変数・設定・CLI）はまだありません。worker は鎖がない、切れている、長さ 32（`MAX_WORKSPACE_BUNDLE_CHAIN`）または bundle 上限に達した場合だけ、自ら full bundle を upload します。そのため rollback が必須なら影響セッションはその間復元されません。roll-forward すればそのまま復元できます。
+
+<a id="control-host-롤백-하한-release-도구로-실행" />
+### control-host の rollback 下限：release ツールでの実行
+
+`v0.1.0` の control-host は release から作ったセッションを、release に固定したツール（`agent_releases.runtime_config_snapshot.tools`、profile ツール内）で実行します。それ以前は profile の全ツールでした。ツールは worker 起動時の claim で渡し、worker は終了までそれを使います。そのためエージェント定義で `tools` を選ぶ、または `forbidden` を設定したエージェントは、既に進行中のセッションも次の claim から絞り込まれます。デプロイ前に起動した worker は、最後の turn 後に入力なしで `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）が経過する、または pause・再起動で終了するまで profile のツールを使います。release なしのセッションや、エージェントが profile 全ツールを残す release のセッションは変わりません。worker イメージと worker protocol は変わりません。
+
+- **正式リリースの rollback 下限は `v0.1.0` です。** ツール一覧は checkpoint の profile digest に含まれます。このリリースは claim の復元候補に profile と release の両ツール一覧を入れます。非対応のリリース前ビルドへ戻すと、release ツールで作った checkpoint を復元できず、セッションが `recovery_required`（`incompatible_checkpoint`）で止まります。roll-forward 後、`retry_restore` で同じ checkpoint を再試行します。リリース前の main 環境では、復元候補対応を確認したリリースを先にデプロイして rollback 対象にします。
+- **絞り込まれる release 数。** デプロイ前に読み取りクエリで数えます。profile の全ツールを選ぶ release も数えるため上限値です。
+
+```sql
+WITH narrowed AS (
+  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
+  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
+     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
+)
+SELECT
+  (SELECT count(*) FROM narrowed) AS releases,
+  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
+    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
+  (SELECT count(*) FROM agent_releases
+    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
+      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
+                    WHERE jsonb_typeof(t) <> 'string')
+      ELSE true END) AS unreadable;
+```
+
+`unreadable` は `tools` がない、または文字列配列でない snapshot です。この release のセッションは組み込みツールなしで動きます（許可しない側に解釈します）。正常経路の release は常に文字列配列の `tools` を含みます。
+- **復元候補の上限。** claim の復元候補は 16 個までです（worker 契約）。全 profile 一覧を release 一覧より先に入れます。実際にツールが絞られる release のうち、以前の profile が多いセッション（GitHub 設定なしなら 16 個、あれば 8 個以上）は二つの制約を受けます。① release ツールで実行するビルドへ変更後、現在 profile の profile 一覧が一枠増えるため、最も古い以前の profile の候補が一つ外れます。その候補だけで一致する checkpoint は復元が `incompatible_checkpoint` で止まり、同じ候補規則のビルドで再試行しても変わりません。そのセッションは `start_fresh`（以前の context を破棄）または `close` で終了します。② release ツール復元候補に非対応のリリース前ビルドへ rollback すると、その claim は profile 一覧だけで上限に達して release ツール候補を入れられません。そのため release ツール実行ビルドへの変更後に release ツールで作った checkpoint を復元できません。こちらは roll-forward 後、`retry_restore` で再試行できます。
+
+<a id="worker-protocol-필드를-걷어내는-순서" />
+### worker protocol フィールドを削除する順序
+
+API 更新後も起動済み worker コンテナは以前のイメージで動き続けます。入力のない worker も `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）残ります。そのため worker protocol フィールドは、先に受信側がそのフィールドなしでも受け付けるよう変更し、そのリリースへの全更新後に送信側が削除します。一つのリリースで両側を同時に変えません。
+
+| フィールド | 手順 1：受信側が必須にしない | 手順 2：送信側が削除（手順 1 の更新完了後） |
+|---|---|---|
+| heartbeat 応答の `auth_revision` | worker がフィールドのない応答も受け付ける | API が送信しません。その前に手順 1 より前のイメージの worker が一つも残らないことを確認します |
+| append-events 要求の `batch_key` | API がフィールドのない要求も受け付ける（まだ未実施） | worker が送信しません。その前に手順 1 より前の API が一つも残らないことを確認します |
+
+手順 2 を早くデプロイし過ぎると、以前の側が相手の要求・応答を契約違反で拒否します。worker は不正な heartbeat 応答を再試行不能の失敗と扱うため、最初の heartbeat で lease を失ったと判断して止まります。
+
+checkpoint manifest にフィールドを追加する場合は、逆に読み手が先です。control-host（commit 前検証・復元計画・GC）と worker（復元）はどちらも未知の key を拒否します。そのため control-host を先に、または同じリリースで更新し、その後 worker を更新します。そのフィールドを使う checkpoint ができてから worker を rollback すると、上記 `baseBundles` と同じ理由でそのセッションは復元できません。
+
+| フィールド | 先：読み手 | 後：書き手 |
+|---|---|---|
+| `workerState`（承認待ち park） | control-host・worker がこの key のある manifest を受け付ける | worker が承認待ち turn を park するときだけ書く |
+
+worker が送る worker protocol フィールドを追加する場合も API が先です。API の要求 schema は strict なので、以前の API は未知フィールドのある要求全体を 400 `BAD_REQUEST` で拒否します。
+
+| フィールド | 先にデプロイ | 以前の API に接続した新 worker |
+|---|---|---|
+| pending-control 要求の `settled[].reason`・`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 警告を一度残し、その attempt 終了まで `outcome` だけを送ります。receipt は以前の規則で確定し、`pending_requests.settled_reason`・`settled_answer_result` は空です |
+| bootstrap-claim・pending-control 要求の `capabilities`、register-pending 要求の `remember_offer` | API | 互換再試行はありません。最初の要求 bootstrap-claim が 400 `BAD_REQUEST`（再試行不可）で拒否されると、worker はエラー終了し、turn を一つも実行しません。API だけ戻しても同じです。API を戻す前に、新 worker イメージを使うセッションがないことを確認します |
+
+<a id="db-스키마를-바꾸는-순서" />
+### DB schema を変更する順序
+
+migration は rollout より前に実行します。そのため新 schema 上で以前の control-host が一時動作し、以前の worker イメージもサポート期間中は動き続けます。以前のコードが読み書きする列・表は、そのコードがすべてなくなるまで残す必要があります。そのため schema 変更は三つのリリースに分け、一つのリリースで追加と削除を同時に行いません。
+
+| 段階 | 作業 | 以前のコードからの見え方 |
+|---|---|---|
+| 1. 拡張（expand） | 列・表を追加します。新列は null 許可または既定値を設定します。既定値があれば既存行でもその値が読み取れ、INSERT がその列を省略すると既定値が入ります。明示的 NULL に既定値は適用されず、null 許可列なら NULL、NOT NULL 列なら INSERT 失敗になります。そのため既存行に合う値か、以前のコードの INSERT がどう扱うかを確認して選びます | 未知の列が増えるだけで、以前のコードの書き込みはその列を省きます |
+| 2. 切り替え | 新コードが新列にも書き始めます。以前のコードが旧列へ書く間は旧列が基準です。新コードは両列に書き、旧列を読みます。旧コードの書き込みを新列へ移す仕組み（trigger など）がなければ、旧 writer がすべて消えた後に既存行を最後に backfill してから、新列の読み取りへ切り替えます | 旧列が残り、読み書きを続けられます |
+| 3. 整理（contract） | 旧列・表を削除、または NOT NULL・CHECK で制約を強化します。使用イメージがサポート範囲外になり、その worker・control-host が実際に一つも残らないと確認した次のリリースで行います。制約強化前に、既存行と現在動く全 writer が新制約を満たすか確認します | その列を使う旧コードがありません |
+
+列名変更も旧名を即座に消すため同じ順序です。新列の追加、データ移行・コード変更、旧列削除の順にします。`WORKER_IDLE_TIMEOUT_SEC` は最後の turn 後の idle 時間であり、worker 寿命の上限ではありません。稼働中 worker はそれより長く残り得るため、整理時点は時間ではなく実際に残るコンテナで判断します。
+
+例：checkpoint ポインターの runtime 組み合わせ `checkpoints.runtime_*`（migration `0196_checkpoint_runtime`）は段階 1 で、既定値なしの null 許可列だけを追加しました。それ以前の commit 済み行は null のままです。`0199_worker_image_runtime`（launch の組み合わせ、checkpoint の digest scheme、`worker_image_refusals` 表）も段階 1 です。scheme が null の checkpoint は最初の scheme（1）として読みます。

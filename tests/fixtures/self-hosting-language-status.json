@@ -4,7 +4,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P02": {
@@ -12,7 +12,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P03": {
@@ -20,7 +20,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P04": {
@@ -28,7 +28,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P05": {
@@ -36,7 +36,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P06": {
@@ -44,7 +44,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P07": {
@@ -52,7 +52,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P08": {
@@ -60,7 +60,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P09": {
@@ -68,7 +68,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P10": {
@@ -76,7 +76,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P11": {
@@ -84,7 +84,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P12": {
@@ -92,7 +92,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P13": {
@@ -100,7 +100,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P14": {
@@ -111,7 +111,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P15": {
@@ -119,7 +119,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P16": {
@@ -127,7 +127,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P17": {
@@ -135,7 +135,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P18": {
@@ -143,7 +143,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P19": {
@@ -151,7 +151,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P20": {
@@ -159,7 +159,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P21": {
@@ -167,7 +167,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P23": {
@@ -175,7 +175,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P24": {
@@ -183,7 +183,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P25": {
@@ -191,7 +191,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P26": {
@@ -199,7 +199,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P27": {
@@ -207,7 +207,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P28": {
@@ -215,7 +215,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P30": {
@@ -223,7 +223,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P22": {
@@ -232,7 +232,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P29": {
@@ -241,7 +241,7 @@
     "locales": {
       "ko": "implemented",
       "en": "implemented",
-      "ja": "fallback"
+      "ja": "implemented"
     }
   },
   "P31": {

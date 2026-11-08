@@ -1,0 +1,113 @@
+---
+title: "DB 遅延の診断"
+description: "接続の飽和、遅い文、ロック待ちを切り分けます"
+pageId: "P16"
+docType: "作業"
+audience: "DB 運用者"
+outcome: "接続の飽和、遅い文、ロック待ちを切り分けます"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+接続予算と実際の接続を比較し、遅い文とロック待ちを切り分けます。
+
+<a id="준비물" />
+## 準備
+
+PostgreSQL の運用者接続権限とログ閲覧権限が必要です。[DB 接続契約](/run-server/self-hosting/reference/database)のロール別予算と timeout を先に確認します。管理 DB の再起動と拡張作成は、別途運用承認が必要な範囲です。
+
+<a id="단계" />
+## 手順
+
+<a id="1-실제-연결과-timeout" />
+### 1. 実際の接続と timeout
+
+ロールごとの接続数は DB で確認します。Compose では status と project label で選んだ DB コンテナに `docker exec -it <this-installation-postgres-container-id> psql -U <configured-user> -d <configured-database>` で入り、Helm では運用者の DB クライアントで接続します。
+
+```sql
+SELECT application_name, state, count(*)
+  FROM pg_stat_activity
+ WHERE application_name LIKE 'werft:%'
+ GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+セッション設定はその接続だけに適用されるため、運用者の `psql` での `SHOW` はサーバーの既定値を示します。プラットフォーム接続の値は api コンテナ（Helm では api Pod）の中で同じ pool から読み取ります。
+
+```bash
+API_CONTAINER='<this-installation-api-container-id>'
+docker exec -w /app/apps/control-host "$API_CONTAINER" bun -e '
+import { createLogger } from "@werft-ai/observability";
+import { createApiPool } from "./src/api/pool.ts";
+const pool = createApiPool(process["env"]["DATABASE_URL"], createLogger());
+const { rows } = await pool.query(
+  "SELECT current_setting($1) AS statement_timeout, current_setting($2) AS idle_in_transaction, current_setting($3) AS application_name",
+  ["statement_timeout", "idle_in_transaction_session_timeout", "application_name"],
+);
+console.log(JSON.stringify(rows[0]));
+await pool.end();'
+# {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"werft:api"}
+```
+
+API_CONTAINER は今回の環境の status と project label で確認します。Helm では `docker exec -w /app/apps/control-host "$API_CONTAINER"` の代わりに `kubectl -n werft exec deploy/werft-api -- sh -c 'cd /app/apps/control-host && bun -e …'` で同じスクリプトを実行します。release 名が `werft` でなければ namespace と deployment 名をその環境のものに変更します。
+
+api の pool 待ち時間が長い場合は、実際の接続数と予算を比較します。運用者の psql で SHOW した値では、プラットフォーム接続の設定を証明できません。
+
+<a id="2-느린-문장과-잠금" />
+### 2. 遅い文とロック
+
+#### Compose
+
+`infra/compose.core.yml` の postgres は次を有効にして起動します。
+
+- `log_min_duration_statement=500ms`：500ms を超えた文の本文と時間をログに残します。`POSTGRES_LOG_MIN_DURATION_STATEMENT` で変更でき、`-1` で無効にします。
+- `log_lock_waits=on`：`deadlock_timeout`（1 秒）より長く待ったロックを、そのロックを保持する PID とともに記録します。
+- `shared_preload_libraries=pg_stat_statements`：文ごとの累積統計を収集します。閲覧には初回に一度 `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` を実行します。
+
+```bash
+DB_CONTAINER='<this-installation-postgres-container-id>'
+docker logs "$DB_CONTAINER" 2>&1 | grep -E 'duration:|still waiting'
+```
+
+```sql
+SELECT calls, round(mean_exec_time::numeric, 1) AS mean_ms,
+       round(total_exec_time::numeric) AS total_ms, left(query, 120)
+  FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;
+```
+
+この設定を変えると postgres コンテナが再作成されます。データは `postgres-data` volume に残ります。
+
+<a id="helm-운영자-db" />
+#### Helm（運用者の DB）
+
+chart は DB を作らないため、サーバー設定も変更しません。運用者が DB パラメーターに次を設定します。RDS・Aurora では parameter group で変更し、`shared_preload_libraries` の適用にはインスタンスの再起動が必要です。
+
+| パラメーター | 値 |
+|---|---|
+| `log_min_duration_statement` | `500`（ms） |
+| `log_lock_waits` | `on` |
+| `shared_preload_libraries` | 既存の値に `pg_stat_statements` を追加 |
+
+続いてプラットフォームの DB で `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` を一度実行します。拡張を作る権限（RDS では `rds_superuser`）が必要です。migration は拡張を作りません。権限がない環境でも migrate が失敗しないようにするためです。
+
+ログは DB の出力先（RDS では CloudWatch Logs の `postgresql` ログ）で `duration:` と `still waiting` を検索します。kind 確認環境（`deploy/kind/deps.yaml`）の Postgres はこの表の値で起動します。
+
+<a id="확인" />
+## 確認
+
+ロール別接続数、duration ログ、still waiting ログ、pg_stat_statements の合計時間と平均時間を併せて確認します。運用者クライアントで開いた BEGIN が古いロックを保持していないことも確認します。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+管理 DB で拡張を作る権限がなければ DB 管理者に依頼します。shared_preload_libraries には再起動が必要な場合があります。metrics の read-only options を拒否する pooler については[メトリクス契約](/run-server/self-hosting/reference/metrics)を確認します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+今回変更したログパラメーターと収集間隔を以前の値に戻します。診断が終わったという理由で統計拡張や運用データを削除しないでください。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[DB 接続契約](/run-server/self-hosting/reference/database)、[アップグレードの互換性](/run-server/self-hosting/explanation/compatibility)。
