@@ -175,6 +175,46 @@ orch release verify-stack
 
 receipt의 actor: `open_pull_request`(1fb91f38)와 `comment_pull_request`(e780458c)는 세션을 만든 개인 key(`principal.kind: api_key`)와 그 소유자(`actor_user_id`)다. `push` receipt(c8b9882f)의 `actor`는 null이고 `result.approved_by`가 승인한 사람이다. `mint_github_token` `push`·`pull_request`·`outcome_refresh`는 같은 run에서 `succeeded`다. 즉 receipt는 플랫폼 쪽 행위자(사람과 key)를 적고, 작성용 App은 GitHub 쪽 결과(브랜치 커밋 작성자, PR 작성자, 코멘트 작성자)에서 확인한다. 두 쪽이 서로 어긋나지 않는다. 시험 PR은 닫고 브랜치를 지웠다. 세션의 `open_pull_request` `failed` receipt 둘은 2·3단계 거절의 기록이고, `resolve_push` `failed` 하나는 3단계의 approve 거절이다. `down.sh --keep-volumes` 뒤 컨테이너·네트워크 0.
 
+## 머지 허용 측정 (`merge_pull_request`)
+
+워크스페이스 상한 `ceiling.merge`(기본 off)가 켜져 있을 때만 에이전트의 MCP 도구 `merge_pull_request(push_request_id)`가 PR을 squash 머지한다. 꺼져 있으면 resolver와 토큰 발급 전에 `GITHUB_REFUSED` 409 `merge_off`로 거부한다. 거부 사유는 `merge_off`·`merge_blocked`·`head_moved`·`pull_request_closed`·`no_pull_request`다. fake 모델은 GATE-SPEC 단계의 `tool`을 그대로 내보내므로 실제 모델 키 없이 사용자 메시지 "머지해"를 도구 호출로 바꿀 수 있다(`tool: "mcp__github__merge_pull_request"`, `input: {push_request_id}`). 위 1–3단계(App 등록·릴리스)와 5단계(push·PR)를 먼저 한다. 릴리스의 `features`는 모두 false여도 된다. 머지는 워크스페이스 상한만 본다.
+
+```sh
+# M0. 기본값(C): 상한을 한 번도 바꾸지 않은 새 워크스페이스
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+ap_web GET "/v1/workspaces/$WS/github-settings" | head -1 | jq -c '{revision, ceiling}'      # ceiling.merge: false
+
+# M1. 켜기(A): 웹 GitHub 연동의 머지 허용 스위치와 같은 API
+REV=$(ap_web GET "/v1/workspaces/$WS/github-settings" | head -1 | jq -r .revision)
+ap_web PUT "/v1/workspaces/$WS/github-settings" "$(jq -nc --argjson r "$REV" '{ceiling:{workflows:false,actions:false,checks:false,issues:false,review:false,merge:true},revision:$r}')"
+
+# M2. 측정 전 에이전트 값
+ap_web GET "/v1/agents/$AID" | head -1 | jq -c '{behavior_revision, active_release: {id: .active_release.id}}' | tee "$EVIDENCE/before-agent.json"
+
+# M3. 5단계로 push·PR을 만든 뒤 같은 세션에 "머지해"
+M=$(jq -nc --arg p "$PRID" '"머지해 GATE-SPEC " + ({id:"m2",steps:[{tool:"mcp__github__merge_pull_request",input:{push_request_id:$p}}],final:"done"}|tojson)' -r)
+T=$(ap_post "/v1/sessions/$SID/messages" "$(jq -nc --arg m "$M" '{message:$m}')" | head -1 | jq -r .turn_id)
+# 도구 호출이 Bash 권한과 같은 방식으로 needs_input에 권한 요청을 하나 올린다: 4단계의 answers로 allow
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, status, result->>'purpose' purpose from receipts where target_ref->>'session_id' = '$SID' order by created_at"
+gh pr view <n> -R JeongJaeSoon/werft-sandbox --json state,mergedAt,mergeCommit
+
+# M4. 끄기(B): 새 세션·새 PR을 열고, 요청 직전 시각을 잡은 뒤 "머지해"
+ap_web PUT "/v1/workspaces/$WS/github-settings" "$(jq -nc --argjson r "$REV2" '{ceiling:{workflows:false,actions:false,checks:false,issues:false,review:false,merge:false},revision:$r}')"
+T0=$(ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select now()")
+# ... M3와 같은 메시지 ...
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, status, result->>'purpose' purpose from receipts where target_ref->>'session_id' = '$SID2' and created_at > '$T0' order by created_at"
+ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::text from receipts where operation='merge_pull_request' and target_ref->>'session_id'='$SID2'"
+```
+
+기대:
+
+- 켜기(A): 영수증 `mint_github_token`(`purpose: merge`) 성공 뒤 `merge_pull_request` 성공, PR `MERGED`와 `mergeCommit`. 측정 전후 `behavior_revision`과 `active_release.id`가 같다.
+- 승인 리뷰: sandbox `main`의 ruleset이 승인 리뷰 1개를 요구하고 에이전트의 머지는 `bypass_rules: false`다. 승인 없이 켠 상태로 부르면 GitHub가 거절해 영수증 `merge_pull_request` `failed`, `result.refusal: "merge_blocked"`, PR은 OPEN으로 남는다(`mint_github_token` `merge`는 성공으로 남는다). 성공 측정에는 사람의 승인이 필요하다. 에이전트나 이 절차가 승인하지 않는다. 승인 계정은 PR 작성 App과 달라야 한다.
+- 끄기(B): 구간 안 영수증은 `append_message`·`answer`·`merge_pull_request` failed뿐이고 `mint_github_token`은 없다. 거부 영수증의 `result`는 `reason_code: "merge_off"`·`purpose`·`agent_id`·`agent_release_id`·`repository_id`·`workspace_ceiling_revision`이고 `connection_id`·`app_id`·`role`은 없다. PR은 OPEN이다.
+- 기본값(C): `ceiling.merge: false`.
+
+2026-11-09 run(main `a6a5e97f`)의 기록: 기본값 `merge: false`(revision 2), 켜기 `revision` 3, 승인 없는 머지는 `merge_blocked`(PR [werft-sandbox#137](https://github.com/JeongJaeSoon/werft-sandbox/pull/137) OPEN 유지), 끄기 `revision` 4에서 PR [werft-sandbox#138](https://github.com/JeongJaeSoon/werft-sandbox/pull/138)이 `merge_off`로 거부, 구간 안 `mint_github_token` 0, 영수증에 `connection_id`·`app_id`·`role` 0, 전후 `behavior_revision` 1과 release 같음. #138은 닫고 브랜치를 지웠다.
+
 ## Gotchas
 
 - **api만 재시작하면 주소가 바뀐다.** `ap_compose restart api`는 ephemeral 포트를 새로 받아 `state.env`의 주소와 어긋난다. `lib.sh`를 source한 뒤 `ap_as` 다음 줄에 `API=http://127.0.0.1:$(ap_compose port api 3000 | cut -d: -f2)`로 바꿔야 `ap_*`가 닿는다(`VERIFY_API`가 아니라 `API`를 읽는다). `state.env`는 agent-guard가 막으므로 열지 않는다.
