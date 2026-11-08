@@ -130,7 +130,7 @@ export function WorkspaceGitHubScreen() {
   useSetupReturn(setOutcome);
   const connected = (settings.data?.connections.length ?? 0) > 0;
   return (
-    <WorkspacePage page="github">
+    <>
       <OutcomeLine outcome={outcome} live />
       {settings.isPending ? (
         <div className={CARD}>
@@ -159,6 +159,15 @@ export function WorkspaceGitHubScreen() {
           ) : null}
         </>
       )}
+    </>
+  );
+}
+
+/** The page frame around the body; the body itself carries none. */
+export function WorkspaceGitHubRoute() {
+  return (
+    <WorkspacePage page="github">
+      <WorkspaceGitHubScreen />
     </WorkspacePage>
   );
 }

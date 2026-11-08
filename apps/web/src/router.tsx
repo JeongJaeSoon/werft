@@ -78,14 +78,14 @@ import { McpServersScreen } from "./routes/settings-mcp-servers.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import {
   gitHubSetupSearch,
-  WorkspaceGitHubScreen,
+  WorkspaceGitHubRoute,
 } from "./routes/workspace-github.tsx";
 import {
-  GitHubNewAppCallback,
+  GitHubNewAppRoute,
   gitHubNewAppSearch,
 } from "./routes/workspace-github-new-app.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
-import { WorkspaceSlackScreen } from "./routes/workspace-slack.tsx";
+import { WorkspaceSlackRoute } from "./routes/workspace-slack.tsx";
 import { SLACK_APPS_ANCHOR } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
@@ -338,7 +338,7 @@ const achievementRules = createRoute({
 const workspaceSlack = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack",
-  component: WorkspaceSlackScreen,
+  component: WorkspaceSlackRoute,
 });
 
 // Where the list of apps the console made lived before it joined the Slack page.
@@ -359,7 +359,7 @@ const workspaceGitHub = createRoute({
   path: "/settings/workspace/github",
   // GitHub's setup URL comes back here with what an install started here carries.
   validateSearch: gitHubSetupSearch,
-  component: WorkspaceGitHubScreen,
+  component: WorkspaceGitHubRoute,
 });
 
 // GitHub sends the browser back here once a manifest's App is created.
@@ -367,7 +367,7 @@ const workspaceGitHubNewApp = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/github/new-app",
   validateSearch: gitHubNewAppSearch,
-  component: GitHubNewAppCallback,
+  component: GitHubNewAppRoute,
 });
 
 const orgKeys = createRoute({
