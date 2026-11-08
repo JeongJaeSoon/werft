@@ -389,4 +389,19 @@ describe("profile naming", () => {
     );
     expect(hits.map(([key]) => key)).toEqual([]);
   });
+
+  // A profile has no scope on screen; only the connections page (settings)
+  // still speaks of the whole installation.
+  const OLD_SCOPE =
+    /모든 워크스페이스|가장 넓은 범위|이 워크스페이스에서 만든|every workspace|widest|made in this workspace|すべてのワークスペース|最も広い|このワークスペースで作った/i;
+  test.each([
+    ["ko", profilesKo],
+    ["en", profilesEn],
+    ["ja", profilesJa],
+  ] as const)("%s profile copy states no scope", (_locale, table) => {
+    const hits = Object.entries(table).filter(([, text]) =>
+      OLD_SCOPE.test(String(text)),
+    );
+    expect(hits.map(([key]) => key)).toEqual([]);
+  });
 });
