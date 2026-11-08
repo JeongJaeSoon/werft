@@ -489,6 +489,20 @@ integration("turning one repository on or off on PostgreSQL", () => {
     expect(await workspaceRepositoryCeiling(db, f.workspaceId)).toBeNull();
   });
 
+  test("an App removed after GitHub was asked leaves no row, no settings and no receipt", async () => {
+    const f = await fixture({ app: false });
+    const target = pick(f);
+    expect(await toggle(f, { target })).toEqual({ outcome: "app_gone" });
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM catalog_repositories WHERE id = $1",
+        [target.resolve.base],
+      ),
+    ).toBe(0);
+    expect(await settingsOf(f)).toBeUndefined();
+    expect(await receiptsOf(f)).toEqual([]);
+  });
+
   test("a failing pin rolls everything back: the new row, a rename, the settings, every receipt", async () => {
     const f = await fixture();
     // A new row: the pin's receipt takes the id of the row's own.
@@ -640,29 +654,32 @@ integration("turning one repository on or off on PostgreSQL", () => {
           }),
         }),
         toggle(f, { enabled: n % 2 === 0 }),
-        store().putSettings({
-          workspaceId: f.workspaceId,
-          agentId: f.agentId,
-          expectedRevision: null,
-          settings: {
-            repositories: [],
-            push_approval: false,
-            features: { ...GITHUB_FEATURES_NONE },
-            actions_allow: [],
-          },
-          startRepositoryId: null,
-          userId: f.userId,
-          principal: f.principal,
-          managerRoles: MANAGERS,
-          check: () => {},
-        }),
+        // The revision is read fresh, so a save can win, not only conflict.
+        settingsOf(f).then((row) =>
+          store().putSettings({
+            workspaceId: f.workspaceId,
+            agentId: f.agentId,
+            expectedRevision: row?.revision ?? null,
+            settings: {
+              repositories: [],
+              push_approval: false,
+              features: { ...GITHUB_FEATURES_NONE },
+              actions_allow: [],
+            },
+            startRepositoryId: null,
+            userId: f.userId,
+            principal: f.principal,
+            managerRoles: MANAGERS,
+            check: () => {},
+          }),
+        ),
       ]),
     );
-    // A stale save may conflict; none may die of a deadlock.
-    for (const result of results) {
-      if (result.status === "rejected") {
-        expect(String(result.reason)).not.toMatch(/deadlock/i);
-      }
-    }
+    // A stale save returns a conflict; nothing may throw, a deadlock least.
+    expect(results.filter((r) => r.status === "rejected")).toEqual([]);
+    const saves = results.flatMap((r) =>
+      r.status === "fulfilled" && "outcome" in r.value ? [r.value.outcome] : [],
+    );
+    expect(saves).toContain("saved");
   });
 });

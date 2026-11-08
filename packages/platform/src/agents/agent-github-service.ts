@@ -655,6 +655,8 @@ export function createAgentGitHubService(deps: {
             undefined,
             { reason_code: "settings_seed_unavailable" },
           );
+        case "app_gone":
+          throw refuse("repository", "no_author_app");
         case "name_held":
           throw refuse("repository", "name_held");
         case "repository_not_found":

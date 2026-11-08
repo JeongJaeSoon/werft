@@ -517,7 +517,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
 
           const pinActor = receiptActorOf(input.principal);
           if (pick?.pin != null && pinActor !== null) {
-            await pinStore.pinFirst(
+            const pinned = await pinStore.pinFirst(
               {
                 repositoryId: repository.id,
                 role: "author",
@@ -532,6 +532,8 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
               },
               tx,
             );
+            // Null: the App is gone, so enabling would leave no pin behind.
+            if (pinned.pin === null) throw new Abort({ outcome: "app_gone" });
           }
           return {
             outcome: "saved" as const,

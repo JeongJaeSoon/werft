@@ -44,6 +44,8 @@ export type SetAgentGitHubRepositoryResult =
   | { outcome: "repository_not_found" }
   /** No row to change and no readable active release to start one from. */
   | { outcome: "seed_unavailable" }
+  /** The App chosen for the pin was removed or replaced after GitHub was asked. */
+  | { outcome: "app_gone" }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /** What the transaction judges about a repository the change turns on. */
