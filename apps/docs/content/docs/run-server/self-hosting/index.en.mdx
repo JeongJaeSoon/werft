@@ -1,0 +1,78 @@
+---
+title: "Choose an installation method"
+description: "Choose an installation path for your operating environment"
+pageId: "P01"
+docType: "Explanation"
+audience: "First-time installation operators"
+outcome: "Choose an installation path for your operating environment"
+---
+
+## Choose an installation method [#설치-방식-고르기]
+
+Choose how to install a shared Werft server for your team. Production installations use persistent object storage. Compose test-ops supports only AWS S3 and does not accept a custom endpoint. Kubernetes can use an S3-compatible endpoint that meets the protection contract. LocalStack and kind are test environments.
+
+| Method | Execution backend | Requirements | Guide |
+| --- | --- | --- | --- |
+| Single server | One Linux server with Docker Compose. One worker container per session. HA is outside scope | Docker 28 or later, Compose 2.24.6 or later, Docker data-root on XFS mounted with `prjquota`, a repository checkout, and a persistent AWS S3 bucket | [Single-server installation](/run-server/self-hosting/single-server) |
+| Kubernetes | Published Helm chart. One worker Pod per session | A CNI enforcing NetworkPolicy, `helm` 3, PostgreSQL 16, and S3-compatible object storage (default protection requires a bucket with versioning, Object Lock, and SSE-S3 enabled). No repository checkout needed | [Kubernetes installation](/run-server/self-hosting/kubernetes) |
+
+Choose a single server if you want to operate one machine with `scripts/test-ops.sh`. Choose Kubernetes if you already have a cluster, PostgreSQL, and object storage and want chart-based installation. Both paths require access to published packages on `ghcr.io` without signing in. For existing installations, choose [Upgrade Compose](/run-server/self-hosting/upgrade-compose) or [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).
+
+Both paths consist of the API (including the web console), scheduler, reconciler, egress proxy, PostgreSQL, and S3-compatible object storage. There is no Git server. Add the GitHub repositories sessions will use through the settings document or console.
+
+| Goal | Start here |
+| --- | --- |
+| Production installation on one Linux server | [Single-server installation](/run-server/self-hosting/single-server) |
+| Production installation in an existing cluster | [Kubernetes installation](/run-server/self-hosting/kubernetes) |
+| Try the chart on a laptop | [kind trial](/run-server/self-hosting/try-kind) |
+| Try Compose on Linux | [LocalStack trial](/run-server/self-hosting/try-localstack) |
+
+## Operate after installation [#설치-후-운영]
+
+For remote users, prepare [access](/run-server/self-hosting/access), then [the first owner and keys](/run-server/self-hosting/users-and-keys), then [model connections](/run-server/self-hosting/model-connections). Readiness checks cover database, schema, and configuration readiness. They do not prove actual model calls or restoration with data.
+
+- [Backup and restoration](/run-server/self-hosting/backup-and-restore)
+- [Upgrade Compose](/run-server/self-hosting/upgrade-compose) · [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes)
+- [Capacity planning and changes](/run-server/self-hosting/capacity) · [Recover stalled sessions](/run-server/self-hosting/recover-sessions)
+- [Settings, keys, and ports](/run-server/self-hosting/reference/configuration) · [Storage and limits](/run-server/self-hosting/reference/storage)
+- [Session data flow](/run-server/self-hosting/operate/session-data-flow) · [Datadog monitoring](/run-server/self-hosting/operate/monitoring-datadog)
+
+## Contributor and SDK documentation [#기여자와-sdk-문서]
+
+The [deployment package contract](/run-server/self-hosting/reference/packages) is for installers. [Release publication and supply-chain policy](/ko/contributing#릴리스-게시와-공급망) is in the contributor documentation for publishers. The [SDK approval sample](/ko/getting-started/client#승인-샘플의-인증-모드) is in the SDK documentation.
+
+## Previous URLs [#이전-주소-안내]
+
+<details>
+<summary>Find the current guide for an older section</summary>
+
+<a id="choose-an-install-method" />
+<a id="operating-after-the-install" />
+<a id="設置方法を選ぶ" />
+<a id="設置後の運用" />
+<a id="설치-뒤-운영" />
+
+[Installation and operation](/run-server/self-hosting/#설치-방식-고르기)
+
+<a id="published-packages" />
+<a id="read-the-release-manifest" />
+<a id="公開されたパッケージ" />
+<a id="リリース-manifest-を読む" />
+<a id="게시된-패키지" />
+<a id="릴리스-manifest-읽기" />
+
+[Deployment package contract](/run-server/self-hosting/reference/packages#계약)
+
+<a id="verification-status" />
+<a id="実測の状態" />
+<a id="실측-상태" />
+
+[Backup and restoration drills](/run-server/self-hosting/backup-and-restore#무엇을-하게-되나)
+
+<a id="connect-to-the-server" />
+<a id="サーバーに接続する" />
+<a id="서버에-붙기" />
+
+[SDK client](/ko/getting-started/client#승인-샘플의-인증-모드)
+
+</details>

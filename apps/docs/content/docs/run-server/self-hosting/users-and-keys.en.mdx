@@ -1,0 +1,90 @@
+---
+title: "Create the first owner and issue user keys"
+description: "Issue per-user authentication and execution permissions"
+pageId: "P09"
+docType: "Task"
+audience: "Installation administrators"
+outcome: "Issue per-user authentication and execution permissions"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Create the first owner and workspace, then issue an API key for each user. Distinguish API key revocation from revoking a session's execution grant.
+
+<a id="준비물" />
+## Before you begin
+
+Complete [installation](/run-server/self-hosting) and [access configuration](/run-server/self-hosting/access). Restrict bootstrap tokens and logs to operators. On Kubernetes, configure the Secret and catalogEnv so every replica receives the same BOOTSTRAP_TOKEN.
+
+<a id="1-첫-owner-만들기" />
+<a id="단계" />
+## Steps
+
+### 1. Create the first owner
+
+Open `/bootstrap` in a browser and enter the fixed BOOTSTRAP_TOKEN, owner details, and workspace name. On a single-API installation without a configured token, an operator can find the generated token in this installation's API container startup logs (`docker logs <this-installation-api-container-id>`). Identify the container by status and project label. On Kubernetes with the default 2 replicas, use a fixed token in the Secret rather than relying on automatic generation. Reusing the token after the first owner exists returns `409 BOOTSTRAP_DONE`. Sign in at `/login`.
+
+<a id="2-사용자별-key-발급" />
+### 2. Issue per-user keys
+
+```bash
+KEY="$(scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
+```
+
+`<owner_id>` names the owner grouping this key's sessions. Choose a different value for each user. This is separate from web console accounts; do not use a workspace id.
+
+The SDK and HTTP API connect using this server address and key ([SDK installation](/getting-started/install)).
+
+On Kubernetes, use the following command.
+
+First [check the installation's context, namespace, and fullname](/run-server/self-hosting/kubernetes#준비물). The `werft` below is the example installation name.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+The plaintext key appears on stdout only once; stderr reports the key id. Deliver the plaintext securely to the intended user without storing it in public logs. Per-user key owner identifiers are separate from web console accounts. Limit each API key's scopes to the tasks it needs.
+
+<a id="3-폐기-연락과-실행-권한" />
+### 3. Revocation contacts and execution grants
+
+Tell users whom to contact to revoke a key. The operator CLI in the checkout provides:
+
+```bash
+scripts/test-ops.sh key revoke <key_id>
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts restore <session_id> --reason <text>
+```
+
+Replace API_CONTAINER with the API container id identified from this installation's status and Docker project label. On Kubernetes, prepare a checkout matching the installed version and host Bun and kubectl, then use `keys:k8s` and `grants:k8s`. Both `NAMESPACE` and `RELEASE` default to werft.
+
+| Operation | Effect |
+| --- | --- |
+| key revoke | Blocks subsequent API authentication with that key. It does not stop sessions already executing |
+| grants revoke | Revokes the specified session's execution grant and credentials and requests execution termination |
+| grants restore | Restores the execution grant after execution is confirmed absent. It does not revive a revoked API key |
+
+<a id="확인" />
+## Verify
+
+Reading `/v1/sessions` with each user's key must return a response within its allowed scope; a request without a key must return 401. Revoked keys must fail authentication. Check the grants output receipt and execution state to distinguish acceptance from actual termination.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Different automatically generated bootstrap tokens on replicas can cause 401 when a request reaches another Pod. Pass the fixed token to every Pod. A missing Secret key prevents the Pod from starting. Do not use a workspace id as the CLI owner id.
+
+<a id="되돌리기" />
+## Roll back
+
+Do not reset the installation to remove an already-created first owner. Revoke incorrectly issued keys and create new ones with the correct scopes. Restore grants only after the old execution is gone.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Model connections](/run-server/self-hosting/model-connections), [SDK installation](/getting-started/install).

@@ -1,0 +1,81 @@
+---
+title: "Prepare a checkpoint bucket"
+description: "Prepare a protected bucket and minimum permissions"
+pageId: "P07"
+docType: "Task"
+audience: "Storage operators"
+outcome: "Prepare a protected bucket and minimum permissions"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Prepare a persistent bucket that satisfies the default locked protection mode and minimum API permissions. The shared contract and AWS creation procedure are described separately.
+
+<a id="준비물" />
+## Before you begin
+
+You need permission to create buckets and approval for the cost. Use one bucket per installation and a separate empty bucket for each restoration drill. For non-AWS S3-compatible storage, first check the [shared protection contract](/run-server/self-hosting/reference/storage#공통-object-store-보호) and verify conditional writes, legal holds, and version reads/deletions. Compose test-ops uses AWS endpoints for its s3 path; it is not a general installation path accepting custom endpoints.
+
+<a id="단계" />
+## Steps
+
+<a id="1-공통-계약" />
+### 1. Shared contract
+
+- Enable versioning, Object Lock, and default SSE-S3 (`AES256`).
+- Block all public access.
+- Do not configure default retention or lifecycle rules that expire object versions.
+- Do not grant bucket creation permissions to production credentials.
+
+<a id="2-aws-bucket-만들기" />
+### 2. Create an AWS bucket
+
+Replace `BUCKET` with a globally unique name. This procedure does not overwrite an existing production bucket.
+
+```bash
+BUCKET=<unique-bucket>
+AWS_REGION=ap-northeast-1
+aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION" \
+  --create-bucket-configuration "LocationConstraint=$AWS_REGION" \
+  --object-lock-enabled-for-bucket
+aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Enabling Object Lock also enables versioning.
+
+<a id="3-최소-권한과-경로" />
+### 3. Minimum permissions and access paths
+
+- Grant the API's IAM user only `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, and `s3:DeleteObjectVersion` on this bucket's objects, plus `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, and `s3:GetEncryptionConfiguration` to read bucket settings. Do not grant bucket creation permissions.
+- Do not configure lifecycle rules that expire object versions. Exempt this bucket from any organizational policy that does so.
+- Restoration drills write to a drill bucket using the same credentials. Name drill buckets `<bucket>-drill-*` and grant the same permissions for those names. Operators create drill buckets using their own permissions.
+
+Only API and maintenance containers receive the credentials. Workers go through the egress proxy, and the API signs their requests within the session scope. Installation requires [single-server step 4](/run-server/self-hosting/single-server#4-s3를-명시해-검사설치)'s `TEST_OPS_OBJECT_STORE=s3 preflight` to complete the round trip: upload, legal hold, version read, hold release, and scratch version deletion.
+
+The API requires bucket permissions `s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, and `s3:GetEncryptionConfiguration`, and object permissions `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, and `s3:DeleteObjectVersion`. Restrict resource ARNs to this installation's bucket and allowed drill buckets. GC does not require `s3:DeleteObject`.
+
+`EGRESS_CREDENTIAL_ALLOWLIST` replaces the entire default list. When adding a virtual-hosted bucket endpoint, restate every required entry, including providers, package registries, and Git hosts. Buckets with dots in their names use the regional path-style endpoint. Do not pass AWS keys to workers.
+
+<a id="확인" />
+## Verify
+
+For a single server, preflight with S3 explicitly selected must complete every scratch-object operation: create-only put → hold → verify hold/read version → release hold → delete version. The API startup check reads bucket settings; it does not prove write, hold, or deletion permissions. The AWS creation procedure and an actual production S3 installation have not been verified by execution.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Default retention blocks scratch deletion and checkpoint GC. The API refuses to start without encryption, versioning, or Object Lock. Workers cannot save checkpoints if the allowlisted endpoint differs from the one used.
+
+<a id="되돌리기" />
+## Roll back
+
+Do not delete an existing production bucket or release its holds in bulk. Remove only the empty test bucket created here, after confirming it contains no object versions or delete markers, using your organization's storage cleanup procedure. If retained data exists, run a [restoration drill](/run-server/self-hosting/backup-and-restore) first.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Install on a single server](/run-server/self-hosting/single-server) or [Install on Kubernetes](/run-server/self-hosting/kubernetes).

@@ -1,0 +1,120 @@
+---
+title: "Build images for your registry"
+description: "Generate deployment input using your own registry digests"
+pageId: "P21"
+docType: "Task"
+audience: "Deployment image builders"
+outcome: "Generate deployment input using your own registry digests"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Build images in your own registry when published images are unavailable or additional package runtimes are needed, then generate deployment input from their digests.
+
+<a id="준비물" />
+## Before you begin
+
+You need the source commit, Buildx, target registry write permissions, and target architecture. Images with modified code or dependencies need separate safety, license, and vulnerability checks. Do not arbitrarily change the worker engine/SDK/CLI combination.
+
+<a id="단계" />
+## Steps
+
+<a id="1-registry에-빌드" />
+### 1. Build into your registry
+
+Use this path when published images are unavailable for the commit. Only `amd64` and `arm64` are supported. From the installation commit's checkout, build three images, push to a registry the host can access, and put the returned digests in the step 2 release file. Images use the build machine's architecture, so build on the host's architecture. This path has not been verified by execution.
+
+```bash
+REGISTRY=<your-registry>
+PREFIX=werft
+TAG=rc
+export API_IMAGE="$REGISTRY/$PREFIX-control-host:$TAG" WORKER_IMAGE="$REGISTRY/$PREFIX-worker:$TAG" \
+  EGRESS_PROXY_IMAGE="$REGISTRY/$PREFIX-egress-proxy:$TAG"
+docker build -f apps/control-host/Dockerfile --target release \
+  --build-arg APT_UPGRADE_KEY="$(date -u +%F)" -t "$API_IMAGE" .
+docker compose -f infra/compose.yml --profile worker build worker egress-proxy
+for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
+done
+unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+```
+
+Choose your registry and all three repository names once, and use them consistently for builds, pushes, and digest lookups. Looking up digests again from official ghcr addresses would deploy different images.
+
+Build control-host's `release` target with the repository root as context. The api build in `infra/compose.yml` uses the development `local` target, including testkit and demo tools; do not deploy it as a production image. api, scheduler, reconciler, and slack share the same control-host image. Published images omit the demo CLI, so `DEMO_ACCOUNTS=local` fails.
+
+Even with a pinned base digest, Debian security updates can vary by build date: record the actual deployment digest. `APT_UPGRADE_KEY` partitions the update-layer cache. The control-host build above passes the UTC date. For fresh security fixes in Compose worker builds too, pass `--build-arg APT_UPGRADE_KEY="$(date -u +%F)"` or `--no-cache`.
+
+<a id="2-배포-입력에-같은-digest-유지" />
+### 2. Retain the same digests in deployment input
+
+```bash
+CONTROL_IMAGE="$REGISTRY/$PREFIX-control-host@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-control-host:$TAG" --format '{{.Manifest.Digest}}')"
+WORKER_IMAGE="$REGISTRY/$PREFIX-worker@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-worker:$TAG" --format '{{.Manifest.Digest}}')"
+EGRESS_IMAGE="$REGISTRY/$PREFIX-egress-proxy@$(docker buildx imagetools inspect "$REGISTRY/$PREFIX-egress-proxy:$TAG" --format '{{.Manifest.Digest}}')"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
+jq -n --arg commit "$(git rev-parse HEAD)" --arg control "$CONTROL_IMAGE" \
+  --arg worker "$WORKER_IMAGE" --arg egress "$EGRESS_IMAGE" --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit:$commit,images:{control_host:$control,worker:$worker,egress_proxy:$egress},settings_digest:$settings}' \
+  > /var/lib/werft/test-ops/release.json
+```
+
+Use the actual registry/prefix/tag from step 1. On Kubernetes, set `images.registry`, each `images.*.repository` and digest, and worker runtime from these same custom images. Extract runtime as described in the [package contract](/run-server/self-hosting/reference/packages#직접-빌드한-이미지의-runtime).
+
+<a id="3-패키지-runtime을-추가하는-파생-worker" />
+### 3. Derive a worker with package runtimes
+
+The shipped worker contains Bun (including a Node-compatible shim) and the engine, but no npm, pnpm, yarn, Ruby, Bundler, or Go. To install dependencies with these tools in sessions, replace `WORKER_IMAGE` with an image derived from the shipped worker. It must declare no `VOLUME` other than `/workspace` (the execution backend image contract) and must retain the engine/SDK/CLI combination. Registry access still goes only through the egress proxy's `packages` route ([egress isolation](/run-server/self-hosting/explanation/isolation)), regardless of image. Workers write npm/Bundler/Go user configuration into HOME on claim, so derived images do not need registry settings.
+
+Worker npm configuration is at user level. A repository `.npmrc` specifying `registry=` takes precedence. That registry host is unreachable through the forward proxy, so installation fails with `403`. Derived-image `config get registry` precedence is below (repository `.npmrc` specifies `registry=https://registry.npmjs.org/`; user settings specify the route).
+
+| Tool | User settings only | `npm_config_registry` env | CLI `--registry` | Notes |
+|---|---|---|---|---|
+| npm 10.9.9 | Repository wins | Env wins | CLI wins | Uses user settings (route) without a repository `.npmrc` |
+| pnpm 9.15.0 | Repository wins | Env wins | `config get` does not accept the option | Same precedence as npm |
+| yarn 1.22.22 | Ignores npm user settings (`registry.yarnpkg.com`) | Ignored | CLI wins | `YARN_REGISTRY` wins. `registry.yarnpkg.com` is not allowlisted |
+
+If a repository pins the registry, override it in the session, for example `npm ci --registry <route>/packages/npm/`. Workers pass only a fixed engine environment list, excluding `npm_config_registry`. yarn 1 needs `--registry` or `YARN_REGISTRY`.
+
+These constraints also apply without an npm cache. On a project pinning the public registry, `npm ci` failed with `403 Forbidden - GET https://registry.npmjs.org/...`. `pnpm install` used the repository registry but could not find the token scoped only to the route, failing with `No authorization header was set for the request`. On projects without a pinned registry, `npm ci` and `bundle install` downloaded through the route.
+
+For Go, pin an official release tarball by checksum, extract into `/usr/local/go`, and add it to `PATH`. Set `GOTOOLCHAIN=local`; otherwise, when the `go` line in `go.mod` is newer than the image, Go downloads a new toolchain. Restore the original user (`USER 1000:1000`). On local-docker, worker `/tmp` tmpfs omits `exec`, so Docker mounts it `noexec`. `go run` and `go test` cannot execute files there and fail with `fork/exec /tmp/go-build…: permission denied`. HOME is also tmpfs, so files `go install` writes into `~/go/bin` cannot execute. `go test` passes when `GOTMPDIR` points to an existing workspace directory. `go run` executes from `GOCACHE` (under HOME by default), so move that into the workspace too (for example, `mkdir -p .gotmp && export GOTMPDIR=$PWD/.gotmp GOCACHE=$PWD/.gotmp/cache`). Build executables into the workspace with `go build -o`.
+
+```dockerfile
+FROM <shipped worker image>
+USER root
+ADD --checksum=sha256:<release sha256> https://go.dev/dl/go<version>.linux-<arch>.tar.gz /tmp/go.tar.gz
+RUN tar -xzf /tmp/go.tar.gz -C /usr/local && rm /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local
+USER 1000:1000
+```
+
+The shipped image's `bun install` fetches metadata through the route using registry/token settings in user `.npmrc`. It then tries downloading tarballs directly from metadata `dist.tarball` URLs such as `https://registry.npmjs.org/...`, which the forward proxy blocks with `403`. npm's default `replace-registry-host` (`npmjs`) replaces that host with the configured registry. Bun has no equivalent setting, so it currently cannot install public npm packages.
+
+<a id="사설-패키지-registry-허용" />
+#### Allow private package registries
+
+1. Include `npm.pkg.github.com:443,rubygems.pkg.github.com:443` in `EGRESS_CREDENTIAL_ALLOWLIST`, restating all required defaults too. Without them, requests return `403 egress denied` even with a registered token.
+2. Add `pkg-npm.githubusercontent.com:443,rubygemsregistryv2prod.blob.core.windows.net:443` to `EGRESS_PACKAGES_REDIRECT_ALLOWLIST`. GitHub redirects tarballs and `.gem` files there with 302. The proxy follows without the token.
+3. For GitHub Enterprise Server, set `GITHUB_PACKAGES_*_URL` ([configuration reference](/run-server/self-hosting/reference/configuration)).
+
+<a id="확인" />
+## Verify
+
+Pull every digest on the target architecture, pass image smoke/dependency checks and installation readiness checks. Compare final images in release input or helm template against the exact digests in your registry. Image pulls and actual session execution require separate checks.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Shipped Bun can receive proxy 403 when it requests metadata tarball URLs directly. npm/pnpm/yarn have different registry precedence. Move Go execution caches out of noexec tmpfs paths into the workspace. See [isolation details](/run-server/self-hosting/explanation/isolation).
+
+<a id="되돌리기" />
+## Roll back
+
+Before applying a digest, restore the prior deployment input. After applying, check runtime/checkpoint support windows in the [upgrade gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트) before reverting.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Single-server installation](/run-server/self-hosting/single-server), [Kubernetes installation](/run-server/self-hosting/kubernetes), [Package contract](/run-server/self-hosting/reference/packages).

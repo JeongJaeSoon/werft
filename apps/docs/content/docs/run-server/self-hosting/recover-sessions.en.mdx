@@ -1,0 +1,143 @@
+---
+title: "Recover stalled sessions"
+description: "Inspect causes and external effects before applying a recovery decision"
+pageId: "P18"
+docType: "Task"
+audience: "Incident response operators"
+outcome: "Inspect causes and external effects before applying a recovery decision"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Distinguish restoration failures, startup failures, and turns with unknown outcomes. Inspect external effects before applying an explicit recovery decision.
+
+<a id="준비물" />
+## Before you begin
+
+You need session details, worker/scheduler/reconciler logs, and an API key with sessions:recover scope. Check the last checkpoint and external tool effects. Storage recovery alone must not trigger automatic reruns of outcome_unknown turns.
+
+<a id="단계" />
+## Steps
+
+<a id="1-감독-루프와-일시-장애-구분" />
+### 1. Distinguish supervisor behavior from transient failures
+
+To inspect reconciler candidates first, explicitly run one dry run. The recurring Compose reconciler does not receive the dry-run environment variable.
+
+```bash
+RECONCILER_CONTAINER='<this-installation-reconciler-container-id>'
+docker exec -e RECONCILER_DRY_RUN=true "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
+
+docker exec -e RECONCILER_DRY_RUN=false "$RECONCILER_CONTAINER" \
+  bun run apps/control-host/src/main.ts reconciler --once
+```
+
+Identify the container through this installation's status and project label. Use its actual installation environment, not a development database address. The second command changes the database: run it only after reviewing the first command's results.
+
+Read recent results in the same container's `/tmp/reconciler-status.json` and `Reconciler pass completed`/`Reconciler pass failed` logs. The reconciler has no Docker socket. It records the epoch fence and `desired_state = terminated` in the database; the scheduler removes containers and confirms absence. A successful reconciler pass therefore does not prove container removal. Each overlapping pass rechecks every write under a row lock, avoiding duplicate handling of the same lease, interrupt, or orphan.
+
+<a id="격리-계약-변경을-적용할-때" />
+### Apply isolation contract changes
+
+Upgrade the Docker daemon to 28 or later before applying the server image with the new isolation contract. Older daemons fail preflight for the entire pass, preventing replacement even of existing workers. Claimed workers drain for up to `MAX_TURN_SECONDS` + 5 minutes; old-contract containers and queued input remain during that time. For an isolation defect requiring immediate interruption, terminate affected sessions. Even if rollback makes a container current again, its drain request remains: it ends without accepting new turns and continues through the next launch.
+
+<a id="2-checkpoint-복원과-시작-실패" />
+### 2. Checkpoint restoration and startup failures
+
+<a id="checkpoint-복원이-계속-실패하는-세션" />
+#### Repeated checkpoint restoration failures
+
+When a worker assigned a restoration exits before reporting ready, the scheduler does not relaunch immediately. It waits 30 seconds after the first failure and 60 seconds after the second. At the third, the session stops as `recovery_required` without creating a new generation. During backoff and after stopping, session detail attention is `RESTORE_FAILED`.
+- `reason`: the last worker error, or `execution_gone` if it died without release.
+- `failures`: consecutive failure count.
+- `retry_at`: next retry time; null after stopping.
+
+`INCOMPATIBLE_CHECKPOINT` is deterministic: retrying the same worker runtime/profile cannot succeed. It stops as `recovery_required` immediately after the first launch. Attention and the `checkpoint_restore_failed` event use `reason` `incompatible_checkpoint`, `failures` 1, and null `retry_at`. Restore a compatible runtime/profile and choose `retry_restore` for the same checkpoint, choose `start_fresh` if prior context can be discarded, or `close` to end the session.
+
+Every failure adds a system `checkpoint_restore_failed` event. Inspect `worker.checkpoint.restore_refused` and `worker.failed` logs. A storage response checksum mismatch (corruption in transit) is also classified as `CHECKPOINT_UNAVAILABLE`.
+- Temporary storage or egress-proxy `/object-store` outages do not count as failures. Transient errors include connection/DNS failures, request/body timeouts, truncated bodies, and HTTP 408/429/5xx. Restoration logs `worker.checkpoint.restore_unavailable`; transcript store checks for a new generation without a checkpoint log `worker.checkpoint.store_unavailable`. Both retry within the same worker, doubling from 1 second up to 30-second intervals until `WORKER_STARTUP_TIMEOUT_SEC` (default 3600 seconds). When storage returns, that worker continues without a new generation.
+- If the outage lasts through the startup budget, that worker exit counts as one startup failure. Subsequent generations wait for session backoff of 30/60 seconds; the third failure stops as `recovery_required`. Storage outages therefore cannot cause unlimited immediate restarts. The scheduler does not pass a separate `WORKER_STARTUP_TIMEOUT_SEC`, so current deployments use the fixed code default.
+- Missing objects (404/`NoSuchKey`), 401/403 rejection, and checksum/digest mismatches are not transient. Missing manifests or referenced objects yield `CHECKPOINT_UNAVAILABLE`; restarting does not establish recovery. If the whole bucket is empty with database pointers remaining, API startup checks block first. `restore_refused` directs investigation toward permanent checkpoint damage or mismatch, rather than the storage path.
+- If the cause was outside the session (proxy transit corruption or storage-path configuration), fix it, then use `retry_restore` on the same checkpoint. The count resets to 0 and queued inputs are signaled again. The next worker receives a restoration plan from the same pointer.
+
+```sh
+# KEY: an API key with the sessions:recover scope
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"retry_restore","expected_revision":<revision>,"reason":"proxy fixed"}'
+```
+
+This decision is accepted only for sessions stopped at the failure limit. Sessions still in backoff or stopped for another reason (context gap, unknown turn, or `STARTUP_FAILED` without restoration) return 409 `REQUEST_STALE`.
+- Choose `start_fresh` to abandon the checkpoint and start a new engine session without it.
+- Choose `close` to end the session.
+
+<a id="시작-단계에서-계속-죽는-세션" />
+#### Repeated startup deaths
+
+Sessions without checkpoints follow the same rule. A worker exiting after claim without ever requesting input counts as one failure, such as during workspace preparation (git clone/fetch) or engine startup. Backoffs are 30/60 seconds, then `recovery_required` at the third failure. Attention is `STARTUP_FAILED`, with the same `reason`, `failures`, and `retry_at` fields. Each failure emits a system `startup_failed` event.
+- Common causes include removed repository URLs/branches, rejected repository credentials, and worker object-store/proxy misconfiguration. Inspect `worker.stopping kind=failed` and `worker.failed`.
+- Fix the cause and choose `start_fresh`. There is no checkpoint to discard in this case. Use `close` to end the session.
+- Exits caused by pause, terminate, close, or execution-grant revocation do not count.
+- SIGTERM-drained workers do not count either. Their release contains `stop_kind: "drain"`. Old APIs with strict schemas reject this unknown field with 400 `BAD_REQUEST`. The worker logs `worker.release.stop_kind_refused` and retries release once without the field. The session returns immediately without waiting for lease expiry, but the old API counts that exit under its old rules: one failure if the claim included restoration.
+- **Deployment order:** update the control-host image (`API_IMAGE`, shared by api/scheduler) first, then `WORKER_IMAGE`. Strict worker protocol request schemas make old APIs reject new worker fields with 400. Fallbacks exist for release, pending-control `reason`/`answer_result`, and `platform_tool_trust` (remove the rejected field and resend once), but not for other new fields.
+
+<a id="3-interrupt-뒤-결과-불명" />
+### 3. Unknown outcomes after interrupt
+
+<a id="interrupt-뒤-결과를-알-수-없는-turn" />
+#### Turns with unknown outcomes after interrupt
+
+An interrupted turn becomes `interrupted` only with both confirmation that the engine stopped and a checkpoint covering that turn. Without either, transcript contents cannot be established. The turn becomes `outcome_unknown`; `terminal_reason` in `GET /v1/sessions/{id}/turns/{turn_id}` explains why:
+- `interrupt_checkpoint_unavailable`: the engine stopped but the checkpoint could not commit. The worker drains.
+- `interrupt_unanswered`: the engine did not answer interrupt in time. Worker logs contain `gave no terminal within …ms of its interrupt` or `ended before its interrupt was answered`; the worker fails.
+
+Group `worker.turn.interrupt.stage` logs by `session_id`, `turn_id`, and `control_id` to follow `control_received` → `sdk_interrupt_called` → `sdk_interrupt_answered` → `engine_terminal` → `capture_started` → `capture_finished` → `finalize_started` → `finalize_finished`, with `elapsed_ms` since interrupt receipt. After finalization, `control.result` records `operation=interrupt`, final turn `outcome`, stable `reason_code`, and `effect_ms` from durable acceptance to turn termination (equal to `duration_ms`). A no-op on an already-ended turn emits the same event immediately after acceptance with `effect_ms=0`; a receipt missing its deadline emits `outcome=unknown`, `reason_code=deadline_exceeded`. SDK responses after engine termination are logged as `late_sdk_interrupt_answered`, outside the normal order. `engine_terminal outcome=timeout` means no SDK/engine terminal arrived within the 5-second grace. `capture_finished outcome=timeout` with `budget_ms=30000` means the checkpoint capture budget expired; `outcome=failed` `reason` identifies capture failures such as storage requests. After successful capture, `finalize_finished outcome=failed` with `CHECKPOINT_UNAVAILABLE` means API rejection of the manifest or references, not capture timeout or S3 request failure. Do not change the 5-second grace. On timeout, the worker fails and requires recovery rather than giving the next input to the same engine.
+
+In either case the session becomes `status: failed`, `admission_state: recovery_required`; queued inputs are not dispatched. The interrupt receipt is `unknown` with `RECOVERY_REQUIRED`. Recovery requires `sessions:recover`.
+Even after storage returns, `outcome_unknown` turns are never rerun automatically. Storage recovery lets the next worker read checkpoints; it cannot establish the previous turn's external effects. Only an operator's `abandon`, `confirm_completed`, or `close` decision below clears the queue head.
+
+1. `abandon`/`confirm_completed` require confirmed worker absence; otherwise they return 409 `RECOVERY_REQUIRED` (`The previous execution has not been confirmed gone`). They become available after the next scheduler pass confirms container absence. `close` does not wait: it requests termination of remaining execution and is accepted immediately.
+2. Inspect external tool effects. File writes, pushes, and external calls are not undone.
+3. Submit the decision.
+
+```sh
+# KEY: an API key with the sessions:recover scope
+curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
+  -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)" \
+  -H 'Content-Type: application/json' \
+  -d '{"decision":"abandon","expected_revision":<revision>,"reason":"interrupt had no confirmed effect","target_turn_id":"<turn_id>"}'
+```
+
+- `abandon`: closes the turn as `cancelled`.
+- `confirm_completed`: accepted only with a committed checkpoint covering the turn (`evidence_ref` required). `interrupt_checkpoint_unavailable` usually lacks one and returns 409 `CHECKPOINT_UNAVAILABLE`.
+- `close`: ends the session irreversibly.
+
+4. After `abandon`/`confirm_completed`, the session is `stopped`. Resume if receipt `result.resumable` is `true`. If `false`, no checkpoint exists to resume, or a turn ran after the last checkpoint and its context cannot be continued (session attention `CONTEXT_GAP`). Choose `start_fresh` without that context or `close`.
+
+<a id="4-stopped-workspace-회수와-resume" />
+### 4. Stopped workspace reclamation and resume
+
+Volumes can expire under the [stopped TTL contract](/run-server/self-hosting/reference/storage). A stopped session without a committed checkpoint cannot resume; work existing only on its volume disappears after expiry. Preserve needed files before TTL. During a reclamation claim, resume returns `503 BACKEND_UNAVAILABLE`, retryable true, without a receipt/idempotency record. Retry the same request after reclamation finishes.
+
+<a id="확인" />
+## Verify
+
+Check decision receipt status with session revision, admission, and resumable. Acceptance is distinct from worker absence or successful resumption. After resuming, separately verify that a new turn inherits checkpoint context.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+An incompatible checkpoint cannot succeed with the same runtime/profile while its cause remains. start_fresh discards prior context. confirm_completed requires a committed checkpoint covering the turn and evidence_ref.
+
+<a id="되돌리기" />
+## Roll back
+
+Recovery decisions do not undo external file writes, pushes, or calls. close is irreversible. Do not mask an unresolved cause with repeated decisions or forced workers.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Storage and limits](/run-server/self-hosting/reference/storage), [Upgrade compatibility](/run-server/self-hosting/explanation/compatibility).

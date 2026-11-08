@@ -1,0 +1,153 @@
+---
+title: "Try an installation with LocalStack"
+description: "Install and remove a non-persistent test server"
+pageId: "P05"
+docType: "Installation"
+audience: "Local test operators"
+outcome: "Install and remove a non-persistent test server"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Create a Compose installation using LocalStack on a Linux test server. This is a non-persistent test path: objects can disappear when the host or Docker restarts.
+
+<a id="준비물" />
+## Before you begin
+
+| Item | Requirement |
+| --- | --- |
+| Operating system | Linux, both `x86_64` and `arm64` |
+| Docker Engine | 28 or later |
+| Docker Compose | 2.24.6 or later |
+| Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS disk preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
+| Time | NTP synchronized. Docker starts automatically after reboot |
+| Tools | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx plugin, and an account with Docker daemon access |
+| External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
+
+A repository checkout is required because Compose files and `scripts/test-ops.sh` are read from it. Images are not built from the checkout.
+
+Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) on a Linux server separate from production data. Choose a test-only project, installation id, ports, and state/secret directories. test-ops defaults to project `werft-test-ops`; override it with `TEST_OPS_PROJECT`. If the default paths below belong to an existing installation, choose different paths and `TEST_OPS_*` values.
+
+<a id="단계" />
+## Steps
+
+<a id="1-이미지와-소스" />
+### 1. Images and source
+
+```bash
+TAG='<published-image-tag>'
+SOURCE_REF='<matching-source-commit-or-release-tag>'
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout "$SOURCE_REF"
+bun install --frozen-lockfile
+```
+
+Confirm all three images return digests and that you checked out the matching source commit.
+
+<a id="2-시험-설정" />
+### 2. Test configuration
+
+Keep secrets only in an env file outside the repository, readable only by operators. The script rejects group or other permissions.
+
+```bash
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+```
+
+Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools such as `sed -i` create temporary files and fail with `Permission denied` in `/etc/werft`; use an editor that writes in place.
+
+| Variable | Value |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
+| `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
+| `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
+| `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and prints it in container logs |
+
+Use `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, and `EXECUTION_WORKSPACE_QUOTA=on`. Set the credential allowlist to `api.anthropic.com:443,github.com:443` and the private credential allowlist to `localstack:4566`. Leave AWS key, region, and bucket variables empty as in the example. LocalStack uses fixed test keys and the `claude-sessions` bucket.
+
+Put the settings document in `/etc/werft/settings.json` and list the GitHub repositories sessions will use. It contains no secrets. Replace only the repository URL with your actual value. This example assumes a public repository. Each repository entry must contain `"auth": { "kind": "github_app" }`; otherwise import omits it and `preflight` blocks installation. For private repository authentication, see the [API server documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md).
+
+The migrate container must read this file, so use `0644`. Create an empty file first, then fill it with the following content using an editor.
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": { "kind": "github_app" }
+    }
+  },
+  "mcp_servers": {}
+}
+```
+
+<a id="3-release-입력과-설치" />
+### 3. Release input and installation
+
+Generate the release as in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). Write it outside the checkout at `/var/lib/werft/test-ops/release.json`. Do not run the S3 preflight at this stage; use:
+
+```bash
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh preflight /var/lib/werft/test-ops/release.json
+TEST_OPS_OBJECT_STORE=localstack scripts/test-ops.sh deploy /var/lib/werft/test-ops/release.json
+```
+
+The quota check and service health must succeed. Add the model key through the console after installation.
+
+<a id="확인" />
+## Verify
+
+Check `scripts/test-ops.sh status`, the ready response body and 200, and docs 200. Verify authentication under [First owner and keys](/run-server/self-hosting/users-and-keys). This trial does not prove production AWS S3 permissions or restoration with data.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+If the first `deploy` fails, started containers remain and `stop` is unavailable because `current.json` does not exist. Inspect failure logs for quota, network, or Secret issues. Confirm this installation's project name and bring it down as follows, without `-v`.
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+After fixing the cause, rerun `deploy` with the same release file and environment. Use `start` to restart an installation that has already succeeded.
+
+The first upgrade changing restart policies may recreate LocalStack and lose objects. Postpone the upgrade unless `status` confirms 0 uncollected checkpoints. If API startup failure coincides with `pending.json`, `reseed` is also rejected; `reset` discards all data. `backup --stop` does not remove this block.
+
+LocalStack loses in-memory objects when its container is recreated. The API refuses to start if the database retains uncollected checkpoints but the bucket is empty. For automatic and manual start conditions, see the [Compose lifecycle](/run-server/self-hosting/stop-compose).
+
+Before a planned restart, back up and stop writers.
+
+```bash
+# Back up, leave the writers stopped, restart the host, then restore the objects
+scripts/test-ops.sh backup --stop
+sudo reboot
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
+```
+
+This sequence and rebooting with checkpoints have not been verified by execution. `reseed` checks the source project/bucket/checksum, an empty bucket, and absence of checkpoint changes since the last backup. It rejects unmet conditions. After object loss, with API startup failure and a pending upgrade, `reseed` is rejected. Even a backup made with `backup --stop` does not remove that block. Choosing `reset` in this state discards the database, sessions, and checkpoints. Do not use it as a routine reboot recovery command.
+
+<a id="되돌리기" />
+## Roll back
+
+Follow [Stop and remove Compose](/run-server/self-hosting/stop-compose). For a successful installation, `scripts/test-ops.sh stop` brings down this project and retains volumes. For a failed first deploy, use the explicit-project cleanup with the Compose model on stdin above. A checkpoint-free trial does not authorize cleaning production buckets or other installations. reset is a separate choice requiring a deletion-scope check.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Production single-server installation](/run-server/self-hosting/single-server), [Backup and restoration](/run-server/self-hosting/backup-and-restore).

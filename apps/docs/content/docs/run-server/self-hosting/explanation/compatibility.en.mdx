@@ -1,0 +1,40 @@
+---
+title: "Upgrade compatibility"
+description: "Understand checkpoint, runtime, and schema support windows"
+pageId: "P30"
+docType: "Explanation"
+audience: "Deployment operators"
+outcome: "Understand checkpoint, runtime, and schema support windows"
+---
+
+<a id="개요" />
+## Overview
+
+An API readiness response alone cannot establish that an upgrade is safe. Continuing a session requires compatible database schemas, worker protocols, engine/SDK/CLI/profile digest schemes, and checkpoint formats. Follow the [shared pre-upgrade gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트) for execution order and conditions that prohibit an upgrade.
+
+<a id="현재직전-이미지의-지원-창" />
+## Support window for current and previous images
+
+The scheduler looks for an image matching the runtime combination recorded in the checkpoint, checking the current image before the previous one. Rebuilds with different digests can still share a runtime combination. If neither image matches, the session enters recovery_required. Workers still running the previous image can create checkpoints with the old combination even after a compatibility check has finished.
+
+<a id="rolling-update가-중요한-이유" />
+## Why rolling update order matters
+
+A strict API that does not recognize new fields rejects worker reports. Run migrations and update the control plane before updating workers. Features such as billing:none, session prompts, transcript reasons, and outputs leave data behind once enabled. Disabling a setting therefore does not have the same effect as restoring old binaries.
+
+<a id="checkpoint와-복원" />
+## Checkpoints and restoration
+
+Incremental bundle chains, profile tool lists, and release tool lists are also part of the restoration contract. An older build cannot read an unfamiliar format even if its readiness check succeeds. start_fresh is a recovery decision that discards the previous context; it does not preserve compatibility.
+
+<a id="schema와-실행-중-worker" />
+## Schemas and running workers
+
+Helm runs migrate before the rollout. Old APIs and workers coexist on the new schema for a time, so changes must expand the schema, switch consumers, then clean up. Changing the worker image does not immediately replace running Pods. Workers whose isolation stamp has changed drain at a turn boundary; turns that exceed the deadline can remain outcome_unknown.
+
+| Change | Running worker Pods | How sessions continue |
+|---|---|---|
+| Worker image (`images.worker`) | Keep running the old image until they finish | On the next launch, the scheduler checks the new image (`images.worker`), then the previous image (`images.workerPrevious`), for a match with the engine/SDK/CLI/profile digest scheme in the checkpoint pointer. If neither matches, the session stops with `recovery_required` before launch. The [Kubernetes pre-upgrade check](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외) lists these sessions before the upgrade |
+| Isolation settings (stamp values: egress proxy address, storage capacity, worker ServiceAccount, limits, etc.) | Become stale. Claimed Pods drain at a turn boundary and then stop | If the checkpoint covers the last completed turn, a new Pod resumes from the PostgreSQL pointer and S3 checkpoint. If a completed turn lacks a checkpoint, the session stops with `recovery_required` (`CONTEXT_GAP`). A turn exceeding the drain deadline (`MAX_TURN_SECONDS` + 5 minutes) becomes `outcome_unknown`; its session stops with `recovery_required` and waits for an operator decision ([draining claimed workers](/run-server/self-hosting/explanation/isolation#계약이-오를-때-claim된-worker의-drain)) |
+| Node replacement or Kubernetes upgrade | Pods disappear. With SIGTERM, they drain and release; without it, heartbeats stop | A released worker is reclaimed immediately. Otherwise, reclamation waits until the scheduler confirms the Pod is gone or the lease expires. If no turn was running and the checkpoint covers the last completed turn, the next launch resumes from that checkpoint. A lagging checkpoint stops the session with `recovery_required` (session detail attention `CONTEXT_GAP`). An unresolved turn becomes `outcome_unknown`, and the session stops with `recovery_required` ([execution backends and worker isolation](/run-server/self-hosting/explanation/isolation)) |
+| Checkpoint bucket (`config.checkpoints.bucket`) | The bucket is part of the stamp, so workers become stale and are replaced | Sessions do not resume automatically. Objects in the old bucket are absent from the new one. If uncollected checkpoint rows exist but the new bucket has no object versions, the api refuses to start ([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)). Kubernetes installations have no procedure for moving checkpoints to another bucket. Restoration also refers to versions in the same bucket ([backup-restore.md, Kubernetes installations](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)). Do not change buckets while uncollected checkpoints remain |

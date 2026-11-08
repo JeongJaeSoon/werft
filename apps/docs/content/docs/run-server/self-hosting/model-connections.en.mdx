@@ -1,0 +1,130 @@
+---
+title: "Configure model connections and profiles"
+description: "Configure the connections and profiles sessions will use"
+pageId: "P10"
+docType: "Task"
+audience: "Workspace administrators"
+outcome: "Configure the connections and profiles sessions will use"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Configure workspace model connections and profiles, then verify a real model call with one session turn. Model credentials are separate from user API keys.
+
+<a id="준비물" />
+## Before you begin
+
+You need an owner login, a model key or private model endpoint, and a repository sessions will access. Check cost limits and the [configuration contract](/run-server/self-hosting/reference/configuration).
+
+<a id="단계" />
+## Steps
+
+<a id="1-콘솔-연결과-프로필" />
+### 1. Console connections and profiles
+
+A session needs a model key and a profile using that key. Create both in the web console, signed in as owner:
+
+1. Open **Settings > Workspace settings > Model connections**, then **Add connection**. Choose kind `anthropic`, keep the default endpoint (`https://api.anthropic.com`), paste the Anthropic key, and save. The key is sealed in the database; only its last four characters appear on screen.
+2. Open **Profiles > Create profile**, choose the connection just created, set the model, tools, and execution method, then save. Select this profile when creating an agent.
+
+Choose repositories in the agent's **GitHub** tab, within the workspace's allowed scope, rather than during profile creation.
+
+Starting a session with this profile before providing a key produces an error indicating no key is available for the model connection. The error points to the screen in step 1. Use **Replace value** on that same screen to rotate the key.
+
+<a id="2-환경-변수-대안" />
+### 2. Environment-variable alternative
+
+To keep the key in the server env file instead of the database, fill `ANTHROPIC_API_KEY` in `/etc/werft/test-ops.env` and reference the environment-variable name in the connection and profile in the [single-server step 2 settings document](/run-server/self-hosting/single-server#2-비밀과-설정-문서). The document contains names rather than values, so it has no secrets. Fill `connections` and `profiles` as below, add `"profiles": ["claude-coding"]` to the repository entry, then regenerate the settings digest and release input in [single-server step 3](/run-server/self-hosting/single-server#3-release-입력-생성). For an existing installation, apply through [Upgrade Compose](/run-server/self-hosting/upgrade-compose).
+
+```json
+{
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+You can later move this connection to console-managed credentials. On its **Model connections** row, choose **Enter key on screen** and paste the key again. The same connection and its profiles then use the stored key. The server does not read and copy the env value; a person must reenter it. After conversion, importing a settings document that still includes the same connection preserves the database row.
+
+On Kubernetes, if you do not use the model key in the Secret, remove its name from `secrets.catalogEnv`. Retain required names such as the fixed bootstrap token. The list replaces the entire value and must match Secret keys.
+
+<a id="3-설정-문서-가져오기내보내기" />
+### 3. Import and export settings
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts export > settings.json
+docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
+```
+
+Identify API_CONTAINER from this installation's status and project label. On Kubernetes, the package scripts below require a checkout matching the installed version and host Bun/kubectl. Substitute `bun run settings:k8s export` and `bun run settings:k8s import --document - --dry-run`. Review additions and errors from dry-run, then remove `--dry-run` from the same command to import. This tool does not unconditionally overwrite existing database rows with file contents. Reference credential environment-variable names instead of values in the document.
+
+<a id="4-과금-없는-사설-모델" />
+### 4. Private models without per-token billing
+
+<a id="과금-없는-profile-billing-none" />
+### Unmetered profiles (`billing: none`)
+
+Self-hosted models (Ollama, private-network LiteLLM, etc.) have no per-token charge. If absent from the price table and left unchanged, they use the highest fallback rates and can hit `SESSION_COST_LIMIT_USD` or SDK `maxBudgetUsd`, stopping turns. Declare these profiles with `provider.billing: none`.
+
+```yaml
+provider:
+  kind: litellm
+  endpoint: http://litellm:4000
+  billing: none
+  auth:
+    kind: bearer
+    value_env: LITELLM_MASTER_KEY
+```
+
+- Omitting billing means `per_token`. Omitted billing and explicit `per_token` produce the same fingerprint and both use table/fallback prices.
+- Provider calls from a `none` profile session record cost 0 and ledger `priced_by=unmetered`, regardless of the model name in the response. Tokens are still recorded. Session cost does not increase, so none of the four cost-limit checks (egress authorization, `nextInput`, message acceptance, engine) stop it.
+- Claim `remaining_budget_usd` is `null`, and workers do not pass `maxBudgetUsd` to the SDK. The SDK otherwise estimates prices for unknown models and can stop turns on that budget. With no budget to enforce, workers do not drain when SDK cost accounting restarts through `/clear` or similar actions.
+- `GET /v1/sessions/{id}/usage` returns `cost.kind: "unmetered"`, `amount_usd` of `"0.000000"`, and `cost_limit_usd` of `null` because no cost limit applies. Dollar limits also disappear from limit attention (`attention.reason`). `budget_exceeded` becomes `true` only at the token limit.
+- Billing mode is fixed at session creation in `sessions.unmetered`. Pricing, claim budgets, and usage displays read that value rather than the reporting API's catalog. During rolling updates, a replica unaware of the profile therefore does not add cost. Changing `billing` changes the fingerprint: add a new id. Editing the same id causes `CATALOG_MISMATCH` for existing sessions.
+- Create `none` sessions only after updating every API replica and every scheduler's `WORKER_IMAGE` to this version. Old APIs price even unmetered reports using the price table; old workers reject `remaining_budget_usd: null` as a contract violation and cannot start the engine. For the same reason, do not roll API/workers back to older versions while unmetered sessions remain.
+- Token limits (`SESSION_TOKEN_LIMIT`) and time/concurrency limits (`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`) still apply. Tokens from unmetered rows still contribute to `sessions.provider_tokens`.
+- The API accepts `none` only for a private endpoint host (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10) or a name absent from public DNS (dotless Compose service names, `localhost`, `.internal`, `.local`, `.localhost`, `.lan`, `.home.arpa`). Otherwise startup fails. Add the host to the egress proxy's `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`.
+- A private address is only a prerequisite. Private-network LiteLLM can proxy a paid upstream. Operators are responsible for declaring `none` correctly: an incorrect declaration permits paid calls without cost limits. Setting `SESSION_TOKEN_LIMIT` still bounds per-session tokens. Compare Datadog `werft.provider.unmetered_tokens_1h` (unmetered row tokens over the last 1 hour) with provider-console usage.
+
+Satisfy the [upgrade gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트) before enabling this.
+
+<a id="확인" />
+## Verify
+
+Create a session on an agent using the profile and confirm a turn completes. ready 200 does not check model keys or successful calls. After moving an environment connection to console management, verify new calls and key rotation.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+For missing model keys, follow the connection screen path. A private endpoint alone does not make billing:none safe. Declaring a model proxying paid upstreams as none permits calls without cost limits.
+
+<a id="되돌리기" />
+## Roll back
+
+Do not change a live profile id in a way that changes its fingerprint. Create a new connection/profile version and move to new sessions. When discarding a console-stored key, also revoke its provider-side permissions.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Capacity and cost planning](/run-server/self-hosting/capacity), [Backup and restoration](/run-server/self-hosting/backup-and-restore).

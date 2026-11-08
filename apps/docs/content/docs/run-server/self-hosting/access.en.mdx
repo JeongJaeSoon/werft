@@ -1,0 +1,108 @@
+---
+title: "Configure user access"
+description: "Verify secure console and SSE access"
+pageId: "P08"
+docType: "Task"
+audience: "Network operators"
+outcome: "Verify secure console and SSE access"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Before remote bootstrap, configure an SSH tunnel or a TLS-protected, network-restricted access path, then check the console, API, and SSE.
+
+<a id="준비물" />
+## Before you begin
+
+You need an installed server and SSH access, or organizational TLS certificates and a VPN/IP allowlist. Do not expose PostgreSQL or the Docker socket externally. Clients must trust private CAs; do not bypass verification with curl `-k`.
+
+<a id="단계" />
+## Steps
+
+<a id="compose-ssh-tunnel" />
+### Compose: SSH tunnel
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+Leave this terminal open and connect to `http://127.0.0.1:3000` from another terminal or browser.
+
+<a id="compose-tls-reverse-proxy" />
+### Compose: TLS reverse proxy
+
+API (default 3000) and PostgreSQL (default 5432) bind only to host loopback. Users enter through an SSH tunnel; operators use PostgreSQL only on the server. Allow only SSH and the selected TLS endpoint through the firewall.
+
+To expose the API through an internal DNS name, put a reverse proxy in front, retaining upstream `127.0.0.1:3000`. Restrict access to VPN ranges or an IP allowlist and terminate TLS at the proxy. Preserve the browser's `Host` when forwarding upstream. The API rejects browser state changes when the `Origin` host differs from `Host`; replacing it with the upstream host breaks console mutations. SSE connections are long-lived: disable `proxy_buffering` and request buffering, and use long read/send timeouts such as 1 hour. Keep PostgreSQL and the Docker socket inside the proxy/firewall boundary on every path. Only the scheduler uses the socket to manage workers; do not enable a host TCP socket.
+
+Use your organization's certificate paths, internal DNS name, and permitted ranges. Explicitly allow loopback if test requests from the same server should work. Match `Host` with browser `Origin` and disable SSE buffering.
+
+<a id="kubernetes-내부망-alb" />
+### Kubernetes: internal ALB
+
+Copy `values-aws.example.yaml` to an installation-specific file, fill placeholders (account id, ARN, host, digest), and layer it over `values.yaml`. Rendering below runs locally; applying its output is **AWS-only**.
+
+**The AWS example assumes an internal ALB.** Its Ingress `scheme` annotation is already `internal`; do not change it to `internet-facing` in your installation file. `render-check` rejects `internet-facing` when rendering the example. After applying, verify the ALB was created in internal subnets (**AWS-only**).
+
+<a id="웹-콘솔과-internal" />
+### Web console and `/internal`
+
+api serves the web console on port 3000. With `ingress.console.enabled: true` (default `false`), Ingress routes `/` (Prefix) to the api Service. Worker `/internal` routes share that port, and the `/` Prefix also matches them. The chart therefore places an `/internal` (Prefix) rule before `/`, pointing to the fixed-response action (404, `text/plain`) in `alb.ingress.kubernetes.io/actions.block-internal`, rather than api. AWS Load Balancer Controller evaluates longer prefixes first, so the ALB returns 404 for `/internal` and its children. `render-check` verifies ordering, the 404 action, and that other paths reach the api Service's `http` port (3000).
+
+This rule works only on ALB. Other controllers might skip the nonexistent `block-internal` Service and expose `/internal` through `/`, so chart rendering rejects `ingress.className` values other than `alb`. Rendering also rejects `ingress.annotations` entries that can bypass the 404 rule: `alb.ingress.kubernetes.io/` `actions.*`, `conditions.*`, `transforms.*`, `group.*`, and `kubernetes.io/ingress.class`. If the IngressClass's `IngressClassParams` groups this Ingress with another, earlier Ingress rules take precedence. Before enabling the console, confirm the `alb` IngressClass does not force a group (**AWS-only**).
+
+**Enabling conditions.** api routes using percent-decoded paths. ALB path patterns cannot contain `%`, so encoded paths such as `/%69nternal/…` bypass the `/internal` rule and reach api through `/`. api routes to workers only when the undecoded path begins with `/internal`; encoded variants return 404 `NOT_FOUND`. Enable `ingress.console.enabled` only with an api image containing this behavior.
+
+Bun normalizes dot segments (`/x/../internal/…`, `/%2e/internal/…`) and backslashes (`/internal\…`, `/x/..\internal/…`) to `/internal/…` before api receives them, making them indistinguishable there. ALB must block these. ALB normalizes URIs before rule evaluation, but its documentation does not specify the transformations. After enabling the console, send the following requests from the internal network (**AWS-only**). `/%69nternal/x` should return api's 404 (`application/json`); ALB normalization returning `text/plain` 404 is also safe. All other paths should return ALB's 404 (`text/plain`). api `/internal` routes always return `application/json`, regardless of status. A JSON response for a dot-segment or backslash path means ALB forwarded it to api: disable console ingress again. An ALB-generated rejection such as 400 is safe.
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+To enable, add the following to the installation file. Disabling removes both `/` and `/internal` rules while retaining `/v1`, `/docs`, `/healthz`, and `/readyz`.
+
+```yaml
+ingress:
+  className: alb
+  console:
+    enabled: true
+```
+
+After applying, check from the internal network (**AWS-only**). `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/` should return 200. `curl -si -X POST https://<host>/internal/worker/x` should return 404 with `content-type: text/plain` and no api-added `x-request-id`. api's 404 uses `application/json` and includes `x-request-id`, so status alone cannot prove ALB blocked the request.
+
+```bash
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # render only
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # render only
+helm upgrade --install werft deploy/helm/werft \
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # requires AWS resources
+```
+
+<a id="확인" />
+## Verify
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+Check `/readyz`, `/docs`, `/docs/scalar.js`, and the console through the selected path. For an authenticated event stream, use `curl -sSN --max-time 5` to observe content. Distinguish the timeout ending curl from the persistent connection you observed. Requests outside the allowlist must be blocked. Also check login cookies and Origin validation for mutations. Local checks in this document do not prove actual internal DNS, VPN, or AWS ALB paths.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Untrusted TLS certificates make browsers block connections. Replacing Host with the upstream value rejects console mutations. If ALB normalization tests forward internal paths to the API, disable console Ingress immediately.
+
+<a id="되돌리기" />
+## Roll back
+
+End the tunnel in its terminal. Restore the reverse proxy changes from backup. For Kubernetes, restore `ingress.console.enabled` to false in installation values and apply. Confirm `/internal` and the authorizer are not exposed externally.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[First owner and keys](/run-server/self-hosting/users-and-keys).

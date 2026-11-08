@@ -67,7 +67,13 @@ for (const old of baseline.pages) {
     const routes = (
       guideTargets as Record<string, Record<string, string | null>>
     )[old.page || "index"];
-    if (routes && old.locale !== "ko") {
+    const translated = Object.values(destinations).some(
+      (entry) =>
+        entry.paths.includes(
+          `run-server/self-hosting/${old.page || "index"}`,
+        ) && entry.locales[old.locale as "en" | "ja"] === "implemented",
+    );
+    if (routes && old.locale !== "ko" && !translated) {
       const notice =
         old.locale === "en"
           ? "This page has not been translated into English yet."

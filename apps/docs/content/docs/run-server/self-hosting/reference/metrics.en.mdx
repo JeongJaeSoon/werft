@@ -1,0 +1,110 @@
+---
+title: "Platform metrics contract"
+description: "Check metric names, labels, and aggregation rules"
+pageId: "P25"
+docType: "Reference"
+audience: "Monitoring rule authors"
+outcome: "Check metric names, labels, and aggregation rules"
+---
+
+<a id="계약" />
+## Contract
+
+These are the installation-wide Prometheus metric names, types, labels, and aggregation rules. To connect a collector, see [Collect metrics](/run-server/self-hosting/collect-metrics).
+
+<a id="값을-만드는-방식" />
+## How values are produced
+
+- **Computed from the database at scrape time.** The `metrics` role (`bun run apps/control-host/src/main.ts metrics`) is stateless. Each request queries through `packages/db/src/metrics-reader.ts`; `apps/control-host/src/metrics/families.ts` converts the results into metrics. Counters therefore do not reset to 0 when the Pod restarts.
+- **One target.** Values are installation-wide totals. Two replicas would report the same values twice. The chart fixes replicas at 1 and uses `Recreate`.
+- **Read-only connection.** Database connections start with `default_transaction_read_only=on`, so the database rejects accidental writes. This is a session setting, not a database privilege. The `DATABASE_URL` account has write permissions like other roles, and can write if the setting is reverted in the connection. The setting is sent through the startup parameter `options`; a pooler rejecting `options` (such as PgBouncer without `options` in `ignore_startup_parameters`) prevents only the metrics role from connecting.
+- **Concurrent scrapes share one read.** Requests arriving during a read receive the same result. A failed read returns 503 without stale values (a failed scrape for the collector; Prometheus `up` = 0).
+- **`/healthz`** checks only that the process responds. The probe does not read the database.
+
+Every scrape reads and aggregates database data. Shorter intervals increase database load. Consider increasing the interval if collection takes more than half of it.
+
+<a id="지표" />
+## Metrics
+
+The prefix is `werft_`, defined centrally by `METRIC_PREFIX` in `apps/control-host/src/metrics/families.ts`.
+
+| Name | Type | Labels | Meaning |
+|---|---|---|---|
+| `werft_sessions` | gauge | `state`, `status`, `admission` | Session count. `state` follows the table below. `status` is the API status (including `needs_input`); `admission` is `sessions.admission_state` |
+| `werft_turns_total` | counter | `status` | Turns ending as `completed`, `failed`, `interrupted`, or `cancelled` |
+| `werft_turn_duration_seconds` | histogram | `status`, `le` | Start-to-finish duration for turns above that actually started. Buckets: 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600 seconds |
+| `werft_turns_outcome_unknown` | gauge | None | Turns with unknown outcomes after execution disappeared, awaiting operator recovery decisions |
+| `werft_tool_calls_total` | counter | `tool` | Tool calls made by the engine |
+| `werft_tool_calls` | gauge | `tool`, `outcome` | Tool calls grouped by current outcome: `ok`, `failed`, `denied`, `unknown` (no result yet) |
+| `werft_provider_tokens_total` | counter | `model`, `priced_by`, `kind` | Tokens measured at provider calls. `kind`: `input`, `output`, `cache_read`, `cache_creation` |
+| `werft_provider_cost_usd_total` | counter | `model`, `priced_by` | Estimated provider cost (USD), excluding Kubernetes infrastructure costs |
+| `werft_launch_queue_sessions` | gauge | None | Sessions waiting for worker launch |
+| `werft_launch_queue_oldest_wait_seconds` | gauge | None | Longest session wait in the launch queue; 0 when empty |
+| `werft_input_queue_oldest_age_seconds` | gauge | None | Age of the oldest input not yet taken by a worker; 0 when empty |
+
+`tool_calls` is a gauge because tool outcomes can change later. A late result changes `unknown` to `ok` or `failed`; an earlier result arriving later can replace the existing outcome (the projection in `packages/db/src/tool-calls.ts`). A decrease in a counter would look like a reset and distort increments. Use `tool_calls_total` for call count increases and `tool_calls` for outcome ratios.
+
+The same reasoning excludes `outcome_unknown` turns from `turns_total`. Operator recovery changes them to `completed` or `cancelled` and updates the end time. They enter `turns_total` and the histogram at that point.
+
+<a id="세션-상태표" />
+### Session states
+
+The first matching row determines `state`. Each session matches exactly one row, so the sum by `state` equals the total session count.
+
+| `state` | Condition | User-visible status |
+|---|---|---|
+| `ended` | `admission` is `stopping`, `stopped`, `closing`, or `closed`, or stored status is `stopped` | Ended |
+| `paused` | `admission` is `pausing` or `paused` | Paused |
+| `recovery_required` | `admission` is `recovery_required` | — |
+| `awaiting_approval` | API status is `needs_input` and an actionable permission request exists | Awaiting approval |
+| `awaiting_answer` | API status is `needs_input` and the only actionable requests are questions | — |
+| `running`, `queued`, `idle`, `failed` | Same as API status | Running is `running` |
+
+`needs_input` is not stored in the database. A running session or a session with a parked turn reads as `needs_input` when a person can answer a pending request (`publicStatus` in `packages/db/src/pending-requests.ts`). Metrics use the same rule (`actionableOfSession`). `ended` keeps growing because closed sessions are not deleted. Exclude `ended` when assessing current load.
+
+<a id="도구-결과와-거절" />
+### Tool outcomes and denials
+
+- `ok`, `failed`, and `unknown` come from `tool_calls.outcome` (the tool result block's `is_error`).
+- `denied` means a person answered a permission request with `deny`. `pending_requests` (`kind = 'permission'`, `answer.decision = 'deny'`) joins `tool_calls` on `(session_id, tool_use_id)`. The provider's unique tool_use id also joins a parked request answered by the next attempt to the same call. Any `deny` answer for that tool_use makes it `denied`, even if it was later allowed and executed.
+- Agent tool policy `deny`, expired/cancelled requests, and denials from older workers without `tool_use_id` follow the result block (`failed`, etc.), rather than counting as `denied`.
+
+<a id="비용과-토큰" />
+### Costs and tokens
+
+- Cost sums `provider_usage.cost_usd`, calculated when the call was recorded using platform prices (`priceProviderUsage` and `MODEL_PRICES` in `packages/platform/src/limits/model-prices.ts`). Metrics neither reprice calls nor maintain separate price settings.
+- `priced_by` records the pricing basis: `table` (listed model), `fallback` (unlisted model, using the highest rates), or `unmetered` (profile `billing: none`, cost 0). Track usage for zero-cost calls such as self-hosted models through tokens with `priced_by="unmetered"`.
+- **Time windows use the call recording time (`provider_usage.recorded_at`).** Use counter increases such as `increase(werft_provider_cost_usd_total[1h])` for period costs.
+- There are three differences from `GET /v1/usage/summary`. Results match if all sessions were created and charged within the period (`packages/db/src/metrics-reader.test.ts`).
+  - summary selects sessions **created** in the period (`sessions.created_at`) and sums their entire costs. Costs incurred during the period by older sessions appear only in metrics.
+  - summary sums `sessions.cost_usd`, capped by the session cost field (99,999,999.999999 USD). Per-call costs are not capped there.
+  - summary includes session costs from before per-call records existed (before migration 0169, `session_pre_metering_cost`); metrics do not.
+- Tokens sum per-call values from `provider_usage`. `cache_creation` includes all cache writes, including 1-hour cache writes.
+
+<a id="대기열" />
+### Queues
+
+- **Launch queue:** sessions the scheduler can launch in the next pass, counted using the same SQL conditions (`awaitingLaunch` in `packages/db/src/scheduler-store.ts`): launchable admission, no execution reclamation/takeover, within cost/token limits, restore retry time elapsed, and no launch holding a slot. Limits come from the same `config.limits` as the scheduler. Wait time starts at `unassigned_sessions.signaled_at`.
+- **Input queue:** inputs in `queue_messages` not taken by any worker whose visibility time has passed. This matches Compose's `werft.queue.oldest_age_seconds`.
+
+<a id="라벨-규칙" />
+## Label rules
+
+- Session, turn, user, API key, agent, and attempt ids are never labels. Use `GET /v1/usage/*` for per-agent costs.
+- `state`, `status`, `admission`, `outcome`, `priced_by`, `kind`, and `le` have fixed value sets.
+- `tool` and `model` come from data. MCP tools `mcp__<server>__<tool>` collapse to `mcp__<server>`. The first 100 tool names and 50 model names keep their names in order of appearance; the rest become `other`. Rows are not deleted, so named values usually remain. However, once the cap is full, a late projection row (`tool`) or late-committed row (`model`, where `recorded_at` is transaction start time) with an earlier timestamp can swap a name with `other`. The displaced series stops, the newly named series starts, and `other` may jump or look like a reset.
+- Tests: the cardinality section of `apps/control-host/src/metrics/families.test.ts` checks label names, absence of id-shaped values, and caps.
+
+<a id="compose-지표와의-대응" />
+## Mapping to Compose metrics
+
+The Compose Datadog overlay produces similar values through PostgreSQL custom queries ([Datadog guidance](/run-server/self-hosting/operate/monitoring-datadog), `infra/datadog/conf.d/postgres.d/conf.yaml`). Kubernetes installations can use the metrics here.
+
+| Compose (DB query) | This contract |
+|---|---|
+| `werft.queue.oldest_age_seconds` | `werft_input_queue_oldest_age_seconds` (same meaning) |
+| `werft.provider.cost_usd_1h` | `increase(werft_provider_cost_usd_total[1h])` |
+| `werft.provider.unmetered_tokens_1h` | Sum of `increase(werft_provider_tokens_total{priced_by="unmetered"}[1h])` |
+| `werft.provider.fallback_pricing_count_1h` | No equivalent (use costs/tokens with `priced_by="fallback"` instead of call counts) |
+| `werft.turn.outcome_unknown_count` | No equivalent. `werft_turns_outcome_unknown` is the current remaining count, not the count created in the last 5 minutes |
+| `werft.checkpoint.pending_age_seconds`, `werft.lease.stale_count` | No equivalents |

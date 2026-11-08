@@ -331,6 +331,7 @@ jobs:
               - tests/docs-links.
               - tests/docs-reader-contract.
               - tests/docs-self-hosting-commands.
+              - tests/docs-self-hosting-facts.
               - tests/docs-self-hosting-urls.
               - tests/docs-site-links.
               - tests/e2e/local-model.

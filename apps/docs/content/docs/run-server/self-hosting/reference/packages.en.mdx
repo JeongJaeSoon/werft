@@ -1,0 +1,90 @@
+---
+title: "Deployment package contract"
+description: "Understand image, chart, and manifest fields"
+pageId: "P27"
+docType: "Reference"
+audience: "Installation operators"
+outcome: "Understand image, chart, and manifest fields"
+---
+
+<a id="계약" />
+## Contract
+
+Pin deployment inputs by digest rather than moving tags. Published images are indexes containing `linux/amd64` and `linux/arm64`. Use tags to locate commits, then deploy one matching source commit and all three image digests as a set.
+
+| Package | Location | `main` merge | `v*` tag |
+| --- | --- | --- | --- |
+| Images | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | Tag `main-<12>` | Tag `v<version>` |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | Version `<Chart.yaml version>-main-<12>` | Version `<version>` (without `v`) |
+| SDK | npm `@werft-ai/sdk` | Published separately from main images. Check the published version in [SDK installation](/getting-started/install) | Check the SDK release version separately |
+
+Images are indexes containing `linux/amd64` and `linux/arm64`; pin installations by digest. Charts include the three image digests and worker runtime. Packages are downloadable without signing in. `<12>` is the first 12 characters of the commit SHA. Main versions have no meaningful ordering: select the commit of a successful Images workflow run and specify it exactly.
+
+| Image | Contents | Execution |
+|---|---|---|
+| `werft-control-host` | One `apps/control-host` executable serves api, scheduler, and reconciler roles. `--filter` installs only that app's dependency closure, excluding Agent SDK/Claude Code executable (the build checks that `node_modules/@anthropic-ai` is absent). Default uid 1000; only the scheduler role uses Compose `user: "0:0"` for root Docker socket access | `bun run apps/control-host/src/main.ts <role>` (default CMD: `api`) |
+| `werft-worker` | `--filter ./apps/worker` installs only the worker and its workspace dependency closure (no pg, drizzle, or web console packages). SDK 0.3.270, bundled Claude Code 2.1.270, git, non-root uid 1000, and precreated `/workspace` owned by 1000 (LocalDockerBackend volume contract). Build resolves the executable via `resolvePinnedClaudeExecutable()`, links it at `/usr/local/bin/claude`, and runs `claude --version` | `bun run apps/worker/src/main.ts` — claims one session using the scheduler-provided bootstrap identity in env, then runs the WorkerHost loop |
+| (scheduler role) | The only service mounting the Docker socket. Runs as root: socket ownership is equivalent to daemon-host root, and socket gids vary across daemons, making fixed uids less portable | In Compose, the supervisor (`main.ts scheduler`) requests a pass from a child process (`--serve`) every `SCHEDULER_INTERVAL_SEC` (default 5 seconds). Failed/killed passes end with their child; the next pass uses a new child ([execution](/run-server/self-hosting/explanation/isolation)). After `SCHEDULER_MAX_CONSECUTIVE_FAILURES` (3) consecutive failures (excluding degraded exit 76), the loop exits 1 and `restart: unless-stopped` restarts it (visible in `compose ps`). Without a completed successful/degraded pass for `SCHEDULER_HEALTH_STALE_SEC` (200 seconds), `main.ts scheduler --health` becomes unhealthy. Database stalls make the pass exit 1 itself: scheduler/reconciler use API-equivalent pool timeouts (connect 5 seconds, statement 10 seconds, read 20 seconds; `JOB_POOL_TIMEOUTS` in `packages/db/src/pool.ts`). After connection loss, store calls fail immediately. Database wait is bounded at roughly 45 seconds: failed statement (5+20 seconds) plus pass lock release (20 seconds). `SCHEDULER_PASS_TIMEOUT_SEC` (180 seconds) is an outer watchdog larger than that 45-second bound and one worker stop (stop timeout 120 seconds + request timeout 30 seconds). It kills other hangs and counts them as failures (Docker does not restart on unhealthy alone). If pool timeouts increase, raise this above `connect + 2 × read` too |
+| `werft-egress-proxy` | Only `apps/egress-proxy` source (no dependencies, one stage). Code remains root-owned while execution uses uid 1000, preventing the proxy from changing next-start code | `bun run src/main.ts` — Compose `egress-proxy`, the only external path attached to every worker network |
+
+<a id="릴리스-manifest-읽기" />
+## Read a release manifest
+
+Each `v*` tag produces a GitHub Release with `release-manifest.json` attached. Operators need not search runs or artifacts. No checkout is required; `gh` and `jq` suffice. Set `TAG` below to the Release tag to inspect.
+
+```bash
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
+helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
+```
+
+Because the repository is public, you can also download without `gh`: `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`. To compare with the registry, pass a digest to `docker buildx imagetools inspect <image>@<digest>`.
+
+| Field | Value |
+|---|---|
+| `schema` | Manifest format version, currently `1` |
+| `tag`, `commit` | Release tag and its commit (40-character hex) |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`; `<app>` is `control-host`, `worker`, or `egress-proxy` |
+| `images.<app>.digest` | Digest of the index containing both architectures. Pin deployment to it |
+| `images.<app>.platforms.amd64`, `.arm64` | Manifest digest for that architecture |
+| `workerRuntime` | Claude runtime in the worker image (`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
+| `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | Chart published by the same run; `chart.ref` is its `oci://` location |
+
+Values come from digests reread and verified from the registry by `promote`, and charts read without signing in by `chart-publish`. Manifest generation also verifies the chart package's `Chart.yaml`/`values.yaml` contain matching digests and versions. An attached manifest is immutable. Rerunning the same tag with different content fails the job.
+
+Installers obtain image lines for [single-server installation](/run-server/self-hosting/single-server) from this manifest.
+
+<a id="main-패키지와-릴리스" />
+## Main packages and releases
+
+`main-<12>` is not a release. Confirm its Images run published all three images and the chart, then select the exact version. SHA strings are not chronological versions; do not use Helm `--devel` to choose the latest. An empty `unverifiedSources` array in a main publication confirms all source archives were checked. An absent field means no verification record exists. Official releases require all source archives to be verified before publication.
+
+Published charts include all three image digests and worker runtime. Repeating these in installation values or using `--reuse-values` overrides the next chart's new values. Worker runtime consists of engine/SDK/CLI/profile digest scheme; it is distinct from the image digest.
+
+Nonempty `unverifiedSources` can mean the corresponding Debian sources were not actually archived. Do not treat this as the source-archive guarantee of an official release. Old `main-<12>` images from before multi-architecture publication may contain only amd64; check index platforms on ARM servers too. Do not combine three digests into a deployment set if publication is incomplete or a lookup failed.
+
+<a id="checkout-없이-설치하기-릴리스-번들" />
+## Install without a checkout: release bundles
+
+GitHub Releases for `v*` include `werft-test-ops-<tag>.tar.gz`, containing Compose files, `scripts/test-ops.sh`, and example settings. Images are downloaded separately, pinned to the release's `release-manifest.json` digests. Bundles remove the checkout preparation and host Bun requirements from [single-server installation](/run-server/self-hosting/single-server). Commands from download through `deploy` are in repository `docs/operator/test-ops.md` (the release-bundle installation section).
+
+| | Checkout installation | Bundle installation |
+|---|---|---|
+| Requirements | git, jq, curl, bun 1.3.14, checkout of deployment commit | docker, jq, curl |
+| `preflight` `deploy` `start` `stop` `status` `key` `reset` `manifest` | Supported | Supported |
+| `upgrade` `backup` `reseed` `restore-drill` | Supported | Rejected; use a checkout |
+
+<a id="직접-빌드한-이미지의-runtime" />
+## Runtime of custom-built images
+
+API and slack roles read current/previous worker runtime combinations from `WORKER_IMAGE_RUNTIME` and `WORKER_IMAGE_PREVIOUS_RUNTIME`. Do not type these manually: copy the `runtime` field from the worker digest JSON produced by images.yml (`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). The only current `engine` is `claude`; other names fail chart rendering with `images.worker.runtime.engine must be one of: claude`. Custom-built images lack that JSON. Extract it with the same command as images.yml:
+
+```bash
+docker run --rm -i --network none --entrypoint bun <worker-image> \
+  run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+```
+
+[Custom registry builds](/run-server/self-hosting/build-images) retain your image digests throughout. For publication and promotion, follow the [contributor documentation](/ko/contributing#릴리스-게시와-공급망).

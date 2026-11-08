@@ -1,0 +1,85 @@
+---
+title: "Stop, restart, and remove Compose"
+description: "Manage the installation lifecycle with data retention in view"
+pageId: "P14"
+docType: "Task"
+audience: "Compose operators"
+outcome: "Manage the installation lifecycle with data retention in view"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Stop and restart Compose services while preserving installation data, and check the scope of deletion when removal is needed.
+
+<a id="준비물" />
+## Before you begin
+
+Confirm this installation's project, env file, state directory, and latest successful backup. Check active turns and the uncollected checkpoint count first, then notify users of the interruption.
+
+<a id="단계" />
+## Steps
+
+<a id="중지와-재시작" />
+### Stop and restart
+
+Check status with `scripts/test-ops.sh status`. Read the uncollected checkpoint count; an unavailable count does not mean 0. Use `stop` to bring services down while preserving data, and `start` to bring them back with the same volumes. Choose the appropriate command below for each operation.
+
+```bash
+scripts/test-ops.sh stop
+scripts/test-ops.sh start
+```
+
+`stop` stops api, scheduler, reconciler, and session-created workers. It removes containers and networks but retains volumes. `start` starts the release referenced by `current.json` in the state directory and waits for health checks. This works whether the installation went down through `stop`, `compose down`, or a host reboot. Do not use `deploy`: once a release is recorded, it rejects the operation with `use upgrade`. On a stopped installation, `upgrade` fails because postgres is absent. `start` also rejects hosts that have never been deployed and installations with an unfinished upgrade (`pending.json`). Resolve the latter by rerunning `upgrade` with the same release file.
+
+`start` can run from a checkout other than the release's source commit if `infra/` matches that commit, because only the Compose files are read from the checkout.
+
+After changing the env file, reapply the same release with `scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`. Do not assume `start` applies changed env values.
+
+Database and workspace volumes remain. LocalStack stores objects in memory without a volume, so removing its container loses checkpoint objects even without `-v`. The API refuses to start if the database has uncollected checkpoints but the bucket is empty. See the reseed conditions under [restarting a trial installation](/run-server/self-hosting/try-localstack#자주-막히는-곳). Starting LocalStack with uncollected checkpoints and the full production S3 reboot procedure have not been verified by execution.
+
+<a id="호스트-재부팅" />
+### Reboot the host
+
+Long-running services use `restart: unless-stopped`. They restart after reboot if Docker starts automatically and their containers still exist. If `stop` or `compose down` removed the containers, use `scripts/test-ops.sh start`. Installations from older releases with different restart policies retain their old behavior until the containers are recreated with the new policy. Recreating LocalStack loses objects; follow the [trial reboot warning](/run-server/self-hosting/try-localstack#자주-막히는-곳).
+
+Before rebooting, check active turns, status, and backups stored off the host. After rebooting, check NTP, XFS prjquota, Docker automatic startup, disk space and inodes, status, and readiness. Resume an existing session to confirm a new worker picks up its checkpoint.
+
+<a id="첫날-점검" />
+### First-day checks
+
+- Run `scripts/test-ops.sh status` immediately after installation, after 1 hour, and before the end of the workday. Check services, release, object store, readiness, and scheduler/reconciler health.
+- Check api, scheduler, and reconciler logs, disk space, inodes, and quota. Act before free disk space falls below 20%.
+- Test automatic backups and failure alerts. Schedule [GC dry runs](/run-server/self-hosting/backup-and-restore) separately.
+- Tell users how to [report key revocation needs](/run-server/self-hosting/users-and-keys) and explain [cost and token limits](/run-server/self-hosting/reference/configuration#설치-상한) (`SESSION_COST_LIMIT_USD` defaults to 25 USD in Compose and the chart).
+- Set monthly limits in provider consoles such as Anthropic's. Compare per-session limits and platform cost estimates with the provider's actual charges.
+- Monitor using the [Datadog guidance](/run-server/self-hosting/operate/monitoring-datadog).
+
+<a id="설치-전체-삭제를-선택한-경우" />
+### If you choose to delete the entire installation
+
+reset does not stop or restart an installation. It deletes this installation's containers and volumes (database and LocalStack), worker containers and workspace volumes, sessions, checkpoints, and API keys. Run the following only after checking this project's deletion scope and verifying both a [backup](/run-server/self-hosting/backup-and-restore) and restoration to a separate destination.
+
+```bash
+scripts/test-ops.sh reset --yes
+```
+
+<a id="확인" />
+## Verify
+
+Use actual output to confirm this project's containers are down after stop, and that the same release, owner, data, and readiness remain after start. Reboots with uncollected checkpoints and the complete AWS S3 installation reboot have not been verified by execution.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+With `pending.json` present, start and applying the previous release are rejected. Fix the cause and rerun upgrade with the same target release as pending. A ready 200 response alone does not prove session context preservation.
+
+<a id="되돌리기" />
+## Roll back
+
+Use start to reverse a stop. reset is a separate destructive operation that loses the database, checkpoints, and workspaces; it is not the inverse of stop. Before deleting, compare a restorable backup with this project's resource inventory.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Back up and restore](/run-server/self-hosting/backup-and-restore), [Upgrade Compose](/run-server/self-hosting/upgrade-compose).

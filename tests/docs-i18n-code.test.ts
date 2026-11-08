@@ -95,6 +95,8 @@ describe("translated pages keep the Korean code blocks", () => {
             expect(translated).toBe(false);
           if (entry.locales[locale] === "unchanged")
             expect(translated).toBe(true);
+          if (entry.locales[locale] === "implemented")
+            expect(translated).toBe(true);
         }
       }
     }

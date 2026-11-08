@@ -1,0 +1,49 @@
+---
+title: "Database connection contract"
+description: "Check connection budgets and timeouts for each role"
+pageId: "P26"
+docType: "Reference"
+audience: "Database operators"
+outcome: "Check connection budgets and timeouts for each role"
+---
+
+<a id="계약" />
+## Contract
+
+Use PostgreSQL 16. To investigate connection saturation, slow statements, or locks, follow [Diagnose database latency](/run-server/self-hosting/diagnose-database).
+
+<a id="역할별-연결-수" />
+## Connections by role
+
+Every role creates its pool through `createEnforcedPool` in `packages/db/src/pool.ts`. Pool limits vary by role.
+
+| Role | Pool limit | Reason |
+|---|---|---|
+| api | 10 + 1 readiness probe + 1 LISTEN | Handles concurrent requests. The probe uses its own pool (limit 1), so it does not compete with requests for connections. One LISTEN connection (`werft:api-listen`) receives event notifications outside the pool |
+| metrics | 10 | Each scrape reads 7 aggregates concurrently |
+| scheduler | 4 | Each pass issues statements sequentially. The pass lock holds an additional connection |
+| reconciler | 4 | Each pass issues statements sequentially |
+| slack | 4 | Drains the inbox and outbox in sequence |
+| checkpoint GC, upgrade check, migrate, operator CLIs (`keys`, `grants`, etc.) | 10 | Runs briefly and exits |
+
+With the Helm defaults (2 api replicas, 1 slack, 1 scheduler, 1 reconciler, metrics disabled), persistent connections can total api 24 + scheduler 4 + reconciler 4 + slack 4 = 36. Enabling `metrics.enabled` adds 10; overlapping GC, upgrade check, and migrate jobs add up to 30 more. Compose totals api 12 + scheduler 4 + reconciler 4 + slack 4 = 24. PostgreSQL defaults to `max_connections` of 100, with 3 reserved for superusers. For each additional api replica, budget 12 connections; for slack, budget 4. Compare the total with `max_connections`. Check this setting on managed databases: smaller instances may allow fewer than 100 connections.
+
+<a id="연결마다-거는-세션-설정" />
+## Session settings on every connection
+
+`createEnforcedPool` applies these settings when it opens a connection. The timeout values in code take precedence over query parameters with the same names in `DATABASE_URL`.
+
+| Setting | api/job value | migrate value | Meaning |
+|---|---|---|---|
+| Connection wait (`connectionTimeoutMillis`) | 5 seconds | 5 seconds | Fails after this interval if the pool has no available connection. The api returns 503 |
+| `statement_timeout` | 10 seconds | 300 seconds | The server cancels the statement. This includes time spent waiting for locks |
+| Response read (`query_timeout`) | 20 seconds | 330 seconds | The client abandons a socket that receives no server response |
+| `idle_in_transaction_session_timeout` | 30 seconds | 30 seconds | The server closes a connection that leaves a transaction open without issuing a statement for 30 seconds. This also releases its locks |
+| `application_name` | `werft:<role>` | `werft:migrate` | Identifies the role in `pg_stat_activity` and server logs. If `DATABASE_URL` specifies `application_name`, that value is used |
+
+<a id="migration이-잠그는-시간" />
+## Locks during migrations
+
+When upgrading an old main installation, `0127_session_provider_tokens` creates a usage INSERT trigger and then backfills existing usage. `0129_session_provider_tokens_cap` replaces the trigger to keep totals within JavaScript's safe integer limit. `0169_usage_breakdown_rollup` backfills session and model aggregates while a SHARE lock blocks usage INSERTs; large datasets can therefore cause a long write interruption. These three migrations do not run again if already applied. If they are pending, check your maintenance window and database size, then follow the version-specific actions in the changelog.
+
+The migrate job allows up to 300 seconds per statement. If two migrations overlap (for example, a manual `db:migrate` and a Helm hook Job), the second waits for the first to finish, then applies only the remaining migrations. The Helm hook Job stops after `migrate.activeDeadlineSeconds` (600 seconds by default). Migrations that add indexes to growing tables use `CREATE INDEX CONCURRENTLY` to avoid blocking writes. If a migration could exceed 300 seconds on a large table, its release notes call this out. A `CONCURRENTLY` index waits for all transactions that were open when it started to finish. A long-running operator transaction (an open `BEGIN` in `psql`) delays it accordingly.

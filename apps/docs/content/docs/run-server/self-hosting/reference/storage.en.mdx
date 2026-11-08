@@ -1,0 +1,183 @@
+---
+title: "Storage and limits"
+description: "Check storage guarantees and data retention conditions"
+pageId: "P24"
+docType: "Reference"
+audience: "Storage operators"
+outcome: "Check storage guarantees and data retention conditions"
+---
+
+<a id="계약" />
+## Contract
+
+This is the source of truth for storage limits and reclamation conditions. For resizing, see [Capacity planning](/run-server/self-hosting/capacity); for post-failure decisions, see [Session recovery](/run-server/self-hosting/recover-sessions).
+
+<a id="backend별-workspace" />
+## Workspaces by backend
+
+| Item | Single server | Kubernetes |
+| --- | --- | --- |
+| Location | Docker `local` volume per session, on Docker data-root XFS | One PVC/session (`werft-ws-<installationId>-<sessionId>`), mounted at worker `/workspace`; `ReadWriteOnce`, `Filesystem`. `/tmp` and HOME are memory emptyDir; no hostPath |
+| Capacity limit | `EXECUTION_WORKSPACE_QUOTA_MB`, default 4096MiB, minimum 1024 | PVC `requests.storage`, Helm `worker.workspace.quotaMb`, default 4096MiB, minimum 1024. Actual enforcement depends on StorageClass |
+| Inode limit | `EXECUTION_WORKSPACE_QUOTA_INODES`, default 1,000,000 | **None.** Neither Werft nor chart sets it. Filesystem defaults apply (ext4 fixes inode counts at creation) |
+| Enforcement | Kernel XFS `prjquota`, checked by scheduler preflight | kubelet/CSI. Werft requests size without reading usage or running an enforcement preflight |
+| When exceeded | Worker writes get `ENOSPC`. Scheduler cannot start without enforceable limits | `ENOSPC` if StorageClass enforces capacity; otherwise effectively unlimited. If node disk usage outside the PVC (primarily logs) exceeds `worker.ephemeralStorageMb` (default 1024 MiB, requests=limits), kubelet evicts the Pod |
+| Operator settings | Docker data-root filesystem/size and both limits above | `worker.storageClass` (empty uses cluster default), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, worker-node filesystem size |
+| Checks | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | Below |
+
+```bash
+kubectl get storageclass
+kubectl -n werft get pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId> \
+  -o custom-columns=NAME:.metadata.name,REQUEST:.spec.resources.requests.storage,CAPACITY:.status.capacity.storage
+kubectl -n werft exec <worker-pod> -- df -h /workspace
+kubectl -n werft exec <worker-pod> -- df -i /workspace
+```
+
+Use `kubectl get storageclass` to check whether the chosen provisioner creates capacity-enforcing volumes (EBS gp3, for example, creates a block device of the requested size). PVC `REQUEST` is Werft's request; `CAPACITY` is provisioned size. Filesystem overhead can change `df -h` totals, so do not require exact equality. Verify `CAPACITY` is at least `REQUEST` and that a test PVC using the same StorageClass returns `ENOSPC` when writes exceed `REQUEST`. Check inode totals with `df -i`. These Kubernetes commands, capacity enforcement, and AZ reattachment have not been verified by execution. Values come from code (`specs.ts`, `config.ts`) and the chart.
+
+- **PVCs are mandatory.** Worker workspace volumes are always PVCs (`specs.ts`), with no emptyDir/hostPath option. Session PVCs outlive Pods and reattach under the same name after replacement. The scheduler creates Pods and PVCs per session.
+- **Werft does not check StorageClass hard enforcement.** It requests `requests.storage`, records it in `werft.workspace-size`, and compares configuration; it does not read `status.capacity` or usage. Confirm CSI/filesystem enforcement with infrastructure operators before installation.
+- kind's default local-path-style StorageClass is known not to enforce PVC size. Bound status does not establish a hard limit.
+- **Known limits:** no inode limit; capacity enforcement is delegated to StorageClass. The chart does not reject non-enforcing classes. Code changes addressing this are outside this page's scope.
+
+Zonal PVCs such as EBS are bound to an AZ. After node replacement or Kubernetes upgrades, verify workers reattach on available nodes in the same AZ.
+
+Changing `worker.workspace.quotaMb` makes existing PVC `werft.workspace-size` annotations differ and rejects those sessions' launches. Change it for new sessions when none are active. Do not delete existing PVCs to resize them.
+
+<a id="transcript-상한" />
+## Transcript limits
+
+Total transcript size in one checkpoint (root and every subagent) must not exceed 512MiB; each part must not exceed 16MiB. Three checks use the same values:
+
+1. Worker capture before checkpoint upload (`captureTranscripts`, before manifest upload/commit).
+2. API finalize before reading parts; this is authoritative.
+3. Restore before downloading parts (`#checkManifest`).
+
+Size means the entire JSONL remaining after compaction. Claude Code CLI resume skips content before the last compaction, but the platform stores/restores entire files, so limits apply to the full size.
+
+<a id="80-경고" />
+### 80% warning
+
+- The first committed checkpoint reaching 80% (409.6MiB) emits one SSE `system` event (`transcript_near_limit`) and sets session `attention` to `TRANSCRIPT_LIMIT`. It does not block execution.
+
+<a id="상한을-넘으면" />
+### Exceeding the limit
+
+- Worker prechecks (before workspace upload) or finalize (before reading parts) set `durability.checkpoint_pending_reason` to `transcript_too_large` (or `transcript_part_too_large` for one oversized part). The first occurrence emits one SSE `system` `transcript_limit_reached` event.
+- The oversized turn still finishes `completed` as executed, but its checkpoint does not commit.
+- New messages then return 409 `CHECKPOINT_UNAVAILABLE`; queued turns do not execute. Start a new session or use recovery `start_fresh`. close also returns 409 `CHECKPOINT_UNAVAILABLE`; terminate, then use recovery close.
+- Interrupted turns differ: rejected checkpoints make the turn `outcome_unknown` (`interrupt_checkpoint_unavailable`) and the session `recovery_required`.
+- The last committed checkpoint remains the restoration point. The oversized turn lacks a checkpoint, so its context cannot continue after worker replacement (session attention `CONTEXT_GAP`).
+
+<a id="결과물out-색인-상한" />
+## Output (`out/`) index limits
+
+At each checkpoint, workers index regular files under working-directory `out/` regardless of git status, add manifest `outputs`, and upload one object/file. Limits are `DEFAULT_OUTPUT_LIMITS` in `apps/worker/src/workspace-outputs.ts`.
+
+| Value | Default | When exceeded |
+|---|---|---|
+| Per-file `maxFileBytes` | 64MiB | Records only `{path, bytes, omitted: "too_large"}`, without upload |
+| Per-checkpoint upload total `maxTotalBytes` | 256MiB | Files that would exceed the total become `too_large` |
+| File count `maxFiles` | 1,000 | Files after the first 1,000 in path order are omitted; publish logs record their count in `outputs_dropped` |
+
+- Index limits do not fail checkpoints. Git bundle limits (256MiB) and workspace quotas still apply; large `out/` files tracked by git or bundled in repository-free sessions can hit those separately. Untracked, nonignored `out/` files still upload as restoration untracked objects even if indexed as `too_large`.
+- Manifest limits (20,000 objects, 8MiB) also do not fail checkpoints. Outputs fit only in the object slots left by restoration objects; excess files count as `outputs_dropped`. If the output list pushes the manifest beyond 8MiB, it uploads without `outputs` and logs `outputs_refused`. In both cases omitted file objects were already uploaded and have no manifest reference; the next checkpoint uploads them again.
+- Files are read into memory one at a time, adding at most the per-file limit (64MiB) to worker memory.
+- Symlinks, nonregular files, and invalid manifest names (such as `.git` or non-UTF-8 names) are excluded. If `out` itself is a symlink, the list is empty.
+- Each digest uploads once. A matching digest from the previous checkpoint reuses that object.
+- Objects live at `sessions/<id>/checkpoints/<revision>/<attempt>/<publish>/outputs/<sha256>`. Control-plane finalize verifies size/digest and holds the version. Checkpoint GC retains output objects referenced by retained checkpoints.
+
+<a id="docker-quota와-회수" />
+## Docker quotas and reclamation
+
+Each session mounts one `werft-ws-<installationId>-<sessionId>-<suffix>` volume at `/workspace`. It survives generations so replacing containers preserves the working tree. **Container `terminate` does not touch the volume**; pass stage ④ reclaims it separately.
+
+If the volume disappears, the session continues from its last committed checkpoint. See [what remains after losing a workspace volume](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#workspace-volume을-잃었을-때-남는-것) for retained and lost data.
+
+The backend now creates volumes **explicitly** with `POST /volumes/create`. Merely naming a volume in a mount spec lets Docker create it without labels or limits. Creation sets the `werft.managed`, `.installation`, `.session-id`, and `.workspace-quota` labels. GC reads these labels instead of parsing names.
+
+**Volume names are single-use.** Recreating a name previously assigned a quota makes the `local` driver return the same `Options.size` without enforcing the actual project quota. Under reproduced xfs+prjquota conditions (Docker 27.5.1), the container's `df` total showed the configured 64 MiB on first creation. After deleting and recreating the same name, `df` showed the entire 8 GiB filesystem despite identical `Options.size`. Engine API cannot distinguish them. Workspace names therefore use random suffixes and are **looked up by labels**, not derived from session ids. A volume deleted by GC/operators gets a new name next time and regains enforcement. Multiple workspaces for one session are reported without guessing which is authoritative. Preflight probes also use fresh names. Leftover labeled probes are reclaimed only after the longer of 10 minutes or 20 times `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`: preflight runs outside the pass lock, so younger probes may belong to concurrent preflights (standalone `--once` or another scheduler).
+
+Unlike CPU/memory/PID/tmpfs, `/workspace` previously had no limit. `EXECUTION_WORKSPACE_QUOTA_MB` (default 4096) sets the local driver's `size` option. This works **only with project-quota-capable daemon storage** (xfs+`prjquota`); otherwise creation returns `400 quota size requested but no quota support`. Scheduler `verifyWorkspaceQuota` creates a probe before passes and **launches nothing on unsupported daemons**. The probe creates a volume and CAP_SYS_ADMIN helper, so it is not repeated every pass. After success, supervised passes store a hash of all backend configuration (`DOCKER_HOST`/`EXECUTION_*`, etc.) in `<SCHEDULER_STATUS_FILE>.quota-verified`; matching hashes skip probes. The supervisor deletes this marker on startup, ensuring rechecks after restarts, including consecutive-failure restarts. Failed probes write no marker and retry next pass. Standalone `main.ts scheduler --once` neither writes nor trusts it and always probes. The supervisor passes `SCHEDULER_QUOTA_PREFLIGHT_MARKER` only to its own passes. There is no silent unlimited fallback: explicitly set `EXECUTION_WORKSPACE_QUOTA=off` to accept unlimited storage, producing 1 warning per scheduler pass. Values other than `on`/`off`, including `false`, `0`, and `no`, are rejected as typos.
+
+**Minimum quota is 1024 MiB.** Smaller `EXECUTION_WORKSPACE_QUOTA_MB` values fail startup because restoration temporarily needs this workspace space. Restoration clears root first. Symbols:
+
+- B: bundle-chain total, control-plane limit 256 MiB.
+- U: untracked files, capture limit 256 MiB.
+- W: objects fetched into workspace `.git`, approximately B.
+- I: objects reachable from the instructions commit, at most W.
+- T: checked-out working tree and index.
+
+| Stage | Concurrent storage | Maximum |
+| --- | --- | --- |
+| Download | Bundle files B, U | 512 MiB |
+| Staging | Bundle files B, staged repository ≈B, U | ≈768 MiB |
+| Workspace fetch | Staged repository ≈B, W, U (bundle files deleted immediately after staging) | ≈768 MiB |
+| Shrink staged repository | W, I, U (staged repository deleted first) | ≤768 MiB |
+| After checkout, throughout session | W, I, T, U | 2B + T + U |
+
+Fixed pre-checkout cost is twice the bundle limit plus untracked limit: 768 MiB. 1024 MiB adds pack indexes and headroom, including delta base copies used to complete incremental thin packs. T is the session working tree and unbounded, so the minimum guarantees only session-independent pre-checkout cost. After checkout, W + I + T + U approximates the same session's capture-time quota usage. Capture held workspace `.git`, working tree, untracked files, snapshot objects in scratch storage, and bundle files (≤B). I is at most B. Restoring to a new volume after lowering quota is outside this guarantee and can fail with ENOSPC during checkout.
+
+Fresh fetch reusing an existing workspace without checkpoints does not clear root. The worker clones the entire origin into a bare mirror, copies the branch, then deletes the mirror. Mirrors live under `.git/werft-fetch-*` because `/tmp` and HOME are memory-backed tmpfs. M below is maximum mirror disk usage: origin packs plus indexes/refs and temporary packs during download. Δ is newly fetched workspace `.git` objects.
+
+| Stage | Concurrent storage | Maximum |
+| --- | --- | --- |
+| Mirror clone and local fetch | Existing W, I, T, U + mirror M + Δ | Session usage + M + Δ |
+| After fetch | W + Δ, I, T, U (mirror deleted) | Session usage + Δ |
+
+M is unbounded. Reuse needs M of quota headroom; otherwise fetch fails ENOSPC. Initial clone (`clone`/`recreate`) goes directly into root without a mirror and uses W + T. A later reuse deletes scratch left by dead workers before fetching (fetch/capture/publish `.git/werft-<purpose>-XXXXXX`), retaining `werft-checkpoint`. If checkout borrows external objects (`objects/info/alternates`, `commondir`, symlinked `objects`), scratch may be their source and is not deleted.
+
+After restoration, `.git/werft-checkpoint/checkpoint.git` retains only I, objects reachable from the instructions commit, so future capture can bundle it even if the engine prunes that commit. Later commits, uncommitted-change snapshots, and earlier chain snapshots are not retained. If instructions equals HEAD, I includes all committed history, as in sessions without engine commits; only snapshot storage shrinks then.
+
+The tradeoff: subsequent incremental capture excludes only chain tips still present. Old-base-only snapshot commits are gone; the last bundle's snapshot remains unreferenced in workspace `.git`. Normal `git gc` retains it for 2 weeks, but `git gc --prune=now` can remove it. Bundles then use remaining tips (historical HEAD/instructions), potentially growing or becoming full bundles without affecting correctness. Repositories whose full bundle exceeds limits would also be rejected when the chain restarts at 32 bundles or its size limit.
+
+**Inode limits apply to the same project.** Byte limits alone permit millions of empty files to exhaust inodes even within 4GiB: xfs does not charge inodes to project block usage. Other sessions and Postgres on the daemon can then fail to create files. The local driver lacks inode options, and per-session filesystems through `o=loop` are unavailable because it calls the mount syscall, not `mount(8)` (`data: loop: invalid argument`). Werft directly sets `ihard`/`isoft` (`EXECUTION_WORKSPACE_QUOTA_INODES`, default 1,000,000) on the xfs project created by Docker `size`.
+
+- A short-lived helper (`workspace-inodes.ts`) applies limits with `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs; it is not privileged.
+- It reads the project id and rejects project 0 (= none), since limiting 0 would limit the whole filesystem.
+- It creates the mount source's block device node in its private `/dev` with `mknod`, then runs `xfs_quota`.
+- `xfs_quota` exits 0 even on failure; success is determined only from reported hard/soft limits and statfs `f_files`.
+- Docker `SetQuota` writes only BHARD/BSOFT and does not overwrite these.
+- The image is scheduler `WORKER_IMAGE`, which includes `xfsprogs`. Launches cannot choose another helper image. Operators, not catalogs, select the CAP_SYS_ADMIN image.
+
+Limits apply at four points:
+
+- Preflight `verifyWorkspaceQuota`: until first success after supervisor startup, and on configuration changes. Failure rejects startup like byte quotas; the sole opt-out is `EXECUTION_WORKSPACE_QUOTA=off`.
+- Every launch's `ensureWorkspaceVolume`, new and existing volumes alike. Project ids can be reused after daemon restart, so are not cached; reapplying is idempotent.
+- Pre-replacement `assertReplaceable`: failure rejects replacement before stopping the existing worker.
+- Before `migrate-workspace` copying: excessive file counts fail copying and preserve the source.
+
+Inode limits change in place, so are absent from the volume `workspace-quota` label. Volumes created without them remain accepted and receive them next launch. They do enter `isolationStampFor`, with `ISOLATION_CONTRACT` raised to 7. Older hosts after rollback treat these workers as newer and leave them alone. New/changed limits make running workers stale and replacement ensure applies them.
+
+Docker Desktop kernels lack XFS quota support (`XFS (loopN): quota support not available in this kernel`), leaving `off` effectively the only local option. GitHub Actions runner daemons use ext4 data roots too. CI `workspace-quota` therefore starts a separate daemon on an xfs+prjquota loop-file data root to test enforcement.
+
+Per-volume quotas alone are insufficient: Docker attaches **writable anonymous volumes** for image-declared `VOLUME` paths without labels or quotas. Before launch, images declaring any `VOLUME` beyond `/workspace` are rejected (`ImageVolumeError`). Container deletion uses `v=true` to remove anonymous volumes without affecting named workspace volumes. Unpulled images return 404 on inspection; creation is allowed to return that same 404.
+
+To prevent tag races, containers use the **inspected image id** (`sha256:…`). Volumes are checked again immediately after create and before start: an intervening `docker volume prune` can make Docker implicitly recreate unlabeled, unlimited volumes. A mismatch deletes the not-yet-started container and fails.
+
+Failed quota preflight **launches nothing but runs reclamation once**. Probes need some space, so full daemons can fail preflight exactly when finished workspaces need reclamation. Exiting immediately would prevent cleanup forever. This is `reclaimWorkspaces`, not a pass: only stage ④ under the same advisory lock. A zero-slot pass is insufficient because it still recreates missing containers and replaces stale ones. After reclamation, rethrow the original error and exit nonzero.
+
+A volume quota label differing from configuration (unlabeled legacy volume or another byte limit) rejects startup with `WorkspaceQuotaError`. Old derived-name `werft-ws-<installationId>-<sessionId>` volumes are still checked: ignoring them and creating a new workspace would start an empty tree and bury old data. Byte quotas cannot change later (inodes can, as above); deleting a volume destroys its working tree. Preserve the tree through [legacy migration](/run-server/self-hosting/migrate-workspaces), or restore previous settings. Quotas also enter `werft.isolation` so existing workers cannot indefinitely retain old limits.
+
+Rejection must happen **before killing a running worker**. Otherwise stale → terminate → recreate could fail at the volume, stranding the session. `inspect` checks the volume read-only before reporting stale; unusable volumes raise an exception instead. The worker continues at its old limit while passes report nonzero `reconcileFailed` until [migration](/run-server/self-hosting/migrate-workspaces). Inode enforcement is tested by `assertReplaceable` immediately before replacement, rejecting failure before stopping the worker.
+
+Stage ④ GC is fail-safe: **list volumes before querying the database**. Reversing this could delete a session volume created between calls. Retain volumes with a nonclosed session row or live execution row; `stopped` has the expiry exception below. Missing/invalid session-id labels, mounted volumes (409), and other installations' volumes are **retained and logged**. Unlabeled legacy `werft-ws-<installationId>-<sessionId>` volumes are exceptional: a parsed id is only a candidate. Reclaim only if **its row exists, is `closed`, and no launch holds a slot** (`filterClosedLegacySessions`). Without a row, retain it; a matching name alone proves no ownership. Legacy volumes do not receive stopped TTL until migrated. Volumes younger than `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` (default 3600) are never candidates, protecting launches between volume and container creation. **Intentional retention and failures have different exit codes.** Mounted/foreign volumes are normal (`workspacesUnresolved`) and do not change exit code. Listing/database failures (`workspaceScanFailed`) or deletion exceptions (`workspacesFailed`) cause a nonzero pass because disk can otherwise grow unobserved.
+
+**Stopped workspaces expire.** After `EXECUTION_WORKSPACE_STOPPED_TTL_SEC` (default 86400, one day), measured from `sessions.updated_at`, they become candidates. Stop transitions update that time; reclamation claims/completion do not. A new accepted terminate on an already stopped session resets it, but terminate is not a retention mechanism: existing reclamation claims continue. Resume alone serializes with claims. A launch holding a slot prevents candidacy. `0` means reclaim next pass.
+
+Resume requires a committed checkpoint; workers with restore pointers clear root and restore from it. Expired stopped volumes are therefore caches. **Stopped sessions without checkpoints cannot resume, and work existing only on their volumes disappears after TTL.** Extract required work directly before expiry.
+
+Reclamation and resume serialize in the database. After identifying a volume candidate, the pass locks launch → session in the same order as resume, rechecks conditions, records a **claim** (`sessions.workspace_reclaim_id`/`workspace_reclaim_workspace_id`), and commits. It then deletes the volume and records results under the same claim id.
+
+* Deleted/already absent: clear claim, set `workspace_reclaimed_at`.
+* Mounted (409)/foreign: clear only the claim.
+* Deletion exceptions, including timeout: retain the claim because deletion is uncertain. Next pass processes unfinished claims independently of volume listings, since deleted volumes no longer appear.
+
+While claimed, resume returns **503 `BACKEND_UNAVAILABLE` (`retryable: true`)** without receipt/idempotency records; retry the same request after completion. If resume commits first, admission becomes `active` and `updated_at` changes, preventing the claim; the next launch uses the volume. Successful resumption clears `workspace_reclaimed_at`. `packages/db/src/workspace-reclaim.integration.test.ts` pins these orderings against real PostgreSQL.
+
+<a id="공통-object-store-보호" />
+## Shared object store protection
+
+Default `locked` protection requires versioning, Object Lock, and SSE-S3 (`AES256`). Checkpoint object versions are protected by legal holds. Do not configure default retention or object-version-expiring lifecycles. Restoration needs exact versions referenced by database pointers. `/readyz` alone does not establish data retention.
+
+For AWS creation/minimum permissions, see [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket); for backup and separate-destination comparison, see [Restoration drills](/run-server/self-hosting/backup-and-restore).

@@ -1,0 +1,77 @@
+---
+title: "Back up and rehearse restoration"
+description: "Compare backup data and pointers in a separate destination"
+pageId: "P13"
+docType: "Task"
+audience: "Compose data operators"
+outcome: "Compare backup data and pointers in a separate destination"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Back up a Compose installation's database and checkpoint objects, then compare pointer versions in a separate project with a new, empty bucket. Record API verification and actual session resumption as separate evidence.
+
+<a id="준비물" />
+## Before you begin
+
+You need a healthy installation, separately stored copies of the current release and secret keys, enough backup space, and a maintenance window to stop writers. Backups include the entire database and API key hashes: restrict access to 0700 and encrypt them in transit and at rest. Do not restore into the production bucket. Release bundles reject `backup`, `reseed`, and `restore-drill`; run them from a checkout of the installation's commit.
+
+<a id="단계" />
+## Steps
+
+<a id="1-백업" />
+### 1. Back up
+
+```bash
+scripts/test-ops.sh backup
+```
+
+The command stops api, scheduler, reconciler, and workers, bundles the database and objects into `backups/backup-<timestamp>` under the state directory, then restarts services. Check for active turns before starting: they are interrupted and can later be reclaimed. Never use failed (`.failed`) or incomplete (`.partial`) backups as successful ones. The command fails if it cannot restart services, even if the backup itself finished.
+
+Run this daily during a quiet period and immediately before every upgrade. An example retention policy is 14 days on the host and 90 days in an encrypted external store. Alert if no new successful backup exists for 26 hours, the command exits non-zero, or services fail to resume.
+
+<a id="2-별도-대상-복원" />
+### 2. Restore to a separate destination
+
+For S3, prepare a new, empty drill bucket every time. The command rejects the source bucket and any destination containing object versions or delete markers.
+
+```bash
+# Restore a backup into a throwaway project and a new, empty bucket, then verify it
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket> --port-base 25432
+```
+
+`--port-base` sets the drill services' separate starting port. Choose a value that does not overlap other installations. Omit `--bucket` for a LocalStack trial. The drill restores postgres and the object store, then compares every checkpoint pointer by version. It does not start the API. Run it monthly and on the first backup after each upgrade.
+
+<a id="3-checkpoint-gc" />
+### 3. Checkpoint GC
+
+Schedule this weekly, without overlapping backups, and start with a dry run.
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
+  bun run apps/control-host/src/api/checkpoint-gc.ts
+```
+
+Identify API_CONTAINER from this installation's status and project label. Review the objects to retain and delete in the output, then run without the dry-run environment variable. Do not select another installation in the default Compose project. Kubernetes uses the chart's `checkpointGc.schedule`.
+
+<a id="확인" />
+## Verify
+
+Check the backup exit code and status. Keep the drill logs with the actual checkpoint count, version count, and checksum results. `nothing was compared` means the comparison was empty; it does not prove data restoration. The previous LocalStack run had 0 objects and 0 checkpoint rows. Restoration from AWS S3 and actual session resumption with a running API have not been verified. Verify that sessions resume with the restored API and workers in a separate, isolated environment.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Stop if the drill destination is the source or is not empty. If legal holds or retention prevent version deletion, investigate the destination and retention contract instead of removing protection arbitrarily. Drill output is recorded under `restore-drills/` and in history.
+
+<a id="되돌리기" />
+## Roll back
+
+The drill tool cleans up its project when it exits. If you used `--keep` for investigation, bring down only that project after checking it, and handle volumes under a separate retention policy. Keep the drill bucket distinct from production. After confirming it contains no data to reuse, release each object version's legal hold, delete versions and delete markers, then delete the empty bucket. Wait for any remaining retention period to expire; do not bypass it. Do not delete production backups for a test.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Upgrade Compose](/run-server/self-hosting/upgrade-compose), [Storage and limits](/run-server/self-hosting/reference/storage). For Kubernetes database and S3 restoration, follow the [operator backup contract](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).

@@ -1,0 +1,138 @@
+---
+title: "Plan and change capacity"
+description: "Budget restoration headroom and change supported resource sizes"
+pageId: "P15"
+docType: "Task"
+audience: "Capacity operators"
+outcome: "Budget restoration headroom and change supported resource sizes"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Plan concurrent sessions, worker memory, and node counts, then change supported settings. The [storage contract](/run-server/self-hosting/reference/storage) is authoritative for fixed transcript and output limits.
+
+<a id="준비물" />
+## Before you begin
+
+Check actual node allocatable memory, other Pod requests, slot limits, and workspace usage. Restoration peaks depend on transcript size and compaction; do not downsize from average usage alone.
+
+<a id="단계" />
+## Steps
+
+<a id="1-복원-비용과-안전-여유" />
+### 1. Restoration cost and safety headroom
+
+The rule is: **the worst peak when resuming an uncompacted transcript must stay at or below half the worker memory limit**. The remaining half covers first-turn work, unmeasured transcript shapes, and engine-version differences.
+
+Development `.env.example` sets `WORKER_MEMORY_MB=2048`, which does not meet this rule. For large-transcript resume tests, remove that line or set `WORKER_MEMORY_MB=4608`. Also check the value actually applied in deployment input.
+
+<a id="측정-방법" />
+#### Measurement method
+
+Measurements used a fake model and cgroup v2 Compose environment. A source worker placed a synthetic transcript in the mirror, checkpointed, and paused. A new worker restored that checkpoint and ran its first resume turn. Every 0.5 seconds, measurements recorded container cgroup values (`memory.peak`, anon, file, shmem, swap, oom_kill) and per-process VmHWM. `memory.peak` includes reclaimable page cache (file), which was still included in the rule. The image used claude-agent-sdk 0.3.270 and Claude Code CLI 2.1.270.
+
+<a id="4608mib-한도-현재-기본값" />
+#### 4608MiB limit (current default)
+
+| transcript | Compaction | First resume turn | memory.peak MiB (% limit) | anon | file | swap | OOM | worker(bun) VmHWM | CLI VmHWM |
+|---|---|---|---|---|---|---|---|---|---|
+| 511MiB | None | Success | **1970 (43%)** | 1054 | 710 | 0 | 0 | 546 | 1129 |
+| 511MiB | Yes | Success | 1338 (29%) | 533 | 716 | 0 | 0 | 588 | 237 |
+| 64MiB | None | Success | 726 (16%) | 558 | 75 | 0 | 0 | 504 | 329 |
+
+<a id="6144mib-한도-비교-측정" />
+#### 6144MiB limit (comparison)
+
+| transcript | Compaction | First resume turn | memory.peak MiB (% limit) | anon | file | swap | worker(bun) VmHWM | CLI VmHWM |
+|---|---|---|---|---|---|---|---|---|
+| 600.0MiB | None | Success | 2178 (35%) | 1301 | 745 | 0 | 626 | 1308 |
+| 600.1MiB | Yes | Success | 1029 (17%) | 453 | 609 | 0 | 497 | 236 |
+| 799.4MiB | None | Success | 2785 (45%) | 1669 | 852 | 0 | 597 | 1727 |
+| 799.1MiB | Yes | Success | 1392 (23%) | 671 | 996 | 0 | 716 | 234 |
+| 64.9MiB | None | Success | 839 (14%) | 508 | 279 | 0 | 437 | 326 |
+| 150.2MiB | None | Success | 828 (13%) | 501 | 151 | 0 | 487 | 492 |
+
+<a id="읽는-법" />
+#### Interpreting results
+
+- worker(bun) uses 440–720MiB regardless of transcript size because restoration streams by part.
+- The engine (CLI) accounts for size-dependent memory. Without compaction it uses roughly **210 + 1.85 × T MiB** (T is transcript MiB). At 511MiB, the formula gives 1155MiB versus measured 1129MiB. With compaction the engine uses about 235MiB regardless of size.
+- Including page cache, total peak grows about 3MiB per transcript MiB across 150–800MiB (828MiB at 150.2MiB, 2178MiB at 600MiB, 2785MiB at 800MiB). The 256/400MiB values below are **estimates** interpolated from this line.
+
+<a id="2-transcript-상한과-메모리-선택" />
+### 2. Select transcript limits and memory
+
+The table compares required memory and sessions per node for candidate limits. Memory is 2 × peak rounded up to 512MiB increments. Session counts assume a node with 30GiB (30720MiB) allocatable. The sample is small; do not set production limits from this table alone.
+
+| Limit | Uncompacted peak | Memory under half-limit rule | Sessions/node | Samples within limit | 80% warning |
+|---|---|---|---|---|---|
+| 256MiB | 1146MiB (estimated) | 2560MiB | 12 | 10/12 | 204.8MiB |
+| 400MiB | 1578MiB (estimated) | 3584MiB | 8 | 10/12 | 320MiB |
+| **512MiB** | **1970MiB (measured)** | 4096MiB → **4608MiB** | **6** | **11/12** | **409.6MiB** |
+| 600MiB | 2178MiB (measured) | 4608MiB | 6 | 12/12 | 480MiB |
+| 800MiB | 2785MiB (measured) | 5632MiB | 5 | 12/12 | 640MiB |
+
+- 512MiB fits 11 of the 12 observed sessions. The second-largest, 400.1MiB, does not trigger a warning. Only the 591.8MiB session exceeds it. Such sessions receive a warning at 409.6MiB and should move to a new session.
+- A 400MiB limit immediately rejects the 400.1MiB session's checkpoint. At 256MiB, even a 217MiB session enters the warning range.
+- Memory is 4608MiB rather than 4096MiB. The measured 1970MiB peak at 512MiB leaves only 78MiB below half of 4096MiB (2048). At 4608MiB it leaves 334MiB.
+
+<a id="3-노드당-동시-세션-수" />
+### 3. Concurrent sessions per node
+
+```text
+sessions per node = floor((node allocatable memory - sum of other Pod requests on the node) / worker.memoryMb)
+```
+
+With a dedicated worker node group (`worker.nodeSelector`, `worker.tolerations`), other Pod requests are mostly DaemonSets. Ignoring DaemonSet requests on a node with 30GiB allocatable gives:
+
+| `worker.memoryMb` | Sessions/node |
+|---|---|
+| 2048 | 15 |
+| **4608 (current)** | **6** |
+| 6144 | 5 |
+
+Compute CPU the same way (`worker.cpus`, default 1). Memory usually fills first. Each session also has a workspace PVC (`worker.workspace.quotaMb`, default 4096MiB). Restored transcripts (up to 512MiB) share that space with the working tree, git objects, and restore spool.
+
+On local Docker, `EXECUTION_SLOT_LIMIT` workers (default 10) share one machine's memory. Limits are cgroup ceilings rather than reservations, so overcommit can run if workers do not all fill them simultaneously. OOM still occurs if slots × 4608MiB greatly exceeds machine memory.
+
+<a id="지원되는-변경-선택" />
+#### Supported changes
+
+| Approach | Change | Benefit | Cost |
+|---|---|---|---|
+| ① Lower `worker.memoryMb` | Change one values entry (`WORKER_MEMORY_MB`, effective next launch) | More sessions/node: 3584MiB allows 8 on a 30GiB node | Less headroom for large uncompacted resumes. To keep the half-limit rule, lower the transcript limit too (about 400MiB at 3584MiB, estimated). The limit is a code constant, requiring a build |
+| ② (Currently unsupported) Set `requests` below `limits` | Lower worker Pod requests relative to limits in the chart | Many more small sessions/node. Measured resume peaks for 64–150MiB transcripts were 726–839MiB | Chart and scheduler currently create only requests = limits Pods; code changes are required. QoS becomes Burstable, and simultaneous large resumes can cause node-pressure OOM kills or eviction |
+| ③ Expand the node group | Add worker nodes or increase node size | More total sessions with the same per-session guarantees | Higher cost, no code changes |
+| ④ (Currently unsupported) Size Pods per session | Scheduler chooses memory from the transcript size to restore | Small Pods for small sessions; large Pods only where needed | Requires code changes. Scheduler must know checkpoint size before launch, and handle transcripts growing inside a running Pod |
+
+Raising only `MAX_TRANSCRIPT_BYTES` while retaining memory is not recommended. A large uncompacted resume hitting the limit can repeatedly restart workers until the session becomes `recovery_required`. Remeasure with this document's method when changing the limit.
+
+Memory changes apply at the next launch; running workers are not replaced. Custom builds changing the limit require API and worker from the same release; follow the [upgrade gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트).
+
+If only the API has a lower transcript limit, finalize can reject checkpoints accepted by the worker, record `transcript_too_large`, and block new turns. Align API and worker limits. Old APIs unaware of new transcript reasons reject reports with 400: follow migration → all API instances → worker, and roll back only to builds recognizing those reasons.
+
+<a id="4-provider-비용과-상한-대조" />
+### 4. Compare provider costs and limits
+
+Review estimates, fallback prices, and reauthorization boundaries in [usage and cost metering](/run-server/self-hosting/reference/configuration#사용량과-비용-계측), then compare with actual provider bills. When changing and applying [installation limits](/run-server/self-hosting/reference/configuration#설치-상한), follow [model connections](/run-server/self-hosting/model-connections) and your backend's upgrade procedure.
+
+<a id="확인" />
+## Verify
+
+Restore the same checkpoint on new workers before and after the change. Compare turn completion, memory.peak, OOM, disk, inodes, and queue wait. Table values were observed only under the stated SDK/CLI/synthetic-transcript conditions; they do not replace measurements in production or on a new runtime.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Raising only the transcript limit can cause restarts and recovery_required. Overcommit with requests below limits and per-session Pod sizing are currently unsupported.
+
+<a id="되돌리기" />
+## Roll back
+
+Restore memory, slot, and node settings for new launches to their previous values. Do not arbitrarily change existing workspace byte quotas or delete volumes. For quota contract changes, follow [workspace migration](/run-server/self-hosting/migrate-workspaces).
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Storage and limits](/run-server/self-hosting/reference/storage), [Collect metrics](/run-server/self-hosting/collect-metrics), [Isolation](/run-server/self-hosting/explanation/isolation).

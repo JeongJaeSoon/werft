@@ -1,0 +1,67 @@
+---
+title: "Migrate existing workspaces"
+description: "Move legacy workspaces to current quotas while preserving source data"
+pageId: "P19"
+docType: "Task"
+audience: "Docker operators"
+outcome: "Move legacy workspaces to current quotas while preserving source data"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Migrate unlabeled legacy volumes or workspaces with a different byte quota to the current contract while preserving the source.
+
+<a id="준비물" />
+## Before you begin
+
+Prerequisites:
+
+* **No container may reference the volume**, including stopped containers: restarting one could write to the source during copying. The command names any such container and refuses to proceed. For an active session, terminate it first (which removes the container), migrate, then resume. Removing a container directly with `docker rm` interrupts its active turn; the session is handled as having lost its container.
+* **The command acquires the scheduler pass lock.** If a pass is running, it exits with `A scheduler pass holds the lock`. Rerun after the pass finishes. No pass runs during copying, so neither GC nor launch touches either volume.
+* The session must have no unfinished reclamation claim. If one exists, wait for the next pass to process it, then rerun.
+* The session row must exist and must not be `closed`. GC reclaims closed sessions' legacy volumes. Neither GC nor this command touches legacy volumes without a session row: the name alone is insufficient evidence of ownership. Operators must verify and remove them manually.
+* The helper image must be **pinned by digest** and already present on the daemon. The default is busybox 1.36 (`DEFAULT_MIGRATION_HELPER_IMAGE`). First run `docker pull busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662`. Override it with `--helper-image` or `EXECUTION_WORKSPACE_MIGRATION_IMAGE`.
+* Quota preflight (`verifyWorkspaceQuota`) must pass first. The new volume uses the currently configured limit.
+
+The reclamation claim, current quota, helper digest, Docker daemon, and installation id must all match this installation. The lock excludes scheduler passes during migration.
+
+<a id="단계" />
+## Steps
+
+Select the actual scheduler container using this installation's status and project label. It already has the installation database, Docker socket, and quota environment. Do not start a new default development Compose project.
+
+```bash
+SCHEDULER_CONTAINER='<this-installation-scheduler-container-id>'
+docker exec "$SCHEDULER_CONTAINER" \
+  bun run apps/control-host/src/scheduler/migrate-workspace.ts <session-id>
+```
+
+The command performs these operations:
+
+1. Creates a volume under the current contract, with labels and `size`. It records the source name in `werft.migration-source` and the source creation time in `werft.migration-source-created-at`. Like other workspace names, each name has 1 use. Workspaces are located by labels, so no rename is needed.
+2. Creates a pin container (prefix `werft-ws-migrate-pin-`) that never starts and holds a read-only reference to the source. Docker cannot delete referenced volumes. Even if GC intervenes after the pass lock is lost, the source survives until this run ends. Each run has a unique pin name and deletes only its own pin. A helper then mounts the source read-only and the new volume writable, and copies with `cp -a`. The helper runs as root without a network, with only the file-copy capabilities `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, and `FSETID`.
+3. Uses the same helper to compare manifests on both sides: path sets, types, modes, uid/gid, symlink targets, and regular file sizes, mtimes, and SHA-256 hashes. It does not compare directory sizes/times, xattrs, or ACLs. Busybox `cp -a` does not preserve hard links; they become separate files with identical contents. This uses more disk space and can cause copying to exceed quota. mtime comparison has second-level precision.
+4. After a match, checks again for another copy of the same source before deleting it. Another copy means another run is still working; this run discards its own copy and fails. The same applies if another container references the source. Otherwise, it removes the helper and pin, then **deletes the source**. The new volume becomes the session's workspace at that point.
+
+Any intermediate failure preserves the source: copy failures (quota exhaustion or device files the helper cannot create), mismatches, timeout (`--deadline-sec`, default 3600), or lock loss. Failed helpers remain available for `docker logs`; the pin also remains to protect the source. A rerun first creates a new pin on the source. It then removes the leftover helper, previous pin, and incomplete copies whose `migration-source` points to that source, and copies from scratch. While source and copy coexist, the backend refuses to launch that session and GC excludes both. A worker cannot start on a partially copied tree, and GC cannot reclaim the source first. Both volumes remain if migration is left unfinished; rerun or clean up manually. A volume with the source name may have been recreated after the copy was made: Docker creates an empty volume when mounting a nonexistent name. In that case the creation times differ, and the command refuses instead of treating the copy as incomplete and deleting it. That copy may be the only intact workspace; compare both manually before cleanup. After source deletion, a worker starts on the new volume in the next pass, or the first pass after any failed-launch retry delay expires. Launches failing because of legacy volumes accumulate failures like other launches. Migrate promptly: reaching the limit makes the session `failed`.
+
+<a id="확인" />
+## Verify
+
+The helper's comparison must match path sets, types, modes, uid/gid, symlink targets, and regular file sizes/mtimes/SHA-256 hashes. It does not compare xattrs, ACLs, or directory sizes/times, and hard links become separate files. After migration, verify the actual working tree and resumed state in the new worker.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+The command refuses if containers reference the source, the pass lock is busy, or a reclamation claim remains. If the source name was recreated with a different creation time, compare manually: the copy may be the only intact data.
+
+<a id="되돌리기" />
+## Roll back
+
+On failure, retain the source, pin, and helper and inspect the logs. Rerunning the same command protects the source with a new pin before handling incomplete copies. After a successful migration has deleted the source, restore from a separate backup rather than blindly reverting to the old name.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Storage contract](/run-server/self-hosting/reference/storage), [Session recovery](/run-server/self-hosting/recover-sessions).

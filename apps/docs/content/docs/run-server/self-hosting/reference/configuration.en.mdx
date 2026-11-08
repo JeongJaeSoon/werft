@@ -1,0 +1,297 @@
+---
+title: "Settings, keys, and ports"
+description: "Find input formats, requirements, and when changes take effect"
+pageId: "P23"
+docType: "Reference"
+audience: "Installation operators"
+outcome: "Find input formats, requirements, and when changes take effect"
+---
+
+<a id="계약" />
+## Contract
+
+`WERFT_API_KEY` and `WERFT_BASE_URL` configure SDK callers, not the server. See [SDK client configuration](/getting-started/client).
+
+This reference covers formats, requirements, and when settings apply. Read [Compose upgrades](/run-server/self-hosting/upgrade-compose) and [Kubernetes upgrades](/run-server/self-hosting/upgrade-kubernetes) first for activation and rollback gates.
+
+<a id="설치-상한" />
+## Installation limits
+
+API and scheduler refuse startup if any of the six required values below (all except SESSION_TOKEN_LIMIT) is missing, or any value has an invalid format. They log all problems on one line using the same parser (`packages/platform/src/limits/installation-limits.ts`). Missing SESSION_TOKEN_LIMIT means 0 (unlimited). Apart from that 0, code has no defaults; Compose x-installation-limits provides local defaults. Running API readyz repeats the same validation as its config check.
+
+| Variable | Meaning | When exceeded |
+|---|---|---|
+| `EXECUTION_SLOT_LIMIT` | Concurrent workers holding slots. 0 accepts input but launches nothing | Input remains accepted as queued |
+| `QUEUED_INPUT_LIMIT_PER_SESSION` | Queued turns allowed per session | `429 RATE_LIMITED`, `retryable:true`, `Retry-After: 5` |
+| `STORAGE_LIMIT_BYTES` | Installation-wide retained input-message UTF-8 bytes, excluding events/checkpoint objects/worker disk (workspace quotas cover disk) | `413 STORAGE_LIMIT_EXCEEDED`, `retryable:false` |
+| `MAX_TURN_SECONDS` | Turn wall-clock limit including approval waits, passed as `WORKER_MAX_TURN_SEC` | `failed(turn_timeout)`, or `outcome_unknown(turn_timeout)` if engine does not respond |
+| `SESSION_COST_LIMIT_USD` | Estimated cumulative session cost: proxy-metered Messages usage converted through platform prices | No new turn dispatch; session attention.code=BUDGET_EXCEEDED; worker releases slot. Input still accepted as queued |
+| `SESSION_TOKEN_LIMIT` | Cumulative provider tokens from the same calls, independent of prices. 0 is unlimited (default) | Same as SESSION_COST_LIMIT_USD. Shared budgetExceeded returns BUDGET_EXCEEDED for whichever limit is reached first; attention.reason names only reached limits |
+| `PROVIDER_MAX_RETRIES` | Retries for failed Messages requests, passed through WORKER_PROVIDER_MAX_RETRIES to SDK CLAUDE_CODE_MAX_RETRIES. 0 ends the turn on first failure | `failed(api_error)`; turn result retains api_error_status/provider_error/last_retry_status |
+
+<a id="api-설정" />
+## API settings
+
+At startup, API reads these through `apps/control-host/src/api/api-settings.ts`. Unset values use defaults; invalid configured values (including empty strings) never silently fall back. API/scheduler/reconciler/worker numeric settings and installation limits share this rule (`packages/contracts/src/shared/settings.ts`). Missing required settings return `X is required`; invalid values describe the expected range, such as `X must be a positive integer`, without echoing the value, which could be a misplaced secret. All problems appear in one `Refusing to start: API settings are invalid` log line; startup stops. Running readyz repeats config validation.
+
+| Variable | Default | Allowed range |
+|---|---|---|
+| `HEARTBEAT_TTL_SEC` | 30 | Greater than 20, at most 86400. Workers relinquish leases 10 seconds early (WORKER_LEASE_SAFETY_MARGIN_SEC) and heartbeat every 5 seconds (WORKER_HEARTBEAT_INTERVAL_SEC; older workers 10). A TTL at or below margin + 10 seconds loses old attempts around their first heartbeat. Launchers do not pass these two worker settings, so validation uses defaults |
+| `PENDING_REQUEST_TTL_SEC` | 1800 | Integer 1–604800. Lifetime of approval/question requests. Workers wait this long after registration. QUESTION_TIMEOUT_SEC applies only before gateway registration confirmation. MAX_TURN_SECONDS includes waits and still bounds them |
+| `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | Positive integers |
+| `AGENT_ACTION_FLOWS` | `false` | true/false/1/0; other values reject startup. Enabled request_push records “push after turn” intent instead of a request, converting the final checkpoint to a push request without another turn. Disabling stops new intents and restores old flow; existing intents continue. Follow [gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트) |
+| `LOG_LEVEL` | `info` | debug/info/warn/error, case-insensitive; empty means info. Scheduler/reconciler loops and egress-proxy reject invalid values by the same rule. Workers inherit scheduler's value |
+| `WEB_DIST_DIR` | Unset (no console); control-host image: `/app/apps/web/dist` | Absolute path containing index.html, the apps/web build output |
+
+Every /v1 response logs `api.request.completed`: Hono route_template without actual ids, method, status, duration_ms including auth/routing, operation=api_request, outcome, reason_code, and request_id in log context. Bodies/credentials/provider keys are excluded. Terminate also logs `Terminate control transaction completed` under the same request_id, with millisecond pool checkout, binding/launch/session locks, individual SQL, commit/rollback, and total control-transaction timing. Join the logs by request_id to diagnose acceptance latency.
+
+Immediate terminate of an already absent execution, or scheduler/reconciler confirmation of absence, emits control.result with operation=terminate, receipt control_id, outcome, reason_code, and effect_ms from durable acceptance to confirmation (equal to duration_ms). Overdue receipts first emit outcome=unknown/reason_code=deadline_exceeded; later confirmed absence upgrades the receipt and adds outcome=succeeded/reason_code=execution_gone.
+
+WEB_DIST_DIR enables same-origin console serving. GET/HEAD outside /v1 and /internal serve files or index.html SPA fallback, allowing /login and /bootstrap refreshes. No fallback applies under /v1 or /internal; authenticated /v1/nope returns JSON 404 NOT_FOUND. Hashed /assets/ files cache immutable; missing assets return 404, not a page. index.html uses no-cache and CSP `script-src 'self'`, prohibiting inline scripts. control-host's web build stage builds apps/web and retains only dist; no separate web image exists. For local web-only work, `bun run --cwd apps/web dev` uses Vite and proxies /v1 to VITE_API_TARGET (default `http://127.0.0.1:3000`).
+
+AUTH_MODE=none cannot coexist with EGRESS_AUTHORIZER_PORT. An enabled authorizer means workers reach API through proxy; none would let worker code impersonate arbitrary owners via X-Owner-Id, so startup refuses. Readiness validates AUTH_MODE itself (none|api-key).
+
+Workers also cross-check startup settings. Missing WORKER_PROVIDER_MAX_RETRIES fails: this installation limit has no code default and scheduler always passes it. WORKER_NEXT_INPUT_WAIT_SEC must be below WORKER_REQUEST_TIMEOUT_SEC or every long poll times out. Scheduler/reconciler treat empty DATABASE_URL as unset and fall back to QUEUE_DATABASE_URL.
+
+API/slack read current/previous runtime combinations through WORKER_IMAGE_RUNTIME/WORKER_IMAGE_PREVIOUS_RUNTIME. Copy runtime from images.yml worker digest JSON rather than typing it (`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). Only engine claude is supported; other names fail rendering with `images.worker.runtime.engine must be one of: claude`. Custom images lack that JSON; extract with the same command:
+
+```bash
+docker run --rm -i --network none --entrypoint bun <worker-image> \
+  run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+```
+
+With neither runtime, no runtime reading or pin preservation applies. Previous-only or unreadable values reject startup. When configured, open sessions keep pins created with the previous image even after profiles advance runtime_version. Profiles absent from current-image runtime cannot accept new sessions. SDK upgrades therefore create new ceiling versions with updated runtime_version (console or POST /v1/installation-profiles).
+
+API/slack SESSION_PROMPT_REVISION (default 0, allowed 0/1, invalid rejects startup) selects the initial system-prompt paragraph for agent-release sessions. At 1, creation stores agent name/description, origin (Slack channel/DM, console, API), agent language, and GitHub owner/repo in sessions.platform_prompt; worker constructs the paragraph. It contains no role sentence; agent authors supply roles in instructions. GitHub guidance is always one paragraph: use built-in mcp__github__ tools and list_repositories for accessible repositories; `git push` cannot reach GitHub. If tools are absent/unavailable, explain that GitHub work is unavailable in this session, administrators configure the console agent GitHub tab, and a new session may be required. Adding GitHub later cannot attach tools to sessions started from releases without it. At 0, new sessions omit the paragraph. Stored values last for the session and enter checkpoint fingerprints, so name/description/release changes do not alter ongoing resumption.
+
+Follow [activation/rollback gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트). Reverting to 0 does not change existing revision-1 paragraphs. Local Compose builds API/slack/worker from one tree and defaults to 1.
+
+Set the following only to send GitHub Packages bot tokens ([decision](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)) to another host, such as GHES/test registries. URLs must be http(s) without userinfo/query/fragment, or startup fails. Hosts must also be in proxy EGRESS_CREDENTIAL_ALLOWLIST, or EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST for private addresses.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GITHUB_PACKAGES_API_URL` | `https://api.github.com` | Queries token scopes (GET /user) |
+| `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | github-npm upstream |
+| `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | github-rubygems upstream |
+
+<a id="schedulerworker-컨테이너egress-설정" />
+## Scheduler, worker container, and egress settings
+
+Scheduler reads these to create workers. Unset values use defaults; invalid formats reject startup. User, HOME/workspace paths, tmpfs sizes, credential port, and stop timeout enter werft.isolation ([isolation](/run-server/self-hosting/explanation/isolation)); changing them replaces running workers. CPU/memory/PID limits apply next launch.
+
+WORKER_MEMORY_MB is chosen with MAX_TRANSCRIPT_BYTES; see [capacity](/run-server/self-hosting/capacity) for measurements, node counts, and changes.
+
+Scheduler receives current WORKER_IMAGE/WORKER_IMAGE_RUNTIME and previous WORKER_IMAGE_PREVIOUS/WORKER_IMAGE_PREVIOUS_RUNTIME, using API-equivalent runtimes. Previous image/runtime must be set together; one alone fails. Without current runtime every launch uses current image. Otherwise, match each checkpoint engine/SDK/CLI/profile digest scheme to current/previous, preferring current when both match. New sessions, checkpoint-free sessions, and old unrecorded checkpoints use current. No match stops before launch as recovery_required (incompatible_checkpoint), with checkpoint_restore_failed detected_at: "launch". retry_restore is available.
+
+Workers report actual image runtime at claim. Mismatch causes API LAUNCH_FAILED with reason_code worker_image_mismatch and records refusal for that image/configuration. Further launches for it wait; scheduler logs images_refused as error and exits 1. Correcting image configuration (changed values) restores launches next pass. Sessions themselves do not become failed.
+
+Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runtime, rejected by old APIs.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WORKER_CPUS` | 1 | CPU share/worker, at least 0.01 |
+| `WORKER_MEMORY_MB` | 4608 | The per-worker memory limit (MiB) keeps the engine's peak below half the limit when resuming an uncompacted 512MiB transcript. The development `.env.example` setting `WORKER_MEMORY_MB=2048` does not meet this criterion. For large-transcript restoration tests, remove that `WORKER_MEMORY_MB` line to use the default, or set it to 4608 MiB or more |
+| `WORKER_PIDS_LIMIT` | 512 | PID limit; not forwarded by Compose |
+| `EXECUTION_DOCKER_USER` | `1000:1000` | Numeric uid[:gid], rejecting uid/gid 0. Must match image /workspace ownership |
+| `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | Absolute tmpfs HOME |
+| `EXECUTION_DOCKER_WORKSPACE_DIR` | `/workspace` | Absolute session-volume path, distinct from HOME, without spaces/backslashes; passed as WORKER_WORKSPACE_DIR |
+| `EXECUTION_DOCKER_TMPFS_SIZE_MB` | 256 | MiB for each HOME and /tmp tmpfs |
+| `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` | 120 | SIGTERM-to-SIGKILL grace, at least 30. Passed as WORKER_STOP_GRACE_SEC; worker fits drain inside it |
+| `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 30 | Per Engine API request deadline |
+| `EXECUTION_DOCKER_COMMAND` | Unset | Space-split command replacing image entrypoint, for tests |
+| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Daemon address |
+| `DOCKER_API_VERSION` | `v1.44` | Engine API request version |
+| `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | Must equal proxy EGRESS_CREDENTIAL_PORT and differ from EXECUTION_EGRESS_PROXY_URL port |
+
+EXECUTION_DOCKER_NETWORK/EXECUTION_DOCKER_NETWORK_ALLOWLIST are no longer read; configured values reject startup.
+
+Proxy and API authorizer use these settings. Lists **replace**, rather than extend, defaults: restate required providers/registries when adding GitHub/bucket hosts. Public credential lists must match in proxy/API. Private lists enforce proxy rejection but only console warnings in API. Matching private lists is recommended, not required; core/local-model role defaults also differ.
+
+| Variable | Default | Helm values | Meaning/startup constraints |
+| --- | --- | --- | --- |
+| `EGRESS_PROXY_HOST` | `0.0.0.0` | No separate key | Forward/credential listener address |
+| `EGRESS_PROXY_PORT` | 3128 | No separate key | Forward port |
+| `EGRESS_CREDENTIAL_PORT` | 3129 | No separate key | Credential route port |
+| `LOG_LEVEL` | `info` | `config.logLevel` | Same format as API |
+| `EGRESS_ALLOWLIST` | Empty | `config.egress.allowlist` | Comma-separated public forward host:port, disjoint from credential/redirect lists |
+| `EGRESS_PRIVATE_ALLOWLIST` | Compose: `api:3000,host.docker.internal:3000`; chart: API Service 3000 | `config.egress.privateAllowlist` (empty uses API Service) | Private forward targets, excluding link-local/reserved. Both forward lists empty rejects startup |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | Compose core/local: `api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`; test-ops: required, no default; chart: same as core/local | `config.egress.credentialAllowlist` | Credential public destinations for API/proxy. Missing test-ops values fail Compose. Replaces defaults: restate every required entry when adding GitHub/checkpoint hosts |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | Chart/Compose core proxy: empty; Compose core API/local proxy: `fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | Private proxy enforcement/API warnings. test-ops LocalStack requires localstack:4566; example uses only that. local-model overlay: `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`. No test hosts in production |
+| `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | Empty | `config.egress.packagesRedirectAllowlist` | Public package redirects/Git LFS, without credentials, disjoint from forward lists |
+| `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | No separate key | API authorizer address |
+| `EGRESS_AUTHORIZER_PORT` | API code unset: no listener; Compose/chart: 3100 | Generated | Set with token or omit both; AUTH_MODE=none rejects startup |
+| `EGRESS_AUTHORIZER_URL` | Proxy code unset; Compose: `http://api:3100`; chart: API authorizer Service | Generated | http/https, paired with token or both omitted; must match API listener port |
+| `EGRESS_AUTHORIZER_TOKEN` | No production default | Same-name Secret key | Shared API/proxy secret, minimum 32 characters. Required with PORT in API and URL in proxy. Generate per installation; do not use local test values |
+
+Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together. tests/images.test.ts compares both URL ports with all three listeners in `docker compose config`.
+
+API memory is determined by checkpoint bundle validation: at most two validations concurrently, each running git fetch and index-pack together under individual CHECKPOINT_GIT_MEMORY_MB address-space limits. Change both settings together; raising only the limit leaves OOM victim selection to the kernel. See the api service comment in infra/compose.core.yml.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `API_MEMORY_MB` | 7168 | Compose api mem_limit, MiB |
+| `CHECKPOINT_GIT_MEMORY_MB` | 1536 | Per-git-process address-space MiB, minimum 512 |
+
+Compose Postgres uses POSTGRES_USER (postgres), POSTGRES_PASSWORD (dev), POSTGRES_DB (sessions); all services build DSNs from the same values.
+
+Workers also read the following env settings, but scheduler does not forward them, so production uses code defaults: WORKER_ANSWER_POLL_SEC (1), WORKER_ATTACH_FETCH_TIMEOUT_SEC (300, fetch one repository attached mid-session), WORKER_ATTACH_FETCH_MAX_MB (2048, fetched scratch mirror size), WORKER_CLAIM_TIMEOUT_SEC (60), WORKER_DRAIN_TIMEOUT_SEC (100, reduced to fit stop grace), WORKER_HEARTBEAT_INTERVAL_SEC (5), WORKER_IDLE_TIMEOUT_SEC (1800), WORKER_LEASE_SAFETY_MARGIN_SEC (10), WORKER_NEXT_INPUT_RETRY_SEC (60), WORKER_NEXT_INPUT_WAIT_SEC (20), WORKER_REQUEST_TIMEOUT_SEC (30), WORKER_STARTUP_TIMEOUT_SEC (3600), QUESTION_TIMEOUT_SEC (1800), WORKER_CLAUDE_CONFIG_DIR ($HOME/.claude).
+
+<a id="감독-루프" />
+## Supervisor loops
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `RECONCILER_INTERVAL_SEC` | 10 | Wait after each pass |
+| `RECONCILER_PASS_TIMEOUT_SEC` | 60 | SIGTERM on expiry, SIGKILL 10 seconds later; counts as failure. Keep above roughly 45 seconds for database-stalled passes to end through pool timeouts |
+| `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | Consecutive failures make loop exit 1; restart: unless-stopped restarts it. Below threshold, next pass retries shortly |
+| `RECONCILER_HEALTH_STALE_SEC` | 90 | Unhealthy if last pass failed, current pass exceeded timeout, or no success within this interval. Even immediately after success, a stuck pass becomes unhealthy at its deadline. Must exceed RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC |
+| `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | Per-pass lastSuccessAt/lastDegradedAt/lastFailureAt/lastFailureReason/consecutiveFailures/lastPassDurationMs and active passDeadlineAt, read by healthcheck |
+| `RECONCILER_BATCH_SIZE` | 100 | Per-stage row cap (orphan/lease/interrupt reclaim, overdue interrupt/terminate receipts to unknown, queued-input notifications). Leftovers wait next pass. Scheduler terminate-deadline sweeps instead use fixed 100/pass |
+
+| Scheduler setting | Default | Constraint |
+| --- | --- | --- |
+| `SCHEDULER_INTERVAL_SEC` | 5 | Wait after pass |
+| `SCHEDULER_PASS_TIMEOUT_SEC` | 180 | Above Docker stop+request timeout; Kubernetes above 150 seconds |
+| `SCHEDULER_MAX_CONSECUTIVE_FAILURES` | 3 | Loop exits after consecutive failures |
+| `SCHEDULER_HEALTH_STALE_SEC` | 200 | Above interval+timeout |
+| `SCHEDULER_STATUS_FILE` | `/tmp/scheduler-status.json` | Entire directory must be writable |
+
+Compose does not forward RECONCILER_STATUS_FILE, SCHEDULER_STATUS_FILE, or RECONCILER_DRY_RUN. Use status files/--health; run reconciler dry-run directly once through [recovery](/run-server/self-hosting/recover-sessions). Only API reads HEARTBEAT_TTL_SEC; reconciler rejects it.
+
+<a id="kubernetes-env와-values" />
+## Kubernetes env and values
+
+EXECUTION_BACKEND selects local_docker (default, also when empty) or kubernetes; other values reject startup with an error naming the value. Kubernetes ignores Docker settings (DOCKER_HOST, EXECUTION_DOCKER_*, EXECUTION_WORKSPACE_QUOTA) and socket, and skips Docker egress-isolation/quota preflights. Chart NetworkPolicy provides isolation; PVC size provides workspace limits. Fixed stop/request timeouts are 120s + 30s, requiring SCHEDULER_PASS_TIMEOUT_SEC >150. migrate-workspace is local_docker-only.
+
+On readOnlyRootFilesystem Pods, status files need writable directories. Default /tmp/scheduler-status.json and /tmp/reconciler-status.json work with /tmp emptyDir. Override paths with SCHEDULER_STATUS_FILE/RECONCILER_STATUS_FILE. Loops write adjacent `<status file>.<pid>.tmp` then rename; scheduler also stores .quota-verified nearby. The whole directory, not just the file, must be writable.
+
+Shared env matches Docker: WORKER_IMAGE, WORKER_GATEWAY_URL, EXECUTION_EGRESS_PROXY_URL, EXECUTION_EGRESS_CREDENTIAL_PORT, EXECUTION_INSTALLATION_ID, EXECUTION_WORKSPACE_QUOTA_MB, EXECUTION_WORKSPACE_GC_MIN_AGE_SEC, S3_BUCKET, AWS_REGION. Kubernetes adds constraints:
+
+- WORKER_IMAGE must be `repository@sha256:<digest>`.
+- EXECUTION_INSTALLATION_ID must be a lowercase DNS label, at most 32 characters.
+
+Kubernetes-only settings:
+
+| Variable | Meaning |
+| --- | --- |
+| `EXECUTION_K8S_NAMESPACE` | Namespace for worker Pods/Secrets/PVCs; defaults to scheduler namespace, required outside cluster |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | Worker ServiceAccount; token is always unmounted |
+| `EXECUTION_K8S_STORAGE_CLASS` | Workspace StorageClass; empty uses cluster default |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | Optional comma-separated Secret names |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR` | Optional JSON object |
+| `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
+
+Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. See storage/retention in repository packages/adapters/execution/kubernetes/README.md.
+
+<a id="chart가-넣는-값" />
+## Chart-generated values
+
+With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), chart values generate these env settings:
+
+| Env | Values | Notes |
+| --- | --- | --- |
+| `EXECUTION_BACKEND` | None | Always kubernetes |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | None | Generated `<fullname>-worker`, no token mount |
+| `EXECUTION_K8S_NAMESPACE` | None | Omitted; uses scheduler/release namespace |
+| `EXECUTION_K8S_STORAGE_CLASS` | `worker.storageClass` | Omitted when empty |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | Shared with control-plane Pods |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR`, `EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`, `worker.tolerations` | JSON |
+| `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`; missing digest rejects rendering |
+| `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | None | API Service 3000, egress-proxy Service 3128/3129 |
+| `EXECUTION_INSTALLATION_ID` | `installationId` | Also worker NetworkPolicy label |
+| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | PVC size |
+| `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | Default 1024 |
+| Installation limits (EXECUTION_SLOT_LIMIT, etc.) | `config.limits` | Same for api/scheduler |
+| `SCHEDULER_*` | `scheduler.intervalSec`, etc. | scheduler.passTimeoutSec/SCHEDULER_PASS_TIMEOUT_SEC default 180, must exceed 150 |
+| `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec` | Defaults 2, 60, 3, 90, 10, 60. slack.enabled: false omits Deployment |
+| `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` (slack) | `api.extraEnv` | Slack reads API's catalog and follows its value; slack.extraEnv overrides |
+
+Any Deployment accepts extraEnv additions. Secret-sourced DATABASE_URL, EGRESS_AUTHORIZER_TOKEN, AWS keys, and catalog credentials are listed in [installation prerequisites](/run-server/self-hosting/kubernetes).
+
+<a id="probe" />
+## Probes
+
+| Component | Readiness | Liveness | Startup |
+| --- | --- | --- | --- |
+| api | `GET /readyz` | `GET /healthz` | GET /healthz (5 seconds × 24) |
+| scheduler | `bun run apps/control-host/src/main.ts scheduler --health` | Same | Same, failure threshold (intervalSec + passTimeoutSec + 39) / 10 |
+| reconciler | `bun run apps/control-host/src/main.ts reconciler --health` | Same | Same formula as scheduler |
+| slack | `bun run apps/control-host/src/main.ts slack --health` | Same | Same formula as scheduler |
+| egress-proxy | `bun run /app/src/healthcheck.ts` | Same | None |
+
+healthz checks HTTP response only, not database. Use it for liveness; readyz checks DB/schema/config for readiness only. Temporary DB loss removes API traffic without restarting Pods. No /livez exists. Scheduler/reconciler/slack health reads loop status files and fails after last-pass failure, current-pass timeout, or no completed pass within SCHEDULER_HEALTH_STALE_SEC/RECONCILER_HEALTH_STALE_SEC/SLACK_ROLE_HEALTH_STALE_SEC. Startup waits for the first pass.
+
+<a id="chart-리소스" />
+## Chart resources
+
+| Resource | Count | Notes |
+|---|---|---|
+| api Deployment + Service(3000) + authorizer Service(3100) | 2 | 3100 accepts only proxy (NetworkPolicy). Ingress routes only /v1,/docs,/healthz,/readyz on 3000; no worker /internal. Enable console / with ingress.console.enabled ([access](/run-server/self-hosting/access)) |
+| scheduler Deployment + Role/RoleBinding | 1, Recreate | Creates/deletes worker Pods/nonce Secrets/workspace PVCs only within namespace |
+| reconciler Deployment | 1 | |
+| slack Deployment | 1 | Drains Slack inbox; absent if slack.enabled: false. Outbound only DNS 53, 443, database port (networkPolicy.slack.databasePort, default 5432) |
+| egress-proxy Deployment + Service(3128, 3129) | 2 | Sole worker outbound path |
+| migrate Job | 1 per install/upgrade | pre-install,pre-upgrade hook |
+| upgrade-check Job | 1 per upgrade | pre-upgrade before migrate; absent if scheduler.enabled: false ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)) |
+| checkpoint GC CronJob | Weekly | checkpointGc.schedule |
+| session archive CronJob | Weekly | sessionArchive.schedule (default 0 5 * * 0), afterDays (default 180, 0=off, 30–3650), dryRun (default true). Moves long-idle session events to bucket ([retention](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)) |
+| NetworkPolicy | 5 | Workers only reach proxy; slack alone among control-plane Pods has outbound restrictions |
+| Ingress, ExternalSecret | Optional | ingress.enabled, secrets.externalSecret.enabled |
+| metrics Deployment + Service(9464) + NetworkPolicy | Optional, 1, Recreate | metrics.enabled ([metrics](/run-server/self-hosting/collect-metrics)) |
+
+<a id="secret과-aws-values" />
+## Secrets and AWS values
+
+| Key | Readers |
+|---|---|
+| `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC, metrics, upgrade-check Job, session archive CronJob |
+| `EGRESS_AUTHORIZER_TOKEN` | api/egress-proxy, same value |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api/checkpoint GC/session archive CronJob only when secrets.objectStoreKeys: true; false signs through AWS default credential chain/IRSA |
+| Names in `secrets.catalogEnv` (default ANTHROPIC_API_KEY) | api only, alternative env credentials referenced by settings value_env. Default model-key path after installation is Settings > Workspace settings > Model connections > Add connection; with that path use secrets.catalogEnv: [] and omit this key from Secret. Keeping defaults without the Secret key prevents Pods starting. Slack does not receive it |
+| `PLATFORM_SECRET_KEY` | api/slack, required 64-character hex master key sealing console credentials. Missing Secret key prevents Pods starting |
+
+| Value | Effect |
+|---|---|
+| `images.registry`, `images.*.digest` | ECR host and image digests |
+| `secrets.objectStoreKeys: false`, `serviceAccounts.api.annotations` | IRSA instead of static keys. api/checkpoint GC/session archive CronJob sign S3/Secrets Manager with this api ServiceAccount role; scheduler/workers lack S3 privileges |
+| `secrets.externalSecret` | External Secrets Operator writes Secret from Secrets Manager remoteKey JSON containing all keys above (omit AWS pair for IRSA). Operator CRDs required |
+| `ingress` | ALB internal scheme. healthcheck-path /readyz, SSE idle timeout 300 seconds. Routes only public /v1,/docs,/healthz,/readyz; no /internal or authorizer 3100 |
+| `ingress.console.enabled` | Default false. Adds / and /internal 404 rules; see [conditions](/run-server/self-hosting/access) |
+| `config.egress.credentialAllowlist` | Replaces all defaults; restate providers/registries when adding GitHub/checkpoint hosts. Worker checkpoint upload/restore uses credential routes |
+| `worker.storageClass`, `worker.nodeSelector`, `worker.tolerations` | Dedicated worker node group and workspace StorageClass (gp3) |
+| `networkPolicy.enabled` | Effective only with VPC CNI network policy agent enabled |
+
+For static S3 credentials, set secrets.objectStoreKeys: true and supply both AWS keys. With both present, static keys precede IRSA.
+
+<a id="사용량과-비용-계측" />
+## Usage and cost metering
+
+- Credential routes meter session cost. Proxy reads usage from 2xx /v1/messages responses, JSON or SSE, and reports POST /usage to authorizer when responses finish/disconnect. count_tokens/error responses do not count.
+  - Incomplete usage is estimated conservatively. Streams ending before message_stop count each delivered content character as one output token and each delivered web-search result block as one search. Unreadable JSON (truncated, over 8 MiB, or invalid JSON) uses request estimation: 1 request byte/input token and full max_tokens/output. Proxy logs Provider usage estimated; ledger estimated=true.
+  - API converts through prices to USD, rounds up to micro-dollars, writes one provider_usage row/exchange and adds session cost in the same transaction, keeping ledger/session totals aligned.
+  - Engine calls and tool calls made directly with engine tokens are metered equally.
+  - Proxy assigns exchange ids. Failed authorizer reports retry after 1, 5, and 15 seconds; ids count once. Final failure logs Provider usage went unreported and leaves that exchange uncounted.
+- SDK turn-end total_cost_usd increments appear only in turn result cost_usd, not session cost. Engine maxBudgetUsd still uses SDK values. Pre-proxy-metering sessions retain costs previously accumulated from SDK values.
+- Platform code packages/platform/src/limits/model-prices.ts owns prices by model: input/output/cache write (5-minute 1.25×, 1-hour 2×)/cache read. New models/prices require release updates.
+  - Fast prices currently cover Opus 5.5 ($8/$40) and Opus 5/Opus 4.8 ($10/$50). Cache multipliers apply to fast prices. speed uses response usage.speed, then request speed, then standard.
+  - Unknown models, fast responses without fast prices, or unknown speed values use per-item highest rates across both tables. Authorizer warns Provider usage priced at the fallback rate; ledger priced_by=fallback.
+  - Response usage.server_tool_use web searches add $0.01 each ($10/1,000). Web fetch has no charge beyond tokens. Code execution is excluded: free with web search/fetch, otherwise billed by container time with organizational free allowances, not invocation count. All three counts and speed are recorded in provider_usage.
+  - Models from 4.6 onward apply 1.1× to every token price (fast/cache included) for inference_geo: "us", excluding web-search fees. Geo follows response usage.inference_geo, then request inference_geo, then unknown (workspace may default to us). Non-global/us values use highest prices ×1.1, priced_by=fallback. Ledger records inference_geo. Old APIs reject this new field with 400, causing unreported exchanges. Update API including migration before proxy ([Compose order](/run-server/self-hosting/upgrade-compose#2-api--proxy--worker-순서), [Kubernetes order](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)). New API accepts old reports without it.
+  - Pre-4.6 models (Opus 4.5/4, Sonnet 4.5/4, Haiku 4.5) do not support inference_geo and use standard prices regardless of geo. Their window is 200K without published long-context rates; input+cache write+cache read over 200K uses highest prices, priced_by=fallback. Models 4.6 onward use standard prices for the full 1M.
+  - Batch is irrelevant: credential routes do not expose /v1/messages/batches.
+- Token limits sum input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens from each provider_usage row into sessions.provider_tokens through an INSERT trigger in the same transaction. This includes calls from pre-0127 APIs during rollout/rollback. Cache reads count as model-processed tokens; estimates count as estimated. The migration backfills provider_usage totals, but cannot recover tokens from older SDK-cost-only sessions. Totals saturate at 2^53-1 (Number.MAX_SAFE_INTEGER, migration 0129). Numeric trigger arithmetic prevents oversized tokens from rolling back usage/cost writes.
+  - SDK has no token-budget option; in-turn enforcement relies on egress rejection/reauthorization below. Calls opened after reaching limits are rejected and turns finish failed(budget_exceeded); later turns are blocked with BUDGET_EXCEEDED. Proxy uses Messages error format with message starting BUDGET_EXCEEDED:, but does not determine reason from text. Engine reports the 403 as api_error; exchanges cut by reauthorization also remain api_error if retries are exhausted (PROVIDER_MAX_RETRIES=0). Finalize converts api_error to budget_exceeded and receipt BUDGET_EXCEEDED if the session is already over budget, clearing provider_error diagnostics. A 403 below limits remains api_error.
+- Cost/token limits are judged after calls finish. Concurrent open calls may all pass authorization; active turns can exceed limits.
+- Authorizer rejects provider egress tokens at or above cumulative cost/token limits with 403 BUDGET_EXCEEDED. New exchanges fail immediately; open exchanges disconnect at the next reauthorization (every 30 seconds). Repository/object-store routes remain available.
+
+<a id="지표-역할" />
+## Metrics role
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `METRICS_PORT` | `9464` | /metrics and /healthz port, chart metrics.port |
+| `DATABASE_URL` | Required, no default | Read-only database address; chart uses the same Secret key as other roles |
+| Limits in `config.limits` | [Configuration reference](/run-server/self-hosting/reference/configuration) | Launch queue uses scheduler-equivalent cost/token limits; chart supplies the same values |
+| `LOG_LEVEL` | `info` | Logging level for read failures |

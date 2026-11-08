@@ -1,0 +1,211 @@
+---
+title: "Install on Kubernetes"
+description: "Install a production server from the published chart"
+pageId: "P03"
+docType: "Installation"
+audience: "Cluster installation operators"
+outcome: "Install a production server from the published chart"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Install a production server using the published Helm chart. Prepare PostgreSQL and a persistent S3-compatible bucket separately. Chart installation success and session data restoration success require separate checks.
+
+<a id="준비물" />
+## Before you begin
+
+| Item | Requirement |
+| --- | --- |
+| Cluster | Kubernetes with a CNI enforcing NetworkPolicy. Without enforcement, workers have no isolation |
+| Tools | `helm` 3, `kubectl`, `curl` |
+| PostgreSQL | 16, reachable from the cluster |
+| S3-compatible object store | One bucket. Default protection mode `locked` requires versioning, Object Lock, and default SSE-S3 encryption (`AES256`). Otherwise api refuses to start |
+| External access | Download charts and images from `ghcr.io` without signing in |
+
+Follow the [deployment package contract](/run-server/self-hosting/reference/packages) to select charts and packages. For non-AWS endpoints, align `config.aws.endpointUrl` and the credential allowlist and verify the protection contract. An actual AWS installation has not been verified by execution.
+
+The chart does not create PostgreSQL, object storage, or Secret values. It also does not create worker Pods: the scheduler creates them per session. Published images are indexes containing `linux/amd64` and `linux/arm64`, so nodes pull their architecture.
+
+The chart does not create a Git server. Workers must reach repository URLs in the settings document through the egress proxy. The kind test Git server is not a production repository.
+
+Examples below use `werft` for both namespace and release. Before running them, confirm `kubectl config current-context` and `KUBECONFIG` select this installation's cluster. For other installations, replace every `-n`, `--namespace`, release name, `deploy/werft-*`, and `svc/werft-*` with the actual installation fullname. If the release name does not contain `werft`, fullname is `<release>-werft`.
+
+Check the [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) and [workspace storage contract](/run-server/self-hosting/reference/storage) first. The backend requires the installation id to be a **lowercase DNS label of at most 32 characters**, even if the chart accepts more. Prepare [access](/run-server/self-hosting/access) before remote bootstrap.
+
+<a id="단계" />
+## Steps
+
+<a id="1-정확한-chart-버전-선택" />
+### 1. Select an exact chart version
+
+```bash
+VERSION='<published-chart-version>'
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+Check for all three image `digest` values and `worker.runtime` under `images`. These are included in the chart. Do not repeat them in installation-specific values: doing so keeps overriding subsequent chart values.
+
+<a id="2-namespace와-secret" />
+### 2. Namespace and Secret
+
+Create the Secret from a directory containing one file per key (`0700`, filenames are key names). This keeps values out of command lines and shell history.
+
+| Key | Value |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL |
+| `EGRESS_AUTHORIZER_TOKEN` | Random value shared by api and the egress proxy |
+| `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`, used to seal stored credentials. Without it, Pods cannot start |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Object store keys. To sign through IRSA, omit both and set `secrets.objectStoreKeys: false` and `serviceAccounts.api.annotations` in values |
+| `BOOTSTRAP_TOKEN` | Supply the same 32–256-character token to the default 2 API replicas. Create it in the Secret and include it in `secrets.catalogEnv` below |
+| `ANTHROPIC_API_KEY` | Optional. The default path for session Anthropic keys is console **Settings > Workspace settings > Model connections > Add connection** after installation. This key is the environment-variable alternative and goes only to api. If omitted, remove only this name from `secrets.catalogEnv` below; retain `BOOTSTRAP_TOKEN`. The chart defaults pass this key to api, so a missing Secret key prevents Pods from starting |
+
+```bash
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
+```
+
+Keep the Secret directory at 0700 and files readable only by operators. The default API replica count is 2. With multiple replicas, add the same `BOOTSTRAP_TOKEN` (32–256 characters) to the Secret and include it in `secrets.catalogEnv`. For console model keys, use `["BOOTSTRAP_TOKEN"]`; for environment keys, include the needed names too. Every listed key must exist in the Secret.
+
+<a id="3-설치별-values" />
+### 3. Installation-specific values
+
+Keep installation-specific settings in one `values-<installation>.yaml` file. At minimum, include the checkpoint bucket and how workers reach it.
+
+```yaml
+installationId: werft-main
+secrets:
+  catalogEnv: ["BOOTSTRAP_TOKEN"]
+config:
+  checkpoints:
+    bucket: <bucket>
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+```
+
+`credentialAllowlist` replaces the entire default. Restate all default entries (providers and package registries), then add repository hosts (`github.com:443` and any other Git hosts used) and the bucket host.
+
+`config.aws.region` defaults to `ap-northeast-1`. Change it for a bucket in another region. Connections, repositories, MCP servers, and limits are not in values: add them through the web console after installation. The alternative `bun run settings:k8s import` requires a checkout matching the installed version and host Bun/kubectl. See `helm show values` for defaults and descriptions.
+
+`config.egress.credentialAllowlist` replaces all defaults, so when adding GitHub and checkpoint bucket hosts, include every required provider and package registry again. API and proxy read the same two credential lists.
+
+Set a unique `installationId` in the same file. Retain the published chart's `images.*` digests. Proceed after checking the database, S3, Secret, and CNI are ready.
+
+<a id="4-설치와-rollout" />
+### 4. Install and roll out
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+The migrate Job upgrades the schema first. Once it finishes, api, egress proxy, reconciler, scheduler, and slack are applied together. If the first installation fails due to image paths or pull permissions, correct the values and rerun the same command.
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+When the release name does not contain `werft`, resource names become `<release>-werft-…`.
+
+After a failed first installation, fix values and rerun the same command. If Deployments already exist and you changed the worker image, upgrade-check rules apply. With no sessions, [remove the Kubernetes installation](/run-server/self-hosting/remove-kubernetes) and start again.
+
+<a id="확인" />
+## Verify
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+Check the ready response body and 200, and docs 200. If not ready within 30 attempts, clean up the port-forward PID started by this shell and record failure. Also run [access checks](/run-server/self-hosting/access) through the actual user path. These checks establish empty-installation readiness, not worker execution or checkpoint restoration.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+On the first day, immediately after installation, after 1 hour, and before the end of the workday, check `kubectl -n werft get job,deploy,pods,pvc`, api/scheduler/reconciler logs, each `--health`, disk space, inodes, and PVC space. Check backup failure alerts, checkpoint GC schedules, key revocation contacts, and provider cost limits. If release or namespace differ from examples, adapt every command to this installation.
+
+A CNI without NetworkPolicy enforcement provides no worker isolation. Use Pod and Job logs to distinguish missing Secret keys, invalid installationId, S3 protection errors, and image pull failures. A fixture chart render does not prove a published chart installation.
+
+<a id="되돌리기" />
+## Roll back
+
+Do not automatically roll back to the previous revision. After a failed first installation, inspect this namespace's resources and follow [removal](/run-server/self-hosting/remove-kubernetes). Preserve PVCs and uncollected checkpoints in the bucket.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Access](/run-server/self-hosting/access) → [First owner and keys](/run-server/self-hosting/users-and-keys) → [Model connections](/run-server/self-hosting/model-connections). For version changes, follow [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).
+
+## Previous URLs [#이전-주소-안내]
+
+<details>
+<summary>Find the current guide for an older section</summary>
+
+<a id="requirements" />
+<a id="1-choose-a-version" />
+<a id="2-create-the-namespace-and-secret" />
+<a id="3-write-the-values-file" />
+<a id="4-install" />
+<a id="5-check" />
+<a id="next" />
+<a id="必要なもの" />
+<a id="1-バージョンを決める" />
+<a id="2-namespace-と-secret-を作る" />
+<a id="3-values-ファイルを作る" />
+<a id="4-設置する" />
+<a id="5-確認する" />
+<a id="次のステップ" />
+<a id="1-버전-정하기" />
+<a id="2-namespace와-secret-만들기" />
+<a id="3-values-파일-만들기" />
+<a id="4-설치하기" />
+<a id="5-확인하기" />
+<a id="다음-단계" />
+
+[Kubernetes installation](/run-server/self-hosting/kubernetes#무엇을-하게-되나)
+
+<a id="workspace-storage-and-its-limits" />
+<a id="workspace-のストレージと上限" />
+<a id="workspace-저장소와-상한" />
+
+[Storage and limits](/run-server/self-hosting/reference/storage#계약)
+
+<a id="6-first-owner-and-api-key" />
+<a id="6-最初の-owner-と-api-key" />
+<a id="6-첫-owner와-api-key" />
+
+[Create the first owner and issue user keys](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
+
+<a id="try-it-on-kind-first" />
+<a id="まず-kind-で試す" />
+<a id="kind에서-먼저-해-보기" />
+
+[Try an installation on kind](/run-server/self-hosting/try-kind#무엇을-하게-되나)
+
+<a id="upgrade-and-remove" />
+<a id="アップグレードと削除" />
+<a id="업그레이드와-제거" />
+
+[Stop and remove Kubernetes](/run-server/self-hosting/remove-kubernetes#무엇을-하게-되나)
+
+</details>

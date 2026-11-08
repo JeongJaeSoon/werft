@@ -1,0 +1,61 @@
+---
+title: "Stop and remove Kubernetes"
+description: "Remove the chart and identify resources and data left behind"
+pageId: "P14"
+docType: "Task"
+audience: "Cluster operators"
+outcome: "Remove the chart and identify resources and data left behind"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Stop sessions before removing the chart, then identify remaining workers, PVCs, Secrets, and hook Jobs.
+
+<a id="준비물" />
+## Before you begin
+
+Confirm the kubectl context, namespace, and Helm release. Prepare database and bucket backups and a list of sessions to stop. Deleting a PVC destroys work that has not been checkpointed.
+
+<a id="단계" />
+## Steps
+
+<a id="1-실행-중지와-데이터-확인" />
+### 1. Stop execution and check data
+
+Stop accepting new sessions and let active turns finish. Confirm sessions have ended or been checkpointed, and that no workers are running. Stopping the scheduler alone does not stop workers.
+
+<a id="2-chart-제거" />
+### 2. Remove the chart
+
+```bash
+helm -n werft uninstall werft
+```
+
+<a id="3-남은-리소스-조사" />
+### 3. Inspect remaining resources
+
+`helm uninstall` leaves these resources behind:
+
+- Worker Pods, nonce Secrets, and workspace PVCs created by the scheduler. Before deleting them, check that sessions have ended (or been checkpointed). Deleting a PVC destroys work that has not been checkpointed. List them with `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId>`.
+- The migrate and upgrade-check hook Jobs, ExternalSecrets, and Secrets they created (`creationPolicy: Orphan`). Manually created Secrets also remain. Leftover Jobs do not block the next installation: Helm deletes them before running a hook with the same name. To delete them now, run `kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found`.
+
+<a id="확인" />
+## Verify
+
+Check that the Helm release and control plane Deployments are gone. Record the remaining worker Pods, nonce Secrets, workspace PVCs, hook Jobs, ExternalSecrets, and user-created Secrets separately. The chart neither creates nor deletes the database or S3 bucket.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Removing the scheduler before terminating workers can leave execution and PVCs behind. Keep PVCs if you need their data. Hook Jobs do not block another installation with the same names; the next hook replaces them.
+
+<a id="되돌리기" />
+## Roll back
+
+Reinstall the exact chart version in the same namespace using the preserved database, Secrets, and bucket. Read the compatibility checks before reinstalling. Reinstalling the chart cannot recover work from a deleted PVC that was never checkpointed.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Install on Kubernetes](/run-server/self-hosting/kubernetes), [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).

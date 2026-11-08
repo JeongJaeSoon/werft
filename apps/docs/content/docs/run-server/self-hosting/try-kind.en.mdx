@@ -1,0 +1,123 @@
+---
+title: "Try an installation on kind"
+description: "Install and remove a test chart"
+pageId: "P04"
+docType: "Installation"
+audience: "Local test operators"
+outcome: "Install and remove a test chart"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Test the chart and API readiness in an isolated kind cluster on your laptop, then remove it. This PostgreSQL and LocalStack environment is not a production data store.
+
+<a id="준비물" />
+## Before you begin
+
+You need Docker, kind, Helm 3, kubectl, git, Bun 1.3.14, and a repository checkout. Choose a cluster name and registry port that do not conflict with other work. Use a kind version that enforces NetworkPolicy.
+
+<a id="단계" />
+## Steps
+
+<a id="1-checkout의-시험-harness" />
+### 1. Use the checkout's test harness
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+CLUSTER_NAME=werft-try REGISTRY_PORT=15001 deploy/kind/up.sh
+export KUBECONFIG=~/.cache/werft/kind/werft-try/kubeconfig
+```
+
+The script prepares the cluster, registry, images, namespace, database, LocalStack, Secret, and chart, then checks rollout and ready/docs. Use only the generated kubeconfig. `EXTRA_VALUES` can override installation-specific values, but it cannot change the harness's worker image `--set` values.
+
+<a id="2-게시-chart를-직접-시험하는-경우" />
+### 2. Test a published chart directly
+
+To test a published package instead of the harness, create a separate cluster and prepare the dependencies below. Set `VERSION` to the exact published chart version selected from the [package contract](/run-server/self-hosting/reference/packages).
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+kubectl -n werft rollout status deploy/postgres --timeout=300s || exit 1
+kubectl -n werft rollout status deploy/localstack --timeout=300s || exit 1
+SECRETS="$(mktemp -d)"
+```
+
+The following `read -rs` waits for input without a prompt. Enter the `POSTGRES_PASSWORD` from `deploy/kind/deps.yaml`; reading it from the terminal keeps the value out of the command line. In scripts without a terminal, provide the same value on standard input for this line. All Secret values here are only for this kind test. For a real server, use your own values from [Kubernetes installation step 2, namespace and Secret](/run-server/self-hosting/kubernetes#2-namespace와-secret). Clear the variable and temporary directory after creating the Secret.
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+```
+
+Check that the Secret directory has 0700 permissions after creation, and supply the database password on standard input when running without a terminal. Do not put production credentials in this test. Success of the Secret block and fixture chart test does not establish success of the entire published-chart test.
+
+<a id="확인" />
+## Verify
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+ready 200 and docs 200 show that an empty installation is ready. They do not establish that a session and worker Pod have been started or that checkpoint restoration works. A Bound PVC on kind does not prove byte-limit enforcement.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+A missing required Secret key prevents Pods from starting in a direct installation. If the published chart cannot be downloaded, record that package installation as failed; do not substitute a successful fixture render. Keep external database/S3 addresses separate from test dependency addresses.
+
+<a id="되돌리기" />
+## Roll back
+
+For a harness-created environment:
+
+```bash
+CLUSTER_NAME=werft-try deploy/kind/up.sh down
+```
+
+Remove a directly created `werft-try` cluster with `kind delete cluster --name werft-try`. Clean up only this test cluster even after failure; do not touch resources in other contexts.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+For production, see [Install on Kubernetes](/run-server/self-hosting/kubernetes). To test a version change, see [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).

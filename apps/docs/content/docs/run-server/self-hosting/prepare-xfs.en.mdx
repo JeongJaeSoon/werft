@@ -1,0 +1,110 @@
+---
+title: "Prepare an XFS disk"
+description: "Prepare a Docker disk with quotas while preserving the original data"
+pageId: "P06"
+docType: "Task"
+audience: "Linux storage operators"
+outcome: "Prepare a Docker disk with quotas while preserving the original data"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Place Docker's data-root on XFS prjquota to enforce workspace byte and inode limits. Preserve existing disks, images, and Docker data.
+
+<a id="준비물" />
+## Before you begin
+
+Run this on the Linux server intended for production, after first validating it on a separate test server. You need root access, xfsprogs and rsync, enough space to retain all original data, and a maintenance window. If `/var/lib/docker.xfs.img` or `/var/lib/docker.old` already exists, do not run the creation procedure below. Docker Desktop does not support this installation path.
+
+<a id="단계" />
+## Steps
+
+<a id="1-현재-상태-확인" />
+### 1. Check the current state
+
+```bash
+findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+If XFS and prjquota are already active and the probe succeeds, skip image creation. If the quota probe fails, do not deploy until you resolve the cause.
+
+<a id="2-기존-경로를-보호하고-이미지-생성" />
+### 2. Protect existing paths and create the image
+
+Run the following block in a subshell. If any step fails, subsequent commands must not run. Do not resize or reformat an existing image to reuse it. If another mount exists or Docker uses a different data-root, do not apply this example; plan a migration for that path.
+
+```bash
+(
+  set -eu
+  DOCKER_ROOT="$(docker info -f '{{.DockerRootDir}}')"
+  test "$DOCKER_ROOT" = /var/lib/docker
+  sudo test ! -L /var/lib/docker
+  sudo test ! -e /var/lib/docker.xfs.img
+  sudo test ! -L /var/lib/docker.xfs.img
+  sudo test ! -e /var/lib/docker.old
+  sudo test ! -L /var/lib/docker.old
+  if mountpoint -q /var/lib/docker; then
+    echo "Docker data-root is already mounted; inspect it before proceeding" >&2
+    exit 1
+  fi
+  sudo apt-get install -y xfsprogs rsync
+  sudo systemctl stop docker docker.socket
+  if sudo test -d /var/lib/docker; then
+    sudo mv /var/lib/docker /var/lib/docker.old
+  fi
+  sudo sh -c 'set -C; : > "$1"' sh /var/lib/docker.xfs.img
+  sudo truncate -s 60G /var/lib/docker.xfs.img
+  sudo mkfs.xfs -q /var/lib/docker.xfs.img
+  sudo mkdir -p /var/lib/docker
+  sudo mount -o loop,prjquota /var/lib/docker.xfs.img /var/lib/docker
+  findmnt -no FSTYPE,OPTIONS /var/lib/docker
+  if sudo test -d /var/lib/docker.old; then
+    sudo rsync -aHAX /var/lib/docker.old/ /var/lib/docker/
+  fi
+)
+```
+
+60G is the combined ceiling for images, logs, and all volumes. Although the file is sparse, the host must have that much free space. On distributions using dnf, adapt only the package installation command.
+
+<a id="3-영구-mount와-docker-시작" />
+### 3. Persist the mount and start Docker
+
+Back up the existing `/etc/fstab` using an administrator's editor, then add the following entry **once**. Do not add it if it conflicts with an existing data-root entry.
+
+```text
+/var/lib/docker.xfs.img /var/lib/docker xfs loop,prjquota 0 0
+```
+
+```bash
+sudo findmnt --verify
+findmnt -no FSTYPE,OPTIONS /var/lib/docker
+sudo systemctl start docker
+```
+
+Start Docker only after fstab validation and mount checks succeed.
+
+<a id="확인" />
+## Verify
+
+Rerun the quota probe from step 1. You need both `xfs`/`prjquota` and a successful probe. Check free space with `df -h`, `df -i`, and `xfs_quota -x -c 'report -p'`. The full procedure covering fstab and rsync migration of existing data has not been verified on an actual production disk.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+If an image or old directory already exists, stop immediately and inspect it. Starting Docker after a failed copy or mount can use an empty data-root. Do not start it until the cause is resolved.
+
+<a id="되돌리기" />
+## Roll back
+
+Containers, volumes, and data created after restarting Docker on the new XFS are absent from `/var/lib/docker.old`. Returning to the original directory loses those changes. Preserve new data separately first and decide what to restore. Sparse images do not shrink automatically when data is deleted; monitor free space on the host filesystem too.
+
+Stop Docker and its socket. If the new XFS is mounted, confirm no containers are using it before unmounting. Revert the added fstab entry against the backup. `/var/lib/docker.old` is the original. Confirm the original path is empty, restore the original directory, and start Docker. Do not delete the new image or original data; confirm the previous container and volume inventory matches.
+
+For an installation that originally had a data directory, after unmounting and restoring fstab, remove only the empty mount point with `sudo rmdir /var/lib/docker`, then restore it with `sudo mv /var/lib/docker.old /var/lib/docker`. If rmdir fails, investigate without deleting its contents. Do not perform this move on a fresh installation that had no original directory.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Install a production single server](/run-server/self-hosting/single-server), [Storage and limits](/run-server/self-hosting/reference/storage).
