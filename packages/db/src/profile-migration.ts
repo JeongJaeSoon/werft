@@ -233,6 +233,7 @@ export async function readMigrationFacts(
       migratedFrom: installationProfiles.migratedFrom,
       derivedFrom: installationProfiles.derivedFrom,
       definition: installationProfiles.definition,
+      deny: installationProfiles.deny,
       retiredAt: installationProfiles.retiredAt,
     })
     .from(installationProfiles);
@@ -249,6 +250,7 @@ export async function readMigrationFacts(
             version: row.version,
             derivedFrom: row.derivedFrom,
             definition: row.definition,
+            deny: row.deny,
             retired: row.retiredAt !== null,
           },
         ],
@@ -324,7 +326,7 @@ export async function writeProfileCopy(
     if (existing !== undefined) {
       return existing.retiredAt === null &&
         existing.workspaceId === workspaceId &&
-        sameExecutionForm(existing.definition, target.definition)
+        sameExecutionForm(existing, target)
         ? { outcome: "exists" as const, id: existing.id }
         : { outcome: "refused" as const, reason: "copy_unusable" as const };
     }
@@ -360,6 +362,7 @@ export async function writeProfileCopy(
         id: installationProfiles.id,
         version: installationProfiles.version,
         definition: installationProfiles.definition,
+        deny: installationProfiles.deny,
         retiredAt: installationProfiles.retiredAt,
       })
       .from(installationProfiles)
@@ -445,8 +448,9 @@ export async function writeProfileCopy(
     if (last !== undefined) {
       await writeProfileRollout(tx, {
         profileId: target.id,
-        previous: { definition: last.definition },
+        previous: last,
         definition: target.definition,
+        deny: target.deny,
         createdBy,
       });
     }

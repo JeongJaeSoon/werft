@@ -512,6 +512,12 @@ export type CatalogProfile = {
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
+  /**
+   * The `mcp__` names the stored profile blocks, sorted. Not part of the
+   * definition: the registry reads them from the deny column. Absent when
+   * none, so the fingerprint of a profile without them is unchanged.
+   */
+  mcp_deny?: string[] | undefined;
   // Absent is `required`, never spelled out: see `repositoryModeOf`.
   repository?: Exclude<RepositoryMode, "required"> | undefined;
   provider:

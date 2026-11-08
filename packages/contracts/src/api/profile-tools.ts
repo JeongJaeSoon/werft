@@ -43,6 +43,19 @@ const canonicalSet = (catalog: ToolCatalogView, names: readonly string[]) =>
   new Set(names.map((name) => canonicalTool(catalog, name)));
 
 /**
+ * The `mcp__` names among `names`, sorted and without repeats. A stored deny
+ * keeps them beside the catalog's; they are matched exactly and never
+ * filtered by a name rule, so one that rule would refuse is still kept.
+ */
+export function mcpNamesOf(
+  names: readonly string[] | null | undefined,
+): string[] {
+  return [
+    ...new Set((names ?? []).filter((n) => n.startsWith(MCP_TOOL_PREFIX))),
+  ].sort();
+}
+
+/**
  * The catalog's tools that `tools` leaves out, in catalog order. An old
  * allow list may hold `mcp__*` names; they are not the catalog's to deny.
  */

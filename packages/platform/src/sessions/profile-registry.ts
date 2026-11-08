@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  mcpNamesOf,
   OPT_IN_PERMISSION_MODES,
   type ProfileDerivationPolicy,
   WORKSPACE_PROFILE_POLICY,
@@ -231,7 +232,11 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
       entry("connection_missing");
       continue;
     }
-    profiles[id] = profile;
+    // The deny column holds `mcp__` names beside the catalog's; the release
+    // carries them as `mcp_deny`.
+    const mcpDeny = mcpNamesOf(row.deny);
+    profiles[id] =
+      mcpDeny.length > 0 ? { ...profile, mcp_deny: mcpDeny } : profile;
     entry(row.retired_at !== null ? "retired" : "usable");
   }
   return { profiles, installation };

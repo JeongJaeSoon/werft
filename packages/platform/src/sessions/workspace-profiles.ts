@@ -34,6 +34,7 @@ import {
   previousChoice,
   type StoredDeny,
   shownDeny,
+  withKeptMcpDeny,
 } from "./profile-tools.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
@@ -415,8 +416,9 @@ export function createWorkspaceProfileService(deps: {
       }
       // A deny weighs the latest version, so it reads them now; the store
       // refuses the save if another one lands before it.
-      if (request.deny !== undefined)
-        await catalog.workspace_profiles.refresh();
+      // An allow list reads them too: it must not drop the `mcp__` blocks of
+      // a version this replica has not read yet.
+      await catalog.workspace_profiles.refresh();
       const previous = [...catalog.workspace_profiles.records.values()]
         .filter(
           (record) =>
@@ -437,7 +439,7 @@ export function createWorkspaceProfileService(deps: {
         base.runtime_kind,
         base.runtime_version,
       );
-      const denied =
+      const asked =
         request.deny === undefined
           ? undefined
           : deniedTools({
@@ -457,9 +459,18 @@ export function createWorkspaceProfileService(deps: {
       const narrowing = {
         model: request.model,
         models: [...new Set(request.models)],
-        tools: denied?.tools ?? [...new Set(request.tools ?? [])],
+        tools: asked?.tools ?? [...new Set(request.tools ?? [])],
         permission_mode: request.permission_mode,
       };
+      // Whichever way the tools were named, the version keeps the `mcp__`
+      // blocks of the one before it, and holds all of its base's.
+      const denied = withKeptMcpDeny({
+        catalog: baseCatalog,
+        tools: narrowing.tools,
+        denied: asked,
+        previous,
+        baseMcpDeny: base.mcp_deny,
+      });
       const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
       if (refusal !== null) {
         throw new SessionServiceError(

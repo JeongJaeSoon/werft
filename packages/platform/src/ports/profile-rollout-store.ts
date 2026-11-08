@@ -26,6 +26,8 @@ export type RolloutProfile = {
   id: string;
   version: number;
   definition: Record<string, unknown>;
+  /** The deny column; its `mcp__` names are part of what the profile runs. */
+  deny: readonly string[] | null;
 };
 
 /** The profile an agent runs and the newest of the same lineage. */

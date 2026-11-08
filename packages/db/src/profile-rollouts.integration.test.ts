@@ -940,6 +940,7 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
       profile: CatalogProfile,
       previousId: string,
       fingerprint: string,
+      deny: string[] | null = null,
     ) {
       return createPostgresInstallationProfileStore(db).create({
         actor: {
@@ -954,12 +955,48 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
         definition: definitionOf(profile),
         permission_mode: "default",
         fingerprint,
-        deny: null,
-        toolCatalogId: null,
+        deny,
+        toolCatalogId: deny === null ? null : "engine@test",
         connectionId: "main",
       });
     }
     const rolloutsOf = () => db.select().from(profileRollouts);
+
+    test("an mcp__ deny is part of the form: a save that only adds one queues the followers, catalog names alone do not", async () => {
+      const caller = await owner();
+      await lineage(caller);
+      const made = await follower(caller, { profile: "op_ops_v2" });
+
+      const catalogOnly = await save(caller, V2, "op_ops_v2", "fp-3", [
+        "WebSearch",
+      ]);
+      expect(catalogOnly.outcome).toBe("unchanged");
+      expect(await rolloutsOf()).toEqual([]);
+
+      const blocked = await save(caller, V2, "op_ops_v2", "fp-3", [
+        "WebSearch",
+        "mcp__docs__read",
+      ]);
+      expect(blocked.outcome).toBe("created");
+      const [rollout] = await rolloutsOf();
+      expect(rollout?.targetProfileId).toBe("op_ops_v3");
+      expect(
+        (await items(rollout?.id as string)).map((i) => i.agentId),
+      ).toEqual([made.agent.id]);
+
+      // The same names again, in any order and spelling of the rest, change nothing.
+      const again = await save(caller, V2, "op_ops_v3", "fp-4", [
+        "mcp__docs__read",
+        "Bash",
+      ]);
+      expect(again.outcome).toBe("unchanged");
+      expect(await rolloutsOf()).toHaveLength(1);
+
+      // Dropping the names is a change too: the followers move back.
+      const dropped = await save(caller, V2, "op_ops_v3", "fp-4", null);
+      expect(dropped.outcome).toBe("created");
+      expect(await rolloutsOf()).toHaveLength(2);
+    });
 
     test("a changed form puts in the following agents behind it, not a pinned one, and the consumer applies them", async () => {
       const caller = await owner();

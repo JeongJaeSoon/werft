@@ -1,5 +1,5 @@
 import type { GitHubPolicySource } from "@werft-ai/contracts";
-import { installationProfileId } from "@werft-ai/contracts";
+import { installationProfileId, mcpNamesOf } from "@werft-ai/contracts";
 import type { WorkspaceProfileRecord } from "./catalog.ts";
 import {
   type CatalogProfileView,
@@ -65,6 +65,8 @@ export type MigrationCopyFact = {
   version: number;
   derivedFrom: string | null;
   definition: Record<string, unknown>;
+  /** The copy's deny column; its `mcp__` names are part of its execution form. */
+  deny: readonly string[] | null;
   retired: boolean;
 };
 
@@ -260,19 +262,43 @@ function freeName(
   }
 }
 
+/**
+ * The version as an installation profile runs it: its definition, and the
+ * `mcp__` names it blocks (its own and its base's). The names are a deny
+ * column value, never a definition key, so they are taken out of `apply`'s
+ * result.
+ */
 function copiedDefinition(
   catalog: ProfileLookup<CatalogProfileView>,
   record: WorkspaceProfileRecord,
-): Record<string, unknown> | null {
+): { definition: Record<string, unknown>; mcpDeny: string[] } | null {
   const entry = catalog.installation?.get(record.base_profile_id);
   const base = entry?.definition ?? entry?.record?.definition;
   if (typeof base !== "object" || base === null) return null;
   const { repository: _repository, ...rest } = base as Record<string, unknown>;
-  const applied = derivationPolicyOf(catalog).apply(
+  const { mcp_deny: _mcp, ...definition } = derivationPolicyOf(catalog).apply(
     rest as unknown as CatalogProfileView,
     record,
   ) as unknown as Record<string, unknown>;
-  return applied;
+  return {
+    definition,
+    mcpDeny: mcpNamesOf([
+      ...(entry?.record?.deny ?? []),
+      ...(record.deny ?? []),
+    ]),
+  };
+}
+
+/** The deny column a copy stores: the version's, plus its base's `mcp__` names it lacks. */
+function copiedDeny(
+  record: WorkspaceProfileRecord,
+  mcpDeny: readonly string[],
+): readonly string[] | null {
+  const own = new Set(record.deny ?? []);
+  const missing = mcpDeny.filter((name) => !own.has(name));
+  return missing.length === 0
+    ? (record.deny ?? null)
+    : [...(record.deny ?? []), ...missing];
 }
 
 export function planMigration(input: MigrationInput): MigrationPlan {
@@ -292,6 +318,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
   const copyIds = new Set(input.copies.map((c) => c.id));
   const equivalentVersion = (
     definition: Record<string, unknown>,
+    mcpDeny: readonly string[],
   ): string | null => {
     const ids = [...(catalog.installation?.entries() ?? [])]
       .filter(([id, entry]) => {
@@ -300,7 +327,13 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         return (
           typeof form === "object" &&
           form !== null &&
-          sameExecutionForm(form as Record<string, unknown>, definition)
+          sameExecutionForm(
+            {
+              definition: form as Record<string, unknown>,
+              deny: entry.record?.deny,
+            },
+            { definition, deny: mcpDeny },
+          )
         );
       })
       .map(([id]) => id)
@@ -388,14 +421,18 @@ export function planMigration(input: MigrationInput): MigrationPlan {
       profiles.push(plan);
       // A changed or missing base leaves no effective value (catalog.ts
       // catalogProfile); every other state reports one, copied or not.
-      const definition =
+      const copied =
         state === "base_changed" || state === "base_missing"
           ? null
           : copiedDefinition(catalog, record);
+      const definition = copied?.definition ?? null;
+      const mcpDeny = copied?.mcpDeny ?? [];
       plan.effective = definition;
       if (definition !== null) {
-        plan.usage.equivalent_installation_version =
-          equivalentVersion(definition);
+        plan.usage.equivalent_installation_version = equivalentVersion(
+          definition,
+          mcpDeny,
+        );
       }
       if (state !== "usable") {
         plan.skip = state;
@@ -465,7 +502,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         const holds =
           !existing.retired &&
           existing.workspaceId === workspace.id &&
-          sameExecutionForm(existing.definition, definition);
+          sameExecutionForm(existing, { definition, deny: mcpDeny });
         plan.decision = holds ? "exists" : "skip";
         plan.skip = holds ? null : "copy_unusable";
         plan.target = {
@@ -482,7 +519,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
             existing.name,
             existing.definition as never,
           ),
-          deny: record.deny ?? null,
+          deny: copiedDeny(record, mcpDeny),
           tool_catalog_id: record.tool_catalog_id ?? null,
           permission_mode: String(
             existing.definition.permission_mode ?? record.permission_mode,
@@ -512,7 +549,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         base_fingerprint: baseFingerprint,
         definition,
         fingerprint: definitionFingerprint(lineage.name, definition as never),
-        deny: record.deny ?? null,
+        deny: copiedDeny(record, mcpDeny),
         tool_catalog_id: record.tool_catalog_id ?? null,
         permission_mode: record.permission_mode,
       };

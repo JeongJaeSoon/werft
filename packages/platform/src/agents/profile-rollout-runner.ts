@@ -77,7 +77,7 @@ export function createProfileRolloutRunner(deps: {
       }
       if (
         seen.active.version >= latest.version ||
-        sameExecutionForm(seen.active.definition, latest.definition)
+        sameExecutionForm(seen.active, latest)
       ) {
         return { status: "applied" };
       }

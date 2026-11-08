@@ -364,6 +364,7 @@ describe("planMigration", () => {
       version: index + 1,
       derivedFrom: "coding",
       definition: p.target?.definition as Record<string, unknown>,
+      deny: p.target?.deny ?? null,
       retired: false,
     }));
     const again = planOf(
@@ -644,5 +645,92 @@ describe("planMigration", () => {
       sessions: 1,
       judged_by_ceiling: 1,
     });
+  });
+});
+
+describe("planMigration and mcp__ deny", () => {
+  const blockedBase: CatalogProfile = { ...base, mcp_deny: ["mcp__a__b"] };
+
+  function blockedCatalog(records: WorkspaceProfileRecord[]) {
+    const catalog = catalogWith(records);
+    (catalog.profiles as Record<string, CatalogProfile>).coding = blockedBase;
+    const record = catalog.installation?.get("coding")?.record;
+    if (record) record.deny = ["WebSearch", "mcp__a__b"];
+    return catalog;
+  }
+  const own = (overrides: Partial<WorkspaceProfileRecord> = {}) =>
+    version("strict", 1, {
+      base_fingerprint: profileFingerprint(blockedBase),
+      ...overrides,
+    });
+
+  test("without mcp__ names the plan is what it was: the version's deny, no mcp key anywhere", () => {
+    const plan = planOf(
+      input(catalogWith([version("strict", 1, { deny: ["WebSearch"] })]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    const [profile] = plan.profiles;
+    expect(profile?.target?.deny).toEqual(["WebSearch"]);
+    expect(Object.keys(profile?.target?.definition ?? {})).not.toContain(
+      "mcp_deny",
+    );
+    expect(Object.keys(profile?.effective ?? {})).not.toContain("mcp_deny");
+    const none = planOf(
+      input(catalogWith([version("strict", 1)]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    expect(none.profiles[0]?.target?.deny).toBeNull();
+  });
+
+  test("a copy takes the base's names the version lacks, into the deny column and not the definition", () => {
+    const plan = planOf(
+      input(blockedCatalog([own({ deny: ["WebSearch"] })]), [
+        agent("a1", "ws_acme_strict_v1"),
+      ]),
+    );
+    const [profile] = plan.profiles;
+    expect(profile?.decision).toBe("copy");
+    expect(profile?.target?.deny).toEqual(["WebSearch", "mcp__a__b"]);
+    expect(Object.keys(profile?.target?.definition ?? {})).not.toContain(
+      "mcp_deny",
+    );
+    expect(Object.keys(profile?.effective ?? {})).not.toContain("mcp_deny");
+  });
+
+  test("a version with no deny column still copies the base's names", () => {
+    const plan = planOf(
+      input(blockedCatalog([own()]), [agent("a1", "ws_acme_strict_v1")]),
+    );
+    expect(plan.profiles[0]?.target?.deny).toEqual(["mcp__a__b"]);
+  });
+
+  test("an earlier copy counts as the same only when its mcp__ names match", () => {
+    const records = [own({ deny: ["WebSearch", "mcp__a__b"] })];
+    const first = planOf(
+      input(blockedCatalog(records), [agent("a1", "ws_acme_strict_v1")]),
+    );
+    const target = first.profiles[0]?.target;
+    const copy = (deny: string[] | null) => ({
+      id: target?.id as string,
+      migratedFrom: "ws_acme_strict_v1",
+      name: target?.lineage_name as string,
+      displayName: "strict",
+      workspaceId: W,
+      version: 1,
+      derivedFrom: "coding",
+      definition: target?.definition as Record<string, unknown>,
+      deny,
+      retired: false,
+    });
+    const decisionWith = (deny: string[] | null) =>
+      planOf(
+        input(blockedCatalog(records), [agent("a1", "ws_acme_strict_v1")], {
+          copies: [copy(deny)],
+        }),
+      ).profiles[0]?.decision;
+    expect(decisionWith(["WebSearch", "mcp__a__b"])).toBe("exists");
+    expect(decisionWith(["WebSearch"])).toBe("skip");
   });
 });

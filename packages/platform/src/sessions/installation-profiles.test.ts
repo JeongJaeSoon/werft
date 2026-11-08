@@ -132,8 +132,14 @@ function memoryStore(rows: InstallationProfileRecord[]) {
         !latest.retired_at &&
         !latest.blocked_at &&
         sameExecutionForm(
-          latest.definition as Record<string, unknown>,
-          input.definition as Record<string, unknown>,
+          {
+            definition: latest.definition as Record<string, unknown>,
+            deny: latest.deny,
+          },
+          {
+            definition: input.definition as Record<string, unknown>,
+            deny: input.deny,
+          },
         )
       ) {
         return { outcome: "unchanged", record: latest };

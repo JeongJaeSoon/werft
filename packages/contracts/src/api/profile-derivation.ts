@@ -1,6 +1,7 @@
 import {
   carriedDeny,
   denyOf,
+  mcpNamesOf,
   type ToolCatalogView,
   toolsUnder,
 } from "./profile-tools.ts";
@@ -27,7 +28,21 @@ export type DerivationBase = {
   readonly models?: readonly string[] | undefined;
   readonly tools: readonly string[];
   readonly permission_mode: PermissionMode;
+  /** The `mcp__` names the base blocks, sorted; absent when none. */
+  readonly mcp_deny?: readonly string[] | undefined;
 };
+
+/**
+ * Whether `derived` leaves out an `mcp__` name its base blocks. Worked out
+ * from the deny a save would store, not from how the request was spelled.
+ */
+export function mcpDenyDropped(
+  base: Pick<DerivationBase, "mcp_deny">,
+  derived: { readonly deny?: readonly string[] | null | undefined },
+): boolean {
+  const kept = new Set(derived.deny ?? []);
+  return (base.mcp_deny ?? []).some((name) => !kept.has(name));
+}
 
 export type DerivationRefusal = {
   readonly field: Exclude<keyof DerivedFields, "deny">;
@@ -209,13 +224,22 @@ export const narrowOnlyPolicy: ProfileDerivationPolicy = {
     }
     return null;
   },
-  apply: (base, derived) => ({
-    ...base,
-    model: derived.model,
-    models: [...derived.models],
-    tools: [...derived.tools],
-    permission_mode: derived.permission_mode,
-  }),
+  apply(base, derived) {
+    // The base's blocks always stay, even ones it gained after this version.
+    const mcp_deny = mcpNamesOf([
+      ...(base.mcp_deny ?? []),
+      ...(derived.deny ?? []),
+    ]);
+    const { mcp_deny: _kept, ...rest } = base;
+    return {
+      ...rest,
+      model: derived.model,
+      models: [...derived.models],
+      tools: [...derived.tools],
+      permission_mode: derived.permission_mode,
+      ...(mcp_deny.length > 0 ? { mcp_deny } : {}),
+    } as unknown as typeof base;
+  },
 };
 
 /** The one place the server and the console pick the policy versions follow. */

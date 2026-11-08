@@ -2,6 +2,9 @@ import {
   addedTools,
   canonicalTool,
   denyOf,
+  MCP_TOOL_PREFIX,
+  mcpDenyDropped,
+  mcpNamesOf,
   parseToolNames,
   type ToolCatalogView,
   type ToolChoice,
@@ -49,9 +52,14 @@ export function recordedDeny(
   const catalog = catalogs?.all.find(
     (entry) => entry.id === stored.tool_catalog_id,
   );
-  if (!catalog) return { deny: [...stored.deny], drift: false };
+  // `mcp__` names share the column but are not the catalog's: they neither
+  // show in a catalog deny nor count as drift.
+  const catalogNames = stored.deny.filter(
+    (name) => !name.startsWith(MCP_TOOL_PREFIX),
+  );
+  if (!catalog) return { deny: catalogNames, drift: false };
   const deny = denyOf(catalog, tools);
-  const column = new Set(stored.deny);
+  const column = new Set(catalogNames);
   return {
     deny,
     drift:
@@ -101,6 +109,48 @@ const badRequest = (message: string, reason_code: string, field: string) =>
     reason_code,
     field,
   });
+
+/**
+ * Carries the previous version's `mcp__` blocks into the deny a save stores,
+ * whichever way the request spelled its tools: a deny request, or an allow
+ * list (which then also stores the catalog deny it leaves out, as `mcp__`
+ * names have no other column to live in). A version over a base that blocks
+ * `mcp__` names must hold all of them, else `base_mcp_deny_dropped`. With
+ * nothing to carry, `denied` is returned as it came.
+ */
+export function withKeptMcpDeny<
+  D extends { deny: string[]; toolCatalogId: string },
+>(input: {
+  catalog: InstalledToolCatalog | undefined;
+  tools: readonly string[];
+  denied: D | undefined;
+  previous: StoredDeny | undefined;
+  baseMcpDeny: readonly string[] | undefined;
+}): D | { deny: string[]; toolCatalogId: string } | undefined {
+  const kept = mcpNamesOf(input.previous?.deny);
+  if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: kept })) {
+    throw badRequest(
+      "The base profile blocks MCP tools this version would leave open: a version keeps the base's blocks",
+      "base_mcp_deny_dropped",
+      "deny",
+    );
+  }
+  if (kept.length === 0) return input.denied;
+  if (input.denied) {
+    return { ...input.denied, deny: [...input.denied.deny, ...kept] };
+  }
+  if (!input.catalog) {
+    throw badRequest(
+      "No tool catalog lists this runtime version: name its tools instead of a deny",
+      "no_tool_catalog",
+      "deny",
+    );
+  }
+  return {
+    deny: [...denyOf(input.catalog, input.tools), ...kept],
+    toolCatalogId: input.catalog.id,
+  };
+}
 
 /**
  * The `tools`, deny column and catalog id a deny request saves, worked out
