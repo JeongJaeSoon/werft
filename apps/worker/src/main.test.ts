@@ -3,7 +3,39 @@ import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { exitCodeFor, verifyWorkspace } from "./main.ts";
+import {
+  exitCodeFor,
+  verifyWorkspace,
+  workspaceEvidenceFromEnv,
+} from "./main.ts";
+
+test.each([
+  undefined,
+  "false",
+  "",
+  "TRUE",
+  " true",
+  "true ",
+  "1",
+  "on",
+  "true",
+])(
+  "only the exact true storage declaration becomes worker evidence: %j",
+  (value) => {
+    const evidence = workspaceEvidenceFromEnv({
+      WORKER_WORKSPACE_ENFORCED_BY_STORAGE: value,
+      WORKER_WORKSPACE_QUOTA_BYTES: "1000",
+      WORKER_WORKSPACE_PVC_CAPACITY_BYTES: "1000",
+      WORKER_WORKSPACE_QUOTA_MODE: "off",
+    });
+    expect(evidence).toEqual({
+      requestedBytes: 1000,
+      pvcCapacityBytes: 1000,
+      localQuota: "off",
+      ...(value === "true" ? { enforcedByStorage: true } : {}),
+    });
+  },
+);
 
 describe("exitCodeFor", () => {
   test.each([

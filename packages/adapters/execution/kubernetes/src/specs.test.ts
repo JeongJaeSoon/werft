@@ -79,6 +79,44 @@ const [container] = pod.spec.containers;
 if (container === undefined) throw new Error("no container");
 
 describe("worker Pod", () => {
+  test("adds the declaration only when true and preserves resource identity", () => {
+    const makePod = (workspaceEnforcedByStorage?: boolean) =>
+      podFor(
+        {
+          ...config,
+          ...(workspaceEnforcedByStorage === undefined
+            ? {}
+            : { workspaceEnforcedByStorage }),
+        },
+        intent,
+        "secret-name",
+        "fingerprint",
+        PROXY_ADDRESS,
+      ) as PodShape;
+    expect(JSON.stringify(makePod(false))).toBe(JSON.stringify(pod));
+    expect(JSON.stringify(makePod())).toBe(JSON.stringify(pod));
+    for (const workspaceEnforcedByStorage of [false, true]) {
+      const declared = { ...config, workspaceEnforcedByStorage };
+      expect(workspaceClaimFor(declared, intent.sessionId)).toEqual(
+        workspaceClaimFor(config, intent.sessionId),
+      );
+      expect(isolationStampFor(declared, PROXY_ADDRESS)).toBe(
+        isolationStampFor(config, PROXY_ADDRESS),
+      );
+    }
+    const enabled = makePod(true);
+    expect(enabled.spec.containers[0]?.env).toContainEqual({
+      name: "WORKER_WORKSPACE_ENFORCED_BY_STORAGE",
+      value: "true",
+    });
+    for (const c of enabled.spec.containers) {
+      c.env = c.env.filter(
+        (entry) => entry.name !== ENV.workspaceEnforcedByStorage,
+      );
+    }
+    expect(enabled).toEqual(pod);
+  });
+
   test("runs non-root on a read-only rootfs with nothing to escalate to", () => {
     expect(container.securityContext).toEqual({
       allowPrivilegeEscalation: false,

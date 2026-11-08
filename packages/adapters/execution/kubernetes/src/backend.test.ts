@@ -96,6 +96,55 @@ describe("resolveImage", () => {
 });
 
 describe("ensureExecution", () => {
+  test.each([false, true])(
+    "changing storage declaration from %s preserves the Pod and PVC",
+    async (initial) => {
+      const api = new FakeKubernetes();
+      const backendFor = (workspaceEnforcedByStorage: boolean) =>
+        new KubernetesBackend(
+          { ...testConfig(NS, INSTALLATION), workspaceEnforcedByStorage },
+          api.asClient(),
+          testResolver,
+        );
+      const { intent, issued } = intentFor();
+      const first = await backendFor(initial).ensureExecution(intent);
+      const claims = await api.list(NS, "persistentvolumeclaims");
+      const originalPod = await api.get(NS, "pods", podName);
+      api.setPhase(NS, podName, "Running");
+      const changed = backendFor(!initial);
+      expect(await changed.ensureExecution(intent)).toEqual({
+        created: false,
+        providerRef: first.providerRef,
+        state: "running",
+      });
+      expect((await api.get(NS, "pods", podName))?.spec).toEqual(
+        originalPod?.spec,
+      );
+      expect(issued).toHaveLength(1);
+      await changed.terminate(intent);
+      const next = { ...intent, generation: 2 };
+      expect((await changed.ensureExecution(next)).created).toBe(true);
+      expect(await api.list(NS, "persistentvolumeclaims")).toEqual(claims);
+      const nextPod = await api.get(NS, "pods", podNameFor(next, INSTALLATION));
+      const container = (
+        nextPod?.spec as {
+          containers: Array<{ env: Array<{ name: string; value?: string }> }>;
+        }
+      ).containers[0];
+      expect(
+        container?.env.find(
+          (entry) => entry.name === "WORKER_WORKSPACE_ENFORCED_BY_STORAGE",
+        )?.value,
+      ).toBe(initial ? undefined : "true");
+      expect(
+        api.calls.filter(
+          (call) =>
+            call.verb === "create" && call.kind === "persistentvolumeclaims",
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
   test("creates the PVC, then the Pod, then the Secret it owns", async () => {
     const { api, backend } = setup();
     const { intent, issued } = intentFor();

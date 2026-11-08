@@ -18,9 +18,9 @@ outcome: "저장소별 보장과 데이터 보존 조건을 확인한다"
 | 저장 위치 | 세션마다 Docker `local` volume. Docker 데이터 루트의 XFS | 세션마다 PVC 하나(`werft-ws-<installationId>-<sessionId>`), worker의 `/workspace`에 마운트. `ReadWriteOnce`, `Filesystem`. `/tmp`와 HOME은 메모리 emptyDir이고 hostPath는 쓰지 않는다 |
 | 용량 상한 | `EXECUTION_WORKSPACE_QUOTA_MB` 기본 4096MiB(최솟값 1024) | PVC의 `requests.storage`, helm `worker.workspace.quotaMb` 기본 4096MiB(최솟값 1024). 실제로 막는지는 StorageClass가 정한다 |
 | inode 상한 | `EXECUTION_WORKSPACE_QUOTA_INODES` 기본 1,000,000 | **없다.** Werft도 chart도 걸지 않는다. 파일시스템 기본값을 따른다(ext4는 만들 때 개수가 정해진다) |
-| 강제 주체 | XFS `prjquota`(커널). scheduler preflight가 확인 | kubelet과 CSI 드라이버. Werft는 크기를 요청만 하고 사용량을 읽지 않는다. 확인하는 preflight도 없다 |
+| 강제 주체 | XFS `prjquota`(커널). scheduler preflight가 확인 | CSI 드라이버와 파일시스템. Werft는 PVC 용량과 workspace 사용량을 읽지만 실제 강제를 검증하는 preflight는 없다 |
 | 넘었을 때 | worker 쓰기가 `ENOSPC`. 상한을 걸 수 없으면 scheduler가 기동하지 않음 | StorageClass가 용량을 강제하면 `ENOSPC`. 강제하지 않으면 상한이 없는 것과 같다. 노드 디스크(PVC 밖, 주로 로그)는 `worker.ephemeralStorageMb`(기본 1024MiB, requests=limits)를 넘으면 kubelet이 Pod를 evict |
-| 운영자가 정할 값 | Docker 데이터 루트의 파일시스템과 크기, 위 두 상한 | `worker.storageClass`(비우면 클러스터 기본), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, worker 노드의 파일시스템 크기 |
+| 운영자가 정할 값 | Docker 데이터 루트의 파일시스템과 크기, 위 두 상한 | `worker.storageClass`(비우면 클러스터 기본), `worker.workspace.quotaMb`, `worker.workspace.enforcedByStorage`, `worker.ephemeralStorageMb`, worker 노드의 파일시스템 크기 |
 | 확인 명령 | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | 아래 |
 
 ```bash
@@ -34,13 +34,19 @@ kubectl -n werft exec <worker-pod> -- df -i /workspace
 `kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 Kubernetes 명령과 용량 강제·AZ 재연결은 실행 확인하지 않았다. 값은 코드(`specs.ts`, `config.ts`)와 chart를 기준으로 한다.
 
 - **PVC는 필수다.** worker Pod가 쓰는 workspace 볼륨은 PVC뿐이고(`specs.ts`), emptyDir나 hostPath로 바꾸는 설정은 없다. 세션의 PVC는 Pod와 따로 살아서, Pod가 교체돼도 같은 이름의 PVC에 다시 붙는다. scheduler가 세션마다 Pod와 PVC를 만든다.
-- **StorageClass가 크기를 하드로 강제하는지는 Werft가 보지 않는다.** 코드는 `requests.storage`를 요청하고 그 값을 `werft.workspace-size` annotation에 적어 설정과 비교할 뿐, `status.capacity`나 사용량을 읽지 않는다. 강제 여부는 CSI 드라이버와 파일시스템마다 다르므로 설치 전에 인프라 쪽에 확인한다.
+- **StorageClass가 크기를 하드로 강제하는지는 Werft가 검증하지 않는다.** 코드는 `requests.storage`를 요청하고 그 값을 `werft.workspace-size` annotation에 적어 설정과 비교한다. PVC의 `status.capacity`를 읽어 worker에 전달하고, worker는 workspace 사용량과 파일시스템 총량·inode를 관찰한다. 이 관찰은 실제 강제 검증이 아니다. 강제 여부는 CSI 드라이버와 파일시스템마다 다르므로 설치 전에 인프라 쪽에 확인한다.
 - kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
 - **알려진 한계.** inode 상한이 없고, 용량 상한은 StorageClass에 맡겨져 있다. 상한을 강제하지 않는 StorageClass를 골라도 chart는 거부하지 않는다. 이 한계를 막을 코드 변경은 이 페이지의 범위 밖이다.
 
 EBS 같은 zonal PVC는 AZ에 묶인다. 노드를 교체하거나 Kubernetes를 올린 뒤 worker가 같은 AZ의 사용 가능한 노드에서 PVC에 다시 붙는지 설치 환경에서 확인한다.
 
 Kubernetes의 `worker.workspace.quotaMb`를 바꾸면 기존 PVC의 `werft.workspace-size` annotation과 달라 그 세션의 launch가 거절된다. 진행 중인 세션이 없을 때 새 세션용 값을 바꾼다. 크기를 바꾸겠다고 기존 PVC를 지우지 않는다.
+
+`worker.workspace.enforcedByStorage: true`(기본 `false`)는 **이 설치의 모든 workspace PVC(기존 것 포함)**에 대해 저장소가 요청 바이트를 하드로 강제한다는 운영자 선언이다. `worker.storageClass`가 비어 있으면 클러스터 기본값을 쓰므로 각 PVC가 실제로 강제하는지 운영자가 확인한다. Werft는 확인하지 않는다. 선언만으로 저장소에 상한을 걸지는 않는다.
+
+선언 경로에서 worker는 파일시스템 총량이 요청의 0.95~1.05배이고, PVC capacity가 요청 이상이며, 마운트 지점이 `/`가 아닌 전용 쓰기 가능 마운트(`rw` 있고 `ro` 없음)일 때 바이트를 `hard`, inode를 `unknown`으로 판별한다(`storage_declaration_and_capacity`). mount·파일시스템 증거가 없거나 capacity가 없으면 `unknown`이다. 그 밖의 선언 조건이 부족하면 `unknown`/`storage_enforcement_unverified`이고, 공유 파일시스템·inode 총계 0·요청보다 1.5배 초과인 파일시스템은 기존 `soft` 판별을 유지한다. 이 크기·마운트 조건은 휴리스틱이며 강제 검증은 아니다. 선언과 판별 근거는 `workspace_limit_mode` 로그의 evidence에 남는다.
+
+선언을 바꿔도 PVC 크기·이름·annotation과 isolation stamp는 바뀌지 않아 기존 Pod를 교체하거나 resume을 거절하지 않는다. 실행 중 Pod의 env는 그대로이고 새로 만드는 Pod만 새 선언을 받는다. 실제 StorageClass 강제, `ENOSPC`, 클러스터 resume·재접속은 이 변경에서 실행 검증하지 않았다.
 
 ## transcript 상한
 

@@ -161,7 +161,7 @@ Compose does not forward RECONCILER_STATUS_FILE, SCHEDULER_STATUS_FILE, or RECON
 <a id="kubernetes-env와-values" />
 ## Kubernetes env and values
 
-EXECUTION_BACKEND selects local_docker (default, also when empty) or kubernetes; other values reject startup with an error naming the value. Kubernetes ignores Docker settings (DOCKER_HOST, EXECUTION_DOCKER_*, EXECUTION_WORKSPACE_QUOTA) and socket, and skips Docker egress-isolation/quota preflights. Chart NetworkPolicy provides isolation; PVC size provides workspace limits. Fixed stop/request timeouts are 120s + 30s, requiring SCHEDULER_PASS_TIMEOUT_SEC >150. migrate-workspace is local_docker-only.
+EXECUTION_BACKEND selects local_docker (default, also when empty) or kubernetes; other values reject startup with an error naming the value. Kubernetes ignores Docker settings (DOCKER_HOST, EXECUTION_DOCKER_*, EXECUTION_WORKSPACE_QUOTA) and socket, and skips Docker egress-isolation/quota preflights. Chart NetworkPolicy provides isolation; the workspace requests PVC size, while actual enforcement depends on storage. Fixed stop/request timeouts are 120s + 30s, requiring SCHEDULER_PASS_TIMEOUT_SEC >150. migrate-workspace is local_docker-only.
 
 On readOnlyRootFilesystem Pods, status files need writable directories. Default /tmp/scheduler-status.json and /tmp/reconciler-status.json work with /tmp emptyDir. Override paths with SCHEDULER_STATUS_FILE/RECONCILER_STATUS_FILE. Loops write adjacent `<status file>.<pid>.tmp` then rename; scheduler also stores .quota-verified nearby. The whole directory, not just the file, must be writable.
 
@@ -171,6 +171,8 @@ Shared env matches Docker: WORKER_IMAGE, WORKER_GATEWAY_URL, EXECUTION_EGRESS_PR
 - EXECUTION_INSTALLATION_ID must be a lowercase DNS label, at most 32 characters.
 
 Kubernetes-only settings:
+
+`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` defaults to `false` when unset and accepts only exact `true`/`false`. Empty values, whitespace, uppercase, `1`/`0`, and `on`/`off` reject startup without exposing the original value. Helm generates it from `worker.workspace.enforcedByStorage` (default `false`): an operator declaration that storage hard-enforces requested bytes for every workspace PVC in this installation, including existing PVCs. With an empty StorageClass, the cluster default applies and operators must verify enforcement for each PVC. Werft does not verify it. Only the declaration path passing the heuristics of a dedicated writable mount (not `/`, `rw` present, `ro` absent), filesystem size 0.95–1.05 times the request, and PVC capacity at least the request yields bytes `hard`/inodes `unknown`. See [Storage and limits](/run-server/self-hosting/reference/storage). Changing the declaration leaves PVCs, the isolation stamp, and existing Pod env unchanged; only new Pods receive the new value.
 
 | Variable | Meaning |
 | --- | --- |
@@ -200,7 +202,7 @@ With deploy/helm/werft ([installation](/run-server/self-hosting/kubernetes)), ch
 | `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`; missing digest rejects rendering |
 | `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | None | API Service 3000, egress-proxy Service 3128/3129 |
 | `EXECUTION_INSTALLATION_ID` | `installationId` | Also worker NetworkPolicy label |
-| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | PVC size |
+| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | Requested size, minimum reclamation age, installation-wide enforcement declaration |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | Default 1024 |
 | Installation limits (EXECUTION_SLOT_LIMIT, etc.) | `config.limits` | Same for api/scheduler |

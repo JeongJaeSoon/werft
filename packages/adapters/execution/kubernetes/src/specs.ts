@@ -415,6 +415,9 @@ export function workerEnvironmentFor(
     [ENV.workspaceDir, checkoutDirOf(config)],
     [ENV.workspaceMountDir, config.workspaceDir],
     [ENV.workspaceQuotaBytes, String(config.workspaceSizeBytes)],
+    ...(config.workspaceEnforcedByStorage === true
+      ? ([[ENV.workspaceEnforcedByStorage, "true"]] as Array<[string, string]>)
+      : []),
     ...(pvcCapacityBytes === undefined
       ? []
       : ([[ENV.workspacePvcCapacityBytes, String(pvcCapacityBytes)]] as Array<

@@ -155,7 +155,7 @@ compose는 `RECONCILER_STATUS_FILE`, `SCHEDULER_STATUS_FILE`, `RECONCILER_DRY_RU
 
 ## Kubernetes env와 values
 
-scheduler는 `EXECUTION_BACKEND`로 backend를 고른다. 값은 `local_docker`(기본값, 비워 둬도 같다)와 `kubernetes` 둘이고, 그 밖의 값이면 그 값을 적은 오류로 기동을 거부한다. `kubernetes`이면 Docker 설정(`DOCKER_HOST`, `EXECUTION_DOCKER_*`, `EXECUTION_WORKSPACE_QUOTA`)을 읽지 않고 Docker socket도 쓰지 않는다. Docker 전용 preflight인 egress proxy 격리 확인과 workspace quota probe도 돌지 않는다. kubernetes에서 worker 격리는 chart의 NetworkPolicy가 맡고, workspace 상한은 PVC 크기다. 정지·요청 timeout은 고정값(120s + 30s)이어서 `SCHEDULER_PASS_TIMEOUT_SEC`는 150보다 커야 한다. `migrate-workspace`는 Docker volume을 옮기는 도구라서 `local_docker`에서만 돈다.
+scheduler는 `EXECUTION_BACKEND`로 backend를 고른다. 값은 `local_docker`(기본값, 비워 둬도 같다)와 `kubernetes` 둘이고, 그 밖의 값이면 그 값을 적은 오류로 기동을 거부한다. `kubernetes`이면 Docker 설정(`DOCKER_HOST`, `EXECUTION_DOCKER_*`, `EXECUTION_WORKSPACE_QUOTA`)을 읽지 않고 Docker socket도 쓰지 않는다. Docker 전용 preflight인 egress proxy 격리 확인과 workspace quota probe도 돌지 않는다. kubernetes에서 worker 격리는 chart의 NetworkPolicy가 맡고, workspace는 PVC 크기를 요청하지만 실제 상한 강제는 저장소에 달려 있다. 정지·요청 timeout은 고정값(120s + 30s)이어서 `SCHEDULER_PASS_TIMEOUT_SEC`는 150보다 커야 한다. `migrate-workspace`는 Docker volume을 옮기는 도구라서 `local_docker`에서만 돈다.
 
 readOnlyRootFilesystem인 Pod에서는 status file을 쓰기 가능한 경로에 둔다. 기본 경로 `/tmp/scheduler-status.json`·`/tmp/reconciler-status.json`은 `/tmp`에 emptyDir를 마운트하면 그대로 쓸 수 있다. 다른 경로라면 `SCHEDULER_STATUS_FILE`·`RECONCILER_STATUS_FILE`로 바꾼다. 루프는 status file과 같은 디렉터리에 임시 파일(`<status file>.<pid>.tmp`)을 쓴 뒤 rename한다. scheduler는 그 옆에 `.quota-verified` 기록도 둔다. 그래서 파일 하나가 아니라 디렉터리 전체가 쓰기 가능해야 한다.
 
@@ -165,6 +165,8 @@ readOnlyRootFilesystem인 Pod에서는 status file을 쓰기 가능한 경로에
 - `EXECUTION_INSTALLATION_ID`는 32자 이하의 소문자 DNS label이어야 한다.
 
 kubernetes 모드에서만 읽는 설정은 다음과 같다.
+
+`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE`는 미설정이면 `false`이며 정확히 `true`/`false`만 받는다. 빈 값·공백·대문자·`1`/`0`·`on`/`off`는 원본 값을 노출하지 않는 오류로 기동을 거부한다. Helm의 `worker.workspace.enforcedByStorage`(기본 `false`)에서 생성하며, 이 설치의 모든 workspace PVC(기존 것 포함)에 저장소가 요청 바이트를 하드로 강제한다는 운영자 선언이다. StorageClass가 비면 클러스터 기본값이므로 각 PVC의 강제를 운영자가 확인한다. Werft는 검증하지 않는다. 전용 쓰기 가능 마운트(`/` 아님, `rw` 있고 `ro` 없음), 파일시스템 총량이 요청의 0.95~1.05배, PVC capacity가 요청 이상이라는 휴리스틱을 통과한 선언 경로만 바이트 `hard`/inode `unknown`으로 판별한다. [저장소와 상한](/run-server/self-hosting/reference/storage)을 따른다. 선언 변경은 PVC·isolation stamp·기존 Pod env를 바꾸지 않고 새 Pod만 새 값을 받는다.
 
 | 변수 | 뜻 |
 | --- | --- |
@@ -193,7 +195,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `WORKER_IMAGE` | `images.registry`, `images.worker.*` | `<registry>/<repository>@<digest>`. digest가 없으면 render가 실패한다 |
 | `WORKER_GATEWAY_URL`, `EXECUTION_EGRESS_PROXY_URL`, `EXECUTION_EGRESS_CREDENTIAL_PORT` | 없음 | api Service의 3000, egress-proxy Service의 3128, 3129 |
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy의 label 값이기도 하다 |
-| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota는 workspace PVC의 크기 |
+| `EXECUTION_WORKSPACE_QUOTA_MB`, `EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`, `EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`, `worker.workspace.gcMinAgeSec`, `worker.workspace.enforcedByStorage` | 요청 크기·회수 최소 나이·설치 전체 강제 선언 |
 | `WORKER_CPUS`, `WORKER_MEMORY_MB` | `worker.cpus`, `worker.memoryMb` | |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 기본 1024 |
 | 설치 상한(`EXECUTION_SLOT_LIMIT` 등) | `config.limits` | api와 scheduler에 같은 값 |

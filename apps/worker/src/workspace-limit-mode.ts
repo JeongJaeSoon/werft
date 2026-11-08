@@ -21,7 +21,7 @@ export type WorkspaceLimitEvidence = {
   requestedBytes?: number;
   pvcCapacityBytes?: number;
   localQuota?: "enforced" | "off";
-  // Reserved for worker.workspace.enforcedByStorage; no Kubernetes declaration is wired yet.
+  // An operator declaration; this path leaves inode enforcement unknown.
   enforcedByStorage?: boolean;
 };
 
@@ -99,6 +99,9 @@ export function workspaceLimitMode(
     ratio >= 0.95 &&
     ratio <= 1.05 &&
     evidence.enforcedByStorage === true &&
+    mount.mountPoint !== "/" &&
+    mount.options.includes("rw") &&
+    !mount.options.includes("ro") &&
     pvcCapacityBytes >= requestedBytes
   ) {
     return mode("hard", "unknown", "storage_declaration_and_capacity");
