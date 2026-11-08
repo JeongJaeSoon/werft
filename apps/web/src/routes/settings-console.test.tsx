@@ -8,7 +8,9 @@ import { json, me } from "../test-support/fake-api.ts";
 import { imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, within } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
+
+const CONNECTIONS_PAGE = "/settings/workspace/connections";
 
 const CHANGE = (id: string) => ({
   id,
@@ -116,7 +118,7 @@ describe("모델 연결", () => {
   });
 
   test("an untouched default is not sent, so the server's own checks on it still run", async () => {
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
       [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("free")),
     });
@@ -143,7 +145,7 @@ describe("모델 연결", () => {
   });
 
   test("a kind with no default address refuses an empty endpoint at the field, without a request", async () => {
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
       [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("proxy")),
     });
@@ -172,7 +174,7 @@ describe("모델 연결", () => {
 
   test("a kind with an official address starts with it filled in; what the person typed survives a kind change", async () => {
     const OFFICIAL = "https://api.anthropic.com";
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(me(), null, { anthropic: OFFICIAL }),
       [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("official")),
     });
@@ -230,7 +232,7 @@ describe("모델 연결", () => {
   });
 
   test("the owner sees imported and console connections alike, and what each may do", async () => {
-    renderAt("/profiles", routes());
+    renderAt(CONNECTIONS_PAGE, routes());
     const table = await screen.findByRole("table", { name: "모델 연결" });
     const imported = rowOf(table, "anthropic");
     expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
@@ -263,7 +265,7 @@ describe("모델 연결", () => {
   });
 
   test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
-    renderAt("/profiles", routes());
+    renderAt(CONNECTIONS_PAGE, routes());
     const table = await screen.findByRole("table", { name: "모델 연결" });
     expectNarrowActions(table);
     const id = within(rowOf(table, "fresh")).getAllByRole("cell")[0];
@@ -271,7 +273,7 @@ describe("모델 연결", () => {
   });
 
   test("adding one stores the key, says the address cannot change, and warns when its host is off the egress allowlist", async () => {
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(me(), ["api.anthropic.com:443"]),
       [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("litellm-proxy")),
     });
@@ -317,7 +319,7 @@ describe("모델 연결", () => {
   });
 
   test("without the allowlist known, nothing warns", async () => {
-    renderAt("/profiles", routes(me(), null));
+    renderAt(CONNECTIONS_PAGE, routes(me(), null));
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "연결 추가" }));
     const dialog = await screen.findByRole("dialog");
@@ -329,7 +331,7 @@ describe("모델 연결", () => {
   });
 
   test("a new value and a disable each go to their own route; disabling asks first", async () => {
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(),
       [`POST ${CONNECTIONS}/console-key/credential`]: () =>
         json(200, CHANGE("console-key")),
@@ -363,7 +365,7 @@ describe("모델 연결", () => {
   });
 
   test("an env-referenced connection moves to a typed key through its own route", async () => {
-    const { api } = renderAt("/profiles", {
+    const { api } = renderAt(CONNECTIONS_PAGE, {
       ...routes(),
       [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
         json(200, CHANGE("anthropic")),
@@ -384,7 +386,7 @@ describe("모델 연결", () => {
   });
 
   test("moving a key that another connection's old definition holds says why", async () => {
-    renderAt("/profiles", {
+    renderAt(CONNECTIONS_PAGE, {
       ...routes(),
       [`POST ${CONNECTIONS}/anthropic/convert`]: () =>
         json(409, {
@@ -409,7 +411,7 @@ describe("모델 연결", () => {
   });
 
   test("a refusal names the server's reason", async () => {
-    renderAt("/profiles", {
+    renderAt(CONNECTIONS_PAGE, {
       ...routes(),
       [`POST ${CONNECTIONS}`]: () =>
         json(409, {
@@ -437,7 +439,7 @@ describe("모델 연결", () => {
 
   test("an admin neither reads the connections nor gets a way to change them", async () => {
     const { api } = renderAt("/profiles", routes(me(undefined, "admin")));
-    await screen.findByText("모델 연결은 설치 소유자만 보고 바꿉니다.");
+    await screen.findByRole("table", { name: "프로필" });
     expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
     expect(screen.queryByRole("table", { name: "모델 연결" })).toBeNull();
     expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
@@ -601,12 +603,114 @@ describe("설정의 모델 연결", () => {
     ]);
   });
 
-  test("the Profiles screen keeps its own connections section", async () => {
-    renderAt("/profiles", routes());
-    expect(
-      await screen.findByRole("table", { name: "모델 연결" }),
-    ).toBeDefined();
-    expect(screen.getByRole("button", { name: "연결 추가" })).toBeDefined();
+  test("the Profiles screen no longer manages connections", async () => {
+    const { api } = renderAt("/profiles", routes());
+    await screen.findByRole("table", { name: "프로필" });
+    // The table would be on screen once its (independent) query has answered.
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(true),
+    );
+    await act(async () => {});
+    expect(screen.queryByRole("table", { name: "모델 연결" }) === null).toBe(
+      true,
+    );
+    expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
+      true,
+    );
+  });
+
+  describe("the empty-profiles hint", () => {
+    const empty = (items: SettingsConnection[]) => ({
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/profiles": () => json(200, { items: [] }),
+      [`GET ${CONNECTIONS}`]: () =>
+        json(200, { items, credential_hosts: null, endpoint_defaults: {} }),
+    });
+    const HINT = "프로필을 만들려면 먼저 모델 연결이 필요합니다.";
+
+    test("an owner with no active connection gets a link to the connections screen", async () => {
+      renderAt(
+        "/profiles",
+        empty([connection("old", { state: "needs_value" })]),
+      );
+      const link = await screen.findByRole("link", {
+        name: "모델 연결로 가기",
+      });
+      expect(
+        link.getAttribute("href") === "/settings/workspace/connections",
+      ).toBe(true);
+      expect(screen.getByText(HINT) !== null).toBe(true);
+    });
+
+    test("an active connection means no hint", async () => {
+      const { api } = renderAt("/profiles", empty([connection("live")]));
+      await screen.findByText("이 설치에 프로필이 없습니다.");
+      await waitFor(() =>
+        expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(true),
+      );
+      await act(async () => {});
+      expect(screen.queryByText(HINT) === null).toBe(true);
+      expect(
+        screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
+      ).toBe(true);
+    });
+
+    for (const [state, answer] of [
+      ["still loading", () => new Promise<Response>(() => {})],
+      ["failed", () => json(500, { error: "boom" })],
+    ] as const) {
+      test(`a connections list that is ${state} is not read as none`, async () => {
+        const { api } = renderAt("/profiles", {
+          ...empty([]),
+          [`GET ${CONNECTIONS}`]: answer,
+        });
+        await screen.findByText("이 설치에 프로필이 없습니다.");
+        await waitFor(() =>
+          expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(
+            true,
+          ),
+        );
+        await act(async () => {});
+        expect(screen.queryByText(HINT) === null).toBe(true);
+        expect(
+          screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
+        ).toBe(true);
+      });
+    }
+
+    test("a refetch that fails takes the hint away instead of keeping the cached answer", async () => {
+      let failing = false;
+      const { services } = renderAt("/profiles", {
+        ...empty([]),
+        [`GET ${CONNECTIONS}`]: () =>
+          failing
+            ? json(500, { error: "boom" })
+            : json(200, {
+                items: [],
+                credential_hosts: null,
+                endpoint_defaults: {},
+              }),
+      });
+      await screen.findByText(HINT);
+      failing = true;
+      await act(async () => {
+        await services.queryClient.refetchQueries({
+          predicate: (query) => query.state.status === "success",
+        });
+      });
+      await waitFor(() => expect(screen.queryByText(HINT) === null).toBe(true));
+    });
+
+    test("an admin gets no hint and never asks for the connections", async () => {
+      const { api } = renderAt("/profiles", {
+        ...empty([]),
+        "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      });
+      await screen.findByText("이 설치에 프로필이 없습니다.");
+      await act(async () => {});
+      expect(screen.queryByText(HINT) === null).toBe(true);
+      expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
+    });
   });
 
   for (const role of ["admin", "member"] as const) {

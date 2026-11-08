@@ -62,4 +62,5 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
 | [결정(설계): 새 에이전트 마법사 재작업](contributing/decisions/agent-wizard-rework.md) | 마법사의 저장소 지정 제거, 역할·지시 사항을 이름·설명과 에이전트 지시문으로, 도구 선택과 실행 적용, 담당 팀과 팀 역할 권한, 구현 단위와 순서 |
 | [결정(설계): 에이전트 담당 팀과 액션 RBAC](contributing/decisions/agent-rbac.md) | 에이전트·세션 action별 지금 권한 실측, 담당 팀 안팎 주체별 RBAC 표, 워크스페이스 설정 두 축(바깥쪽의 에이전트 접근, 세션 열람 상한), 담당 팀 필수와 기존 에이전트 이행, 앞선 결정과의 차이, 구현 단위 R1~R5 |
+| [결정(설계): 에이전트 지도 뷰 선택](contributing/decisions/agent-map-views.md) | 그래프를 두고 줌 캔버스를 두 번째 뷰로 고르게 하는 설계, 전환 UI와 공유 상태, 주소·설정으로 뷰 고정, 접근성, 단계 A1~D와 세션 사이 관계 데이터 의존, 열린 질문 (승인됨, 구현 미착수) |
 | [실제 Claude로 확인하기](real-claude.md) | 실제 Claude로 스택 확인 |

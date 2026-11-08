@@ -26,13 +26,11 @@ import {
   NativeSelectOption,
   Page,
   RowAction,
-  Section,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { Lock, Plus } from "lucide-react";
-import { type ComponentProps, useState } from "react";
-import { useHasPermission } from "../auth/guard.tsx";
+import { Plus } from "lucide-react";
+import { useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
@@ -64,17 +62,13 @@ const COLUMNS = [
  */
 export function ModelConnections({
   profiles,
-  asPage = false,
 }: {
   /** The installation ceilings, to count those over each connection. */
   readonly profiles: readonly ProfileSummary[];
-  /** The settings page's own frame (h1 head) instead of the Profiles section. */
-  readonly asPage?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const owns = useHasPermission("installation.settings.manage");
-  const connections = useQuery(settingsConnectionsQuery(client, owns));
+  const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [adding, setAdding] = useState(false);
   const rows = useRowActions("connection", setOutcome);
@@ -83,34 +77,26 @@ export function ModelConnections({
     profiles.filter((profile) => profile.installation?.connection_id === id)
       .length;
 
-  const head = {
-    title: t("settings.connections.title"),
-    description: t("settings.connections.description"),
-    actions: owns ? (
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => {
-          setOutcome(null);
-          setAdding(true);
-        }}
-      >
-        <Plus aria-hidden="true" />
-        {t("settings.connections.add")}
-      </Button>
-    ) : null,
-  };
-  const Frame = asPage ? Page : SectionFrame;
-
   return (
-    <Frame {...head}>
+    <Page
+      title={t("settings.connections.title")}
+      description={t("settings.connections.description")}
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setOutcome(null);
+            setAdding(true);
+          }}
+        >
+          <Plus aria-hidden="true" />
+          {t("settings.connections.add")}
+        </Button>
+      }
+    >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
-        {!owns ? (
-          <Text variant="meta" className="flex items-center gap-1">
-            <Lock aria-hidden="true" className="size-3.5 shrink-0" />
-            {t("settings.connections.locked")}
-          </Text>
-        ) : connections.isPending ? (
+        {connections.isPending ? (
           <Skeleton width="60%" />
         ) : connections.isError ? (
           <LoadFailure
@@ -163,22 +149,16 @@ export function ModelConnections({
         )}
         <OutcomeLine outcome={outcome} />
       </div>
-      {owns ? (
-        <AddConnection
-          open={adding}
-          onOpenChange={setAdding}
-          hosts={connections.data?.credential_hosts ?? null}
-          defaults={connections.data?.endpoint_defaults ?? {}}
-          onOutcome={setOutcome}
-        />
-      ) : null}
+      <AddConnection
+        open={adding}
+        onOpenChange={setAdding}
+        hosts={connections.data?.credential_hosts ?? null}
+        defaults={connections.data?.endpoint_defaults ?? {}}
+        onOutcome={setOutcome}
+      />
       {rows.dialogs}
-    </Frame>
+    </Page>
   );
-}
-
-function SectionFrame(props: ComponentProps<typeof Section>) {
-  return <Section className="[&>div:first-child]:mb-4" {...props} />;
 }
 
 function ConnectionRow({
