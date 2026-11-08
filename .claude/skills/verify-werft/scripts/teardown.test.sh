@@ -14,9 +14,7 @@ log=$scratch/docker.log
 cat >"$scratch/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$FAKE_DOCKER_LOG"
-case "$1 $2" in
-  "image inspect") exit 0 ;;
-esac
+[ "$1" != "${FAKE_DOCKER_FAIL:-}" ] || exit 1
 exit 0
 EOF
 chmod +x "$scratch/bin/docker"
@@ -38,14 +36,15 @@ teardown_guard "$id" "$p-extra" "$p-extra"; check "guard: same prefix, longer na
 teardown_guard "$id" verify-ap-20261031-094644-90075 verify-ap-20261031-094644-90075; check "guard: another run id" 1 $?
 teardown_guard "$id" "$p" verify-ap-20261031-094644-90075; check "guard: installation differs" 1 $?
 teardown_guard "" "$p" "$p"; check "guard: empty run id" 1 $?
+teardown_guard "x$id" "verify-ap-x$id" "verify-ap-x$id"; check "guard: run id with a stray character" 1 $?
 teardown_guard "demo" verify-ap-demo verify-ap-demo; check "guard: not a run id shape" 1 $?
 teardown_guard verify-ap-x verify-ap-verify-ap-x verify-ap-verify-ap-x; check "guard: project text as run id" 1 $?
 
 : >"$log"
 teardown_images "$p" >/dev/null
 want=$(printf '%s\n' \
-  "image inspect werft-control-host:$p" "image inspect werft-worker:$p" "image inspect werft-egress-proxy:$p" \
-  "image inspect $p-migrate:latest" "image inspect $p-fake-git:latest" "image inspect $p-gitea:latest")
+  "image ls -q werft-control-host:$p" "image ls -q werft-worker:$p" "image ls -q werft-egress-proxy:$p" \
+  "image ls -q $p-migrate:latest" "image ls -q $p-fake-git:latest" "image ls -q $p-gitea:latest")
 [ "$(cat "$log")" = "$want" ]; check "images: inspects exactly six tags of the project" 0 $?
 
 TEARDOWN_CONTAINERS="c1"
@@ -61,6 +60,11 @@ grep -Eq -- ' -f|prune|--force' "$log"; check "delete: no force or prune flag" 1
 : >"$log"
 teardown_delete "$p" keep >/dev/null 2>&1
 grep -q '^volume rm' "$log"; check "delete: --keep-volumes keeps volumes" 1 $?
+grep -q '^rm -v' "$log"; check "delete: --keep-volumes never uses rm -v" 1 $?
+
+FAKE_DOCKER_FAIL=ps teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: a failing docker ps is an error" 1 $?
+FAKE_DOCKER_FAIL=network teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: a failing docker network ls is an error" 1 $?
+teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: all answers empty is fine" 0 $?
 grep -q '^image rm' "$log"; check "delete: --keep-volumes still removes images" 0 $?
 
 # down.sh with a state that names another project: refuses before any docker call.

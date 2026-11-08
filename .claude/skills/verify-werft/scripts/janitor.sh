@@ -80,10 +80,14 @@ for project in $projects; do
     [ "$up" = 0 ] || skip="$up running container(s)"
   fi
   if [ -z "$skip" ]; then
-    kept=$({ docker ps -aq --filter "label=werft.keep" --filter "label=com.docker.compose.project=$project"
-             docker volume ls -q --filter "label=werft.keep" --filter "label=com.docker.compose.project=$project"
-             docker network ls -q --filter "label=werft.keep" --filter "label=com.docker.compose.project=$project"; } | grep -c .)
-    [ "$kept" = 0 ] || skip="labelled werft.keep"
+    kept=$(
+      for scope in "com.docker.compose.project=$project" "werft.installation=$project"; do
+        docker ps -aq --filter "label=werft.keep" --filter "label=$scope" || echo "docker-error"
+        docker volume ls -q --filter "label=werft.keep" --filter "label=$scope" || echo "docker-error"
+        docker network ls -q --filter "label=werft.keep" --filter "label=$scope" || echo "docker-error"
+      done | grep -c .
+    )
+    [ "$kept" = 0 ] || skip="labelled werft.keep, or Docker could not be asked"
   fi
   if [ -n "$skip" ]; then
     echo "skip  $project  ($skip)"
@@ -92,8 +96,9 @@ for project in $projects; do
   fi
 
   teardown_guard "${project#verify-ap-}" "$project" "$project" || { echo "skip  $project  (name check)"; continue; }
-  teardown_snapshot "$project"
+  teardown_snapshot "$project" || { echo "skip  $project  (Docker could not list its resources)"; skipped=$((skipped + 1)); continue; }
   newest=0
+  unreadable=
   while read -r kind name; do
     [ -n "$name" ] || continue
     case "$kind" in
@@ -102,16 +107,19 @@ for project in $projects; do
       volume) stamp=$(docker volume inspect --format '{{.CreatedAt}}' "$name" 2>/dev/null) ;;
       image) stamp=$(docker image inspect --format '{{.Created}}' "$name" 2>/dev/null) ;;
     esac
-    t=$(epoch "${stamp:-}") || t=
-    [ -z "$t" ] || [ "$t" -le "$newest" ] || newest=$t
+    if t=$(epoch "${stamp:-}"); then
+      [ "$t" -le "$newest" ] || newest=$t
+    else
+      unreadable=1
+    fi
   done < <(
     echo "$TEARDOWN_CONTAINERS" | sed '/^$/d; s/^/container /'
     echo "$TEARDOWN_NETWORKS" | sed '/^$/d; s/^/network /'
     echo "$TEARDOWN_VOLUMES" | sed '/^$/d; s/^/volume /'
     echo "$TEARDOWN_IMAGES" | sed '/^$/d; s/^/image /'
   )
-  # Unreadable times count as new: such a project is never listed.
-  if [ "$newest" = 0 ] || [ $((now - newest)) -le "$limit" ]; then
+  # One unreadable time is enough to keep the project: it could be the newest.
+  if [ -n "$unreadable" ] || [ "$newest" = 0 ] || [ $((now - newest)) -le "$limit" ]; then
     echo "skip  $project  (newer than ${hours}h or age unreadable)"
     skipped=$((skipped + 1))
     continue

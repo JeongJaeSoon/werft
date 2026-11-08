@@ -4,26 +4,30 @@
 # verify-ap-, so a prefix match would delete it.
 #
 #   teardown_guard <run id> <project> <installation id>   0 only when both equal verify-ap-<run id>
-#   teardown_snapshot <project>                           print the targets, remember them
+#   teardown_snapshot <project>                           collect the targets; non-zero when Docker could not answer
+#   teardown_print <project>                              print them
 #   teardown_delete <project> [keep-volumes]              remove what the snapshot named
 
 teardown_guard() {
-  local want
-  [ -n "${1:-}" ] || return 1
-  want=verify-ap-$(printf '%s' "$1" | tr -cd 'a-z0-9-')
-  [[ $want =~ ^verify-ap-[0-9]{8}-[0-9]{6}-[0-9]+$ ]] || return 1
-  [ "${2:-}" = "$want" ] && [ "${3:-}" = "$want" ]
+  [[ ${1:-} =~ ^[0-9]{8}-[0-9]{6}-[0-9]+$ ]] || return 1
+  [ "${2:-}" = "verify-ap-$1" ] && [ "${3:-}" = "verify-ap-$1" ]
 }
 
 # Run-scoped lists, one name per line. Label filters compare the whole value.
+# A Docker error is an error, not an empty list: deleting on a partial list
+# would lose the link between a container and its anonymous volumes.
 teardown_containers() {
-  { docker ps -aq --filter "label=com.docker.compose.project=$1"
-    docker ps -aq --filter "label=werft.installation=$1"; } | sort -u
+  local a b
+  a=$(docker ps -aq --filter "label=com.docker.compose.project=$1") || return 1
+  b=$(docker ps -aq --filter "label=werft.installation=$1") || return 1
+  printf '%s\n%s\n' "$a" "$b" | sed '/^$/d' | sort -u
 }
 
 teardown_networks() {
-  { docker network ls --filter "label=com.docker.compose.project=$1" --format '{{.Name}}'
-    docker network ls --filter "label=werft.installation=$1" --format '{{.Name}}'; } | sort -u
+  local a b
+  a=$(docker network ls --filter "label=com.docker.compose.project=$1" --format '{{.Name}}') || return 1
+  b=$(docker network ls --filter "label=werft.installation=$1" --format '{{.Name}}') || return 1
+  printf '%s\n%s\n' "$a" "$b" | sed '/^$/d' | sort -u
 }
 
 # Labelled volumes plus the anonymous (64 hex) volumes the run's containers
@@ -31,36 +35,42 @@ teardown_networks() {
 # anonymous volumes, and once the container is gone nothing links them to the
 # run, so they are read from the containers before teardown.
 teardown_volumes() {
-  local ns=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft} ids
-  ids=$(teardown_containers "$1")
-  {
-    docker volume ls -q --filter "label=com.docker.compose.project=$1"
-    docker volume ls -q --filter "label=$ns.installation=$1"
-    if [ -n "$ids" ]; then
-      # shellcheck disable=SC2086 # one id per line, no spaces
-      # No \n in the template: Docker rewrites it before parsing.
-      docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' $ids |
-        tr ' ' '\n' | grep -E '^[0-9a-f]{64}$'
+  local ns=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft} ids id a b mounts="" one
+  ids=$(teardown_containers "$1") || return 1
+  a=$(docker volume ls -q --filter "label=com.docker.compose.project=$1") || return 1
+  b=$(docker volume ls -q --filter "label=$ns.installation=$1") || return 1
+  for id in $ids; do
+    # No \n in the template: Docker rewrites it before parsing.
+    if one=$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}' "$id" 2>/dev/null); then
+      mounts="$mounts $one"
+    else
+      # A worker that exited between the list and the inspect is fine; a
+      # container that is still there and cannot be read is not.
+      [ -z "$(docker ps -aq --filter "id=$id")" ] || return 1
     fi
-  } | sort -u
+  done
+  # grep exits 1 on no match, which pipefail would turn into a failure.
+  { printf '%s\n%s\n' "$a" "$b"; echo "$mounts" | tr ' ' '\n' | { grep -E '^[0-9a-f]{64}$' || true; }; } |
+    sed '/^$/d' | sort -u
 }
 
 # The three tags up.sh sets and the three compose names for services built
 # without an image: line. Only those that exist are printed.
 teardown_images() {
-  local tag
+  local tag found
   for tag in "werft-control-host:$1" "werft-worker:$1" "werft-egress-proxy:$1" \
     "$1-migrate:latest" "$1-fake-git:latest" "$1-gitea:latest"; do
-    docker image inspect "$tag" >/dev/null 2>&1 && echo "$tag"
+    found=$(docker image ls -q "$tag") || return 1
+    [ -z "$found" ] || echo "$tag"
   done
   return 0
 }
 
 teardown_snapshot() {
-  TEARDOWN_CONTAINERS=$(teardown_containers "$1")
-  TEARDOWN_NETWORKS=$(teardown_networks "$1")
-  TEARDOWN_VOLUMES=$(teardown_volumes "$1")
-  TEARDOWN_IMAGES=$(teardown_images "$1")
+  TEARDOWN_CONTAINERS=$(teardown_containers "$1") || return 1
+  TEARDOWN_NETWORKS=$(teardown_networks "$1") || return 1
+  TEARDOWN_VOLUMES=$(teardown_volumes "$1") || return 1
+  TEARDOWN_IMAGES=$(teardown_images "$1") || return 1
 }
 
 teardown_print() {
@@ -72,10 +82,13 @@ teardown_print() {
 }
 
 # No -f anywhere: a resource another run still uses refuses and is skipped.
-# Networks and volumes are removed by the names the snapshot took.
+# Names come from the snapshot. With keep, a container that is somehow still
+# here is removed without -v, so its anonymous volumes stay too.
 teardown_delete() {
   local keep=${2:-} name
-  for name in $TEARDOWN_CONTAINERS; do docker rm -v "$name" >/dev/null 2>&1 || true; done
+  for name in $TEARDOWN_CONTAINERS; do
+    if [ -n "$keep" ]; then docker rm "$name" >/dev/null 2>&1 || true; else docker rm -v "$name" >/dev/null 2>&1 || true; fi
+  done
   for name in $TEARDOWN_NETWORKS; do
     docker network rm "$name" >/dev/null 2>&1 || echo "kept network $name (in use?)" >&2
   done
@@ -86,6 +99,16 @@ teardown_delete() {
   fi
   for name in $TEARDOWN_IMAGES; do
     docker image rm "$name" >/dev/null 2>&1 || echo "kept image $name (in use?)" >&2
+  done
+  return 0
+}
+
+# Snapshot volumes that still exist, by exact name (the label search cannot
+# find an anonymous volume whose container is gone).
+teardown_volumes_left() {
+  local name
+  for name in $TEARDOWN_VOLUMES; do
+    docker volume inspect "$name" >/dev/null 2>&1 && echo "$name"
   done
   return 0
 }

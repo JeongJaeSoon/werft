@@ -51,7 +51,10 @@ fi
 targets=$run/evidence/teardown-targets.txt
 prior=
 [ ! -f "$targets" ] || prior=$(sed -n 's/^  volume  \([0-9a-f]\{64\}\)$/\1/p' "$targets")
-teardown_snapshot "$COMPOSE_PROJECT_NAME"
+if ! teardown_snapshot "$COMPOSE_PROJECT_NAME"; then
+  echo "down.sh: Docker could not list this run's resources; nothing was deleted, rerun down.sh $run${keep:+ $keep}" >&2
+  exit 1
+fi
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$TEARDOWN_VOLUMES" "$prior" | sed '/^$/d' | sort -u)
 teardown_print "$COMPOSE_PROJECT_NAME" | tee "$targets" >&2
 # shellcheck disable=SC2086 # no argument when volumes go
@@ -73,7 +76,12 @@ networks=$(
     docker network ls --filter "label=werft.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Name}}'
 ) || failed=1
 volumes=
-[ -n "$keep" ] || volumes=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || failed=1
+if [ -z "$keep" ]; then
+  # By the snapshot's names too: an anonymous volume whose container is gone
+  # can only be found that way.
+  labelled=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || failed=1
+  volumes=$(printf '%s\n%s\n' "$labelled" "$(teardown_volumes_left)" | sed '/^$/d' | sort -u)
+fi
 if [ "$failed" = 1 ]; then
   echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2
   exit 1
