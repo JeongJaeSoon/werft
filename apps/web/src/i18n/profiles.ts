@@ -25,6 +25,8 @@ export const profilesKo = {
   "profiles.on": "켬",
   "profiles.off": "끔",
   "profiles.empty": "이 설치에 프로필이 없습니다.",
+  "profiles.empty.noConnection":
+    "프로필을 만들려면 먼저 모델 연결이 필요합니다.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "이전 버전 {count}개",
   "profiles.origin.catalog": "설정 문서에서 가져옴",
@@ -130,13 +132,15 @@ export const profilesKo = {
   "profiles.new.fromMissing": "{id} 프로필이 없습니다. 빈 양식에서 시작합니다.",
   "profiles.new.cannotMake": "지금은 만들 수 없습니다",
   "profiles.new.noConnections":
-    "이 설치에 연결이 없습니다. 모델 연결에서 연결을 더한 뒤 다시 여세요.",
+    "이 설치에 모델 연결이 없습니다. 연결을 먼저 추가한 뒤 프로필을 만드세요.",
+  "profiles.new.goToConnections": "모델 연결로 가기",
   "profiles.new.noRuntimes": "이 설치의 worker가 받는 런타임이 없습니다.",
-  "profiles.new.noBase": "바탕으로 쓸 수 있는 프로필이 없습니다.",
+  "profiles.new.noBase":
+    "바탕으로 쓸 수 있는 프로필이 없습니다. 설치 소유자가 모델 연결과 프로필을 먼저 만들어야 합니다.",
   "profiles.ceiling.connection": "연결",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 모델 연결에서 바꿉니다.",
+    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설정의 모델 연결에서 추가하고 바꿉니다.",
   "profiles.ceiling.runtime": "런타임",
   "profiles.ceiling.runtimeVersion": "런타임 버전",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -356,6 +360,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.on": "On",
   "profiles.off": "Off",
   "profiles.empty": "This installation has no profiles.",
+  "profiles.empty.noConnection":
+    "A model connection is needed before you can create a profile.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "Earlier versions ({count})",
   "profiles.origin.catalog": "Imported from a settings document",
@@ -461,13 +467,15 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "There is no profile {id}. Starting from an empty form.",
   "profiles.new.cannotMake": "Nothing can be made now",
   "profiles.new.noConnections":
-    "This installation has no connection. Add one under Model connections, then open this again.",
+    "This installation has no model connection. Add one first, then create the profile.",
+  "profiles.new.goToConnections": "Go to Model connections",
   "profiles.new.noRuntimes": "No worker on this installation takes a runtime.",
-  "profiles.new.noBase": "There is no usable profile to start from.",
+  "profiles.new.noBase":
+    "There is no usable profile to start from. An installation owner has to set up a model connection and a profile first.",
   "profiles.ceiling.connection": "Connection",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "The connection sets the model provider and credentials. Connections change under Model connections.",
+    "The connection sets the model provider and credentials. Add or change connections under Settings > Model connections.",
   "profiles.ceiling.runtime": "Runtime",
   "profiles.ceiling.runtimeVersion": "Runtime version",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -689,6 +697,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.on": "オン",
   "profiles.off": "オフ",
   "profiles.empty": "このインストールにはプロファイルがありません。",
+  "profiles.empty.noConnection":
+    "プロファイルを作成するには、先にモデル接続が必要です。",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "前のバージョン {count} 件",
   "profiles.origin.catalog": "設定ドキュメントから取り込み",
@@ -796,14 +806,16 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "プロファイル {id} はありません。空のフォームから始めます。",
   "profiles.new.cannotMake": "いまは作れません",
   "profiles.new.noConnections":
-    "このインストールに接続がありません。モデル接続で接続を追加してから開き直してください。",
+    "このインストールにはモデル接続がありません。先に接続を追加してからプロファイルを作成してください。",
+  "profiles.new.goToConnections": "モデル接続へ移動",
   "profiles.new.noRuntimes":
     "このインストールの worker が受け付けるランタイムがありません。",
-  "profiles.new.noBase": "もとにできるプロファイルがありません。",
+  "profiles.new.noBase":
+    "もとにできるプロファイルがありません。インストールのオーナーが先にモデル接続とプロファイルを作成する必要があります。",
   "profiles.ceiling.connection": "接続",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "モデルの提供元と認証情報は接続が決めます。接続はモデル接続で変更します。",
+    "モデルの提供元と認証情報は接続が決めます。接続は設定のモデル接続で追加・変更します。",
   "profiles.ceiling.runtime": "ランタイム",
   "profiles.ceiling.runtimeVersion": "ランタイムのバージョン",
   "profiles.ceiling.runtimeVersionInvalid":
