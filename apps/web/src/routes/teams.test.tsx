@@ -1194,12 +1194,22 @@ describe("팀 화면", () => {
     await user.clear(name);
     await user.type(name, "청구팀");
     await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
-    await waitFor(() =>
-      expect(document.querySelectorAll("[data-slot=toast]").length).toBe(2),
-    );
+    await waitFor(() => {
+      const texts = [...document.querySelectorAll("[data-slot=toast]")].map(
+        (region) => region.textContent,
+      );
+      expect(texts).toHaveLength(2);
+      expect(texts.some((s) => s?.includes("팀 이름을 청구팀"))).toBe(true);
+      expect(texts.some((s) => s?.includes("팀 관리 권한이 있어야"))).toBe(
+        true,
+      );
+    });
     expect(alert?.isConnected).toBe(true);
     await user.click(screen.getByRole("button", { name: "알림 닫기" }));
     await waitFor(() => expect(alert?.isConnected).toBe(false));
+    // The button left with the toast: the keyboard stays on the page.
+    expect(document.activeElement === document.body).toBe(false);
+    expect(document.activeElement?.closest("main") === null).toBe(false);
   }, 20000);
 
   test("이미 있는 이름으로 바꾸려 하면 이름 칸 옆에서 말하고 토스트는 없다", async () => {
@@ -1221,6 +1231,32 @@ describe("팀 화면", () => {
     expect(toastRegion() === null).toBe(true);
     await user.type(name, "2");
     await waitFor(() => expect(name.getAttribute("aria-invalid")).toBeNull());
+  });
+
+  test("이름이 중복이라는 답이 늦게 와도 그 사이 고친 이름에는 붙지 않는다", async () => {
+    const server = teamServer();
+    let answer: ((response: Response) => void) | undefined;
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`PATCH /v1/teams/${TEAM_ID}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const name = await screen.findByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await user.type(name, "2");
+    answer?.(apiError(409, "ALREADY_EXISTS", "A team by that name exists"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(name.getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Back to the refused name, the refusal is about it again.
+    await user.type(name, "{Backspace}");
+    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
   });
 
   test("내가 속한 팀에 그 팀에서의 내 역할이 보인다", async () => {

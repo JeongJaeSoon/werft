@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
@@ -46,6 +47,7 @@ export function useToast(dismissLabel?: string): {
   // An error to act on has its own place: a later notice must not push it
   // out before it is dismissed, and it must not hide that notice either.
   const [held, setHeld] = useState<Current | null>(null);
+  const [heldHeight, setHeldHeight] = useState(0);
   const notify = useCallback<Notify>((text, options = {}) => {
     const set =
       options.tone === "error" && options.persistent ? setHeld : setCurrent;
@@ -63,6 +65,7 @@ export function useToast(dismissLabel?: string): {
             text={held.text}
             options={held.options}
             dismissLabel={dismissLabel}
+            onHeight={setHeldHeight}
             onDone={release}
           />
         ) : null}
@@ -72,7 +75,7 @@ export function useToast(dismissLabel?: string): {
             text={current.text}
             options={current.options}
             dismissLabel={dismissLabel}
-            lifted={held !== null}
+            liftPx={held ? heldHeight : 0}
             onDone={dismiss}
           />
         ) : null}
@@ -113,19 +116,64 @@ function Toast({
   text,
   options,
   dismissLabel,
-  lifted = false,
+  liftPx = 0,
+  onHeight,
   onDone,
 }: {
   readonly text: string;
   readonly options: NotifyOptions;
   readonly dismissLabel: string | undefined;
-  /** An error waiting to be dismissed holds the corner; this sits above it. */
-  readonly lifted?: boolean;
+  /** The height of an error holding the corner; this sits above it. */
+  readonly liftPx?: number;
+  /** Reports this toast's height, for the one that sits above it. */
+  readonly onHeight?: (height: number) => void;
   readonly onDone: () => void;
 }) {
-  const place = lifted ? `${PLACE} bottom-24 sm:bottom-28` : PLACE;
   const error = options.tone === "error";
   const persistent = error && options.persistent === true;
+  const region = useRef<HTMLElement | null>(null);
+  const setRegion = (node: HTMLElement | null) => {
+    region.current = node;
+  };
+  // The last place the keyboard was outside the toast: the dismiss button is
+  // removed with it, and focus must not fall to <body>.
+  const opener = useRef<Element | null>(null);
+  useEffect(() => {
+    opener.current = document.activeElement;
+    const track = (event: FocusEvent) => {
+      if (!region.current?.contains(event.target as Node))
+        opener.current = event.target as Element;
+    };
+    document.addEventListener("focusin", track);
+    return () => document.removeEventListener("focusin", track);
+  }, []);
+  useEffect(() => {
+    const node = region.current;
+    if (!onHeight || !node || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() =>
+      onHeight(node.getBoundingClientRect().height),
+    );
+    watch.observe(node);
+    return () => watch.disconnect();
+  }, [onHeight]);
+  const dismiss = () => {
+    onDone();
+    const back = opener.current;
+    if (back instanceof HTMLElement && back.isConnected) back.focus();
+    // The control may be gone or disabled by now: the page's own landmark
+    // (focusable, see components/main.tsx) keeps the keyboard in the page.
+    const now = document.activeElement;
+    if (!now || now === document.body || now.closest("[data-slot=toast]"))
+      document.querySelector<HTMLElement>("main")?.focus();
+  };
+  const place = {
+    className: PLACE,
+    ref: setRegion,
+    style:
+      liftPx > 0
+        ? { bottom: `calc(1.5rem + ${liftPx}px + 0.5rem)` }
+        : undefined,
+  };
   // The region exists empty first: a live region inserted with its text
   // already in it is not announced by every screen reader.
   const [shown, setShown] = useState("");
@@ -150,7 +198,7 @@ function Toast({
           size="sm"
           className="-my-1 -me-2"
           aria-label={dismissLabel}
-          onClick={onDone}
+          onClick={dismiss}
         >
           <X aria-hidden="true" />
         </Button>
@@ -165,7 +213,7 @@ function Toast({
   );
   return createPortal(
     options.silent && !error ? (
-      <div aria-hidden="true" data-slot="toast" className={place}>
+      <div aria-hidden="true" data-slot="toast" {...place}>
         {body}
       </div>
     ) : error ? (
@@ -176,12 +224,12 @@ function Toast({
         aria-live="assertive"
         data-slot="toast"
         data-tone="error"
-        className={place}
+        {...place}
       >
         {body}
       </div>
     ) : (
-      <output aria-live="polite" data-slot="toast" className={place}>
+      <output aria-live="polite" data-slot="toast" {...place}>
         {body}
       </output>
     ),
