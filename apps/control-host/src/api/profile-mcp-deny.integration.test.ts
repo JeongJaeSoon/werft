@@ -353,6 +353,115 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
     expect(stored?.deny).toEqual(["WebSearch", DOCS, "mcp__docs__more"].sort());
   });
 
+  test("unblock_mcp_tools lifts a held name for good, and a refused lift writes no row", async () => {
+    const { catalog, ceilings, workspace } = wiring();
+    const caller = await owner();
+    const name = `lift-${randomUUID().slice(0, 6)}`;
+    const v1 = await ceilings.create(caller, {
+      ...CEILING,
+      name,
+      deny: ["WebSearch", DOCS, "mcp__docs__a"],
+    });
+    // Leaving the names out keeps them; only the lift drops one.
+    const kept = await ceilings.create(caller, {
+      ...CEILING,
+      name,
+      previous_id: v1.profile.id,
+      deny: ["WebSearch"],
+    });
+    expect(kept.profile.mcp_deny).toEqual(["mcp__docs__a", DOCS].sort());
+    const lifted = await ceilings.create(caller, {
+      ...CEILING,
+      name,
+      previous_id: kept.profile.id,
+      deny: ["WebSearch"],
+      unblock_mcp_tools: [DOCS],
+    });
+    expect(lifted.profile.mcp_deny).toEqual(["mcp__docs__a"]);
+    const [row] = await db
+      .select()
+      .from(installationProfiles)
+      .where(eq(installationProfiles.id, lifted.profile.id));
+    expect(row?.deny).toEqual(["WebSearch", "mcp__docs__a"]);
+    // The next version keeps the lift: DOCS stays open.
+    const after = await ceilings.create(caller, {
+      ...CEILING,
+      name,
+      previous_id: lifted.profile.id,
+      deny: ["WebSearch"],
+    });
+    expect(after.profile.mcp_deny).toEqual(["mcp__docs__a"]);
+
+    // What the lift refuses writes nothing.
+    const before = (await db.select().from(installationProfiles)).length;
+    for (const [body, reason] of [
+      [{ unblock_mcp_tools: [DOCS] }, "mcp_unblock_unknown"],
+      [{ unblock_mcp_tools: ["mcp__docs__a"], deny: [DOCS, "mcp__docs__a"] }, "mcp_unblock_conflict"],
+    ] as const) {
+      await expect(
+        ceilings.create(caller, {
+          ...CEILING,
+          name,
+          previous_id: after.profile.id,
+          deny: ["WebSearch"],
+          ...body,
+        }),
+      ).rejects.toMatchObject({ details: { reason_code: reason } });
+    }
+    expect((await db.select().from(installationProfiles)).length).toBe(before);
+
+    // A workspace version cannot lift the base's name, and lifts its own
+    // only from the version it read.
+    const base = await ceilings.create(caller, {
+      ...CEILING,
+      name: `wbase-${randomUUID().slice(0, 6)}`,
+      deny: ["WebSearch", DOCS],
+    });
+    await catalog.workspace_profiles.refresh();
+    const version = {
+      name: "lifting",
+      base_profile_id: base.profile.id,
+      model: "claude-sonnet-5",
+      models: ["claude-sonnet-5"],
+      permission_mode: "default",
+    } satisfies Omit<CreateWorkspaceProfileRequest, "tools">;
+    const first = await workspace.create(caller, {
+      ...version,
+      deny: ["WebSearch", DOCS, "mcp__docs__own"],
+    });
+    await expect(
+      workspace.create(caller, {
+        ...version,
+        deny: ["WebSearch", DOCS],
+        previous_id: first.profile.id,
+        unblock_mcp_tools: [DOCS],
+      }),
+    ).rejects.toMatchObject({
+      details: { reason_code: "base_mcp_deny_dropped" },
+    });
+    const second = await workspace.create(caller, {
+      ...version,
+      deny: ["WebSearch", DOCS],
+      previous_id: first.profile.id,
+      unblock_mcp_tools: ["mcp__docs__own"],
+    });
+    expect(second.profile.mcp_deny).toEqual([DOCS]);
+    const [stored] = await db
+      .select()
+      .from(workspaceProfiles)
+      .where(eq(workspaceProfiles.id, second.profile.id));
+    expect(stored?.deny).toEqual(["WebSearch", DOCS]);
+    // A second editor still holding the first version is told so.
+    await expect(
+      workspace.create(caller, {
+        ...version,
+        deny: ["WebSearch", DOCS],
+        previous_id: first.profile.id,
+        unblock_mcp_tools: ["mcp__docs__own"],
+      }),
+    ).rejects.toMatchObject({ details: { reason_code: "stale_previous" } });
+  });
+
   test("a refused name writes no row", async () => {
     const { ceilings } = wiring();
     const caller = await owner();

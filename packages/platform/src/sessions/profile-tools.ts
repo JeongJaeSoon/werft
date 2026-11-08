@@ -112,6 +112,57 @@ const badRequest = (message: string, reason_code: string, field: string) =>
   });
 
 /**
+ * The `mcp__` names `unblock_mcp_tools` lifts, checked against what the
+ * version follows: each must be held by the previous version, not blocked by
+ * the base and not named in the same request. A held name is matched exactly
+ * and never re-judged by the name rule or the server list, so one a removed
+ * server left behind can still be lifted.
+ */
+function liftedMcpNames(input: {
+  unblock: readonly string[] | undefined;
+  requested: readonly string[];
+  previous: StoredDeny | undefined;
+  baseMcpDeny: readonly string[] | undefined;
+}): ReadonlySet<string> {
+  const names = [...new Set(input.unblock ?? [])];
+  if (names.length === 0) return new Set();
+  if (input.previous === undefined) {
+    throw badRequest(
+      "A first version has no earlier block to lift",
+      "mcp_unblock_no_previous",
+      "unblock_mcp_tools",
+    );
+  }
+  const base = new Set(input.baseMcpDeny ?? []);
+  const asked = new Set(input.requested);
+  const held = new Set(mcpNamesOf(input.previous.deny));
+  for (const name of names) {
+    if (base.has(name)) {
+      throw badRequest(
+        `${name} is blocked by the base profile: a version keeps the base's blocks`,
+        "base_mcp_deny_dropped",
+        "unblock_mcp_tools",
+      );
+    }
+    if (asked.has(name)) {
+      throw badRequest(
+        `${name} is both blocked in deny and lifted in unblock_mcp_tools`,
+        "mcp_unblock_conflict",
+        "unblock_mcp_tools",
+      );
+    }
+    if (!held.has(name)) {
+      throw badRequest(
+        `${name} is not blocked by the previous version`,
+        "mcp_unblock_unknown",
+        "unblock_mcp_tools",
+      );
+    }
+  }
+  return new Set(names);
+}
+
+/**
  * Carries the previous version's `mcp__` blocks into the deny a save stores,
  * whichever way the request spelled its tools: a deny request, or an allow
  * list (which then also stores the catalog deny it leaves out, as `mcp__`
@@ -129,8 +180,16 @@ export function withKeptMcpDeny<
   baseMcpDeny: readonly string[] | undefined;
   /** The `mcp__` names the request itself blocks (none for an allow list). */
   requested?: readonly string[] | undefined;
+  /** `unblock_mcp_tools`: held names this version no longer blocks. */
+  unblock?: readonly string[] | undefined;
 }): D | { deny: string[]; toolCatalogId: string } | undefined {
   const requested = input.requested ?? [];
+  const lifted = liftedMcpNames({
+    unblock: input.unblock,
+    requested,
+    previous: input.previous,
+    baseMcpDeny: input.baseMcpDeny,
+  });
   // The request itself must name the base's `mcp__` blocks, not lean on the
   // previous version: an allow list or a deny that leaves one out is refused.
   if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: requested })) {
@@ -140,9 +199,11 @@ export function withKeptMcpDeny<
       "deny",
     );
   }
-  // What the request names and what the previous version held; a request
-  // cannot drop the latter (nothing here spells "unblock" yet).
-  const kept = mcpNamesOf([...requested, ...(input.previous?.deny ?? [])]);
+  // What the request names and what the previous version held; only
+  // `unblock_mcp_tools` lifts one of the latter.
+  const kept = mcpNamesOf([...requested, ...(input.previous?.deny ?? [])]).filter(
+    (name) => !lifted.has(name),
+  );
   if (kept.length === 0) return input.denied;
   if (input.denied) {
     return { ...input.denied, deny: [...input.denied.deny, ...kept] };
@@ -158,7 +219,10 @@ export function withKeptMcpDeny<
         "deny",
       );
     }
-    return { deny: [...(input.previous?.deny ?? [])], toolCatalogId };
+    return {
+      deny: (input.previous?.deny ?? []).filter((name) => !lifted.has(name)),
+      toolCatalogId,
+    };
   }
   return {
     deny: [...denyOf(input.catalog, input.tools), ...kept],

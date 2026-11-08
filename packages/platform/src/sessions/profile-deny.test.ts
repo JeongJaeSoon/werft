@@ -988,3 +988,146 @@ describe("writing mcp__ names in a deny", () => {
     });
   });
 });
+
+describe("lifting mcp__ names with unblock_mcp_tools", () => {
+  const DOCS = "mcp__docs__read:all";
+  const WIKI = "mcp__wiki__b";
+
+  /** A ceiling whose first version blocks DOCS and WIKI. */
+  async function blocking() {
+    const made = setup();
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      deny: ["WebSearch", DOCS, WIKI],
+    });
+    return made;
+  }
+
+  test("a next version stops blocking exactly the names it lifts, over a deny and over an allow list", async () => {
+    const made = await blocking();
+    const lifted = await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      deny: ["WebSearch", WIKI],
+      unblock_mcp_tools: [DOCS],
+    });
+    expect(lifted.profile.mcp_deny).toEqual([WIKI]);
+    expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", WIKI]);
+    // The same over an allow list, which still keeps what it does not lift.
+    const listed = await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v2",
+      tools: ["Read"],
+      unblock_mcp_tools: [WIKI],
+    });
+    expect(listed.profile.mcp_deny).toBeUndefined();
+    // Nothing is left to carry, so no deny is stored, as for any allow list.
+    expect(made.writes.at(-1)?.deny ?? null).toBeNull();
+  });
+
+  test("without it a version keeps every name of the one before", async () => {
+    const made = await blocking();
+    const kept = await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      deny: ["WebSearch"],
+    });
+    expect(kept.profile.mcp_deny).toEqual([DOCS, WIKI].sort());
+  });
+
+  test("a name the previous version does not hold, a first version and a name also in deny are refused", async () => {
+    const made = await blocking();
+    const next = { ...CEILING, previous_id: "op_coding_v1" };
+    expect(
+      await refused(
+        made.ceilings.create(owner(), {
+          ...next,
+          deny: ["WebSearch"],
+          unblock_mcp_tools: ["mcp__docs__other"],
+        }),
+      ),
+    ).toMatchObject({
+      reason_code: "mcp_unblock_unknown",
+      field: "unblock_mcp_tools",
+    });
+    expect(
+      await refused(
+        made.ceilings.create(owner(), {
+          ...next,
+          deny: ["WebSearch", DOCS],
+          unblock_mcp_tools: [DOCS],
+        }),
+      ),
+    ).toMatchObject({ reason_code: "mcp_unblock_conflict" });
+    expect(
+      await refused(
+        setup().ceilings.create(owner(), {
+          ...CEILING,
+          name: "fresh",
+          deny: ["WebSearch"],
+          unblock_mcp_tools: [DOCS],
+        }),
+      ),
+    ).toMatchObject({ reason_code: "mcp_unblock_no_previous" });
+  });
+
+  test("a name the base blocks cannot be lifted by a workspace version", async () => {
+    const made = await blocking();
+    const first = await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", DOCS, WIKI, "mcp__wiki__own"],
+    });
+    expect(
+      await refused(
+        made.workspace.create(owner(), {
+          ...VERSION,
+          deny: ["WebSearch", DOCS, WIKI],
+          previous_id: first.profile.id,
+          unblock_mcp_tools: [DOCS],
+        }),
+      ),
+    ).toMatchObject({ reason_code: "base_mcp_deny_dropped" });
+  });
+
+  test("a workspace version lifts its own names, and names the version it read", async () => {
+    const made = await blocking();
+    const first = await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", DOCS, WIKI, "mcp__wiki__own"],
+    });
+    const lifted = await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", DOCS, WIKI],
+      previous_id: first.profile.id,
+      unblock_mcp_tools: ["mcp__wiki__own"],
+    });
+    expect(lifted.profile.mcp_deny).toEqual([DOCS, WIKI].sort());
+    // Lifting without saying which version was read is refused...
+    expect(
+      await refused(
+        made.workspace.create(owner(), {
+          ...VERSION,
+          deny: ["WebSearch", DOCS, WIKI],
+          unblock_mcp_tools: ["mcp__wiki__own"],
+        }),
+      ),
+    ).toMatchObject({
+      reason_code: "mcp_unblock_no_previous",
+      field: "previous_id",
+    });
+    // ...and so is naming a version that is no longer the latest.
+    expect(
+      await refused(
+        made.workspace.create(owner(), {
+          ...VERSION,
+          deny: ["WebSearch", DOCS, WIKI],
+          previous_id: first.profile.id,
+          unblock_mcp_tools: [WIKI],
+        }),
+      ),
+    ).toMatchObject({
+      code: "REVISION_CONFLICT",
+      reason_code: "stale_previous",
+    });
+  });
+});
