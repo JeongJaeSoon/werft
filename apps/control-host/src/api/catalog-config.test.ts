@@ -317,6 +317,15 @@ describe("installed runtimes", () => {
       states({ WORKER_IMAGE_RUNTIME: image("0.3.280", "2.1.280") }),
     ).toEqual(new Set(["usable"]));
     expect(runtimeVersionsFromEnv({})).toBeUndefined();
+    // A profile row left at the build before the image's has the same tool
+    // catalog, so the image still runs it; a row at a build with none is not.
+    const runtimes = runtimeVersionsFromEnv({
+      WORKER_IMAGE_RUNTIME: image("0.3.319", "2.1.319"),
+    });
+    expect(runtimes?.current).toEqual(
+      expect.arrayContaining(["0.3.319", "2.1.319", "0.3.270", "2.1.270"]),
+    );
+    expect(runtimes?.current).not.toContain("0.3.1");
     expect(() =>
       runtimeVersionsFromEnv({ WORKER_IMAGE_RUNTIME: "0.3.280" }),
     ).toThrow("WORKER_IMAGE_RUNTIME");

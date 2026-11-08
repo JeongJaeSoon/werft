@@ -29,6 +29,7 @@ export {
   type BuiltinTool,
   type BuiltinToolCatalog,
   canonicalToolName,
+  equivalentToolCatalogVersions,
   legacyToolNames,
   type ToolBoundary,
   toolCatalogFor,
