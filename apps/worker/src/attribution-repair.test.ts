@@ -391,6 +391,17 @@ describe("claimExpectations", () => {
     ]);
   });
 
+  test("a restarted claim carries the co-authors earlier turns were issued", () => {
+    const earlier = {
+      name: "grace",
+      email: "2+grace@users.noreply.github.com",
+    };
+    expect(claimExpectations({ ...claim, git_co_authors: [earlier] })).toEqual([
+      { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
+      { author: BOT, coAuthor: earlier, agentSession: "https://c/s/1" },
+    ]);
+  });
+
   test("adds one bundle for each co-author the turns named, once", () => {
     noteTurnCoAuthor(claim, octocat);
     noteTurnCoAuthor(claim, octocat);

@@ -75,13 +75,17 @@ export function noteTurnCoAuthor(claim: object, coAuthor: CoAuthor): void {
  * each co-author a turn named. The server keeps the same set for the push.
  */
 export function claimExpectations(
-  claim: Pick<BootstrapClaimResponse, "session_id" | "git" | "git_author">,
+  claim: Pick<
+    BootstrapClaimResponse,
+    "session_id" | "git" | "git_author" | "git_co_authors"
+  >,
 ): AttributionExpectation[] {
   const base = claimExpectation(claim);
   if (base === null) return [];
-  const turns = [...(turnCoAuthors.get(claim)?.values() ?? [])].map(
-    (coAuthor) => ({ ...base, coAuthor }),
-  );
+  const turns = [
+    ...(claim.git_co_authors ?? []),
+    ...(turnCoAuthors.get(claim)?.values() ?? []),
+  ].map((coAuthor) => ({ ...base, coAuthor }));
   return [base, ...turns];
 }
 

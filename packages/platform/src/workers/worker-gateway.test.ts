@@ -1084,6 +1084,34 @@ describe("WorkerGateway", () => {
             };
           },
         },
+        // Earlier turns were issued these co-authors besides the starter's.
+        ledger: {
+          record: async () => {},
+          recordTurnCoAuthor: async () => {},
+          list: async () => {
+            const author = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
+            const agentSession = "https://c/s/1";
+            return [
+              { author, coAuthor: null, agentSession },
+              {
+                author,
+                coAuthor: {
+                  name: "octocat",
+                  email: "583231+octocat@users.noreply.github.com",
+                },
+                agentSession,
+              },
+              {
+                author,
+                coAuthor: {
+                  name: "grace",
+                  email: "2+grace@users.noreply.github.com",
+                },
+                agentSession,
+              },
+            ];
+          },
+        },
         consoleOrigin: "https://console.example.com",
       },
       options: {
@@ -1104,6 +1132,10 @@ describe("WorkerGateway", () => {
       session_url: sessionUrl,
     });
     expect(linked.git_strip).toEqual(["noreply@anthropic.com"]);
+    // The starter's own co-author is not repeated; an earlier turn's is sent.
+    expect(linked.git_co_authors).toEqual([
+      { name: "grace", email: "2+grace@users.noreply.github.com" },
+    ]);
     starter = null;
     const agentKey = await attributed.bootstrapClaim(
       { kind: "bootstrap" },

@@ -519,6 +519,17 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // session's commits (ENGINE_COAUTHOR_EMAILS). Sent with `git`; top-level for
   // the reason `git_author` is.
   git_strip: claimGitStripSchema.optional(),
+  // Co-authors earlier turns of this session were issued besides `git`'s own,
+  // so a restarted worker still accepts their commits. Top-level for the
+  // reason `git_author` is.
+  git_co_authors: z
+    .array(
+      z
+        .object({ name: trailerValueSchema, email: trailerValueSchema })
+        .strict(),
+    )
+    .max(64)
+    .optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
   // it (session-repository-attachment.md decision 3). Top-level so an older

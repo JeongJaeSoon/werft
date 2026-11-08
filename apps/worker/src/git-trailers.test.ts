@@ -193,6 +193,25 @@ describe("the commit-msg hook", () => {
     ).toHaveLength(1);
   });
 
+  test("amending a commit in another requester's turn does not add that requester next to the first (94S-1304)", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git(["commit", "-q", "--allow-empty", "-m", "Fix the thing"]);
+    const grace = { name: "grace", email: "2+grace@users.noreply.github.com" };
+    await writeGitTrailers(
+      home,
+      claim({ co_author: grace, session_url: SESSION_URL }),
+    );
+    git(["commit", "-q", "--amend", "--allow-empty", "--no-edit"]);
+    expect(lastMessage()).toBe(
+      [
+        "Fix the thing",
+        "",
+        `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+        `Agent-Session: ${SESSION_URL}`,
+      ].join("\n"),
+    );
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,

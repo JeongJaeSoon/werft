@@ -64,6 +64,13 @@ werft_add_trailers() {
     # The block git reads as the message's trailers (the push check counts
     # only that block). --no-divider: a `---` line is ordinary text to it.
     last=$(git interpret-trailers --parse --no-divider "$_werft_file") || exit 1
+    # A message that already ends with this session's Agent-Session line was
+    # issued by an earlier turn (an amend, a rebase): another requester's
+    # co-author is not added next to the first one's.
+    session=$(grep -m1 '^Agent-Session: ' "$_werft_trailers")
+    if [ -n "$session" ] && printf '%s\n' "$last" | grep -qxF -- "$session"; then
+      exit 0
+    fi
     set --
     while IFS= read -r line || [ -n "$line" ]; do
       case $line in
