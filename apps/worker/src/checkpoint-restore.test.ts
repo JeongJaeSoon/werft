@@ -70,6 +70,7 @@ async function captured(
     root: from,
     bundlePath: join(scratch, `capture-${crypto.randomUUID()}.bundle`),
     signal: new AbortController().signal,
+    keepBranches: true,
     ...(instructions === undefined ? {} : { instructions }),
     ...(base === undefined ? {} : { base }),
   });

@@ -28,6 +28,7 @@ import {
 } from "../ports/push-requests.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+import { pinnedCarries } from "./push-approvability.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -569,10 +570,7 @@ export function createPushRequestService(deps: {
           );
           if (
             pinned.status !== "ready" ||
-            (pinned.gitCommit !== request.git_commit &&
-              !(pinned.sources ?? []).some(
-                (candidate) => candidate.commit === request.git_commit,
-              ))
+            !pinnedCarries(pinned, request.git_commit)
           ) {
             await refuseDecision("pinned_source_invalid");
           }

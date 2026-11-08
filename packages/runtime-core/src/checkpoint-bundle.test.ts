@@ -76,6 +76,34 @@ describe("checkpoint bundle refs", () => {
     );
   });
 
+  test("refuses a source that names HEAD's own branch, or a branch beside its own child", () => {
+    const other = "3".repeat(40);
+    const refsOf = (...extra: Array<readonly [string, string]>) =>
+      checkpointBundleRefs(
+        [
+          ["refs/checkpoint/head", head],
+          ["refs/checkpoint/worktree", worktree],
+          ["refs/heads/main", head],
+          ...extra,
+        ],
+        worktree,
+      );
+
+    const same = refsOf(["refs/checkpoint/source/main", other]);
+    expect(same.status === "invalid" && same.reason).toContain('"main"');
+    const parent = refsOf(
+      ["refs/checkpoint/source/guard", other],
+      ["refs/checkpoint/source/guard/docs", other],
+    );
+    expect(parent.status === "invalid" && parent.reason).toContain('"guard"');
+    expect(
+      refsOf(
+        ["refs/checkpoint/source/guard-docs", other],
+        ["refs/checkpoint/source/guard/docs", other],
+      ).status,
+    ).toBe("valid");
+  });
+
   test("refuses a source branch that is not a commit", () => {
     const verdict = checkpointBundleRefs(
       [

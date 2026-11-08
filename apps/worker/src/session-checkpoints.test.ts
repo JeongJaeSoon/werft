@@ -1183,6 +1183,61 @@ describe("a publish that fails for a reason other than the mirror", () => {
   });
 });
 
+describe("local branches in a checkpoint", () => {
+  const promptOf = (prompt_revision: 1 | 2 | 3 | 4) => ({
+    prompt_revision,
+    agent_identity: { name: "a", description: null },
+    origin_surface: "console" as const,
+    language: "ko" as const,
+    repository: null,
+  });
+
+  test.each([
+    ["no platform prompt", undefined, false],
+    ["revision 1", 1, false],
+    ["revision 3", 3, false],
+    ["revision 4", 4, true],
+  ] as const)(
+    "a session with %s asks the capture for branches: %p",
+    async (_label, revision, keeps) => {
+      const seen: Array<boolean | undefined> = [];
+      const h = harness({
+        captureWorkspace: async (input) => {
+          seen.push(input.keepBranches);
+          return captureWorkspace(input);
+        },
+      });
+      const claimed = await claimOf(h.gateway);
+      const claim = {
+        ...claimed,
+        runtime_config: {
+          ...claimed.runtime_config,
+          ...(revision === undefined
+            ? {}
+            : { platform_prompt: promptOf(revision) }),
+        },
+      };
+      const plan = await h.port.restorePlan(
+        claim,
+        new AbortController().signal,
+      );
+      if (plan.mode !== "new" || plan.sessionStore === undefined) {
+        throw new Error("expected a fresh plan with a mirror");
+      }
+      await (plan.sessionStore as TranscriptMirror).append(root, [
+        { type: "user", uuid: "u1", message: "hi" },
+      ]);
+
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      });
+
+      expect(seen).toEqual([keeps ? true : undefined]);
+    },
+  );
+});
+
 describe("unchanged untracked files", () => {
   test("reuses the previous committed version and reports capture sizes", async () => {
     const objects = createMemoryCheckpointObjectStore({ versioned: true });

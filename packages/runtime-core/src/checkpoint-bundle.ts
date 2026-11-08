@@ -186,6 +186,26 @@ export function checkpointBundleRefs(
   if (branch !== null && !branch.startsWith("refs/heads/")) {
     return invalid(`Checkpoint bundle carries ${carried}, which is no branch`);
   }
+  // A real repository never holds `foo` beside `foo/bar`, or one name twice,
+  // so a bundle that does would restore a branch at another commit than the
+  // manifest's verified one.
+  const branchNames = [
+    ...sourceRefs.map((name) => name.slice(CHECKPOINT_SOURCE_PREFIX.length)),
+    ...(branch === null ? [] : [branch.slice("refs/heads/".length)]),
+  ];
+  const clash = branchNames.find(
+    (name, at) =>
+      name === "" ||
+      branchNames.some(
+        (other, to) =>
+          to !== at && (other === name || other.startsWith(`${name}/`)),
+      ),
+  );
+  if (clash !== undefined) {
+    return invalid(
+      `Checkpoint bundle names the branch "${clash}" twice or as the parent of another branch`,
+    );
+  }
   const upstreamCommit = tracked === undefined ? null : commits.get(tracked);
   return {
     status: "valid",

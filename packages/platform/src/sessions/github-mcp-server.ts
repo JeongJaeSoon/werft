@@ -446,7 +446,7 @@ export function createGitHubMcpServer(deps: {
             pull_request: "none",
             // The model reads this as the end of the job; say that the pull
             // request is still its call, now, approval or not.
-            next: "Now call open_pull_request with this push_intent_id, without waiting for the push, also when the push needs approval. When every repository is asked for, tell the user in plain words which repositories were pushed, that a person approves each push, and that each pull request opens after its approval.",
+            next: "Now call open_pull_request with this push_intent_id, without waiting for the push, also when the push needs approval. When every repository is asked for, tell the user in plain words which repositories a push was requested for, that each push waits for a person's approval where approval is required, and that each pull request opens once its push succeeds.",
           });
         }
       }

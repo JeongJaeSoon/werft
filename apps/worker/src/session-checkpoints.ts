@@ -154,6 +154,7 @@ export type SessionCheckpointsOptions = {
     instructions?: InstructionsPin;
     base?: BundleBase;
     markNewFiles?: boolean;
+    keepBranches?: boolean;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   /** `DEFAULT_OUTPUT_LIMITS` unless a test sets smaller ones. */
@@ -1106,6 +1107,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
             : { instructions: bound.instructions }),
           ...(bound.claim.workspace.repository === null
             ? { markNewFiles: true }
+            : {}),
+          ...((bound.claim.runtime_config.platform_prompt?.prompt_revision ??
+            0) >= 4
+            ? { keepBranches: true }
             : {}),
           ...(previous === undefined
             ? {}

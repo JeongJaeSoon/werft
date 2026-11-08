@@ -250,7 +250,12 @@ describe("platformPromptText (revision 4, one reply for every repository)", () =
     expect(text).toContain("do all of them in this one reply");
     expect(text).toContain("never ask the user to send another message");
     expect(text).toContain("started from <repository_id>/<branch>");
-    expect(text).toContain("a wait_seconds that lets the answer come back final");
+    expect(text).toContain("origin/<branch> for the session's own repository");
+    expect(text).toContain("which repositories a push was requested for");
+    expect(text).not.toContain("were pushed");
+    expect(text).toContain(
+      "a wait_seconds that lets the answer come back final",
+    );
     expect(text).toContain("source_ref set to that branch");
     expect(text).toContain("answers source_ref_required");
     expect(text).toContain("never in a git worktree or a clone");
@@ -371,7 +376,7 @@ describe("runtimeProfile with a platform prompt", () => {
       "cee5226abc6fe9f9a5c34bd9a98ab4a06ba3e30c8f5c1b416f73aa8c7c6830e7",
     );
     expect(digest({ ...withRepository, prompt_revision: 4 })).toBe(
-      "902e286510b664784c953ff1fbb36f79b34e2da6b42b36c7d41cdf7f77449b01",
+      "2ac342a73992c0f2e1f4f666ecbd0141a8a23db260c95617cdef11169b7384bd",
     );
   });
 

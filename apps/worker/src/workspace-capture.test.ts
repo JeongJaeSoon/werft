@@ -106,18 +106,22 @@ async function running(pid: number): Promise<boolean> {
 }
 
 async function capture(
-  options: { limits?: Partial<typeof DEFAULT_WORKSPACE_CAPTURE_LIMITS> } = {},
+  options: {
+    limits?: Partial<typeof DEFAULT_WORKSPACE_CAPTURE_LIMITS>;
+    keepBranches?: boolean;
+  } = {},
 ) {
   return captureWorkspace({
     root,
     bundlePath: bundlePath(),
     signal: new AbortController().signal,
     limits: { ...DEFAULT_WORKSPACE_CAPTURE_LIMITS, ...options.limits },
+    keepBranches: options.keepBranches ?? true,
   });
 }
 
-async function captured(): Promise<WorkspaceCapture> {
-  const result = await capture();
+async function captured(keepBranches = true): Promise<WorkspaceCapture> {
+  const result = await capture({ keepBranches });
   if (result.status !== "captured") throw new Error(result.reason);
   return result.capture;
 }
@@ -422,6 +426,23 @@ exec "$REAL_GIT" "$@"`);
     expect(refs.map((ref) => ref.name)).not.toContain(
       `${CHECKPOINT_SOURCE_PREFIX}skills-sample`,
     );
+  });
+
+  test("carries no branch and no source ref unless the caller asks, so an older API still takes the manifest", async () => {
+    const base = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "checkout", "--quiet", "-b", "guard/docs");
+    await commitFiles({ "guard.md": "guard\n" });
+    await git(root, "checkout", "--quiet", "main");
+
+    const result = await captured(false);
+
+    expect(result.gitCommit).toBe(base);
+    expect(result.sources).toEqual([]);
+    expect(
+      headerOf(result)?.refs.some((ref) =>
+        ref.name.startsWith(CHECKPOINT_SOURCE_PREFIX),
+      ),
+    ).toBe(false);
   });
 
   test("keeps at most MAX_CHECKPOINT_SOURCES branches, the newest first, rather than refusing", async () => {

@@ -273,6 +273,12 @@ type WorkspaceCaptureInput = {
    * path refuses — rather than travel as untracked files.
    */
   markNewFiles?: boolean;
+  /**
+   * Carry every local branch (`CHECKPOINT_SOURCE_PREFIX`). Only sessions made
+   * after the API learned `workspace.sources` set it: an older API refuses the
+   * manifest field, and an older verifier refuses the refs.
+   */
+  keepBranches?: boolean;
   /** For tests that need procfs to be missing. */
   fdDirectory?: string;
 };
@@ -596,7 +602,8 @@ async function captureWorkspaceOnce(
       );
       if (upstream !== undefined) refs.push(upstream);
     }
-    const sources = await localSources(workspace);
+    const sources =
+      input.keepBranches === true ? await localSources(workspace) : [];
     const headBranch = branch.code === 0 ? branch.stdout.trim() : null;
     for (const source of sources) {
       if (`refs/heads/${source.name}` === headBranch) continue;
