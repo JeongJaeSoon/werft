@@ -42,6 +42,7 @@ import { withNodes } from "../../components/with-nodes.tsx";
 import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
+import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { nextVersion, shownVersion } from "./versions.tsx";
 
 // KeyValueList's dd does not break a long unspaced value; this does.
@@ -188,16 +189,13 @@ export function AgentReadiness({
   const { client } = useWerft();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
-  const draft = nextVersion(detail);
+  // The names a run needs are the agent's settings (the active release's
+  // values while none are saved), not the card's.
+  const settings = useQuery(mcpSettingsQuery(client, detail.agent.id));
   const active = detail.versions.find(
     (version) => version.id === detail.active_release?.version_id,
   );
-  const refs = [
-    ...new Set([
-      ...(draft?.card.capabilities.credential_refs ?? []),
-      ...(active?.card.capabilities.credential_refs ?? []),
-    ]),
-  ];
+  const refs = settings.data?.settings.credential_refs ?? [];
   const bound = new Set(
     (bindings.data?.items ?? [])
       .filter((binding) => binding.revoked_at === null)
@@ -205,29 +203,35 @@ export function AgentReadiness({
   );
   const missing = refs.filter((ref) => !bound.has(ref));
 
-  const credentials: { state: StepState; desc: ReactNode } =
-    refs.length === 0
-      ? { state: "done", desc: t("agent.ready.credentialsNone") }
-      : bindings.isPending
-        ? {
-            state: "pending",
-            desc: <Skeleton lines={1} label={t("status.loading.title")} />,
-          }
-        : bindings.error
-          ? { state: "unknown", desc: null }
-          : missing.length === 0
-            ? {
-                state: "done",
-                desc: t("agent.ready.credentialsBound", {
-                  count: refs.length,
-                }),
-              }
-            : {
-                state: "todo",
-                desc: t("agent.ready.credentialsMissing", {
-                  names: missing.join(", "),
-                }),
-              };
+  const credentials: { state: StepState; desc: ReactNode } = settings.error
+    ? { state: "unknown", desc: null }
+    : settings.isPending
+      ? {
+          state: "pending",
+          desc: <Skeleton lines={1} label={t("status.loading.title")} />,
+        }
+      : refs.length === 0
+        ? { state: "done", desc: t("agent.ready.credentialsNone") }
+        : bindings.isPending
+          ? {
+              state: "pending",
+              desc: <Skeleton lines={1} label={t("status.loading.title")} />,
+            }
+          : bindings.error
+            ? { state: "unknown", desc: null }
+            : missing.length === 0
+              ? {
+                  state: "done",
+                  desc: t("agent.ready.credentialsBound", {
+                    count: refs.length,
+                  }),
+                }
+              : {
+                  state: "todo",
+                  desc: t("agent.ready.credentialsMissing", {
+                    names: missing.join(", "),
+                  }),
+                };
   const released = detail.releases.length > 0;
   const newer = nextVersion(detail);
   const upToDate =

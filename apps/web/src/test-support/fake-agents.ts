@@ -2,6 +2,7 @@ import {
   type AgentCard,
   type AgentCardRequest,
   type AgentDetail,
+  type AgentMcpSettings,
   type AgentRelease,
   type AgentVersion,
   CREDENTIAL_REVOKE_NOTICE,
@@ -61,7 +62,12 @@ export function agentServer({
   releaseRefusal,
   activity = [],
   releaseRepository = null,
+  mcpSettings,
+  availableServers = ["docs", "wiki"],
 }: {
+  /** A saved settings row (revision 1); without it the GET reads "release". */
+  mcpSettings?: AgentMcpSettings;
+  availableServers?: readonly string[];
   repositoryMode?: ProfileSummary["repository_mode"];
   description?: string | null;
   tracking?: "follow" | "pinned";
@@ -80,6 +86,8 @@ export function agentServer({
   let team: TeamView | null = null;
   const releases: AgentRelease[] = [];
   const bindings: CredentialBindingView[] = [];
+  let mcpRow: { settings: AgentMcpSettings; revision: number } | null =
+    mcpSettings === undefined ? null : { settings: mcpSettings, revision: 1 };
   let active: string | null = null;
   let revision = -1;
   let draftId: string | null = null;
@@ -274,6 +282,42 @@ export function agentServer({
     },
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
+    [`GET ${path}/mcp/settings`]: () => {
+      const settings = mcpRow?.settings ?? {
+        server: null,
+        allowed_tools: [],
+        credential_refs: [],
+      };
+      const live = new Set(
+        bindings.filter((b) => !b.revoked_at).map((b) => b.credential_ref),
+      );
+      return json(200, {
+        source: mcpRow === null ? "release" : "agent",
+        settings,
+        settings_revision: mcpRow?.revision ?? null,
+        active_release_id: active,
+        bound_credential_refs: settings.credential_refs.filter((ref) =>
+          live.has(ref),
+        ),
+        available_servers: [...availableServers],
+      });
+    },
+    [`PUT ${path}/mcp/settings`]: async (request: Request) => {
+      const body = (await request.json()) as {
+        expected_revision: number | null;
+        settings: AgentMcpSettings;
+      };
+      if (body.expected_revision !== (mcpRow?.revision ?? null))
+        return apiError(409, "REVISION_CONFLICT", "The settings changed");
+      mcpRow = {
+        settings: body.settings,
+        revision: (mcpRow?.revision ?? 0) + 1,
+      };
+      return json(200, {
+        settings_revision: mcpRow.revision,
+        receipt_id: RECEIPT_ID,
+      });
+    },
     [`GET ${path}/credential-bindings`]: () =>
       json(200, {
         items: bindings.filter((b) => !b.revoked_at),
@@ -363,11 +407,16 @@ export function agentServer({
           "REVISION_CONFLICT",
           "The agent was activated by someone else",
         );
-      const named =
-        versions.find(
-          (v) =>
-            v.id === releases.find((r) => r.id === body.release_id)?.version_id,
-        )?.card.capabilities.credential_refs ?? [];
+      const named = [
+        ...new Set([
+          ...(versions.find(
+            (v) =>
+              v.id ===
+              releases.find((r) => r.id === body.release_id)?.version_id,
+          )?.card.capabilities.credential_refs ?? []),
+          ...(mcpRow?.settings.credential_refs ?? []),
+        ]),
+      ];
       const bound = new Set(
         bindings.filter((b) => !b.revoked_at).map((b) => b.credential_ref),
       );

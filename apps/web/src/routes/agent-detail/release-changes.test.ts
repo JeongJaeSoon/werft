@@ -158,8 +158,42 @@ describe("releaseChanges", () => {
         after: "acceptEdits",
       },
       { area: "secrets", field: { path: "env_ref" }, kind: "changed" },
-      { area: "secrets", field: { key: "credentials" }, kind: "changed" },
     ]);
+  });
+
+  test("the MCP server, its tools and the credential names are agent settings, so a release does not list them", () => {
+    const side = (id: string, server: string, refs: string[]) => ({
+      release: release({
+        id,
+        version_id: id,
+        effective_tools: {
+          tools: ["Read", "Bash"],
+          mcp: [`mcp__${server}__read`],
+        },
+      }),
+      card: card({
+        capabilities: {
+          mcp: [{ server }],
+          forbidden: [],
+          credential_refs: refs,
+        },
+      }),
+    });
+    const a = side("ra", "docs", ["docs-key"]);
+    const b = side("rb", "wiki", ["wiki-key", "extra"]);
+    const cardsById = new Map([
+      ["ra", a.card],
+      ["rb", b.card],
+    ]);
+    const changes = releaseChanges(a.release, b.release, (id) =>
+      cardsById.get(id),
+    );
+    const keys = changes.map((change) =>
+      "key" in change.field ? change.field.key : change.field.path,
+    );
+    for (const gone of ["mcpServers", "mcpTools", "credentials"])
+      expect(keys).not.toContain(gone);
+    expect(changes.filter((change) => change.area === "secrets")).toEqual([]);
   });
 
   test("a credential shows as changed with neither its reference nor its names", () => {

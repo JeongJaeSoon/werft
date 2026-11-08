@@ -303,7 +303,9 @@ export function ProfileEditor({
     }
     // A new profile names the one it narrows; a new version of one names
     // the version before it, whose source the server keeps.
-    const { base_profile_id, ...rest } = request.data;
+    // The step is the workspace request's, whose own `previous_id` this
+    // form never sets: the version it follows goes in below.
+    const { base_profile_id, previous_id: _own, ...rest } = request.data;
     save.mutate({
       ...rest,
       ...(start.mode === "new"

@@ -24,7 +24,11 @@ import { profileDisplay } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
-import { receiptTitle, useAgentGitHubActivity } from "./github-activity.ts";
+import {
+  mcpChange,
+  receiptTitle,
+  useAgentGitHubActivity,
+} from "./github-activity.ts";
 import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import {
@@ -47,6 +51,24 @@ export function releasedProfile(detail: AgentDetail): string | undefined {
 }
 
 type Receipt = components["schemas"]["Receipt"];
+
+/** The names an MCP save changed, before and after; never a value. */
+function McpChangeLines({ receipt }: { readonly receipt: Receipt }) {
+  const { t } = useI18n();
+  const change = mcpChange(receipt, t);
+  return (
+    <>
+      <Text as="span" variant="meta" className="wrap-anywhere">
+        {change.before === null
+          ? t("agentAccess.activity.first")
+          : `${t("agentAccess.activity.before")}: ${change.before}`}
+      </Text>
+      <Text as="span" variant="meta" className="wrap-anywhere">
+        {t("agentAccess.activity.after")}: {change.after}
+      </Text>
+    </>
+  );
+}
 
 type Entry =
   | {
@@ -107,7 +129,8 @@ export function Releases({
     ...(activity.data?.items ?? [])
       .filter(
         (receipt) =>
-          receipt.operation === "set_agent_github" &&
+          (receipt.operation === "set_agent_github" ||
+            receipt.operation === "set_agent_mcp") &&
           receipt.status !== "failed",
       )
       .map((item): Entry => ({ kind: "access", at: item.created_at, item })),
@@ -172,6 +195,9 @@ export function Releases({
                           {receiptTitle(entry.item, t)} ·{" "}
                           {t("agent.releases.accessNoRelease")}
                         </Text>
+                        {entry.item.operation === "set_agent_mcp" ? (
+                          <McpChangeLines receipt={entry.item} />
+                        ) : null}
                         <span className="hidden text-caption tabular-nums [@container(max-width:860px)]:block">
                           {at(entry.item.created_at)}
                         </span>

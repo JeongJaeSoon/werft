@@ -24,7 +24,51 @@ export function useAgentGitHubActivity(agentId: string, enabled = true) {
   });
 }
 
+const namesOf = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((name): name is string => typeof name === "string")
+    : [];
+
+/**
+ * What a `set_agent_mcp` receipt says changed, as the names before and after.
+ * The receipt holds names only, and anything else in it is not read.
+ */
+export function mcpChange(
+  receipt: Receipt,
+  t: Translate,
+): { readonly before: string | null; readonly after: string } {
+  const result = (receipt.result ?? {}) as {
+    before?: unknown;
+    after?: unknown;
+  };
+  const none = t("agentAccess.activity.none");
+  const summary = (side: unknown): string => {
+    const values = (side ?? {}) as {
+      server?: unknown;
+      allowed_tools?: unknown;
+      credential_refs?: unknown;
+    };
+    const join = (names: string[]) =>
+      names.length > 0 ? names.join(", ") : none;
+    return t("agentAccess.activity.summary", {
+      server: typeof values.server === "string" ? values.server : none,
+      tools: join(namesOf(values.allowed_tools)),
+      refs: join(namesOf(values.credential_refs)),
+    });
+  };
+  return {
+    before:
+      result.before === null || result.before === undefined
+        ? null
+        : summary(result.before),
+    after: summary(result.after),
+  };
+}
+
 export function receiptTitle(receipt: Receipt, t: Translate): string {
+  if (receipt.operation === "set_agent_mcp") {
+    return t("agentAccess.activity.mcp");
+  }
   const result = (receipt.result ?? {}) as {
     enabled?: boolean;
     change?: string;
