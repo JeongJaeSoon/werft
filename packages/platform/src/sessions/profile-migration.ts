@@ -271,7 +271,11 @@ function freeName(
 function copiedDefinition(
   catalog: ProfileLookup<CatalogProfileView>,
   record: WorkspaceProfileRecord,
-): { definition: Record<string, unknown>; mcpDeny: string[] } | null {
+): {
+  definition: Record<string, unknown>;
+  mcpDeny: string[];
+  baseCatalogId: string | null;
+} | null {
   const entry = catalog.installation?.get(record.base_profile_id);
   const base = entry?.definition ?? entry?.record?.definition;
   if (typeof base !== "object" || base === null) return null;
@@ -286,7 +290,21 @@ function copiedDefinition(
       ...(entry?.record?.deny ?? []),
       ...(record.deny ?? []),
     ]),
+    baseCatalogId: entry?.record?.tool_catalog_id ?? null,
   };
+}
+
+/**
+ * The catalog id beside a copy's deny column, which the table requires once
+ * the column is set: the version's, else (a deny only inherited from the
+ * base) the base's.
+ */
+function copiedCatalogId(
+  record: WorkspaceProfileRecord,
+  deny: readonly string[] | null,
+  baseCatalogId: string | null,
+): string | null {
+  return record.tool_catalog_id ?? (deny === null ? null : baseCatalogId);
 }
 
 /** The deny column a copy stores: the version's, plus its base's `mcp__` names it lacks. */
@@ -427,6 +445,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
           : copiedDefinition(catalog, record);
       const definition = copied?.definition ?? null;
       const mcpDeny = copied?.mcpDeny ?? [];
+      const baseCatalogId = copied?.baseCatalogId ?? null;
       plan.effective = definition;
       if (definition !== null) {
         plan.usage.equivalent_installation_version = equivalentVersion(
@@ -520,7 +539,11 @@ export function planMigration(input: MigrationInput): MigrationPlan {
             existing.definition as never,
           ),
           deny: copiedDeny(record, mcpDeny),
-          tool_catalog_id: record.tool_catalog_id ?? null,
+          tool_catalog_id: copiedCatalogId(
+            record,
+            copiedDeny(record, mcpDeny),
+            baseCatalogId,
+          ),
           permission_mode: String(
             existing.definition.permission_mode ?? record.permission_mode,
           ),
@@ -550,7 +573,11 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         definition,
         fingerprint: definitionFingerprint(lineage.name, definition as never),
         deny: copiedDeny(record, mcpDeny),
-        tool_catalog_id: record.tool_catalog_id ?? null,
+        tool_catalog_id: copiedCatalogId(
+          record,
+          copiedDeny(record, mcpDeny),
+          baseCatalogId,
+        ),
         permission_mode: record.permission_mode,
       };
       lineage.last = version;

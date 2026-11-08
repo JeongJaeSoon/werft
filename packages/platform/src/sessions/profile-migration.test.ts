@@ -655,7 +655,10 @@ describe("planMigration and mcp__ deny", () => {
     const catalog = catalogWith(records);
     (catalog.profiles as Record<string, CatalogProfile>).coding = blockedBase;
     const record = catalog.installation?.get("coding")?.record;
-    if (record) record.deny = ["WebSearch", "mcp__a__b"];
+    if (record) {
+      record.deny = ["WebSearch", "mcp__a__b"];
+      record.tool_catalog_id = "engine@old";
+    }
     return catalog;
   }
   const own = (overrides: Partial<WorkspaceProfileRecord> = {}) =>
@@ -727,6 +730,8 @@ describe("planMigration and mcp__ deny", () => {
       input(blockedCatalog([own()]), [agent("a1", "ws_acme_strict_v1")]),
     );
     expect(plan.profiles[0]?.target?.deny).toEqual(["mcp__a__b"]);
+    // The table wants a catalog id beside any deny: the base's, here.
+    expect(plan.profiles[0]?.target?.tool_catalog_id).toBe("engine@old");
   });
 
   test("an earlier copy counts as the same only when its mcp__ names match", () => {
