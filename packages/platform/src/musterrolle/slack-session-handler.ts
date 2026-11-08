@@ -91,7 +91,10 @@ export type SlackSessionHandlerDeps = {
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
     SurfaceBindingStore,
-    "resolveSlackChannel" | "ensureDmBinding"
+    | "resolveSlackChannel"
+    | "ensureDmBinding"
+    | "findPendingApproval"
+    | "requireApproval"
   >;
   /** Whether the agent waits for a mention in every channel in use. */
   settings: Pick<SlackAppStore, "getSettings">;
@@ -196,7 +199,13 @@ export function createSlackSessionHandler(
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
-    const notice = async (reason: string, text: SlackNotice) => {
+    // `wait` names one wait of one channel, so the notice that it waits for
+    // approval is told once per wait, not once per thread.
+    const notice = async (
+      reason: string,
+      text: SlackNotice,
+      wait?: { id: string; revision: number },
+    ) => {
       // Someone talking unmentioned did not ask the agent, so a
       // refusal is not theirs to read on every message.
       if (found === null && !mentioned && !dm) return;
@@ -211,7 +220,9 @@ export function createSlackSessionHandler(
         slackUserId: event.user,
         reason,
         notice: text,
-        onceKey: `${agent.installationId}:${surfaceRef}:${event.user}`,
+        onceKey: `${agent.installationId}:${surfaceRef}:${event.user}${
+          wait === undefined ? "" : `:${wait.id}:${wait.revision}`
+        }`,
       });
     };
 
@@ -224,6 +235,26 @@ export function createSlackSessionHandler(
         : binding !== null && binding.channelKind !== "dm"
           ? await deps.slack.channelKind(botToken, event.channel)
           : undefined;
+    // A public channel that turned private is no longer the place the
+    // binding allowed: it waits for approval, and the others are told so.
+    if (
+      binding !== null &&
+      binding.channelKind === "public_channel" &&
+      eventKind === "private_channel"
+    ) {
+      const waiting = await deps.bindings.requireApproval(binding.id);
+      if (waiting !== null) {
+        deps.logger.warn("Slack channel turned private; waits for approval", {
+          ...ids,
+        });
+        await notice(
+          "pending_approval",
+          { message: "pendingApproval" },
+          { id: waiting.id, revision: waiting.revision },
+        );
+        return;
+      }
+    }
     if (
       binding !== null &&
       eventKind !== undefined &&
@@ -285,8 +316,21 @@ export function createSlackSessionHandler(
         reason: decision.decision.reason_code,
       });
       if (decision.notice !== null) {
-        await notice(decision.decision.reason_code, decision.notice);
+        await (decision.pending === null
+          ? notice(decision.decision.reason_code, decision.notice)
+          : notice("pending_approval", decision.notice, decision.pending));
       }
+      return;
+    }
+    // Input from before the approval is not answered after it: an approval
+    // does not bring back what was said while the channel waited.
+    if (
+      binding?.approvedAt != null &&
+      Number(event.ts) * 1000 < binding.approvedAt.getTime()
+    ) {
+      deps.logger.info("Slack input predates the channel's approval; ignored", {
+        ...ids,
+      });
       return;
     }
 

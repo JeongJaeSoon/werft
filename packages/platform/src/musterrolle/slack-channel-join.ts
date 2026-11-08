@@ -78,14 +78,7 @@ const memberJoinedSchema = z.object({
   type: z.literal("member_joined_channel"),
   user: z.string().min(1),
   channel: z.string().min(1),
-  // Slack's `C` is a public channel, `G` a private one.
-  channel_type: z.string().optional(),
 });
-
-const INVITED_KIND = {
-  C: "public_channel",
-  G: "private_channel",
-} as const;
 
 /**
  * The `slack` role's handler for `member_joined_channel`: when the one who
@@ -93,14 +86,22 @@ const INVITED_KIND = {
  * is how a person adds the agent to a channel), the binding is `joined`,
  * and a home hears the welcome it was waiting for. Every other event goes
  * to `next`.
+ *
+ * The event's `channel_type` is not trusted for the kind: Slack is asked,
+ * and when it cannot answer the event fails and is tried again, so a
+ * private channel is never taken for a public one. A private channel waits
+ * for an owner or admin before the agent answers in it.
  */
 export function createSlackMemberJoinedHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   bindings: Pick<
     SurfaceBindingStore,
-    "resolveSlackChannel" | "ensureInvitedChannel" | "setMembership"
+    "ensureInvitedChannel" | "requireApproval" | "setMembership"
   >;
   welcome: Pick<SlackWelcome, "welcome">;
+  slack: Pick<SlackBotApi, "channelKind">;
+  /** The app's bot token from the secret store; null when it has none. */
+  botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
   return async (claim) => {
@@ -116,23 +117,37 @@ export function createSlackMemberJoinedHandler(deps: {
     if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
       return;
     }
-    const { channel, channel_type: type } = parsed.data;
-    const kind = type === "C" || type === "G" ? INVITED_KIND[type] : undefined;
-    const binding =
-      (await deps.bindings.resolveSlackChannel(
-        agent.installationId,
-        channel,
-      )) ??
-      (kind === undefined
-        ? null
-        : await deps.bindings.ensureInvitedChannel(
-            agent.installationId,
-            channel,
-            kind,
-          ));
-    if (binding === null) return;
+    const { channel } = parsed.data;
+    const botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);
+    if (botToken === null) {
+      throw new Error("The Slack app has no bot token stored");
+    }
+    // A failed read throws: the event is tried again, and nothing is bound
+    // on the word of `channel_type`.
+    const kind = await deps.slack.channelKind(botToken, channel);
+    if (kind === "dm") return;
+    let binding = await deps.bindings.ensureInvitedChannel(
+      agent.installationId,
+      channel,
+      kind,
+    );
+    if (
+      binding === null ||
+      (binding.status !== "ready" && binding.status !== "pending_approval")
+    ) {
+      return;
+    }
+    // Bound as a public channel and now seen as a private one: it waits for
+    // approval like a new one.
+    if (
+      binding.status === "ready" &&
+      binding.channelKind === "public_channel" &&
+      kind === "private_channel"
+    ) {
+      binding = (await deps.bindings.requireApproval(binding.id)) ?? binding;
+    }
     await deps.bindings.setMembership(binding.id, JOINED);
-    if (binding.home) {
+    if (binding.home && binding.status === "ready") {
       await deps.welcome.welcome(binding.workspaceId, binding.agentId, {
         ask: false,
       });

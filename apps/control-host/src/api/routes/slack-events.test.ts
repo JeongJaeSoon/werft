@@ -98,6 +98,7 @@ const service = createSlackEventsService({
   inbox: inbox.store,
   apps: apps.store,
   identities: identities.store,
+  bindings: { findPendingApproval: async () => null },
   installs: installs.store,
 });
 const receives = { count: 0 };

@@ -18,6 +18,7 @@ import type {
   SlackInboundEventStore,
 } from "../ports/slack-inbound-event-store.ts";
 import type { SlackInstallStore } from "../ports/slack-install-store.ts";
+import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
 import { slackConversationKey } from "./slack-inbox.ts";
 
@@ -122,7 +123,32 @@ export type SlackEventsOutcome =
 
 type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
-  | { status: "received" | "processed" };
+  | { status: "received" | "processed"; redact?: { botUserId: string } };
+
+// What a mention in a channel waiting for approval keeps: where and who, so
+// one notice can be told, and none of what was said or attached.
+const PENDING_EVENT_FIELDS = [
+  "type",
+  "user",
+  "channel",
+  "channel_type",
+  "ts",
+  "thread_ts",
+  "event_ts",
+] as const;
+
+function redactedEvent(
+  event: SlackEventCallback["event"],
+  botUserId: string,
+): SlackEventCallback["event"] {
+  const kept: Record<string, unknown> = {};
+  for (const field of PENDING_EVENT_FIELDS) {
+    if (event[field] !== undefined) kept[field] = event[field];
+  }
+  // The mention is why the event is kept, so the handler still finds it.
+  kept.text = `<@${botUserId}>`;
+  return kept as SlackEventCallback["event"];
+}
 
 const ACCEPTED_TYPES = new Set<string>(SLACK_INBOUND_EVENT_TYPES);
 const ACCEPTED_SUBTYPES = new Set<string>(SLACK_ACCEPTED_MESSAGE_SUBTYPES);
@@ -140,6 +166,7 @@ export function createSlackEventsService(deps: {
   apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
+  bindings: Pick<SurfaceBindingStore, "findPendingApproval">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -192,6 +219,23 @@ export function createSlackEventsService(deps: {
         !ACCEPTED_SUBTYPES.has(event.subtype)
       ) {
         return { status: "dropped", dropReason: "message_subtype" };
+      }
+      // A channel waiting for approval is not bound, so what is said in it
+      // is not kept: only a mention is, with nothing but who and where.
+      if (typeof event.channel === "string" && event.channel_type !== "im") {
+        const pending = await deps.bindings.findPendingApproval(
+          resolved.installationId,
+          event.channel,
+        );
+        if (pending !== null) {
+          const mentioned =
+            event.type === "app_mention" ||
+            (typeof event.text === "string" &&
+              event.text.includes(`<@${resolved.botUserId}`));
+          return mentioned
+            ? { status: "received", redact: { botUserId: resolved.botUserId } }
+            : { status: "dropped", dropReason: "channel_pending_approval" };
+        }
       }
     }
     return { status: "received" };
@@ -267,7 +311,14 @@ export function createSlackEventsService(deps: {
             ? null
             : new Date(envelope.event_time * 1000),
       };
-      const { token: _token, ...payload } = envelope;
+      const { token: _token, ...unredacted } = envelope;
+      const payload =
+        classified.status !== "dropped" && classified.redact !== undefined
+          ? {
+              ...unredacted,
+              event: redactedEvent(envelope.event, classified.redact.botUserId),
+            }
+          : unredacted;
       const row: SlackInboundEventInput =
         classified.status === "dropped"
           ? { ...base, ...classified }

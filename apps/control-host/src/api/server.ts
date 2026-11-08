@@ -694,6 +694,7 @@ const slackEvents = createSlackEventsService({
   apps: slackAppStore ?? { setEventsUnlessVerified: async () => {} },
   identities: slackIdentityStore,
   installs: slackInstallStore,
+  bindings: surfaceBindingStore,
 });
 const slackInstall = createSlackInstallService({
   authorization,

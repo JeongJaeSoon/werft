@@ -5,7 +5,10 @@ import type {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
 import type { SlackAppRecord } from "../ports/slack-app-store.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
+import type {
+  SurfaceBindingRecord,
+  SurfaceBindingStore,
+} from "../ports/surface-binding-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createSlackChannelKinds } from "./slack-bot-token.ts";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
@@ -15,8 +18,37 @@ const WORKSPACE = "019a0000-0000-7000-8000-000000000001";
 const AGENT = "019a0000-0000-7000-8000-000000000002";
 const caller = testCaller(WORKSPACE);
 
-function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
+function recordOf(
+  overrides: Partial<SurfaceBindingRecord> = {},
+): SurfaceBindingRecord {
+  return {
+    id: "binding-1",
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    installationId: "installation-1",
+    channelId: "G0PRIVATE",
+    channelKind: "private_channel",
+    mode: "on",
+    ceiling: { actions: [], disclosure: "full" },
+    home: false,
+    memoryWritePolicy: "deny",
+    status: "ready",
+    approvedAt: null,
+    membership: null,
+    muted: false,
+    revision: 1,
+    createdAt: new Date(0),
+    revokedAt: null,
+    ...overrides,
+  };
+}
+
+function service(
+  kindOf: (channelId: string) => Promise<SurfaceChannelKind>,
+  overrides: Partial<SurfaceBindingStore> = {},
+) {
   const asked: string[] = [];
+  const actions: string[] = [];
   const stored: SurfaceChannelKind[] = [];
   const store: SurfaceBindingStore = {
     async set(input) {
@@ -36,6 +68,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
           home: input.home,
           memoryWritePolicy: "deny",
           status: "ready",
+          approvedAt: null,
           membership: null,
           muted: false,
           revision: 1,
@@ -44,6 +77,12 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
         },
       };
     },
+    findLiveSlackChannel: async () => null,
+    findPendingApproval: async () => null,
+    requireApproval: async () => null,
+    approve: async () => ({ outcome: "not_found" }),
+    reject: async () => ({ outcome: "not_found" }),
+    ...overrides,
     list: async () => [],
     resolveSlackChannel: async () => null,
     ensureDmBinding: async () => null,
@@ -52,8 +91,10 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
   };
   const bindings = createSurfaceBindingService({
     authorization: {
-      authorize: async () =>
-        ({ outcome: "allow", reason_code: "ok" }) as AuthorizationDecision,
+      authorize: async (request) => {
+        actions.push(request.action);
+        return { outcome: "allow", reason_code: "ok" } as AuthorizationDecision;
+      },
     },
     store,
     channels: {
@@ -63,7 +104,7 @@ function service(kindOf: (channelId: string) => Promise<SurfaceChannelKind>) {
       },
     },
   });
-  return { bindings, asked, stored };
+  return { bindings, asked, stored, actions };
 }
 
 async function codeOf(work: Promise<unknown>) {
@@ -196,5 +237,154 @@ describe("channel kinds through the agent's own app", () => {
     expect(
       await codeOf(channelKinds.kindOf(WORKSPACE, AGENT, "D0SOMEONE")),
     ).toBe("BAD_REQUEST");
+  });
+});
+
+describe("a private channel waits for an owner or admin", () => {
+  test("a refused home on a channel that waits is a 400, and the save is not retried as one", async () => {
+    const { bindings } = service(async () => "private_channel", {
+      set: async () => ({ outcome: "pending_home" }),
+    });
+    expect(
+      await codeOf(
+        bindings.putSlackBinding(caller, AGENT, {
+          channel_id: "G0PRIVATE",
+          mode: "on",
+          home: true,
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  test("a binding that waits reads as pending_approval with no approval time", async () => {
+    const { bindings } = service(async () => "private_channel", {
+      set: async () => ({
+        outcome: "set",
+        receiptId: "receipt-1",
+        binding: recordOf({ status: "pending_approval" }),
+      }),
+    });
+    const put = await bindings.putSlackBinding(caller, AGENT, {
+      channel_id: "G0PRIVATE",
+      mode: "on",
+      home: false,
+    });
+    expect(put.slack_binding.status).toBe("pending_approval");
+    expect(put.slack_binding.approved_at).toBeUndefined();
+  });
+
+  function approver(
+    resolved: Awaited<ReturnType<SurfaceBindingStore["approve"]>>,
+  ) {
+    const seen: unknown[] = [];
+    const joined: string[] = [];
+    const welcomed: string[] = [];
+    const actions: string[] = [];
+    const withJoin = createSurfaceBindingService({
+      authorization: {
+        authorize: async (request) => {
+          actions.push(request.action);
+          return {
+            outcome: "allow",
+            reason_code: "ok",
+          } as AuthorizationDecision;
+        },
+      },
+      store: {
+        ...({} as SurfaceBindingStore),
+        approve: async (input) => {
+          seen.push(input);
+          return resolved;
+        },
+        reject: async (input) => {
+          seen.push(input);
+          return resolved;
+        },
+      },
+      channels: { kindOf: async () => "private_channel" },
+      join: async (binding) => {
+        joined.push(binding.id);
+        return { state: "joined", error: null };
+      },
+      welcome: {
+        welcome: async (_workspace, agentId) => {
+          welcomed.push(agentId);
+          return { status: "enqueued", channelId: "G0PRIVATE" };
+        },
+      },
+    });
+    return { bindings: withJoin, seen, joined, welcomed, actions };
+  }
+
+  test("approving asks binding.approve, passes only owner and admin as approvers, and joins the channel", async () => {
+    const t = approver({
+      outcome: "resolved",
+      receiptId: "receipt-2",
+      binding: recordOf({
+        revision: 2,
+        approvedAt: new Date("2026-11-09T00:00:00Z"),
+      }),
+    });
+    const done = await t.bindings.approveSlackBinding(
+      caller,
+      AGENT,
+      "binding-1",
+      { revision: 1 },
+    );
+    expect(t.actions).toEqual(["binding.approve"]);
+    expect(t.seen).toMatchObject([
+      {
+        bindingId: "binding-1",
+        revision: 1,
+        approverRoles: ["owner", "admin"],
+      },
+    ]);
+    expect(done.receipt_id).toBe("receipt-2");
+    expect(done.slack_binding.status).toBe("ready");
+    expect(done.slack_binding.approved_at).toBe("2026-11-09T00:00:00.000Z");
+    expect(t.joined).toEqual(["binding-1"]);
+  });
+
+  test("rejecting does not join; the same decision again replays with no receipt", async () => {
+    const rejected = approver({
+      outcome: "resolved",
+      receiptId: "receipt-3",
+      binding: recordOf({ status: "revoked", revision: 2 }),
+    });
+    await rejected.bindings.rejectSlackBinding(caller, AGENT, "binding-1", {
+      revision: 1,
+    });
+    expect(rejected.joined).toEqual([]);
+
+    const replay = approver({
+      outcome: "replayed",
+      binding: recordOf({ status: "revoked", revision: 2 }),
+    });
+    const again = await replay.bindings.rejectSlackBinding(
+      caller,
+      AGENT,
+      "binding-1",
+      { revision: 1 },
+    );
+    expect(again.receipt_id).toBeNull();
+    expect(replay.joined).toEqual([]);
+  });
+
+  test("a binding that moved on, a missing one and a demoted caller answer 409, 404 and 403", async () => {
+    for (const [outcome, code] of [
+      ["conflict", "REVISION_CONFLICT"],
+      ["not_found", "NOT_FOUND"],
+      ["outranked", "FORBIDDEN"],
+      ["actor_inactive", "FORBIDDEN"],
+    ] as const) {
+      const t = approver({ outcome });
+      expect(
+        await codeOf(
+          t.bindings.approveSlackBinding(caller, AGENT, "binding-1", {
+            revision: 1,
+          }),
+        ),
+      ).toBe(code);
+    }
   });
 });

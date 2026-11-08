@@ -323,6 +323,10 @@ async function installedAgent() {
       mode: "on",
       home,
     });
+  const approve = (binding: { id: string; revision: number }) =>
+    bindings.approveSlackBinding(owner, agentId, binding.id, {
+      revision: binding.revision,
+    });
   const finalize = () =>
     welcome.finalize({ workspaceId, agentId } as SlackInstalled);
   const list = async () =>
@@ -334,6 +338,7 @@ async function installedAgent() {
     release,
     activate,
     bind,
+    approve,
     finalize,
     list,
     bindingStore,
@@ -538,33 +543,38 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     ]);
   });
 
-  test("a private home waits for the invite: no row before it, one after, then duplicate", async () => {
+  test("a private home waits for the invite and the approval: no row before them, one after, then duplicate", async () => {
     const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
     const channel = home?.id ?? "";
     const fixture = await installedAgent();
     const { release } = await fixture.release();
     await fixture.activate(release.id);
 
-    const bound = await fixture.bind(channel, true);
+    const bound = await fixture.bind(channel, false);
+    expect(bound.slack_binding.status).toBe("pending_approval");
     expect(bound.slack_binding.membership).toEqual({
       // Slack hides it from the bot until the invite.
       state: "awaiting_invite",
       error: "channel_not_found",
     });
     expect(callsOf("conversations.join")).toBe(0);
-    expect(await fixture.finalize()).toEqual({
-      finalized: true,
-      warnings: [
-        {
-          code: "awaiting_invite",
-          channel_id: channel,
-          error: "channel_not_found",
-        },
-      ],
+    await expect(fixture.bind(channel, true)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
     });
     expect(await outboxRows()).toEqual([]);
 
+    // Invited but not approved: still no welcome.
     expect(await invited(fixture, channel)).toMatchObject({ processed: 1 });
+    expect(await outboxRows()).toEqual([]);
+
+    const [waiting] = await fixture.list();
+    if (!waiting) throw new Error("no binding");
+    await fixture.approve(waiting);
+    await fixture.bind(channel, true);
+    expect(await fixture.finalize()).toEqual({
+      finalized: true,
+      warnings: [],
+    });
     expect(await outboxRows()).toHaveLength(1);
     // Finalize again, and the same event again, find it sent already.
     expect(await fixture.finalize()).toEqual({
@@ -580,7 +590,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
     const channel = home?.id ?? "";
     const fixture = await installedAgent();
-    const bound = await fixture.bind(channel, true);
+    const bound = await fixture.bind(channel, false);
     const { release: first } = await fixture.release();
     const { release: second } = await fixture.release("changed");
     await fixture.activate(first.id);
@@ -589,6 +599,10 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
 
     // The asks the activations left running may answer after the invite.
     expect(await invited(fixture, channel)).toMatchObject({ processed: 1 });
+    const [waiting] = await fixture.list();
+    if (!waiting) throw new Error("no binding");
+    await fixture.approve(waiting);
+    await fixture.bind(channel, true);
     await fixture.finalize();
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await outboxRows()).toEqual([]);
@@ -698,7 +712,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
   test("a membership answer from before an invite does not overwrite it", async () => {
     const [home] = slack.seedChannels([{ name: "secret", isPrivate: true }]);
     const fixture = await installedAgent();
-    const bound = await fixture.bind(home?.id ?? "", true);
+    const bound = await fixture.bind(home?.id ?? "", false);
     const id = bound.slack_binding.id;
     const seen = bound.slack_binding.membership ?? null;
     await fixture.bindingStore.setMembership(id, {

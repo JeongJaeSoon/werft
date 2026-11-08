@@ -3,6 +3,8 @@ import {
   type ListSlackBindingsResponse,
   type PutSlackBindingRequest,
   type PutSlackBindingResponse,
+  type ResolveSlackBindingRequest,
+  type ResolveSlackBindingResponse,
   SLACK_BINDING_LIST_LIMIT,
   SLACK_BINDING_MESSAGES,
   type SurfaceBinding,
@@ -29,6 +31,11 @@ import type { SlackWelcome } from "./slack-welcome.ts";
 // agent, which owner, admin and that agent's admins hold.
 const ACTION = "binding.manage";
 const MANAGERS: readonly WorkspaceRole[] = MANAGEMENT_ROLES[ACTION] ?? [];
+// A private channel waits for the owner or an admin, not for the agent's
+// admins who may have asked for it.
+const APPROVE_ACTION = "binding.approve";
+const APPROVERS: readonly WorkspaceRole[] =
+  MANAGEMENT_ROLES[APPROVE_ACTION] ?? [];
 
 export function surfaceBindingView(
   record: SurfaceBindingRecord,
@@ -47,6 +54,9 @@ export function surfaceBindingView(
     home: record.home,
     memory_write_policy: record.memoryWritePolicy,
     status: record.status,
+    ...(record.approvedAt === null
+      ? {}
+      : { approved_at: record.approvedAt.toISOString() }),
     ...(record.membership === null ? {} : { membership: record.membership }),
     muted: record.muted,
     revision: record.revision,
@@ -97,11 +107,69 @@ export function createSurfaceBindingService(deps: {
     return { ...binding, membership };
   }
 
-  const permitted = (caller: Caller, agentId: string) =>
-    requirePermitted(authorization, caller, ACTION, {
+  const permitted = (
+    caller: Caller,
+    agentId: string,
+    action: typeof ACTION | typeof APPROVE_ACTION = ACTION,
+  ) =>
+    requirePermitted(authorization, caller, action, {
       kind: "agent",
       id: agentId,
     });
+
+  async function resolveBinding(
+    caller: Caller,
+    agentId: string,
+    bindingId: string,
+    request: ResolveSlackBindingRequest,
+    decision: "approve" | "reject",
+  ): Promise<ResolveSlackBindingResponse> {
+    await permitted(caller, agentId, APPROVE_ACTION);
+    const result = await store[decision]({
+      principal: caller,
+      workspaceId: caller.ownerId,
+      agentId,
+      bindingId,
+      revision: request.revision,
+      approverRoles: APPROVERS,
+    });
+    switch (result.outcome) {
+      case "resolved":
+        return {
+          // An approved channel is joined and heard like one just saved.
+          slack_binding: surfaceBindingView(
+            decision === "approve"
+              ? await joined(result.binding)
+              : result.binding,
+          ),
+          receipt_id: result.receiptId,
+        };
+      case "replayed":
+        return {
+          slack_binding: surfaceBindingView(result.binding),
+          receipt_id: null,
+        };
+      case "not_found":
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      case "conflict":
+        throw new SessionServiceError(
+          "REVISION_CONFLICT",
+          SLACK_BINDING_MESSAGES.notPending,
+        );
+      case "outranked":
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "The caller no longer holds this right",
+          undefined,
+          { reason_code: "role" },
+        );
+      default:
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "This principal is no longer a member of the workspace",
+        );
+    }
+  }
 
   return {
     async putSlackBinding(
@@ -149,6 +217,11 @@ export function createSurfaceBindingService(deps: {
             "REVISION_CONFLICT",
             SLACK_BINDING_MESSAGES.conflict,
           );
+        case "pending_home":
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            SLACK_BINDING_MESSAGES.pendingHome,
+          );
         case "outranked":
           throw new SessionServiceError(
             "FORBIDDEN",
@@ -163,6 +236,20 @@ export function createSurfaceBindingService(deps: {
           );
       }
     },
+
+    approveSlackBinding: (
+      caller: Caller,
+      agentId: string,
+      bindingId: string,
+      request: ResolveSlackBindingRequest,
+    ) => resolveBinding(caller, agentId, bindingId, request, "approve"),
+
+    rejectSlackBinding: (
+      caller: Caller,
+      agentId: string,
+      bindingId: string,
+      request: ResolveSlackBindingRequest,
+    ) => resolveBinding(caller, agentId, bindingId, request, "reject"),
 
     async listSlackBindings(
       caller: Caller,

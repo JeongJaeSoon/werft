@@ -59,6 +59,12 @@ export type SlackDecision =
       actorUserId: string | null;
       /** What to show the person alone, once per thread; null for none. */
       notice: SlackNotice | null;
+      /**
+       * The private channel waiting for approval that took this input in
+       * its place, when it is why nothing ran; its revision changes with
+       * every wait, so the notice can be told once per wait.
+       */
+      pending: { id: string; revision: number } | null;
     };
 
 /**
@@ -99,7 +105,10 @@ export async function authorizeSlackInput(
     authorization: AuthorizationPolicy;
     agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
     links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
-    bindings: Pick<SurfaceBindingStore, "resolveSlackChannel">;
+    bindings: Pick<
+      SurfaceBindingStore,
+      "resolveSlackChannel" | "findPendingApproval"
+    >;
   },
   input: SlackInput,
 ): Promise<SlackDecision> {
@@ -117,6 +126,15 @@ export async function authorizeSlackInput(
   const binding =
     stored !== null && stored.mode !== "off" && stored.agentId === agentId
       ? stored
+      : null;
+  // A channel waiting for approval is not bound yet, but its people are told
+  // why the agent is silent instead of that it is unbound.
+  const pending =
+    stored === null && !input.channel.dm
+      ? await deps.bindings.findPendingApproval(
+          agent.installationId,
+          input.channel.id,
+        )
       : null;
 
   const linked = await deps.links.resolveLinkedSubject({
@@ -185,8 +203,12 @@ export async function authorizeSlackInput(
       decision.outcome !== "deny" && linked.status === "linked"
         ? linked.userId
         : null,
-    notice: slackNoticeFor(decision, input.action, {
-      connectUrl: input.connectUrl,
-    }),
+    notice:
+      pending !== null && decision.outcome === "deny"
+        ? { message: "pendingApproval" }
+        : slackNoticeFor(decision, input.action, {
+            connectUrl: input.connectUrl,
+          }),
+    pending: decision.outcome === "deny" ? pending : null,
   };
 }

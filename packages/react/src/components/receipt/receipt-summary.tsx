@@ -58,6 +58,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   link_agent_identity: "에이전트 Slack 앱 연결",
   revoke_agent_identity: "에이전트 Slack 앱 연결 회수",
   set_surface_binding: "에이전트 Slack 채널 설정",
+  request_surface_binding: "비공개 Slack 채널 승인 요청",
+  resolve_surface_binding: "비공개 Slack 채널 승인 결정",
   share_session: "공유 범위 변경",
   request_push: "push 요청",
   decide_push: "push 승인·거부",

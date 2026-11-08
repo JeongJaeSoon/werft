@@ -86,12 +86,20 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     secrets: secrets.store,
     now: () => clock.getTime(),
   });
+  // Channels whose binding waits for approval, as the store would report.
+  const pendingChannels = new Set<string>();
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
     apps: apps.store,
     identities: identities.store,
     installs: installs.store,
+    bindings: {
+      findPendingApproval: async (_installationId, channelId) =>
+        pendingChannels.has(channelId)
+          ? { id: "binding-1", revision: 2 }
+          : null,
+    },
     now: () => clock,
   });
 
@@ -166,6 +174,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     apps,
     secrets,
     lookups,
+    pendingChannels,
     install,
     signed,
     event,
@@ -434,6 +443,103 @@ describe("Slack events service", () => {
       expect(result).toMatchObject({ kind: "ack", status });
       expect(result.kind === "ack" ? result.reason : null).toBe(reason);
     }
+  });
+
+  test("in a channel waiting for approval, talk is dropped unread and a mention is kept without its text, files or blocks", async () => {
+    const w = world();
+    await w.install();
+    w.pendingChannels.add("G0WAIT");
+    const talk = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "message",
+          user: "U0P",
+          text: "the launch code is 1234",
+          channel: "G0WAIT",
+          channel_type: "group",
+          ts: "1.1",
+        }),
+      ),
+    );
+    expect(talk).toMatchObject({
+      status: "dropped",
+      reason: "channel_pending_approval",
+    });
+    for (const [type, text] of [
+      ["app_mention", `<@${BOT_USER}> the launch code is 1234`],
+      ["message", `hey <@${BOT_USER}> the launch code is 1234`],
+    ] as const) {
+      const mention = await w.service.receive(
+        w.signed(
+          w.event({
+            type,
+            user: "U0P",
+            text,
+            channel: "G0WAIT",
+            channel_type: "group",
+            ts: "1.2",
+            thread_ts: "1.1",
+            files: [{ id: "F1", name: "secret.txt" }],
+            blocks: [{ type: "rich_text" }],
+            attachments: [{ text: "secret" }],
+          }),
+        ),
+      );
+      expect(mention).toMatchObject({ status: "received" });
+    }
+    const kept = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" ? [row] : [],
+    );
+    expect(kept).toHaveLength(2);
+    for (const row of kept) {
+      const event = (row.payload as { event: Record<string, unknown> }).event;
+      expect(Object.keys(event).sort()).toEqual([
+        "channel",
+        "channel_type",
+        "text",
+        "thread_ts",
+        "ts",
+        "type",
+        "user",
+      ]);
+      expect(event.text).toBe(`<@${BOT_USER}>`);
+      expect(JSON.stringify(row.payload)).not.toContain("1234");
+      expect(JSON.stringify(row.payload)).not.toContain("secret");
+    }
+  });
+
+  test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {
+    const w = world();
+    await w.install();
+    w.pendingChannels.add("G0WAIT");
+    for (const fields of [
+      { type: "message", user: "U0P", channel: "D0DM", channel_type: "im" },
+      {
+        type: "message",
+        user: "U0P",
+        channel: "C0OTHER",
+        channel_type: "channel",
+      },
+    ]) {
+      expect(
+        await w.service.receive(
+          w.signed(w.event({ ...fields, text: "hi", ts: "1.1" })),
+        ),
+      ).toMatchObject({ status: "received" });
+    }
+    w.pendingChannels.delete("G0WAIT");
+    const result = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "message",
+          user: "U0P",
+          text: "hi",
+          channel: "G0WAIT",
+          ts: "1.3",
+        }),
+      ),
+    );
+    expect(result).toMatchObject({ status: "received" });
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {
