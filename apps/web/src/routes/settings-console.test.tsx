@@ -282,12 +282,12 @@ describe("모델 연결", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("바꾸려면 새 id로 만드세요");
     // Anthropic takes an API key only.
-    expect(within(dialog).queryByLabelText("인증 방식")).toBeNull();
+    expect(within(dialog).queryByLabelText("인증 방식") === null).toBe(true);
     await user.type(within(dialog).getByLabelText("id"), "litellm-proxy");
     await user.selectOptions(within(dialog).getByLabelText("종류"), "litellm");
     const endpoint = within(dialog).getByLabelText("엔드포인트");
     await user.type(endpoint, "https://api.anthropic.com");
-    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
     await user.clear(endpoint);
     await user.type(endpoint, "https://llm.internal:8443/v1");
     expect(within(dialog).getByRole("status").textContent).toContain(
@@ -327,7 +327,7 @@ describe("모델 연결", () => {
       within(dialog).getByLabelText("엔드포인트"),
       "https://elsewhere.example.com",
     );
-    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
   });
 
   test("a new value and a disable each go to their own route; disabling asks first", async () => {
@@ -455,7 +455,7 @@ describe("모델 연결", () => {
       });
       await within(confirm).findByText(/확인하지 못했습니다/);
       expect(impactCalls(api.calls).length).toBe(2);
-      expect(within(confirm).queryByText(/프로필: 4개/)).toBeNull();
+      expect(within(confirm).queryByText(/프로필: 4개/) === null).toBe(true);
     });
 
     test("a judge setting alone warns, without a word about a judgment stopping", async () => {
@@ -486,9 +486,11 @@ describe("모델 연결", () => {
       const { api, confirm } = await openDisable(() => json(200, counts()));
       await waitFor(() => expect(impactCalls(api.calls).length).toBe(1));
       await waitFor(() =>
-        expect(within(confirm).queryByText("영향을 확인하는 중…")).toBeNull(),
+        expect(
+          within(confirm).queryByText("영향을 확인하는 중…") === null,
+        ).toBe(true),
       );
-      expect(within(confirm).queryByRole("alert")).toBeNull();
+      expect(within(confirm).queryByRole("alert") === null).toBe(true);
       expect(confirm.textContent).not.toContain("확인하지 못했습니다");
       expect(confirm.textContent).toContain(
         "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
@@ -523,7 +525,7 @@ describe("모델 연결", () => {
         "warn",
       );
       await within(confirm).findByText(/확인하지 못했습니다/);
-      expect(within(confirm).queryByRole("alert")).toBeNull();
+      expect(within(confirm).queryByRole("alert") === null).toBe(true);
     });
 
     test("while the count loads, the button already works", async () => {
@@ -552,7 +554,9 @@ describe("모델 연결", () => {
       );
       await within(confirm).findByRole("alert");
       await user.click(within(confirm).getByRole("button", { name: "취소" }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog") === null).toBe(true),
+      );
       await user.click(
         within(table).getByRole("button", { name: "console-key 사용 중지" }),
       );
@@ -653,8 +657,12 @@ describe("모델 연결", () => {
   test("an admin neither reads the connections nor gets a way to change them", async () => {
     const { api } = renderAt("/profiles", routes(me(undefined, "admin")));
     await screen.findByRole("table", { name: "프로필" });
-    expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
-    expect(screen.queryByRole("table", { name: "모델 연결" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
+      true,
+    );
+    expect(screen.queryByRole("table", { name: "모델 연결" }) === null).toBe(
+      true,
+    );
     expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
   });
 });
@@ -934,8 +942,12 @@ describe("설정의 모델 연결", () => {
       );
       await screen.findByText("이 화면을 볼 권한이 없습니다");
       const nav = screen.getByRole("navigation", { name: "설정" });
-      expect(within(nav).queryByRole("link", { name: "모델 연결" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
+      expect(
+        within(nav).queryByRole("link", { name: "모델 연결" }) === null,
+      ).toBe(true);
+      expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
+        true,
+      );
       expect(
         api.calls.some(
           (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",
