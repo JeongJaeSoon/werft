@@ -467,6 +467,19 @@ describe("모델 연결", () => {
         "성과 판정 설정이 이 연결을 가리키고 있습니다.",
       );
       expect(warning.textContent).not.toContain("프로필:");
+      expect(warning.textContent).not.toContain("모델 호출이 거절되거나");
+    });
+
+    test("a judge setting beside affected profiles keeps both lines", async () => {
+      const { confirm } = await openDisable(() =>
+        json(200, counts({ profile_count: 2, judge_used: true })),
+      );
+      const warning = await within(confirm).findByRole("alert");
+      expect(warning.textContent).toContain("모델 호출이 거절되거나");
+      expect(warning.textContent).toContain("프로필: 2개");
+      expect(warning.textContent).toContain(
+        "성과 판정 설정이 이 연결을 가리키고 있습니다.",
+      );
     });
 
     test("zero everywhere asks as before, with no warning and no failure line", async () => {

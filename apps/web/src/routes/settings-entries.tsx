@@ -478,28 +478,43 @@ function ConnectionImpactNotice({ id }: { readonly id: string }) {
   }
   const { profiles, agents, sessions, judge } = impact.data;
   if (profiles === 0 && agents === 0 && sessions === 0 && !judge) return null;
+  // The judge setting only names the connection; the judge does not call a
+  // model through it today, so it is said apart from the calls that would stop.
+  const calls = profiles > 0 || agents > 0 || sessions > 0;
   return (
     <Alert variant="amber" role="alert">
       <AlertDescription>
-        <p>{t("settings.connections.impact.warning")}</p>
-        <ul className="mt-1 list-disc pl-5">
-          {profiles > 0 ? (
-            <li>
-              {t("settings.connections.impact.profiles", { count: profiles })}
-            </li>
-          ) : null}
-          {agents > 0 ? (
-            <li>
-              {t("settings.connections.impact.agents", { count: agents })}
-            </li>
-          ) : null}
-          {sessions > 0 ? (
-            <li>
-              {t("settings.connections.impact.sessions", { count: sessions })}
-            </li>
-          ) : null}
-          {judge ? <li>{t("settings.connections.impact.judge")}</li> : null}
-        </ul>
+        {calls ? (
+          <>
+            <p>{t("settings.connections.impact.warning")}</p>
+            <ul className="mt-1 list-disc pl-5">
+              {profiles > 0 ? (
+                <li>
+                  {t("settings.connections.impact.profiles", {
+                    count: profiles,
+                  })}
+                </li>
+              ) : null}
+              {agents > 0 ? (
+                <li>
+                  {t("settings.connections.impact.agents", { count: agents })}
+                </li>
+              ) : null}
+              {sessions > 0 ? (
+                <li>
+                  {t("settings.connections.impact.sessions", {
+                    count: sessions,
+                  })}
+                </li>
+              ) : null}
+            </ul>
+          </>
+        ) : null}
+        {judge ? (
+          <p className={calls ? "mt-2" : undefined}>
+            {t("settings.connections.impact.judge")}
+          </p>
+        ) : null}
       </AlertDescription>
     </Alert>
   );
