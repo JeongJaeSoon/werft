@@ -631,6 +631,9 @@ export function createPostgresSlackOutboxStore(
                 eq(surfaceBindings.id, whileHome.bindingId),
                 eq(surfaceBindings.agentId, input.agentId),
                 eq(surfaceBindings.home, true),
+                // A channel waiting for approval hears nothing, whatever was
+                // queued for it before it started waiting.
+                eq(surfaceBindings.status, "ready"),
                 ne(surfaceBindings.mode, "off"),
                 isNull(surfaceBindings.revokedAt),
               ),

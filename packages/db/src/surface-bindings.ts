@@ -6,13 +6,17 @@ import {
 } from "@werft-ai/contracts";
 import type {
   Principal,
+  ResolveSurfaceBindingInput,
+  ResolveSurfaceBindingResult,
   SetSurfaceBindingResult,
   SurfaceBindingRecord,
   SurfaceBindingStore,
 } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { callerHoldsRight } from "./agent-identities.ts";
+import { lockedRole } from "./api-keys.ts";
 import { findPgError, receiptActorOf } from "./control-shared.ts";
+import { rowsOf } from "./control-unit-of-work.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -46,6 +50,7 @@ const columns = {
   home: surfaceBindings.home,
   memoryWritePolicy: surfaceBindings.memoryWritePolicy,
   status: surfaceBindings.status,
+  approvedAt: surfaceBindings.approvedAt,
   membershipState: surfaceBindings.membership,
   membershipError: surfaceBindings.membershipError,
   muted: surfaceBindings.muted,
@@ -100,18 +105,36 @@ function isLiveConflict(error: unknown): boolean {
   return typeof constraint === "string" && LIVE_UNIQUE_INDEXES.has(constraint);
 }
 
+type ReceiptOperation =
+  | "set_surface_binding"
+  | "request_surface_binding"
+  | "resolve_surface_binding";
+
+// A Slack event has no person behind it: the installation is the actor, and
+// what Slack said is carried in `extra`, never as a verified Werft user.
+const installationActor = (installationId: string | null) => ({
+  principal: { kind: "installation" as const, id: installationId ?? "" },
+  actor_user_id: null,
+  agent_id: null,
+});
+
 async function writeReceipt(
   tx: Database,
-  principal: Principal,
+  principal: Principal | null,
   binding: SurfaceBindingRecord,
+  operation: ReceiptOperation = "set_surface_binding",
+  extra: Record<string, unknown> = {},
 ): Promise<string> {
   const id = randomUUID();
   await tx.insert(receipts).values({
     id,
     ownerId: binding.workspaceId,
-    actor: receiptActorOf(principal),
-    requestId: principal.requestId ?? null,
-    operation: "set_surface_binding",
+    actor:
+      principal === null
+        ? installationActor(binding.installationId)
+        : receiptActorOf(principal),
+    requestId: principal?.requestId ?? null,
+    operation,
     targetRef: {
       resource: { kind: "surface_binding", id: binding.id },
       workspace_id: binding.workspaceId,
@@ -126,7 +149,9 @@ async function writeReceipt(
       mode: binding.mode,
       home: binding.home,
       ceiling: binding.ceiling,
+      status: binding.status,
       revision: binding.revision,
+      ...extra,
     },
   });
   return id;
@@ -179,7 +204,12 @@ async function set(
       const { installationId } = identity;
 
       const [current] = await tx
-        .select({ id: surfaceBindings.id, agentId: surfaceBindings.agentId })
+        .select({
+          id: surfaceBindings.id,
+          agentId: surfaceBindings.agentId,
+          status: surfaceBindings.status,
+          surfaceKind: surfaceBindings.surfaceKind,
+        })
         .from(surfaceBindings)
         .where(channelOf(installationId, input.channelId))
         .limit(1)
@@ -189,6 +219,17 @@ async function set(
       if (current && current.agentId !== agentId) {
         return { outcome: "conflict" };
       }
+      // A private channel waits for approval when it is new, when it was
+      // bound as another kind, or when it already waits. A saved edit never
+      // takes an approval away from one that has it.
+      const waits =
+        input.channelKind === "private_channel" &&
+        (!current ||
+          current.status === "pending_approval" ||
+          current.surfaceKind !== "private_channel");
+      const startsWaiting = waits && current?.status !== "pending_approval";
+      // Before the previous home is cleared: a refusal changes nothing.
+      if (waits && input.home) return { outcome: "pending_home" };
       if (input.home) {
         await tx
           .update(surfaceBindings)
@@ -212,6 +253,7 @@ async function set(
         home: input.home,
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,
+        ...(waits ? { status: "pending_approval" as const } : {}),
         updatedAt: DB_NOW,
       };
       const id = current?.id ?? randomUUID();
@@ -240,6 +282,14 @@ async function set(
       if (!row) throw new Error(`surface binding ${id} vanished in its tx`);
       const binding = recordOf(row);
       const receiptId = await writeReceipt(tx, input.principal, binding);
+      if (startsWaiting) {
+        await writeReceipt(
+          tx,
+          input.principal,
+          binding,
+          "request_surface_binding",
+        );
+      }
       return { outcome: "set", binding, receiptId };
     });
   } catch (error) {
@@ -305,21 +355,49 @@ export function createPostgresSurfaceBindingStore(
       if (!UUID.test(installationId)) return null;
       const id = installationId.toLowerCase();
       const { actions, disclosure } = DEFAULT_SURFACE_CEILING;
-      await db.execute(sql`
-        INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
-          installation_id, external_surface_id, surface_kind, mode,
-          ceiling_actions, ceiling_disclosure, membership)
-        SELECT ${randomUUID()}, i.workspace_id, i.agent_id, 'slack',
-          i.installation_id, ${channelId}, ${channelKind}, 'on',
-          ARRAY[${sql.join(
-            actions.map((action) => sql`${action}`),
-            sql`, `,
-          )}]::text[], ${disclosure}, 'joined'
-        FROM ${agentIdentities} i
-        WHERE i.installation_id = ${id} AND i.status = 'active'
-        ON CONFLICT DO NOTHING`);
-      return resolveSlackChannel(db, id, channelId);
+      const bindingId = randomUUID();
+      // An invite never makes a private channel usable: it waits for an
+      // owner or admin, with a receipt written in the same transaction.
+      return db.transaction(async (tx) => {
+        const inserted = rowsOf<{ id: string }>(
+          await tx.execute(sql`
+            INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
+              installation_id, external_surface_id, surface_kind, mode, status,
+              ceiling_actions, ceiling_disclosure, membership)
+            SELECT ${bindingId}, i.workspace_id, i.agent_id, 'slack',
+              i.installation_id, ${channelId}, ${channelKind}, 'on',
+              ${channelKind === "private_channel" ? "pending_approval" : "ready"},
+              ARRAY[${sql.join(
+                actions.map((action) => sql`${action}`),
+                sql`, `,
+              )}]::text[], ${disclosure}, 'joined'
+            FROM ${agentIdentities} i
+            WHERE i.installation_id = ${id} AND i.status = 'active'
+            ON CONFLICT DO NOTHING
+            RETURNING id`),
+        );
+        const binding = await liveChannel(tx, id, channelId);
+        if (
+          binding !== null &&
+          inserted.length > 0 &&
+          binding.status === "pending_approval"
+        ) {
+          await writeReceipt(tx, null, binding, "request_surface_binding");
+        }
+        return binding;
+      });
     },
+    findLiveSlackChannel: (installationId, channelId) =>
+      liveChannel(db, installationId, channelId),
+    async findPendingApproval(installationId, channelId) {
+      const binding = await liveChannel(db, installationId, channelId);
+      return binding?.status === "pending_approval"
+        ? { id: binding.id, revision: binding.revision }
+        : null;
+    },
+    requireApproval: (bindingId) => requireApproval(db, bindingId),
+    approve: (input) => resolve(db, input, "approve"),
+    reject: (input) => resolve(db, input, "reject"),
     async setMembership(bindingId, membership, expected) {
       if (!UUID.test(bindingId)) return;
       await db
@@ -345,7 +423,8 @@ export function createPostgresSurfaceBindingStore(
   };
 }
 
-async function resolveSlackChannel(
+// Whatever its status; the live indexes leave at most one row per channel.
+async function liveChannel(
   db: Database,
   installationId: string,
   channelId: string | null,
@@ -354,12 +433,146 @@ async function resolveSlackChannel(
   const [row] = await db
     .select(columns)
     .from(surfaceBindings)
-    .where(
-      and(
-        channelOf(installationId.toLowerCase(), channelId),
-        eq(surfaceBindings.status, "ready"),
-      ),
-    )
+    .where(channelOf(installationId.toLowerCase(), channelId))
     .limit(1);
   return row ? recordOf(row) : null;
+}
+
+// Input reads only a binding that is ready: a channel waiting for approval
+// is a channel the agent is not bound to.
+async function resolveSlackChannel(
+  db: Database,
+  installationId: string,
+  channelId: string | null,
+): Promise<SurfaceBindingRecord | null> {
+  const binding = await liveChannel(db, installationId, channelId);
+  return binding?.status === "ready" ? binding : null;
+}
+
+async function requireApproval(
+  db: Database,
+  bindingId: string,
+): Promise<SurfaceBindingRecord | null> {
+  if (!UUID.test(bindingId)) return null;
+  return db.transaction(async (tx) => {
+    const id = bindingId.toLowerCase();
+    const [current] = await tx
+      .select({
+        status: surfaceBindings.status,
+        surfaceKind: surfaceBindings.surfaceKind,
+      })
+      .from(surfaceBindings)
+      .where(and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)))
+      .limit(1)
+      .for("update");
+    if (
+      !current ||
+      current.status !== "ready" ||
+      current.surfaceKind !== "public_channel"
+    ) {
+      return null;
+    }
+    await tx
+      .update(surfaceBindings)
+      .set({
+        surfaceKind: "private_channel",
+        status: "pending_approval",
+        home: false,
+        revision: sql`${surfaceBindings.revision} + 1`,
+        updatedAt: DB_NOW,
+      })
+      .where(eq(surfaceBindings.id, id));
+    const [row] = await tx
+      .select(columns)
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.id, id));
+    if (!row) throw new Error(`surface binding ${id} vanished in its tx`);
+    const binding = recordOf(row);
+    await writeReceipt(tx, null, binding, "request_surface_binding", {
+      reason: "channel_now_private",
+    });
+    return binding;
+  });
+}
+
+// The role is read again under lock, from the membership alone: the agent's
+// admins may ask for a channel but never decide on it, so the check
+// `callerHoldsRight` makes (role or agent admin) is not used.
+async function resolve(
+  db: Database,
+  input: ResolveSurfaceBindingInput,
+  decision: "approve" | "reject",
+): Promise<ResolveSurfaceBindingResult> {
+  const { workspaceId } = input;
+  if (!UUID.test(input.agentId) || !UUID.test(input.bindingId)) {
+    return { outcome: "not_found" };
+  }
+  const agentId = input.agentId.toLowerCase();
+  const bindingId = input.bindingId.toLowerCase();
+  return db.transaction(async (tx) => {
+    const userId = input.principal.actor?.userId;
+    if (!userId) return { outcome: "actor_inactive" };
+    const role = await lockedRole(tx, workspaceId, userId);
+    if (role === null) return { outcome: "actor_inactive" };
+    if (!input.approverRoles.includes(role)) return { outcome: "outranked" };
+    const [agent] = await tx
+      .select({ status: agents.status })
+      .from(agents)
+      .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+      .limit(1)
+      .for("key share");
+    if (!agent || agent.status === "archived") return { outcome: "not_found" };
+    const [found] = await tx
+      .select({ ...columns, createdBy: surfaceBindings.createdBy })
+      .from(surfaceBindings)
+      .where(
+        and(
+          eq(surfaceBindings.id, bindingId),
+          eq(surfaceBindings.workspaceId, workspaceId),
+          eq(surfaceBindings.agentId, agentId),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!found) return { outcome: "not_found" };
+    const { createdBy, ...row } = found;
+    const current = recordOf(row);
+    if (current.status !== "pending_approval") {
+      // The caller read revision N, and this decision made N + 1.
+      const again =
+        current.revision === input.revision + 1 &&
+        (decision === "approve"
+          ? current.status === "ready" && current.approvedAt !== null
+          : current.status === "revoked");
+      return again
+        ? { outcome: "replayed", binding: current }
+        : { outcome: "conflict" };
+    }
+    if (current.revision !== input.revision) return { outcome: "conflict" };
+    await tx
+      .update(surfaceBindings)
+      .set({
+        ...(decision === "approve"
+          ? { status: "ready" as const, approvedAt: DB_NOW }
+          : { status: "revoked" as const, revokedAt: DB_NOW }),
+        revision: sql`${surfaceBindings.revision} + 1`,
+        updatedAt: DB_NOW,
+      })
+      .where(eq(surfaceBindings.id, bindingId));
+    const [after] = await tx
+      .select(columns)
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.id, bindingId));
+    if (!after)
+      throw new Error(`surface binding ${bindingId} vanished in its tx`);
+    const binding = recordOf(after);
+    const receiptId = await writeReceipt(
+      tx,
+      input.principal,
+      binding,
+      "resolve_surface_binding",
+      { decision, requested_by_user_id: createdBy },
+    );
+    return { outcome: "resolved", binding, receiptId };
+  });
 }

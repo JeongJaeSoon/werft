@@ -119,6 +119,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.manage",
   "agent.manage",
   "binding.manage",
+  "binding.approve",
   "routine.manage",
   "session.read",
   "session.submit",
@@ -159,6 +160,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "workspace.manage": ["workspace"],
   "agent.manage": ["workspace", "agent"],
   "binding.manage": ["workspace", "agent", "surface_binding"],
+  "binding.approve": ["workspace", "agent", "surface_binding"],
   "routine.manage": ["workspace", "agent", "routine"],
   "session.read": ["session", "session_link"],
   "session.submit": ["session", "session_link", "surface_binding"],
@@ -3711,9 +3713,11 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("deny"),
     status: text()
-      .$type<"ready" | "partial" | "failed" | "revoked">()
+      .$type<"ready" | "pending_approval" | "partial" | "failed" | "revoked">()
       .notNull()
       .default("ready"),
+    /** Set when an owner or admin approves; input sent before it is dropped. */
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),
@@ -3791,6 +3795,12 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_ready_check",
       sql`${table.surface} <> 'slack' OR ${table.status} <> 'ready' OR (${table.installationId} IS NOT NULL AND ${table.surfaceKind} IS NOT NULL AND (${table.externalSurfaceId} IS NOT NULL OR ${table.surfaceKind} = 'dm'))`,
+    ),
+    // A row waiting for approval is a private Slack channel of an install,
+    // never a DM and never the agent's home.
+    check(
+      "surface_bindings_pending_check",
+      sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
     ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
   ],

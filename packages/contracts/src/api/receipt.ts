@@ -92,6 +92,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "revoke_agent_identity",
   // Setting how an agent answers in one Slack channel or its DMs (94S-177).
   "set_surface_binding",
+  // A private Slack channel starts waiting for approval, and an owner or
+  // admin's decision on it.
+  "request_surface_binding",
+  "resolve_surface_binding",
   // Changing who sees a session (94S-584).
   "share_session",
   // A push request, a human's decision on one (or a refused attempt at
