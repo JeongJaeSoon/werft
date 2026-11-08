@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { readJobs } from "../.github/scripts/integration-jobs.ts";
 
 const root = mkdtempSync(join(tmpdir(), "ci-plan-"));
 const script = join(import.meta.dir, "../.github/scripts/ci-plan.sh");
@@ -105,12 +106,25 @@ function mergePullRequest(f: ReturnType<typeof fixture>, base = f.base) {
   );
 }
 
+const allDomains = [
+  "db",
+  "api",
+  "surface",
+  "storage",
+  "docker",
+  "egress",
+  "worker",
+];
+
 const full = {
   tests: "true",
   product: "true",
   site: "true",
   quickstart: "true",
   docs_only: "false",
+  helm: "true",
+  k8s: "true",
+  domains: JSON.stringify(allDomains),
 };
 
 test("prose-only PRs keep a small explicit plan", () => {
@@ -122,7 +136,91 @@ test("prose-only PRs keep a small explicit plan", () => {
     site: "false",
     quickstart: "false",
     docs_only: "true",
+    helm: "false",
+    k8s: "false",
+    domains: "[]",
   });
+});
+
+test("the full plan lists exactly the domains of the integration matrix", () => {
+  const matrix = readJobs(
+    readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8"),
+  ).map((job) => job.domain);
+  expect(JSON.parse(plan(fixture(), "push").output.domains ?? "null")).toEqual(
+    matrix,
+  );
+});
+
+test("repository metadata and agent notes count as prose", () => {
+  for (const path of [
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    ".claude/skills/verify/SKILL.md",
+    ".github/ISSUE_TEMPLATE/bug.yml",
+    ".github/pull_request_template.md",
+  ]) {
+    const result = plan(fixture(undefined, [path]));
+    expect(result.exitCode).toBe(0);
+    expect(result.output.docs_only).toBe("true");
+    expect(result.output.domains).toBe("[]");
+  }
+});
+
+test("generated, executable and workflow files next to prose are not prose", () => {
+  for (const path of [
+    "THIRD_PARTY_NOTICES.md",
+    ".claude/skills/verify/run.sh",
+    ".github/workflows/ci.yml",
+    ".github/actions/setup/README.md",
+    ".github/scripts/ci-plan.sh",
+  ]) {
+    expect(plan(fixture(undefined, [path])).output).toEqual(full);
+  }
+});
+
+test("a web-only PR drops the domains, chart jobs and guides no changed path reaches", () => {
+  for (const path of [
+    "apps/web/src/app.tsx",
+    "apps/storybook/src/a.stories.tsx",
+  ]) {
+    const result = plan(
+      fixture(undefined, [path, "docs/operator/settings.md"]),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toEqual({
+      tests: "true",
+      product: "true",
+      site: "true",
+      quickstart: "false",
+      docs_only: "false",
+      helm: "false",
+      k8s: "false",
+      domains: '["surface"]',
+    });
+  }
+});
+
+test("the egress proxy stays on the full plan: service-backed suites import it", () => {
+  const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
+  expect(result.output).toEqual(full);
+});
+
+test("any shared path next to a web change brings back everything", () => {
+  for (const shared of [
+    "packages/core/src/a.ts",
+    "apps/control-host/src/a.ts",
+    "apps/worker/src/a.ts",
+    "bun.lock",
+    "package.json",
+    "tests/a.test.ts",
+    "deploy/helm/werft/values.yaml",
+    "compose.yaml",
+    "scripts/a.ts",
+  ]) {
+    expect(
+      plan(fixture(undefined, ["apps/web/src/a.ts", shared])).output,
+    ).toEqual(full);
+  }
 });
 
 test("site content keeps the current docs, storybook and assembly chain", () => {

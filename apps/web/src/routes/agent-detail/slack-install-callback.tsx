@@ -9,9 +9,9 @@ import { type components, unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
 import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
+import { useToast } from "../../components/toast.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { slackFailure, slackKey } from "./slack.tsx";
-import { useToast } from "./toast.tsx";
 
 type CompleteSlackInstallResponse =
   components["schemas"]["CompleteSlackInstallResponse"];

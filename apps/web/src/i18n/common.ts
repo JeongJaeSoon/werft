@@ -8,6 +8,7 @@ export const commonKo = {
   "common.skipToContent": "본문으로 건너뛰기",
   "common.done": "완료",
   "common.cancel": "취소",
+  "common.dismiss": "알림 닫기",
 
   "nav.label": "주요 메뉴",
   "nav.home": "홈",
@@ -89,6 +90,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   "common.skipToContent": "Skip to content",
   "common.done": "Done",
   "common.cancel": "Cancel",
+  "common.dismiss": "Dismiss notification",
 
   "nav.label": "Main menu",
   "nav.home": "Home",
@@ -172,6 +174,7 @@ export const commonJa: Record<keyof typeof commonKo, string> = {
   "common.skipToContent": "本文へスキップ",
   "common.done": "完了",
   "common.cancel": "キャンセル",
+  "common.dismiss": "通知を閉じる",
 
   "nav.label": "メインメニュー",
   "nav.home": "ホーム",
