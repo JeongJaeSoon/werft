@@ -174,9 +174,9 @@ export const slackEn = {
   "slack.inviteCommand": "/invite command",
   "slack.copied": "Copied",
   "slack.copy": "Copy",
-  "slack.copyAppId": "Copy app ID",
-  "slack.copyAppIdFailed":
-    "Couldn't copy to the clipboard. Select the app ID and copy it yourself.",
+  "slack.inviteTitle": "Invite to a channel",
+  "slack.inviteHint":
+    "Paste this into a Slack channel's message box and send it to invite the bot to that channel.",
   "slack.openInSlack": "Open in Slack",
   "slack.newTab": "(opens in a new tab)",
   "slack.copyFailed":

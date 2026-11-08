@@ -44,6 +44,12 @@ export interface RuntimeDescriptor {
   extraFeatures: Partial<Record<FeatureKey, Support>>;
   toolEnv: "engine_inherited" | "tool_scoped";
   /**
+   * Whether the runtime may be given a secret variable. `none` until its
+   * transcript is scrubbed before it is first stored; the control plane
+   * refuses to deliver a secret to a runtime that says `none`.
+   */
+  secretEnv: "supported" | "none";
+  /**
    * Repository files the engine takes as instructions, in order of
    * preference: the first the repository has is read. Which file was read is
    * not part of any checkpoint fingerprint.

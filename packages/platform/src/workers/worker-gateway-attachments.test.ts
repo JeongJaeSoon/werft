@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
@@ -118,7 +119,7 @@ function wired() {
     policy: releasePolicy({
       repositories: ["docs", "tools"],
       push_approval: true,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
       actions_allow: [],
     }),
     ceiling: GITHUB_CEILING_NONE,

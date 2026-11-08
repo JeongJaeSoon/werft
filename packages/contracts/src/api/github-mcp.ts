@@ -24,6 +24,7 @@ import {
 import {
   commentPullRequestRequestSchema,
   commentPullRequestResponseSchema,
+  mergePullRequestResponseSchema,
   openPullRequestRequestSchema,
   openPullRequestResultSchema,
   setPullRequestStateResponseSchema,
@@ -146,6 +147,9 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   reopen_pull_request: z
     .object({ push_request_id: pushRequestIdSchema })
     .strict(),
+  merge_pull_request: z
+    .object({ push_request_id: pushRequestIdSchema })
+    .strict(),
   dispatch_workflow: dispatchWorkflowRequestSchema,
   get_workflow_run: z
     .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
@@ -188,6 +192,7 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
   comment_pull_request: null,
   close_pull_request: null,
   reopen_pull_request: null,
+  merge_pull_request: null,
   dispatch_workflow: "actions",
   get_workflow_run: "actions",
   rerun_workflow: "actions",
@@ -329,6 +334,7 @@ export const attachRepositoryReceiptResultSchema = z.object({
 export const ACTION_CLASS_VALUES = [
   "push",
   "pull_request.write",
+  "pull_request.merge",
   "review",
   "workflow",
   "repository.read",
@@ -349,6 +355,7 @@ export const GITHUB_MCP_TOOL_CLASSES: Record<GitHubMcpTool, ActionClass> = {
   comment_pull_request: "pull_request.write",
   close_pull_request: "pull_request.write",
   reopen_pull_request: "pull_request.write",
+  merge_pull_request: "pull_request.merge",
   dispatch_workflow: "workflow",
   get_workflow_run: "workflow",
   rerun_workflow: "workflow",
@@ -386,6 +393,7 @@ export type ActionPolicy = {
   "push.primary": "allow" | "ask";
   "push.attached": PushAttached;
   "pull_request.write": "allow";
+  "pull_request.merge": "workspace_ceiling";
   review: "allow" | "deny";
   workflow: "allow" | "deny";
   "repository.read": "allow";
@@ -404,6 +412,7 @@ export function actionPolicyOf(
     "push.primary": github.push_approval ? "ask" : "allow",
     "push.attached": pushAttached,
     "pull_request.write": "allow",
+    "pull_request.merge": "workspace_ceiling",
     review: github.features.review ? "allow" : "deny",
     workflow: github.features.actions ? "allow" : "deny",
     "repository.read": "allow",
@@ -452,6 +461,8 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Close the pull request of a pushed push request without merging it; the branch stays. `changed` is false when it was already closed.",
   reopen_pull_request:
     "Reopen the closed pull request of a pushed push request. `changed` is false when it was already open.",
+  merge_pull_request:
+    "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while the workspace allows it: otherwise the call is refused with `github_refused` (`reason_code` `merge_off`) before GitHub is called. GitHub still decides on required checks, reviews and conversations (`merge_blocked`); a pull request whose head is not the pushed commit is refused with `head_moved`. `changed` is false and `method` null when the pull request was already merged on that commit.",
   dispatch_workflow:
     "Dispatch an allow-listed workflow on a branch. `inputs` go to GitHub only.",
   get_workflow_run: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
@@ -497,6 +508,7 @@ export const GITHUB_MCP_TOOL_OUTPUTS = {
   comment_pull_request: actionResultSchema(commentPullRequestResponseSchema),
   close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
   reopen_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
+  merge_pull_request: actionResultSchema(mergePullRequestResponseSchema),
   dispatch_workflow: actionResultSchema(dispatchWorkflowResponseSchema),
   get_workflow_run: actionResultSchema(waitedWorkflowRunSchema),
   rerun_workflow: actionResultSchema(rerunWorkflowResponseSchema),
@@ -591,6 +603,13 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "no_pull_request",
     "pull_request_merged",
   ],
+  merge_pull_request: [
+    ...PULL_REQUEST_REFUSALS,
+    "no_pull_request",
+    "merge_off",
+    "merge_blocked",
+    "pull_request_closed",
+  ],
   dispatch_workflow: GITHUB_WORK_REFUSALS,
   get_workflow_run: GITHUB_WORK_REFUSALS,
   rerun_workflow: GITHUB_WORK_REFUSALS,
@@ -624,6 +643,7 @@ export const GITHUB_MCP_REFUSAL_OVERRIDES: Partial<
     push_failed: actionRefusalSpec("platform"),
     forge_failed: actionRefusalSpec("github"),
   },
+  merge_pull_request: { push_failed: actionRefusalSpec("platform") },
 };
 
 /** The `by` and `retryable` of a tool's code, or null if it has no such code. */
