@@ -39,7 +39,7 @@ export const sidebarLabels: Record<Locale, SidebarLabels> = {
 
 // Each top-level content entry belongs to one of two tabs. The files and URLs
 // stay where they are; only the tree the sidebar shows is rebuilt.
-const START = ["index", "getting-started"];
+const HOME = ["index"];
 const FEATURES = [
   "agents",
   "sessions",
@@ -81,7 +81,13 @@ function flatten(node: Node): Node[] {
 }
 
 function group(name: string, children: Node[]): Folder {
-  return { type: "folder", name, children, defaultOpen: true };
+  return {
+    type: "folder",
+    $id: `group:${name}`,
+    name,
+    children,
+    defaultOpen: true,
+  };
 }
 
 /** Turns the `---label---` sections of a folder into collapsible groups. */
@@ -90,7 +96,12 @@ function sectionsToFolders(children: Node[]): Node[] {
   let current: Folder | undefined;
   for (const child of children) {
     if (child.type === "separator") {
-      current = { type: "folder", name: child.name ?? "", children: [] };
+      current = {
+        type: "folder",
+        $id: `section:${child.name}`,
+        name: child.name ?? "",
+        children: [],
+      };
       out.push(current);
     } else if (current) {
       current.children.push(child);
@@ -108,6 +119,8 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
     const key = slugOf(node);
     top.set(key, [...(top.get(key) ?? []), node]);
   }
+  // The loader also transforms the fallback tree of unlisted pages; leave it be.
+  if (!top.has("getting-started")) return tree;
   const pick = (slugs: string[]) => slugs.flatMap((s) => top.get(s) ?? []);
 
   // `run-server` holds the trial server page and the self-hosting folder.
@@ -116,12 +129,21 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
   const selfHosting = runServer.find((n): n is Folder => n.type === "folder");
   const observability = pick(["observability"]).find((n) => n.type === "page");
 
+  // Fumadocs compares `$id` to find the active tab; without one every
+  // folder without an id would match every tab.
   const use: Folder = {
     type: "folder",
+    $id: "tab:use",
     name: labels.use,
     root: true,
+    // A tab's link is its first direct page child, so the home page stays
+    // outside the groups.
     children: [
-      group(labels.start, [...pick(START).flatMap(flatten), ...trialServer]),
+      ...pick(HOME),
+      group(labels.start, [
+        ...pick(["getting-started"]).flatMap(flatten),
+        ...trialServer,
+      ]),
       group(labels.features, pick(FEATURES)),
       ...pick(UI),
       group(labels.reference, pick(REFERENCE).flatMap(flatten)),
@@ -142,10 +164,13 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
   }
   const deploy: Folder = {
     type: "folder",
+    $id: "tab:deploy",
     name: labels.deploy,
     root: true,
     children: [...(selfHosting?.index ? [selfHosting.index] : []), ...sections],
   };
 
-  return { ...tree, children: [use, deploy] };
+  // The contributing guide is reached from the header link, not a tab; it
+  // stays in the tree so the llms index and page navigation still list it.
+  return { ...tree, children: [use, deploy, ...pick(["contributing"])] };
 }

@@ -62,18 +62,39 @@ function urls(node: Node): string[] {
 
 describe("buildSidebarTree", () => {
   test("makes two root folders, use and deploy", () => {
-    expect(names(out.children)).toEqual(["Use", "Deploy"]);
-    for (const c of out.children) expect((c as Folder).root).toBe(true);
+    expect(names(out.children)).toEqual(["Use", "Deploy", "/en/contributing"]);
+    for (const c of out.children.slice(0, 2)) {
+      expect((c as Folder).root).toBe(true);
+    }
+  });
+
+  test("every folder it makes has its own id, so only one tab is active", () => {
+    const ids: unknown[] = [];
+    const walk = (n: Node, made: boolean) => {
+      if (n.type !== "folder") return;
+      if (made) ids.push(n.$id);
+      for (const c of n.children) walk(c, made);
+    };
+    for (const t of out.children) walk(t, true);
+    // the input folders carry no id here; the ones it made must all have one
+    const own = ids.filter((id) => typeof id === "string");
+    expect(own.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(own).size).toBe(own.length);
+    expect((out.children[0] as Folder).$id).not.toBe(
+      (out.children[1] as Folder).$id,
+    );
   });
 
   test("use groups start, features, UI and reference", () => {
-    expect(names(tab("Use")?.children ?? [])).toEqual([
+    // The first direct page child is what the tab links to.
+    expect(tab("Use")?.children[0]).toMatchObject({ type: "page", url: "/en" });
+    expect(names(tab("Use")?.children.slice(1) ?? [])).toEqual([
       "Get started",
       "Features",
       "UI",
       "Reference",
     ]);
-    const start = tab("Use")?.children[0] as Folder;
+    const start = tab("Use")?.children[1] as Folder;
     expect(urls(start)).toContain("/en/run-server/dev-server");
   });
 
@@ -99,6 +120,11 @@ describe("buildSidebarTree", () => {
     expect(urls(deploy)).not.toContain("/en/observability");
     expect(JSON.stringify(deploy)).toContain("Observability (Use)");
     expect(urls(tab("Use") as Folder)).toContain("/en/observability");
+  });
+
+  test("a tree of unlisted pages is returned unchanged", () => {
+    const fallback: Root = { name: "fallback", children: [page("/en/x")] };
+    expect(buildSidebarTree(fallback, sidebarLabels.en)).toBe(fallback);
   });
 
   test("each page sits in exactly one tab and contributing in none", () => {
