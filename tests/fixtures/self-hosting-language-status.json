@@ -3,7 +3,7 @@
     "paths": ["run-server/self-hosting/index"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -11,7 +11,7 @@
     "paths": ["run-server/self-hosting/single-server"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -19,7 +19,7 @@
     "paths": ["run-server/self-hosting/kubernetes"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -27,7 +27,7 @@
     "paths": ["run-server/self-hosting/try-kind"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -35,7 +35,7 @@
     "paths": ["run-server/self-hosting/try-localstack"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -43,7 +43,7 @@
     "paths": ["run-server/self-hosting/prepare-xfs"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -51,7 +51,7 @@
     "paths": ["run-server/self-hosting/prepare-checkpoint-bucket"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -59,7 +59,7 @@
     "paths": ["run-server/self-hosting/access"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -67,7 +67,7 @@
     "paths": ["run-server/self-hosting/users-and-keys"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -75,7 +75,7 @@
     "paths": ["run-server/self-hosting/model-connections"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -83,7 +83,7 @@
     "paths": ["run-server/self-hosting/upgrade-compose"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -91,7 +91,7 @@
     "paths": ["run-server/self-hosting/upgrade-kubernetes"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -99,7 +99,7 @@
     "paths": ["run-server/self-hosting/backup-and-restore"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -110,7 +110,7 @@
     ],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -118,7 +118,7 @@
     "paths": ["run-server/self-hosting/capacity"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -126,7 +126,7 @@
     "paths": ["run-server/self-hosting/diagnose-database"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -134,7 +134,7 @@
     "paths": ["run-server/self-hosting/collect-metrics"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -142,7 +142,7 @@
     "paths": ["run-server/self-hosting/recover-sessions"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -150,7 +150,7 @@
     "paths": ["run-server/self-hosting/migrate-workspaces"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -158,7 +158,7 @@
     "paths": ["run-server/self-hosting/expand-network-pool"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -166,7 +166,7 @@
     "paths": ["run-server/self-hosting/build-images"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -174,7 +174,7 @@
     "paths": ["run-server/self-hosting/reference/configuration"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -182,7 +182,7 @@
     "paths": ["run-server/self-hosting/reference/storage"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -190,7 +190,7 @@
     "paths": ["run-server/self-hosting/reference/metrics"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -198,7 +198,7 @@
     "paths": ["run-server/self-hosting/reference/database"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -206,7 +206,7 @@
     "paths": ["run-server/self-hosting/reference/packages"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -214,7 +214,7 @@
     "paths": ["run-server/self-hosting/explanation/isolation"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -222,7 +222,7 @@
     "paths": ["run-server/self-hosting/explanation/compatibility"],
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -231,7 +231,7 @@
     "mergedInto": "P27",
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },
@@ -240,7 +240,7 @@
     "mergedInto": "P15",
     "locales": {
       "ko": "implemented",
-      "en": "fallback",
+      "en": "implemented",
       "ja": "fallback"
     }
   },

@@ -1,0 +1,290 @@
+---
+title: "Install a production single server"
+description: "Check readiness on a server using persistent S3"
+pageId: "P02"
+docType: "Installation"
+audience: "Linux installation operators"
+outcome: "Check readiness on a server using persistent S3"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Install published images pinned by digest on one Linux server and check `/readyz` and `/docs`. This uses persistent AWS S3. This Compose path does not accept custom endpoints. For another S3-compatible endpoint, follow [Kubernetes installation](/run-server/self-hosting/kubernetes). Choose [Kubernetes](/run-server/self-hosting/kubernetes) if you need high availability.
+
+<a id="준비물" />
+## Before you begin
+
+| Item | Requirement |
+| --- | --- |
+| Operating system | Linux, both `x86_64` and `arm64` |
+| Docker Engine | 28 or later |
+| Docker Compose | 2.24.6 or later |
+| Disk | Docker data-root on XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler quota check fails during `deploy` and installation stops. Complete [XFS preparation](/run-server/self-hosting/prepare-xfs) first on ext4 servers. Docker Desktop is unsupported |
+| Time | NTP synchronized. Docker starts automatically after reboot |
+| Tools | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, Docker Buildx plugin, and an account with Docker daemon access |
+| Object store | Persistent AWS S3 bucket. Compose test-ops supports AWS S3 only, without custom endpoints. Check protection and permissions in [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket) |
+| External access | Download images from `ghcr.io` and Docker Hub without signing in. Sessions connect to `api.anthropic.com` and `github.com` |
+
+A repository checkout is required because Compose files and `scripts/test-ops.sh` are read from it. Images are not built from the checkout.
+
+- Prepare the [XFS disk](/run-server/self-hosting/prepare-xfs) and [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket) first.
+- Choose an [access path](/run-server/self-hosting/access) before remote bootstrap.
+- Use a separate project, installation id, secret file, and state directory for every installation.
+
+<a id="단계" />
+## Steps
+
+<a id="1-버전과-소스-고정" />
+### 1. Pin the version and source
+
+Check the changelog and select a published tag supporting the current settings document, model connection, and secret-key contracts. Replace the two placeholders below with an actual tag and its matching source commit from the [package contract](/run-server/self-hosting/reference/packages). An image main tag is not a Git tag; do not assume it is also the checkout reference.
+
+```bash
+TAG='<published-image-tag>'
+SOURCE_REF='<matching-source-commit-or-release-tag>'
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+Continue only after all three image queries succeed and return digests.
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout "$SOURCE_REF"
+bun install --frozen-lockfile
+```
+
+The checkout must match the selected release commit, and dependency installation must succeed. Store the release file outside the checkout to keep the checkout clean.
+
+<a id="2-비밀과-설정-문서" />
+### 2. Secrets and settings document
+
+Keep secrets only in an env file outside the repository, readable only by operators. The script rejects group or other permissions.
+
+```bash
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+```
+
+Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools such as `sed -i` create temporary files and fail with `Permission denied` in `/etc/werft`; use an editor that writes in place.
+
+| Variable | Value |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
+| `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
+| `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
+| `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and prints it in container logs |
+| `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<터널 포트>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
+
+Replace the example LocalStack values with production S3 values. Do not print secrets in command lines or logs.
+
+| Variable | Production value |
+| --- | --- |
+| `EXECUTION_INSTALLATION_ID` | An id unique to this installation. Do not change it after deployment |
+| `PLATFORM_SETTINGS_DOCUMENT` | `/etc/werft/settings.json` |
+| `EXECUTION_WORKSPACE_QUOTA` | `on` |
+| `AWS_REGION`, `S3_BUCKET` | Prepared AWS bucket region and name. Custom endpoints are unsupported |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | API credentials with minimum bucket permissions |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | Provider/Git hosts plus `<bucket>.s3.<region>.amazonaws.com:443`. For dotted bucket names, use `s3.<region>.amazonaws.com:443` |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | Empty. Remove `localstack:4566` |
+
+Add model keys through console model connections after installation. Back up `PLATFORM_SECRET_KEY` securely and separately: losing it prevents reading stored credentials.
+
+Put the settings document at `/etc/werft/settings.json`, listing the GitHub repositories sessions will use. It contains no secrets. Replace only the repository URL with your actual value; this example assumes a public repository. Every repository entry needs `"auth": { "kind": "github_app" }`. Otherwise import omits it and `preflight` blocks installation. For private repository authentication, see the [API server documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md).
+
+The migrate container must read the file, so use `0644`. Create an empty file, then fill in the following using an editor.
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": { "kind": "github_app" }
+    }
+  },
+  "mcp_servers": {}
+}
+```
+
+Replace the URL with the public repository you will use. For private repositories, prepare [CONSOLE_ORIGIN in the step 2 input table](#2-비밀과-설정-문서), then configure the GitHub App in the installed console. The file contains no secrets and must remain readable by migrate.
+
+<a id="3-release-입력-생성" />
+### 3. Generate release input
+
+Run this in the shell retaining the selected TAG. `DEPLOYMENT_DIR` is an installation-specific directory outside the checkout.
+
+```bash
+DEPLOYMENT_DIR=/var/lib/werft/test-ops
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
+digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
+jq -n \
+  --arg commit "$(git rev-parse HEAD)" \
+  --arg control "ghcr.io/jeongjaesoon/werft-control-host@$(digest control-host)" \
+  --arg worker "ghcr.io/jeongjaesoon/werft-worker@$(digest worker)" \
+  --arg egress "ghcr.io/jeongjaesoon/werft-egress-proxy@$(digest egress-proxy)" \
+  --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit: $commit,
+    images: {control_host: $control, worker: $worker, egress_proxy: $egress},
+    settings_digest: $settings}' > "$DEPLOYMENT_DIR/release.json"
+```
+
+Confirm all three image digests are nonempty.
+
+<a id="4-s3를-명시해-검사설치" />
+### 4. Explicitly select S3, check, and install
+
+```bash
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh preflight "$DEPLOYMENT_DIR/release.json"
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.json"
+```
+
+preflight checks bucket protection and scratch version writes, holds, reads, hold release, and deletion. The scheduler checks quota during deploy. Both must succeed and services must become healthy. The object store mode cannot change after the first deploy.
+
+<a id="확인" />
+## Verify
+
+```bash
+scripts/test-ops.sh status
+curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
+curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/docs
+```
+
+Check the ready response body and 200, docs 200, and healthy status for each service. PostgreSQL must remain loopback-only, and the Docker TCP socket must be inaccessible externally. The complete production AWS S3 installation and restoration with data have not been verified by execution in this tutorial. An empty LocalStack checkpoint comparison and ready 200 do not substitute for them.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+If the first `deploy` fails, started containers remain and `stop` is unavailable because `current.json` does not exist. Inspect failure logs for quota, network, or Secret issues. Confirm this installation's project name, then bring it down as follows without `-v`.
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+Fix the cause, then rerun `deploy` with the same release file and environment. Use `start` to restart an installation that has already succeeded.
+
+For quota errors, see [XFS preparation](/run-server/self-hosting/prepare-xfs); for bucket protection/permission errors, see [Bucket preparation](/run-server/self-hosting/prepare-checkpoint-bucket). For env permissions, check [step 2 file modes](#2-비밀과-설정-문서); for settings digest errors, check [step 3 digest and release generation](#3-release-입력-생성). A failed first deploy does not imply a successful deployment state file exists.
+
+<a id="되돌리기" />
+## Roll back
+
+For a healthy installation, preserve data through [stop and restart](/run-server/self-hosting/stop-compose). After a failed first deploy, inspect the cause and resources this project created first. Do not use reset or volume deletion as default cleanup. Follow a separate removal procedure only after confirming no required data exists.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Access](/run-server/self-hosting/access) → [First owner and keys](/run-server/self-hosting/users-and-keys) → [Model connections](/run-server/self-hosting/model-connections). Set up [backup and restoration](/run-server/self-hosting/backup-and-restore) before starting operations.
+
+## 이전 주소 안내
+
+<details>
+<summary>Find the current guide for an older section</summary>
+
+<a id="decisions" />
+<a id="requirements" />
+<a id="1-read-the-image-digests" />
+<a id="2-get-the-checkout" />
+<a id="3-write-the-configuration" />
+<a id="4-write-the-release-file" />
+<a id="5-install" />
+<a id="6-check" />
+<a id="配備の判断" />
+<a id="必要なもの" />
+<a id="1-イメージの-digest-を読む" />
+<a id="2-checkout-を取得する" />
+<a id="3-設定ファイルを作る" />
+<a id="4-release-ファイルを作る" />
+<a id="5-設置する" />
+<a id="6-確認する" />
+<a id="배포-결정" />
+<a id="1-이미지-digest-읽기" />
+<a id="2-checkout-받기" />
+<a id="3-설정-파일-만들기" />
+<a id="4-release-파일-만들기" />
+<a id="5-설치하기" />
+<a id="6-확인하기" />
+
+[Production single-server installation](/run-server/self-hosting/single-server#무엇을-하게-되나)
+
+<a id="disk-setup-xfs-prjquota" />
+<a id="ディスクの準備-xfs-prjquota" />
+<a id="디스크-준비-xfs-prjquota" />
+
+[Prepare an XFS disk](/run-server/self-hosting/prepare-xfs#무엇을-하게-되나)
+
+<a id="install-without-a-checkout-the-release-bundle" />
+<a id="checkout-なしでインストールする-リリースバンドル" />
+<a id="checkout-없이-설치하기-릴리스-번들" />
+
+[Deployment package contract](/run-server/self-hosting/reference/packages#계약)
+
+<a id="when-you-build-the-images-yourself" />
+<a id="イメージを自分でビルドするとき" />
+<a id="이미지를-직접-빌드할-때" />
+
+[Build images for your registry](/run-server/self-hosting/build-images#무엇을-하게-되나)
+
+<a id="7-first-owner-and-api-key" />
+<a id="7-最初の-owner-と-api-key" />
+<a id="7-첫-owner와-api-key" />
+
+[Create the first owner and issue user keys](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
+
+<a id="8-enter-the-model-key" />
+<a id="alternative-put-the-model-key-in-an-environment-variable" />
+<a id="8-モデルキーを入れる" />
+<a id="代替手段モデルキーを環境変数で渡す" />
+<a id="8-모델-키-넣기" />
+<a id="대안-모델-키를-환경-변수로-넣기" />
+
+[Configure model connections and profiles](/run-server/self-hosting/model-connections#무엇을-하게-되나)
+
+<a id="take-it-down" />
+<a id="operations" />
+<a id="reboot" />
+<a id="day-1" />
+<a id="next" />
+<a id="片付ける" />
+<a id="運用する" />
+<a id="再起動" />
+<a id="初日の運用" />
+<a id="次のステップ" />
+<a id="내리기" />
+<a id="운영하기" />
+<a id="재부팅" />
+<a id="첫날-운영" />
+<a id="다음-단계" />
+
+[Stop, restart, and remove Compose](/run-server/self-hosting/stop-compose#무엇을-하게-되나)
+
+<a id="access-path" />
+<a id="アクセス経路" />
+<a id="접근-경로" />
+
+[Configure user access](/run-server/self-hosting/access#무엇을-하게-되나)
+
+<a id="dedicated-s3-bucket" />
+<a id="専用の-s3-bucket" />
+<a id="전용-s3-bucket" />
+
+[Prepare a checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket#무엇을-하게-되나)
+
+<a id="backup-and-restore" />
+<a id="バックアップと復元" />
+<a id="백업과-복원" />
+
+[Back up and rehearse restoration](/run-server/self-hosting/backup-and-restore#무엇을-하게-되나)
+
+</details>

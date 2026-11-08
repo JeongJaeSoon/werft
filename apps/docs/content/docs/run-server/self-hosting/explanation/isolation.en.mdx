@@ -1,0 +1,159 @@
+---
+title: "Execution backends and isolation"
+description: "Understand backend trust boundaries and failure behavior"
+pageId: "P28"
+docType: "Explanation"
+audience: "Security operators"
+outcome: "Understand backend trust boundaries and failure behavior"
+---
+
+<a id="개요" />
+## Overview
+
+This explains why Docker and Kubernetes isolate workers and reclaim executions. Use the [configuration contract](/run-server/self-hosting/reference/configuration) for settings and [Session recovery](/run-server/self-hosting/recover-sessions) for recovery decisions.
+
+<a id="제어-역할과-실행" />
+## Control roles and execution
+
+A reconciler pass (`main.ts reconciler --once`, package script `reconciler`) handles one batch and exits. It does not interpret lease durations: API heartbeats set `workers.lease_expires_at`, and the reconciler compares that deadline with the database clock. Only API reads `HEARTBEAT_TTL_SEC` (default 30; values ≤20 or >86400 reject startup; see [API settings](/run-server/self-hosting/reference/configuration)). Reconciler startup rejects that variable. Explicitly select dry-run to inspect targets before changes. Only unprocessed rows or `queued` turns are redelivered automatically. Running rows or rows whose state cannot be proven make sessions `failed` and require explicit recovery.
+
+Compose's `apps` profile runs reconciler passes repeatedly. `main.ts reconciler` is the supervisor (`apps/control-host/src/pass-loop`); its child (`main.ts reconciler --serve`) processes one pass per IPC request and waits for the next. Starting Bun/reloading modules per pass cost several times the pass CPU itself, consuming tens of percent of a core per idle role. Pools still open/close per pass. Failed, killed, timed-out, or signaled passes end with the child; next passes use fresh processes. Child death between passes counts as failure. Passes run serially. Healthcheck is `main.ts reconciler --health`. On SIGTERM the supervisor stops scheduling, signals the active pass, then SIGKILLs after 10 seconds. Writes are transactional, preserving data at interruption. Compose `stop_grace_period` is 20s. The three supervised roles (reconciler/scheduler/slack) receive `BUN_OPTIONS=--smol`; supervisors, children, and healthchecks inherit it for more frequent GC and smaller heaps.
+
+The final pass stage projects paired `tool_use`/`tool_result` events into `tool_calls` and daily `tool_call_days`. `GET /v1/usage/tools` reads those tables instead of reparsing events. It handles 5,000 events/transaction for 10 seconds/pass, continuing leftovers next pass. A batch hitting the 10-second statement timeout retries at one-tenth size and immediately commits `tool_call_progress.batch_size`. Even if the 60-second pass timeout interrupts, the next pass starts at that size until a batch succeeds. Timeout-free passes multiply size by 10 up to the configured value (then NULL). Each timeout logs `Tool call batch timed out` with `batch_size`/`retry_size`; `Tool calls projected` reports `timed_out_batches`. Cursor `tool_call_progress.applied_through` is an event id, advanced only through events older than 60 seconds to retain late-committed lower ids. Newer events are reread idempotently next pass. New calls usually appear after roughly one pass (about 10 seconds). Initial post-migration passes backfill all events from cursor 0; API aggregates show only processed ranges during backfill. Dry-run does not project.
+
+Scheduler passes are also one-shot (`main.ts scheduler --once`, package script `scheduler`). Compose repeats them through the same supervisor (`main.ts scheduler`, health `main.ts scheduler --health`). Settings have the same meanings: `SCHEDULER_INTERVAL_SEC` (5), `SCHEDULER_PASS_TIMEOUT_SEC` (180, must exceed `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC`; see [Kubernetes settings](/run-server/self-hosting/reference/configuration)), `SCHEDULER_MAX_CONSECUTIVE_FAILURES` (3), `SCHEDULER_HEALTH_STALE_SEC` (200, must exceed interval + timeout), and `SCHEDULER_STATUS_FILE` (`/tmp/scheduler-status.json`, not forwarded by Compose). Lock-contention skips exit 75, neither success nor failure; repeated skips eventually make health stale. Passes finishing their work but leaving sessions they cannot currently help (backoff `launch_backoff_count`, new quarantine `launch_quarantined_count`, replacement exhaustion `replacement_exhausted_count`) exit 76 (degraded). Restart cannot clear that database state; degraded breaks the failure streak instead of counting as failure. Health accepts recent degraded passes with reason `completed degraded`; status records `lastDegradedAt`, while `lastSuccessAt` tracks clean passes only. Any other failure still makes the pass exit 1.
+
+On scheduler SIGTERM, the active pass stops reserving at its next safe point (the same as pass-lock loss) and is killed after 30 seconds if unfinished. A pending Docker stop continues even after its requester is killed (Engine 25 onward does not cancel stop on disconnect). Compose `stop_grace_period` is 45s. Kill intents (terminate, lease expiry, quarantine) do not wait for turn drain: request stop and move on after 5 seconds, counting `kills_stopping_count` without failure. The daemon sends SIGKILL after `EXECUTION_DOCKER_STOP_TIMEOUT_SEC`; a later pass confirms absence before returning the slot. The same applies to overdue claimed-worker replacement and orphan containers without launch intents (counted as `orphan_stopping_count`, retaining slots until gone). Unclaimed replacements wait: no turn is active and each attempt consumes replacement budget. That path can still wait through a full stop, so startup rejects pass timeouts below stop + request timeout.
+
+A container create/start request exceeding `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` has an uncertain result and does not count as launch failure, revoke nonce, or set backoff. The pass exits 1. Next pass inspects: adopt existing containers (start if only created), or count launch failure only if absent, revoke nonce, and back off. Repeated nonexistent creates eventually quarantine rather than holding slots forever. Containers appearing late after nonce revocation are deleted as failed attempts. Explicit daemon 4xx/5xx rejection still counts as launch failure. Stopping the scheduler does not end workers; slots return only after confirmed absence.
+
+A pass proceeds: ① compare live `executions` with Docker (recreate missing containers under the same intent; record `terminated` and remove exited ones); ② log/stop managed containers without launch intents, delete networks whose containers disappeared, and reattach detached proxies; ③ within `EXECUTION_SLOT_LIMIT`, commit intents then create containers for unassigned sessions; ④ reclaim finished-session workspace volumes.
+
+Workers receive no Docker socket or host HOME. Env includes bootstrap identity `WORKER_EXECUTION_ID`, `WORKER_EXECUTION_GENERATION`, `WORKER_BOOTSTRAP_NONCE`, `WORKER_GATEWAY_URL`; tmpfs `HOME`; proxy `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` in both cases (`NO_PROXY` names the proxy itself); `WORKER_EGRESS_CREDENTIAL_URL` ([credential routes](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)); and object-store names `S3_BUCKET`/`AWS_REGION` plus `WORKER_OBJECT_PREFIX` (`sessions/<sessionId>/`). Scheduler startup requires bucket/region. Workers receive neither object-store credentials nor endpoints; only the proxy object-store route reaches storage and forms the security boundary. Worker `scopedCheckpointObjectStore` (`packages/storage`) merely rejects out-of-prefix keys early. Only `apps/worker/src/object-store.ts` imports `@werft-ai/storage` in worker code, enforced by `tests/architecture.test.ts`.
+
+The backend strips nonces from errors in case daemon responses echo create bodies. `/tmp`/HOME tmpfs mounts belong to worker uid/gid. Docker initializes named `/workspace` from the image, so the image must precreate it owned by the worker uid. Image comes from `WORKER_IMAGE` (`apps/worker/Dockerfile`). PostgreSQL session advisory lock `scheduler:pass` serializes whole passes; overlaps log and skip. Shared daemons require unique `EXECUTION_INSTALLATION_ID` per installation. Scheduler refuses its absence (only the adapter has test default `local`). Reusing an id across installations makes each reclaim the other's containers as orphans.
+
+<a id="docker-네트워크와-credential-경계" />
+## Docker networks and credential boundaries
+
+Workers attach to exactly one **dedicated per-execution network**, `werft-net-<installationId>-<executionId>-g<generation>`: bridge, `internal: true`, `EnableIPv6: false`, `com.docker.network.bridge.gateway_mode_ipv4=isolated`. Docker provides neither outbound routing nor a host-side bridge address/IPAM gateway. Workers cannot directly reach the host, host processes, LAN, instance metadata (`169.254.169.254`), other Compose services, or workers. Only the worker and egress proxy belong. Scheduler selects **exactly one running container** labeled `werft.egress-proxy=<installationId>` and connects it to each network with the host alias in `EXECUTION_EGRESS_PROXY_URL`. Workers use it through `HTTP_PROXY`/`HTTPS_PROXY`. Its address varies by network, so host must be a name; IP literals and `localhost` are rejected. Compose's egress-proxy carries the label. Workers have no `host.docker.internal:host-gateway` mapping. Gateway access also goes through the proxy.
+
+Proxy policy is versioned through two lists. `EGRESS_ALLOWLIST` contains public `host:port` destinations whose resolved addresses must all be public unicast. `EGRESS_PRIVATE_ALLOWLIST` explicitly permits known private destinations (gateway). See [egress configuration](/run-server/self-hosting/reference/configuration#schedulerworker-컨테이너egress-설정). Never put provider/repository/object-store hosts in either forward list: that bypasses credential routes, allowing worker-held provider keys outside metering, unauthenticated public repository reads, or object-store access outside API request validation/signing. Local SeaweedFS also validates SigV4, but storage authentication cannot replace session-prefix authorization. Use `EGRESS_CREDENTIAL_ALLOWLIST`/`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` instead. Any credential/forward list overlap rejects startup; remove stale forward entries. Comparison uses literal `host:port`, so aliases/IPs for the same upstream evade this check. `.env.example` matches these settings (`tests/images.test.ts`). Both forward lists reject link-local (`169.254.0.0/16`, `fe80::/10`), multicast, and reserved resolution, preventing metadata rebinding. Unlisted host/ports return `403` for CONNECT and absolute-form requests; non-absolute requests except `/healthz` return `400`. An allowed name failing DNS resolution (such as api temporarily disappearing during restart) returns `502`, not policy denial; DNS timeout returns `504`. Workers retry both.
+
+Public npm/RubyGems/Go module/checksum registries use credential `packages` routes, not forward lists: SNI-only forwarding cannot prevent leakage to other destinations behind CDNs. Workers send `GET`/`HEAD /packages/<registry>/<경로>` to `WORKER_EGRESS_CREDENTIAL_URL`. Registries are `npm` (`https://registry.npmjs.org`), `rubygems` (`https://rubygems.org`), `go` (`https://proxy.golang.org`), and `gosum` (`https://sum.golang.org`). The separate checksum route is required because proxy.golang.org returns 404 for `/sumdb/`. Each attempt's packages-only token (prefix `wek_`) can be supplied as `Authorization: Bearer`, URL userinfo password (Basic), or `/packages/<registry>/_token/<token>/<경로>`. Go uses the path because it refuses credentials in HTTP proxy URL userinfo (`refusing to pass credentials to insecure URL`). Proxy removes that segment upstream and from logs. Simultaneous header/path tokens return `401`. Token visibility inside sessions matches other package-manager config files; Go errors can print token-bearing URLs, scrubbed by worker output. Basic is supported because Bundler/Go cannot send bearer. Authorizer checks only that the attempt still owns the session, returns the registry address, and adds no credentials. Other methods (PUT/POST/DELETE, publish/unpublish) have no route, return `404`, and never reach authorizer. Segments resolving to `.`/`..` also return `404`.
+
+Registry access is proxy-global: include the four hosts in `EGRESS_CREDENTIAL_ALLOWLIST` to enable, remove to disable for all sessions ([defaults](/run-server/self-hosting/reference/configuration#schedulerworker-컨테이너egress-설정)). Unlisted registries return `403 egress denied`. Remove old `EGRESS_ALLOWLIST` entries for these hosts on upgrade; overlap with new defaults rejects startup. No per-profile/agent registry access exists yet. Only packages routes follow redirects server-side, up to 5 per request, to public hosts in comma-separated `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` (`host:port`). They strip both worker Authorization and authorizer-added registry headers. Unlisted hosts, non-http(s), userinfo, and more than five redirects return `502`. Even same-host path redirects require that host in the redirect list. Cache `304` responses pass through unchanged. Other routes still reject redirects with `502`. Repository Git LFS objects also download unauthenticated only from these hosts; GitHub LFS requires `github-cloud.githubusercontent.com:443` ([API LFS documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)). Redirect/forward host overlap rejects startup.
+
+`Credential route` logs include `purpose: packages`, `registry`, `session_id`, `attempt_id`, upstream host/status. Redirects log `Credential route redirect followed` (`to_host`/`to_port`) or `Credential route redirect refused`/`Credential route denied`.
+
+<a id="github-packages사설-npmgem" />
+### GitHub Packages (private npm/gems)
+
+Private packages use `github-npm` (`https://npm.pkg.github.com`) and `github-rubygems` (`https://rubygems.pkg.github.com`) registries. Unlike public registries, authorizer adds the workspace administrator's bot classic PAT as `Authorization: Bearer`; it never reaches workers. See the [design decision](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md) for registration, allowlisting, and auditing, and [private registry setup](/run-server/self-hosting/build-images#사설-패키지-registry-허용) for configuration.
+
+Authorizer validates GitHub paths. Unlisted packages, unrecognized paths, or missing/expired tokens return `403`, recording `fetch_github_package` receipts with `failed`/`reason_code`; permitted requests record `succeeded`. Receipt write failure rejects requests. Proxy logs follow other packages requests.
+
+npm 11 rewrites GitHub tarball locations against the default registry (`replace-registry-host=always`), so tarball requests arrive on the `npm` route. Authorizer recognizes `npm` paths shaped like `/download/@owner/<name>/<version>/<digest>` as GitHub requests. Public npm has no paths of this shape.
+
+At each claim, workers write only user settings in engine HOME (tmpfs), never repository `.npmrc`, `Gemfile`, `.bundle/config`, or `go.mod`.
+
+| Tool | File relative to HOME | Contents |
+|---|---|---|
+| npm (also read by pnpm/Bun) | `.npmrc` | `registry=<route>/packages/npm/`, `//<route host>/packages/npm/:_authToken=<token>` |
+| Bundler | `.bundle/config` | Mirror `BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/` to `<route, userinfo에 token>/packages/rubygems` |
+| Go | `.config/go/env` | `GOPROXY=<route>/packages/go/_token/<token>` (no `direct`), `GOSUMDB=sum.golang.org <route>/packages/gosum/_token/<token>`, `GOFLAGS=-mod=readonly` |
+
+With allowlisted GitHub owners, claim `packages.github` contains owner names only, no token. Workers add `replace-registry-host=always`, per-owner `@<owner>:registry=<route>/packages/github-npm/`, and `//<route host>/packages/github-npm/:_authToken=<token>` to `.npmrc`. Bundler receives per-owner mirrors from `https://rubygems.pkg.github.com/<owner>/` to `<route>/packages/github-rubygems/<owner>`. Bundler lowercases mirror keys: use lowercase owners in Gemfile `source` too. Repository `.npmrc` pinning `@<owner>:registry=https://npm.pkg.github.com` overrides HOME, sending requests through the forward proxy where they are rejected; remove that line.
+
+No `direct` in GOPROXY means no direct VCS access. With no `GONOSUMDB`/`GOPRIVATE`/`GONOSUMCHECK`, all modules receive checksum verification. Token-bearing files use 0600 and are deleted against old APIs lacking claim packages. Users can modify settings via `go env -w` or `npm config set`, but the proxy remains the boundary, preventing other destinations.
+
+The proxy does not know lockfiles or enforce their versions. Use frozen installs: `npm ci`, `bundle install --deployment`/`BUNDLE_FROZEN=true`, `go mod download` with `-mod=readonly`. For pinned repository registries and E2E results, see [worker package tools](/run-server/self-hosting/build-images).
+
+CONNECT carries TLS only. After `200 Connection Established`, before forwarding any client bytes, proxy parses TLS ClientHello. DNS authorities require case-insensitive matching `server_name`; allowlisted IP literals require absent server_name. `encrypted_client_hello` (0xfe0d) is rejected whether GREASE or real ECH: proxy cannot distinguish them, and real ECH hides the inspected name. Non-handshake first records, two host_name entries, or incomplete hellos within the first 16KiB (including record headers) or 15 seconds (`handshakeTimeoutMs`) close the connection. Rejection happens after 200 and appears as handshake disconnection.
+
+Limitations:
+
+* Only plaintext **outer** ClientHello SNI is inspected. Without TLS termination, proxy cannot inspect HTTP Host/paths/bodies or allowed-service relays. CDN-side domain-fronting controls are separate.
+* IP literal allowlisting permits `IP:port`, not a hostname guarantee. Do not allowlist shared CDN edge IPs.
+* **Bun 1.3.10–1.3.13 fetch/node:https sends GREASE ECH and is rejected through CONNECT.** 1.3.14 does not. `egress.integration.test.ts` pins this in “Bun's own fetch handshakes through the tunnel”. Bun `node:tls`/`Bun.connect({tls})`, Node, curl, and SDK-spawned Claude Code also omit it. Worker object-store access does not use CONNECT: plain HTTP goes to the worker-network proxy route; proxy establishes upstream TLS. AWS virtual-hosted routing requires `<bucket>.s3.<region>.amazonaws.com:443` in `EGRESS_CREDENTIAL_ALLOWLIST` (dotted buckets use path-style `s3.<region>.amazonaws.com:443`). Worker Bun HTTPS-upstream CONNECT clients are unsupported. Remeasure after runtime/client upgrades.
+
+**Workers cannot reach each other.** Separate networks prevent routing and name resolution. Proxy access to private addresses requires `EGRESS_PRIVATE_ALLOWLIST`. Other installations' workers/proxies are also unreachable through installation-specific networks and proxy selection. `egress.integration.test.ts` checks this with “workers do not reach one another”, alongside a positive control reaching a sibling's open port on a shared network.
+
+* Proxy is trusted and attached to every worker network: compromise reaches every worker in that installation. Do not put names resolving to workers in `EGRESS_PRIVATE_ALLOWLIST`.
+
+**Host processes are also unreachable.** Default `nat` internal bridges assign the host the first subnet address, letting workers directly reach host processes listening there or on wildcard addresses (not published ports). Worker networks use `gateway_mode_ipv4=isolated`, giving the host no address. This requires **Docker 28/API 1.48 or later**. Startup `verifyNetworkIsolation` rejects older APIs with `GatewayModeUnsupportedError`; no disable setting exists. The “a host process on a wildcard address” integration test reaches a host listener on a nonisolated internal network as positive control, but not on worker networks. Native Linux CI uses the test's `0.0.0.0` listener. Docker Desktop substitutes a `--network host` container in the daemon VM network namespace. Worker networks disable IPv6.
+
+Before passes, `verifyNetworkIsolation` checks exactly one running installation proxy. If absent/multiple, scheduler takes the pass lock, reconciles networks only (orphan cleanup, proxy detach when multiple), then exits nonzero without launches. Existing launch networks must meet every condition or fail closed with `NetworkIsolationError`:
+
+* bridge/internal/IPv6-disabled settings and installation/execution/generation ownership labels match.
+* No host address: `Options` gateway_mode_ipv4 is isolated and IPAM has no gateway. Both are checked because old daemons can record unknown options while still assigning gateways.
+* No members beyond worker and proxy.
+
+Proxy attachment is verified from reported attachment/aliases, not status codes: already attached returns 403, and attachment without alias breaks DNS. Adoption requires the existing container to belong to exactly **one** network with the expected id. Containers are created by network id, preventing recreation under the same name from substituting an unverified network.
+
+Obsolete `EXECUTION_DOCKER_NETWORK`/`EXECUTION_DOCKER_NETWORK_ALLOWLIST` reject startup rather than being ignored. Remove them from env files and label the proxy.
+
+Container label `werft.isolation` stores `<버전>:<지문>`. Its hash includes proxy URL, credential port, NO_PROXY, user, workspace/HOME paths, tmpfs, workspace byte/inode quotas, stop timeout, turn/provider-retry limits, bucket, and region. Changing only EXECUTION_EGRESS_PROXY_URL or S3_BUCKET changes it. Object-store endpoint/credentials are absent: workers never receive them and API signs proxy requests. Changing AWS_ENDPOINT_URL/keys therefore leaves workers running; restart API to use new values on subsequent requests. CPU/memory/pids are deliberately excluded: launch reservations fix them in `worker_launches.resources` and compare `werft.launch-spec`. Lowering limits affects future launches without mass replacement. Containers missing launch-spec are adopted without that comparison.
+
+Existing isolation does not change with control-host upgrades. Scheduler treats mismatched stamps as stale, stops/removes and recreates from stored intent; ensureExecution does not adopt them. **Higher-version** containers came from newer control-host during rollback. Unknown boundaries prohibit adoption/replacement with `IsolationContractError`; the row remains live and pass exits nonzero until roll-forward or manual removal. Shape changes increment `ISOLATION_CONTRACT`. Contract 5 introduced per-execution networks, making all shared-network containers from ≤4 stale. Failed pre-replacement `assertReplaceable` (image/workspace/proxy/new network) normally leaves old containers for retry. But unclaimed pre-contract-5 containers are **detached from all networks** to prevent neighboring-worker access; no active turn exists before claim. A passing check replaces them later, with disconnect results appended to replacement-failure errors. Claimed pre-contract-5 workers go directly to teardown without this check. There is no atomic fence around check/disconnect: recheck claim afterward and reconnect if it raced, leaving SIGTERM drain to scheduler teardown. Claim requests can break during that brief disconnect.
+
+Contract 6 removes host addresses. Contract 5 networks keep the same names, but gateway mode cannot change in place:
+
+* **assertReplaceable:** accepts the old network only if the same launch's contract 5 worker is actually attached and host addressing is the sole defect. Teardown removes container/network; ensureExecution recreates isolated.
+* **Normal launch:** old networks without workers (failed teardown cleanup) are deleted/recreated only if proxy alone remains. Other members reject launch. New containers never start alongside old workers on old networks.
+* **reconcileNetworks:** retains proxy on contract 5 networks to preserve egress before claimed-worker drain/teardown. Contract 6 networks with host addresses are defects and lose proxy attachment.
+
+Claimed workers still follow turn-boundary drain below. Follow [isolation contract operations](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때).
+
+**Claimed workers cannot be recreated immediately; they drain to a turn boundary, then tear down.**
+
+<a id="계약이-오를-때-claim된-worker의-drain" />
+### Drain claimed workers on contract upgrades
+
+Stale claimed containers are not destroyed immediately:
+
+1. The first pass records `worker_launches.drain_requested_at` using the database clock. No new turns are accepted; active turns finish and later input stays queued.
+2. While a turn is running/needs_input, or before the first input request (workspace preparation/restoration, where interruption counts as failed startup), retain the container and report pass `draining` (log `draining_count`, `Claimed execution draining before its replacement`).
+3. The first pass after turn completion tears down the container. Finalize already committed the turn's checkpoint. SIGTERM causes idle-drain release; queued input launches under the current contract and resumes from checkpoint.
+4. After deadline, tear down even if busy/starting. Active turns become outcome_unknown. Unfinished startup does not count if SIGTERM yields drain release; death without release counts once. Pass `drainsOverdue` (log `drain_overdue_count`) and `Drain deadline passed with the worker still busy; replacing anyway` record it. Deadline is MAX_TURN_SECONDS + 5 minutes: the turn is bounded by MAX_TURN_SECONDS and the additional 5 minutes covers finalize/checkpoint.
+
+Unclaimed stale containers are replaced immediately as before.
+
+For rollout, emergency terminate, and rollback decisions, follow [isolation contract operations](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때).
+
+<a id="kubernetes-격리" />
+## Kubernetes isolation
+
+NetworkPolicy and namespace permissions replace Docker networks as the worker boundary.
+
+<a id="scheduler는-replica-1-recreate" />
+### Scheduler: one replica and `Recreate`
+
+PostgreSQL advisory lock `pg_try_advisory_lock` serializes passes. A second scheduler skips without acquiring it, then its health goes stale without successful passes and liveness repeatedly restarts it. More replicas do not increase throughput. The chart fixes `replicas: 1` (no values key) and uses `Recreate`, stopping old Pods before new ones instead of RollingUpdate. Passes pause briefly during upgrades. Reconciler rechecks under row locks, so `reconciler.replicas` can scale without leader election; default 1.
+
+<a id="worker-networkpolicy" />
+### Worker NetworkPolicy
+
+Chart NetworkPolicy replaces per-execution internal Docker networks. Worker Pods labeled `app.kubernetes.io/part-of=werft`, `app.kubernetes.io/component=worker`, `werft.installation=<installationId>` accept no inbound connections and send only to egress-proxy ports 3128/3129. No direct database/api/worker/node/cloud-metadata access exists; api gateway requests also use the proxy. Proxy accepts only workers; api authorizer 3100 accepts only proxy. This isolation requires CNI enforcement (kindnet enforces it; enable EKS VPC CNI's network policy agent).
+
+<a id="api-server-인증" />
+### API server authentication
+
+Use KUBECONFIG if present, otherwise the Pod ServiceAccount. ServiceAccount authentication reads KUBERNETES_SERVICE_HOST/KUBERNETES_SERVICE_PORT and token/CA files. Scheduler Role verbs and pidsLimit handling are in repository `packages/adapters/execution/kubernetes/README.md`.
+
+<a id="이미지-안의-도구와-신원" />
+## Image tools and identity
+
+<a id="worker-안에서-만든-commit의-작성자" />
+### Commit authors inside workers
+
+Worker git system configuration (`/etc/gitconfig`) sets `user.name=Werft`, `user.email=noreply@werft.invalid`. Unless repository/session settings override, Claude-created commits use `Werft <noreply@werft.invalid>` as both author and committer. Without these, git refuses commits and Claude asks users for identity. Reserved .invalid avoids real addresses. Internal checkpoint commits use `checkpoint@werft.invalid` instead. System config then includes `include.path=~/.werft/git-identity`. For console write-enabled GitHub Apps, workers write the App bot (`<slug>[bot]`) there to override defaults ([GitHub identity](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#github-계정-연결)). Missing files are skipped.
+
+System git config has lowest priority. Set `git config user.name`/`git config user.email` in the workspace to change identity. `git commit --author` changes only author, not committer. `git config --global` writes to tmpfs HOME and disappears on worker replacement. Repository config also disappears when restoration clears/recreates the repository, returning to default identity. No catalog/installation setting changes defaults; passing user addresses to workers requires a product decision first. Image smoke (`.github/scripts/image-smoke.sh`) tests commits in empty repositories; E2E (`tests/e2e/alpha-path.e2e.ts`) verifies actual Claude Code Bash commits.
+
+<a id="worker-안의-github-cli" />
+### GitHub CLI inside workers
+
+The image includes `gh` at `/usr/local/bin/gh` to avoid missing-command confusion, without expanding GitHub access. It contains no login/token, and api.github.com is absent from all default egress lists. Defaults allow only offline commands like `gh --version`/`gh help`; GitHub reads and writes fail. Without authentication, gh exits 4 before requests and suggests `gh auth login`. Even with session GH_TOKEN, proxy rejects api.github.com:443 CONNECT as `destination is not allowlisted`, returning Forbidden. Adding that host to EGRESS_ALLOWLIST removes the block: session-owned tokens can then call GitHub outside platform push approvals/branch restrictions. Leave it unlisted to require built-in github MCP writes. Version is pinned by Dockerfile GH_VERSION and architecture-specific release checksum SHA-256 values, manually updated rather than following daily Debian security updates. The binary adds about 38MB.
+
+Workers receive no Docker socket or host HOME. Prepare package runtimes through [custom image builds](/run-server/self-hosting/build-images). Repository-only git configuration can disappear when checkpoint restoration recreates the repository.

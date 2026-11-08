@@ -1,0 +1,206 @@
+---
+title: "Upgrade Kubernetes"
+description: "Replace the chart while preserving support windows and worker pins"
+pageId: "P12"
+docType: "Task"
+audience: "Cluster operators"
+outcome: "Replace the chart while preserving support windows and worker pins"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Preserve the previous worker pin and support window, read upgrade-check results, then replace the published chart.
+
+<a id="준비물" />
+## Before you begin
+
+Read target-version operator actions in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md).
+
+You need installation values, jq/helm/kubectl, the current deployed revision and worker-previous.json, and database/S3 backups. Approval with real affected sessions and the full rollback have not been verified by execution. Distinguish fixture rendering from published-chart installation.
+
+Check activation order and rollback floors in the [shared gates](/run-server/self-hosting/upgrade-compose#실행-전-게이트). Use the Helm hooks and direct checks below instead of Compose-only commands.
+
+Confirm [context, namespace, and fullname](/run-server/self-hosting/kubernetes#준비물). Test new control-host with the previous worker: complete turn 1 → remove worker Pod → complete turn 2 from checkpoint, with no API worker-request 400s. `deploy/kind/up.sh` overrides `images.worker` through `--set`; use direct `helm upgrade`, not EXTRA_VALUES, to test previous workers.
+
+<a id="단계" />
+## Steps
+
+<a id="1-대상-chart와-제어-영역-우선-교체" />
+### 1. Target chart and control plane first
+
+Set VERSION to the exact chart version. Pass installation-specific values without `--reuse-values`. For protocol/manifest/usage changes, do not replace control-host and worker in one upgrade.
+
+```bash
+VERSION=<new-version>
+DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+  | jq '{images: {worker: .images.worker, workerPrevious: .images.workerPrevious, egressProxy: .images.egressProxy}}' \
+  > control-phase.json
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml -f control-phase.json \
+  --set-json 'upgrade.approvedSessions=[]' --timeout 10m
+kubectl -n werft rollout status deploy/werft-api --timeout=600s
+```
+
+This intermediate upgrade applies the new chart's control-host while retaining current worker/egress proxy. Verify migration, replacement of **all** APIs, and readiness before proceeding. Image changes do not replace already-running workers; new images apply at the next launch.
+
+<a id="2-최종-worker와-proxy-교체" />
+### 2. Final worker and proxy replacement
+
+Published charts include `images.worker.runtime` and leave `images.workerPrevious` empty, because previous images vary per installation. A worker-digest change is `refused` unless target images.workerPrevious equals the currently deployed worker; approval cannot bypass this ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)). Save the current image in a file and pass it too.
+
+```bash
+VERSION=<new version>
+DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
+TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | awk '/^  worker:/ {found = 1} found && /digest:/ {print $2; exit}')"
+echo "deployed ${CURRENT}"
+echo "target   ${TARGET}"
+PREVIOUS=worker-previous.json
+if [ -n "$TARGET" ] && [ "$CURRENT" != "$TARGET" ]; then
+  PREVIOUS=worker-previous.next.json
+  helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+    | jq '{images: {workerPrevious: .images.worker}}' > "$PREVIOUS"
+fi
+set -- -f values-<installation>.yaml
+if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft "$@" --timeout 10m; then
+  if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
+fi
+```
+
+Without `--revision`, a failed upgrade makes get values return that attempted revision's candidate image. When digests differ, save current into a candidate file, replacing worker-previous.json only after successful upgrade. Failed upgrades leave the preserved file untouched. With identical digests, pass the existing file unchanged. An upgrade retaining the first installation's worker may have no file yet; that is valid.
+
+- Keep `worker-previous.json` beside installation files and pass it on subsequent upgrades. Omitting it when the worker digest is unchanged drops the deployed previous image. Checks then compare sessions and refuse if any match neither target current/previous combination or lack recorded combinations (approval can bypass this). If omitted accidentally, restore the file rather than approving. With no affected sessions and empty upgrade.approvedSessions, checks pass; stale approvals cause refused. See “What checks do not cover” below. Main charts merged the same day can share worker digests.
+- Do not use `--reuse-values`: old chart defaults can leave old images under a new chart version.
+- Do not pass all of `helm get values --all` as values; old digests override the new chart. Extract only .images.worker.
+- Charts published from `v*` tags follow the same procedure.
+
+Do not pass control-phase.json to the final upgrade. Replace worker-previous.json only on success and retain it for future upgrades. Clear approvals each upgrade and inspect the new affected list.
+
+<a id="3-검사-결과와-예외" />
+### 3. Check results and exceptions
+
+<a id="업그레이드-전-검사" />
+#### Pre-upgrade check
+
+Before migrate (hook weight -5), helm upgrade runs upgrade-check using the target release's api image. It reads combinations from every session's uncollected checkpoint pointer and selects sessions resumable on neither target images.worker nor images.workerPrevious. Pointers committed before combination recording are also selected. Job logs contain one JSON result line.
+
+```bash
+kubectl -n werft logs job/werft-upgrade-check
+```
+
+| `verdict` | Exit | Upgrade | Meaning |
+|---|---|---|---|
+| `proceed` | 0 | Continues | upgrade.approvedSessions exactly matches affected sessionId values. Approvals must be empty if none are selected, if worker is unchanged and deployed previous is absent/unchanged, or if never deployed |
+| `refused` | 2 | Stops | Any approval mismatch, including stale values. With unchanged worker but removed/changed previous, sessions matching neither target combination or lacking recorded combinations are selected. Also returned when worker changes but target previous is not currently deployed worker; that case cannot be approved |
+| `check_failed` | 1 | Stops | Database unreadable, runtime combinations unreadable/missing when required below, or deployed worker unknown. Also if a deployed worker exists without UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS (pass empty if none), or scheduler Deployment is absent but database has sessions/partial schema. No bypass exists |
+
+images.worker.runtime is optional for first installation; upgrade requirements depend on deployed/target state.
+
+| Deployed state | Target | Without runtime |
+|---|---|---|
+| No scheduler Deployment; database empty or without sessions (first-install retry) | Any worker, no images.workerPrevious | `proceed` |
+| One worker image without runtime/previous | Same worker, no images.workerPrevious | `proceed` |
+| One worker image without runtime/previous | Different worker | `check_failed`; supply images.worker.runtime and images.workerPrevious containing current image |
+| Runtime or previous exists | images.worker.runtime omitted | `check_failed`; combinations are needed to compare sessions |
+
+See [API configuration](/run-server/self-hosting/reference/configuration) for extracting runtime. Minimal values can start without it; the first worker-changing upgrade adds runtime for both images.
+
+An unchanged images.worker with removed/changed images.workerPrevious compares sessions. Unmatched or unrecorded combinations cause refused; exact approval passes. Unrecorded sessions are always selected as on image-changing upgrades. With absent/unchanged deployed previous, no session comparison occurs: empty approvals proceed, stale approvals refuse. Rebuilds with different image references but identical combinations can drop previous without affecting sessions, since current still resumes them.
+
+If selected sessions may fail to resume, put exactly that list in values and rerun. Approval does not change session state. `no_image` sessions stop as recovery_required on resume. `unrecorded` sessions launch current, then restoration either succeeds or stops as recovery_required.
+
+```bash
+helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", ...]'
+```
+
+Approvals remain in release values. Clear them every upgrade with `--set-json 'upgrade.approvedSessions=[]'`, then reread and approve that upgrade's list. Leftover approvals refuse if different from affected, but still pass if identical and support-window requirements hold.
+
+The Job receives JSON `UPGRADE_APPROVED_SESSIONS`, deployed `UPGRADE_DEPLOYED_WORKER_IMAGE`, and `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty if absent). Chart lookup reads scheduler Deployment WORKER_IMAGE/WORKER_IMAGE_PREVIOUS. The previous-image lookup branch and actual helm upgrades removing/changing previous have not been verified on a cluster; only the check entrypoint was run against real PostgreSQL. Chart-provided `UPGRADE_DEPLOYED_STATE` alone permits runtime-table exceptions. `absent` means scheduler Deployment missing but namespace default ServiceAccount readable, requiring get permission on it. `unpinned` means Deployment without runtime/previous. `helm template`/client dry-run lookup reads nothing, leaving all three empty and making such Jobs check_failed. Server dry-run reads the cluster but executes no hooks, so cannot establish a verdict.
+
+Checks trust DATABASE_URL to point to this installation; another empty database can pass absent. No Job is created for first installation (pre-install) or scheduler.enabled: false. To keep Job/scheduler image inputs aligned, WORKER_IMAGE, WORKER_IMAGE_PREVIOUS, WORKER_IMAGE_RUNTIME, and WORKER_IMAGE_PREVIOUS_RUNTIME cannot be supplied through *.extraEnv, config.limits, or secrets.catalogEnv; rendering rejects them. Use images.worker/images.workerPrevious.
+
+**Before `helm rollback`**, run the check directly in the api Pod because rollback does not run the hook. Supply target revision values from `helm get values --revision <revision>`.
+
+```bash
+kubectl -n werft exec deploy/werft-api -- env \
+  UPGRADE_DEPLOYED_WORKER_IMAGE='<WORKER_IMAGE of the running scheduler>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<WORKER_IMAGE_PREVIOUS of the running scheduler, empty if none>' \
+  WORKER_IMAGE='<worker image of the target revision>' WORKER_IMAGE_RUNTIME='<its runtime JSON>' \
+  WORKER_IMAGE_PREVIOUS='<workerPrevious of that revision>' WORKER_IMAGE_PREVIOUS_RUNTIME='<its runtime JSON>' \
+  bun run apps/control-host/src/api/upgrade-check.ts
+```
+
+A typical worker-image rollback returns refused: target previous is not currently deployed worker (references, not combinations, are compared). Unreadable settings/database return check_failed. Current-image workers keep producing that combination's checkpoints after rollback until they exit, beyond the check's view. affected lists only sessions selected at check time. Prefer roll-forward. If rolling back anyway, scheduler matches runtime combinations on resume; sessions matching neither target current nor previous stop as recovery_required, including newer SDK/CLI checkpoints made by surviving current workers during rollback.
+
+With unchanged worker, rollback proceeds with empty approvals only if deployed previous remains identical in the target revision; stale approvals refuse. Removed/changed previous triggers session comparison as above. This direct command does not block rollback automatically. On refused, read affected and decide. Omitting deployed-previous env when deployed worker exists yields check_failed.
+
+**What checks do not cover.** Unlike [Compose checks](/run-server/self-hosting/upgrade-compose), target images are not executed. Only pointer engine/SDK/CLI/profile digest scheme combinations are compared; actual profile digests are judged at restore. Writers are not stopped and rechecked afterward. Worker-changing upgrades require previous=current deployed, keeping checkpoints produced afterward inside the target window. Dropping previous with unchanged worker has no such guarantee: previous-image workers can write checkpoints after checking, as can sessions before their first checkpoint. Confirm those workers have finished before dropping previous. Older workers are selected if existing pointers already record their combination; sessions before first checkpoint are absent. This applies to every image leaving the window and to changes of previous. Registry pullability is not tested; failures surface as launch failures.
+
+<a id="4-파일-카탈로그-설치에서-오는-경우" />
+### 4. Migrate file-catalog installations
+
+The old chart's catalog ConfigMap no longer exists in the new chart. Helm deletes old resources only after hooks, so pre-upgrade migrate optionally mounts it at /legacy-config and runs `settings import --from-dir /legacy-config --if-present`. Later upgrades do nothing when it is absent. Partial files or invalid values fail the Job without changing Deployments.
+
+1. Add PLATFORM_SECRET_KEY to the Secret first; preserve the same value if already present.
+2. Remove catalog from values, then helm upgrade. Remove PLATFORM_CONFIG_DIR from api.extraEnv if present.
+3. With an installed-version checkout and host Bun/kubectl, run `bun run settings:k8s export` to inspect additions. Existing installation_profiles rows prevent reimporting file ceilings. See procedure/rollback floors in [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기).
+
+<a id="확인" />
+## Verify
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+READY=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS -o /dev/null http://127.0.0.1:13000/readyz; then READY=1; break; fi
+  sleep 1
+done
+if [ "$READY" != 1 ]; then
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+  false
+else
+  curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+  curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+  kill "$PF" 2>/dev/null || true
+  trap - EXIT INT TERM
+fi
+```
+
+Record actual Job verdicts, rollout, and ready responses. Verify existing-session resumption and checkpoint context separately. Update [collectors and rules](/run-server/self-hosting/collect-metrics#4-기존-규칙-갱신) for metric renames.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+workerPrevious differing from the deployed image is an unapprovable refused. Omitting get values revision can read failed-upgrade candidates. helm template/client dry-run without lookup cannot substitute for actual upgrade checks.
+
+<a id="되돌리기" />
+## Roll back
+
+```bash
+helm -n werft history werft
+helm -n werft rollback werft <revision> --wait --timeout 10m
+```
+
+Rollback does not run migrate hooks (they are not pre-rollback). Database schema stays new; old builds can still report ready on later schemas because readyz checks only that their migration list is a prefix of applied migrations. Do not deploy irreversible migrations. Before reverting workers, read [incremental checkpoint rollback](/run-server/self-hosting/upgrade-compose#workercontrol-host-롤백과-incremental-checkpoint).
+
+Roll back only after shared gates and the direct check establish viability. Without hooks, rollback does not automatically enforce checks. Prefer roll-forward.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Compatibility](/run-server/self-hosting/explanation/compatibility), [Kubernetes lifecycle](/run-server/self-hosting/remove-kubernetes), [Session recovery](/run-server/self-hosting/recover-sessions).

@@ -1,0 +1,113 @@
+---
+title: "Diagnose database latency"
+description: "Distinguish connection saturation, slow statements, and lock waits"
+pageId: "P16"
+docType: "Task"
+audience: "Database operators"
+outcome: "Distinguish connection saturation, slow statements, and lock waits"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Compare the connection budget with actual connections and distinguish slow statements from lock waits.
+
+<a id="준비물" />
+## Before you begin
+
+You need PostgreSQL operator access and permission to read logs. First check per-role budgets and timeouts in the [database connection contract](/run-server/self-hosting/reference/database). Restarting a managed database and creating extensions require separate operational approval.
+
+<a id="단계" />
+## Steps
+
+<a id="1-실제-연결과-timeout" />
+### 1. Check actual connections and timeouts
+
+Read open connections per role from the database. For Compose, identify the database container through status and project label, then connect with `docker exec -it <this-installation-postgres-container-id> psql -U <configured-user> -d <configured-database>`. For Helm, use your database client.
+
+```sql
+SELECT application_name, state, count(*)
+  FROM pg_stat_activity
+ WHERE application_name LIKE 'werft:%'
+ GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+Session settings apply only to their connection, so `SHOW` in an operator's `psql` displays server defaults. Read platform connection values through the same pool inside the api container (the api Pod on Helm).
+
+```bash
+API_CONTAINER='<this-installation-api-container-id>'
+docker exec -w /app/apps/control-host "$API_CONTAINER" bun -e '
+import { createLogger } from "@werft-ai/observability";
+import { createApiPool } from "./src/api/pool.ts";
+const pool = createApiPool(process["env"]["DATABASE_URL"], createLogger());
+const { rows } = await pool.query(
+  "SELECT current_setting($1) AS statement_timeout, current_setting($2) AS idle_in_transaction, current_setting($3) AS application_name",
+  ["statement_timeout", "idle_in_transaction_session_timeout", "application_name"],
+);
+console.log(JSON.stringify(rows[0]));
+await pool.end();'
+# {"statement_timeout":"10s","idle_in_transaction":"30s","application_name":"werft:api"}
+```
+
+Identify API_CONTAINER using this installation's status and project label. On Helm, run the same script with `kubectl -n werft exec deploy/werft-api -- sh -c 'cd /app/apps/control-host && bun -e …'` instead of `docker exec -w /app/apps/control-host "$API_CONTAINER"`. If the release name is not `werft`, use this installation's namespace and deployment name.
+
+If api pool waits are long, compare actual connection counts with the budget. Values shown by an operator's psql do not prove the platform connection settings.
+
+<a id="2-느린-문장과-잠금" />
+### 2. Inspect slow statements and locks
+
+#### Compose
+
+The postgres service in `infra/compose.core.yml` starts with:
+
+- `log_min_duration_statement=500ms`: logs the text and duration of statements exceeding 500ms. Change it with `POSTGRES_LOG_MIN_DURATION_STATEMENT`; `-1` disables it.
+- `log_lock_waits=on`: logs locks waiting longer than `deadlock_timeout` (1 second), including the PID holding the lock.
+- `shared_preload_libraries=pg_stat_statements`: collects cumulative per-statement statistics. Run `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once to view them.
+
+```bash
+DB_CONTAINER='<this-installation-postgres-container-id>'
+docker logs "$DB_CONTAINER" 2>&1 | grep -E 'duration:|still waiting'
+```
+
+```sql
+SELECT calls, round(mean_exec_time::numeric, 1) AS mean_ms,
+       round(total_exec_time::numeric) AS total_ms, left(query, 120)
+  FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;
+```
+
+Changing these settings recreates the postgres container. Data remains in the `postgres-data` volume.
+
+<a id="helm-운영자-db" />
+#### Helm (operator-managed database)
+
+The chart does not create the database or change server settings. Apply the following database parameters yourself. On RDS/Aurora, use a parameter group; applying `shared_preload_libraries` requires an instance restart.
+
+| Parameter | Value |
+|---|---|
+| `log_min_duration_statement` | `500` (ms) |
+| `log_lock_waits` | `on` |
+| `shared_preload_libraries` | Add `pg_stat_statements` to the existing value |
+
+Then run `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once in the platform database. You need extension creation privileges (`rds_superuser` on RDS). Migrations do not create the extension, so migrate can succeed on installations without those privileges.
+
+Search the database's log destination for `duration:` and `still waiting` (the `postgresql` log in CloudWatch Logs on RDS). Postgres in the kind verification environment (`deploy/kind/deps.yaml`) starts with the values in this table.
+
+<a id="확인" />
+## Verify
+
+Check per-role connection counts, duration logs, still waiting logs, and total/mean times in pg_stat_statements together. Also check for an operator client holding long-lived locks through an open BEGIN.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+If you cannot create extensions in a managed database, ask the database administrator to do it. shared_preload_libraries may require a restart. For poolers rejecting metrics read-only options, see the [metrics contract](/run-server/self-hosting/reference/metrics).
+
+<a id="되돌리기" />
+## Roll back
+
+Restore the log parameters and collection interval changed here to their previous values. Do not delete the statistics extension or production data just because diagnosis is finished.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Database connection contract](/run-server/self-hosting/reference/database), [Upgrade compatibility](/run-server/self-hosting/explanation/compatibility).

@@ -1,0 +1,194 @@
+---
+title: "Upgrade a single server"
+description: "Check compatibility and backups before applying a new release"
+pageId: "P11"
+docType: "Task"
+audience: "Compose operators"
+outcome: "Check compatibility and backups before applying a new release"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Upgrade Compose after backup and compatibility checks. Approve checkpoint loss only after identifying the exact affected sessions.
+
+<a id="준비물" />
+## Before you begin
+
+Read the target version's operator actions in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md).
+
+You need current/target source commits, release inputs, settings digests, and image digests. Check a recent successful backup and restoration drill, and notify users of downtime. This full Compose upgrade has not been verified with published images.
+
+Check the [shared pre-upgrade gates](#실행-전-게이트) first. On LocalStack trials, the first restart-policy change can recreate the container and lose checkpoint objects. Postpone unless `status` confirms 0 uncollected checkpoints. API startup failure with `pending.json` cannot be bypassed through reseed. The remaining escape, `reset`, discards all data: assess backup restoration first. `backup --stop` does not remove this block.
+
+<a id="단계" />
+## Steps
+
+<a id="1-대상-입력과-백업" />
+### 1. Target input and backup
+
+Select the tag from the [package contract](/run-server/self-hosting/reference/packages). Generate release-new.json outside the checkout as in [installation release generation](/run-server/self-hosting/single-server#3-release-입력-생성). First check out the target source commit and run `bun install --frozen-lockfile`. Release `source_commit` must equal checkout HEAD. Perform a [backup](/run-server/self-hosting/backup-and-restore) first.
+
+<a id="2-api--proxy--worker-순서" />
+### 2. API → proxy → worker order
+
+For protocol or [gate](#실행-전-게이트) field changes, do not replace every image together. Check out the new source commit and install dependencies. Create an intermediate release changing only control_host to the target image while retaining current worker and egress_proxy images. Meet the same settings digest and source_commit requirements. Upgrade with it, then confirm readiness and that every API instance runs the new version.
+
+Next upgrade to the final release with target egress proxy and worker digests. This prevents proxy/workers from sending new fields before the API is ready. Apply intermediate and final test-ops inputs separately through `scripts/test-ops.sh upgrade`.
+
+<a id="3-upgrade와-영향-세션" />
+### 3. Upgrade and affected sessions
+
+Run `upgrade` with step 1's `release-new.json`. A worker image change checks current checkpoints with the new image and refuses with exit 3 if sessions are incompatible. Affected ids are written to `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`. Review them and notify users, then rerun `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` with exactly those ids. Any difference is rejected; accepted approvals are recorded in the state directory. Recovering an incompatible session with `start_fresh` discards its checkpoint context. No approval is needed if none are affected.
+
+Take a [backup](/run-server/self-hosting/backup-and-restore) immediately before upgrading. Reverting means running `upgrade` with the previous release file; the same rules apply because the worker image changes again.
+
+If upgrade stops before the new release starts (for example, scheduler quota check failure), the installation remains stopped with `pending.json`. Only `status`, `reset`, and `upgrade` with a release identical to pending are allowed. Other commands, including upgrade to the previous release, are rejected. Fix the cause and rerun upgrade with the same target release.
+
+If the installation merely went down through `compose down` or reboot, use `scripts/test-ops.sh start` to reuse the same volumes, rather than upgrade/deploy ([lifecycle](/run-server/self-hosting/stop-compose)). `start` rejects `pending.json`.
+
+```bash
+scripts/test-ops.sh upgrade release-new.json
+```
+
+Pass actual absolute paths outside the checkout for `release-new.json` and approval files. Target checkout HEAD must match release source_commit.
+
+<a id="확인" />
+## Verify
+
+Check applied release, service health, and ready in status. Resume an existing session on a new worker; compare context, final checkpoint, and turn completion. For metric renames, update Datadog definitions/queries/filters and Prometheus rules, then verify actual series.
+
+Compare overridden CSS names with changelog operator actions and update them too. Do not assume aliases exist for old metric/CSS names.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+With pending.json, start and upgrade to the previous release are rejected. Fix the cause and upgrade to the identical pending target. Do not reuse old approval files if the affected list changes. start_fresh discards prior context.
+
+<a id="되돌리기" />
+## Roll back
+
+Applying a previous release still follows upgrade checks and [gate](#실행-전-게이트) rollback floors. Do not simply revert image tags to builds unaware of new schemas/checkpoints. A pending failure before the new release starts rejects the previous release; recover using the same target.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Compatibility](/run-server/self-hosting/explanation/compatibility), [Session recovery](/run-server/self-hosting/recover-sessions), [Compose lifecycle](/run-server/self-hosting/stop-compose).
+
+<a id="실행-전-게이트" />
+## Pre-upgrade gates
+
+The first official release including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. Release installations must not revert to earlier images. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
+
+Compare target changelog actions with your deployed version. Meet every applicable condition before enabling features or changing workers.
+
+| Change | Complete first | Rollback boundary |
+| --- | --- | --- |
+| Provider usage `inference_geo` | Replace API including migration, verify ready, then replace egress proxy | Old API rejects new proxy reports with 400, losing cost metering |
+| `billing: none` | Update all API replicas and all schedulers' WORKER_IMAGE before creating none sessions | No rollback to old API/workers while unmetered sessions remain |
+| `SESSION_PROMPT_REVISION=1` | Migration 0229 → all claim-serving APIs and all current/previous worker images → enable 1 | 0 affects only new sessions. Rollback to old APIs/workers after activation is unsupported |
+| Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
+| Manifest `outputs` | All APIs → workers | Both api and workers must remain on outputs-aware builds |
+| `AGENT_ACTION_FLOWS` | Update all components, including GC/session archive CronJobs, before activation | Pending intents continue processing after disabling |
+
+Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute.
+
+<a id="v010-이후-변경을-처음-적용할-때" />
+### First applying changes after v0.1.0
+
+- Apply every migration from `v0.1.0` through the target version (currently through `0241`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
+- Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
+- Before enabling `AGENT_ACTION_FLOWS`, update API, Compose maintenance, Kubernetes checkpointGc/sessionArchive CronJobs, and workers, and **confirm Jobs started from old images have finished**. Old GC can delete pinned revisions.
+- Prompt revision 2 received by new sessions after activation is unreadable by old workers. Check pre-activation replacement and post-activation rollback floors separately. A `v0.1.1` changelog heading does not prove publication.
+
+Apply the conditions below after checking whether your installation already includes them. Before rollback, count affected sessions through read-only SQL. Prefer roll-forward without approving data loss where possible.
+
+<a id="compose-전용-checkpoint-검사" />
+### Compose checkpoint checks
+
+When worker images change, Compose upgrade checks calculate restoration plans for every current checkpoint using the new image's engine/SDK/CLI/profile digest. Sessions matching all four continue without approval; notify users and approve the exact `INCOMPATIBLE_CHECKPOINT` list. If checking cannot complete or other validation failures occur, fail closed: include every session with uncollected checkpoints and log this. Recheck after stopping writers. `start_fresh` discards incompatible checkpoint context. Kubernetes pre-upgrade hooks make equivalent decisions from pointer combinations without executing images ([Kubernetes checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)).
+
+On a worker image change, upgrade retains the old image in the state directory's `previous-worker` file. For each session, the scheduler matches checkpoint engine/SDK/CLI/profile digest scheme against current/previous images, preferring current if both match ([configuration](/run-server/self-hosting/reference/configuration)). The affected list therefore includes sessions restorable by neither image. If either image check fails closed, retain the new-image list unchanged. For rebuilt images with the same combination, the scheduler selects current: do not remove sessions unverified on current merely because previous can restore them. If either is too old to report its combination (no `apps/worker/src/image-runtime.ts`), previous is not used and the gate retains the new-image list. The support window is one release: another upgrade can affect sessions left on the older image.
+
+<a id="runtime-프로필의-공통-준비" />
+### Shared runtime profile preparation
+
+SDK upgrades also update `runtime_version` in example settings (`tests/fixtures/settings/`) and save new-version installation ceilings. Profiles whose runtime_version is absent from the current image cannot accept new sessions. Include the new engine combination's built-in tool catalog (`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`) in that release too. A version lacking a catalog cannot have a `deny` ceiling. Newly added tools remain blocked in each new ceiling version until accepted with `accept_added_tools` ([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#운영자-카탈로그-agent-profile--repository)). See [Kubernetes rollback](/run-server/self-hosting/upgrade-kubernetes#되돌리기) for its procedure and cautions.
+
+<a id="workercontrol-host-롤백과-incremental-checkpoint" />
+### Worker/control-host rollback and incremental checkpoints
+
+Workers included in `v0.1.0` upload incremental bundles containing only new objects over the previous checkpoint chain. The manifest records this in `workspace.baseBundles`. Manifest `version` remains 2; only this field distinguishes incremental checkpoints. **Earlier builds cannot restore checkpoints containing it** because their manifest schemas reject unknown keys.
+
+- **Old worker images:** manifest decoding fails with `Invalid Claude checkpoint manifest: workspace Unrecognized key: "baseBundles"` before clearing the workspace or downloading bundles, so no partially restored workspace remains. The fixed manifest makes relaunch fail again with `worker.failed`.
+- **Old control-host:** restoration plans reject with `CHECKPOINT_UNAVAILABLE` without retreating to older revisions. Finalize also rejects incremental manifests and does not advance pointers. With new workers, only standalone bundles like initial checkpoints commit. Old GC skips undecodable sessions rather than deleting base bundles.
+- **Find affected sessions:** manifest contents are not in the database. Fetch manifests using `manifest_ref`/`manifest_version` from uncollected `checkpoints` rows (`collected_at IS NULL`) referenced by `sessions.checkpoint_revision`, then test `jq -e '.workspace.baseBundles | length > 0'`. Inspect parent rows too because restoration can retreat through `parent_revision`. Worker `worker.checkpoint.published` with `base_bundles` above 0 indicates incremental publication.
+- **Before rollback:** roll forward if affected sessions exist. No operator env/setting/CLI forces a new full bundle. Workers produce full bundles only when chains are absent/broken or reach length 32 (`MAX_WORKSPACE_BUNDLE_CHAIN`) or bundle limits. If rollback is unavoidable, affected sessions cannot restore during it; roll-forward restores them unchanged.
+
+<a id="control-host-롤백-하한-release-도구로-실행" />
+### Control-host rollback floor: release tools
+
+Control-host in `v0.1.0` runs release-created sessions with release-pinned tools (`agent_releases.runtime_config_snapshot.tools`, within profile tools), rather than every profile tool. Claims deliver tools at worker startup; workers retain them until exit. Agents selecting `tools` or declaring `forbidden` therefore narrow even existing sessions on the next claim. Pre-deployment workers retain profile tools until `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds) after their last turn without input, or until pause/restart. Sessions without releases or whose releases retain all profile tools are unchanged. Worker images/protocol are unchanged.
+
+- **Official release rollback floor: `v0.1.0`.** Tool lists enter checkpoint profile digests. This release includes both profile and release tool lists as restoration candidates. Earlier pre-release builds cannot restore release-tool checkpoints and stop as `recovery_required` (`incompatible_checkpoint`). Roll forward and `retry_restore` the same checkpoint. Pre-release main installations should first deploy a release verified to support these candidates as a rollback target.
+- **Count narrowing releases** before deployment using this read-only query. It also counts agents retaining every profile tool, so it is an upper bound.
+
+```sql
+WITH narrowed AS (
+  SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
+  WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
+     OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
+)
+SELECT
+  (SELECT count(*) FROM narrowed) AS releases,
+  (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
+    WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
+  (SELECT count(*) FROM agent_releases
+    WHERE CASE WHEN jsonb_typeof(runtime_config_snapshot->'tools') = 'array'
+      THEN EXISTS (SELECT 1 FROM jsonb_array_elements(runtime_config_snapshot->'tools') t
+                    WHERE jsonb_typeof(t) <> 'string')
+      ELSE true END) AS unreadable;
+```
+
+`unreadable` means snapshots missing `tools` or containing something other than a string array. Their sessions run without built-in tools (fail closed). Normal release creation always stores a string-array `tools`.
+- **Restoration candidate cap:** claims allow 16 candidates (worker contract), with all profile lists before release lists. Narrowed-release sessions with many previous profiles (16 without GitHub configuration, 8 or more with it) face two effects. ① After switching to release tools, the current profile's profile list consumes another slot, displacing the oldest previous profile candidate. Checkpoints matching only that candidate stop as `incompatible_checkpoint`; retrying the same candidate rules cannot help. Choose `start_fresh` (discard context) or `close`. ② Rolling back to pre-release builds lacking release-tool candidate support fills the cap with profile lists, excluding release-tool candidates; release-tool checkpoints created after the switch cannot restore. Roll forward, then `retry_restore` to recover these.
+
+<a id="worker-protocol-필드를-걷어내는-순서" />
+### Removing worker protocol fields
+
+Existing worker containers keep running old images after API upgrades. Even idle workers remain for `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds). First make receivers accept messages without a field; remove it from senders only after every receiver is updated. Do not change both in one release.
+
+| Field | Phase 1: receiver stops requiring it | Phase 2: sender removes it after phase 1 rollout |
+|---|---|---|
+| Heartbeat response `auth_revision` | Worker accepts responses without it | API stops sending it, after confirming no pre-phase-1 workers remain |
+| Append-events request `batch_key` | API accepts requests without it (not yet implemented) | Worker stops sending it, after confirming no pre-phase-1 APIs remain |
+
+Premature phase 2 makes old peers reject requests/responses as contract violations. Workers treat invalid heartbeat responses as nonretryable, assume lease loss at the first heartbeat, and stop.
+
+For adding checkpoint manifest fields, readers go first. Both control-host (precommit validation, restore planning, GC) and worker (restore) reject unknown keys. Update control-host first or within the same release, then workers. Once checkpoints use the field, old workers cannot restore them for the same reason as `baseBundles`.
+
+| Field | First: readers | Then: writers |
+|---|---|---|
+| `workerState` (approval-wait parking) | Control-host and worker accept manifests containing it | Worker writes it only when parking an approval-wait turn |
+
+API also goes first when adding worker-sent protocol fields. Its request schemas are strict: old APIs reject entire requests containing unknown fields with 400 `BAD_REQUEST`.
+
+| Field | Deploy first | New worker against old API |
+|---|---|---|
+| Pending-control `settled[].reason`/`settled[].answer_result` | API | Logs `worker.pending.settlement_detail_refused` once, then sends only `outcome` for the rest of the attempt. Receipts settle under old rules; `pending_requests.settled_reason`/`settled_answer_result` remain empty |
+| Bootstrap-claim/pending-control `capabilities`, register-pending `remember_offer` | API | No compatibility retry. A 400 `BAD_REQUEST` (nonretryable) on the first bootstrap-claim ends the worker without any turns. API-only rollback has the same effect: first confirm no sessions use new worker images |
+
+<a id="db-스키마를-바꾸는-순서" />
+### Database schema change order
+
+Migrations precede rollout, so old control-host runs briefly on new schemas and old workers remain during the support window. Keep every column/table they use until all old code is gone. Spread changes across three releases; never add and delete in one.
+
+| Phase | Action | What old code sees |
+|---|---|---|
+| 1. Expand | Add columns/tables. New columns must be nullable or have defaults. Defaults appear on existing rows and INSERTs omitting the column. Explicit NULL bypasses defaults: nullable columns store NULL, NOT NULL columns reject the INSERT. Choose based on existing rows and old INSERT behavior | Unknown columns appear; old writes omit them |
+| 2. Switch | New code starts writing new columns. While old code writes old columns, old columns remain authoritative. Dual-write but read old columns. Without a trigger or equivalent copying old writes, wait until all old writers disappear, perform a final backfill, then switch reads | Old columns remain readable/writable |
+| 3. Contract | Delete old columns/tables or strengthen NOT NULL/CHECK constraints only in a release after their images leave the support window and no such worker/control-host remains. Check existing rows and all current writers satisfy stronger constraints first | No remaining code uses those columns |
+
+Renaming also removes the old name, so use the same add/migrate/switch/delete order. `WORKER_IDLE_TIMEOUT_SEC` is idle time after the last turn, not maximum worker lifetime. Busy workers can survive longer: decide cleanup from actual remaining containers, not elapsed time.
+
+For example, checkpoint runtime combination columns `checkpoints.runtime_*` (migration `0196_checkpoint_runtime`) were phase 1: nullable without defaults, leaving older rows null. `0199_worker_image_runtime` (launch combinations, checkpoint digest scheme, `worker_image_refusals`) is also phase 1. A null checkpoint scheme reads as the first scheme (1).

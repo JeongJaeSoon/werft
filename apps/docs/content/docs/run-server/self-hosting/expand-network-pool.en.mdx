@@ -1,0 +1,92 @@
+---
+title: "Expand the worker address pool"
+description: "Change the address pool without conflicting with other installations"
+pageId: "P20"
+docType: "Task"
+audience: "Docker network operators"
+outcome: "Change the address pool without conflicting with other installations"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Expand the Docker daemon's worker network address pool without overlapping other installations, LANs, or VPNs.
+
+<a id="준비물" />
+## Before you begin
+
+You need daemon administration privileges, a maintenance window, and an inventory of networks, installation ids, and slot limits. This is a daemon-wide setting: coordinate with every Compose project on the same host.
+
+<a id="단계" />
+## Steps
+
+**Address pools.** Each worker network consumes one subnet from the daemon's `default-address-pools`. Docker's default pools contain 31 subnets in total.
+
+* 15 /16 subnets from `172.17.0.0/16` through `172.31.0.0/16`
+* 16 /20 subnets from `192.168.0.0/16`
+
+`docker0` and other daemon networks consume these first. This repository's Compose uses one `default` network. With defaults, workers therefore have roughly **30 minus the daemon's other network count** available.
+
+**Relationship to slot limits.** Each execution holds one network. Replacement deletes the previous generation before creating the next, so concurrent worker networks roughly match `EXECUTION_SLOT_LIMIT` (default 10). However, the pool is **daemon-wide**, shared by all installations and Compose projects on that daemon. Slot limits do not count networks left behind after failed reclamation. The default pool therefore barely accommodates two installations with slot limit 10 on one daemon.
+
+**Expand the pool.** For larger deployments, expand the pool in daemon.json. For example, `{"default-address-pools":[{"base":"10.210.0.0/16","size":24}]}` provides 256 /24 subnets.
+
+* Choose a range that does not overlap your LAN or VPN.
+* Smaller subnets (`/28` provides 4096) also shrink **every other** automatically allocated network on that daemon. A /28 accommodates up to 13 containers.
+* Changes require a daemon restart and do not affect existing networks.
+
+**Exhaustion behavior.** Exhaustion is visible: network creation fails with `could not find an available, non-overlapping IPv4 address pool`. The launch is recorded in `failedLaunches`, and the pass exits 1. The intent remains for retry in the next pass.
+
+**Reclamation has two layers.**
+
+1. `terminate`: after deleting the container, detach the proxy and delete the network by id (best effort).
+2. At the end of pass stage ②, before filling slots (`reconcileNetworks`): scan all worker networks labeled for this installation.
+   * If **no container exists** for the name, in any state, detach only the proxy and delete the network. This includes containers removed with `docker rm -f`. If the execution is still live, launch in stage ① has already recreated its container and reuses the network.
+   * If a container **exists**, check proxy attachment and reattach if needed. When `compose up` recreates the proxy, the new proxy starts detached from every worker network. Active workers lose egress until the next pass (`SCHEDULER_INTERVAL_SEC`, default 5 seconds).
+
+**Reclamation failures.**
+
+* Every pass rechecks live networks against the same criteria: network shape, whether the named container is this installation's worker, members other than worker/proxy, and whether the worker is attached to other networks. A network prepared for replacement, before the old container attaches, is not treated as a problem.
+* Membership includes more than the running endpoints shown by network inspect. Stopped or never-started containers attach when started, so the command also queries containers with the `network` filter.
+* Only **the single currently running proxy** may remain on a live network. Other labeled proxies (such as a stopped old proxy) are detached and counted in `networksRepaired`: starting them could place the same alias in front of the worker again. If multiple proxies run, none is trusted; all labeled proxies are detached and reported in `networksFailed`. If none runs, the command reports without changing attachments; the proxy that starts alone becomes the trusted one. Worker networks lacking an execution label also have their proxy detached and are reported.
+* Unknown members are not forcibly detached, because that would erase evidence. Instead, **this installation's proxy is detached** to prevent unknown containers from using its allowlist. The worker on that network also loses egress. The network remains, `networksFailed` is reported, and the pass exits 1.
+* Failure to list networks (`networkScanFailed`) also exits 1.
+* Remaining networks continue to consume the address pool. Operators must inspect their members with `docker network inspect <name>` and clean them up.
+* If the proxy is absent, preflight exits before reclamation. No new networks are created either, so the leak does not grow. The first pass after the proxy returns reclaims them.
+
+For installations sharing a daemon, assign each a unique `EXECUTION_INSTALLATION_ID` and its own egress proxy labeled with that id. Worker network names and labels include the installation id, so only A's proxy attaches to A's worker networks. Sharing a proxy makes both installations' workers use the same allowlist.
+
+For proxy code changes, follow [Upgrade Compose](/run-server/self-hosting/upgrade-compose). After changing the address pool, identify this installation's running proxy by status and project label, then run its healthcheck inside that container. This checks the proxy's `/healthz` and credential listener response, if configured.
+
+The source hash is the proxy source SHA-256, available in the `Egress proxy listening` log and the `/healthz` response `ok source=<hex>`. The healthcheck compares it with source under `/app/src`. A mismatch means running code differs from current source, and returns unhealthy. In an image installation the values always match; a mismatch occurs only when a mounted source tree changes checkout. Rebuild the egress-proxy service to run the new code in that case. On image installations this check therefore does not prove new code was applied after changing address pools.
+
+```bash
+PROXY_CONTAINER='<this-installation-egress-proxy-container-id>'
+INSTALLATION_ID='<this-installation-id>'
+docker exec "$PROXY_CONTAINER" bun run /app/src/healthcheck.ts
+docker network ls --filter label=werft.worker-network=true \
+  --filter "label=werft.installation=$INSTALLATION_ID" \
+  --format '{{.Name}} {{.Labels}}'
+```
+
+<a id="확인" />
+## Verify
+
+A directly executed healthcheck failure and Docker's health status reflect different times. Compose healthchecks need 12 consecutive failures (about 60 seconds) before Docker changes the status to unhealthy.
+
+Verify that new worker networks use the selected range. Existing networks do not move automatically. Inspect membership to confirm only the worker and this installation's running proxy are attached, and check scheduler logs for networksFailed/networkScanFailed.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+Pool exhaustion makes network creation fail and launches retry. Networks left outside the slot limit still consume the pool. Investigate unknown members without erasing evidence.
+
+<a id="되돌리기" />
+## Roll back
+
+Restore this daemon.json change from backup and restart the daemon. Existing networks do not move back to the old pool. End sessions safely and clean up only resources whose installation labels you have checked.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Execution backends and isolation](/run-server/self-hosting/explanation/isolation), [Capacity planning](/run-server/self-hosting/capacity).

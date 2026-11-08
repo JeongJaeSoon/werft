@@ -1,0 +1,95 @@
+---
+title: "Collect Kubernetes metrics"
+description: "Enable metrics and verify successful collector scrapes"
+pageId: "P17"
+docType: "Task"
+audience: "Monitoring operators"
+outcome: "Enable metrics and verify successful collector scrapes"
+---
+
+<a id="무엇을-하게-되나" />
+## What you will do
+
+Enable the Kubernetes metrics role and verify that Prometheus-format metrics reach your collector.
+
+<a id="준비물" />
+## Before you begin
+
+You need this installation's values, helm and kubectl, and the collector namespace and scrape configuration. The endpoint is a single target reporting installation-wide totals. Collect CPU, memory, and Pod logs separately through your cluster collector.
+
+<a id="단계" />
+## Steps
+
+<a id="1-수집기-접근-범위와-values" />
+### 1. Configure collector access and values
+
+```yaml
+metrics:
+  enabled: true
+  podAnnotations:          # how the collector finds the Pod; the install chooses
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9464"
+networkPolicy:
+  metrics:
+    ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
+```
+
+`ingressFrom: []` opens 9464 to every source. Restrict it using your collector's actual namespace selector. Apply a Helm upgrade with the exact installed chart version and this installation's values. To change chart versions, follow [Upgrade Kubernetes](/run-server/self-hosting/upgrade-kubernetes).
+
+The chart resource is `<fullname>-metrics`. If the release name contains werft, fullname is the release name; otherwise, it is `<release>-werft`. For example, release team produces `team-werft-metrics`, not team-metrics.
+
+<a id="2-수집기-연결" />
+### 2. Connect the collector
+
+| Collector | Method |
+|---|---|
+| Prometheus | Use the `prometheus.io/*` annotations in `metrics.podAnnotations`, or point an operator-managed ServiceMonitor at the `metrics` port of Service `<fullname>-metrics` |
+| Datadog Agent (Helm) | Use an Autodiscovery `openmetrics` check. Add `ad.datadoghq.com/metrics.checks` to `metrics.podAnnotations`. The collector configuration determines the names stored in Datadog, including dotted names |
+| OpenTelemetry Collector | Scrape the same endpoint with a `prometheus` receiver and forward via OTLP |
+
+The platform does not push metrics over OTLP. A single pull endpoint lets any collector read the same definitions without configuring a collector address or SDK in the app. Session traces are not yet exported. See [Observability (OTel)](/observability).
+
+<a id="3-endpoint-확인" />
+### 3. Check the endpoint
+
+```bash
+FULLNAME=werft
+kubectl -n werft port-forward "svc/$FULLNAME-metrics" 19464:9464 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+SCRAPED=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS http://127.0.0.1:19464/metrics; then SCRAPED=1; break; fi
+  sleep 1
+done
+kill "$PF" 2>/dev/null || true
+trap - EXIT INT TERM
+test "$SCRAPED" = 1
+```
+
+port-forward runs in the background; cleanup targets only its recorded PID. The final test fails if curl never succeeds.
+
+<a id="4-기존-규칙-갱신" />
+### 4. Update existing rules
+
+When metric names change, update Datadog definitions, queries, and filters and Prometheus rules to the names in the [metrics contract](/run-server/self-hosting/reference/metrics). Do not expect aliases for old names. Verify that the updated rules read the new series.
+
+<a id="확인" />
+## Verify
+
+The response body must contain werft_ metrics, and the collector must scrape successfully. A healthz 200 response does not prove database reads succeed. If a database read fails, the endpoint returns 503 without stale values. If collection takes more than half the scrape interval, increase the interval to reduce database load.
+
+<a id="자주-막히는-곳" />
+## Troubleshooting
+
+If a resource cannot be found, check fullname first. Confirm NetworkPolicy permits the collector namespace. Keep metrics at one replica: additional replicas duplicate collection of installation-wide totals.
+
+<a id="되돌리기" />
+## Roll back
+
+Set metrics.enabled back to false in values and apply it. Remove the scrape target added here. Check target changes before cleaning up existing production monitoring rules.
+
+<a id="다음에-읽을-곳" />
+## Next steps
+
+[Platform metrics contract](/run-server/self-hosting/reference/metrics), [Diagnose database latency](/run-server/self-hosting/diagnose-database).
