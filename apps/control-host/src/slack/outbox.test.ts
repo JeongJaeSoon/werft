@@ -184,6 +184,7 @@ function useDatabase(engine: string) {
     slack.messages.length = 0;
     slack.failures.clear();
     slack.missingTs.clear();
+    slack.refusedBlockTypes.clear();
     slack.users.clear();
     logged.length = 0;
   }, 60_000);
