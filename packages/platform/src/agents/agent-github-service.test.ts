@@ -4,7 +4,7 @@ import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
   catalogIdOfRef,
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type GitHubCeiling,
   type RepositoryCeiling,
   repositoryRefOf,
@@ -86,6 +86,7 @@ const ALL_ON: GitHubCeiling = {
   checks: true,
   issues: true,
   review: true,
+  merge: true,
 };
 
 // Every fixture repository is under it: `installed` reaches the two console
@@ -261,7 +262,7 @@ function serviceWithPuts(input: {
 const WITH_SETTINGS: AgentGitHub = {
   repositories: ["sample-app"],
   push_approval: true,
-  features: { ...GITHUB_CEILING_NONE },
+  features: { ...GITHUB_FEATURES_NONE },
   actions_allow: [],
 };
 
@@ -414,7 +415,7 @@ describe("the agent GitHub tab's options", () => {
     const row = {
       repositories: ["ghe-app"],
       pushApproval: false,
-      features: { ...GITHUB_CEILING_NONE },
+      features: { ...GITHUB_FEATURES_NONE },
       actionsAllow: [],
       startRepositoryId: null,
       pushAttached: null,
@@ -428,7 +429,7 @@ describe("the agent GitHub tab's options", () => {
     expect(read.github).toEqual({
       repositories: ["ghe-app"],
       push_approval: false,
-      features: { ...GITHUB_CEILING_NONE },
+      features: { ...GITHUB_FEATURES_NONE },
       actions_allow: [],
     });
     const bad = await serviceWith({
@@ -502,7 +503,7 @@ describe("the agent GitHub tab's options", () => {
           settings: {
             repositories: ["sample-app"],
             pushApproval: true,
-            features: { ...GITHUB_CEILING_NONE },
+            features: { ...GITHUB_FEATURES_NONE },
             actionsAllow: [],
             startRepositoryId: null,
             pushAttached: null,
@@ -524,7 +525,7 @@ describe("the agent GitHub tab's options", () => {
       settings: {
         repositories: ["sample-app"],
         pushApproval: true,
-        features: { ...GITHUB_CEILING_NONE },
+        features: { ...GITHUB_FEATURES_NONE },
         actionsAllow: [],
         startRepositoryId: "sample-app",
         pushAttached: null,
@@ -541,7 +542,7 @@ describe("the agent GitHub tab's options", () => {
     const rowWith = (pushAttached: string | null) => ({
       repositories: ["sample-app"],
       pushApproval: true,
-      features: { ...GITHUB_CEILING_NONE },
+      features: { ...GITHUB_FEATURES_NONE },
       actionsAllow: [],
       startRepositoryId: null,
       pushAttached,
@@ -575,13 +576,13 @@ describe("saving the agent's GitHub settings", () => {
   const SAVED: AgentGitHub = {
     ...WITH_SETTINGS,
     repositories: ["sample-app"],
-    features: { ...GITHUB_CEILING_NONE, actions: true },
+    features: { ...GITHUB_FEATURES_NONE, actions: true },
     actions_allow: [{ workflow: "ci.yml" }],
   };
   const HELD: AgentGitHubSettingsRow = {
     repositories: ["sample-app"],
     pushApproval: true,
-    features: { ...GITHUB_CEILING_NONE, actions: true },
+    features: { ...GITHUB_FEATURES_NONE, actions: true },
     actionsAllow: [],
     startRepositoryId: null,
     pushAttached: null,
@@ -664,7 +665,7 @@ describe("saving the agent's GitHub settings", () => {
           caller,
           AGENT,
           request({
-            settings: { ...SAVED, features: { ...GITHUB_CEILING_NONE } },
+            settings: { ...SAVED, features: { ...GITHUB_FEATURES_NONE } },
           }),
         ),
       ),

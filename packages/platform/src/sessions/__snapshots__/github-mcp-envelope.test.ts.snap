@@ -1971,6 +1971,201 @@ exports[`tools/list every tool has a description of its fields and an outputSche
   },
   {
     "_meta": {
+      "class": "pull_request.merge",
+    },
+    "description": "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while the workspace allows it: otherwise the call is refused with \`github_refused\` (\`reason_code\` \`merge_off\`) before GitHub is called. GitHub still decides on required checks, reviews and conversations (\`merge_blocked\`); a pull request whose head is not the pushed commit is refused with \`head_moved\`. \`changed\` is false and \`method\` null when the pull request was already merged on that commit.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "merge_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "changed": {
+                  "type": "boolean",
+                },
+                "head_sha": {
+                  "type": "string",
+                },
+                "merge_commit_sha": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "merged": {
+                  "const": true,
+                  "type": "boolean",
+                },
+                "method": {
+                  "anyOf": [
+                    {
+                      "const": "squash",
+                      "type": "string",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "merged",
+                "changed",
+                "head_sha",
+                "merge_commit_sha",
+                "method",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "_meta": {
       "class": "workflow",
     },
     "description": "Dispatch an allow-listed workflow on a branch. \`inputs\` go to GitHub only.",

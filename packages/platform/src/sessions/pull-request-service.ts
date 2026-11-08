@@ -5,6 +5,7 @@ import {
   DEFAULT_USER_LOCALE,
   hasStructuredFields,
   isSessionPushBranch,
+  type MergePullRequestResponse,
   type OpenPullRequestRequest,
   type OpenPullRequestResponse,
   type OpenPullRequestResult,
@@ -19,7 +20,11 @@ import {
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
-import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
+import {
+  ForgeCredentialError,
+  type ForgePullRequest,
+  type ForgePullRequestDetail,
+} from "../ports/forge.ts";
 import {
   type GitHubApi,
   GitHubCallError,
@@ -76,6 +81,13 @@ import {
   requireVerified,
 } from "./push-request-service.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
+
+/** `mergeable_state` values GitHub merges from; anything else is not sent. */
+const MERGEABLE_STATES: ReadonlySet<string> = new Set([
+  "clean",
+  "unstable",
+  "has_hooks",
+]);
 
 const isForgeFailure = (error: unknown): boolean =>
   error instanceof ForgeCredentialError || error instanceof GitHubCallError;
@@ -370,6 +382,7 @@ export function createPullRequestService(deps: {
       refusal: PullRequestRefusal,
       fields?: Partial<PullRequestReceiptResult>,
     ) => Promise<never>,
+    purpose: "pull_request" | "merge" = "pull_request",
   ) {
     const fields = { repository_id: source.repositoryId };
     const entry = Object.hasOwn(catalog.repositories, source.repositoryId)
@@ -386,7 +399,7 @@ export function createPullRequestService(deps: {
     try {
       grant = await gate.grant({
         sessionId: source.sessionId,
-        purpose: "pull_request",
+        purpose,
         repositoryId: source.repositoryId,
         actor: pushReceiptActor(actor),
       });
@@ -1101,6 +1114,186 @@ export function createPullRequestService(deps: {
         changed,
         receipt_id: receiptId,
       };
+    },
+
+    /**
+     * Squash-merges the pull request of this session's push request, on the
+     * commit that push request pushed. The gate refuses before GitHub is
+     * called when the workspace has not allowed merging.
+     */
+    async merge(
+      actor: PushActor,
+      rawSessionId: string,
+      rawPushRequestId: string,
+    ): Promise<MergePullRequestResponse> {
+      const { sessionId, pushRequestId, receipt, refuse } = await begin(
+        actor,
+        rawSessionId,
+        rawPushRequestId,
+        "merge_pull_request",
+      );
+      const source = await store.findSource(
+        actor.ownerId,
+        sessionId,
+        pushRequestId,
+      );
+      if (source === null) return await refuse("not_found");
+      const { pullRequest, fields } = await pullRequestOf(
+        actor.ownerId,
+        source,
+      );
+      if (pullRequest === null) return await refuse("no_pull_request", fields);
+      if (source.state !== "pushed") {
+        return await refuse("not_pushed", fields, source.state);
+      }
+      const { forge } = await forgeFor(
+        actor,
+        source,
+        (refusal, extra) => refuse(refusal, { ...fields, ...extra }),
+        "merge",
+      );
+      let before: ForgePullRequestDetail;
+      try {
+        before = (await forge.getPullRequest(pullRequest.number)).pullRequest;
+      } catch (error) {
+        if (error instanceof GitHubCallError) {
+          return await refuse(
+            error.status === 404 ? "no_pull_request" : "forge_failed",
+            fields,
+          );
+        }
+        throw error;
+      }
+      if (before.head !== pullRequest.head) {
+        return await refuse("no_pull_request", fields);
+      }
+      const answer = async (
+        merged: { sha: string | null; method: "squash" | null },
+        changed: boolean,
+      ): Promise<MergePullRequestResponse> => {
+        const input: PullRequestReceipt = {
+          ...receipt,
+          pushRequestId: source.id,
+          result: {
+            ...EMPTY_RESULT,
+            ...fields,
+            push_request_id: source.id,
+            verdict: "allow",
+            created: false,
+            state: "closed",
+            changed,
+            merged: true,
+            head_sha: source.gitCommit,
+            merge_commit_sha: merged.sha,
+            method: merged.method,
+          },
+        };
+        const receiptId = changed
+          ? await store.recordStateChange({ ...input, url: pullRequest.url })
+          : await store.recordReceipt(input);
+        return {
+          pull_request: pullRequest,
+          merged: true,
+          changed,
+          head_sha: source.gitCommit,
+          merge_commit_sha: merged.sha,
+          method: merged.method,
+          receipt_id: receiptId,
+        };
+      };
+      if (before.mergedAt !== null) {
+        if (before.headSha !== source.gitCommit) {
+          return await refuse("head_moved", fields);
+        }
+        return await answer(
+          { sha: before.mergeCommitSha, method: null },
+          false,
+        );
+      }
+      if (before.state === "closed") {
+        return await refuse("pull_request_closed", fields);
+      }
+      if (before.headSha !== source.gitCommit) {
+        return await refuse("head_moved", fields);
+      }
+      // GitHub's async merge also merges every open pull request this one is
+      // stacked on. The base recorded at open is not proof of no stack (an
+      // adopted pull request records the base it had then), so the stack
+      // itself is looked for: a base that is another open pull request's head.
+      if (before.base !== pullRequest.base) {
+        return await refuse("merge_blocked", fields);
+      }
+      // Refused before a request that GitHub would queue and then fail. The
+      // rules themselves are enforced at merge time, with bypass off.
+      if (!MERGEABLE_STATES.has(before.mergeableState ?? "")) {
+        return await refuse("merge_blocked", fields);
+      }
+      try {
+        if ((await forge.findPullRequestForBranch(before.base)) !== null) {
+          return await refuse("merge_blocked", fields);
+        }
+        const merged = await forge.mergePullRequest({
+          number: pullRequest.number,
+          sha: source.gitCommit,
+        });
+        if (!merged.merged) {
+          // GitHub reports a cancelled merge and a refused one alike.
+          const after = (await forge.getPullRequest(pullRequest.number))
+            .pullRequest;
+          return await refuse(
+            after.headSha === source.gitCommit ? "merge_blocked" : "head_moved",
+            fields,
+          );
+        }
+        if (merged.already === true) {
+          // Merged by someone between the read and the request, by whatever
+          // method: not this call's merge, and only ours if it was our head.
+          const after = (await forge.getPullRequest(pullRequest.number))
+            .pullRequest;
+          if (after.headSha !== source.gitCommit) {
+            return await refuse("head_moved", fields);
+          }
+          return await answer(
+            { sha: merged.sha ?? after.mergeCommitSha, method: null },
+            false,
+          );
+        }
+        return await answer({ sha: merged.sha, method: "squash" }, true);
+      } catch (error) {
+        if (error instanceof GitHubCallError) {
+          if (error.status === 400 || error.status === 405)
+            return await refuse("merge_blocked", fields);
+          if (error.status === 409) return await refuse("head_moved", fields);
+          if (error.status === 202) {
+            // Accepted and still queued when the wait ended: it may have
+            // merged since, and may yet. A retry finds it merged. If it did,
+            // the pull request alone cannot say whose merge or which method,
+            // so it is answered as found.
+            const after = await forge
+              .getPullRequest(pullRequest.number)
+              .then((read) => read.pullRequest)
+              .catch(() => null);
+            if (
+              after !== null &&
+              after.mergedAt !== null &&
+              after.headSha === source.gitCommit
+            ) {
+              return await answer(
+                { sha: after.mergeCommitSha, method: null },
+                false,
+              );
+            }
+          }
+          return await refuse(
+            error.status === 404 ? "no_pull_request" : "forge_failed",
+            fields,
+          );
+        }
+        if (error instanceof ForgeCredentialError) {
+          return await refuse("forge_failed", fields);
+        }
+        throw error;
+      }
     },
 
     async comment(

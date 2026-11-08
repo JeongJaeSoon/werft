@@ -152,6 +152,15 @@ function server(failure: SessionServiceError | null) {
         changed: true,
         receipt_id: RECEIPT,
       }),
+      merge: answer({
+        pull_request: pullRequest,
+        merged: true as const,
+        changed: true,
+        head_sha: "a".repeat(40),
+        merge_commit_sha: "b".repeat(40),
+        method: "squash" as const,
+        receipt_id: RECEIPT,
+      }),
     },
     githubWork: {
       dispatch: answer({
@@ -213,6 +222,7 @@ const ARGUMENTS: Record<GitHubMcpTool, unknown> = {
   update_pull_request: { push_request_id: ID, title: "Fix" },
   comment_pull_request: { push_request_id: ID, body: "Note" },
   close_pull_request: { push_request_id: ID },
+  merge_pull_request: { push_request_id: ID },
   reopen_pull_request: { push_request_id: ID },
   dispatch_workflow: { workflow: "ci.yml", ref: "main" },
   get_workflow_run: { run_id: 42 },

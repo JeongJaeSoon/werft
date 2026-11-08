@@ -1,6 +1,6 @@
 import {
   GITHUB_AGENT_REF_PREFIX,
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type GitHubPurpose,
   type GitHubRefusal,
   githubAllowedBy,
@@ -76,7 +76,9 @@ export function createGitHubGate(deps: {
             ? "rerun_workflow"
             : work.purpose === "review"
               ? "review_pull_request"
-              : "mint_github_token";
+              : work.purpose === "merge"
+                ? "merge_pull_request"
+                : "mint_github_token";
       const own =
         work.repositoryId === undefined ||
         work.repositoryId === context.repositoryId;
@@ -247,10 +249,17 @@ export function createGitHubGate(deps: {
         }
       }
       const features = githubEffectiveFeatures(
-        settings?.features ?? GITHUB_CEILING_NONE,
+        settings?.features ?? GITHUB_FEATURES_NONE,
         context.ceiling,
       );
       const needs = githubPermissionsFor(work.purpose, features);
+      if (
+        !platformRead &&
+        needs.ceilingFeature !== undefined &&
+        !context.ceiling[needs.ceilingFeature]
+      ) {
+        return await refuse("merge_off");
+      }
       if (!platformRead && needs.feature !== null) {
         if (settings === null || !settings.features[needs.feature]) {
           return await refuse("feature_off");

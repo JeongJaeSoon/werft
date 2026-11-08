@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
   newSessionGitHubPolicy,
   type RepositoryCeiling,
@@ -72,7 +72,7 @@ const CATALOG = {
 const SETTINGS: AgentGitHub = {
   repositories: ["app", "docs"],
   push_approval: true,
-  features: { ...GITHUB_CEILING_NONE },
+  features: { ...GITHUB_FEATURES_NONE },
   actions_allow: [],
 };
 
@@ -81,7 +81,7 @@ const row = (
 ): AgentGitHubSettingsRow => ({
   repositories: ["docs"],
   pushApproval: true,
-  features: { ...GITHUB_CEILING_NONE },
+  features: { ...GITHUB_FEATURES_NONE },
   actionsAllow: [],
   startRepositoryId: "docs",
   pushAttached: null,

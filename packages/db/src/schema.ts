@@ -17,6 +17,7 @@ import {
   GITHUB_REVIEW_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
   type GitHubCeiling,
+  type GitHubFeatures,
   type GitHubPackagesAllowEntry,
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
@@ -3329,7 +3330,7 @@ export const agentGitHubSettings = pgTable(
     workspaceId: uuid("workspace_id").notNull(),
     repositories: jsonb().$type<string[]>().notNull(),
     pushApproval: boolean("push_approval").notNull(),
-    features: jsonb().$type<GitHubCeiling>().notNull(),
+    features: jsonb().$type<GitHubFeatures>().notNull(),
     actionsAllow: jsonb("actions_allow").$type<unknown[]>().notNull(),
     // A session named no repository starts on this one.
     startRepositoryId: text("start_repository_id"),

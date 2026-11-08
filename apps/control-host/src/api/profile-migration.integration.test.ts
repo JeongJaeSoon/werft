@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   agentCardRequestSchema,
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   scopesForRole,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
@@ -246,7 +247,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       workspaceId: ws.workspaceId,
       repositories: [],
       pushApproval: false,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
       actionsAllow: [],
     });
     const released = await agents.updateAgent(ws.caller, agentId, {

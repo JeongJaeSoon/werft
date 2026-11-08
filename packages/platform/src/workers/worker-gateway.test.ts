@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type PlatformPrompt,
   type RuntimeConfig,
   runtimeConfigSchema,
@@ -3658,7 +3659,7 @@ describe("egress and claim through the real GitHub gate", () => {
           policy: releasePolicy({
             repositories: ["app", "docs", "tools"],
             push_approval: true,
-            features: GITHUB_CEILING_NONE,
+            features: GITHUB_FEATURES_NONE,
             actions_allow: [],
           }),
           ceiling: GITHUB_CEILING_NONE,

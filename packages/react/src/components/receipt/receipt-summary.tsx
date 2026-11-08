@@ -68,6 +68,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   comment_pull_request: "PR 코멘트",
   close_pull_request: "PR 닫기",
   reopen_pull_request: "PR 다시 열기",
+  merge_pull_request: "PR 머지",
   call_mcp: "원격 MCP 호출",
   create_workspace_profile: "워크스페이스 프로필 새 버전 저장",
   retire_workspace_profile: "워크스페이스 프로필 사용 중지",

@@ -117,6 +117,7 @@ export const sessionGitHubRefusalSchema = z.object({
     "dispatch_workflow",
     "rerun_workflow",
     "review_pull_request",
+    "merge_pull_request",
   ]),
   purpose: githubPurposeSchema,
   reason_code: githubRefusalSchema,

@@ -130,6 +130,9 @@ function app(
     setPullRequestState: async () => {
       throw new Error("not used");
     },
+    mergePullRequest: async () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       fail("comment");
       comments += 1;

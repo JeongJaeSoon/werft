@@ -218,6 +218,19 @@ export const setPullRequestStateResponseSchema = z.object({
   receipt_id: receiptIdSchema,
 });
 
+/** What `merge_pull_request` answers. */
+export const mergePullRequestResponseSchema = z.object({
+  pull_request: pullRequestSchema,
+  merged: z.literal(true),
+  // False when the pull request was already merged on the pushed commit.
+  changed: z.boolean(),
+  head_sha: z.string(),
+  merge_commit_sha: z.string().nullable(),
+  // Null when this call did not merge it itself.
+  method: z.literal("squash").nullable(),
+  receipt_id: receiptIdSchema,
+});
+
 export const openPullRequestResponseSchema = z.object({
   pull_request: pullRequestSchema,
   // False when the pull request was already open (or recorded) and this
@@ -299,6 +312,9 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "intent_ended",
   // The branch's open pull request is on another commit than the pushed one.
   "head_moved",
+  // Merging: GitHub will not merge it now (checks, reviews, conflicts, draft).
+  "merge_blocked",
+  "pull_request_closed",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 
@@ -326,6 +342,11 @@ export const pullRequestReceiptResultSchema = z.object({
   // this call changed it.
   state: pullRequestStateSchema.nullable().optional(),
   changed: z.boolean().nullable().optional(),
+  // A merge receipt only.
+  merged: z.boolean().nullable().optional(),
+  head_sha: z.string().nullable().optional(),
+  merge_commit_sha: z.string().nullable().optional(),
+  method: z.literal("squash").nullable().optional(),
   // An open or update receipt whose body came from structured fields.
   template: pullRequestTemplateRecordSchema.optional(),
 });
@@ -354,6 +375,9 @@ export type CommentPullRequestResponse = z.infer<
   typeof commentPullRequestResponseSchema
 >;
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>;
+export type MergePullRequestResponse = z.infer<
+  typeof mergePullRequestResponseSchema
+>;
 export type SetPullRequestStateResponse = z.infer<
   typeof setPullRequestStateResponseSchema
 >;
