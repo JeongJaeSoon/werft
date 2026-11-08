@@ -60,7 +60,15 @@ export class TurnAccounting {
     // Without the session, a `/clear` before the first result would look like
     // the same session and be charged only what it spent past the saved cost;
     // such a figure is not a baseline.
-    if (saved?.sessionId === undefined || this.lastSessionId !== undefined) {
+    // The baseline is used only as a finite, non-negative number no larger
+    // than the first total (a larger one reads as a restart in `observe`);
+    // anything else, a corrupt entry included, charges the total in full.
+    if (
+      saved?.sessionId === undefined ||
+      this.lastSessionId !== undefined ||
+      !Number.isFinite(saved.usd) ||
+      saved.usd < 0
+    ) {
       return;
     }
     this.lastTotalUsd = saved.usd;

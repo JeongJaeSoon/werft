@@ -65,6 +65,25 @@ describe("TurnAccounting", () => {
     expect(accounting.restarted).toBe(true);
   });
 
+  test("no saved cost, whatever its value, can charge less than the engine total", () => {
+    for (const usd of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -1,
+    ]) {
+      const accounting = new TurnAccounting();
+      accounting.continueFrom({ usd, sessionId: "s" });
+      accounting.observe(result(5));
+      expect(accounting.settle().costUsd).toBe(5);
+    }
+    // Larger than the first total: the engine started over, so charge it all.
+    const above = new TurnAccounting();
+    above.continueFrom({ usd: 9, sessionId: "s" });
+    above.observe(result(5));
+    expect(above.settle().costUsd).toBe(5);
+  });
+
   test("a saved cost with no session is not a baseline", () => {
     const accounting = new TurnAccounting();
     accounting.continueFrom({ usd: 3 });
