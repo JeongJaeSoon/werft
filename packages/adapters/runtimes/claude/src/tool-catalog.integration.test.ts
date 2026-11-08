@@ -48,7 +48,16 @@ const OUTSIDE_ALLOWLIST = "Tool is outside the server allowlist";
  * mode nothing but the SDK's tool set keeps them out of a profile that does
  * not list them; the gates scenario pins that down so a change shows here.
  */
-const RUNS_UNASKED = new Set(["Read", "Glob", "Grep"]);
+const RUNS_UNASKED = new Set([
+  "Read",
+  "Glob",
+  "Grep",
+  "Edit",
+  "Write",
+  "NotebookEdit",
+  // The probe redirects into the workspace, which the Edit rule covers.
+  "Bash",
+]);
 /** Tools this build does not hand to a subagent at all. */
 const MAIN_LOOP_ONLY = new Set(["AskUserQuestion"]);
 

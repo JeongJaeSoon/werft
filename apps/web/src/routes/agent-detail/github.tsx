@@ -38,6 +38,7 @@ import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
+import { type Notify, useToast } from "../../components/toast.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -51,7 +52,6 @@ import {
 } from "./github-activity.ts";
 import { AppRepositoryPicker } from "./github-app-repositories.tsx";
 import { AgentPullRequestSettingsCard } from "./github-pull-request.tsx";
-import { type Notify, useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 

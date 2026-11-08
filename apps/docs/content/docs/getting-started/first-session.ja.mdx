@@ -7,7 +7,7 @@ description: 権限リクエストに答え、メッセージを続けて送り�
 
 ## ファイルを書くセッションを作る
 
-この台本は Bash で `hello.txt` を書く。`claude-coding-local` プロファイルは、ファイルを変えるコマンドの前に権限を求める。
+この台本は Bash の `tee` で `hello.txt` を書く。`claude-coding-local` プロファイルは、セッションのワークスペース内でのファイルの書き込み・編集とローカル git では尋ねず、それ以外のファイルを変えるコマンド (一覧にない `tee` など) の前に権限を求める。ワークスペース内へのリダイレクト (`echo alpha > hello.txt`) は尋ねないため、この例では使わない。
 
 ```ts title="approve-and-close.ts"
 import {
@@ -19,7 +19,7 @@ import {
 import { werft } from "./werft.ts";
 
 const signal = AbortSignal.timeout(5 * 60_000);
-const COMMAND = "echo alpha > hello.txt";
+const COMMAND = "echo alpha | tee hello.txt";
 
 const created = await werft.sessions.create({
   profile_id: "claude-coding-local",
@@ -63,7 +63,7 @@ console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+asked: Bash { command: 'echo alpha | tee hello.txt', description: 'write hello.txt' }
 answered: accepted
 turn 1: completed
 ```

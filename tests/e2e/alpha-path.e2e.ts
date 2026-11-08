@@ -51,9 +51,11 @@ describe("alpha path over public HTTP", () => {
   test(
     "create → events → pending → answer → message → interrupt → pause → resume → terminate → recovery → resume",
     async () => {
-      // 1. create: the first turn writes a file, which asks permission.
+      // 1. create: the first turn writes a file through `tee`, which asks
+      // permission. A redirect into the workspace would not: the platform
+      // pre-approves writes under the session workspace.
       const created = await api.createSession(
-        scripted("q1", [bash("echo alpha > hello.txt")], "wrote hello.txt"),
+        scripted("q1", [bash("echo alpha | tee hello.txt")], "wrote hello.txt"),
       );
       expect(created.status).toBe(201);
       const sessionId = created.body.session_id;
@@ -320,9 +322,10 @@ describe("default commit identity", () => {
         ),
       );
       const sessionId = created.body.session_id;
-      const [request] = await api.pendingUntil(sessionId, 1);
-      await api.allow(sessionId, must(request).request_id);
+      // A local commit is pre-approved under the session workspace, so the
+      // turn finishes without a permission request to answer.
       expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+      expect(await api.pendingUntil(sessionId, 0)).toEqual([]);
       const result = (
         await api.events(
           sessionId,
@@ -404,7 +407,7 @@ describe("concurrency regressions", () => {
       const sessions = await Promise.all(
         ["a1", "a2"].map(async (id) => {
           const created = await api.createSession(
-            scripted(id, [bash(`echo ${id} > ${id}.txt`)], `${id} done`),
+            scripted(id, [bash(`echo ${id} | tee ${id}.txt`)], `${id} done`),
           );
           return created.body.session_id;
         }),
@@ -446,7 +449,7 @@ describe("concurrency regressions", () => {
       const created = await api.createSession(
         scripted(
           "t1",
-          [bash("echo one > one.txt"), bash("echo two > two.txt")],
+          [bash("echo one | tee one.txt"), bash("echo two | tee two.txt")],
           "both written",
         ),
       );
