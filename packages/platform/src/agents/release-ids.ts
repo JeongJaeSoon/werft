@@ -94,9 +94,8 @@ export function assertReleaseIdentity(release: AgentRelease): void {
 export type ReleaseCompatibilityError = { field: string; message: string };
 
 /**
- * What a card runs as under a profile: the tools both allow, minus what the
- * card forbids, in the profile's order. An error when the card's model or
- * tools fall outside the profile.
+ * What a card runs as under a profile: the profile's tools in its order.
+ * An error when the card's model falls outside the profile.
  */
 export function resolveReleaseContent(
   card: AgentCard,
@@ -122,28 +121,11 @@ export function resolveReleaseContent(
       },
     };
   }
-  const allowed = new Set(profile.tools);
-  const outside = (card.capabilities.tools ?? []).filter(
-    (tool) => !allowed.has(tool),
-  );
-  if (outside.length > 0) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.tools",
-        message: `runtime profile ${profileId} does not allow ${outside.join(", ")}`,
-      },
-    };
-  }
-  const asked =
-    card.capabilities.tools === null
-      ? allowed
-      : new Set(card.capabilities.tools);
-  const forbidden = new Set(card.capabilities.forbidden);
-  const tools = profile.tools.filter(
-    (tool) => asked.has(tool) && !forbidden.has(tool),
-  );
-  const policy = resolveToolPolicy(card, profileId, tools);
+  // The card's built-in `tools`, `forbidden` and `tool_policy` are not read:
+  // the profile decides (the request schema still accepts them until they
+  // are removed).
+  const tools = [...profile.tools];
+  const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;
   const policy_pins = policy.pins;
   const mcp = resolveMcpServer(card, policy_pins, mcpServers);
@@ -235,36 +217,17 @@ function resolveMcpServer(
 
 /**
  * Pins a policy for every tool the release runs, so a later change to the
- * defaults cannot move a release that already exists. A built-in tool the
- * card names must be one the release runs: a policy for a tool it cannot
- * call would read as a permission it does not have.
+ * defaults cannot move a release that already exists. Built-in tools take
+ * the default; only the card's MCP entries are read, since they name the
+ * MCP tools the release may call.
  */
 function resolveToolPolicy(
   card: AgentCard,
-  profileId: string,
   tools: string[],
 ):
   | { ok: true; pins: PolicyPins }
   | { ok: false; error: ReleaseCompatibilityError } {
-  const declared = card.capabilities.tool_policy;
-  const defaults = {
-    builtin: declared?.default?.builtin ?? DEFAULT_TOOL_POLICY.builtin,
-    mcp: declared?.default?.mcp ?? DEFAULT_TOOL_POLICY.mcp,
-  };
-  const named = declared?.per_tool ?? {};
-  const running = new Set(tools);
-  const unknown = Object.keys(named).filter(
-    (tool) => !tool.startsWith(MCP_TOOL_PREFIX) && !running.has(tool),
-  );
-  if (unknown.length > 0) {
-    return {
-      ok: false,
-      error: {
-        field: "card.capabilities.tool_policy.per_tool",
-        message: `release under runtime profile ${profileId} does not run ${unknown.join(", ")}`,
-      },
-    };
-  }
+  const named = card.capabilities.tool_policy?.per_tool ?? {};
   // The built-in server's tools are judged by the agent's GitHub settings
   // (their action class), so a policy here would read as a permission the
   // release does not give. Releases made before this check keep what they
@@ -286,9 +249,7 @@ function resolveToolPolicy(
   const per_tool: [string, ToolPolicy][] = [
     ...tools.map((tool): [string, ToolPolicy] => [
       tool,
-      Object.hasOwn(named, tool)
-        ? (named[tool] as ToolPolicy)
-        : defaults.builtin,
+      DEFAULT_TOOL_POLICY.builtin,
     ]),
     ...Object.entries(named).filter(([tool]) =>
       tool.startsWith(MCP_TOOL_PREFIX),
@@ -297,7 +258,10 @@ function resolveToolPolicy(
   return {
     ok: true,
     pins: {
-      tools: { default: defaults, per_tool: Object.fromEntries(per_tool) },
+      tools: {
+        default: { ...DEFAULT_TOOL_POLICY },
+        per_tool: Object.fromEntries(per_tool),
+      },
     },
   };
 }

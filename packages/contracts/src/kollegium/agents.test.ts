@@ -11,6 +11,7 @@ import {
   agentReleaseSchema,
   agentSchema,
   agentVersionSchema,
+  behaviorKey,
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   DEFAULT_TOOL_POLICY,
@@ -277,6 +278,36 @@ describe("credential names", () => {
     ]) {
       expect(agentCardSchema.safeParse(withRefs(refs)).success).toBe(false);
     }
+  });
+});
+
+describe("behaviorKey", () => {
+  const key = (capabilities: Record<string, unknown>) =>
+    behaviorKey(
+      agentCardSchema.parse({ ...card, capabilities }),
+      "claude-sonnet-5",
+      "coding",
+    );
+  const base = { tools: ["Read"], mcp: null, forbidden: [] };
+
+  test("ignores the card's built-in tools, forbidden and policy", () => {
+    expect(
+      key({
+        tools: null,
+        mcp: null,
+        forbidden: ["Bash"],
+        tool_policy: {
+          default: { builtin: "deny" },
+          per_tool: { Read: "ask" },
+        },
+      }),
+    ).toBe(key(base));
+  });
+
+  test("keeps MCP policy entries and forbidden MCP tools", () => {
+    const mcp = { ...base, tool_policy: { per_tool: { mcp__a__b: "allow" } } };
+    expect(key(mcp)).not.toBe(key(base));
+    expect(key({ ...base, forbidden: ["mcp__a__b"] })).not.toBe(key(base));
   });
 });
 

@@ -70,6 +70,7 @@ import {
   memberTeams,
   receipts,
 } from "./schema.ts";
+import { recordToolUnlockItem } from "./tool-unlock.ts";
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -922,6 +923,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        // The plan was read on these values; anything since is a person's.
+        if (
+          intent?.kind === "tool_unlock" &&
+          agent.activeReleaseId !== input.releaseId &&
+          (agent.activeReleaseId !== intent.expected.activeReleaseId ||
+            agent.activationRevision !== intent.expected.activationRevision ||
+            agent.behaviorRevision !== intent.expected.behaviorRevision)
+        ) {
+          return { outcome: "superseded" };
+        }
         const intentColumns =
           intent?.kind === "migrate"
             ? { profileTracking: intent.tracking }
@@ -961,6 +972,14 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               .where(eq(agents.id, agent.id));
           }
           if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
+          if (intent?.kind === "tool_unlock" && intent.rolloutId !== null) {
+            await recordToolUnlockItem(tx, {
+              rolloutId: intent.rolloutId,
+              agentId: agent.id,
+              generation: intent.expected.activationRevision,
+              result: { status: "applied" },
+            });
+          }
           return {
             outcome: "unchanged",
             revision: current,
@@ -999,6 +1018,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             ),
           );
         if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
+        // With the swap, so a crash between the two cannot leave a done
+        // agent without its item.
+        if (intent?.kind === "tool_unlock" && intent.rolloutId !== null) {
+          await recordToolUnlockItem(tx, {
+            rolloutId: intent.rolloutId,
+            agentId: agent.id,
+            generation: intent.expected.activationRevision,
+            result: { status: "applied" },
+          });
+        }
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "activate_agent",
           workspaceId: input.workspaceId,
@@ -1017,6 +1046,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                     tracking_after: intent.tracking,
                     behavior_revision: agent.behaviorRevision,
                     model_source: agent.modelSource,
+                  },
+                }
+              : {}),
+            ...(intent?.kind === "tool_unlock"
+              ? {
+                  tool_unlock: {
+                    rollout_id: intent.rolloutId,
+                    tools_before: intent.tools.before,
+                    tools_after: intent.tools.after,
+                    unlocked: intent.tools.after.filter(
+                      (tool) => !intent.tools.before.includes(tool),
+                    ),
                   },
                 }
               : {}),

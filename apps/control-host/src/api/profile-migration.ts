@@ -427,12 +427,14 @@ export async function runProfileMigration(
   return revert(deps, mode, say);
 }
 
-export async function profileMigration(
-  argv: string[],
-  environment: NodeJS.ProcessEnv = process.env,
-  out: (line: string) => void = console.log,
-): Promise<number> {
-  parseArgs(argv);
+/**
+ * The database and catalog a one-time job reads, as the control host builds
+ * them. Release `run` with them, then `pool.end()`.
+ */
+export async function openJobCatalog(
+  name: string,
+  environment: NodeJS.ProcessEnv,
+) {
   const databaseUrl =
     environment.DATABASE_URL || environment.QUEUE_DATABASE_URL;
   if (!databaseUrl) {
@@ -442,50 +444,73 @@ export async function profileMigration(
   const pool = createEnforcedPool(
     databaseUrl,
     logger,
-    "profile-migration",
+    name,
     JOB_POOL_TIMEOUTS,
     { max: 4 },
   );
   try {
-    const db = drizzle(pool, { schema });
-    const secretKey = loadSecretKey(environment);
-    const installationSettings = settingsSource({
-      store: createPostgresInstallationSettingsStore(db, secretKey),
-      env: environment,
-      readSecret: secretsManagerReader(environment),
-    });
-    const reportLeftOut = leftOutReporter((message, fields) =>
-      logger.warn(message, fields),
-    );
-    const registry = createProfileRegistry({
-      workspaces: createPostgresWorkspaceProfileStore(db),
-      installations: createPostgresInstallationProfileStore(db),
-      repositories: createPostgresCatalogRepositoryStore(db),
-      settings: {
-        async read() {
-          const snapshot = await installationSettings.read();
-          reportLeftOut(snapshot);
-          return snapshot;
-        },
-      },
-      sources: profileSources(environment),
-    });
-    await registry.refresh();
-    const runtimeVersions = runtimeVersionsFromEnv(environment);
-    const catalog = profileCatalog(
-      {
-        repositories: {},
-        ...(runtimeVersions === undefined
-          ? {}
-          : { runtime_versions: runtimeVersions }),
-        tool_catalogs: installedToolCatalogView,
-      },
-      registry,
-      (rows, settings) => withConsoleRepositories(rows, settings?.repositories),
-    ) as SessionCatalog;
-    return await runProfileMigration(argv, { db, pool, catalog }, out);
-  } finally {
+    return await buildJobCatalog(pool, environment, logger);
+  } catch (error) {
     await pool.end();
+    throw error;
+  }
+}
+
+async function buildJobCatalog(
+  pool: Pool,
+  environment: NodeJS.ProcessEnv,
+  logger: ReturnType<typeof createLogger>,
+) {
+  const db = drizzle(pool, { schema });
+  const secretKey = loadSecretKey(environment);
+  const installationSettings = settingsSource({
+    store: createPostgresInstallationSettingsStore(db, secretKey),
+    env: environment,
+    readSecret: secretsManagerReader(environment),
+  });
+  const reportLeftOut = leftOutReporter((message, fields) =>
+    logger.warn(message, fields),
+  );
+  const registry = createProfileRegistry({
+    workspaces: createPostgresWorkspaceProfileStore(db),
+    installations: createPostgresInstallationProfileStore(db),
+    repositories: createPostgresCatalogRepositoryStore(db),
+    settings: {
+      async read() {
+        const snapshot = await installationSettings.read();
+        reportLeftOut(snapshot);
+        return snapshot;
+      },
+    },
+    sources: profileSources(environment),
+  });
+  await registry.refresh();
+  const runtimeVersions = runtimeVersionsFromEnv(environment);
+  const catalog = profileCatalog(
+    {
+      repositories: {},
+      ...(runtimeVersions === undefined
+        ? {}
+        : { runtime_versions: runtimeVersions }),
+      tool_catalogs: installedToolCatalogView,
+    },
+    registry,
+    (rows, settings) => withConsoleRepositories(rows, settings?.repositories),
+  ) as SessionCatalog;
+  return { db, pool, catalog };
+}
+
+export async function profileMigration(
+  argv: string[],
+  environment: NodeJS.ProcessEnv = process.env,
+  out: (line: string) => void = console.log,
+): Promise<number> {
+  parseArgs(argv);
+  const opened = await openJobCatalog("profile-migration", environment);
+  try {
+    return await runProfileMigration(argv, opened, out);
+  } finally {
+    await opened.pool.end();
   }
 }
 

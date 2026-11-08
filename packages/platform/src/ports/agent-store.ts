@@ -93,6 +93,7 @@ export type ReleaseReason =
   | "profile_changed"
   | "profile_rollout"
   | "profile_migration"
+  | "tool_unlock"
   | "direct";
 
 /**
@@ -140,6 +141,24 @@ export type ActivationIntent =
         modelSource: ModelSource;
       };
       tracking: "follow" | "pinned";
+    }
+  | {
+      /**
+       * The one-time unlock of tools the card used to narrow: the same
+       * profile and card, a release computed without the card's tool fields.
+       * Judged against the revisions the plan read; changes neither
+       * tracking, the model source nor the draft. The rollout item is
+       * written in the same transaction as the swap.
+       */
+      kind: "tool_unlock";
+      /** Null when the profile has no stored row to hang a rollout on. */
+      rolloutId: string | null;
+      expected: {
+        activeReleaseId: string;
+        activationRevision: number;
+        behaviorRevision: number;
+      };
+      tools: { before: string[]; after: string[] };
     }
   | {
       kind: "direct";

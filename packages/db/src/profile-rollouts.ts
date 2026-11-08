@@ -72,7 +72,8 @@ export async function resolveFailedItems(
           reason_code = NULL, locked_by = NULL, locked_until = NULL,
           updated_at = now()
       FROM profile_rollouts r, agents a, agent_releases ar
-      WHERE i.rollout_id = r.id AND i.agent_id = ${agentId}::uuid
+      WHERE i.rollout_id = r.id AND r.kind = 'profile_update'
+        AND i.agent_id = ${agentId}::uuid
         AND i.status = 'failed'
         AND a.id = i.agent_id AND ar.id = a.active_release_id`,
   );
@@ -255,13 +256,15 @@ export function createPostgresProfileRolloutStore(
         SET status = 'failed', reason_code = 'retries_exhausted',
             locked_by = NULL, locked_until = NULL, updated_at = now()
         WHERE status = 'pending' AND attempts >= ${ROLLOUT_MAX_CLAIMS}
-          AND (locked_until IS NULL OR locked_until < now())`);
+          AND (locked_until IS NULL OR locked_until < now())
+          AND rollout_id IN (SELECT id FROM profile_rollouts WHERE kind = 'profile_update')`);
       const claimed = await rows(
         db,
         sql`WITH picked AS (
             SELECT rollout_id, agent_id, generation FROM profile_rollout_items
             WHERE status = 'pending' AND attempts < ${ROLLOUT_MAX_CLAIMS}
               AND (locked_until IS NULL OR locked_until < now())
+              AND rollout_id IN (SELECT id FROM profile_rollouts WHERE kind = 'profile_update')
             ORDER BY created_at, rollout_id, agent_id
             LIMIT ${limit}
             FOR UPDATE SKIP LOCKED)

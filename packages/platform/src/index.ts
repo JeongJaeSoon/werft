@@ -4,6 +4,7 @@ export * from "./agents/agent-pull-request-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/profile-rollout-runner.ts";
 export * from "./agents/release-ids.ts";
+export * from "./agents/tool-unlock.ts";
 export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";

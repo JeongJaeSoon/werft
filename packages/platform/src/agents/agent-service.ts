@@ -82,6 +82,7 @@ import {
   releaseModel,
   resolveReleaseContent,
 } from "./release-ids.ts";
+import { sameToolSet } from "./tool-unlock.ts";
 
 /**
  * The release a session pins, refused when the catalog no longer runs its
@@ -269,12 +270,14 @@ export function createAgentService(deps: {
   async function usableProfile(
     workspaceId: string,
     profileId: string,
+    options: { retiredAllowed?: boolean } = {},
   ): Promise<CatalogProfile> {
     await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
     const workspaceRefusal = workspaceProfileRefusal(
       catalog,
       workspaceId,
       profileId,
+      options,
     );
     if (workspaceRefusal !== null) {
       throw (
@@ -423,6 +426,8 @@ export function createAgentService(deps: {
       reason: ReleaseReason;
       requireRoles?: readonly WorkspaceRole[];
       equivalentTo?: AgentRelease;
+      /** Stays on a retired profile the agent already runs. */
+      retiredAllowed?: boolean;
     },
   ): Promise<ReleaseOutcome> {
     const { version, profileId, active } = input;
@@ -432,7 +437,9 @@ export function createAgentService(deps: {
     });
     let profile: CatalogProfile;
     try {
-      profile = await usableProfile(caller.ownerId, profileId);
+      profile = await usableProfile(caller.ownerId, profileId, {
+        ...(input.retiredAllowed === true ? { retiredAllowed: true } : {}),
+      });
     } catch (error) {
       const reason = refusalCode(error);
       if (reason === null) throw error;
@@ -480,9 +487,7 @@ export function createAgentService(deps: {
       return failed(
         resolved.error.field === "card.model"
           ? "model_not_in_profile"
-          : resolved.error.field === "card.capabilities.tools"
-            ? "tool_not_in_profile"
-            : "release_refused",
+          : "release_refused",
       );
     }
     if (
@@ -1162,6 +1167,98 @@ export function createAgentService(deps: {
     }
   }
 
+  type UnlockStep =
+    | { status: "applied"; releaseId: string }
+    | { status: "same" | "superseded" }
+    | { status: "failed"; reason: string };
+
+  /**
+   * The one-time tool unlock (design 2.3): the agent's own card on its own
+   * profile, released without the card's tool fields. Done when the active
+   * release already runs what that calculation gives. `pinned` agents are
+   * included, and tracking, model source and the old release stay as they are.
+   */
+  async function unlockTools(input: {
+    workspaceId: string;
+    agentId: string;
+    actorUserId: string;
+    rolloutId: string | null;
+    expected: {
+      activeReleaseId: string;
+      activationRevision: number;
+      behaviorRevision: number;
+    };
+  }): Promise<UnlockStep> {
+    const { workspaceId, agentId, actorUserId, expected } = input;
+    const principal = migrationPrincipal(workspaceId, actorUserId);
+    try {
+      const record = await store.get(workspaceId, agentId);
+      const active = record?.active_release ?? null;
+      if (!record || !active) return { status: "superseded" };
+      if (
+        active.id !== expected.activeReleaseId ||
+        record.agent.activation_revision !== expected.activationRevision ||
+        record.behavior_revision !== expected.behaviorRevision
+      ) {
+        return { status: "superseded" };
+      }
+      const version = record.versions.find(
+        (candidate) => candidate.id === active.version_id,
+      );
+      if (!version) return { status: "failed", reason: "release_refused" };
+      let profile: CatalogProfile;
+      try {
+        profile = await usableProfile(workspaceId, active.runtime_profile_id, {
+          retiredAllowed: true,
+        });
+      } catch (error) {
+        if (refusalCode(error) === null) throw error;
+        return { status: "failed", reason: "profile_unusable" };
+      }
+      const resolved = resolveReleaseContent(
+        version.card,
+        active.runtime_profile_id,
+        profile,
+        catalog.mcp_servers,
+      );
+      if (!resolved.ok) return { status: "failed", reason: "release_refused" };
+      const before = active.effective_tools.tools;
+      const after = resolved.content.effective_tools.tools;
+      if (sameToolSet(before, after)) return { status: "same" };
+      const outcome = await releaseAgent(principal, actorUserId, {
+        agentId,
+        version,
+        profileId: active.runtime_profile_id,
+        active,
+        expectedActivationRevision: expected.activationRevision,
+        intent: {
+          kind: "tool_unlock",
+          rolloutId: input.rolloutId,
+          expected,
+          tools: { before: [...before], after: [...after] },
+        },
+        reason: "tool_unlock",
+        requireRoles: MIGRATION_ROLES,
+        retiredAllowed: true,
+      });
+      if (outcome.status === "applied") {
+        return { status: "applied", releaseId: outcome.releaseId };
+      }
+      if (outcome.status === "failed") {
+        return { status: "failed", reason: outcome.reason };
+      }
+      return { status: "superseded" };
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        if (error.code === "FORBIDDEN") {
+          return { status: "failed", reason: "actor_inactive" };
+        }
+        if (error.code === "NOT_FOUND") return { status: "superseded" };
+      }
+      throw error;
+    }
+  }
+
   async function revertMigration(input: {
     workspaceId: string;
     agentId: string;
@@ -1228,6 +1325,7 @@ export function createAgentService(deps: {
     resolveRelease,
     rolloutRelease,
     migrateAgent,
+    unlockTools,
     revertMigration,
     promptIdentity: (workspaceId: string, releaseId: string) =>
       agentPromptIdentity(store, workspaceId, releaseId),
