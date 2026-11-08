@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AgentMcpRelease,
   AgentMcpRow,
   AgentMcpStore,
   McpMigrationEntry,
@@ -56,6 +57,28 @@ export async function agentMcpRowOf(
   return found === undefined ? null : rowOf(found);
 }
 
+async function releaseOf(
+  executor: Database,
+  releaseId: string | null,
+): Promise<AgentMcpRelease | null> {
+  if (releaseId === null) return null;
+  const [release] = await rowsOf<{
+    id: string;
+    card: unknown;
+    policy_pins: unknown;
+  }>(
+    await executor.execute(
+      sql`SELECT r.id, v.card, r.policy_pins
+        FROM agent_releases r
+        JOIN agent_versions v ON v.id = r.version_id
+        WHERE r.id = ${releaseId}`,
+    ),
+  );
+  return release === undefined
+    ? null
+    : { id: release.id, card: release.card, policyPins: release.policy_pins };
+}
+
 export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
   return {
     async agent(workspaceId, agentId) {
@@ -74,31 +97,9 @@ export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
         )
         .limit(1);
       if (found === undefined) return null;
-      const workspaceSlug = found.workspaceSlug;
-      if (found.releaseId === null)
-        return { workspaceSlug, activeRelease: null };
-      const [release] = await rowsOf<{
-        id: string;
-        card: unknown;
-        policy_pins: unknown;
-      }>(
-        await db.execute(
-          sql`SELECT r.id, v.card, r.policy_pins
-            FROM agent_releases r
-            JOIN agent_versions v ON v.id = r.version_id
-            WHERE r.id = ${found.releaseId}`,
-        ),
-      );
       return {
-        workspaceSlug,
-        activeRelease:
-          release === undefined
-            ? null
-            : {
-                id: release.id,
-                card: release.card,
-                policyPins: release.policy_pins,
-              },
+        workspaceSlug: found.workspaceSlug,
+        activeRelease: await releaseOf(db, found.releaseId),
       };
     },
 
@@ -137,7 +138,19 @@ export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
           return { outcome: "conflict" as const, revision: heldRevision };
         }
         const current = held === undefined ? null : rowOf(held);
-        input.check(current);
+        // Read under the agent lock: an activation cannot move it now.
+        const [agentNow] = await tx
+          .select({ releaseId: agents.activeReleaseId })
+          .from(agents)
+          .where(eq(agents.id, agentId))
+          .limit(1);
+        const release = await releaseOf(tx, agentNow?.releaseId ?? null);
+        input.check(
+          current,
+          release === null
+            ? null
+            : mcpValuesOfCard(release.card, release.policyPins).server,
+        );
         const next = {
           server: input.settings.server,
           allowedTools: input.settings.allowed_tools,

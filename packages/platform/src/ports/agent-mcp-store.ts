@@ -52,7 +52,8 @@ export interface AgentMcpStore {
    * locked first (as a session start does), then the settings row, whose
    * revision must be `expectedRevision` (null: no row yet). `updated_by` is
    * always `userId`, so a save also marks a copied row a person's. `check`
-   * runs on the locked current row and may refuse the write.
+   * runs on the locked current row, with the server the agent's active
+   * release names read under the same lock, and may refuse the write.
    */
   put(input: {
     workspaceId: string;
@@ -62,6 +63,6 @@ export interface AgentMcpStore {
     userId: string;
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
-    check: (current: AgentMcpRow | null) => void;
+    check: (current: AgentMcpRow | null, releaseServer: string | null) => void;
   }): Promise<PutAgentMcpSettingsResult>;
 }

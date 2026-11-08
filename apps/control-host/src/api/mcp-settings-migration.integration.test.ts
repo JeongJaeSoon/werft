@@ -194,6 +194,12 @@ integration("the MCP settings migration CLI on PostgreSQL", () => {
       parseArgs(["--apply", "--report", "r.json", "--report-sha256", "AB"]),
     ).toEqual({ kind: "apply", report: "r.json", sha256: "ab" });
     expect(parseArgs(["--revert"])).toEqual({ kind: "revert" });
+    // No mode is the dry run, the mode that writes nothing.
+    expect(parseArgs(["--out", "r.json"])).toEqual({
+      kind: "dry-run",
+      out: "r.json",
+      includeDrafts: false,
+    });
     for (const bad of [
       [],
       ["--dry-run"],

@@ -21,7 +21,7 @@ import type { Pool } from "pg";
 
 const USAGE = [
   "usage:",
-  "  mcp-settings-migration --dry-run [--include-drafts] --out <report.json>",
+  "  mcp-settings-migration [--dry-run] [--include-drafts] --out <report.json>",
   "  mcp-settings-migration --apply --report <report.json> --report-sha256 <hex>",
   "  mcp-settings-migration --revert",
 ].join("\n");
@@ -64,15 +64,17 @@ export function parseArgs(argv: string[]): Mode {
   const modes = ["--dry-run", "--apply", "--revert"].filter((m) =>
     flags.has(m),
   );
-  if (modes.length !== 1) throw new Error(`pick exactly one mode\n${USAGE}`);
+  if (modes.length > 1) throw new Error(`pick one mode\n${USAGE}`);
+  // No mode is a dry run: the one that writes nothing.
+  const dryRun = modes.length === 0 || flags.has("--dry-run");
   // The draft choice is made once, in the report; --apply follows it.
-  if (flags.has("--include-drafts") && !flags.has("--dry-run")) {
+  if (flags.has("--include-drafts") && !dryRun) {
     throw new Error(`--include-drafts belongs to --dry-run\n${USAGE}`);
   }
-  if (flags.get("--dry-run") !== true && flags.has("--dry-run")) {
+  if (flags.has("--dry-run") && flags.get("--dry-run") !== true) {
     throw new Error(`--dry-run takes no value\n${USAGE}`);
   }
-  if (flags.has("--dry-run")) {
+  if (dryRun) {
     return {
       kind: "dry-run",
       out: value("--out"),

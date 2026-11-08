@@ -160,11 +160,6 @@ export function createAgentMcpService(deps: {
       const workspaceId = caller.ownerId;
       const agent = await store.agent(workspaceId, agentId);
       if (agent === null) throw NOT_FOUND();
-      const release = agent.activeRelease;
-      const releaseServer =
-        release === null
-          ? null
-          : mcpValuesOfCard(release.card, release.policyPins).server;
       const result = await store.put({
         workspaceId,
         agentId,
@@ -173,10 +168,11 @@ export function createAgentMcpService(deps: {
         userId,
         principal: caller,
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
-        check: (current) => {
+        check: (current, releaseServer) => {
           if (settings.server === null) return;
           const entry = server(settings.server);
           // What the agent has now: its row, or its release while it has none.
+          // Both come from under the agent's lock, not from the read above.
           const held = current === null ? releaseServer : current.server;
           if (entry === undefined) {
             if (settings.server === held) return;

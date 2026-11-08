@@ -33,15 +33,33 @@ const owner = (surface: "web" | "api") =>
 
 type Put = Parameters<AgentMcpStore["put"]>[0];
 
-function serviceWith() {
+const releaseNaming = (server: string | null) =>
+  server === null
+    ? null
+    : {
+        id: "rel_1",
+        card: { capabilities: { mcp: [{ server }] } },
+        policyPins: {},
+      };
+
+/**
+ * `readServer` is the server of the release the service read before the
+ * save; `lockedServer` the one the store reads under the agent's lock.
+ */
+function serviceWith(
+  options: { readServer?: string | null; lockedServer?: string | null } = {},
+) {
   const puts: Put[] = [];
   const store: AgentMcpStore = {
-    agent: async () => ({ workspaceSlug: "acme", activeRelease: null }),
+    agent: async () => ({
+      workspaceSlug: "acme",
+      activeRelease: releaseNaming(options.readServer ?? null),
+    }),
     row: async () => null,
     boundRefs: async () => [],
     async put(input) {
       // Like the real store: a refusing check writes nothing.
-      input.check(null);
+      input.check(null, options.lockedServer ?? null);
       puts.push(input);
       return { outcome: "saved", revision: 1, receiptId: "receipt-1" };
     },
@@ -136,6 +154,22 @@ describe("the agent MCP service", () => {
       ),
     ).toBe("BAD_REQUEST:server_unknown");
     expect(puts).toHaveLength(0);
+  });
+
+  test("a server gone from the catalog counts as kept only if the release under the lock names it", async () => {
+    const save = (lockedServer: string) =>
+      serviceWith({ readServer: "retired", lockedServer }).service.put(
+        owner("web"),
+        AGENT,
+        request({
+          server: "retired",
+          allowed_tools: ["mcp__retired__read"],
+        }),
+      );
+    // The release changed between the read and the lock: "retired" is new.
+    expect(await refusal(save("wiki"))).toBe("BAD_REQUEST:server_unknown");
+    // Still the active release's server: narrowing it stays possible.
+    expect(await refusal(save("retired"))).toBe("saved");
   });
 
   test("the server's credential must be among the names", async () => {
