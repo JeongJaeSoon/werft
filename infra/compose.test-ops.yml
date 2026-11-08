@@ -44,6 +44,10 @@ services:
       # is refused with the screen path.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
+      # A minted bootstrap token waits here, owner-only, instead of the
+      # container log; `scripts/test-ops.sh bootstrap-token` takes it once.
+      # Unused when the env file sets BOOTSTRAP_TOKEN.
+      BOOTSTRAP_TOKEN_FILE: /tmp/werft-bootstrap-token
   scheduler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:

@@ -77,7 +77,7 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 | `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
-| `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and prints it in container logs |
+| `BOOTSTRAP_TOKEN` | Leave it commented out. The API generates the first owner's token, and `scripts/test-ops.sh bootstrap-token` shows it once after `deploy` in step 4. For a fixed value, uncomment it and enter a random 32–256-character token; the command then prints no token |
 | `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<tunnel port>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
 
 Replace the example LocalStack values with production S3 values. Do not print secrets in command lines or logs.
@@ -150,6 +150,14 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 ```
 
 preflight checks bucket protection and scratch version writes, holds, reads, hold release, and deletion. The scheduler checks quota during deploy. Both must succeed and services must become healthy. The object store mode cannot change after the first deploy.
+
+If the env file sets no `BOOTSTRAP_TOKEN`, get the first owner's token after deploy. It waits in an owner-only file inside the API container, not in the container log, and this command deletes it as it prints it.
+
+```bash
+scripts/test-ops.sh bootstrap-token
+```
+
+Paste the value into `/bootstrap` ([first owner and keys](/run-server/self-hosting/users-and-keys)). Running the command again prints no token and exits 1. If you missed the value and no owner exists yet, run `scripts/test-ops.sh stop` and `start` to restart the API, which mints a new token (the old one stops working). An installation that already sets `BOOTSTRAP_TOKEN` is unchanged.
 
 <a id="확인" />
 ## Verify

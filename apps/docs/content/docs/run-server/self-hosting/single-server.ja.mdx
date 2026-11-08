@@ -77,7 +77,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
-| `BOOTSTRAP_TOKEN` | コメントを外し、32–256 文字のランダムな値を設定します。最初の owner を作るトークンです。未設定なら API が生成し、コンテナログに出力します |
+| `BOOTSTRAP_TOKEN` | コメントのままにします。最初の owner を作るトークンは API が生成し、手順 4 の `deploy` の後に `scripts/test-ops.sh bootstrap-token` が一度だけ表示します。固定値が必要なら、コメントを外して 32–256 文字のランダムな値を設定します。その場合、このコマンドはトークンを出力しません |
 | `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
 
 例の LocalStack 値を運用 S3 の値に変更します。秘密をコマンドラインやログへ出力しないでください。
@@ -150,6 +150,14 @@ TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.jso
 ```
 
 preflight は bucket の保護設定と scratch version の書き込み・hold・読み取り・hold 解除・削除を検査します。quota は deploy 時に scheduler が検査します。両方成功し、サービスが healthy になる必要があります。object store 方式は最初の deploy 後に変更できません。
+
+env ファイルに `BOOTSTRAP_TOKEN` を設定していない場合は、deploy の後で最初の owner のトークンを受け取ります。トークンはコンテナログではなく、API コンテナ内の owner 専用ファイルに置かれ、このコマンドが表示と同時に削除します。
+
+```bash
+scripts/test-ops.sh bootstrap-token
+```
+
+表示された値を `/bootstrap` に貼り付けます（[最初の owner と key](/run-server/self-hosting/users-and-keys)）。同じコマンドを再実行してもトークンは出力されず、終了コード 1 で終わります。値を控え損ね、まだ owner がいない場合は、`scripts/test-ops.sh stop` と `start` で API を再起動すると新しいトークンが作られます（古いトークンは無効になります）。すでに `BOOTSTRAP_TOKEN` を設定している環境は変わりません。
 
 <a id="확인" />
 ## 確認
