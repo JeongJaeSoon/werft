@@ -78,40 +78,106 @@ function service(
 }
 
 describe("list", () => {
-  test("names the session's own and every other one the release allows, unattached ones included", async () => {
+  test("names the session's own and every other one the release allows in one list; the unattached ones are not_attached", async () => {
     const s = service();
     expect(await s.list()).toEqual({
       repositories: [
-        { id: "app", name: "acme/app", branch: "main", status: "primary" },
-        { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+        {
+          id: "app",
+          name: "acme/app",
+          branch: "main",
+          status: "attached",
+          remote: "origin",
+        },
+        {
+          id: "docs",
+          name: "acme/docs",
+          branch: "trunk",
+          status: "not_attached",
+        },
         {
           id: "tools",
           name: "acme/tools",
           branch: "main",
-          status: "available",
+          status: "not_attached",
         },
       ],
       next_cursor: null,
     });
   });
 
-  test("an attach in flight is pending; a start list or a null list counts as attached", async () => {
+  test("an attach in flight is pending; a start list or a null list counts as attached, under a remote named after the id", async () => {
     const pending = service();
     await pending.attach("docs");
-    expect(
-      (await pending.list()).repositories.map((entry) => entry.status),
-    ).toEqual(["primary", "pending", "available"]);
+    const inFlight = (await pending.list()).repositories;
+    expect(inFlight.map((entry) => entry.status)).toEqual([
+      "attached",
+      "pending",
+      "not_attached",
+    ]);
+    // Only an attached repository has been given a remote name.
+    expect(inFlight.map((entry) => "remote" in entry)).toEqual([
+      true,
+      false,
+      false,
+    ]);
 
-    expect(
-      (
-        await service({ context: { attachedRepositoryIds: ["tools"] } }).list()
-      ).repositories.map((entry) => entry.status),
-    ).toEqual(["primary", "available", "attached"]);
-    expect(
-      (
-        await service({ context: { attachedRepositoryIds: null } }).list()
-      ).repositories.map((entry) => entry.status),
-    ).toEqual(["primary", "attached", "attached"]);
+    const started = (
+      await service({ context: { attachedRepositoryIds: ["tools"] } }).list()
+    ).repositories;
+    expect(started.map((entry) => entry.status)).toEqual([
+      "attached",
+      "not_attached",
+      "attached",
+    ]);
+    expect(started.map((entry) => entry.remote)).toEqual([
+      "origin",
+      undefined,
+      "tools",
+    ]);
+    const all = (
+      await service({ context: { attachedRepositoryIds: null } }).list()
+    ).repositories;
+    expect(all.map((entry) => entry.status)).toEqual([
+      "attached",
+      "attached",
+      "attached",
+    ]);
+    expect(all.map((entry) => entry.remote)).toEqual([
+      "origin",
+      "docs",
+      "tools",
+    ]);
+  });
+
+  test("never answers primary or available, whatever the session holds", async () => {
+    const contexts = [
+      {},
+      { attachedRepositoryIds: null },
+      { attachedRepositoryIds: ["docs"] },
+      { repositoryId: null, repository: null },
+    ];
+    for (const context of contexts) {
+      const s = service({ context });
+      await s.attach("tools");
+      for (const entry of (await s.list()).repositories) {
+        expect(entry.status === "primary").toBe(false);
+        expect(entry.status === "available").toBe(false);
+      }
+    }
+  });
+
+  test("a session started without a repository lists every allowed one as not_attached and has no row of its own", async () => {
+    const listed = (
+      await service({
+        context: { repositoryId: null, repository: null },
+      }).list()
+    ).repositories;
+    expect(listed.map((entry) => [entry.id, entry.status])).toEqual([
+      ["app", "not_attached"],
+      ["docs", "not_attached"],
+      ["tools", "not_attached"],
+    ]);
   });
 
   test("the agent's GitHub off, or no release list, leaves only the session's own", async () => {
@@ -122,7 +188,13 @@ describe("list", () => {
       { policy: releasePolicy(null) },
     ]) {
       expect((await service({ context }).list()).repositories).toEqual([
-        { id: "app", name: "acme/app", branch: "main", status: "primary" },
+        {
+          id: "app",
+          name: "acme/app",
+          branch: "main",
+          status: "attached",
+          remote: "origin",
+        },
       ]);
     }
   });
@@ -283,8 +355,19 @@ describe("a repository only the agent's active release allows", () => {
         }).list()
       ).repositories,
     ).toEqual([
-      { id: "app", name: "acme/app", branch: "main", status: "primary" },
-      { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+      {
+        id: "app",
+        name: "acme/app",
+        branch: "main",
+        status: "attached",
+        remote: "origin",
+      },
+      {
+        id: "docs",
+        name: "acme/docs",
+        branch: "trunk",
+        status: "not_attached",
+      },
       {
         id: "tools",
         name: "acme/tools",
@@ -296,7 +379,7 @@ describe("a repository only the agent's active release allows", () => {
       (await service({ context: pinned }).list()).repositories.map(
         (entry) => entry.status,
       ),
-    ).toEqual(["primary", "available"]);
+    ).toEqual(["attached", "not_attached"]);
   });
 
   test("the active release is judged on its own profile, not the session's", async () => {
@@ -624,15 +707,91 @@ describe("list in pages", () => {
       catalog: manyRepositoriesCatalog(COUNT),
     });
 
-  test("a call from before pages gets the first page and a cursor, with the session's own on top", async () => {
+  test("a call from before pages gets the first page, which counts every row, and a cursor", async () => {
     const first = await many().list(SESSION);
-    expect(first.repositories).toHaveLength(101);
+    expect(first.repositories).toHaveLength(100);
     expect(first.repositories[0]).toMatchObject({
       id: "app",
-      status: "primary",
+      status: "attached",
+      remote: "origin",
     });
-    expect(first.repositories.at(-1)?.id).toBe("r0099");
-    expect(first.next_cursor).toBe("r0099");
+    expect(first.repositories.at(-1)?.id).toBe("r0098");
+    expect(first.next_cursor).toBe("r0098");
+  });
+
+  // The session's own id sits in the middle of the ids, so a page boundary
+  // can fall on it; the list must not set it apart.
+  const withOwn = (ownId: string) =>
+    createRepositoryAttachmentService({
+      store: memoryAttachmentStore(),
+      context: {
+        context: async () =>
+          attachmentContext({
+            repositoryId: ownId,
+            policy: releasePolicy(attachGitHub(["app", ...names])),
+            attachedRepositoryIds: null,
+          }),
+      },
+      catalog: manyRepositoriesCatalog(COUNT),
+    });
+  const walk = async (
+    service: ReturnType<typeof withOwn>,
+    limit: number,
+    query?: string,
+  ) => {
+    const seen: { id: string; status: string }[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await service.list(SESSION, {
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(query === undefined ? {} : { query }),
+      });
+      expect(page.repositories.length).toBeLessThanOrEqual(limit);
+      seen.push(...page.repositories);
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor !== undefined);
+    return seen;
+  };
+
+  test("the session's own is one row among the others, wherever its id falls in a page", async () => {
+    for (const [ownId, limit] of [
+      ["r0099", 100], // last of the first page
+      ["r0100", 100], // first of the second page
+      ["r0150", 100], // middle of the second page
+      ["r0249", 100], // last of the whole list
+      ["r0042", 7],
+    ] as const) {
+      const seen = await walk(withOwn(ownId), limit);
+      // The session's own is not in the allowed list, so it replaces its row.
+      expect(seen.map(({ id }) => id)).toEqual(["app", ...names]);
+      expect(seen.find(({ id }) => id === ownId)?.status).toBe("attached");
+    }
+  });
+
+  test("a query narrows the list and its pages still walk every match once", async () => {
+    const seen = await walk(withOwn("r0150"), 4, "r01");
+    expect(seen.map(({ id }) => id)).toEqual(
+      names.filter((name) => name.startsWith("r01")),
+    );
+  });
+
+  test("an id the allowed lists name twice is one row, and a page does not lose the next", async () => {
+    const duplicated = createRepositoryAttachmentService({
+      store: memoryAttachmentStore(),
+      context: {
+        context: async () =>
+          attachmentContext({
+            policy: releasePolicy(
+              attachGitHub(["app", "docs", "docs", "tools"]),
+            ),
+            attachedRepositoryIds: [],
+          }),
+      },
+      catalog: attachCatalog,
+    });
+    const seen = await walk(duplicated, 1);
+    expect(seen.map(({ id }) => id)).toEqual(["app", "docs", "tools"]);
   });
 
   test("walking the cursor returns every repository once, in id order", async () => {
@@ -674,11 +833,7 @@ describe("list in pages", () => {
       limit: 2,
       cursor: before.next_cursor ?? "",
     });
-    expect(before.repositories.map(({ id }) => id)).toEqual([
-      "app",
-      "r0000",
-      "r0001",
-    ]);
-    expect(after.repositories.map(({ id }) => id)).toEqual(["r0002", "r0003"]);
+    expect(before.repositories.map(({ id }) => id)).toEqual(["app", "r0000"]);
+    expect(after.repositories.map(({ id }) => id)).toEqual(["r0001", "r0002"]);
   });
 });

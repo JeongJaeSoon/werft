@@ -1651,7 +1651,13 @@ describe("list_repositories", () => {
         ok: true,
         result: {
           repositories: [
-            { id: "app", name: "acme/app", branch: "main", status: "primary" },
+            {
+              id: "app",
+              name: "acme/app",
+              branch: "main",
+              status: "attached",
+              remote: "origin",
+            },
             {
               id: "docs",
               name: "acme/docs",
@@ -1662,7 +1668,7 @@ describe("list_repositories", () => {
               id: "tools",
               name: "acme/tools",
               branch: "main",
-              status: "available",
+              status: "not_attached",
             },
           ],
           next_cursor: null,

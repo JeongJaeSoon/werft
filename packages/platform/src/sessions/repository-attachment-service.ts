@@ -148,15 +148,22 @@ export function createRepositoryAttachmentService(deps: {
       }
       const nameOf = (id: string, url: string | undefined) =>
         (url === undefined ? null : pathNameOf(url)) ?? id;
-      const repositories: ListedRepository[] = [];
-      let primary: ListedRepository | null = null;
+      // One row per id, the first one wins: the session's own, then what the
+      // session's release allows, then what only a newer release allows. The
+      // allowed lists may name an id twice, and a cursor would swallow the
+      // second row.
+      const byId = new Map<string, ListedRepository>();
+      const add = (repository: ListedRepository) => {
+        if (!byId.has(repository.id)) byId.set(repository.id, repository);
+      };
       if (context.repositoryId !== null) {
-        primary = {
+        add({
           id: context.repositoryId,
           name: nameOf(context.repositoryId, context.repository?.url),
           branch: context.repository?.branch ?? null,
-          status: "primary",
-        };
+          status: "attached",
+          remote: "origin",
+        });
       }
       // Without `attached: null` the cap drops what is not attached yet.
       const allowed = additionalRepositoriesOf(catalog, {
@@ -171,27 +178,26 @@ export function createRepositoryAttachmentService(deps: {
       );
       const attached = context.attachedRepositoryIds;
       for (const { id, repository } of allowed) {
-        repositories.push({
+        const status =
+          rows.get(id)?.status ??
+          (attached === null || attached.includes(id)
+            ? "attached"
+            : "not_attached");
+        add({
           id,
           name: nameOf(id, repository.url),
           branch: repository.branch,
-          status:
-            rows.get(id)?.status ??
-            (attached === null || attached.includes(id)
-              ? "attached"
-              : "available"),
+          status,
+          // The remote is named after the repository id; only an attached
+          // one has been given it.
+          ...(status === "attached" ? { remote: id } : {}),
         });
       }
-      const listed = new Set([
-        ...(primary === null ? [] : [primary.id]),
-        ...repositories.map(({ id }) => id),
-      ]);
       for (const { id, repository } of await newerReleaseAllowed(
         sessionId,
         context,
       )) {
-        if (listed.has(id)) continue;
-        repositories.push({
+        add({
           id,
           name: nameOf(id, repository.url),
           branch: repository.branch,
@@ -206,7 +212,7 @@ export function createRepositoryAttachmentService(deps: {
         id.toLowerCase().includes(needle) ||
         name.toLowerCase().includes(needle);
       const after = page.cursor;
-      const rest = repositories
+      const rest = [...byId.values()]
         .filter(
           (repository) =>
             matches(repository) &&
@@ -216,13 +222,7 @@ export function createRepositoryAttachmentService(deps: {
       const limit = page.limit ?? LIST_REPOSITORIES_LIMIT_DEFAULT;
       const shown = rest.slice(0, limit);
       return {
-        // The session's own comes first on the first page and is not counted.
-        repositories: [
-          ...(primary !== null && after === undefined && matches(primary)
-            ? [primary]
-            : []),
-          ...shown,
-        ],
+        repositories: shown,
         next_cursor:
           rest.length > limit ? (shown[shown.length - 1]?.id ?? null) : null,
       };
