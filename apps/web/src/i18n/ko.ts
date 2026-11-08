@@ -179,9 +179,9 @@ export const slackKo = {
   "slack.inviteCommand": "/invite 명령",
   "slack.copied": "복사됨",
   "slack.copy": "복사",
-  "slack.copyAppId": "앱 ID 복사",
-  "slack.copyAppIdFailed":
-    "클립보드에 복사하지 못했습니다. 앱 ID를 직접 선택해 복사하세요.",
+  "slack.inviteTitle": "채널에 초대",
+  "slack.inviteHint":
+    "Slack 채널 입력창에 붙여 넣어 보내면 봇이 그 채널에 초대됩니다.",
   "slack.openInSlack": "Slack에서 열기",
   "slack.newTab": "(새 탭에서 열림)",
   "slack.copyFailed":

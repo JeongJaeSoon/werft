@@ -108,7 +108,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   "members.column.role": "Role",
   "members.column.actions": "Manage",
   "members.tableLabel": "Members table",
-  "members.state.disabled": "Disabled",
+  "members.state.disabled": "Inactive",
   "members.you": "You",
   "members.roleChanged": "{name} is now {role}.",
   "members.roleChangeTitle": "Make {name} {role}?",

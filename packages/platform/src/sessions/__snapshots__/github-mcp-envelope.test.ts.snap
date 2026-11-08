@@ -2773,6 +2773,10 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                       "name": {
                         "type": "string",
                       },
+                      "remote": {
+                        "minLength": 1,
+                        "type": "string",
+                      },
                       "status": {
                         "enum": [
                           "primary",
@@ -2781,6 +2785,8 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                           "failed",
                           "available",
                           "allowed_in_newer_release",
+                          "not_attached",
+                          "revoked",
                         ],
                         "type": "string",
                       },
@@ -2790,7 +2796,6 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                       "name",
                       "branch",
                       "status",
-                      "meaning",
                     ],
                     "type": "object",
                   },

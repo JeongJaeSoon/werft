@@ -9,6 +9,7 @@ import type {
   SessionUsageResponse,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -1697,6 +1698,78 @@ describe("session detail", () => {
         apiError(401, "UNAUTHORIZED", "Authentication required"),
     });
     await waitFor(() => expect(history.location.pathname).toBe("/login"));
+  });
+
+  describe("the agent in the header", () => {
+    const withAgent = (
+      agentRoute: (request: Request) => Response | Promise<Response>,
+    ) => ({
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          agent: {
+            id: AGENT_ID,
+            name: "Release helper",
+            release_version_no: 2,
+            release_label: null,
+            release_is_active: true,
+          },
+        }),
+      [`GET /v1/agents/${AGENT_ID}`]: agentRoute,
+    });
+    const headerOf = async () =>
+      (await screen.findByRole("button", { name: "일시 정지" })).closest(
+        "header",
+      ) as HTMLElement;
+
+    test("opens the agent's page, reachable from the keyboard", async () => {
+      // The agents API's own answer, which the client checks against its schema.
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withAgent(agentServer().routes[`GET /v1/agents/${AGENT_ID}`]),
+      );
+      const header = await headerOf();
+      const link = await within(header).findByRole("link", {
+        name: "Release helper",
+      });
+      expect(link.getAttribute("href")).toBe(`/agents/${AGENT_ID}`);
+      expect(link.getAttribute("aria-current")).toBeNull();
+      link.focus();
+      expect(document.activeElement).toBe(link);
+      // The rail's session info names the agent the same way.
+      expect(
+        screen.getAllByRole("link", { name: "Release helper" }),
+      ).toHaveLength(2);
+    });
+
+    // Plain text is what a read still in flight shows too, so wait for the
+    // refusal to have been given and taken in before looking.
+    const refused = async (response: () => Response) => {
+      let asked = 0;
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        withAgent(() => {
+          asked += 1;
+          return response();
+        }),
+      );
+      const header = await headerOf();
+      await waitFor(() => expect(asked).toBe(1));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(header.textContent).toContain("Release helper");
+      expect(
+        within(header).queryByRole("link", { name: "Release helper" }),
+      ).toBeNull();
+    };
+
+    test("a deleted agent stays plain text", () =>
+      refused(() => apiError(404, "NOT_FOUND", "no such agent")));
+
+    test("an agent the viewer may not read stays plain text", () =>
+      refused(() => apiError(403, "FORBIDDEN", "may not read")));
   });
 
   test("cost reads with two decimals in the header and the info tab", async () => {
