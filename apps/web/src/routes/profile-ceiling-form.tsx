@@ -134,10 +134,13 @@ function draftOf(
   const connection = template?.installation?.connection_id;
   return {
     name,
-    connection_id:
-      connection && options.connections.some((item) => item.id === connection)
+    // A template whose connection is gone starts empty: another connection
+    // means another provider and billing, which the owner has to pick.
+    connection_id: template
+      ? connection && options.connections.some((item) => item.id === connection)
         ? connection
-        : (options.connections[0]?.id ?? ""),
+        : ""
+      : (options.connections[0]?.id ?? ""),
     runtime_kind: runtime,
     runtime_version:
       template?.runtime_version ??
@@ -236,8 +239,14 @@ export function CeilingForm({
             version: runtimeVersion,
             versions: supported.join(", "),
           });
+  const connectionOffered = options.connections.some(
+    (item) => item.id === draft.connection_id,
+  );
   const local: Partial<Record<CeilingField, string>> = {
     ...(name.success ? {} : { name: t("profiles.editor.nameInvalid") }),
+    ...(connectionOffered
+      ? {}
+      : { connection_id: t("profiles.ceiling.connectionDropped") }),
     ...(runtimeVersion.length === 0 || runtimeVersion.length > 200
       ? { runtime_version: t("profiles.ceiling.runtimeVersionInvalid") }
       : {}),
@@ -264,6 +273,10 @@ export function CeilingForm({
   const errorOf = (field: CeilingField) =>
     (submitted ? local[field] : undefined) ??
     (refusal?.field === field ? refusal.text : undefined);
+  // Said at once, not only after a save: the empty select needs its reason.
+  const connectionError = connectionOffered
+    ? errorOf("connection_id")
+    : local.connection_id;
 
   const save = useMutation<
     WorkspaceProfileChangeResponse,
@@ -435,9 +448,14 @@ export function CeilingForm({
         <NativeSelect
           value={draft.connection_id}
           disabled={pending}
-          aria-invalid={errorOf("connection_id") ? true : undefined}
+          aria-invalid={connectionError ? true : undefined}
           onChange={(event) => set({ connection_id: event.target.value })}
         >
+          {connectionOffered ? null : (
+            <NativeSelectOption value="" disabled>
+              {t("profiles.ceiling.connectionPick")}
+            </NativeSelectOption>
+          )}
           {options.connections.map((connection) => (
             <NativeSelectOption key={connection.id} value={connection.id}>
               {t("profiles.ceiling.connectionOption", {
@@ -451,7 +469,7 @@ export function CeilingForm({
         <FieldDescription>
           {t("profiles.ceiling.connectionHint")}
         </FieldDescription>
-        <FieldError>{errorOf("connection_id")}</FieldError>
+        <FieldError>{connectionError}</FieldError>
       </Field>
 
       <div className="flex flex-wrap gap-4">

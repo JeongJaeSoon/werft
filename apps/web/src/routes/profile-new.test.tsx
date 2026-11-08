@@ -622,6 +622,139 @@ describe("프로필 만들기 (설치 프로필)", () => {
     ).toEqual([["권한 모드", "bypassPermissions → auto"]]);
   });
 
+  const DROPPED =
+    "이 프로필의 기존 연결을 쓸 수 없습니다. 연결을 새로 고르세요.";
+
+  // The template's connection is not among the options (turned off), or the
+  // registry could not resolve one (null). Either way the form must not pick
+  // another provider on the owner's behalf.
+  const droppedCases: readonly [string, string | null][] = [
+    ["a connection the installation no longer offers", "gone"],
+    ["a connection that does not resolve (null)", null],
+  ];
+  for (const [label, connection] of droppedCases) {
+    test(`a template with ${label} leaves the connection empty, blocks the save and sends the picked one`, async () => {
+      const server = catalog([
+        CODING,
+        ceiling("wide", 1, {}, { connection_id: connection }),
+      ]);
+      const { api } = renderAt(
+        "/profiles/new?from=op_wide_v1&mode=version",
+        server.routes,
+      );
+      const select = (await screen.findByLabelText(
+        "연결",
+      )) as HTMLSelectElement;
+      // Empty, with a disabled placeholder; both real connections stay offered.
+      expect(select.value).toBe("");
+      const placeholder = select.selectedOptions[0];
+      expect(placeholder?.textContent).toBe("연결을 고르세요");
+      expect(placeholder?.disabled).toBe(true);
+      expect(Array.from(select.options, (option) => option.value)).toEqual([
+        "",
+        "anthropic",
+        "local",
+      ]);
+      // Said before any save, tied to the select, and without an id in it.
+      const notice = screen.getByText(DROPPED);
+      expect(select.getAttribute("aria-invalid")).toBe("true");
+      expect(select.getAttribute("aria-describedby")?.split(" ")).toContain(
+        notice.id,
+      );
+      expect(notice.textContent?.includes("gone")).toBe(false);
+
+      const user = await setupUser();
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      expect(screen.getByText(DROPPED)).toBeDefined();
+      expect(posted(api)).toEqual([]);
+
+      await user.selectOptions(select, "local");
+      expect(select.value).toBe("local");
+      expect(screen.queryAllByText(DROPPED).length).toBe(0);
+      expect(select.getAttribute("aria-invalid")).toBe(null);
+      expect(
+        Array.from(select.options, (option) => option.value).includes(""),
+      ).toBe(false);
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      await waitFor(() => expect(posted(api)).toHaveLength(1));
+      expect(posted(api)[0]).toMatchObject({
+        name: "wide",
+        connection_id: "local",
+        previous_id: "op_wide_v1",
+      });
+    });
+  }
+
+  test("the review shows the dropped connection leaving as a dash, then the picked one", async () => {
+    renderAt(
+      "/profiles/new?from=op_wide_v1&mode=version",
+      catalog([CODING, ceiling("wide", 1, {}, { connection_id: "gone" })])
+        .routes,
+    );
+    const select = (await screen.findByLabelText("연결")) as HTMLSelectElement;
+    const row = () =>
+      Array.from(
+        screen.getByRole("group", { name: "검토" }).querySelectorAll("dt"),
+        (term) => [term.textContent, term.nextElementSibling?.textContent],
+      ).find(([term]) => term === "연결");
+    expect(row()).toEqual(["연결", "gone → —"]);
+    const user = await setupUser();
+    await user.selectOptions(select, "local");
+    expect(row()).toEqual(["연결", "gone → local"]);
+  });
+
+  test("a template on the second connection keeps it, with no placeholder", async () => {
+    const { api } = renderAt(
+      "/profiles/new?from=op_wide_v1&mode=version",
+      catalog([CODING, ceiling("wide", 1, {}, { connection_id: "local" })])
+        .routes,
+    );
+    const select = (await screen.findByLabelText("연결")) as HTMLSelectElement;
+    expect(select.value).toBe("local");
+    expect(Array.from(select.options, (option) => option.value)).toEqual([
+      "anthropic",
+      "local",
+    ]);
+    expect(select.getAttribute("aria-invalid")).toBe(null);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    expect(posted(api)[0]).toMatchObject({ connection_id: "local" });
+  });
+
+  test("a new profile with no template starts on the first connection", async () => {
+    renderAt("/profiles/new", catalog().routes);
+    const select = (await screen.findByLabelText("연결")) as HTMLSelectElement;
+    expect(select.value).toBe("anthropic");
+    expect(Array.from(select.options, (option) => option.value)).toEqual([
+      "anthropic",
+      "local",
+    ]);
+    expect(screen.queryAllByText(DROPPED).length).toBe(0);
+  });
+
+  test("a connection the server no longer knows still shows its refusal beside the select", async () => {
+    renderAt("/profiles/new?from=coding-claude", {
+      ...catalog().routes,
+      "POST /v1/installation-profiles": () =>
+        refusal(400, "BAD_REQUEST", {
+          reason_code: "unknown_connection",
+          field: "connection_id",
+        }),
+    });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "wide");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const message = await screen.findByText(
+      "그 연결이 이 설치에 없습니다. 다시 불러와 연결을 고르세요.",
+    );
+    const select = screen.getByLabelText("연결");
+    expect(select.getAttribute("aria-invalid")).toBe("true");
+    expect(select.getAttribute("aria-describedby")?.split(" ")).toContain(
+      message.id,
+    );
+  });
+
   test("a new version of an imported ceiling takes a new name and names the import as previous", async () => {
     const { api } = renderAt(
       "/profiles/new?from=coding-claude&mode=version",
