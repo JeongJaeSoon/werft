@@ -1737,6 +1737,10 @@ describe("session detail", () => {
       expect(link.getAttribute("aria-current")).toBeNull();
       link.focus();
       expect(document.activeElement).toBe(link);
+      // The rail's session info names the agent the same way.
+      expect(
+        screen.getAllByRole("link", { name: "Release helper" }),
+      ).toHaveLength(2);
     });
 
     // Plain text is what a read still in flight shows too, so wait for the
