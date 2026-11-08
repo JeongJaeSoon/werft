@@ -35,6 +35,8 @@ type Step = {
   id: string;
   input: (root: string, workspace: string) => Record<string, unknown>;
   name: string;
+  /** The step only means something in this mode. */
+  onlyIn?: PermissionMode;
 };
 
 const fileExists = (path: (root: string, workspace: string) => string) => {
@@ -114,6 +116,12 @@ const steps: Step[] = [
   bash("git_restore_staged", "git restore --staged notes/sample.txt", false),
   bash("dev_command_inside", "bun test --help", false),
   bash("redirect_inside", "git status > status.txt", false),
+  // The e2e flows, the verify skill and the docs ask for a permission with
+  // these; if the rules ever cover them, those flows hang waiting for a card.
+  bash("ask_vehicle_tee", "echo alpha | tee hello.txt", true),
+  bash("ask_vehicle_tee_append", "echo beta | tee -a hello.txt", true),
+  // acceptEdits lets the engine touch files in the working directory itself.
+  { ...bash("ask_vehicle_touch", "touch a.txt", true), onlyIn: "default" },
   // Each of these would delete work that no object or reflog keeps, or leave
   // the repository, with the flag in a place a prefix match would miss.
   bash("git_checkout_discard", "git checkout -- notes/sample.txt", true),
@@ -123,6 +131,15 @@ const steps: Step[] = [
     "git restore --staged --worktree notes/sample.txt",
     true,
   ),
+  // Abbreviated and bundled options reach the same behavior as the long ones.
+  bash(
+    "git_restore_abbreviated",
+    "git restore --staged --worktre notes/sample.txt",
+    true,
+  ),
+  bash("git_switch_detach_force", "git switch -df main", true),
+  bash("git_add_abbreviated_force", "git add --forc notes/sample.txt", true),
+  bash("git_add_bundled_force", "git add -fA notes/sample.txt", true),
   bash("git_checkout_new_branch", "git checkout -b feature/second", false),
   bash("git_checkout_path_bare", "git checkout notes/sample.txt", true),
   bash("git_checkout_head_path", "git checkout HEAD notes/sample.txt", true),
@@ -209,7 +226,11 @@ const steps: Step[] = [
   },
 ];
 
+const stepsFor = (mode: PermissionMode) =>
+  steps.filter((step) => step.onlyIn === undefined || step.onlyIn === mode);
+
 async function run(permissionMode: PermissionMode) {
+  const active = stepsFor(permissionMode);
   isolated = await createIsolatedWorkspace({ prefix: "workspace-allow-" });
   const { home, root, workspace } = isolated;
   await mkdir(join(root, "target"), { recursive: true });
@@ -241,7 +262,7 @@ async function run(permissionMode: PermissionMode) {
           (block) => (block as { type?: string }).type === "tool_use",
         ),
     ).length;
-    const next = steps[done];
+    const next = active[done];
     return next === undefined
       ? textReply("done")
       : toolReply(next.name, next.input(root, workspace), `toolu_${next.id}`);
@@ -257,7 +278,7 @@ async function run(permissionMode: PermissionMode) {
       correlationId: "workspace-allow",
       cwd: workspace,
       home,
-      maxTurns: steps.length + 3,
+      maxTurns: active.length + 3,
       mode: "new",
       model: MODEL,
       permissionMode,
@@ -291,15 +312,16 @@ describe("a session's own workspace", () => {
   for (const mode of ["default", "acceptEdits"] as const) {
     test(`${mode}: in-workspace writes and local git pass, the rest is asked`, async () => {
       const { asked, root, workspace } = await run(mode);
-      const verdicts = steps.map((step) => ({
+      const active = stepsFor(mode);
+      const verdicts = active.map((step) => ({
         asked: asked.has(`toolu_${step.id}`),
         id: step.id,
       }));
       expect(verdicts).toEqual(
-        steps.map((step) => ({ asked: step.asks, id: step.id })),
+        active.map((step) => ({ asked: step.asks, id: step.id })),
       );
       // A call that was asked was also denied, so it left nothing behind.
-      for (const step of steps) {
+      for (const step of active) {
         if (step.asks && step.effect !== undefined) {
           expect([step.id, await step.effect(root, workspace)]).toEqual([
             step.id,

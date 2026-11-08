@@ -47,7 +47,14 @@ const SENSITIVE_PATHS = [
   "**/service-account*.json",
 ];
 
-/** Git that stays on this machine. */
+/**
+ * Git that stays on this machine. Each entry is the narrowest shape that does
+ * its job, because the way to stay safe is to allow little: whatever is not
+ * listed (`git checkout <path>`, `git restore` of the working tree,
+ * `git switch -f`, `git stash drop`, `git reset`, `git clean`, ...) is not
+ * allowed and so asks, however its flags are spelled. A listed shape is
+ * followed by an ask pattern for any further option.
+ */
 const LOCAL_GIT = [
   "git status",
   "git diff",
@@ -56,39 +63,45 @@ const LOCAL_GIT = [
   "git add",
   "git commit",
   "git branch",
-  // Not a bare `git checkout`: with a path it restores the working tree.
   "git checkout -b",
-  "git switch",
-  "git stash",
-  // Only the unstaging form; a restore of the working tree discards edits
-  // that no object or reflog keeps.
+  "git switch -c",
+  "git switch --create",
+  // Unstaging only; restoring the working tree discards edits that no object
+  // or reflog keeps.
   "git restore --staged",
+  "git stash list",
+  "git stash show",
+  "git stash push",
+  "git stash pop",
+  "git stash apply",
 ];
 
+/** Bare forms that must not also take the `*` of the shapes above. */
+const GIT_EXACT = ["git stash"];
+
 /**
- * Forms of those commands that discard work, stage a secret or reach beyond
- * the repository. An option can come after the operands, so each is matched
- * anywhere in the line.
+ * Options that turn a listed shape into one that discards work, stages a
+ * secret or reaches beyond the repository, and secret names. An option can
+ * come after the operands, so each is matched anywhere in the line.
  */
 const GIT_ASK = [
   "git * --force*",
   "git * --discard-changes*",
   "git * --output*",
   "git * --ext-diff*",
-  "git * -f",
-  "git * -f *",
-  "git * -D",
-  "git * -D *",
-  // Short flags can be bundled; `*` is the only wildcard the engine reads,
-  // so the usual bundles are spelled out.
-  ...["qf", "fq", "cf", "fc", "qD", "Dq"].flatMap((bundle) => [
-    `git * -${bundle}`,
-    `git * -${bundle} *`,
-  ]),
-  "git restore *--worktree*",
-  "git restore *W*",
-  "git stash drop*",
-  "git stash clear*",
+  // Any further option on a shape that is only safe without one, so an
+  // abbreviated or bundled flag (`--forc`, `-fA`, `-df`) cannot slip past.
+  "git add --*",
+  "git add * --*",
+  "git add -*f*",
+  "git add * -*f*",
+  "git branch -*",
+  "git branch * -*",
+  "git checkout -b * -*",
+  "git switch -c * -*",
+  "git switch --create * -*",
+  "git restore --staged -*",
+  "git restore --staged * -*",
   "git add *.env*",
   "git add *.pem*",
   "git add *.key*",
@@ -170,6 +183,7 @@ export function workspaceRules(
     for (const command of [...LOCAL_GIT, ...DEV_COMMANDS]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
+    allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
     ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
     for (const command of DEV_COMMANDS) {
       // `*` stands for the operands before the flag, which may be none.
