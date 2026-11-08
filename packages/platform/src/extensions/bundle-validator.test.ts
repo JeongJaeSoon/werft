@@ -351,6 +351,32 @@ describe("paths and entry kinds", () => {
     expect(new TextDecoder().decode(kept?.bytes)).toBe("normal");
   });
 
+  test("a Buffer input is copied too, not aliased", () => {
+    const input = Buffer.from("a");
+    const result = validate([...base(), file("skills/research/x.md", input)]);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    input[0] = 98;
+    const kept = result.bundle.files.find((f) => f.path.endsWith("x.md"));
+    expect(new TextDecoder().decode(kept?.bytes)).toBe("a");
+  });
+
+  test("Unicode case variants fold for nested SKILL.md and file/directory clashes", () => {
+    expectIssue(
+      [...base(), file("skills/research/nested/ſKILL.md", "x")],
+      "skills/research/nested/ſKILL.md",
+      "path_not_allowed",
+    );
+    expectIssue(
+      [
+        ...base(),
+        file("skills/research/σ.md", "x"),
+        file("skills/research/ς.md/child.md", "x"),
+      ],
+      "skills/research/ς.md/child.md",
+      "path_collision",
+    );
+  });
+
   test("directory entries inside the allow-list are ignored", () => {
     const result = validate([
       ...base(),

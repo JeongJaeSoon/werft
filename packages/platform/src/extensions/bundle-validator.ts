@@ -192,7 +192,7 @@ export function validateExtensionBundle(
       );
       continue;
     }
-    const key = path.toLowerCase();
+    const key = fold(path);
     const earlier = seen.get(key);
     if (earlier !== undefined) {
       issue(
@@ -221,7 +221,7 @@ export function validateExtensionBundle(
     const parts = entry.split("/");
     for (let i = 1; i < parts.length; i++) {
       const parent = parts.slice(0, i).join("/");
-      const clash = seen.get(parent.toLowerCase());
+      const clash = seen.get(fold(parent));
       if (clash !== undefined) {
         issue(entry, "path_collision", `${clash} is a file, not a directory.`);
         break;
@@ -229,7 +229,7 @@ export function validateExtensionBundle(
     }
   }
   for (const dir of dirs) {
-    const clash = seen.get(dir.toLowerCase());
+    const clash = seen.get(fold(dir));
     if (clash !== undefined) {
       issue(dir, "path_collision", `Collides with the file ${clash}.`);
     }
@@ -278,7 +278,7 @@ export function validateExtensionBundle(
     // discovered by the engine and would carry bytes we never parsed.
     if (
       rest !== "SKILL.md" &&
-      rest.slice(rest.lastIndexOf("/") + 1).toLowerCase() === "skill.md"
+      fold(rest.slice(rest.lastIndexOf("/") + 1)) === "skill.md"
     ) {
       issue(
         path,
@@ -375,8 +375,7 @@ function pathPolicy(
     .split("/")
     .find(
       (segment) =>
-        DENIED_SEGMENTS.has(segment.toLowerCase()) ||
-        SETTINGS_FILE.test(segment),
+        DENIED_SEGMENTS.has(fold(segment)) || SETTINGS_FILE.test(segment),
     );
   if (denied !== undefined) {
     return {
@@ -391,6 +390,11 @@ function pathPolicy(
     path === "skills" ||
     (skillDir !== null && NAME.test(skillDir[1] ?? ""));
   return ok ? null : { code: "path_not_allowed", message: ALLOWED_SHAPES };
+}
+
+/** Case folding wider than toLowerCase: U+017F and U+03C2 fold to s and sigma. */
+function fold(value: string): string {
+  return value.toUpperCase().toLowerCase();
 }
 
 function unsafePathReason(path: string): string | null {
@@ -434,7 +438,8 @@ function canonicalFile(
   bytes: Uint8Array,
 ): CanonicalBundleFile {
   // Copied so a caller mutating its input buffer cannot desync bytes and hash.
-  const owned = bytes.slice();
+  // Buffer.slice() shares memory; constructing a Uint8Array always copies.
+  const owned = new Uint8Array(bytes);
   return {
     path,
     mode,
