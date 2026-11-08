@@ -80,7 +80,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -1348,23 +1348,29 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       workspaceId: fixture.workspaceId,
       agentId: fixture.agentId,
       channelId: CHANNEL,
-      channelKind: "public_channel",
+      channelKind: "private_channel",
       mode: "on",
       home: false,
       ceiling: DEFAULT_SURFACE_CEILING,
       managerRoles: MANAGERS,
     });
-    expect(rebound.outcome).toBe("set");
+    if (rebound.outcome !== "set") throw new Error(rebound.outcome);
+    expect(rebound.binding.status).toBe("pending_approval");
+    // Waiting, then approved, then unbound: the old rejection is history.
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
+    const approved = await store.approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: rebound.binding.id,
+      revision: rebound.binding.revision,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
     await db
       .update(surfaceBindings)
-      .set({ status: "revoked", revokedAt: new Date(), approvedAt: new Date() })
-      .where(
-        and(
-          eq(surfaceBindings.externalSurfaceId, CHANNEL),
-          isNull(surfaceBindings.revokedAt),
-        ),
-      );
-    // The newest binding was approved and unbound: the old rejection is history.
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.id, rebound.binding.id));
     expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
   });
 

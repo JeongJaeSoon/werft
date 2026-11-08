@@ -395,7 +395,7 @@ export function createPostgresSurfaceBindingStore(
             eq(surfaceBindings.externalSurfaceId, channelId),
           ),
         )
-        .orderBy(desc(surfaceBindings.updatedAt))
+        .orderBy(desc(surfaceBindings.createdAt), desc(surfaceBindings.id))
         .limit(1);
       return (
         last?.status === "revoked" &&
