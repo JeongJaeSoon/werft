@@ -7,6 +7,7 @@ import {
   test,
 } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -2404,6 +2405,150 @@ describe("startCredentialProxy", () => {
       // Another route to the same host is still held to the allowlist.
       const provider = await messages(server.port);
       expect(provider.status).toBe(403);
+    });
+
+    describe("while the built-in server restarts", () => {
+      const GRANT = "signed-grant-for-one-exchange";
+      const TOOLS_LIST = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}';
+      const grantAnswer = () =>
+        Response.json({
+          session_id: "sess-1",
+          attempt_id: "att-1",
+          upstream: {
+            url: "/mcp/github",
+            headers: [["authorization", `Bearer ${GRANT}`]],
+          },
+        });
+      const listen = (port: number, hits: string[], onAuthorize: () => void) =>
+        Bun.serve({
+          hostname: "127.0.0.1",
+          port,
+          fetch(request) {
+            const path = new URL(request.url).pathname;
+            if (path === "/authorize") {
+              onAuthorize();
+              return grantAnswer();
+            }
+            hits.push(path);
+            return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+          },
+        });
+      // The lookup follows the grant and precedes the dial, so `firstLookup`
+      // is the moment to take the server down.
+      const viaProxy = (
+        api: { port?: number | undefined },
+        firstLookup = () => {},
+      ) => {
+        let looked = false;
+        return proxy(`http://127.0.0.1:${api.port}`, 1, {
+          resolve: async (host) => {
+            if (!looked) {
+              looked = true;
+              firstLookup();
+            }
+            return host === "127.0.0.1" ? ["127.0.0.1"] : [];
+          },
+        });
+      };
+      const post = (port: number) =>
+        fetch(`http://127.0.0.1:${port}/mcp/github`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${WORKER_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: TOOLS_LIST,
+        });
+
+      test("a refused connection is dialled again and the call succeeds", async () => {
+        const hits: string[] = [];
+        let api = listen(0, hits, () => {});
+        servers.push(api);
+        const port = api.port ?? 0;
+        const server = viaProxy(api, () => {
+          // Down for the first dial and the retry after 200 ms, back for
+          // the one after 600 ms.
+          api.stop(true);
+          setTimeout(() => {
+            api = listen(port, hits, () => {});
+            servers.push(api);
+          }, 450);
+        });
+        const response = await post(server.port);
+        expect(response.status).toBe(200);
+        expect(hits).toEqual(["/mcp/github"]);
+      });
+
+      test("a connection that stays refused answers 503 with a retry hint", async () => {
+        const hits: string[] = [];
+        const api = listen(0, hits, () => {});
+        servers.push(api);
+        const started = Date.now();
+        const response = await post(viaProxy(api, () => api.stop(true)).port);
+        expect(response.status).toBe(503);
+        expect(response.headers.get("retry-after")).toBe("5");
+        expect(await response.text()).toContain("retry the tool call");
+        expect(Date.now() - started).toBeLessThan(3_500);
+        expect(hits).toEqual([]);
+      });
+
+      test("an error after the request was sent is not dialled again", async () => {
+        let mcpCalls = 0;
+        const raw = createServer((socket) => {
+          let received = Buffer.alloc(0);
+          socket.on("data", (chunk: Buffer) => {
+            received = Buffer.concat([received, chunk]);
+            const end = received.indexOf("\r\n\r\n");
+            if (end < 0) return;
+            const head = received.subarray(0, end).toString("latin1");
+            const length = Number(
+              /content-length: (\d+)/i.exec(head)?.[1] ?? 0,
+            );
+            if (received.byteLength < end + 4 + length) return;
+            if (head.startsWith("POST /authorize")) {
+              const body = JSON.stringify({
+                session_id: "sess-1",
+                attempt_id: "att-1",
+                upstream: { url: "/mcp/github", headers: [] },
+              });
+              socket.end(
+                `HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`,
+              );
+              return;
+            }
+            mcpCalls++;
+            socket.destroy();
+          });
+        });
+        await new Promise<void>((resolve) =>
+          raw.listen(0, "127.0.0.1", resolve),
+        );
+        servers.push({ stop: () => raw.close() });
+        const port = (raw.address() as { port: number }).port;
+        const response = await post(viaProxy({ port }).port);
+        expect(response.status).toBe(502);
+        expect(await response.text()).toBe("upstream connection failed\n");
+        expect(mcpCalls).toBe(1);
+      });
+
+      test("a catalog server that refuses the connection keeps its 502", async () => {
+        const gone = Bun.serve({
+          hostname: "127.0.0.1",
+          port: 0,
+          fetch: () => new Response(),
+        });
+        const deadPort = gone.port ?? 0;
+        gone.stop(true);
+        const auth = authorizer(
+          granting(`http://upstream.test:${deadPort}/mcp`, []),
+        );
+        const server = proxy(auth.url, deadPort);
+        const started = Date.now();
+        const response = await call(server.port, TOOLS_CALL);
+        expect(response.status).toBe(502);
+        expect(response.headers.get("retry-after")).toBeNull();
+        expect(Date.now() - started).toBeLessThan(500);
+      });
     });
 
     test("a catalog URL on the authorizer's origin is still held to the allowlist", async () => {
