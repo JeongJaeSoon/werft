@@ -28,6 +28,7 @@ export const ENV = {
   workspaceQuotaBytes: "WORKER_WORKSPACE_QUOTA_BYTES",
   workspacePvcCapacityBytes: "WORKER_WORKSPACE_PVC_CAPACITY_BYTES",
   workspaceQuotaMode: "WORKER_WORKSPACE_QUOTA_MODE",
+  workspaceEnforcedByStorage: "WORKER_WORKSPACE_ENFORCED_BY_STORAGE",
   // Tools read different spellings; network isolation enforces the boundary.
   httpProxy: "HTTP_PROXY",
   httpProxyLower: "http_proxy",

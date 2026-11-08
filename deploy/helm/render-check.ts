@@ -999,6 +999,31 @@ const errors = [
     false,
   ),
 ];
+for (const declaration of [undefined, false, true]) {
+  const manifests = render([
+    "-f",
+    ciDigests,
+    ...(declaration === undefined
+      ? []
+      : ["--set", `worker.workspace.enforcedByStorage=${declaration}`]),
+  ]);
+  const scheduler = manifests.find(
+    (m) =>
+      m.kind === "Deployment" &&
+      m.metadata.labels?.["app.kubernetes.io/component"] === "scheduler",
+  );
+  const env: { name: string; value?: string }[] =
+    scheduler === undefined ? [] : podSpecOf(scheduler).containers[0].env;
+  if (
+    env.find(
+      (entry) => entry.name === "EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE",
+    )?.value !== String(declaration ?? false)
+  ) {
+    errors.push(
+      `workspace storage declaration ${declaration}: scheduler env did not preserve the boolean`,
+    );
+  }
+}
 errors.push(
   ...checkUpgradeHook("default", render(["-f", ciDigests]), true, []),
   ...checkUpgradeHook(
@@ -1360,5 +1385,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, workspace storage declaration unset/false/true, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );

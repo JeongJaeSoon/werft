@@ -313,6 +313,11 @@ worker:
   workspace:
     quotaMb: 4096
     gcMinAgeSec: 3600
+    # Declares that storage hard-enforces the requested bytes for every workspace
+    # PVC in this installation, including existing PVCs. With an empty storageClass,
+    # the cluster default applies: verify enforcement for each PVC. Werft does not
+    # verify it. The declaration path leaves inode enforcement unknown.
+    enforcedByStorage: false
 
 # A throwaway preview install, never a real one. true gives the api
 # PREVIEW_NAMESPACE (its own namespace), and the demo-accounts and demo-data

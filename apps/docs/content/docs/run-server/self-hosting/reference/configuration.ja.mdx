@@ -161,7 +161,7 @@ compose は `RECONCILER_STATUS_FILE`、`SCHEDULER_STATUS_FILE`、`RECONCILER_DRY
 <a id="kubernetes-env와-values" />
 ## Kubernetes env と values
 
-scheduler は `EXECUTION_BACKEND` で backend を選びます。値は `local_docker`（既定、空も同じ）と `kubernetes` の二つで、他の値ならその値を記したエラーで起動を拒否します。`kubernetes` では Docker 設定（`DOCKER_HOST`、`EXECUTION_DOCKER_*`、`EXECUTION_WORKSPACE_QUOTA`）を読まず、Docker socket も使いません。Docker 専用 preflight の egress proxy 隔離確認と workspace quota probe も実行しません。kubernetes の worker 隔離は chart の NetworkPolicy、workspace 上限は PVC サイズが担当します。停止・要求 timeout は固定値（120s + 30s）なので、`SCHEDULER_PASS_TIMEOUT_SEC` は 150 より大きくなければなりません。`migrate-workspace` は Docker volume 移行ツールのため `local_docker` だけで動きます。
+scheduler は `EXECUTION_BACKEND` で backend を選びます。値は `local_docker`（既定、空も同じ）と `kubernetes` の二つで、他の値ならその値を記したエラーで起動を拒否します。`kubernetes` では Docker 設定（`DOCKER_HOST`、`EXECUTION_DOCKER_*`、`EXECUTION_WORKSPACE_QUOTA`）を読まず、Docker socket も使いません。Docker 専用 preflight の egress proxy 隔離確認と workspace quota probe も実行しません。kubernetes の worker 隔離は chart の NetworkPolicy が担当し、workspace は PVC サイズを要求しますが実際の強制は保存先に依存します。停止・要求 timeout は固定値（120s + 30s）なので、`SCHEDULER_PASS_TIMEOUT_SEC` は 150 より大きくなければなりません。`migrate-workspace` は Docker volume 移行ツールのため `local_docker` だけで動きます。
 
 readOnlyRootFilesystem の Pod では、status file を書き込み可能なパスに置きます。既定の `/tmp/scheduler-status.json`・`/tmp/reconciler-status.json` は、`/tmp` に emptyDir を mount すれば使えます。別パスなら `SCHEDULER_STATUS_FILE`・`RECONCILER_STATUS_FILE` で変更します。loop は status file と同じディレクトリに一時ファイル（`<status file>.<pid>.tmp`）を書いてから rename します。scheduler は隣に `.quota-verified` 記録も置きます。そのため一つのファイルだけでなくディレクトリ全体が書き込み可能でなければなりません。
 
@@ -171,6 +171,8 @@ readOnlyRootFilesystem の Pod では、status file を書き込み可能なパ�
 - `EXECUTION_INSTALLATION_ID` は 32 文字以下の小文字 DNS label でなければなりません。
 
 kubernetes モードだけで読む設定は次のとおりです。
+
+`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` は未設定なら `false` で、正確な `true`/`false` のみ受け付けます。空値・空白・大文字・`1`/`0`・`on`/`off` は元の値を出さないエラーで起動を拒否します。Helm の `worker.workspace.enforcedByStorage`（既定 `false`）から生成し、この設置の全 workspace PVC（既存を含む）で保存先が要求バイト数をハードに強制するという運用者の宣言です。StorageClass が空ならクラスタ既定値なので、各 PVC の強制を運用者が確認します。Werft は検証しません。専用書き込み可能 mount（`/` 以外、`rw` あり、`ro` なし）、ファイルシステム総量が要求の 0.95〜1.05 倍、PVC capacity が要求以上というヒューリスティックを満たした宣言経路だけがバイト `hard`/inode `unknown` になります。[ストレージと上限](/run-server/self-hosting/reference/storage)に従います。宣言を変えても PVC・isolation stamp・既存 Pod の env は変わらず、新しい Pod だけが新しい値を受け取ります。
 
 | 変数 | 意味 |
 | --- | --- |
@@ -200,7 +202,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `WORKER_IMAGE` | `images.registry`、`images.worker.*` | `<registry>/<repository>@<digest>`。digest がなければ render 失敗 |
 | `WORKER_GATEWAY_URL`、`EXECUTION_EGRESS_PROXY_URL`、`EXECUTION_EGRESS_CREDENTIAL_PORT` | なし | api Service の 3000、egress-proxy Service の 3128、3129 |
 | `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy の label 値でもあります |
-| `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota は workspace PVC のサイズ |
+| `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE` | `worker.workspace.quotaMb`、`worker.workspace.gcMinAgeSec`、`worker.workspace.enforcedByStorage` | 要求サイズ・回収最小経過時間・設置全体の強制宣言 |
 | `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 既定 1024 |
 | 設置上限（`EXECUTION_SLOT_LIMIT` など） | `config.limits` | api と scheduler に同じ値 |

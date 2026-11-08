@@ -372,6 +372,8 @@ const NOT_SETTINGS: Record<string, string> = {
     "derived from the backend's existing workspace quota",
   WORKER_WORKSPACE_QUOTA_MODE:
     "reports the local backend's validated quota mode",
+  WORKER_WORKSPACE_ENFORCED_BY_STORAGE:
+    "derived from the Kubernetes backend's operator declaration",
   K8S_BACKEND_TEST: "tests only (docs/contributing/development.md)",
   K8S_BACKEND_TEST_IMAGE: "tests only (docs/contributing/development.md)",
   K8S_BACKEND_TEST_KEEP: "tests only (docs/contributing/development.md)",
