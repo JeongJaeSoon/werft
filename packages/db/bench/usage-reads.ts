@@ -51,9 +51,14 @@ if (existing.rows[0]?.n === 0) {
       SELECT CASE WHEN u = 1 THEN '${ME}'::uuid ELSE gen_random_uuid() END,
              'bench-' || u || '@example.invalid', 'bench ' || u
       FROM generate_series(1, ${USERS}) u`);
+    const team = crypto.randomUUID();
+    await client.query(
+      "INSERT INTO member_teams (id, workspace_id, name) VALUES ($1, $2, 'bench')",
+      [team, OWNER],
+    );
     await client.query(`
-      INSERT INTO agents (id, workspace_id, slug, name)
-      SELECT gen_random_uuid(), '${OWNER}', 'agent-' || a, 'Agent ' || a
+      INSERT INTO agents (id, workspace_id, slug, name, managing_team_id)
+      SELECT gen_random_uuid(), '${OWNER}', 'agent-' || a, 'Agent ' || a, '${team}'
       FROM generate_series(1, ${AGENTS}) a`);
     await client.query(`
       INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,

@@ -306,7 +306,7 @@ integration("postgres pull request drain", () => {
         [workspace, `w-${workspace}`],
       );
       await client.query(
-        "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'a')",
+        "WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, 'a', 'a', (SELECT id FROM t))",
         [agent, workspace],
       );
       const appId = `A${crypto.randomUUID().slice(0, 8)}`;

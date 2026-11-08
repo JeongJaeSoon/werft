@@ -132,6 +132,13 @@ const WRITES: ReadonlyArray<{
   ]),
   {
     method: "POST",
+    path: `${BASE}/connections/console/enable`,
+    service: "enableConnection",
+    status: 200,
+    args: ["console"],
+  },
+  {
+    method: "POST",
     path: `${BASE}/connections/console/convert`,
     service: "convertConnection",
     body: { value: "example-key" },

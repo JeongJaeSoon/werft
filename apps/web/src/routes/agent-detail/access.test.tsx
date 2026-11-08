@@ -251,6 +251,9 @@ describe("접근 탭", () => {
     renderAt(ACCESS, {
       "GET /v1/auth/me": () => json(200, me([], "member")),
       ...server.routes,
+      // Every agent has a managing team now, and the fixture's default viewer
+      // leads it, which makes them an agent admin. This viewer is in no team.
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     const mcp = await section();
     expect(

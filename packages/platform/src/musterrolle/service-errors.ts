@@ -24,6 +24,14 @@ export const TEAM_NOT_ALLOWED = () =>
     { reason_code: "team_not_allowed" },
   );
 
+export const TEAM_HOLDING = () =>
+  new SessionServiceError(
+    "FORBIDDEN",
+    "That team only holds agents that had no managing team; pick another team",
+    undefined,
+    { reason_code: "team_holding" },
+  );
+
 export const OUTRANKED = () =>
   new SessionServiceError(
     "FORBIDDEN",

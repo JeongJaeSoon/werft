@@ -44,7 +44,6 @@ exports[`query keys 1`] = `
     "agents",
     {
       "pages": "notes",
-      "unassigned": false,
     },
   ],
   "agentSessionLists": [
@@ -405,7 +404,6 @@ exports[`query options and the request each query makes 1`] = `
         "agents",
         {
           "pages": "id-1",
-          "unassigned": false,
         },
       ],
       "retry": false,

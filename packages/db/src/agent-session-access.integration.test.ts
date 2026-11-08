@@ -30,6 +30,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSessionShareStore } from "./session-shares.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { createPostgresAgentAccessSetting } from "./workspace-settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -111,16 +112,16 @@ integration("agent access settings on PostgreSQL", () => {
     return teamId;
   }
 
-  // An agent with one release. A null team is the state before managing
-  // teams, which the API can no longer make.
-  async function agent(workspaceId: string, managingTeamId: string | null) {
+  // An agent with one release, managed by the team given or else by the
+  // workspace's fixture team, which no one is in.
+  async function agent(workspaceId: string, managingTeamId?: string) {
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
       slug: `a-${agentId.slice(0, 8)}`,
       name: "agent",
-      managingTeamId,
+      managingTeamId: managingTeamId ?? (await fixtureTeam(db, workspaceId)),
     });
     const versionId = randomUUID();
     await db.insert(agentVersions).values({
@@ -252,7 +253,7 @@ integration("agent access settings on PostgreSQL", () => {
       { caller: lead, role: "lead" },
       { caller: member },
     ]);
-    const { agentId, releaseId } = await agent(ws, null);
+    const { agentId, releaseId } = await agent(ws);
     await db
       .insert(agentAdmins)
       .values({ workspaceId: ws, agentId, userId: idOf(admin) });
@@ -300,9 +301,19 @@ integration("agent access settings on PostgreSQL", () => {
   };
   const insideOnly = { ...everyone, outsider: false };
 
-  test("an agent with no managing team keeps workspace meaning every member, whatever axis B", async () => {
+  test("the holding team of 0243 keeps its agents' workspace sessions as visible as before, until they move to a real team", async () => {
     const c = await cast();
-    expect(await whoSees(c)).toEqual(everyone);
+    const holding = randomUUID();
+    await db.insert(memberTeams).values({
+      id: holding,
+      workspaceId: c.ws,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    await db
+      .update(agents)
+      .set({ managingTeamId: holding })
+      .where(eq(agents.id, c.agentId));
     await setVisibility(c.ws, "managing_team");
     expect(await whoSees(c)).toEqual(everyone);
     expect(await shares().get(c.ws, c.id)).toMatchObject({
@@ -310,6 +321,18 @@ integration("agent access settings on PostgreSQL", () => {
       audienceLimited: false,
     });
     expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe("ok");
+
+    await db
+      .update(agents)
+      .set({ managingTeamId: c.managing })
+      .where(eq(agents.id, c.agentId));
+    expect(await whoSees(c)).toEqual(insideOnly);
+    expect(await shares().get(c.ws, c.id)).toMatchObject({
+      audienceLimited: true,
+    });
+    expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe(
+      "not_found",
+    );
   });
 
   test("naming a managing team takes the agent's workspace sessions, old ones too, from those outside it", async () => {
@@ -515,8 +538,8 @@ integration("agent access settings on PostgreSQL", () => {
       }
       await setAccess(c.ws, "use");
       expect((await create(c.outsider, c.releaseId)).outcome).toBe("accepted");
-      // An agent with no managing team: only W and L are inside.
-      const bare = await agent(c.ws, null);
+      // An agent whose managing team has no one in it: only W and L are inside.
+      const bare = await agent(c.ws);
       await setAccess(c.ws, "view");
       expect((await create(c.member, bare.releaseId)).outcome).toBe(
         "agent_use_refused",

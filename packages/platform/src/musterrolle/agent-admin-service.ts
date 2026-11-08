@@ -21,6 +21,7 @@ import {
 } from "./policy.ts";
 import {
   NOT_FOUND,
+  TEAM_HOLDING,
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "./service-errors.ts";
@@ -162,6 +163,8 @@ export function createAgentAdminService(deps: {
           throw TEAM_NOT_FOUND();
         case "team_not_allowed":
           throw TEAM_NOT_ALLOWED();
+        case "team_holding":
+          throw TEAM_HOLDING();
         case "actor_inactive":
           throw NO_LONGER_ADMIN();
         case "unchanged":

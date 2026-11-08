@@ -25,7 +25,6 @@ import {
   gt,
   inArray,
   isNotNull,
-  isNull,
   max,
   or,
   type SQL,
@@ -75,9 +74,7 @@ import { recordToolUnlockItem } from "./tool-unlock.ts";
 type AgentRow = typeof agents.$inferSelect;
 
 /** The managing team's name beside an agents row; a deleted team keeps its name. */
-export const managingTeamName = sql<
-  string | null
->`(select ${memberTeams.name} from ${memberTeams} where ${memberTeams.id} = ${agents.managingTeamId} and ${memberTeams.workspaceId} = ${agents.workspaceId})`;
+export const managingTeamName = sql<string>`(select ${memberTeams.name} from ${memberTeams} where ${memberTeams.id} = ${agents.managingTeamId} and ${memberTeams.workspaceId} = ${agents.workspaceId})`;
 type VersionRow = typeof agentVersions.$inferSelect;
 type ReleaseRow = typeof agentReleases.$inferSelect;
 
@@ -115,7 +112,7 @@ export async function releaseSuperseded(
   return row !== undefined;
 }
 
-export function agentOf(row: AgentRow, managingTeamName: string | null): Agent {
+export function agentOf(row: AgentRow, managingTeamName: string): Agent {
   return {
     id: row.id,
     workspace_id: row.workspaceId,
@@ -123,7 +120,7 @@ export function agentOf(row: AgentRow, managingTeamName: string | null): Agent {
     name: row.name,
     description: row.description,
     managing_team_id: row.managingTeamId,
-    managing_team_name: row.managingTeamId === null ? null : managingTeamName,
+    managing_team_name: managingTeamName,
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
@@ -459,9 +456,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   ),
                   sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
                 ),
-            query.managing_team === "unassigned"
-              ? isNull(agents.managingTeamId)
-              : undefined,
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
@@ -495,7 +489,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )}))::int`,
           active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
-          unassigned: sql<number>`(count(*) filter (where ${agents.managingTeamId} is null))::int`,
         })
         .from(agents)
         .where(
@@ -515,7 +508,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         administered: row?.administered ?? 0,
         active: row?.active ?? 0,
         draft: row?.draft ?? 0,
-        unassigned: row?.unassigned ?? 0,
       };
     },
 
