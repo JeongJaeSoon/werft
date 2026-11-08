@@ -249,7 +249,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
 | `DATABASE_URL` | api、scheduler、reconciler、slack、migrate、checkpoint GC、metrics、upgrade-check Job、session archive CronJob |
 | `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy（同じ値） |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC、session archive CronJob。`secrets.objectStoreKeys: true` の場合だけ。`false` なら AWS 既定 credential chain（IRSA）で署名します |
-| `secrets.catalogEnv` の名前（既定 `ANTHROPIC_API_KEY`） | api だけ。設定文書が `value_env` で指す provider・リポジトリ資格情報を環境変数で渡す代替手段です。モデル key の既定経路は設置後のコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で、その場合は `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します（`["BOOTSTRAP_TOKEN"]`）。別の経路（例: `api.extraEnv`）で `BOOTSTRAP_TOKEN` を渡さなければ、プロセスごとにトークンが自動生成されます。既定の API replica 2 個で最初の設置（bootstrap）をするには、同じトークンを渡す必要があります。別の経路で渡していないのに一覧を `[]` で空にすると replica ごとに別のトークンができ、一部のリクエストが 401 になります。replica が 1 個なら、自動生成されたトークンも使えます。既定値を維持し Secret に key がなければ Pod は起動しません。slack には渡しません |
+| `secrets.catalogEnv` の名前（既定 `ANTHROPIC_API_KEY`） | api だけ。設定文書が `value_env` で指す provider・リポジトリ資格情報を環境変数で渡す代替手段です。モデル key の既定経路は設置後のコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で、その場合は `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します（`["BOOTSTRAP_TOKEN"]`）。`secrets.catalogEnv` や `api.extraEnv` などどの経路でも `BOOTSTRAP_TOKEN` を渡さなければ、プロセスごとにトークンが自動生成されます。既定の API replica 2 個で最初の設置（bootstrap）をするには、同じトークンを渡す必要があります。別の経路で渡していないのに一覧を `[]` で空にすると replica ごとに別のトークンができ、一部のリクエストが 401 になります。replica が 1 個なら、自動生成されたトークンも使えます。既定値を維持し Secret に key がなければ Pod は起動しません。slack には渡しません |
 | `PLATFORM_SECRET_KEY` | api、slack。必須。64 文字 hex の master key。コンソールに保存した資格情報を封印します。Secret にないと Pod は起動しません |
 
 | 値 | 変更対象 |
