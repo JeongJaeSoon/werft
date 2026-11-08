@@ -1,0 +1,292 @@
+---
+title: "運用向け単一サーバー設置"
+description: "永続 S3 を使うサーバーの ready 応答を確認します"
+pageId: "P02"
+docType: "設置"
+audience: "Linux 設置担当者"
+outcome: "永続 S3 を使うサーバーの ready 応答を確認します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+一台の Linux に公開イメージを digest で固定して設置し、`/readyz` と `/docs` の応答を確認します。永続 AWS S3 を使います。この Compose 経路は独自 endpoint を指定できません。他の S3 互換 endpoint が必要なら [Kubernetes 設置](/run-server/self-hosting/kubernetes)に従います。高可用性が必要なら [Kubernetes](/run-server/self-hosting/kubernetes)を選びます。
+
+<a id="준비물" />
+## 準備
+
+| 項目 | 要件 |
+| --- | --- |
+| OS | Linux。`x86_64` と `arm64` の両方に対応します |
+| Docker Engine | 28 以上 |
+| Docker Compose | 2.24.6 以上 |
+| ディスク | Docker データルートが XFS で、`prjquota` 付きで mount されていること。`preflight` はこれを確認しません。満たさなければ `deploy` で scheduler の quota 検査が失敗し、設置が止まります。ext4 サーバーでは先に [XFS ディスクの準備](/run-server/self-hosting/prepare-xfs)を完了します。Docker Desktop では使えません |
+| 時刻 | NTP 同期。再起動後に Docker が自動起動すること |
+| ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon にアクセスできるアカウント |
+| object store | 永続 AWS S3 bucket。Compose test-ops は AWS S3 のみに対応し、独自 endpoint は指定できません。[bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)で保護契約と権限を確認します |
+| 外部 | `ghcr.io` と Docker Hub からイメージを取得できること。パッケージはログイン不要です。セッションは `api.anthropic.com` と `github.com` にアクセスします |
+
+設置にはリポジトリ checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout でビルドしません。
+
+- まず [XFS ディスク](/run-server/self-hosting/prepare-xfs)と [checkpoint bucket](/run-server/self-hosting/prepare-checkpoint-bucket)を準備します。
+- リモート bootstrap 前に[アクセス経路](/run-server/self-hosting/access)を決めます。
+- 設置環境ごとに別の project、設置 id、秘密ファイル、状態ディレクトリを使います。
+
+<a id="단계" />
+## 手順
+
+<a id="1-버전과-소스-고정" />
+### 1. バージョンとソースの固定
+
+現在の設定文書・モデル接続・秘密 key 契約に対応する公開タグを、変更履歴と照合して選びます。次の二つの placeholder を、[パッケージ契約](/run-server/self-hosting/reference/packages)で得た実際のタグと、同じソース commit に置き換えます。イメージの main タグは Git タグではないため、checkout 値と同じとは考えないでください。
+
+```bash
+TAG='<published-image-tag>'
+SOURCE_REF='<matching-source-commit-or-release-tag>'
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+三つのイメージ取得がすべて成功し、digest が返ってから進みます。
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout "$SOURCE_REF"
+bun install --frozen-lockfile
+```
+
+checkout は選んだ release の commit で、依存関係のインストールが成功している必要があります。release ファイルは checkout 外に保存し、clean checkout 条件を維持します。
+
+<a id="2-비밀과-설정-문서" />
+### 2. 秘密情報と設定文書
+
+秘密の値はリポジトリ外の env ファイルだけに置きます。運用者だけが読める必要があります。group や other に権限があるとスクリプトが拒否します。
+
+```bash
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
+```
+
+エディターで `/etc/werft/test-ops.env` を開き、次を設定します。`sed -i` のように一時ファイルを作るツールは `/etc/werft` で `Permission denied` となるため、その場で書き込むエディターを使います。
+
+| 変数 | 値 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
+| `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
+| `BOOTSTRAP_TOKEN` | コメントを外し、32–256 文字のランダムな値を設定します。最初の owner を作るトークンです。未設定なら API が生成し、コンテナログに出力します |
+| `CONSOLE_ORIGIN` | コンソールから GitHub App を作るときに必要な、ブラウザのコンソール origin（`scheme://host[:port]`）。なければ「GitHub で作成」ボタンは無効です。env の例にはこの行がないため、自分で追加します。SSH tunnel で開くなら `http://127.0.0.1:<tunnel port>` を指定します。設置後の追加・変更は `start` ではなく `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json` で現在の release を再適用して反映します |
+
+例の LocalStack 値を運用 S3 の値に変更します。秘密をコマンドラインやログへ出力しないでください。
+
+| 変数 | 運用環境の値 |
+| --- | --- |
+| `EXECUTION_INSTALLATION_ID` | 他の環境と重複しない id。デプロイ後に変更しません |
+| `PLATFORM_SETTINGS_DOCUMENT` | `/etc/werft/settings.json` |
+| `EXECUTION_WORKSPACE_QUOTA` | `on` |
+| `AWS_REGION`、`S3_BUCKET` | 準備した AWS bucket の region と名前。独自 endpoint は未対応です |
+| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | bucket の最小権限の API 資格情報 |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | provider・Git host と `<bucket>.s3.<region>.amazonaws.com:443`。ドットを含む bucket 名では `s3.<region>.amazonaws.com:443` |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | 空の値。`localstack:4566` を削除します |
+
+モデル key は設置後にコンソールのモデル接続で入力します。`PLATFORM_SECRET_KEY` を失うと保存した資格情報を読めなくなるため、別途安全にバックアップします。
+
+設定文書は `/etc/werft/settings.json` に置き、セッションが使う GitHub リポジトリを書きます。秘密情報は含みません。リポジトリ URL だけを実際の値に変更します。例は公開リポジトリ用です。リポジトリ項目には `"auth": { "kind": "github_app" }` が必要です。なければ import 時にそのリポジトリが除外され、`preflight` が設置を止めます。非公開リポジトリの認証は [API サーバー文書](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)に従います。
+
+migrate コンテナが読む必要があるため、ファイルは `0644` にします。先に空のファイルを作り、エディターで次の内容を入れます。
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {},
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "auth": { "kind": "github_app" }
+    }
+  },
+  "mcp_servers": {}
+}
+```
+
+リポジトリ URL は実際に使う公開リポジトリに変更します。非公開リポジトリの GitHub App は[手順 2 の入力一覧の CONSOLE_ORIGIN](#2-비밀과-설정-문서)を準備してから、設置したコンソールで構成します。ファイルは秘密を含まず、migrate が読める必要があります。
+
+<a id="3-release-입력-생성" />
+### 3. release 入力の生成
+
+選んだ TAG を保持したシェルで実行します。`DEPLOYMENT_DIR` は checkout 外の環境別ディレクトリです。
+
+```bash
+DEPLOYMENT_DIR=/var/lib/werft/test-ops
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
+digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
+jq -n \
+  --arg commit "$(git rev-parse HEAD)" \
+  --arg control "ghcr.io/jeongjaesoon/werft-control-host@$(digest control-host)" \
+  --arg worker "ghcr.io/jeongjaesoon/werft-worker@$(digest worker)" \
+  --arg egress "ghcr.io/jeongjaesoon/werft-egress-proxy@$(digest egress-proxy)" \
+  --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit: $commit,
+    images: {control_host: $control, worker: $worker, egress_proxy: $egress},
+    settings_digest: $settings}' > "$DEPLOYMENT_DIR/release.json"
+```
+
+三つのイメージ digest がすべて空でないことを確認します。
+
+<a id="4-s3를-명시해-검사설치" />
+### 4. S3 を明示して検査・設置
+
+```bash
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh preflight "$DEPLOYMENT_DIR/release.json"
+TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh deploy "$DEPLOYMENT_DIR/release.json"
+```
+
+preflight は bucket の保護設定と scratch version の書き込み・hold・読み取り・hold 解除・削除を検査します。quota は deploy 時に scheduler が検査します。両方成功し、サービスが healthy になる必要があります。object store 方式は最初の deploy 後に変更できません。
+
+<a id="확인" />
+## 確認
+
+```bash
+scripts/test-ops.sh status
+curl --max-time 10 -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
+curl --max-time 10 -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/docs
+```
+
+ready の本文と 200、docs 200、各サービスの healthy を確認します。PostgreSQL は loopback だけで待ち受け、Docker TCP socket は外部から到達できない必要があります。運用 AWS S3 設置全体とデータがある状態での復元は、このチュートリアルでは実行確認していません。LocalStack の空 checkpoint の照合と ready 200 で代替しません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+最初の `deploy` が失敗すると、起動したコンテナが残り、`current.json` がないため `stop` は使えません。失敗ログで quota・network・Secret などの原因を確認し、今回の project 名を確認してから次のように停止・削除します。`-v` は付けません。
+
+```bash
+PROJECT='<this-installation-project>'
+printf '%s\n' '{"services":{"x":{"image":"alpine:3"}},"networks":{"default":{}}}' \
+  | docker compose --project-name "$PROJECT" -f - down --remove-orphans
+```
+
+原因を直し、同じ release ファイルと同じ環境で `deploy` を再実行します。成功済みの環境を再起動するときは `start` を使います。
+
+quota エラーは [XFS の準備](/run-server/self-hosting/prepare-xfs)、bucket の保護・権限エラーは [bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket)を確認します。env 権限エラーは[手順 2 のファイル mode](#2-비밀과-설정-문서)、settings digest エラーは[手順 3 の digest・release 入力生成](#3-release-입력-생성)を確認します。最初の deploy が失敗しても、正常デプロイの状態ファイルがあるとは考えないでください。
+
+<a id="되돌리기" />
+## 元に戻す
+
+正常な環境は[停止・再起動](/run-server/self-hosting/stop-compose)でデータを保持します。最初の deploy の失敗では、原因とこの project が作ったリソースを先に調べます。reset や volume 削除を既定の後片付けにしないでください。必要なデータがないことを確認した環境だけ、別の削除手順に従います。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[アクセス経路](/run-server/self-hosting/access) → [最初の owner と key](/run-server/self-hosting/users-and-keys) → [モデル接続](/run-server/self-hosting/model-connections)。運用開始前に[バックアップと復元](/run-server/self-hosting/backup-and-restore)を設定します。
+
+
+## 以前の URL [#이전-주소-안내]
+
+
+<details>
+<summary>以前の節から現在の文書を探す</summary>
+
+<a id="decisions" />
+<a id="requirements" />
+<a id="1-read-the-image-digests" />
+<a id="2-get-the-checkout" />
+<a id="3-write-the-configuration" />
+<a id="4-write-the-release-file" />
+<a id="5-install" />
+<a id="6-check" />
+<a id="配備の判断" />
+<a id="必要なもの" />
+<a id="1-イメージの-digest-を読む" />
+<a id="2-checkout-を取得する" />
+<a id="3-設定ファイルを作る" />
+<a id="4-release-ファイルを作る" />
+<a id="5-設置する" />
+<a id="6-確認する" />
+<a id="배포-결정" />
+<a id="1-이미지-digest-읽기" />
+<a id="2-checkout-받기" />
+<a id="3-설정-파일-만들기" />
+<a id="4-release-파일-만들기" />
+<a id="5-설치하기" />
+<a id="6-확인하기" />
+
+[運用向け単一サーバー設置](/run-server/self-hosting/single-server#무엇을-하게-되나)
+
+<a id="disk-setup-xfs-prjquota" />
+<a id="ディスクの準備-xfs-prjquota" />
+<a id="디스크-준비-xfs-prjquota" />
+
+[XFS ディスクの準備](/run-server/self-hosting/prepare-xfs#무엇을-하게-되나)
+
+<a id="install-without-a-checkout-the-release-bundle" />
+<a id="checkout-なしでインストールする-リリースバンドル" />
+<a id="checkout-없이-설치하기-릴리스-번들" />
+
+[配布パッケージ契約](/run-server/self-hosting/reference/packages#계약)
+
+<a id="when-you-build-the-images-yourself" />
+<a id="イメージを自分でビルドするとき" />
+<a id="이미지를-직접-빌드할-때" />
+
+[自分の registry 用イメージのビルド](/run-server/self-hosting/build-images#무엇을-하게-되나)
+
+<a id="7-first-owner-and-api-key" />
+<a id="7-最初の-owner-と-api-key" />
+<a id="7-첫-owner와-api-key" />
+
+[最初の owner と利用者 key の発行](/run-server/self-hosting/users-and-keys#무엇을-하게-되나)
+
+<a id="8-enter-the-model-key" />
+<a id="alternative-put-the-model-key-in-an-environment-variable" />
+<a id="8-モデルキーを入れる" />
+<a id="代替手段モデルキーを環境変数で渡す" />
+<a id="8-모델-키-넣기" />
+<a id="대안-모델-키를-환경-변수로-넣기" />
+
+[モデル接続とプロファイルの設定](/run-server/self-hosting/model-connections#무엇을-하게-되나)
+
+<a id="take-it-down" />
+<a id="operations" />
+<a id="reboot" />
+<a id="day-1" />
+<a id="next" />
+<a id="片付ける" />
+<a id="運用する" />
+<a id="再起動" />
+<a id="初日の運用" />
+<a id="次のステップ" />
+<a id="내리기" />
+<a id="운영하기" />
+<a id="재부팅" />
+<a id="첫날-운영" />
+<a id="다음-단계" />
+
+[Compose の停止・再起動・削除](/run-server/self-hosting/stop-compose#무엇을-하게-되나)
+
+<a id="access-path" />
+<a id="アクセス経路" />
+<a id="접근-경로" />
+
+[利用者アクセス経路の設定](/run-server/self-hosting/access#무엇을-하게-되나)
+
+<a id="dedicated-s3-bucket" />
+<a id="専用の-s3-bucket" />
+<a id="전용-s3-bucket" />
+
+[checkpoint bucket の準備](/run-server/self-hosting/prepare-checkpoint-bucket#무엇을-하게-되나)
+
+<a id="backup-and-restore" />
+<a id="バックアップと復元" />
+<a id="백업과-복원" />
+
+[バックアップと復元訓練](/run-server/self-hosting/backup-and-restore#무엇을-하게-되나)
+
+</details>

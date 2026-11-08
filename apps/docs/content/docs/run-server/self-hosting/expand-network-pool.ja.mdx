@@ -1,0 +1,92 @@
+---
+title: "worker アドレスプールの拡張"
+description: "他の設置環境と衝突しないようアドレスプールを変更します"
+pageId: "P20"
+docType: "作業"
+audience: "Docker ネットワーク運用者"
+outcome: "他の設置環境と衝突しないようアドレスプールを変更します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+Docker daemon の worker ネットワーク用アドレスプールを、他の設置環境、LAN、VPN と重複しないように拡張します。
+
+<a id="준비물" />
+## 準備
+
+daemon の管理権限とメンテナンス時間、現在のネットワーク、設置 id、slot limit の一覧が必要です。daemon 全体の設定なので、同じホストのすべての compose project と調整します。
+
+<a id="단계" />
+## 手順
+
+**アドレスプール。** worker ネットワーク一つにつき、daemon の `default-address-pools` から subnet を一つ使います。Docker の既定プールは合計 31 個です。
+
+* `172.17.0.0/16`～`172.31.0.0/16` の /16 が 15 個
+* `192.168.0.0/16` を /20 に分割したものが 16 個
+
+このうち `docker0` と daemon 上の他のネットワークが先に使います。このリポジトリの compose は `default` を一つ使います。そのため既定設定で worker に残るのは、おおよそ **30 個 −（その daemon の他のネットワーク数）**です。
+
+**slot limit との関係。** 一つの execution が保持するネットワークは一つだけです。replace は以前の generation を削除してから新しいものを作ります。そのため同時に使う worker ネットワーク数は、おおよそ `EXECUTION_SLOT_LIMIT`（既定 10）です。ただしプールは **daemon 全体で共有**するため、同じ daemon の他の設置環境や compose project と分け合います。回収に失敗して残ったネットワークも slot limit には数えません。そのため既定プールには、slot limit が 10 の環境二つがようやく収まる程度です。
+
+**プールの拡張。** それ以上使うには daemon.json でプールを広げます。例えば `{"default-address-pools":[{"base":"10.210.0.0/16","size":24}]}` は /24 が 256 個です。
+
+* LAN・VPN と重ならない範囲を選びます。
+* size を小さくすると（/28 なら 4096 個）、その daemon で自動割り当てされる**他の**ネットワークもすべて小さくなります。/28 にはコンテナが 13 個まで入ります。
+* 適用には daemon の再起動が必要です。既存のネットワークには適用されません。
+
+**枯渇時の動作。** 枯渇は黙って起きる障害ではありません。network create が `could not find an available, non-overlapping IPv4 address pool` で失敗します。その launch は `failedLaunches` に記録され、pass は exit 1 で終了します。intent は残り、次の pass で再試行します。
+
+**回収は二段構えです。**
+
+1. `terminate`：コンテナを削除した後、proxy を切り離してネットワークを id で削除します（best effort）。
+2. pass の ② 段階の最後、slot を埋める前（`reconcileNetworks`）に、この設置環境の label が付いた worker ネットワークをすべて走査します。
+   * 名前に対応するコンテナが（どの状態でも）**存在しない場合**、proxy だけを切り離してネットワークを削除します。`docker rm -f` でコンテナを削除した場合が該当します。launch がまだ有効な execution なら、① 段階でコンテナを先に再作成しているため、そのネットワークをそのまま再利用します。
+   * コンテナが**存在する場合**、proxy の接続を確認し、切れていれば再接続します。`compose up` が proxy を再作成すると、新しい proxy はどの worker ネットワークにも接続されていません。そのため実行中の worker の egress は次の pass（`SCHEDULER_INTERVAL_SEC`、既定 5 秒）まで切れます。
+
+**回収失敗時の動作。**
+
+* 使用中のネットワークも毎 pass 同じ基準で再確認します。対象はネットワークの構成、名前に対応するコンテナがこの設置環境の当該 worker か、worker・proxy 以外のメンバー、worker が他のネットワークにも接続していないかです。replace に備えて作成済みのネットワーク（まだ以前のコンテナが接続していないもの）は問題としません。
+* メンバーは network inspect が示す実行中の endpoint だけではありません。停止中や一度も起動していないコンテナも起動時に接続するため、一緒に数えます（`network` フィルターでコンテナを検索）。
+* 使用中のネットワークに残してよい proxy は、**現在実行中の一つ**だけです。label が付いた他の proxy（停止中の以前の proxy など）は切り離し、`networksRepaired` に数えます。起動した瞬間に同じ alias で再び worker の前に立てるためです。実行中の proxy が二つ以上ならどちらも信頼できないため、label が付いた proxy をすべて切り離し、`networksFailed` として報告します。一つも実行中でなければ報告だけしてそのまま残します。単独で起動した proxy が信頼対象になるためです。execution label がない worker ネットワークも proxy を切り離して報告します。
+* 不明なメンバーが接続したネットワークでは、そのメンバーを切り離しません。強制的に切り離すと痕跡が消えるためです。代わりに**この設置環境の proxy を切り離します。** 不明なコンテナにこの環境の allowlist を使わせないためです。そのネットワークの worker も egress を失います。このようなネットワークはそのまま残し、`networksFailed` として報告し、pass は exit 1 で終了します。
+* 一覧の取得自体が失敗した場合（`networkScanFailed`）も exit 1 です。
+* 残ったネットワークはアドレスプールを使い続けます。運用者が `docker network inspect <name>` でメンバーを確認して整理します。
+* proxy がなければ preflight で終了するため、この回収も実行されません。ただし新しいネットワークも作られず漏れは増えません。proxy 復帰後の最初の pass が回収します。
+
+同じ daemon を複数の設置環境で共有する場合、`EXECUTION_INSTALLATION_ID` は環境ごとに異なる値にし、egress proxy も別々にしてそれぞれの id で label を付けます。worker ネットワークの名前・label に設置 id が入るため、環境 A の worker ネットワークには A の proxy だけが接続します。一つの proxy を二つの環境で使うと、両環境の worker が同じ allowlist を使うことになります。
+
+proxy コードの更新は [Compose アップグレード](/run-server/self-hosting/upgrade-compose)に従います。アドレスプールの変更後、今回の環境で実行中の proxy を status と project label で確認し、そのコンテナで healthcheck を実行します。この検査は proxy の `/healthz` と credential listener（設定されている場合）の応答を確認します。
+
+source hash は proxy ソースの SHA-256 です。`Egress proxy listening` ログと `/healthz` 応答の `ok source=<hex>` で確認できます。healthcheck はこの値を `/app/src` のソースと照合し、異なれば実行中コードが現在のソースと一致しないとして unhealthy を返します。イメージ実行では常に一致し、ソースツリーを mount した状態で checkout が移動したときだけ不一致になります。その場合、新しいコードを実行するには egress-proxy サービスの再ビルドが必要です。従ってイメージでの設置では、この検査だけでアドレスプール変更後の新コード適用まで証明できるわけではありません。
+
+```bash
+PROXY_CONTAINER='<this-installation-egress-proxy-container-id>'
+INSTALLATION_ID='<this-installation-id>'
+docker exec "$PROXY_CONTAINER" bun run /app/src/healthcheck.ts
+docker network ls --filter label=werft.worker-network=true \
+  --filter "label=werft.installation=$INSTALLATION_ID" \
+  --format '{{.Name}} {{.Labels}}'
+```
+
+<a id="확인" />
+## 確認
+
+直接実行した healthcheck の失敗と Docker 状態表示には時間差があります。Compose healthcheck は連続 12 回（約 60 秒）失敗すると Docker 状態を unhealthy に変えます。
+
+変更後、新しい worker ネットワークが選んだ範囲で作成されることを確認します。既存ネットワークは自動で新しいプールに切り替わりません。network inspect で worker と今回の環境の実行中 proxy だけが接続していること、scheduler ログに networksFailed/networkScanFailed がないことを確認します。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+アドレスプールが枯渇すると create が失敗し、launch が再試行されます。slot limit の対象外に残ったネットワークもプールを使います。不明なメンバーが接続したネットワークは痕跡を消さず調査します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+daemon.json の今回の変更をバックアップに戻し、daemon を再起動します。作成済みのネットワークは以前のプールに変わらないため、セッションを安全に終了し、設置 label を確認したリソースだけを整理します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[実行基盤と隔離](/run-server/self-hosting/explanation/isolation)、[容量計画](/run-server/self-hosting/capacity)。

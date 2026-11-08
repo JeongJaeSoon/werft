@@ -1,0 +1,90 @@
+---
+title: "最初の owner と利用者 key の発行"
+description: "利用者ごとの認証手段と実行権限を発行します"
+pageId: "P09"
+docType: "作業"
+audience: "設置管理者"
+outcome: "利用者ごとの認証手段と実行権限を発行します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+最初の owner と workspace を作成し、利用者ごとに API key を発行します。API key の廃止とセッション実行権限の取り消しを区別します。
+
+<a id="준비물" />
+## 準備
+
+[設置](/run-server/self-hosting)と[アクセス経路](/run-server/self-hosting/access)の準備が必要です。bootstrap トークンとログは運用者だけが読み取ります。Kubernetes では複数 replica に同じ BOOTSTRAP_TOKEN を渡すよう Secret と catalogEnv を構成します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-첫-owner-만들기" />
+### 1. 最初の owner の作成
+
+ブラウザの `/bootstrap` に固定した BOOTSTRAP_TOKEN、owner 情報、workspace 名を入力します。トークン未設定の単一 API 環境では、今回の API コンテナの起動ログ（`docker logs <this-installation-api-container-id>`）を運用者だけが確認し、自動生成されたトークンを取得します。コンテナは status と project label で確認します。既定 replica が 2 の Kubernetes では自動生成に頼らず、Secret の固定トークンを使います。最初の owner 作成後に同じトークンを再利用すると `409 BOOTSTRAP_DONE` です。`/login` でログインします。
+
+<a id="2-사용자별-key-발급" />
+### 2. 利用者ごとの key 発行
+
+```bash
+KEY="$(scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
+```
+
+`<owner_id>` は、この key のセッションをまとめる名前です。利用者ごとに異なる値を決めます。Web コンソールのアカウントとは別であり、workspace id は使いません。
+
+SDK と HTTP API はこのサーバーアドレスと key で接続します（[SDK のインストール](/getting-started/install)）。
+
+Kubernetes では次を使います。
+
+先に[設置環境の context・namespace・fullname の確認](/run-server/self-hosting/kubernetes#준비물)に従います。次の `werft` はその設置例の名前です。
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+stdout には平文 key が一度だけ、stderr には key id が出力されます。平文は公開ログに保存せず、対象の利用者へ安全に渡します。利用者ごとの key 所有者識別子と Web コンソールのアカウントは別です。API key の scope は作業に必要な範囲に絞ります。
+
+<a id="3-폐기-연락과-실행-권한" />
+### 3. 廃止時の連絡と実行権限
+
+key を廃止する際の連絡先を利用者に案内します。checkout の運用者 CLI は次のとおりです。
+
+```bash
+scripts/test-ops.sh key revoke <key_id>
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/grants.ts restore <session_id> --reason <text>
+```
+
+API_CONTAINER は、この環境の status と Docker project label で確認した API コンテナ id に置き換えます。Kubernetes では設置バージョンのリポジトリ checkout とホストの Bun・kubectl を準備し、`keys:k8s` と `grants:k8s` を使います。`NAMESPACE` と `RELEASE` の既定値はいずれも werft です。
+
+| 操作 | 効果 |
+| --- | --- |
+| key revoke | その key による以後の API 認証を拒否します。開始済みのセッション実行を停止するコマンドではありません |
+| grants revoke | 指定セッションの実行権限と資格情報を取り消し、実行の終了を要求します |
+| grants restore | execution が存在しないことの確認後に実行権限を戻します。廃止した API key は復活させません |
+
+<a id="확인" />
+## 確認
+
+各利用者の key で `/v1/sessions` を読むと許可範囲の応答が返り、key なしなら 401 になる必要があります。廃止した key は認証されないことを確認します。grants 出力の receipt と execution 状態を確認し、受理と実際の終了を区別します。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+replica ごとに自動生成した bootstrap トークンが異なると、別の Pod に届いた要求が 401 になる場合があります。固定トークンを全 Pod に渡します。Secret に名前が欠けていると Pod は起動しません。CLI の owner id に workspace id を指定しないでください。
+
+<a id="되돌리기" />
+## 元に戻す
+
+作成済みの最初の owner を削除する目的で環境を reset しないでください。誤って発行した key を revoke し、正しい scope で新しい key を作成します。grants restore は以前の実行が消えた後だけ行います。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[モデル接続](/run-server/self-hosting/model-connections)、[SDK のインストール](/getting-started/install)。

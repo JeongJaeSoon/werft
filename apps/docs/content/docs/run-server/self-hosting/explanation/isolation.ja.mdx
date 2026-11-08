@@ -1,0 +1,156 @@
+---
+title: "実行基盤と隔離"
+description: "backend ごとの信頼境界と失敗時の動作を理解します"
+pageId: "P28"
+docType: "説明"
+audience: "セキュリティ運用者"
+outcome: "backend ごとの信頼境界と失敗時の動作を理解します"
+---
+
+<a id="개요" />
+## 概要
+
+Docker backend と Kubernetes backend が worker を隔離し、execution を回収する理由を説明します。運用設定は[設定契約](/run-server/self-hosting/reference/configuration)、復旧判断は[停止したセッションの復旧](/run-server/self-hosting/recover-sessions)が正本です。
+
+<a id="제어-역할과-실행" />
+## 制御ロールと実行
+
+reconciler pass（`main.ts reconciler --once`、package script `reconciler`）は一つの batch を処理して終了します。lease の期限を独自には解釈しません。API が heartbeat を受けると `workers.lease_expires_at` に期限時刻を記録し、reconciler はその時刻と DB 時計を比較します。`HEARTBEAT_TTL_SEC` は API だけが読み（既定 30、20 以下または 86400 超では起動拒否。[API 設定](/run-server/self-hosting/reference/configuration)参照）、reconciler はこの値が設定されていれば起動しません。変更前に対象だけを確認するには dry-run を明示します。未処理 row または `queued` turn だけを自動再配送し、実行中または状態を証明できない row は session を `failed` にして明示的な復旧対象として残します。
+
+compose の `apps` profile では `reconciler` サービスがこの pass を既定で繰り返します。role 名だけを指定した `main.ts reconciler` が監督ループ（`apps/control-host/src/pass-loop`）で、pass はループが起動した子プロセス（`main.ts reconciler --serve`）で実行します。子はループから IPC 要求を受けるたびに一つの pass を実行し、次の要求を待ちます。pass ごとに bun を起動してモジュールを読み直すと、pass 自体の数倍の CPU を使い、待機中の stack でも一つの role がコアの数十 % を使っていたためです。pool は現在も pass ごとに開いて閉じます。失敗した pass、制限時間超過で kill された pass、終了信号を受けた pass は子とともに終了するため、次の pass は新しいプロセスで動きます。pass 間に子が終了した場合は失敗 pass と数えます。pass は重複せず直列に実行します。healthcheck は `main.ts reconciler --health` です。ループが SIGTERM を受けると、新しい pass を開始せず、進行中の pass に SIGTERM を送り、10 秒後に SIGKILL します。書き込みごとに transaction を使うため、どこで中断しても損失はありません。compose の `stop_grace_period` は 20s です。compose は監督ループを使う三つの role（reconciler・scheduler・slack）に `BUN_OPTIONS=--smol` を渡します。ループ、子、healthcheck がすべて継承し、GC を頻繁に実行して heap を小さく保ちます。
+
+pass の最終段階はツール呼び出しの projection です。前回の pass 後に蓄積した `tool_use`・`tool_result` イベントを対応付け、`tool_calls` と日別合計の `tool_call_days` に記録します。使用量 API（`GET /v1/usage/tools`）はイベントを再解析せず、この二つの表だけを読みます。一つの transaction でイベントを 5,000 個ずつ、pass ごとに 10 秒間処理し、残りは次の pass が引き継ぎます。batch が statement timeout（10 秒）に達したら、batch を 10 分の 1 に縮小して再処理し、縮小サイズを `tool_call_progress.batch_size` に即 commit します。pass timeout（60 秒）が中断しても、次の pass はそのサイズから始めるため、最終的に一つの batch は通過します。timeout なしで完了した pass はサイズを 10 倍ずつ戻します（設定値に達すると NULL）。timeout ごとに `Tool call batch timed out` ログ（`batch_size`、`retry_size`）を即時記録し、pass 終了時の `Tool calls projected` には `timed_out_batches` として回数を残します。進捗位置は `tool_call_progress.applied_through`（イベント id）です。cursor は 60 秒より古いイベントまでしか進めないため、遅れて commit された小さい id のイベントも取りこぼしません。新しいイベントは次の pass が再読し、再適用しても結果は同じです。そのため新しい呼び出しが API に現れるまで、通常一つの pass 分（10 秒余り）かかります。migration 後の最初の pass 群は cursor 0 から既存イベントを埋めます（backfill）。backfill 中の API のツール集計は処理済み範囲だけを反映します。dry-run は projection しません。
+
+scheduler pass も one-shot です（`main.ts scheduler --once`、package script `scheduler`）。compose の `scheduler` サービスは同じ監督ループで繰り返します（`main.ts scheduler`、healthcheck は `main.ts scheduler --health`）。設定は `SCHEDULER_INTERVAL_SEC`（5）、`SCHEDULER_PASS_TIMEOUT_SEC`（180、`EXECUTION_DOCKER_STOP_TIMEOUT_SEC` + `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` より大きくないと起動しません。kubernetes backend は [Kubernetes 実行 backend](/run-server/self-hosting/reference/configuration)参照）、`SCHEDULER_MAX_CONSECUTIVE_FAILURES`（3）、`SCHEDULER_HEALTH_STALE_SEC`（200、interval + timeout より大きくないと起動しません）、`SCHEDULER_STATUS_FILE`（`/tmp/scheduler-status.json`、compose は渡しません）で、意味は上記 reconciler 表と同じです。別の pass が lock を保持していて省略した pass は exit 75 で終了し、成功でも失敗でもありません。省略だけが続くと成功がないため、stale 時間後に unhealthy になります。処理は完了したものの今回助けられないセッションを残した pass（launch が backoff 中（`launch_backoff_count`）、直前に quarantine された（`launch_quarantined_count`）、交代上限を使い切った（`replacement_exhausted_count`）セッション）は exit 76（degraded）で終了します。この状態は DB にあり再起動で解消しないため、degraded は連続失敗に数えず、失敗 streak を切ります。health は最近の degraded pass を healthy として reason に `completed degraded` を記録し、status には `lastDegradedAt` を残します（`lastSuccessAt` は問題のない pass だけ）。同じ pass に他の失敗が一つでもあれば従来どおり exit 1 です。ループが SIGTERM を受けると、進行中の pass は次の安全地点（pass lock 喪失時に止まる地点と同じ）で停止して新規予約をやめ、30 秒以内に終わらなければ kill されます。pass が待っていた worker 停止は、kill 後も daemon 上で続きます（Engine 25 以降は要求が切れても stop を取り消しません）。compose の `stop_grace_period` は 45s です。
+
+kill intent（terminate、lease 期限切れ、quarantine）の実行時、pass は worker の turn drain を待ちません。stop を要求し、5 秒以内に終わらなければ `kills_stopping_count` に数えて先へ進み、失敗には数えません。daemon は SIGTERM 後、`EXECUTION_DOCKER_STOP_TIMEOUT_SEC` が経過すると SIGKILL し、次の pass がコンテナの消失を確認して slot を返します。drain 期限を超えた claimed worker の交代と launch intent のない orphan コンテナの停止も同じです（orphan は `orphan_stopping_count` に数え、消えるまで slot を占有します）。unclaimed worker の交代は待ちます。turn がなくすぐ終わり、交代を試みるたびに交代上限を消費するためです。それでも unclaimed コンテナを削除・再作成する経路では、pass が一回の停止を最後まで待つ場合があります。そのため pass timeout が stop timeout + request timeout より小さいと scheduler は起動を拒否します。
+
+コンテナの create・start 要求が `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` 以内に応答しない場合、コンテナができたか不明なため、launch 失敗には数えません。nonce を破棄せず、backoff も設定しません。その pass は失敗（exit 1）で終了します。次の pass が inspect し、存在すれば採用します（作成だけなら開始します）。なければその時点で launch 失敗に数えます。その際 nonce を破棄して backoff を設定し、結局作成されない create が slot を保持し続けず、失敗上限で quarantine されるようにします。破棄後に遅れて作成されたコンテナは、失敗した試行として削除します。daemon が拒否応答した場合（4xx・5xx）は従来どおり launch 失敗に数えます。scheduler を停止しても worker は終了しません。slot は pass が worker 不在を確認してからだけ返します。一つの pass は、① 生きている `executions` row を Docker と照合（コンテナがなければ同じ intent で再作成、exit 済みなら `terminated` を記録して削除）、② launch intent のない管理コンテナをログ後に停止し、コンテナが消えた worker ネットワークを削除、または外れた proxy を再接続、③ `EXECUTION_SLOT_LIMIT` 内で unassigned session ごとに intent を commit → コンテナ作成、④ 終了 session の workspace volume 回収、の順に進みます。
+
+worker コンテナには Docker socket・host HOME を渡しません。env は bootstrap claim 用の `WORKER_EXECUTION_ID`・`WORKER_EXECUTION_GENERATION`・`WORKER_BOOTSTRAP_NONCE`・`WORKER_GATEWAY_URL`、tmpfs を指す `HOME`、egress proxy を指す `HTTP_PROXY`・`HTTPS_PROXY`・`NO_PROXY`（大文字・小文字の両表記。`NO_PROXY` は proxy 自身の名前）、proxy の credential route を指す `WORKER_EGRESS_CREDENTIAL_URL`（[API サーバーの credential route 節](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다)）、object store 名の `S3_BUCKET`・`AWS_REGION` とセッション prefix の `WORKER_OBJECT_PREFIX`（`sessions/<sessionId>/`）です。scheduler は bucket と region がなければ起動しません。object store の資格情報と endpoint は渡しません。worker は proxy の object store route だけで object store に到達し、その route が境界です（同節）。worker 側の `scopedCheckpointObjectStore`（`packages/storage`）は prefix 外 key を要求前に拒否する早期失敗にすぎません。worker 内で `@werft-ai/storage` を import するのは `apps/worker/src/object-store.ts` 一つだけで、`tests/architecture.test.ts` が強制します。Docker daemon が create 要求本文を応答に返す場合に備え、backend はエラーメッセージから nonce を除去します。`/tmp`・HOME tmpfs は worker uid/gid 所有で mount します。`/workspace` named volume は Docker がイメージの同じパスから初期化するため、worker イメージは `/workspace` を worker uid 所有で事前作成する必要があります（イメージ契約）。worker イメージ（`apps/worker/Dockerfile`）は `WORKER_IMAGE` で指定します。pass 全体は Postgres session advisory lock（`scheduler:pass`）で直列化し、重複実行はログだけを残して省略します。同じ Docker daemon を複数の設置環境で共有するなら `EXECUTION_INSTALLATION_ID` を環境ごとに異なる値にします。未設定では scheduler は起動しません（adapter だけが試験用の既定値 `local` を持ちます）。同じ値の二つの環境が daemon を共有すると、互いのコンテナを orphan として回収します。
+
+<a id="docker-네트워크와-credential-경계" />
+## Docker ネットワークと credential の境界
+
+worker コンテナは scheduler が execution ごとに作る**専用ネットワーク** `werft-net-<installationId>-<executionId>-g<generation>` 一つだけに接続します。このネットワークは bridge driver、`internal: true`、`EnableIPv6: false`、`com.docker.network.bridge.gateway_mode_ipv4=isolated` で作成します。Docker は外向きの経路を作らず、host 側の bridge アドレス（IPAM gateway）も設定しません。そのため worker は host、host 上のプロセス、LAN、instance metadata（`169.254.169.254`）、他の compose サービス、他の worker に直接到達できません。メンバーは worker 自身と egress proxy の二つだけです。scheduler は `werft.egress-proxy=<installationId>` label の付いた**実行中のコンテナが正確に一つ**ある場合、それを当該環境の proxy とし、ネットワークごとに `EXECUTION_EGRESS_PROXY_URL` の host 名を alias にして connect します。worker の `HTTP_PROXY`/`HTTPS_PROXY` はその名前を指します。proxy のアドレスはネットワークごとに違うため、`EXECUTION_EGRESS_PROXY_URL` の host は名前でなければならず、IP literal と `localhost` は拒否します。compose の `egress-proxy` サービスにはこの label があります。worker に `host.docker.internal:host-gateway` mapping はありません。gateway も proxy 経由です。
+
+遮断ポリシーは proxy の二つの一覧でバージョン管理します。`EGRESS_ALLOWLIST` は公開宛先（`host:port`）で、解決したアドレスがすべて public unicast の場合だけ通します。`EGRESS_PRIVATE_ALLOWLIST` はプライベート範囲と認識して許可する宛先（gateway）です。既定値と入力形式は [egress 設定表](/run-server/self-hosting/reference/configuration#schedulerworker-컨테이너egress-설정)に従います。provider・リポジトリ・object store はどちらにも入れません。forward proxy で到達できると各 credential route を迂回するためです。provider には worker の任意 key で費用計測外からアクセスでき、公開リポジトリは token なしで読めます。object store には API が要求ごとに検証・署名する route を通す必要があります。ローカルの SeaweedFS も SigV4 を検査しますが、ストレージ認証だけでセッション別 prefix 権限を代替できません。これらは credential route だけが到達できる一覧 `EGRESS_CREDENTIAL_ALLOWLIST`・`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` に置きます。credential 一覧の宛先が forward 一覧にもあれば proxy は起動を拒否します。環境ファイルの forward 一覧に残っていれば、削除しないと起動しません。比較は記載された `host:port` のままなので、同じ upstream を別名や IP で記入すると検出できません。`.env.example` も同じ値です（`tests/images.test.ts` が両者を結びます）。両一覧とも link-local（`169.254.0.0/16`・`fe80::/10`）、multicast、reserved に解決される場合は拒否し、allowlist の名前が metadata アドレスに解決される rebinding も防ぎます。一覧外の host・port は CONNECT・absolute-form とも `403`、absolute-form でない要求は `/healthz` 以外 `400` です。一覧の名前が解決できない場合（再起動中の `api` コンテナが Docker DNS から一時的に消えたとき）はポリシー拒否ではなく `502`、期限内に解決しなければ `504` です。worker は両方を再試行します。
+
+公開パッケージ registry（npm・RubyGems・Go module proxy と Go checksum DB）は、forward 一覧ではなく credential route の `packages` route で開きます。SNI だけによる forward 許可では CDN の背後の別宛先への流出を防げないためです。worker は `GET`・`HEAD /packages/<registry>/<path>` を `WORKER_EGRESS_CREDENTIAL_URL` に送ります。`<registry>` は `npm`（`https://registry.npmjs.org`）、`rubygems`（`https://rubygems.org`）、`go`（`https://proxy.golang.org`）、`gosum`（`https://sum.golang.org`）の四つです。`proxy.golang.org` は `/sumdb/` proxy 要求へ 404 を返すため、checksum DB は別にします。要求には attempt ごとに発行する `packages` 専用 egress token（接頭辞 `wek_`）を `Authorization: Bearer`、URL userinfo の password（Basic）、または path segment `/packages/<registry>/_token/<token>/<path>` で渡します。Go は http proxy URL の userinfo では資格情報を送らないため（`refusing to pass credentials to insecure URL`）、path segment を使います。proxy はこの segment を除いたパスだけを upstream に送り、ログにも残しません。header とパスの両方に token があれば `401` です。セッション内での token の可視範囲は他の manager の設定ファイルと同じで、Go エラーに URL が出ると token も出る可能性があります（worker の出力 scrubber が隠します）。Bundler と Go は bearer を送れないため Basic も受け付けます。authorizer は token の attempt がまだセッションを保持しているかだけを確認し、registry アドレスを返します。資格情報は付けません。他の method（`PUT`・`POST`・`DELETE` など、つまり publish・unpublish）には route がなく `404` となり、authorizer にも問い合わせません。パスに `.`・`..` へ解決される segment があっても `404` です。
+
+開く registry は proxy 全体の設定で決めます。四つの host を `EGRESS_CREDENTIAL_ALLOWLIST` に入れると開き、外すと全セッションで閉じます。既定 host 一覧は[設定表](/run-server/self-hosting/reference/configuration#schedulerworker-컨테이너egress-설정)にあります。一覧外の registry 要求は `403 egress denied` です。これまで registry を開くために `EGRESS_ALLOWLIST` に入れていた場合は、アップグレード時に削除します。新しい既定値と重なると proxy は起動を拒否します。profile やエージェントごとに開く機能はまだありません。registry が別の host に redirect すると、`packages` route だけが、`EGRESS_PACKAGES_REDIRECT_ALLOWLIST`（`host:port`、カンマ区切り、公開アドレスのみ）にある host に限り proxy のサーバー側で追跡します（一要求につき最大 5 回）。追跡時は worker の `Authorization` も、authorizer が registry 要求に付けた header も送りません。一覧外 host、`http`・`https` 以外の場所、userinfo のある場所、五回を超える redirect は `502` です。同じ registry host 内でパスだけ変える redirect も、その host が redirect 一覧に必要です。cache 再検証の `304` は redirect ではないため worker にそのまま返します。他の route の redirect は従来どおり追跡せず `502` です。リポジトリ route の Git LFS object も、この一覧の host からだけ資格情報なしで取得します。GitHub リポジトリの LFS を使うには `github-cloud.githubusercontent.com:443` を追加します（[API サーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の LFS 項目）。redirect 一覧の host が forward 一覧にもある場合、proxy は起動を拒否します。
+
+proxy ログの `Credential route` 行には `purpose: packages`、`registry`、`session_id`、`attempt_id`、upstream host と status が残ります。追跡した redirect は `Credential route redirect followed`（`to_host`・`to_port`）、拒否した redirect は `Credential route redirect refused` または `Credential route denied` で記録します。
+
+<a id="github-packages사설-npmgem" />
+### GitHub Packages（プライベート npm・gem）
+
+組織のプライベート npm・gem は `<registry>` の `github-npm`（`https://npm.pkg.github.com`）と `github-rubygems`（`https://rubygems.pkg.github.com`）から取得します。公開 registry と異なり、authorizer がワークスペース管理者の登録した bot classic PAT を `Authorization: Bearer` として付けます。この値は worker に渡しません。登録・allowlist・監査の設計は[決定：GitHub Packages bot token](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)を参照してください。設定は[プライベートなパッケージ registry の許可](/run-server/self-hosting/build-images#사설-패키지-registry-허용)に従います。
+
+authorizer は GitHub 要求をパスで判定します。allowlist 外のパッケージ、不明なパス、token 不在または期限切れは `403` で、`fetch_github_package` receipt に `failed` と `reason_code` が残ります。許可した要求も同じ receipt に `succeeded` と記録します。receipt を書けなければ要求は失敗します。この経路の proxy ログは他の packages 要求と同じです。
+
+npm 11 は GitHub tarball の場所を既定 registry 基準に変更するため（`replace-registry-host=always`）、tarball 要求は `npm` route に届きます。authorizer は `/download/@owner/<name>/<version>/<digest>` 形式の `npm` パスを GitHub 要求と判断します。公開 npm にこの形式のパスはありません。
+
+worker は claim ごとに engine の HOME（tmpfs）へ user レベル設定だけを書きます。リポジトリファイル（`.npmrc`・`Gemfile`・`.bundle/config`・`go.mod`）は変更しません。
+
+| ツール | ファイル（HOME 基準） | 内容 |
+|---|---|---|
+| npm（pnpm・Bun も読みます） | `.npmrc` | `registry=<route>/packages/npm/`、`//<route host>/packages/npm/:_authToken=<token>` |
+| Bundler | `.bundle/config` | `BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/` を `<route, token in userinfo>/packages/rubygems` に設定 |
+| Go | `.config/go/env` | `GOPROXY=<route>/packages/go/_token/<token>`（`direct` なし）、`GOSUMDB=sum.golang.org <route>/packages/gosum/_token/<token>`、`GOFLAGS=-mod=readonly` |
+
+allowlist に GitHub owner があれば、claim の `packages.github` には owner 名だけが入り（token は含みません）、worker は上記ファイルへ次を追加します。`.npmrc` には `replace-registry-host=always`、owner ごとの `@<owner>:registry=<route>/packages/github-npm/`、`//<route host>/packages/github-npm/:_authToken=<token>` が入ります。`.bundle/config` には owner ごとに `https://rubygems.pkg.github.com/<owner>/` を `<route>/packages/github-rubygems/<owner>` へ向ける mirror が入ります。Bundler は mirror key を小文字で読むため、`Gemfile` の `source` の owner も小文字にしないと mirror を使いません。リポジトリの `.npmrc` が `@<owner>:registry=https://npm.pkg.github.com` を固定すると HOME 設定より優先され、要求が credential route ではなく forward proxy へ送られて拒否されます。その行はリポジトリから外す必要があります。
+
+`GOPROXY` に `direct` を設定しないため、Go は VCS host へ直接出ません。`GONOSUMDB`・`GOPRIVATE`・`GONOSUMCHECK` は設定せず、全 module が checksum DB の検証を受けます。このファイルは token を含むため 0600 で、claim に `packages` がない以前の API に接続したら削除します。セッション内で利用者が `go env -w` や `npm config set` で変更することはできますが、境界は proxy なので、変更しても他の場所へ到達できません。
+
+lockfile 外のバージョンを遮断するのは proxy の役割ではありません。proxy は lockfile を知りません。セッションでは frozen インストール（`npm ci`、`bundle install --deployment` または `BUNDLE_FROZEN=true`、`go mod download` と `-mod=readonly`）を使います。リポジトリの npm 設定が registry を固定した場合の動作と E2E 結果は[イメージとサプライチェーンの worker 内パッケージツール](/run-server/self-hosting/build-images)を参照してください。
+
+CONNECT tunnel が運ぶのは TLS だけです。proxy は `200 Connection Established` を書いた後、クライアントの最初の byte を upstream へ流す前に TLS ClientHello として読みます。DNS 名 authority なら `server_name` がその authority と一致する必要があり（大文字・小文字だけは無視）、allowlist に明記された IP literal authority なら `server_name` がない必要があります。`encrypted_client_hello`（0xfe0d）は GREASE かどうかにかかわらず拒否します。proxy は区別できず、本物の ECH は検査対象の名前を隠すためです。handshake でない最初の record、host_name が二つある hello、最初の 16KiB（record header を含む）または 15 秒（`handshakeTimeoutMs`）以内に完成しない hello は、すべて切断します。拒否は 200 の後なので、クライアントには handshake 途中の切断に見えます。
+
+この検査の限界は次のとおりです。
+
+* 対象は平文で見える**外側** ClientHello の SNI です。TLS を終端しないため、中の HTTP `Host`・パス・本文や、許可したサービスがさらに中継する宛先は確認できません。CDN 側での domain fronting 防止は別の制御です。
+* IP literal allowlist は `IP:port` へのアクセス権であり、hostname の保証ではありません。共有 CDN edge アドレスを IP で allowlist に入れないでください。
+* **Bun 1.3.10–1.3.13 の `fetch`・`node:https` は GREASE ECH を送るため、この proxy へ CONNECT すると拒否されます。** 1.3.14 は送りません。`egress.integration.test.ts` の "Bun's own fetch handshakes through the tunnel" が固定しています。Bun の `node:tls`・`Bun.connect({tls})`、Node、curl、worker の SDK が spawn する Claude Code バイナリも送りません。worker の object store は CONNECT を使いません。worker ネットワーク内の proxy object store route に平文 http で送り、upstream TLS は proxy が接続します。AWS では route が virtual-hosted 名を使うため、`<bucket>.s3.<region>.amazonaws.com:443` が `EGRESS_CREDENTIAL_ALLOWLIST` に必要です（ドットを含む bucket 名は path-style の `s3.<region>.amazonaws.com:443`）。worker の Bun HTTP クライアントで https upstream を CONNECT 経由で呼ぶコードには対応しません。runtime・クライアントを更新したら再測定します。
+
+**worker 同士は互いに到達できません。** 同じネットワークにいないため相手のアドレスへの経路がなく、コンテナ名も解決されません。proxy 経由でも、プライベートアドレスは `EGRESS_PRIVATE_ALLOWLIST` になければ拒否されます。他の環境の worker・proxy にも到達しません。ネットワークと proxy の選択はいずれも環境別です。統合テスト（`egress.integration.test.ts` の "workers do not reach one another"）は、同じネットワークの兄弟コンテナなら開いたポートへ到達する陽性対照と併せて確認します。残る制限は次のとおりです。
+
+* proxy は全 worker ネットワークに接続する信頼コンポーネントです。侵害されるとその環境の全 worker に到達できます。`EGRESS_PRIVATE_ALLOWLIST` には worker に解決され得る名前を入れないでください。
+
+**host プロセスにも到達できません。** 既定 gateway mode（`nat`）の internal bridge は host に subnet の先頭アドレスを与えます。その場合、daemon host がそのアドレスまたは wildcard で listen する **host プロセス**（公開ポートではなく host 上で直接起動したプロセス）へ、worker が proxy なしで到達します。そのため worker ネットワークは `gateway_mode_ipv4=isolated` で作り、host にそのネットワークのアドレスを与えません。このモードは **Docker 28（API 1.48）以上**だけにあります。scheduler は起動 preflight（`verifyNetworkIsolation`）で daemon の API が 1.48 未満なら、警告で続行せず拒否します（`GatewayModeUnsupportedError`）。無効化する設定はありません。統合テスト（`egress.integration.test.ts` の "a host process on a wildcard address"）は、モードなしの internal ネットワークでは host listener に到達すること（陽性対照）と、worker ネットワークでは到達しないことの両方を確認します。native Linux（CI）ではテストプロセス自身が `0.0.0.0` listener です。Docker Desktop は daemon が VM 内なので、VM の network namespace を使う `--network host` コンテナが listener を代行します。IPv6 は worker ネットワークで無効なので対象外です。
+
+scheduler は pass 前に当該環境の proxy が正確に一つ実行中か確認します（`verifyNetworkIsolation`）。なければ、または二つ以上なら pass lock を取得し、worker ネットワークの reconcile だけを実行します（orphan 回収、二つ以上なら proxy 切り離し）。その後、何も起動せず non-zero で終了します。worker ネットワークは launch ごとに検査します。同名のネットワークがあれば再作成せず、次を確認します。一つでも不一致なら `NetworkIsolationError` で launch を拒否します（fail closed）。
+
+* bridge・internal・IPv6 無効・所有 label（設置・execution・generation）が正しいこと
+* host がネットワークにアドレスを持たないこと：`Options` の `gateway_mode_ipv4` が `isolated` で、IPAM に gateway がないこと。未知のオプションを記録するだけで gateway を付ける以前の daemon があるため、両方を確認します
+* worker と proxy 以外のメンバーがいないこと
+
+proxy attach の結果は応答コードではなく、proxy コンテナが報告する attach・alias で判断します。既に接続済みなら 403 が返り、alias なしで接続していると DNS 解決できないためです。既存コンテナを adopt する場合、そのコンテナは自分のネットワーク（同じ id）**一つだけ**に接続している必要があります。コンテナはネットワーク名ではなく id で作成します。そのため同名で再作成したネットワークが、検査済みネットワークに置き換わることはありません。
+
+以前の設定 `EXECUTION_DOCKER_NETWORK`・`EXECUTION_DOCKER_NETWORK_ALLOWLIST` はもう読みません。値が残っていれば黙って無視せず起動を拒否します。環境ファイルから削除し、proxy コンテナに label を付けます。
+
+コンテナ作成時の隔離契約は `werft.isolation` label に `<version>:<fingerprint>` 形式で記録します。fingerprint は proxy URL、credential route ポート、`NO_PROXY`、user、workspace/HOME パス、tmpfs サイズ、workspace quota 設定と inode 上限、stop timeout、worker 上限（turn 時間、provider 再試行）、object store の bucket・region の hash です。そのためコードを変えず `EXECUTION_EGRESS_PROXY_URL` や `S3_BUCKET` だけを変えても値が変わります。object store endpoint と資格情報は含みません。worker にはどちらも渡さず proxy の object store route を通り、要求は API が署名します。そのため `AWS_ENDPOINT_URL` や key を変えても worker は交代せず、API を再起動すると次の要求から新しい値を使います。CPU・memory・pids 上限も意図的に fingerprint 外です。上限は launch のもので、reserve 時に `worker_launches.resources` へ固定し、`werft.launch-spec` label で照合します。そのため上限を下げても実行中 worker を一斉交代せず、次の launch から適用します。ただし `werft.launch-spec` label のないコンテナは照合なしで adopt します。
+
+制御ホストを更新しても実行中コンテナの隔離は変わらないため、scheduler は label が現在値と異なるコンテナを `stale` と判断し、停止・削除後に保存済み intent で再作成します（`ensureExecution` も adopt しません）。バージョンが**より高い**コンテナは、rollback 中の新しい制御ホストが作成したものです。その境界が現在の要件と同じか判断できないため、adopt も交代もせず `IsolationContractError` で拒否します。row は生きたまま pass は non-zero で終わるため、運用者が roll-forward するか直接削除する必要があります。隔離の構成自体を変更する場合は `ISOLATION_CONTRACT` を上げます。契約 5 から worker ネットワークは execution 別です。そのため契約 4 以下から更新すると、共有ネットワーク上の既存コンテナがすべて stale で交代します。
+
+交代前確認（`assertReplaceable`：イメージ・workspace・proxy・新ネットワーク）に失敗すると、通常は以前のコンテナを残して次の pass で再試行します。ただし契約 5 未満のコンテナは共有ネットワークで隣接 worker に到達できます。そのため未 claim の当該コンテナは**すべてのネットワークから切り離して**残します。claim 前なので実行中 turn はありません。確認に合格する pass で正常に交代します。結果は交代失敗ログのエラーメッセージ末尾に付けます。claim 済みの契約 5 未満 worker はこの確認なしで teardown するため、ここでは触れません。確認と disconnect を一括する fence はありません。そのため disconnect 後に claim 状態を再確認し、その間に claim されたら再接続して scheduler の teardown（SIGTERM で drain）に任せます。disconnect が続く短時間、claim 要求中の worker は接続が切れる場合があります。
+
+契約 6 から worker ネットワークに host アドレスがありません。契約 5 コンテナのネットワークは同名ですが、gateway mode を in-place で変更できないため、交代は次の順で進みます。
+
+* **交代前確認（`assertReplaceable`）：** 同じ launch の契約 5 worker がそのネットワークに実際に接続し、欠陥が host アドレス一つだけなら、以前のネットワークを通します。続く teardown がコンテナとともにネットワークを削除し、`ensureExecution` が `isolated` で再作成します。
+* **通常の launch 経路：** worker なしで残った以前のネットワーク（teardown のネットワーク削除失敗時）は、proxy だけが接続していれば削除・再作成します。他のメンバーがいれば拒否します。以前の worker が接続中の以前のネットワークへ、新しいコンテナを起動することはありません。
+* **`reconcileNetworks`：** 契約 5 worker が接続する以前のネットワークでは proxy を切り離しません。claim 済み worker は確認なしに drain・teardown するため、その前に egress を切らないためです。契約 6 worker が host アドレスのあるネットワークにいれば欠陥と判断して proxy を切り離します。
+
+この交代も claim 済み worker は、下記の turn 境界まで drain してから閉じる規則に従います。適用順序は[隔離契約の変更作業](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때)に従います。
+
+**claim 済み worker は再作成できないため、turn 境界まで drain してから teardown します。** 次の節に従います。
+
+<a id="계약이-오를-때-claim된-worker의-drain" />
+### 契約更新時の claim 済み worker の drain
+
+claim 済みコンテナが stale でも scheduler は即座に破棄しません。
+1. 最初の pass が DB 時計で `worker_launches.drain_requested_at` を記録します。その時点から worker は新しい turn を受け取りません。取得済み turn は最後まで実行し、後続入力は queued のまま残ります。
+2. 実行中 turn（`running`・`needs_input`）がある、または worker がまだ最初の入力を要求していない場合（workspace 準備・checkpoint 復元中。この段階の中断は起動失敗に数えます）、コンテナを残し、pass summary の `draining`（ログは `draining_count`、`Claimed execution draining before its replacement`）に含めます。
+3. turn 終了後の最初の pass がコンテナを teardown します。turn の checkpoint は finalize で既に確定しています。SIGTERM を受けた worker は idle drain で release し、queued 入力は新しい launch（現在の契約）が取得して checkpoint から継続します。
+4. drain 期限後も turn が開いている、または起動未完了なら、そのまま teardown します。その turn は従来どおり `outcome_unknown` になります。未完了の起動は、worker が SIGTERM に drain で release すれば数えず、release なしで終了すれば失敗 1 回に数えます。pass summary の `drainsOverdue`（ログは `drain_overdue_count`）と警告 `Drain deadline passed with the worker still busy; replacing anyway` が一行残ります。期限は `MAX_TURN_SECONDS` + 5 分です。どの turn も `MAX_TURN_SECONDS` を超えられず、5 分はその turn の finalize・checkpoint 用です。
+
+未 claim の stale コンテナは従来どおり即座に交代します。
+
+運用者による rollout・緊急 terminate・rollback の判断は[隔離契約の変更作業](/run-server/self-hosting/recover-sessions#격리-계약-변경을-적용할-때)に従います。
+
+<a id="kubernetes-격리" />
+## Kubernetes の隔離
+
+Kubernetes は Docker のネットワークの代わりに、chart の NetworkPolicy と namespace 権限で worker 境界を作ります。
+
+<a id="scheduler는-replica-1-recreate" />
+### scheduler は replica 1、`Recreate`
+
+scheduler pass は PostgreSQL advisory lock（`pg_try_advisory_lock`）一つで直列化します。二つ目の scheduler は lock を取得できず pass を省略し、成功 pass がないため `--health` が stale となり、liveness がその Pod を再起動し続けます。増やしても処理量は増えません。そのため chart は `replicas: 1` に固定し（values に key はありません）、rollout も `RollingUpdate` ではなく `Recreate` で以前の Pod を先に停止します。アップグレード中は pass が一時停止します。reconciler は pass を row lock の下で再判定するため、leader election なしで `reconciler.replicas` を増やせます。既定は 1 です。
+
+<a id="worker-networkpolicy" />
+### worker の NetworkPolicy
+
+chart の NetworkPolicy が Docker backend の execution 別 internal ネットワークを代替します。worker Pod（`app.kubernetes.io/part-of=werft`、`app.kubernetes.io/component=worker`、`werft.installation=<installationId>`）は接続を一切受け付けず、外向きは egress-proxy の 3128・3129 にだけ接続します。DB、api、他の worker、node・cloud metadata アドレスへ直接は到達しません。api への gateway 要求も proxy 経由です。egress-proxy は worker からだけ接続を受け、api の authorizer（3100）は egress-proxy からだけ受けます。クラスタ CNI が NetworkPolicy を強制しなければこの隔離はありません（kind の kindnet は強制します。EKS では VPC CNI の network policy agent を有効にします）。
+
+<a id="api-server-인증" />
+### API server 認証
+
+API server 認証は `KUBECONFIG` があればそれを使い、なければ Pod の ServiceAccount を使います。ServiceAccount 経路は `KUBERNETES_SERVICE_HOST`・`KUBERNETES_SERVICE_PORT` と token・CA ファイルを読みます。scheduler の Role の verb と pidsLimit の処理は、リポジトリの `packages/adapters/execution/kubernetes/README.md` にあります。
+
+<a id="이미지-안의-도구와-신원" />
+## イメージ内のツールと ID
+
+<a id="worker-안에서-만든-commit의-작성자" />
+### worker 内で作成した commit の作成者
+
+worker イメージは git の system 設定（`/etc/gitconfig`）に `user.name=Werft`、`user.email=noreply@werft.invalid` を設定します。そのため Claude が workspace で作る commit は、リポジトリやセッションで別途指定しなければ、author と committer がともに `Werft <noreply@werft.invalid>` です。この値がないと git は commit を拒否し、Claude が利用者に名前とアドレスを尋ねます。`.invalid` はどこにも配信されない予約ドメインで、実在する人のアドレスと重複しません。checkpoint の内部 commit はこの値を使いません（`checkpoint@werft.invalid`）。同じ system 設定はその後に `include.path=~/.werft/git-identity` を置きます。セッションのリポジトリがコンソールの書き込み用 GitHub App を使う場合、worker がそのファイルに App bot アカウント（`<slug>[bot]`）を書いて既定値を上書きします（[GitHub アカウント接続](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#github-계정-연결)の「commit 作成者」）。ファイルがなければ include を省略します。
+
+system 設定は git 設定で最も優先順位が低いため、セッション内の指定が優先します。セッションの作成者を変更するには、workspace リポジトリで `git config user.name`・`git config user.email` を使います。`git commit --author` は author だけを変更し、committer はそのままです。`git config --global` は tmpfs HOME に書くため worker 交代で消えます。リポジトリ設定も checkpoint 復元後の worker では消えます。復元が workspace を空にし、リポジトリを作り直すためです。その時点から再び既定の作成者で commit します。catalog や設置設定で既定値を変える機能は設けていません。利用者別の作成者を既定にするには、利用者のアドレスを worker に渡す必要があるため、先に製品上の判断が必要です。image smoke（`.github/scripts/image-smoke.sh`）が空リポジトリで commit してこの作成者を確認し、e2e（`tests/e2e/alpha-path.e2e.ts`）が実際の Claude Code の Bash ツールで同じことを確認します。
+
+<a id="worker-안의-github-cli" />
+### worker 内の GitHub CLI
+
+worker イメージには GitHub CLI（`gh`、`/usr/local/bin/gh`）があります。セッション内で `gh` コマンドが見つからず迷わないためのもので、GitHub への経路を増やすものではありません。イメージに GitHub ログインや token はなく、`api.github.com` は egress proxy のどの既定一覧にもありません。そのため出荷イメージと既定 egress 設定では、`gh --version`・`gh help` など network を使わないコマンドだけが動き、GitHub を呼ぶコマンドは読み取り・書き込みとも失敗します。未ログインなら `gh` は要求前に `gh auth login` の案内とともに exit 4 で終了します。セッションが `GH_TOKEN` を設定しても、proxy が `api.github.com:443` CONNECT を `destination is not allowlisted` で拒否し、`Forbidden` で終了します。運用者が `EGRESS_ALLOWLIST` に `api.github.com:443` を加えると、この遮断はなくなります。その場合、セッション自身が持つ token で `gh` が GitHub API を呼べ、プラットフォームの push 承認・branch 制限は適用されません。GitHub の書き込みを組み込みの `github` MCP サーバーだけに通すには、この host を一覧に入れないでください。バージョンは worker Dockerfile の `GH_VERSION` とアーキテクチャ別 sha256（リリースの checksums ファイルの値）で固定し、毎日の Debian セキュリティ更新では上がらないため手動で更新します。一つのバイナリでイメージが約 38MB 増えます。
+
+worker イメージに Docker socket や host HOME は渡しません。ツールが使うパッケージ runtime は[自前イメージのビルド](/run-server/self-hosting/build-images)で準備します。リポジトリだけに残した git 設定は、checkpoint 復元で新しいリポジトリを作る際に消える場合があります。

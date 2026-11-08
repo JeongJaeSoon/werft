@@ -1,0 +1,108 @@
+---
+title: "利用者アクセス経路の設定"
+description: "コンソールと SSE に安全な経路で到達できることを確認します"
+pageId: "P08"
+docType: "作業"
+audience: "ネットワーク運用者"
+outcome: "コンソールと SSE に安全な経路で到達できることを確認します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+リモート bootstrap 前に SSH tunnel または TLS・制限したネットワークでのアクセス経路を構成し、コンソール・API・SSE を確認します。
+
+<a id="준비물" />
+## 準備
+
+サーバー設置、SSH 権限、または組織の TLS 証明書と VPN/IP allowlist が必要です。PostgreSQL と Docker socket は外部に公開しません。プライベート CA はクライアントから信頼される必要があり、curl の `-k` で回避しないでください。
+
+<a id="단계" />
+## 手順
+
+<a id="compose-ssh-tunnel" />
+### Compose の SSH トンネル
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+このターミナルを開いたまま、別のターミナルまたはブラウザから `http://127.0.0.1:3000` に接続します。
+
+<a id="compose-tls-reverse-proxy" />
+### Compose の TLS リバースプロキシ
+
+API（既定 3000）と PostgreSQL（既定 5432）はホスト loopback のみに公開されます。利用者は SSH tunnel で接続し、PostgreSQL は運用者がサーバー内だけで使います。ファイアウォールは SSH と選択した TLS endpoint だけを許可します。
+
+内部 DNS 名で API を公開する場合は、前段に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。アクセス元を VPN 範囲または IP allowlist に絞り、TLS 接続は proxy で処理します。proxy はブラウザが送った `Host` をそのまま upstream に渡します。API は状態変更するブラウザ要求の `Origin` の host と `Host` が異なると拒否するため、upstream の host に変えると Web コンソールの変更要求が失敗します。イベントストリーム（SSE）は接続を長時間保持するため、`proxy_buffering` と要求 buffering を無効にし、read・send timeout を 1 時間など長く設定します。どの経路でも PostgreSQL と Docker socket は proxy やファイアウォールの外へ公開しません。Docker socket は scheduler が worker を管理するときだけ使用し、ホスト TCP socket は有効にしません。
+
+証明書パス、内部 DNS 名、許可範囲は組織の環境値を使います。同じサーバーからの試験要求も許可するなら loopback を明示します。`Host` とブラウザの `Origin` を一致させ、SSE buffering を無効にします。
+
+<a id="kubernetes-내부망-alb" />
+### Kubernetes: 内部ネットワーク ALB
+
+`values-aws.example.yaml` を環境別ファイルへコピーし、placeholder（account id、ARN、host、digest）を埋め、`values.yaml` に重ねます。次の render はローカルで実行できますが、その結果の適用は **AWS 専用**です。
+
+**AWS の例は内部ネットワーク専用 ALB を前提とします。** そのため例の Ingress annotation の `scheme` は既に `internal` です。環境別ファイルでも `internet-facing` に変えないでください。`render-check` は例の render で `internet-facing` を拒否します。適用後、ALB が内部ネットワークの subnet に作られたことを確認します（**AWS 専用**）。
+
+<a id="웹-콘솔과-internal" />
+### Web コンソールと `/internal`
+
+Web コンソールは api がポート 3000 で配信します。`ingress.console.enabled: true`（既定 `false`）なら Ingress が `/`（Prefix）を api Service に送ります。同じポートには worker 用の `/internal` もあり、`/` Prefix は `/internal` にも一致します。そのため chart は `/` の前に `/internal`（Prefix）規則を置き、この規則を api ではなく annotation `alb.ingress.kubernetes.io/actions.block-internal` の fixed-response（404、`text/plain`）へ送ります。AWS Load Balancer Controller は長い Prefix を短い Prefix より先に評価するため、`/internal` とその配下には ALB が 404 を返します。`render-check` はこの規則が `/` より前にあり、404 action を参照し、それ以外の経路が api Service の `http`（3000）ポートに届くことを検査します。
+
+この規則は ALB だけで有効です。他の controller は `block-internal` という Service のない経路を飛ばして `/` から `/internal` を公開し得るため、`ingress.className` が `alb` 以外なら chart は render を拒否します。`/internal` 要求を 404 規則の外へ送れる annotation（`alb.ingress.kubernetes.io/` の `actions.*`・`conditions.*`・`transforms.*`・`group.*`、`kubernetes.io/ingress.class`）が `ingress.annotations` にある場合も render を拒否します。IngressClass の `IngressClassParams` がこの Ingress を別の Ingress と同じ group に入れると、先行 Ingress の規則が先に評価されます。そのためコンソールを有効にするときは、`alb` IngressClass が group を強制しないことを確認します（**AWS 専用**）。
+
+**有効化の条件。** api は percent-encoding を decode したパスで route します。ALB path pattern に `%` は使えないため、`/%69nternal/…` のようなパスは `/internal` 規則に一致せず、`/` 規則で api に届きます。api は decode 前のパスが `/internal` で始まるときだけ worker route へ送り、encoding した変種には 404 `NOT_FOUND` を返します。この動作を含む api イメージを使う場合だけ `ingress.console.enabled` を有効にします。
+
+dot segment（`/x/../internal/…`、`/%2e/internal/…`）と逆スラッシュ（`/internal\…`、`/x/..\internal/…`）は、Bun が要求を api に渡す前に `/internal/…` へ整理するため、api は通常の `/internal/…` と区別できません。これを遮断するのは ALB です。ALB は URI を正規化してから規則を評価しますが、文書には正規化対象の詳細がありません。そのためコンソール有効化後、内部ネットワークから次の要求で確認します（**AWS 専用**）。`/%69nternal/x` は api の 404（`application/json`）が期待値です（ALB がこれも正規化して `text/plain` の 404 を返しても安全です）。残りの経路はすべて ALB の 404（`text/plain`）が期待値です。api の `/internal` route は状態によらず `application/json` を返します。従って dot segment や逆スラッシュの経路に `application/json` が返ったら、ALB が api に送ったため、コンソールを再び無効にします（ALB 自身が 400 などのエラーで拒否するのは安全です）。
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+有効にする場合、環境別ファイルに次を設定します。無効にすると `/` と `/internal` の規則が両方外れ、`/v1`・`/docs`・`/healthz`・`/readyz` はそのままです。
+
+```yaml
+ingress:
+  className: alb
+  console:
+    enabled: true
+```
+
+適用後、内部ネットワークから確認します（**AWS 専用**）。`curl -s -o /dev/null -w '%{http_code}\n' https://<host>/` は 200 です。`curl -si -X POST https://<host>/internal/worker/x` は 404、応答ヘッダーは `content-type: text/plain` で、api が付ける `x-request-id` がない必要があります。api の 404 は `application/json` に `x-request-id` が付くため、状態コードだけでは ALB が遮断したか判断できません。
+
+```bash
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # render only
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # render only
+helm upgrade --install werft deploy/helm/werft \
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # requires AWS resources
+```
+
+<a id="확인" />
+## 確認
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x '/internal\x' '/x/..\internal/x'; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
+
+選んだ経路で `/readyz`、`/docs`、`/docs/scalar.js` とコンソールを確認します。認証済みイベントストリームは `curl -sSN --max-time 5` で内容が届くか確認し、時間制限による終了と持続接続を観察した結果を区別します。allowlist 外からは遮断される必要があります。ログイン cookie と変更要求の Origin 検査も確認します。実際の内部 DNS・VPN・AWS ALB 経路は、この文書のローカル確認では証明できません。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+TLS 証明書が信頼されていなければ、ブラウザが接続を遮断します。Host を upstream の値に変えると、コンソールの変更要求が拒否されます。ALB 正規化試験で内部パスが API へ届いた場合、コンソール Ingress を直ちに無効にします。
+
+<a id="되돌리기" />
+## 元に戻す
+
+tunnel はそのターミナルで終了します。reverse proxy の今回の設定をバックアップへ戻します。Kubernetes は環境別 values の `ingress.console.enabled` を false に戻して適用し、`/internal` と authorizer が外部に公開されていないことを確認します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[最初の owner と key](/run-server/self-hosting/users-and-keys)。

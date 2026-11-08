@@ -1,0 +1,297 @@
+---
+title: "設定・key・ポート"
+description: "入力形式、範囲、反映時点を調べます"
+pageId: "P23"
+docType: "レファレンス"
+audience: "設置運用者"
+outcome: "入力形式、範囲、反映時点を調べます"
+---
+
+<a id="계약" />
+## 契約
+
+`WERFT_API_KEY` と `WERFT_BASE_URL` はサーバーではなく SDK 呼び出し側の設定です。[SDK クライアント設定](/getting-started/client)に従います。
+
+設定値の形式、必須性、反映時点を調べるための文書です。実行前の有効化・rollback ゲートは、先に [Compose アップグレード](/run-server/self-hosting/upgrade-compose)と [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)を読みます。
+
+<a id="설치-상한" />
+## 設置上限
+
+API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの値がない、またはいずれかの形式が不正な場合、問題を一行にすべて記録し起動しません。`SESSION_TOKEN_LIMIT` は未設定なら 0（上限なし）です。両プロセスは同じ parser（`packages/platform/src/limits/installation-limits.ts`）を使います。`SESSION_TOKEN_LIMIT` の 0 以外にコードの既定値はなく、compose の `x-installation-limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
+
+| 変数 | 意味 | 超過時 |
+|---|---|---|
+| `EXECUTION_SLOT_LIMIT` | 同時に slot を保持する worker 数。0 なら受付だけ行い、何も起動しません | 入力は拒否せず `queued` にします |
+| `QUEUED_INPUT_LIMIT_PER_SESSION` | 一つのセッションが蓄積できる `queued` turn 数 | `429 RATE_LIMITED`、`retryable:true`、`Retry-After: 5` |
+| `STORAGE_LIMIT_BYTES` | 環境全体が保持する入力 message の UTF-8 bytes。event・checkpoint object・worker ディスクは数えません（ディスクは workspace quota が担当） | `413 STORAGE_LIMIT_EXCEEDED`、`retryable:false` |
+| `MAX_TURN_SECONDS` | 一つの turn の実時間上限。承認待ちも含み、worker env の `WORKER_MAX_TURN_SEC` に渡します | turn は `failed(turn_timeout)`。エンジンが応答しなければ `outcome_unknown(turn_timeout)` |
+| `SESSION_COST_LIMIT_USD` | セッション累積費用（egress proxy が計測した Messages 呼び出し別 usage をプラットフォーム価格表で換算した合計、推定値） | 新 turn を dispatch しません。セッション詳細に `attention.code=BUDGET_EXCEEDED` が出て worker は slot を返します。入力は引き続き `queued` で受け付けます |
+| `SESSION_TOKEN_LIMIT` | セッション累積 provider token 数。費用上限と同じ呼び出しを単価によらず数えます。0 は上限なし（既定）です | `SESSION_COST_LIMIT_USD` と同じです。両上限は同じ判定（`budgetExceeded`）を通り、どちらが先に達しても `BUDGET_EXCEEDED` です。`attention.reason` は達した上限だけを記します |
+| `PROVIDER_MAX_RETRIES` | 失敗した Messages 要求の再送回数。worker env の `WORKER_PROVIDER_MAX_RETRIES` を経由して SDK の `CLAUDE_CODE_MAX_RETRIES` に渡します。0 なら最初の失敗で turn が終わります | turn は `failed(api_error)`。turn 詳細の `result` に `api_error_status`・`provider_error`・`last_retry_status` が残ります |
+
+<a id="api-설정" />
+## API 設定
+
+API は設置上限以外に次の値を起動時に一つの parser（`apps/control-host/src/api/api-settings.ts`）で読みます。未設定なら既定値を使います。設定した値が不正なら（空文字を含む）、既定値には戻りません。数値設定は API・scheduler・reconciler・worker と設置上限がすべてこの規則に従います（`packages/contracts/src/shared/settings.ts`）。既定値のない値は未設定なら `X is required`、不正なら `X must be a positive integer` のように期待する範囲を示して拒否します。受け取った値自体は書きません。ログに残り、別の変数へ誤入力した秘密かもしれないためです。`Refusing to start: API settings are invalid` の一行に全問題を記録して起動しません。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
+
+| 変数 | 既定値 | 許可範囲 |
+|---|---|---|
+| `HEARTBEAT_TTL_SEC` | 30 | 20 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`、以前の worker は 10 秒）。margin と 10 秒の合計以下なら、以前の worker の attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します |
+| `PENDING_REQUEST_TTL_SEC` | 1800 | 整数 1–604800。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ちます。worker の `QUESTION_TIMEOUT_SEC` は gateway が登録確認する前だけ適用します。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません |
+| `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
+| `AGENT_ACTION_FLOWS` | `false` | `true`・`false`・`1`・`0`（それ以外では起動拒否）。有効にすると、実行中 turn の `request_push` は要求の代わりに「turn 終了時に push」の intent を残し、続行 turn なしでその turn の最終 checkpoint を push 要求にします。無効にすると新 intent を作らず以前のフローへ戻ります。既存 intent は処理し続けます。有効化・rollback は先に[アップグレードゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います |
+| `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
+| `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |
+
+すべての `/v1` 応答は `api.request.completed` を記録します。実 id を含まない Hono の `route_template`、`method`、`status`、認証と route 処理を含む `duration_ms`、`operation=api_request`、`outcome`、`reason_code` があり、`request_id` は log context にあります。request body・credential・provider key は含めません。terminate 要求は同じ `request_id` の `Terminate control transaction completed` も記録し、pool checkout、binding・launch・session lock、各 SQL、commit または rollback、control transaction 全体の millisecond 計測を含みます。デプロイ環境で受理遅延を調べるときは、両ログを `request_id` で結び、遅い段階を特定します。
+
+terminate が既に消えた execution で即完了する、または scheduler/reconciler が execution 不在を確認すると、`control.result` が `operation=terminate`、receipt id の `control_id`、`outcome`、`reason_code`、durable 受理から確認までの `effect_ms`（`duration_ms` と同じ）を記録します。期限超過 receipt は先に `outcome=unknown`・`reason_code=deadline_exceeded` を記録し、後に execution 不在を確認して receipt を成功へ上げると、`outcome=succeeded`・`reason_code=execution_gone` の結果を追加します。
+
+`WEB_DIST_DIR` があれば API が同一 origin で Web コンソールを配信します。`/v1`・`/internal` 外の GET・HEAD はそのディレクトリのファイルを返し、なければ `index.html` を返します（SPA fallback）。そのため `/login`・`/bootstrap` を再読込しても画面が開きます。`/v1`・`/internal` 配下は fallback しません。認証済みの `/v1/nope` は JSON の `404 NOT_FOUND` です。`/assets/` 配下のファイル名には content hash があるため `immutable` で cache し、存在しない asset にはページではなく 404 を返します。`index.html` は `no-cache` で、inline script を許可しない CSP（`script-src 'self'`）を付けます。control-host イメージは `web` build stage で `apps/web` をビルドし、`dist/` だけを含みます。別の web イメージはありません。ローカルで Web だけ変更するなら `bun run --cwd apps/web dev`（Vite、`/v1` を `VITE_API_TARGET`、既定 `http://127.0.0.1:3000` へ proxy）を使います。
+
+`AUTH_MODE=none` は egress authorizer（`EGRESS_AUTHORIZER_PORT`）と併用できません。authorizer が有効なら worker が proxy 経由でこの API に到達することを意味します。`none` では worker 内のコードが `X-Owner-Id` で任意の owner を名乗れるため、起動を拒否します。`AUTH_MODE` 自体（`none`|`api-key`）は readiness が判定します。
+
+worker も起動時に交差検査します。`WORKER_PROVIDER_MAX_RETRIES` がなければ起動しません。コード既定値のない設置上限で、scheduler が常に渡します。`WORKER_NEXT_INPUT_WAIT_SEC` が `WORKER_REQUEST_TIMEOUT_SEC` 以上でも起動しません。その設定ではすべての long poll が request timeout で切れるためです。scheduler と reconciler は空の `DATABASE_URL` を未設定と見なし、`QUEUE_DATABASE_URL` を使います。
+
+API と slack role は `WORKER_IMAGE_RUNTIME`・`WORKER_IMAGE_PREVIOUS_RUNTIME` から現在・直前の worker イメージの runtime の組み合わせを読みます。手入力せず、images.yml が出力した worker digest JSON の `runtime` をそのまま入れます（`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`）。`engine` は現在 `claude` のみで、chart は他の名前を render 時に `images.worker.runtime.engine must be one of: claude` として拒否します。自前イメージにはその JSON がないため、images.yml と同じコマンドでイメージから読みます。
+
+```bash
+docker run --rm -i --network none --entrypoint bun <worker-image> \
+  run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
+```
+
+両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、profile の `runtime_version` を次のイメージのバージョンに上げても、直前のイメージのバージョンで作った open セッションの profile pin は維持されます。現在のイメージに含まれない `runtime_version` の profile は新規セッションを受け付けません。そのため SDK 更新リリースでは、上限ごとに `runtime_version` を上げた新バージョンも作ります（コンソールまたは `POST /v1/installation-profiles`）。
+
+API と slack role は `SESSION_PROMPT_REVISION`（既定 0、許可値 0・1、不正なら起動拒否）で、エージェント release セッションの system prompt 冒頭段落を決めます。1 なら、新規セッション作成時にエージェント名・説明、開始元（Slack チャネル・DM、Web コンソール、API）、エージェントの言語、セッションリポジトリの GitHub 名（`owner/repo`）を `sessions.platform_prompt` に残し、worker が段落を作ります。段落に役割文はなく、役割はエージェント作成者が指示文に書きます。GitHub 案内は設定の有無によらず一段落です。GitHub 作業は組み込みの `mcp__github__` ツールを使い、利用可能なリポジトリは `list_repositories` が返すと案内します。`git push` は GitHub に届かないことも案内します。ツールがない、または GitHub を使えないと返す場合は、「このセッションでは GitHub 作業ができず、管理者がコンソールのエージェント GitHub タブで設定し、新しいセッションが必要な場合がある」と回答させます。GitHub 設定なしの release で始めたセッションには、後から設定してもツールが付かないためです。0 なら新セッションにも段落はありません。保存値はセッション終了まで変わりません。段落は checkpoint fingerprint に含まれるため、エージェント名・説明や release を変更しても進行中セッションはそのまま再開します。
+
+`SESSION_PROMPT_REVISION` のデプロイ・有効化・rollback 順序は[共通の実行前ゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います。0 に戻しても既に 1 で作ったセッションの保存段落は変わりません。ローカル compose は API・slack・worker を一つの tree でビルドするため、既定は 1 です。
+
+GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)）を別の host に送る必要がある場合だけ、次を設定します。GitHub Enterprise Server や試験用の偽 registry が該当します。値は http(s) URL で、userinfo・query・fragment があると API は起動しません。registry host は proxy の `EGRESS_CREDENTIAL_ALLOWLIST`（プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）にも必要です。
+
+| 変数 | 既定値 | 意味 |
+|---|---|---|
+| `GITHUB_PACKAGES_API_URL` | `https://api.github.com` | 登録 token の scope を問い合わせる先（`GET /user`） |
+| `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | `github-npm` route の upstream |
+| `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | `github-rubygems` route の upstream |
+
+<a id="schedulerworker-컨테이너egress-설정" />
+## scheduler・worker コンテナ・egress 設定
+
+scheduler が worker コンテナ作成時に読む値です。未設定は既定値、不正な形式では起動しません。user、HOME・workspace パス、tmpfs サイズ、credential ポート、stop timeout は `werft.isolation` fingerprint に含まれます（[実行基盤と worker の隔離](/run-server/self-hosting/explanation/isolation)）。変更すると実行中 worker が交代します。CPU・メモリ・PID 上限は次の launch から適用します。
+
+`WORKER_MEMORY_MB` は transcript 上限（`MAX_TRANSCRIPT_BYTES`）と合わせて決めた値です。両者の関係、実測、ノードごとのセッション数、変更方法は[容量管理](/run-server/self-hosting/capacity)を参照してください。
+
+scheduler は `WORKER_IMAGE`・`WORKER_IMAGE_RUNTIME` で現在のイメージ、`WORKER_IMAGE_PREVIOUS`・`WORKER_IMAGE_PREVIOUS_RUNTIME` で直前リリースのイメージを受け取ります。runtime 値は API と同じです（上記 API 設定）。直前イメージは両値を設定する必要があり、一つだけでは起動しません。`WORKER_IMAGE_RUNTIME` がなければ、すべての launch は `WORKER_IMAGE` で起動します。設定すると launch ごとに、セッションの checkpoint ポインターに記録された組み合わせ（engine・SDK・CLI・profile digest scheme）と合うイメージを選び、両方合えば現在のイメージを使います。新規セッション、checkpoint がないセッション、組み合わせ未記録の古い checkpoint は現在のイメージで起動します。どちらとも合わなければ worker を起動せず、`recovery_required`（`incompatible_checkpoint`）で停止し、セッションイベント `checkpoint_restore_failed` に `detected_at: "launch"` が残ります。`retry_restore` で再試行できます。
+
+worker は claim 時に、実際に自分のイメージに含む組み合わせを送ります。設定値と違えば API が claim を拒否し（`LAUNCH_FAILED`、`reason_code` は `worker_image_mismatch`）、その設定値に対してそのイメージを拒否したと記録します。以後、そのイメージで起動するセッションは launch されず待機し、scheduler pass は `images_refused` を error ログに残して exit 1 で終了します。イメージ設定を修正すると（値が変わると）、次の pass から launch を再開します。セッション自体は失敗に変わりません。
+
+デプロイ順序：新 worker は claim に `image_runtime` を含めます。このフィールドを知らない以前の API は拒否するため、API を先に更新し、その後 scheduler の `WORKER_IMAGE` を新イメージに変えます。
+
+| 変数 | 既定値 | 意味 |
+|---|---|---|
+| `WORKER_CPUS` | 1 | 一つの worker の CPU 割り当て。0.01 以上 |
+| `WORKER_MEMORY_MB` | 4608 | 一つの worker のメモリ上限（MiB）。非圧縮の 512MiB transcript を resume したエンジンが上限の半分未満に収まるよう決めた値です。開発用 `.env.example` の 2048 は基準を満たさないため、大きな transcript の復元試験では `WORKER_MEMORY_MB` の行を削除するか 4608 に変えます |
+| `WORKER_PIDS_LIMIT` | 512 | 一つの worker の PID 上限。compose は渡しません |
+| `EXECUTION_DOCKER_USER` | `1000:1000` | worker の数値 `uid[:gid]`。uid または gid が 0 なら起動拒否。worker イメージの `/workspace` 所有者と一致する必要があります |
+| `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | tmpfs で mount する HOME。絶対パス |
+| `EXECUTION_DOCKER_WORKSPACE_DIR` | `/workspace` | セッション volume の mount 先。絶対パスで HOME と異なり、空白・逆スラッシュは使えません。worker へは `WORKER_WORKSPACE_DIR` で渡します |
+| `EXECUTION_DOCKER_TMPFS_SIZE_MB` | 256 | HOME と `/tmp` の各 tmpfs サイズ（MiB） |
+| `EXECUTION_DOCKER_STOP_TIMEOUT_SEC` | 120 | SIGTERM から SIGKILL までの猶予。30 未満なら起動拒否。worker へ `WORKER_STOP_GRACE_SEC` で渡し、worker はその範囲内で drain します |
+| `EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 30 | Docker Engine API の一要求の期限 |
+| `EXECUTION_DOCKER_COMMAND` | なし | イメージ entrypoint の代わりに実行するコマンド（空白で分割）。試験用です |
+| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker daemon アドレス |
+| `DOCKER_API_VERSION` | `v1.44` | 要求に使う Engine API バージョン |
+| `EXECUTION_EGRESS_CREDENTIAL_PORT` | 3129 | proxy credential route のポート。proxy の `EGRESS_CREDENTIAL_PORT` と一致し、`EXECUTION_EGRESS_PROXY_URL` のポートとは異なる必要があります |
+
+`EXECUTION_DOCKER_NETWORK`・`EXECUTION_DOCKER_NETWORK_ALLOWLIST` はもう読みません。値があれば起動を拒否します。
+
+egress-proxy と API の authorizer listener は次の値を読みます。一覧変数は既定値に追加せず、全体を置き換えます。GitHub・bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。公開 credential 一覧（`EGRESS_CREDENTIAL_ALLOWLIST`）は proxy と API で同じ値にします。private 一覧（`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）は proxy の拒否基準であり、API はコンソール警告だけに使います。private 一覧も一致を推奨しますが強制はなく、core・local-model layer の role 別既定値も異なります。
+
+| 変数 | 既定値 | Helm values | 意味と起動制約 |
+| --- | --- | --- | --- |
+| `EGRESS_PROXY_HOST` | `0.0.0.0` | 個別 key なし | proxy の forward・credential listener アドレス |
+| `EGRESS_PROXY_PORT` | 3128 | 個別 key なし | forward proxy ポート |
+| `EGRESS_CREDENTIAL_PORT` | 3129 | 個別 key なし | credential route ポート |
+| `LOG_LEVEL` | `info` | `config.logLevel` | ログレベル。API と同じ形式 |
+| `EGRESS_ALLOWLIST` | 空一覧 | `config.egress.allowlist` | forward public 宛先のカンマ区切り `host:port`。credential・redirect 一覧との重複禁止 |
+| `EGRESS_PRIVATE_ALLOWLIST` | Compose：`api:3000,host.docker.internal:3000`。chart：API Service の 3000 | `config.egress.privateAllowlist`（空なら API Service） | forward private 宛先。link-local・reserved アドレスは許可しません。両 forward 一覧が空なら proxy 起動拒否 |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | Compose（core・local）：`api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443`。単一サーバー（test-ops）：既定値なし、必須。chart：core・local と同じ既定値 | `config.egress.credentialAllowlist` | API・proxy の credential public 宛先。test-ops は未設定なら Compose が失敗します。既定値全体を置き換えるため、GitHub・checkpoint bucket host を追加する際は必要な全項目を再記入します |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | chart・Compose core proxy：空一覧。Compose core API・local proxy layer：`fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566` | `config.egress.credentialPrivateAllowlist` | proxy 拒否・API コンソール警告用の private 宛先。test-ops LocalStack 経路には `localstack:4566` が必須で、例もこの値だけを使います。local-model overlay は `fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000`。運用環境では試験 host を使いません |
+| `EGRESS_PACKAGES_REDIRECT_ALLOWLIST` | 空一覧 | `config.egress.packagesRedirectAllowlist` | packages redirect と Git LFS object の public 宛先。資格情報なしで取得し、forward 一覧との重複禁止 |
+| `EGRESS_AUTHORIZER_HOST` | `0.0.0.0` | 個別 key なし | API authorizer listener アドレス |
+| `EGRESS_AUTHORIZER_PORT` | API コード：未設定なら listener なし。Compose・chart：3100 | 自動生成 | API では token と両方設定するか両方省略。`AUTH_MODE=none` と併用すると起動拒否 |
+| `EGRESS_AUTHORIZER_URL` | proxy コード：なし。Compose：`http://api:3100`、chart：API authorizer Service | 自動生成 | http/https URL。proxy では token と両方設定するか両方省略。API listener ポートとの一致が必要です |
+| `EGRESS_AUTHORIZER_TOKEN` | 運用既定値なし | Secret の同名 key | API・proxy で共有する最小 32 文字の秘密。API では PORT、proxy では URL と対で必須。運用では環境ごとに生成し、ローカル試験値は使いません |
+
+compose の三つのポートと二つの内部 URL は、`infra/compose.core.yml` 冒頭の `x-egress-ports` 一箇所で定めます。proxy の `EGRESS_PROXY_PORT`・`EGRESS_CREDENTIAL_PORT`・`EGRESS_AUTHORIZER_URL`、api の `EGRESS_AUTHORIZER_PORT`、scheduler の `EXECUTION_EGRESS_PROXY_URL`・`EXECUTION_EGRESS_CREDENTIAL_PORT` はすべてその anchor を使います。ポート変更時は同じ block の listener と URL の対を同時に変更します。`tests/images.test.ts` が `docker compose config` の結果で二つの URL のポートと三つの listener が一致することを確認します。
+
+API コンテナのメモリは checkpoint bundle 検証によって決まります。検証は同時に二つまで動き、各検証では git fetch と index-pack がそれぞれ `CHECKPOINT_GIT_MEMORY_MB` のアドレス空間上限の下で同時に動きます。両値は一緒に変更します。上限だけを上げると OOM killer が終了対象を決めることになります。計算は `infra/compose.core.yml` の api サービスのコメントにあります。
+
+| 変数 | 既定値 | 意味 |
+|---|---|---|
+| `API_MEMORY_MB` | 7168 | compose api コンテナの `mem_limit`（MiB） |
+| `CHECKPOINT_GIT_MEMORY_MB` | 1536 | bundle 検証の git 一プロセスのアドレス空間上限（MiB）。512 未満なら起動拒否 |
+
+compose の Postgres は `POSTGRES_USER`（`postgres`）・`POSTGRES_PASSWORD`（`dev`）・`POSTGRES_DB`（`sessions`）で作り、すべてのサービスが同じ値で DSN を作ります。
+
+worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_IDLE_TIMEOUT_SEC`（1800）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`QUESTION_TIMEOUT_SEC`（1800）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
+
+<a id="감독-루프" />
+## 監督ループ
+
+| 設定 | 既定値 | 意味 |
+|---|---|---|
+| `RECONCILER_INTERVAL_SEC` | 10 | pass 終了から次の pass までの待ち時間 |
+| `RECONCILER_PASS_TIMEOUT_SEC` | 60 | 超過した pass を SIGTERM、その 10 秒後に SIGKILL で終了し失敗に数えます。DB 停止時の pass が pool timeout で自ら終わる約 45 秒より大きくします |
+| `RECONCILER_MAX_CONSECUTIVE_FAILURES` | 3 | この回数連続で pass が失敗すると loop が exit 1 となり、`restart: unless-stopped` が再起動します。それ未満なら次の pass がすぐ再試行になります |
+| `RECONCILER_HEALTH_STALE_SEC` | 90 | 最後に完了した pass が失敗、進行中 pass が期限超過、この時間内に成功 pass がない場合に healthcheck が unhealthy となります。成功直後に止まった pass も制限時間で即 unhealthy になります。`RECONCILER_INTERVAL_SEC + RECONCILER_PASS_TIMEOUT_SEC` より大きくないと起動しません |
+| `RECONCILER_STATUS_FILE` | `/tmp/reconciler-status.json` | loop が pass ごとに更新する状態（`lastSuccessAt`・`lastDegradedAt`・`lastFailureAt`・`lastFailureReason`・`consecutiveFailures`・`lastPassDurationMs`、進行中 pass の `passDeadlineAt`）。healthcheck が読みます |
+| `RECONCILER_BATCH_SIZE` | 100 | pass の各段階（orphan・lease・interrupt 回収、期限超過 interrupt・terminate receipt の `unknown` 確定、入力待ち通知）で一度に処理する row 数上限。残りは次の pass が処理します。scheduler の terminate 期限 sweep は読まず、毎 pass 固定上限 100 件ずつ処理します |
+
+| scheduler 設定 | 既定値 | 制約 |
+| --- | --- | --- |
+| `SCHEDULER_INTERVAL_SEC` | 5 | pass 終了後の待機 |
+| `SCHEDULER_PASS_TIMEOUT_SEC` | 180 | Docker stop+request timeout より大きいこと。Kubernetes は 150 秒超 |
+| `SCHEDULER_MAX_CONSECUTIVE_FAILURES` | 3 | 連続失敗後に loop 終了 |
+| `SCHEDULER_HEALTH_STALE_SEC` | 200 | interval+timeout より大きいこと |
+| `SCHEDULER_STATUS_FILE` | `/tmp/scheduler-status.json` | ディレクトリ全体が書き込み可能なこと |
+
+compose は `RECONCILER_STATUS_FILE`、`SCHEDULER_STATUS_FILE`、`RECONCILER_DRY_RUN` を渡しません。状態確認には各 status file と `--health` を使います。reconciler dry-run は[復旧作業](/run-server/self-hosting/recover-sessions)で直接一度実行します。`HEARTBEAT_TTL_SEC` は API だけが読み、reconciler に設定すると起動拒否します。
+
+<a id="kubernetes-env와-values" />
+## Kubernetes env と values
+
+scheduler は `EXECUTION_BACKEND` で backend を選びます。値は `local_docker`（既定、空も同じ）と `kubernetes` の二つで、他の値ならその値を記したエラーで起動を拒否します。`kubernetes` では Docker 設定（`DOCKER_HOST`、`EXECUTION_DOCKER_*`、`EXECUTION_WORKSPACE_QUOTA`）を読まず、Docker socket も使いません。Docker 専用 preflight の egress proxy 隔離確認と workspace quota probe も実行しません。kubernetes の worker 隔離は chart の NetworkPolicy、workspace 上限は PVC サイズが担当します。停止・要求 timeout は固定値（120s + 30s）なので、`SCHEDULER_PASS_TIMEOUT_SEC` は 150 より大きくなければなりません。`migrate-workspace` は Docker volume 移行ツールのため `local_docker` だけで動きます。
+
+readOnlyRootFilesystem の Pod では、status file を書き込み可能なパスに置きます。既定の `/tmp/scheduler-status.json`・`/tmp/reconciler-status.json` は、`/tmp` に emptyDir を mount すれば使えます。別パスなら `SCHEDULER_STATUS_FILE`・`RECONCILER_STATUS_FILE` で変更します。loop は status file と同じディレクトリに一時ファイル（`<status file>.<pid>.tmp`）を書いてから rename します。scheduler は隣に `.quota-verified` 記録も置きます。そのため一つのファイルだけでなくディレクトリ全体が書き込み可能でなければなりません。
+
+共有 env（`WORKER_IMAGE`、`WORKER_GATEWAY_URL`、`EXECUTION_EGRESS_PROXY_URL`、`EXECUTION_EGRESS_CREDENTIAL_PORT`、`EXECUTION_INSTALLATION_ID`、`EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC`、`S3_BUCKET`、`AWS_REGION`）は Docker backend と同じです。kubernetes モードでは次の二つに追加制約があります。
+
+- `WORKER_IMAGE` は `repository@sha256:<digest>` 形式でなければなりません。
+- `EXECUTION_INSTALLATION_ID` は 32 文字以下の小文字 DNS label でなければなりません。
+
+kubernetes モードだけで読む設定は次のとおりです。
+
+| 変数 | 意味 |
+| --- | --- |
+| `EXECUTION_K8S_NAMESPACE` | worker Pod・Secret・PVC を配置する namespace。既定は scheduler 自身の namespace です。クラスタ外で実行する場合は必須です |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker Pod の ServiceAccount。token は常に mount しません |
+| `EXECUTION_K8S_STORAGE_CLASS` | workspace PVC の StorageClass。空ならクラスタ既定値です |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 任意。カンマ区切りの Secret 名 |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 任意。JSON object |
+| `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
+
+失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。保存先と保持期間は、リポジトリの `packages/adapters/execution/kubernetes/README.md`（終了理由とログ tail 節）にあります。
+
+<a id="chart가-넣는-값" />
+## chart が設定する値
+
+Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm chart）](/run-server/self-hosting/kubernetes)）では、上記 env を直接記入せず chart が values から生成します。
+
+| env | values | 備考 |
+| --- | --- | --- |
+| `EXECUTION_BACKEND` | なし | 常に `kubernetes` |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | なし | chart が作る `<fullname>-worker`。token は mount しません |
+| `EXECUTION_K8S_NAMESPACE` | なし | 設定しません。scheduler 自身の namespace（release namespace）になります |
+| `EXECUTION_K8S_STORAGE_CLASS` | `worker.storageClass` | 空なら設定しません |
+| `EXECUTION_K8S_IMAGE_PULL_SECRETS` | `images.pullSecrets` | 制御領域 Pod にも同じ Secret を使います |
+| `EXECUTION_K8S_WORKER_NODE_SELECTOR`、`EXECUTION_K8S_WORKER_TOLERATIONS` | `worker.nodeSelector`、`worker.tolerations` | JSON に変換して設定します |
+| `WORKER_IMAGE` | `images.registry`、`images.worker.*` | `<registry>/<repository>@<digest>`。digest がなければ render 失敗 |
+| `WORKER_GATEWAY_URL`、`EXECUTION_EGRESS_PROXY_URL`、`EXECUTION_EGRESS_CREDENTIAL_PORT` | なし | api Service の 3000、egress-proxy Service の 3128、3129 |
+| `EXECUTION_INSTALLATION_ID` | `installationId` | worker NetworkPolicy の label 値でもあります |
+| `EXECUTION_WORKSPACE_QUOTA_MB`、`EXECUTION_WORKSPACE_GC_MIN_AGE_SEC` | `worker.workspace.*` | quota は workspace PVC のサイズ |
+| `WORKER_CPUS`、`WORKER_MEMORY_MB` | `worker.cpus`、`worker.memoryMb` | |
+| `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | `worker.ephemeralStorageMb` | 既定 1024 |
+| 設置上限（`EXECUTION_SLOT_LIMIT` など） | `config.limits` | api と scheduler に同じ値 |
+| `SCHEDULER_*` | `scheduler.intervalSec` など | `SCHEDULER_PASS_TIMEOUT_SEC`（`scheduler.passTimeoutSec`、既定 180）は 150 より大きいこと |
+| `SLACK_ROLE_INTERVAL_SEC`、`SLACK_ROLE_PASS_TIMEOUT_SEC`、`SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`、`SLACK_ROLE_HEALTH_STALE_SEC`、`SLACK_ROLE_BATCH_SIZE`、`SLACK_ROLE_LEASE_SEC` | `slack.intervalSec`、`slack.passTimeoutSec`、`slack.maxConsecutiveFailures`、`slack.healthStaleSec`、`slack.batchSize`、`slack.leaseSec` | 既定は 2、60、3、90、10、60。`slack.enabled: false` なら slack Deployment を生成しません |
+| `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`（slack） | `api.extraEnv` | slack は api と同じ catalog を読むため api の値に従います。`slack.extraEnv` に書けばそちらが優先します |
+
+どの Deployment にも `extraEnv` で env を追加できます。Secret 由来の値（`DATABASE_URL`、`EGRESS_AUTHORIZER_TOKEN`、AWS key、catalog credential）は [Kubernetes 設置（Helm chart）の準備節](/run-server/self-hosting/kubernetes)の表にあります。
+
+<a id="probe" />
+## probe の設定
+
+| コンポーネント | readiness | liveness | startup |
+| --- | --- | --- | --- |
+| api | `GET /readyz` | `GET /healthz` | `GET /healthz`（5 秒 × 24） |
+| scheduler | `bun run apps/control-host/src/main.ts scheduler --health` | 同じ | 同じ。失敗許容回数は `(intervalSec + passTimeoutSec + 39) / 10` |
+| reconciler | `bun run apps/control-host/src/main.ts reconciler --health` | 同じ | scheduler と同じ式 |
+| slack | `bun run apps/control-host/src/main.ts slack --health` | 同じ | scheduler と同じ式 |
+| egress-proxy | `bun run /app/src/healthcheck.ts` | 同じ | なし |
+
+`/healthz` は HTTP を受け付けるかだけを見て DB を確認しません。そのため liveness に使い、DB・schema・設定を見る `/readyz` は readiness だけに使います。DB が一時的に切れても api Pod は再起動せず、トラフィックから外れるだけです。`/livez` はありません。scheduler・reconciler・slack の `--health` は loop が書く status file を読み、直前 pass が失敗または期限超過した、あるいは `SCHEDULER_HEALTH_STALE_SEC`・`RECONCILER_HEALTH_STALE_SEC`・`SLACK_ROLE_HEALTH_STALE_SEC` 内に完了 pass がなければ失敗します。startup probe は最初の pass の完了を待ちます。
+
+<a id="chart-리소스" />
+## chart リソース
+
+| リソース | 数 | 備考 |
+|---|---|---|
+| api Deployment + Service（3000）+ authorizer Service（3100） | 2 | 3100 は egress-proxy だけが到達できます（NetworkPolicy）。Ingress は 3000 の `/v1`・`/docs`・`/healthz`・`/readyz` だけを route し、worker 用 `/internal` は開きません。Web コンソールの `/` は `ingress.console.enabled` で追加します（[アクセス経路](/run-server/self-hosting/access)） |
+| scheduler Deployment + Role/RoleBinding | 1、`Recreate` | worker Pod・nonce Secret・workspace PVC を同じ namespace だけで作成・削除します |
+| reconciler Deployment | 1 | |
+| slack Deployment | 1 | Slack inbox を処理します。`slack.enabled: false` ならありません。外向きは DNS（53）、443、DB ポート（`networkPolicy.slack.databasePort`、既定 5432）だけです |
+| egress-proxy Deployment + Service（3128、3129） | 2 | worker 唯一の外部経路 |
+| migrate Job | install・upgrade ごとに 1 | `pre-install,pre-upgrade` hook |
+| upgrade-check Job | upgrade ごとに 1 | `pre-upgrade` hook、migrate より前。`scheduler.enabled: false` ならありません（[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)） |
+| checkpoint GC CronJob | 週 1 回 | `checkpointGc.schedule` |
+| session archive CronJob | 週 1 回 | `sessionArchive.schedule`（既定 `0 5 * * 0`）・`afterDays`（既定 180、0=無効、30–3650）・`dryRun`（既定 `true`）。長期間休止したセッションのイベントを bucket に移します（[data-retention.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)） |
+| NetworkPolicy | 5 | worker は egress-proxy だけにアクセスします。制御領域 Pod で外部接続を遮断するのは slack だけです |
+| Ingress、ExternalSecret | 任意 | `ingress.enabled`、`secrets.externalSecret.enabled` |
+| metrics Deployment + Service（9464）+ NetworkPolicy | 任意、1、`Recreate` | `metrics.enabled`。プラットフォームメトリクスを返します（[プラットフォームメトリクス](/run-server/self-hosting/collect-metrics)） |
+
+<a id="secret과-aws-values" />
+## Secret と AWS values
+
+| key | 読み取るコンポーネント |
+|---|---|
+| `DATABASE_URL` | api、scheduler、reconciler、slack、migrate、checkpoint GC、metrics、upgrade-check Job、session archive CronJob |
+| `EGRESS_AUTHORIZER_TOKEN` | api、egress-proxy（同じ値） |
+| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | api、checkpoint GC、session archive CronJob。`secrets.objectStoreKeys: true` の場合だけ。`false` なら AWS 既定 credential chain（IRSA）で署名します |
+| `secrets.catalogEnv` の名前（既定 `ANTHROPIC_API_KEY`） | api だけ。設定文書が `value_env` で指す provider・リポジトリ資格情報を環境変数で渡す代替手段です。モデル key の既定経路は設置後のコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で、その場合は `secrets.catalogEnv: []` にして Secret にこの key を置きません。既定値を維持し Secret に key がなければ Pod は起動しません。slack には渡しません |
+| `PLATFORM_SECRET_KEY` | api、slack。必須。64 文字 hex の master key。コンソールに保存した資格情報を封印します。Secret にないと Pod は起動しません |
+
+| 値 | 変更対象 |
+|---|---|
+| `images.registry`、`images.*.digest` | ECR host とそのイメージの digest |
+| `secrets.objectStoreKeys: false`、`serviceAccounts.api.annotations` | 静的 AWS key の代わりに IRSA。api、checkpoint GC、session archive CronJob が api ServiceAccount のこの role で S3・Secrets Manager に署名します。scheduler と worker に S3 権限はありません |
+| `secrets.externalSecret` | External Secrets Operator が Secrets Manager の `remoteKey`（JSON、上記 Secret key 全部。IRSA なら AWS key 二つを除外）から Secret を書きます。運用者の CRD が必要です |
+| `ingress` | ALB Ingress。`scheme` は `internal`（上記）。`healthcheck-path: /readyz`、SSE 用 idle timeout 300 秒。公開経路（`/v1`・`/docs`・`/healthz`・`/readyz`）だけを route し、`/internal` と authorizer（3100）は開きません |
+| `ingress.console.enabled` | 既定 `false`。有効にすると Web コンソールの `/` と `/internal` の 404 規則を追加します。条件は[アクセス経路](/run-server/self-hosting/access)を参照してください |
+| `config.egress.credentialAllowlist` | 既定値全体を置き換えるため、GitHub・checkpoint bucket host を入れる際は provider・パッケージ registry など必要な全項目を再記入します。worker の checkpoint upload・restore は credential route を通ります |
+| `worker.storageClass`、`worker.nodeSelector`、`worker.tolerations` | worker 専用 node group と workspace PVC の StorageClass（gp3） |
+| `networkPolicy.enabled` | VPC CNI の network policy agent が有効な場合に効力があります |
+
+静的 S3 key が必要なら `secrets.objectStoreKeys: true` にして、Secret に AWS key 二つを設定します。両方ある場合は静的 key が IRSA より優先されます。
+
+<a id="사용량과-비용-계측" />
+## 使用量と費用の計測
+
+- セッション費用は credential route が計測します。proxy は 2xx の `/v1/messages` 応答（JSON・SSE 両方）から usage を読みます。応答の完了または切断時に authorizer listener の `POST /usage` へ報告します。`count_tokens` とエラー応答は数えません。
+  - 応答に usage が揃わなければ多めに推定します。`message_stop` 前に切れた stream は、転送した content の一文字を一 token として output に含め、転送した web search 結果ブロック一つを検索一回と数えます。usage を読めない JSON 応答（切断、8 MiB 超、JSON 以外）は要求から数えます。要求 1 byte を input token 一つ、`max_tokens` を output 全量とします。このような呼び出しは proxy が `Provider usage estimated` 警告を記録し、ledger に `estimated=true` と記します。
+  - API は価格表で USD を求め、micro-dollar 単位に切り上げます。その額を `provider_usage` に一交換一行で記録し、同じ transaction でセッション費用に加算します。そのため ledger 合計とセッション費用は一致します。
+  - engine の呼び出しも、ツールが engine の token で直接呼び出したものも同じように数えます。
+  - 報告には proxy が交換ごとに作る id が付きます。authorizer が応答できなければ 1・5・15 秒後に再送し、同じ id は一度だけ数えます。最後まで報告できなければ proxy が `Provider usage went unreported` エラーログを残し、その交換は計測されません。
+- turn 終了時に SDK が返す `total_cost_usd` の増分は turn 結果（`cost_usd`）だけに残し、セッション費用には加算しません。engine の turn 別 `maxBudgetUsd` は引き続き SDK 値で判定します。proxy 計測導入前のセッションは、それまで SDK 値を加算した費用を引き継ぎます。
+- 価格表はプラットフォームコード（`packages/platform/src/limits/model-prices.ts`）が管理します。model id 別に input、output、cache write（5 分は 1.25 倍、1 時間は 2 倍）、cache read の単価を設定します。モデル追加や価格変更時はリリースと一緒に修正します。
+  - fast mode は別の fast 価格表で数えます。現在は Opus 5.5（$8/$40）と Opus 5・Opus 4.8（$10/$50）だけです。cache 倍率は fast 単価にそのまま掛けます。speed は応答の `usage.speed`、なければ要求の `speed` に従い、両方なければ `standard` です。
+  - 表にないモデル、fast 単価のないモデルの fast 応答、定義名以外の speed 値は、項目ごとに両表を通じた最高単価で数えます。authorizer が `Provider usage priced at the fallback rate` 警告を記録し、ledger には `priced_by=fallback` と記します。
+  - 応答の `usage.server_tool_use` の web search 一回ごとに $0.01（1,000 回 $10）を加算します。web fetch は token 以外の料金がありません。code execution は加算しません。web search・web fetch と併用すれば無料で、それ以外では呼び出し数でなくコンテナ時間で課金され、組織の無料時間もあるためです。三つの回数と speed は ledger（`provider_usage`）に記録します。
+  - 4.6 以降のモデルが US 限定推論（`inference_geo: "us"`）の場合、token 単価すべて（fast・cache を含む）に 1.1 倍を掛けます。web search 料金には掛けません。geo は応答の `usage.inference_geo`、なければ要求の `inference_geo` に従い、両方なければ `unknown` です。workspace の既定値が `us` の場合があるためです。`global`・`us` 以外は最高単価の 1.1 倍で数えます（`priced_by=fallback`）。geo は ledger の `inference_geo` に記録します。これを知らない以前の API はフィールド付き報告を `400` で拒否し、proxy はその交換を計測できません（`Provider usage went unreported`）。そのため API（migration 含む）を egress proxy より先に更新します。順序は [Compose アップグレード](/run-server/self-hosting/upgrade-compose#2-api--proxy--worker-순서)と [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)に従います。新 API はこのフィールドがない以前の proxy の報告も受け付けます。
+  - 4.6 より前のモデル（Opus 4.5・4、Sonnet 4.5・4、Haiku 4.5）は `inference_geo` を受け付けないため geo によらず標準単価です。window は 200K で、公開された long-context 単価がありません。そのため input・cache write・cache read 合計が 200K を超える呼び出しは最高単価で数えます（`priced_by=fallback`）。4.6 以降は 1M 全体が標準単価です。
+  - batch は credential route が `/v1/messages/batches` を開かないため対象外です。
+- トークン上限は、`provider_usage` 一行の `input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens` を `sessions.provider_tokens` に加算して数えます。`provider_usage` の insert trigger が同じ transaction で加算するため、rollout 中や rollback 後に 0127 より前の API が記録した呼び出しも取りこぼしません。cache read もモデルが処理した token なので数えます。多めに推定した報告は推定値のまま足します。累計を追加した migration は既存セッションを `provider_usage` 合計で埋めます。それ以前に SDK 値だけで費用を数えたセッションの token は補えません。累計は 2^53-1（`Number.MAX_SAFE_INTEGER`）で止まります（migration 0129）。trigger は numeric で加算するため、異常に大きな token 値でもエラーで usage 記録や費用を rollback しません。
+  - SDK に token 予算オプションはありません。そのため turn 中の token 上限は下記の egress 拒否と再認可だけが担当します。上限到達後に開いた Messages 呼び出しは拒否され、turn は `failed(budget_exceeded)` で終了し、次の turn から `BUDGET_EXCEEDED` で dispatch されません。proxy は authorizer の `BUDGET_EXCEEDED` 拒否を Messages エラー形式（`message` が `BUDGET_EXCEEDED:` で始まる）で伝えます。理由はこの文言からは決めません。engine はこの 403 を `api_error` として報告し、再認可で切れた交換も再試行がなければ（`PROVIDER_MAX_RETRIES=0`）、切れた接続のまま `api_error` と報告します。finalize は `api_error` で終了した turn のセッションが既に上限を超えていれば、理由を `budget_exceeded`、receipt エラーを `BUDGET_EXCEEDED` と記録し、engine の provider 診断（`provider_error`）を消去します。上限未満で発生した 403 は `api_error` のままです。
+- 費用・token 上限は呼び出し完了後に判定します。同時に開く呼び出しがすべて認可を通過する場合があり、進行中の turn は上限を超え得ます。
+- 累積費用または token が上限以上のセッションの provider egress token は、authorizer が 403 `BUDGET_EXCEEDED` で拒否します。新 provider 交換は即座に拒否し、既存交換は次の再認可（30 秒周期）で切断します。repository・object store route は拒否しません。
+
+<a id="지표-역할" />
+## メトリクス role
+
+| 設定 | 既定値 | 意味 |
+|---|---|---|
+| `METRICS_PORT` | `9464` | `/metrics` と `/healthz` を受けるポート。chart は `metrics.port` で設定します |
+| `DATABASE_URL` | なし（必須） | 読み取り専用で開く DB アドレス。chart は他の role と同じ Secret key を設定します |
+| `config.limits` の上限 | [設定レファレンス](/run-server/self-hosting/reference/configuration) | launch キューを scheduler と同じ費用・token 上限で数えます。chart は scheduler と同じ値を設定します |
+| `LOG_LEVEL` | `info` | 読み取り失敗を記録するログレベル |

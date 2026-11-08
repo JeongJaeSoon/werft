@@ -1,0 +1,80 @@
+---
+title: "設置方法の選択"
+description: "運用環境に合う設置経路を選びます"
+pageId: "P01"
+docType: "説明"
+audience: "初回設置担当者"
+outcome: "運用環境に合う設置経路を選びます"
+---
+
+<a id="설치-방식-고르기" />
+## 設置方法の選択
+
+チームで使う Werft サーバーの設置経路を選びます。運用環境は永続 object store を使います。Compose test-ops は AWS S3 のみに対応し、独自 endpoint は指定できません。Kubernetes は保護契約を満たす S3 互換 endpoint を設定できます。LocalStack と kind は試験環境です。
+
+| 方法 | 実行基盤 | 前提 | ページ |
+| --- | --- | --- | --- |
+| 単一サーバー | 一台の Linux サーバー、Docker Compose。セッションごとに worker コンテナ。HA は対象外です | Docker 28 以上、Compose 2.24.6 以上、Docker データルートが `prjquota` 付きで mount された XFS、リポジトリ checkout、永続 AWS S3 bucket | [単一サーバー設置](/run-server/self-hosting/single-server) |
+| Kubernetes | 公開 Helm chart。セッションごとに worker Pod | NetworkPolicy を強制する CNI、`helm` 3、PostgreSQL 16、S3 互換 object store（既定の保護モードでは versioning、Object Lock、SSE-S3 が有効な bucket が必要）。リポジトリ checkout は不要です | [Kubernetes 設置](/run-server/self-hosting/kubernetes) |
+
+選択基準は単純です。一台のサーバーに設置して `scripts/test-ops.sh` で運用するなら単一サーバー、既にクラスタ・PostgreSQL・object store があり chart で設置するなら Kubernetes です。どちらも `ghcr.io` から公開パッケージをログインなしで取得できる必要があります。設置済みなら [Compose アップグレード](/run-server/self-hosting/upgrade-compose)または [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)を選びます。
+
+どちらもサーバーは API（Web コンソールを含む）、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換 object store で構成されます。Git サーバーは含まないため、セッションで使う GitHub リポジトリは設定文書またはコンソールで追加します。
+
+| 目的 | 最初に読むページ |
+| --- | --- |
+| 一台の Linux サーバーに運用環境を設置 | [単一サーバー設置](/run-server/self-hosting/single-server) |
+| 既存クラスタに運用環境を設置 | [Kubernetes 設置](/run-server/self-hosting/kubernetes) |
+| ノート PC で chart を試験 | [kind 試験](/run-server/self-hosting/try-kind) |
+| Linux で Compose を試験 | [LocalStack 試験](/run-server/self-hosting/try-localstack) |
+
+## 設置後の運用 [#설치-후-운영]
+
+リモート利用者は、まず[アクセス経路](/run-server/self-hosting/access)を準備し、[最初の owner と key](/run-server/self-hosting/users-and-keys)、[モデル接続](/run-server/self-hosting/model-connections)の順で進めます。ready 応答は DB・schema・設定の準備状態であり、実際のモデル呼び出しやデータがある状態での復元の証拠ではありません。
+
+- [バックアップと復元](/run-server/self-hosting/backup-and-restore)
+- [Compose アップグレード](/run-server/self-hosting/upgrade-compose)・[Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)
+- [容量の計画と変更](/run-server/self-hosting/capacity)・[停止したセッションの復旧](/run-server/self-hosting/recover-sessions)
+- [設定・key・ポート](/run-server/self-hosting/reference/configuration)・[ストレージと上限](/run-server/self-hosting/reference/storage)
+- [セッションデータの流れ](/run-server/self-hosting/operate/session-data-flow)・[Datadog 監視](/run-server/self-hosting/operate/monitoring-datadog)
+
+<a id="기여자와-sdk-문서" />
+## コントリビューター向け文書と SDK 文書
+
+[配布パッケージ契約](/run-server/self-hosting/reference/packages)は設置担当者が読む契約です。公開管理者向けの[リリース公開・サプライチェーンポリシー](/ko/contributing#릴리스-게시와-공급망)はコントリビューター文書に、[SDK 承認サンプル](/ko/getting-started/client#승인-샘플의-인증-모드)は SDK 文書にあります。
+
+## 以前の URL [#이전-주소-안내]
+
+<details>
+<summary>以前の節から現在の文書を探す</summary>
+
+<a id="choose-an-install-method" />
+<a id="operating-after-the-install" />
+<a id="設置方法を選ぶ" />
+<a id="設置後の運用" />
+<a id="설치-뒤-운영" />
+
+[設置と運用](/run-server/self-hosting/#설치-방식-고르기)
+
+<a id="published-packages" />
+<a id="read-the-release-manifest" />
+<a id="公開されたパッケージ" />
+<a id="リリース-manifest-を読む" />
+<a id="게시된-패키지" />
+<a id="릴리스-manifest-읽기" />
+
+[配布パッケージ契約](/run-server/self-hosting/reference/packages#계약)
+
+<a id="verification-status" />
+<a id="実測の状態" />
+<a id="실측-상태" />
+
+[バックアップと復元訓練](/run-server/self-hosting/backup-and-restore#무엇을-하게-되나)
+
+<a id="connect-to-the-server" />
+<a id="サーバーに接続する" />
+<a id="서버에-붙기" />
+
+[SDK クライアント](/ko/getting-started/client#승인-샘플의-인증-모드)
+
+</details>

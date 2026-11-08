@@ -1,0 +1,76 @@
+---
+title: "バックアップと復元訓練"
+description: "別の対象でバックアップのデータとpointerを照合します"
+pageId: "P13"
+docType: "作業"
+audience: "Composeデータ運用担当者"
+outcome: "別の対象でバックアップのデータとpointerを照合します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+ComposeのDBとcheckpoint objectを保管し、別project・新しい空bucketでpointerのversionを照合します。APIと実際のセッション再開は別の証拠として確認します。
+
+<a id="준비물" />
+## 準備
+
+正常な設置、releaseと秘密鍵の別保管、十分な容量、writerを止める保守時間が必要です。バックアップはDB全体とAPI key hashを含むため権限0700、転送・保管時の暗号化を適用します。運用bucketへ復元しません。release bundleはbackup・reseed・restore-drillを拒否するため、設置commitのcheckoutで実行します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-백업" />
+### 1. バックアップする
+
+```bash
+scripts/test-ops.sh backup
+```
+
+api・scheduler・reconciler・workerを止め、DBとobjectを状態ディレクトリの `backups/backup-<timestamp>` にまとめてサービスを再開します。進行turnは中断され後で回収対象になり得るため先に確認します。.failedや.partialを成功本として使いません。保存が完了してもサービス再開に失敗するとコマンドは失敗します。
+
+毎日利用の少ない時間と各更新直前に実行します。保管例はホスト14日、暗号化外部保管90日です。新しい成功本が26時間ない、non-zero終了、サービス再開失敗のいずれかで通知します。
+
+<a id="2-별도-대상-복원" />
+### 2. 別の対象へ復元する
+
+S3は毎回新しい空の訓練bucketを準備します。元bucket、object versionやdelete markerがある対象は拒否されます。
+
+```bash
+# Restore a backup into a throwaway project and a new, empty bucket, then verify it
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket> --port-base 25432
+```
+
+port-baseは訓練サービスの別開始ポートです。他の設置と重ならない値を選びます。LocalStack試験では--bucketを省きます。postgresとobject storeを復元し、すべてのcheckpoint pointerをversion単位で照合します。APIは起動しません。月1回と更新後の最初のバックアップで実施します。
+
+### 3. checkpoint GC
+
+バックアップと重ならない週次予定で先にdry-runします。
+
+```bash
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec -e CHECKPOINT_GC_DRY_RUN=1 "$API_CONTAINER" \
+  bun run apps/control-host/src/api/checkpoint-gc.ts
+```
+
+API_CONTAINERを今回のstatusとproject labelで特定します。保管・削除対象を読んでからdry-run変数を外します。既定Compose projectの他の設置を選ばないでください。KubernetesはchartのcheckpointGc.scheduleを使います。
+
+<a id="확인" />
+## 確認
+
+終了コードとstatus、実際に比較したcheckpoint数・version数・checksum結果を記録します。nothing was comparedは空の照合で、データ復元の証拠ではありません。従来のLocalStack実行はobject 0・checkpoint 0行でした。AWS S3復元とAPIを起動した実セッション再開は未確認です。別の隔離環境で復元API・workerによる継続を確認する必要があります。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+対象が元bucketまたは空でなければ停止します。hold/retentionで削除できない場合、勝手に保護を外さず対象と保管契約を調べます。出力はrestore-drills/とhistoryに残ります。
+
+<a id="되돌리기" />
+## 元に戻す
+
+訓練ツールは終了時に今回のprojectを片付けます。調査用--keepなら確認後そのprojectだけdownし、volumeは別の保管方針で処理します。訓練bucketを運用と区別し、再利用データがないことを確認して各versionのhold解除 → version/delete marker削除 → 空bucket削除の順で処理します。retentionは迂回せず期限を待ちます。試験のために運用バックアップを消しません。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[Compose更新](/run-server/self-hosting/upgrade-compose)、[ストレージと上限](/run-server/self-hosting/reference/storage)。KubernetesのDB・S3復元は[運用バックアップ契約](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)に従います。

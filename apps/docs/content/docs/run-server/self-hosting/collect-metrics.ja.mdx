@@ -1,0 +1,95 @@
+---
+title: "Kubernetes メトリクスの収集"
+description: "メトリクスを有効にし、コレクターの scrape 成功を確認します"
+pageId: "P17"
+docType: "作業"
+audience: "監視運用者"
+outcome: "メトリクスを有効にし、コレクターの scrape 成功を確認します"
+---
+
+<a id="무엇을-하게-되나" />
+## 作業内容
+
+Kubernetes の metrics ロールを有効にし、Prometheus 形式のメトリクスがコレクターに届くことを確認します。
+
+<a id="준비물" />
+## 準備
+
+環境ごとの values、helm・kubectl、コレクターの namespace と scrape 設定が必要です。endpoint は環境全体を集計する単一 target です。CPU、メモリ、Pod ログはクラスタのコレクターで別途収集します。
+
+<a id="단계" />
+## 手順
+
+<a id="1-수집기-접근-범위와-values" />
+### 1. コレクターのアクセス範囲と values
+
+```yaml
+metrics:
+  enabled: true
+  podAnnotations:          # how the collector finds the Pod; the install chooses
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9464"
+networkPolicy:
+  metrics:
+    ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
+```
+
+`ingressFrom: []` はすべての source に 9464 を開くため、実際のコレクターの namespace selector に制限します。設置した正確な chart バージョンと環境ごとの values で Helm upgrade を適用します。別の chart に更新する場合は [Kubernetes アップグレード](/run-server/self-hosting/upgrade-kubernetes)に従います。
+
+chart のリソースは `<fullname>-metrics` です。release 名に werft が含まれれば fullname は release 名、それ以外は `<release>-werft` です。例えば release が team なら `team-werft-metrics` で、team-metrics ではありません。
+
+<a id="2-수집기-연결" />
+### 2. コレクターの接続
+
+| コレクター | 方法 |
+|---|---|
+| Prometheus | `metrics.podAnnotations` の `prometheus.io/*` annotation、または運用者の ServiceMonitor から Service `<fullname>-metrics` の `metrics` ポートを参照します |
+| Datadog Agent（Helm） | Autodiscovery の `openmetrics` チェックを使います。`metrics.podAnnotations` に `ad.datadoghq.com/metrics.checks` を入れます。Datadog に保存する名前（ドット表記など）はコレクター側の設定です |
+| OpenTelemetry Collector | `prometheus` receiver で同じ endpoint を scrape し、OTLP で送信します |
+
+プラットフォームから OTLP でメトリクスを送信することはありません。pull endpoint を一つ設けることで、コレクターの種類によらず同じ定義を読み取れ、アプリにコレクターのアドレスや SDK の設定も不要です。セッショントレースはまだ export しません。[可観測性（OTel）](/observability)を参照してください。
+
+<a id="3-endpoint-확인" />
+### 3. endpoint の確認
+
+```bash
+FULLNAME=werft
+kubectl -n werft port-forward "svc/$FULLNAME-metrics" 19464:9464 &
+PF=$!
+trap 'kill "$PF" 2>/dev/null || true' EXIT INT TERM
+SCRAPED=0
+for attempt in $(seq 1 30); do
+  if curl --max-time 2 -fsS http://127.0.0.1:19464/metrics; then SCRAPED=1; break; fi
+  sleep 1
+done
+kill "$PF" 2>/dev/null || true
+trap - EXIT INT TERM
+test "$SCRAPED" = 1
+```
+
+port-forward はバックグラウンドで実行し、今回の PID だけを終了します。curl が成功しなければ最後の test が失敗します。
+
+<a id="4-기존-규칙-갱신" />
+### 4. 既存ルールの更新
+
+メトリクス名が変わった場合、以前の alias を期待せず、Datadog の定義・クエリ・フィルターと Prometheus のルールを[メトリクス契約](/run-server/self-hosting/reference/metrics)の名前に変更します。変更した rules が実際の新しい series を読み取ることを確認します。
+
+<a id="확인" />
+## 確認
+
+本文に werft_ メトリクスがあり、コレクターの scrape が成功する必要があります。healthz 200 は DB 読み取りの成功を意味しません。DB 読み取りが失敗すると endpoint は 503 になり、以前の値は返しません。収集時間が間隔の半分を超えたら scrape 間隔を広げ、DB 負荷を下げます。
+
+<a id="자주-막히는-곳" />
+## よくある問題
+
+リソースが見つからない場合は fullname から確認します。NetworkPolicy がコレクターの namespace を許可しているか確認します。replica を増やすと環境全体の集計を重複収集するため、metrics replica は一つに維持します。
+
+<a id="되돌리기" />
+## 元に戻す
+
+values の metrics.enabled を false に戻して適用します。今回追加した scrape target を削除します。既存の運用監視ルールは対象の変更を確認して整理します。
+
+<a id="다음에-읽을-곳" />
+## 次に読む
+
+[プラットフォームのメトリクス契約](/run-server/self-hosting/reference/metrics)、[DB 遅延の診断](/run-server/self-hosting/diagnose-database)。
