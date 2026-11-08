@@ -310,7 +310,7 @@ describe("초대 보내기 대화상자", () => {
     const again = await open();
     answer(created());
     // The pending list refetches once the late answer lands.
-    expect(await screen.findByText("대기 중인 초대가 없습니다.")).toBeDefined();
+    expect(await screen.findByText("남아 있는 초대가 없습니다.")).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(currentStep(again.dialog)).toContain("받는 사람");
     expect(within(again.dialog).queryByLabelText("초대 링크")).toBeNull();
@@ -393,11 +393,11 @@ describe("복사하지 않은 링크를 두고 나가기", () => {
     );
 
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    const leave = await screen.findByRole("dialog", { name: LEAVE });
+    // Losing the link for good is a danger confirmation, like a revoke.
+    expect(leave.getAttribute("data-tone")).toBe("danger");
     await user.click(
-      within(await screen.findByRole("dialog", { name: LEAVE })).getByRole(
-        "button",
-        { name: "복사하지 않고 나가기" },
-      ),
+      within(leave).getByRole("button", { name: "복사하지 않고 나가기" }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(
@@ -626,7 +626,7 @@ describe("mutation 캐시", () => {
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     answer(created());
-    expect(await screen.findByText("대기 중인 초대가 없습니다.")).toBeDefined();
+    expect(await screen.findByText("남아 있는 초대가 없습니다.")).toBeDefined();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(cached(services)).toBe(false);
   });

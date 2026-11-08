@@ -145,6 +145,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "create_mcp_server",
   "set_settings_credential",
   "disable_connection",
+  "enable_connection",
   "disable_mcp_server",
   "set_mcp_server_workspaces",
   // An agent's pick resolved a GitHub App repository to a new catalog row.

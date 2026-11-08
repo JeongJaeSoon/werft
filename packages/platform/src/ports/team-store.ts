@@ -24,6 +24,7 @@ export type TeamMember = {
   role: TeamMemberRole;
   addedBy: string | null;
   addedAt: Date;
+  disabledAt: Date | null;
 };
 
 export type TeamDetail = Team & { members: TeamMember[] };

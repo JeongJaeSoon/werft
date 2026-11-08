@@ -10,6 +10,7 @@ import {
   canonicalTool,
   carriedDeny,
   firstVersionDeny,
+  isMcpToolName,
   MCP_TOOL_PREFIX,
   WORKSPACE_PROFILE_POLICY,
 } from "@werft-ai/core/forms";
@@ -35,6 +36,14 @@ export type ToolChoiceModel = {
   readonly removed: readonly string[];
   /** A next version: its added tools open only once accepted. */
   readonly versioned: boolean;
+  readonly mcp: {
+    /** The base's `mcp__` blocks, which every version keeps: never liftable here. */
+    readonly fixed: readonly string[];
+    /** What the followed version (or the copy's source) blocked: liftable. */
+    readonly start: readonly string[];
+    /** Only a next version has an earlier block to lift; a copy leaves the name out. */
+    readonly lifts: boolean;
+  };
 };
 
 /** What the person changed: a box they ticked or cleared, a tool accepted. */
@@ -43,9 +52,25 @@ export type ToolPicks = {
   readonly accepted: readonly string[];
   /** Tools the server said need accepting, beyond `added`. */
   readonly asked: readonly string[];
+  /** Names of `mcp.start` whose box was cleared. */
+  readonly mcpLifted: readonly string[];
+  /** `mcp__` names typed in, not held before. */
+  readonly mcpAdded: readonly string[];
 };
 
-export const NO_PICKS: ToolPicks = { blocked: {}, accepted: [], asked: [] };
+export const NO_PICKS: ToolPicks = {
+  blocked: {},
+  accepted: [],
+  asked: [],
+  mcpLifted: [],
+  mcpAdded: [],
+};
+
+const NO_MCP: ToolChoiceModel["mcp"] = {
+  fixed: [],
+  start: [],
+  lifts: false,
+};
 
 type ToolCatalogOption = NonNullable<
   InstallationProfileOptionsResponse["tool_catalogs"]
@@ -78,7 +103,8 @@ function catalogsOf(
 const namesOf = (catalog: ToolCatalogView) =>
   catalog.tools.map((tool) => tool.name);
 
-/** What a listed version weighed: its tools, and its blocks when a catalog knew them. */
+const isMcpName = (name: string) => name.startsWith(MCP_TOOL_PREFIX);
+
 const choiceOf = (profile: ProfileSummary) => ({
   tools: profile.tools,
   deny: profile.deny ?? null,
@@ -118,6 +144,10 @@ export function ceilingTools(
       added: [],
       removed: [],
       versioned: false,
+      mcp:
+        template === undefined
+          ? NO_MCP
+          : { fixed: [], start: template.mcp_deny ?? [], lifts: false },
     };
   }
   const before = catalogOf(
@@ -139,6 +169,7 @@ export function ceilingTools(
             (name) => !known.has(canonicalTool(catalog, name)),
           ),
     versioned: true,
+    mcp: { fixed: [], start: previous.mcp_deny ?? [], lifts: true },
   };
 }
 
@@ -151,8 +182,8 @@ function baseCatalog(base: ProfileSummary): ToolCatalogView | null {
   if (base.deny == null) return null;
   const names = [
     ...new Set([
-      ...base.tools.filter((tool) => !tool.startsWith(MCP_TOOL_PREFIX)),
-      ...base.deny,
+      ...base.tools.filter((tool) => !isMcpName(tool)),
+      ...base.deny.filter((name) => !isMcpName(name)),
     ]),
   ];
   return {
@@ -200,6 +231,13 @@ export function workspaceTools(
     added,
     removed: [],
     versioned: latest !== undefined,
+    mcp: {
+      fixed: base.mcp_deny ?? [],
+      start: (from?.mcp_deny ?? []).filter(
+        (name) => !(base.mcp_deny ?? []).includes(name),
+      ),
+      lifts: from !== undefined,
+    },
   };
 }
 
@@ -214,6 +252,60 @@ export function blockedOf(model: ToolChoiceModel, picks: ToolPicks): string[] {
         ? picks.blocked[name] === true
         : start.has(name)),
   );
+}
+
+export function mcpBlockedOf(
+  model: ToolChoiceModel,
+  picks: ToolPicks,
+): string[] {
+  const lifted = new Set(picks.mcpLifted);
+  return [
+    ...new Set([
+      ...model.mcp.fixed,
+      ...model.mcp.start.filter((name) => !lifted.has(name)),
+      ...picks.mcpAdded,
+    ]),
+  ].sort();
+}
+
+export const allBlockedOf = (model: ToolChoiceModel, picks: ToolPicks) => [
+  ...blockedOf(model, picks),
+  ...mcpBlockedOf(model, picks),
+];
+
+export function setMcpBlock(
+  model: ToolChoiceModel,
+  picks: ToolPicks,
+  name: string,
+  blocked: boolean,
+): ToolPicks {
+  const without = (list: readonly string[]) =>
+    list.filter((other) => other !== name);
+  if (model.mcp.fixed.includes(name)) return picks;
+  if (model.mcp.start.includes(name))
+    return {
+      ...picks,
+      mcpLifted: blocked
+        ? without(picks.mcpLifted)
+        : [...without(picks.mcpLifted), name],
+    };
+  return {
+    ...picks,
+    mcpAdded: blocked
+      ? [...without(picks.mcpAdded), name]
+      : without(picks.mcpAdded),
+  };
+}
+
+export function addMcpBlock(
+  model: ToolChoiceModel,
+  picks: ToolPicks,
+  raw: string,
+): { readonly picks: ToolPicks } | { readonly error: "invalid" | "duplicate" } {
+  const name = raw.trim();
+  if (!isMcpToolName(name)) return { error: "invalid" };
+  if (mcpBlockedOf(model, picks).includes(name)) return { error: "duplicate" };
+  return { picks: setMcpBlock(model, picks, name, true) };
 }
 
 /** Tools that open only once accepted: the counted ones and the server's. */
@@ -234,19 +326,29 @@ export function denyRequest(
   model: ToolChoiceModel,
   picks: ToolPicks,
 ):
-  | { readonly deny: string[]; readonly accept_added_tools?: string[] }
+  | {
+      readonly deny: string[];
+      readonly accept_added_tools?: string[];
+      readonly unblock_mcp_tools?: string[];
+    }
   | { readonly unaccepted: string[] } {
-  const deny = blockedOf(model, picks);
-  const blocked = new Set(deny);
+  const catalogDeny = blockedOf(model, picks);
+  const blocked = new Set(catalogDeny);
   const accepted = new Set(picks.accepted);
   const pending = needsAccepting(model, picks).filter(
     (name) => !blocked.has(name),
   );
   const unaccepted = pending.filter((name) => !accepted.has(name));
   if (unaccepted.length > 0) return { unaccepted };
-  return pending.length === 0
-    ? { deny }
-    : { deny, accept_added_tools: pending };
+  const deny = [...catalogDeny, ...mcpBlockedOf(model, picks)];
+  const lifted = model.mcp.lifts
+    ? model.mcp.start.filter((name) => picks.mcpLifted.includes(name))
+    : [];
+  return {
+    deny,
+    ...(pending.length === 0 ? {} : { accept_added_tools: pending }),
+    ...(lifted.length === 0 ? {} : { unblock_mcp_tools: lifted }),
+  };
 }
 
 /**

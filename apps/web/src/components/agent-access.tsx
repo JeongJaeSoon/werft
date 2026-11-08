@@ -40,8 +40,7 @@ export function useAgentAccess(agent: Agent): AgentAccess {
     admins.data?.users.some((user) => user.user_id === me) ||
     (roles !== undefined &&
       admins.data?.teams.some((team) => roles.has(team.team_id))) ||
-    (agent.managing_team_id !== null &&
-      roles?.get(agent.managing_team_id) === "lead");
+    roles?.get(agent.managing_team_id) === "lead";
   if (manages) return "manage";
   if (admins.isError || mine.isError) return "read";
   if (!admins.data || !mine.data) return "pending";

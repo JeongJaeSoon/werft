@@ -31,6 +31,7 @@ import {
   verifySlackInstallation,
 } from "./slack-installations.ts";
 import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -102,6 +103,7 @@ integration("surface bindings on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `a-${agentId.slice(0, 8)}`,
       name: "bot",
     });
@@ -316,6 +318,7 @@ integration("surface bindings on PostgreSQL", () => {
     await db.insert(agents).values({
       id: unlinked,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `a-${unlinked.slice(0, 8)}`,
       name: "bot",
     });
@@ -354,6 +357,7 @@ integration("surface bindings on PostgreSQL", () => {
     await db.insert(agents).values({
       id: next,
       workspaceId: owner.ownerId,
+      managingTeamId: await fixtureTeam(db, owner.ownerId),
       slug: `a-${next.slice(0, 8)}`,
       name: "bot",
     });
@@ -806,12 +810,12 @@ integration("surface bindings on PostgreSQL", () => {
     });
   });
 
-  test("migration 0243 puts every live private binding to wait and leaves the others", async () => {
+  test("migration 0244 puts every live private binding to wait and leaves the others", async () => {
     const owner = await person(await workspace(), "owner");
     const { agentId, installationId } = await slackAgent(owner);
     const migrationSql = (
       await Bun.file(
-        `${import.meta.dir}/../migrations/0243_slack_private_approval.sql`,
+        `${import.meta.dir}/../migrations/0244_slack_private_approval.sql`,
       ).text()
     )
       .split("--> statement-breakpoint")

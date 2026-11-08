@@ -926,7 +926,7 @@ describe("차단할 내장 도구", () => {
     expect(described).toContain("provider 쪽");
     expect(
       within(tools).getByText(
-        "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
+        "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구 이름과 mcp__서버__도구 이름을 차단할 수 있습니다.",
       ),
     ).toBeDefined();
     expect(
@@ -1095,7 +1095,35 @@ describe("차단할 내장 도구", () => {
   const TOOL_REFUSALS: readonly [string, string][] = [
     [
       "mcp_tool",
-      "MCP 도구는 프로필에서 막을 수 없습니다. 내장 도구만 고르세요.",
+      "새로 열 도구로 수락할 수 있는 것은 내장 도구뿐입니다. MCP 도구 이름은 차단할 도구에 적으세요.",
+    ],
+    [
+      "mcp_tool_name",
+      "mcp__서버__도구 형식이 아닌 이름이 있습니다. 128자 이하, 공백과 제어 문자가 없어야 합니다.",
+    ],
+    [
+      "github_server",
+      "내장 GitHub 서버의 도구는 에이전트의 GitHub 설정이 정합니다. 프로필에서 막을 수 없습니다.",
+    ],
+    [
+      "unknown_mcp_server",
+      "이 설치의 MCP 서버 목록에 없는 서버의 도구입니다. 서버 이름을 확인하세요.",
+    ],
+    [
+      "base_mcp_deny_dropped",
+      "바탕 프로필이 막은 MCP 도구는 풀 수 없습니다. 목록을 다시 불러오세요.",
+    ],
+    [
+      "mcp_unblock_unknown",
+      "이전 버전이 막지 않은 MCP 도구를 풀려고 했습니다. 목록을 다시 불러오세요.",
+    ],
+    [
+      "mcp_unblock_conflict",
+      "같은 MCP 도구를 막으면서 풀 수는 없습니다. 하나만 고르세요.",
+    ],
+    [
+      "mcp_unblock_no_previous",
+      "첫 버전에는 풀 이전 차단이 없습니다. 목록을 다시 불러오세요.",
     ],
     ["tool_pattern", "패턴은 받지 않습니다. 내장 도구 이름 하나를 고르세요."],
     [
@@ -1310,5 +1338,174 @@ describe("차단할 내장 도구", () => {
     expect(locked.length > 0).toBe(true);
     for (const box of locked)
       expect(box.getAttribute("aria-invalid") === null).toBe(true);
+  });
+});
+
+describe("차단할 MCP 도구", () => {
+  const group = () => screen.getByRole("group", { name: "차단할 MCP 도구" });
+  const rows = () =>
+    within(group())
+      .queryAllByRole("checkbox")
+      .map((box) => [
+        box.closest("[data-slot=field]")?.querySelector("label")?.textContent,
+        box.getAttribute("aria-checked"),
+        (box as HTMLButtonElement).disabled ? "locked" : "open",
+      ]);
+  const BASE_DENY = ["mcp__docs__delete"];
+
+  test("a next version of a workspace profile shows the base's block locked and the earlier one liftable, and sends the lift apart from deny", async () => {
+    const base = imported("coding-claude", { mcp_deny: BASE_DENY });
+    const strict = version(1, "usable", {
+      tools: ["Read", "Edit"],
+      mcp_deny: [...BASE_DENY, "mcp__wiki__write"],
+    });
+    const { api } = renderAt(
+      "/profiles/new?from=op_wl_strict_v1&mode=version",
+      catalog([base, strict], me(undefined, "admin")).routes,
+    );
+    await screen.findByRole("heading", { level: 1, name: "strict 새 버전" });
+    expect(rows()).toEqual([
+      ["mcp__docs__delete", "true", "locked"],
+      ["mcp__wiki__write", "true", "open"],
+    ]);
+    expect(group().textContent).toContain("이어받은 차단입니다.");
+    const user = await setupUser();
+    await user.type(
+      within(group()).getByRole("textbox", { name: "MCP 도구 이름" }),
+      "mcp__docs__read",
+    );
+    await user.click(
+      within(group()).getByRole("button", { name: "차단 추가" }),
+    );
+    await user.click(
+      within(group()).getByRole("checkbox", { name: "mcp__wiki__write" }),
+    );
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    const sent = posted(api)[0] as {
+      deny: string[];
+      unblock_mcp_tools?: string[];
+      previous_id: string;
+    };
+    expect(sent.previous_id).toBe("op_wl_strict_v1");
+    expect(sent.deny.filter((name) => name.startsWith("mcp__"))).toEqual([
+      "mcp__docs__delete",
+      "mcp__docs__read",
+    ]);
+    expect(sent.unblock_mcp_tools).toEqual(["mcp__wiki__write"]);
+  });
+
+  test("a name that is not a whole mcp__server__tool name, or is already blocked, is refused beside the field and sends nothing", async () => {
+    const base = imported("coding-claude", { mcp_deny: BASE_DENY });
+    const { api } = renderAt(
+      "/profiles/new?from=coding-claude",
+      catalog([base], me(undefined, "admin")).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 MCP 도구" });
+    const user = await setupUser();
+    const input = () =>
+      within(group()).getByRole("textbox", { name: "MCP 도구 이름" });
+    for (const [typed, text] of [
+      ["docs", "mcp__서버__도구 형식이 아닙니다."],
+      ["mcp__docs", "mcp__서버__도구 형식이 아닙니다."],
+      ["mcp__docs__delete", "이미 차단한 이름입니다."],
+    ] as const) {
+      await user.clear(input());
+      await user.type(input(), typed);
+      await user.click(
+        within(group()).getByRole("button", { name: "차단 추가" }),
+      );
+      expect(within(group()).getByText(new RegExp(text))).toBeDefined();
+    }
+    expect(rows()).toEqual([["mcp__docs__delete", "true", "locked"]]);
+    expect(posted(api)).toEqual([]);
+  });
+
+  test("Enter in the name field adds the block and does not submit the page's form", async () => {
+    const { api } = renderAt(
+      "/profiles/new?from=coding-claude",
+      catalog(undefined, me(undefined, "admin")).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 MCP 도구" });
+    const user = await setupUser();
+    await user.type(
+      within(group()).getByRole("textbox", { name: "MCP 도구 이름" }),
+      "mcp__docs__read{Enter}",
+    );
+    expect(rows()).toEqual([["mcp__docs__read", "true", "open"]]);
+    expect(posted(api)).toEqual([]);
+  });
+
+  test("a ceiling's next version sends a lift, a copy of it only leaves the name out", async () => {
+    const earlier = ceiling("wide", 1, {
+      tools: ["Read", "Edit", "Bash"],
+      deny: ["Write", "Glob", "WebFetch"],
+      mcp_deny: ["mcp__docs__delete"],
+    });
+    const next = renderAt(
+      "/profiles/new?from=op_wide_v1&mode=version",
+      catalog([CODING, earlier], me()).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 MCP 도구" });
+    expect(rows()).toEqual([["mcp__docs__delete", "true", "open"]]);
+    const user = await setupUser();
+    await user.click(
+      within(group()).getByRole("checkbox", { name: "mcp__docs__delete" }),
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(next.api)).toHaveLength(1));
+    expect(posted(next.api)[0]).toMatchObject({
+      previous_id: "op_wide_v1",
+      unblock_mcp_tools: ["mcp__docs__delete"],
+    });
+    expect((posted(next.api)[0] as { deny: string[] }).deny).not.toContain(
+      "mcp__docs__delete",
+    );
+  });
+
+  test("a copy has no earlier block to lift, so clearing a name only leaves it out", async () => {
+    const earlier = ceiling("wide", 1, {
+      tools: ["Read", "Edit", "Bash"],
+      deny: ["Write", "Glob", "WebFetch"],
+      mcp_deny: ["mcp__docs__delete"],
+    });
+    const { api } = renderAt(
+      "/profiles/new?from=op_wide_v1",
+      catalog([CODING, earlier], me()).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 MCP 도구" });
+    expect(rows()).toEqual([["mcp__docs__delete", "true", "open"]]);
+    const user = await setupUser();
+    await user.type(screen.getByLabelText("이름"), "wide-copy");
+    await user.click(
+      within(group()).getByRole("checkbox", { name: "mcp__docs__delete" }),
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    const sent = posted(api)[0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("unblock_mcp_tools");
+    expect(sent).not.toHaveProperty("previous_id");
+    expect(sent.deny).not.toContain("mcp__docs__delete");
+  });
+
+  test("an mcp__ name never shows up in the built-in checklist", async () => {
+    const base = imported("coding-claude", { mcp_deny: BASE_DENY });
+    renderAt(
+      "/profiles/new?from=coding-claude",
+      catalog([base], me(undefined, "admin")).routes,
+    );
+    const builtIn = await screen.findByRole("group", {
+      name: "차단할 내장 도구",
+    });
+    expect(
+      within(builtIn)
+        .getAllByRole("checkbox")
+        .map(
+          (box) =>
+            box.closest("[data-slot=field]")?.querySelector("label")
+              ?.textContent,
+        )
+        .filter((label) => label?.startsWith("mcp__")),
+    ).toEqual([]);
   });
 });

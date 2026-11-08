@@ -86,7 +86,15 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["개요", "상세 설정", "릴리스", "관리자", "Slack", "GitHub"]);
+    ).toEqual([
+      "개요",
+      "상세 설정",
+      "릴리스",
+      "접근",
+      "관리자",
+      "Slack",
+      "GitHub",
+    ]);
     expect(selected()).toBe("개요");
     expect(tabIn(history)).toBeNull();
     // Only the chosen panel is in the accessibility tree.
@@ -100,6 +108,9 @@ describe("에이전트 상세 탭", () => {
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(selected()).toBe("릴리스"));
     expect(tabIn(history)).toBe("release");
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(selected()).toBe("접근"));
+    expect(tabIn(history)).toBe("access");
     await user.keyboard("{End}");
     await waitFor(() => expect(selected()).toBe("GitHub"));
     expect(tabIn(history)).toBe("github");
@@ -898,7 +909,7 @@ describe("에이전트 상세 탭", () => {
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     const panel = await screen.findByRole("tabpanel");
-    await within(panel).findByText("담당 팀 미지정");
+    await within(panel).findByText("재무");
     await within(panel).findByText(/에이전트 관리자는/);
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByRole("combobox")).toBeNull();
@@ -911,7 +922,15 @@ describe("에이전트 상세 탭", () => {
       within(list)
         .getAllByRole("tab")
         .map((tab) => tab.textContent),
-    ).toEqual(["Overview", "Settings", "Release", "Admins", "Slack", "GitHub"]);
+    ).toEqual([
+      "Overview",
+      "Settings",
+      "Release",
+      "Access",
+      "Admins",
+      "Slack",
+      "GitHub",
+    ]);
   });
 
   test("릴리스는 만든 시각으로 불리고, 이전 릴리스는 활성이었던 기간을 보인다", async () => {
@@ -978,7 +997,7 @@ describe("에이전트 상세 탭", () => {
     ).toEqual([["버전 1 v1", "활성", "—", "구성원"]]);
   });
 
-  test("배포 탭은 배포 기록 표 다음에 자격 연결을 두고, 만든 사람은 구성원 이름으로 쓴다", async () => {
+  test("배포 탭은 배포 기록 표만 두고 자격 연결은 접근 탭에 있으며, 만든 사람은 구성원 이름으로 쓴다", async () => {
     const server = agentServer();
     await released(server);
     renderAt(`${DETAIL}?tab=release`, {
@@ -1063,7 +1082,7 @@ describe("에이전트 상세 탭", () => {
       within(visiblePanel())
         .getAllByRole("heading", { level: 2 })
         .map((heading) => heading.textContent),
-    ).toEqual(["릴리스", "자격 증명 연결"]);
+    ).toEqual(["릴리스"]);
   });
 
   test("구성원 목록은 배포 탭을 열 때 읽고, 다른 탭을 볼 때는 읽지 않는다", async () => {

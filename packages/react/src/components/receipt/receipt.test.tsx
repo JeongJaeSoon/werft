@@ -61,6 +61,30 @@ describe("ReceiptSummary", () => {
     expect(toneOf(container)).not.toBe("positive");
   });
 
+  test("라벨을 모르는 operation은 원문 그대로 그리고, enable_connection은 라벨이 있다", () => {
+    const unknown = render(
+      <ReceiptSummary
+        // A value a newer server may send: the old label table lacks it.
+        operation={"from_the_future" as never}
+        status="succeeded"
+        target={TARGET}
+        timestamps={TIMES}
+      />,
+    );
+    expect(unknown.getByText("from_the_future")).toBeDefined();
+    unknown.unmount();
+
+    const known = render(
+      <ReceiptSummary
+        operation="enable_connection"
+        status="succeeded"
+        target={TARGET}
+        timestamps={TIMES}
+      />,
+    );
+    expect(known.getByText("모델 연결 다시 사용")).toBeDefined();
+  });
+
   test("succeeded만 성공 색을 받는다", () => {
     const { container } = render(
       <ReceiptSummary

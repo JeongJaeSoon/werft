@@ -22,6 +22,7 @@ import {
   achievementsJa,
   achievementsKo,
 } from "./achievements.ts";
+import { agentAccessEn, agentAccessJa, agentAccessKo } from "./agent-access.ts";
 import { agentGitHubEn, agentGitHubJa, agentGitHubKo } from "./agent-github.ts";
 import { agentsEn, agentsJa, agentsKo } from "./agents.ts";
 import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
@@ -159,7 +160,6 @@ describe("i18n", () => {
         "settings",
         "secrets",
       ].map((area) => `agent.releases.area.${area}`),
-      "agent.releases.field.credentials",
       "agent.releases.absent.profileRepositories",
       "agent.releases.changed",
       "agent.releases.secretsHidden",
@@ -218,6 +218,7 @@ describe("i18n", () => {
         githubKo,
         githubUserLinkKo,
         agentGitHubKo,
+        agentAccessKo,
         usageKo,
         achievementsKo,
         achievementRulesKo,
@@ -247,6 +248,7 @@ describe("i18n", () => {
         githubJa,
         githubUserLinkJa,
         agentGitHubJa,
+        agentAccessJa,
         usageJa,
         achievementsJa,
         achievementRulesJa,
@@ -276,6 +278,7 @@ describe("i18n", () => {
         githubEn,
         githubUserLinkEn,
         agentGitHubEn,
+        agentAccessEn,
         usageEn,
         achievementsEn,
         achievementRulesEn,

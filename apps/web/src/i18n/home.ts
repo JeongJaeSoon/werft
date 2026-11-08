@@ -36,7 +36,7 @@ export const homeKo = {
   "home.glance.sessions": "세션",
   "home.glance.slots": "동시 실행",
   "home.glance.slotsValue": "{used} / {limit} 슬롯",
-  "home.glance.outputs": "결과물 저장",
+  "home.glance.outputs": "성과물 저장",
   "home.glance.outputsAtLeast": "{value} 이상",
   "home.glance.refreshed": "{at} 기준",
   "home.glance.workspace": "워크스페이스 점검",

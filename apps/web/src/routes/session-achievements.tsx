@@ -140,32 +140,40 @@ export function SessionAchievements({
   }
   return (
     <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <Heading id={titleId}>
-        {t("session.achievements.title")}{" "}
-        <Text as="span" variant="sub">
-          {data.items.length}
-        </Text>
-      </Heading>
-      <Text variant="sub">{t("session.achievements.description")}</Text>
-      <RowList variant="joined">
-        {data.items.map((achievement) => (
-          <AchievementRow
-            key={achievement.id}
-            achievement={achievement}
-            reviewable={reviewable(achievement.agent_id)}
-            onReviewed={reviewed}
-          />
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <Heading id={titleId}>
+          {t("session.achievements.title")}{" "}
+          <Text as="span" variant="sub">
+            {data.items.length}
+          </Text>
+        </Heading>
         {data.judgment ? (
-          <JudgmentLine
+          <RejudgeButton
             session={session}
-            judgment={data.judgment}
-            count={data.judgment_count}
-            costUsd={data.judge_cost_usd}
             onQueued={() => void achievements.refetch()}
           />
         ) : null}
-      </RowList>
+      </div>
+      <Text variant="sub">{t("session.achievements.description")}</Text>
+      {data.judgment ? (
+        <JudgmentMeta
+          judgment={data.judgment}
+          count={data.judgment_count}
+          costUsd={data.judge_cost_usd}
+        />
+      ) : null}
+      {data.items.length === 0 ? null : (
+        <RowList variant="joined">
+          {data.items.map((achievement) => (
+            <AchievementRow
+              key={achievement.id}
+              achievement={achievement}
+              reviewable={reviewable(achievement.agent_id)}
+              onReviewed={reviewed}
+            />
+          ))}
+        </RowList>
+      )}
     </section>
   );
 }
@@ -319,20 +327,15 @@ const PENDING_STATUS = {
   deferred: "session.achievements.status.deferred",
 } as const;
 
-function JudgmentLine({
+/** The section head's action; only a rule manager gets it. */
+function RejudgeButton({
   session,
-  judgment,
-  count,
-  costUsd,
   onQueued,
 }: {
   readonly session: SessionDetail;
-  readonly judgment: AchievementJudgment;
-  readonly count: number;
-  readonly costUsd: number;
   readonly onQueued: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { client } = useWerft();
   const manager = useHasPermission("achievement_rule.manage");
   const [failure, setFailure] = useState<string | null>(null);
@@ -347,57 +350,68 @@ function JudgmentLine({
     onSuccess: onQueued,
     onError: (error) => setFailure(t(errorKey(error.code))),
   });
+  if (!manager) return null;
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <RowAction disabled={rejudge.isPending} onClick={() => rejudge.mutate()}>
+        {t("session.achievements.rejudge")}
+      </RowAction>
+      {failure === null ? null : <FieldError>{failure}</FieldError>}
+    </div>
+  );
+}
+
+/** When the session was last judged, why, how often, and what it cost. */
+function JudgmentMeta({
+  judgment,
+  count,
+  costUsd,
+}: {
+  readonly judgment: AchievementJudgment;
+  readonly count: number;
+  readonly costUsd: number;
+}) {
+  const { t, locale } = useI18n();
   const { status } = judgment;
   const stopped = status === "failed" || status === "skipped";
   return (
-    <RowListItem className="bg-muted">
-      <RowLines>
-        <Text as="span" variant="meta">
-          {status === "queued" ||
-          status === "running" ||
-          status === "deferred" ? (
-            t(PENDING_STATUS[status])
-          ) : (
-            <>
-              {t("session.achievements.lastJudged")}{" "}
-              <RelativeTime
-                value={judgment.finished_at ?? judgment.created_at}
-                locale={locale}
-              />
-            </>
-          )}
-          {" · "}
-          {t(
-            `session.achievements.trigger.${judgment.evidence_change ?? judgment.trigger}`,
-          )}
-          {" · "}
-          {t("session.achievements.count", { count })}
-          {" · "}
-          {t("session.achievements.cost", { cost: JUDGE_USD.format(costUsd) })}
-        </Text>
-        {stopped ? (
-          <Text as="span" variant="meta">
-            {t(`session.achievements.status.${status}`)}
-            {judgment.error_code === null
-              ? null
-              : `: ${t(`session.achievements.error.${judgment.error_code}`)}`}
-          </Text>
-        ) : judgment.error_code === null ? null : (
-          // A refusal leaves the judgment succeeded.
-          <Text as="span" variant="meta">
-            {t(`session.achievements.error.${judgment.error_code}`)}
-          </Text>
+    <div className="flex flex-col gap-0.5">
+      <Text as="span" variant="meta">
+        {status === "queued" ||
+        status === "running" ||
+        status === "deferred" ? (
+          t(PENDING_STATUS[status])
+        ) : (
+          <>
+            {t("session.achievements.lastJudged")}{" "}
+            <RelativeTime
+              value={judgment.finished_at ?? judgment.created_at}
+              locale={locale}
+            />
+          </>
         )}
-        {failure === null ? null : <FieldError>{failure}</FieldError>}
-      </RowLines>
-      {manager ? (
-        <RowAction
-          disabled={rejudge.isPending}
-          onClick={() => rejudge.mutate()}
-        >
-          {t("session.achievements.rejudge")}
-        </RowAction>
-      ) : null}
-    </RowListItem>
+        {" · "}
+        {t(
+          `session.achievements.trigger.${judgment.evidence_change ?? judgment.trigger}`,
+        )}
+        {" · "}
+        {t("session.achievements.count", { count })}
+        {" · "}
+        {t("session.achievements.cost", { cost: JUDGE_USD.format(costUsd) })}
+      </Text>
+      {stopped ? (
+        <Text as="span" variant="meta">
+          {t(`session.achievements.status.${status}`)}
+          {judgment.error_code === null
+            ? null
+            : `: ${t(`session.achievements.error.${judgment.error_code}`)}`}
+        </Text>
+      ) : judgment.error_code === null ? null : (
+        // A refusal leaves the judgment succeeded.
+        <Text as="span" variant="meta">
+          {t(`session.achievements.error.${judgment.error_code}`)}
+        </Text>
+      )}
+    </div>
   );
 }

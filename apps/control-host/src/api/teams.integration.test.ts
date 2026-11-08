@@ -464,4 +464,36 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       }
     }
   });
+
+  test("a team's member list carries each person's workspace state: null while active, the disabling time once disabled", async () => {
+    const active = await addUser("active@example.com", "member");
+    const leaving = await addUser("leaving@example.com", "member");
+    const created = await send("POST", "/v1/teams", owner, {
+      name: "state view",
+    });
+    const { team } = teamChangeResponseSchema.parse(await created.json());
+    for (const user_id of [active, leaving])
+      expect(
+        (await send("POST", `/v1/teams/${team.id}/members`, owner, { user_id }))
+          .status,
+      ).toBe(200);
+    const read = async () =>
+      teamDetailSchema.parse(
+        await (await send("GET", `/v1/teams/${team.id}`, owner)).json(),
+      ).members;
+    expect((await read()).map((m) => m.disabled_at)).toEqual([null, null]);
+
+    const disabledAt = new Date("2026-11-01T00:00:00Z");
+    await db
+      .update(memberships)
+      .set({ disabledAt })
+      .where(eq(memberships.userId, leaving));
+    const stateOf = Object.fromEntries(
+      (await read()).map((m) => [m.user_id, m.disabled_at]),
+    );
+    expect(stateOf).toEqual({
+      [active]: null,
+      [leaving]: disabledAt.toISOString(),
+    });
+  });
 });

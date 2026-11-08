@@ -13,6 +13,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   callerFor,
   createSlackConfigApi,
@@ -119,6 +120,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `notes-${agentId.slice(0, 8)}`,
       name: "Release notes",
     });

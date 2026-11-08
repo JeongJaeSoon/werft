@@ -16,7 +16,7 @@ const { act, renderAt, screen, waitFor, within } = await appHarness();
 
 async function openOutputs() {
   await (await setupUser()).click(
-    await screen.findByRole("tab", { name: /^결과물/ }),
+    await screen.findByRole("tab", { name: /^성과물/ }),
   );
 }
 
@@ -99,15 +99,15 @@ describe("session outputs", () => {
     );
     // The tab counts them once read.
     expect(
-      (await screen.findByRole("tab", { name: /^결과물/ })).textContent,
-    ).toBe("결과물");
+      (await screen.findByRole("tab", { name: /^성과물/ })).textContent,
+    ).toBe("성과물");
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물3",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물3",
       ),
     );
     await openOutputs();
-    const section = await screen.findByRole("region", { name: "out/ 파일" });
+    const section = await screen.findByRole("region", { name: /^out\/ 파일/ });
     expect(section.textContent).toContain("report.md");
     expect(section.textContent).toContain("2kB");
     expect(section.textContent).toContain("video.mp4");
@@ -162,14 +162,14 @@ describe("session outputs", () => {
       ).toBe(true),
     );
     await openOutputs();
-    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    expect(await screen.findByText("아직 성과물이 없습니다.")).toBeTruthy();
     // Says what counts, so a session that only edited its repository is not a surprise.
     expect(
       screen.getByText(
-        "결과물은 이 세션이 연 GitHub PR과 작업 공간의 out/ 폴더에 남긴 파일을 셉니다. 저장소 파일을 고친 내역은 진행 탭의 도구 호출에서 볼 수 있습니다.",
+        "성과물은 이 세션이 연 GitHub PR과 작업 공간의 out/ 폴더에 남긴 파일을 셉니다. 저장소 파일을 고친 내역은 진행 탭의 도구 호출에서 볼 수 있습니다.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "out/ 파일" })).toBeNull();
+    expect(screen.queryByRole("region", { name: /^out\/ 파일/ })).toBeNull();
   });
 
   test("a session that never checkpointed is not asked for outputs", async () => {
@@ -268,7 +268,7 @@ describe("session GitHub attribution", () => {
         json(200, { ...detail, repository: null }),
     });
     await openOutputs();
-    await screen.findByRole("region", { name: "out/ 파일" });
+    await screen.findByRole("region", { name: /^out\/ 파일/ });
     expect(api.calls.some((call) => call.path === ATTRIBUTION)).toBe(false);
     // Nor for pull requests or refusals: only a repository has them.
     expect(
@@ -374,12 +374,12 @@ describe("the session's GitHub pull requests", () => {
     renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
     // Three pull requests and three files.
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물6",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물6",
       ),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "근거" });
+    const area = await screen.findByRole("region", { name: /^근거/ });
     const rows = within(area).getAllByRole("listitem");
     expect(rows.map((row) => row.querySelector("a")?.textContent)).toEqual([
       "acme/demo#1",
@@ -403,13 +403,11 @@ describe("the session's GitHub pull requests", () => {
       "마지막 확인에서 GitHub가 이 PR을 찾지 못했습니다. 상태는 그 전에 확인한 값입니다.",
     );
     expect(
-      await within(area).findByText(
-        /^이 세션이 쓴 토큰 12,345 · 추정 비용 \$0\.25/,
-      ),
+      await screen.findByText(/^이 세션이 쓴 토큰 12,345 · 추정 비용 \$0\.25/),
     ).toBeTruthy();
     // The files follow, and no empty state.
-    expect(screen.getByRole("region", { name: "out/ 파일" })).toBeTruthy();
-    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
+    expect(screen.getByRole("region", { name: /^out\/ 파일/ })).toBeTruthy();
+    expect(screen.queryAllByText("아직 성과물이 없습니다.")).toHaveLength(0);
   });
 
   test("a review the session submitted shows its pull request, its event and who opened that pull request", async () => {
@@ -459,7 +457,7 @@ describe("the session's GitHub pull requests", () => {
       ),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "근거" });
+    const area = await screen.findByRole("region", { name: /^근거/ });
     const rows = within(area).getAllByRole("listitem");
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringMatching(
@@ -480,7 +478,7 @@ describe("the session's GitHub pull requests", () => {
   test("an open tab reads its pull requests and refusals again every minute", async () => {
     const { services } = renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
     await openOutputs();
-    await screen.findByRole("region", { name: "근거" });
+    await screen.findByRole("region", { name: /^근거/ });
     const intervals = (path: string) =>
       services.queryClient
         .getQueryCache()
@@ -500,7 +498,7 @@ describe("the session's GitHub pull requests", () => {
       pulled([pull(4, { state_checked_at: null })]),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "근거" });
+    const area = await screen.findByRole("region", { name: /^근거/ });
     expect(area.textContent).toContain("아직 상태를 확인하지 않음");
   });
 
@@ -510,28 +508,28 @@ describe("the session's GitHub pull requests", () => {
       pulled([pulls[0] as SessionOutcome], noFiles),
     );
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물1",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물1",
       ),
     );
     await openOutputs();
-    expect(await screen.findByRole("region", { name: "근거" })).toBeTruthy();
-    expect(screen.queryAllByRole("region", { name: "out/ 파일" })).toHaveLength(
-      0,
-    );
-    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
+    expect(await screen.findByRole("region", { name: /^근거/ })).toBeTruthy();
+    expect(
+      screen.queryAllByRole("region", { name: /^out\/ 파일/ }),
+    ).toHaveLength(0);
+    expect(screen.queryAllByText("아직 성과물이 없습니다.")).toHaveLength(0);
   });
 
   test("with neither pull requests nor files the tab says it is empty", async () => {
     renderAt(`/sessions/${SESSION_ID}`, pulled([], noFiles));
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물0",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물0",
       ),
     );
     await openOutputs();
-    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
-    expect(screen.queryAllByRole("region", { name: "근거" })).toHaveLength(0);
+    expect(await screen.findByText("아직 성과물이 없습니다.")).toBeTruthy();
+    expect(screen.queryAllByRole("region", { name: /^근거/ })).toHaveLength(0);
   });
 
   test("pull requests that cannot be read are not taken for none", async () => {
@@ -544,7 +542,7 @@ describe("the session's GitHub pull requests", () => {
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
-    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
+    expect(screen.queryAllByText("아직 성과물이 없습니다.")).toHaveLength(0);
   });
 
   test("a read that fails after an empty one is not taken for none either", async () => {
@@ -555,7 +553,7 @@ describe("the session's GitHub pull requests", () => {
         failing ? apiError(500, "INTERNAL", "boom") : json(200, { items: [] }),
     });
     await openOutputs();
-    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    expect(await screen.findByText("아직 성과물이 없습니다.")).toBeTruthy();
     failing = true;
     await act(() =>
       services.queryClient.refetchQueries({
@@ -565,7 +563,7 @@ describe("the session's GitHub pull requests", () => {
     expect(
       await screen.findByRole("button", { name: "다시 시도" }),
     ).toBeTruthy();
-    expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
+    expect(screen.queryAllByText("아직 성과물이 없습니다.")).toHaveLength(0);
   });
 
   test("recent GitHub refusals name the reason, the work and when", async () => {
@@ -699,11 +697,18 @@ describe("the session's GitHub work", () => {
     );
     await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    // Same branch: the newest row shows and the rest sit behind one toggle.
+    expect(within(area).getAllByRole("listitem")).toHaveLength(2);
+    await (await setupUser()).click(
+      within(area).getByRole("button", {
+        name: "같은 브랜치의 이전 push 3건 보기",
+      }),
+    );
     const rows = within(area).getAllByRole("listitem");
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect(within(area).getByText("push됨")).toBeDefined();
     expect(within(area).getByText("PR 여는 중")).toBeDefined();
-    expect(within(area).getByText("턴이 끝나기를 기다리는 중")).toBeDefined();
+    expect(within(area).getByText("작업이 끝나기를 기다리는 중")).toBeDefined();
     expect(
       within(area).getByText(/고정한 체크포인트를 더는 확인할 수 없습니다/),
     ).toBeDefined();
@@ -747,6 +752,11 @@ describe("the session's GitHub work", () => {
     );
     await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    await (await setupUser()).click(
+      within(area).getByRole("button", {
+        name: "같은 브랜치의 이전 push 3건 보기",
+      }),
+    );
     const link = within(area).getByRole("link", { name: "PR #7" });
     expect(link.getAttribute("href")).toBe(
       "https://github.com/acme/demo/pull/7",
@@ -760,6 +770,30 @@ describe("the session's GitHub work", () => {
     expect(within(area).queryByText(/push_failed/)).toBeNull();
     expect(within(area).getByText("PR 실패")).toBeDefined();
     expect(within(area).getByText("PR 취소됨")).toBeDefined();
+  });
+
+  test("a session branch shows its first block with the whole name as the title; another branch is its own group", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [
+          request,
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000a9",
+            target_branch: "feature/login",
+          },
+        ],
+        intents: [],
+      }),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(area).queryByRole("button")).toBeNull();
+    const short = within(area).getByText("demo ← agent/0f8b6a52…");
+    expect(short.getAttribute("title")).toBe(`agent/${SESSION_ID}`);
+    expect(within(area).getByText("demo ← feature/login")).toBeDefined();
   });
 
   test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {
@@ -787,7 +821,7 @@ describe("the session's GitHub work", () => {
         json(200, { ...detail, repository: null }),
     });
     await openOutputs();
-    await screen.findByRole("region", { name: "out/ 파일" });
+    await screen.findByRole("region", { name: /^out\/ 파일/ });
     expect(screen.queryByRole("region", { name: "GitHub 작업" })).toBeNull();
     expect(api.calls.some((call) => call.path.endsWith("/push-requests"))).toBe(
       false,

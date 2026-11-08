@@ -339,6 +339,7 @@ describe("OpenAPI document", () => {
         "/v1/installation/settings/connections/{id}/convert",
         "/v1/installation/settings/connections/{id}/credential",
         "/v1/installation/settings/connections/{id}/disable",
+        "/v1/installation/settings/connections/{id}/enable",
         "/v1/installation/settings/connections/{id}/impact",
         "/v1/installation/settings/export",
         "/v1/installation/settings/import",

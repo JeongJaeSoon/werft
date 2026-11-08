@@ -37,6 +37,8 @@ export type AgentAdminChangeResult =
 /**
  * `team_not_found`: no live team by that id (for an owner or admin).
  * `team_not_allowed`: anyone else naming a team they are not in.
+ * `team_holding`: the team only holds agents that had none before teams were
+ * required; no one names it as a destination.
  */
 export type SetManagingTeamResult =
   | { outcome: "set" | "unchanged"; agent: Agent }
@@ -45,6 +47,7 @@ export type SetManagingTeamResult =
         | "not_found"
         | "team_not_found"
         | "team_not_allowed"
+        | "team_holding"
         | "actor_inactive";
     };
 

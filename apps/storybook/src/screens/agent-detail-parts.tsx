@@ -150,8 +150,8 @@ export const RELEASED: DetailFixture = {
     name: "결제 담당",
     // Copied from the earlier card's role when descriptions came in.
     description: "결제 문의 담당",
-    managing_team_id: null,
-    managing_team_name: null,
+    managing_team_id: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+    managing_team_name: "재무",
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,
@@ -191,6 +191,7 @@ export const AGENT_TABS = [
   ["overview", "개요"],
   ["card", "상세 설정"],
   ["release", "릴리스"],
+  ["access", "접근"],
   ["admins", "관리자"],
   ["slack", "Slack"],
   ["github", "GitHub"],

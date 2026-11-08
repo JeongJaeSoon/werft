@@ -720,7 +720,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       const summary = await worker.runLoop();
 
       const reason =
-        "Runtime claude_agent_sdk 0.3.270 cannot run this session's profile: it does not support mcp, classifier_review";
+        "Runtime claude_agent_sdk 0.3.319 cannot run this session's profile: it does not support mcp, classifier_review";
       expect(summary).toEqual({ outcome: "failed", reason, turns: [] });
       expect(run.inputs).toEqual([]);
       expect(gateway.releases.map((request) => request.reason)).toEqual([

@@ -1825,7 +1825,7 @@ function judge(
       area: "재현성",
       input: "meta.json",
       expected:
-        "commit·설정·SDK 0.3.270·CLI 2.1.270·Bun·이미지 식별자·bun.lock 해시·명령이 모두 기록됨",
+        "commit·설정·SDK 0.3.319·CLI 2.1.319·Bun·이미지 식별자·bun.lock 해시·명령이 모두 기록됨",
       actual: {
         tested_sha: meta.tested_sha,
         worktree_dirty: meta.worktree_dirty,
@@ -1836,8 +1836,8 @@ function judge(
         config_sha256: meta.config_sha256,
       },
       pass:
-        meta.claude_agent_sdk === "0.3.270" &&
-        String(meta.claude_code).startsWith("2.1.270") &&
+        meta.claude_agent_sdk === "0.3.319" &&
+        String(meta.claude_code).startsWith("2.1.319") &&
         Boolean(meta.tested_sha) &&
         Boolean(meta.bun_lock_sha256) &&
         Boolean(meta.worker_bun),

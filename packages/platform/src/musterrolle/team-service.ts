@@ -64,6 +64,7 @@ function detailView(team: TeamDetail): TeamDetailView {
       role: member.role,
       added_by: member.addedBy,
       added_at: member.addedAt.toISOString(),
+      disabled_at: member.disabledAt?.toISOString() ?? null,
     })),
   };
 }

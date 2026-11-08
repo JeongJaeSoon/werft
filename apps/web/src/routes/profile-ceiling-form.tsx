@@ -37,8 +37,8 @@ import {
   toolRefusalKey,
 } from "./profile-tools.tsx";
 import {
+  allBlockedOf,
   askAgain,
-  blockedOf,
   ceilingTools,
   denyRequest,
   NO_PICKS,
@@ -656,12 +656,15 @@ export function CeilingForm({
               before:
                 template.deny == null
                   ? ""
-                  : join(template.deny, t("profiles.tools.noneBlocked")),
+                  : join(
+                      [...template.deny, ...(template.mcp_deny ?? [])],
+                      t("profiles.tools.noneBlocked"),
+                    ),
               after:
                 tools === null
                   ? ""
                   : join(
-                      blockedOf(tools, draft.tools),
+                      allBlockedOf(tools, draft.tools),
                       t("profiles.tools.noneBlocked"),
                     ),
             },

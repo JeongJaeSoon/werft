@@ -114,6 +114,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   create_mcp_server: "MCP 서버 만들기",
   set_settings_credential: "설정 자격 증명 값 바꾸기",
   disable_connection: "모델 연결 사용 중지",
+  enable_connection: "모델 연결 다시 사용",
   disable_mcp_server: "MCP 서버 사용 중지",
   set_mcp_server_workspaces: "MCP 서버 워크스페이스 변경",
   set_agent_github: "에이전트 GitHub 사용 변경",

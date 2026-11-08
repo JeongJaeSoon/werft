@@ -67,7 +67,9 @@ function harness(options: {
       calls.push({ url, init });
       return (
         options.answer?.() ??
-        Response.json({ content: [{ type: "text", text: "Checkout fix" }] })
+        Response.json({
+          content: [{ type: "text", text: "<title>Checkout fix</title>" }],
+        })
       );
     }) as unknown as typeof fetch,
     onError: (error) => errors.push(error),
@@ -116,6 +118,17 @@ describe("createSessionTitler", () => {
     expect(String(errors[0])).toContain("529");
   });
 
+  test("an untagged answer settles with no title so the derived one stays", async () => {
+    const { titler, settled } = harness({
+      answer: () =>
+        Response.json({
+          content: [{ type: "text", text: "제목: 사용자가 묻는 질문 분석" }],
+        }),
+    });
+    await titler.afterFirstTurn(session);
+    expect(settled.map((entry) => entry.title)).toEqual([null]);
+  });
+
   test("a thrown fetch never rejects", async () => {
     const { titler, settled } = harness({
       answer: () => {
@@ -149,18 +162,40 @@ describe("titleOf", () => {
   const answer = (text: string) => ({ content: [{ type: "text", text }] });
 
   test("keeps the first line, without quotes or a closing period", () => {
-    expect(titleOf(answer('"Fix checkout."\nMore text'))).toBe("Fix checkout");
-    expect(titleOf(answer("「결제 테스트 수정」"))).toBe("결제 테스트 수정");
+    expect(titleOf(answer('<title>"Fix checkout."</title>\n'))).toBe(
+      "Fix checkout",
+    );
+    expect(titleOf(answer("<title>「결제 테스트 수정」</title>"))).toBe(
+      "결제 테스트 수정",
+    );
+  });
+
+  test("an answer that explains itself instead of titling is no title", () => {
+    // Shape of the leak seen in a session list: a label plus the model's own
+    // analysis of the request, on one line.
+    const leaked =
+      '접근 가능한 저장소 제목: 사용자가 묻는 "어떤 저장소들에 접근 가능해"는 Korean question about accessible repositories';
+    expect(titleOf(answer(leaked))).toBeNull();
+    // Ambiguous shapes are refused rather than guessed at.
+    expect(
+      titleOf(answer(`<title>${leaked}\n저장소 접근 문의</title>`)),
+    ).toBeNull();
+    expect(
+      titleOf(
+        answer(`<title>${leaked}</title>\n<title>저장소 접근 문의</title>`),
+      ),
+    ).toBeNull();
   });
 
   test("cuts a long answer like a derived title", () => {
-    const title = titleOf(answer("word ".repeat(40)));
+    const title = titleOf(answer(`<title>${"word ".repeat(40)}</title>`));
     expect(title?.endsWith("…")).toBe(true);
     expect([...(title ?? "")].length).toBeLessThanOrEqual(80);
   });
 
   test("an empty or malformed answer is no title", () => {
     expect(titleOf(answer("  \n "))).toBeNull();
+    expect(titleOf(answer("<title> </title>"))).toBeNull();
     expect(titleOf({ content: [{ type: "tool_use" }] })).toBeNull();
     expect(titleOf(null)).toBeNull();
   });

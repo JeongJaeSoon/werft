@@ -35,6 +35,7 @@ import {
   webSessions,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -607,9 +608,14 @@ integration("invite store on PostgreSQL", () => {
     status: "active" | "paused" | "archived" = "active",
   ) {
     const id = randomUUID();
-    await db
-      .insert(agents)
-      .values({ id, workspaceId, slug: `a-${id.slice(0, 8)}`, name, status });
+    await db.insert(agents).values({
+      id,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: `a-${id.slice(0, 8)}`,
+      name,
+      status,
+    });
     return id;
   }
 

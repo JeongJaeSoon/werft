@@ -1069,8 +1069,15 @@
     {
       "idx": 243,
       "version": "7",
-      "when": 1794170938997,
-      "tag": "0243_slack_private_approval",
+      "when": 1794165257317,
+      "tag": "0243_agent_managing_team_required",
+      "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1794178320589,
+      "tag": "0244_slack_private_approval",
       "breakpoints": true
     }
   ]

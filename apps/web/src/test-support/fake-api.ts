@@ -165,8 +165,6 @@ function agentCountsFrom(
         draft: items.filter(
           (a) => a.status !== "archived" && a.active_release_id === null,
         ).length,
-        unassigned: items.filter((a) => (a.managing_team_id ?? null) === null)
-          .length,
       },
     });
   };

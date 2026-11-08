@@ -606,9 +606,7 @@ function NameStep({
       <Field>
         <FieldLabel htmlFor={teamSelect}>{t("agents.flow.team")}</FieldLabel>
         {locked ? (
-          <Text id={teamSelect}>
-            {team === "" ? t("managingTeam.unassigned") : (savedTeam ?? team)}
-          </Text>
+          <Text id={teamSelect}>{savedTeam ?? team}</Text>
         ) : (
           <NativeSelect
             id={teamSelect}

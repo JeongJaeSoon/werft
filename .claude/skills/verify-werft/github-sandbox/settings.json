@@ -44,7 +44,7 @@
   "profiles": {
     "claude-coding-local": {
       "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
+      "runtime_version": "0.3.319",
       "model": "claude-sonnet-5",
       "title_model": "claude-haiku-4-5",
       "tools": [
@@ -69,7 +69,7 @@
     },
     "claude-coding-auto": {
       "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
+      "runtime_version": "0.3.319",
       "model": "claude-sonnet-5",
       "title_model": "claude-haiku-4-5",
       "tools": [
@@ -94,7 +94,7 @@
     },
     "general": {
       "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
+      "runtime_version": "0.3.319",
       "model": "claude-sonnet-5",
       "tools": ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
       "permission_mode": "default",

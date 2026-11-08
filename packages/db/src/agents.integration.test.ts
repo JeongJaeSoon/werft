@@ -61,6 +61,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const PAGE = { limit: 50 };
@@ -222,11 +223,12 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
   // Rows straight into agents, so created_at can tie and differ by 1µs.
   async function seedAgents(workspaceId: string, createdAt: string[]) {
     const ids: string[] = createdAt.map(() => randomUUID());
+    const teamId = await fixtureTeamSql(pool, workspaceId);
     await pool.query(
-      `INSERT INTO agents (id, workspace_id, slug, name, created_at)
-       SELECT id, $1, 'seed-' || id, 'seed', at
+      `INSERT INTO agents (id, workspace_id, managing_team_id, slug, name, created_at)
+       SELECT id, $1, $4, 'seed-' || id, 'seed', at
        FROM unnest($2::uuid[], $3::timestamptz[]) AS seed(id, at)`,
-      [workspaceId, ids, createdAt],
+      [workspaceId, ids, createdAt, teamId],
     );
     return ids;
   }
@@ -489,14 +491,14 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
 
     // Seeded agents have no release: drafts, until one is archived.
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 6, unassigned: 6 },
+      counts: { all: 6, administered: 2, active: 0, draft: 6 },
     });
     await db
       .update(agents)
       .set({ status: "archived" })
       .where(eq(agents.id, removedFromTeam ?? ""));
     expect(await agentsService.countAgents(owner)).toEqual({
-      counts: { all: 6, administered: 2, active: 0, draft: 5, unassigned: 6 },
+      counts: { all: 6, administered: 2, active: 0, draft: 5 },
     });
     const listed = await createPostgresAgentAdminStore(db).listAdministered(
       workspaceId,
@@ -518,20 +520,13 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         userId,
         outsideAccess: "use",
       }),
-    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0, unassigned: 0 });
+    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0 });
 
     // A member outside every agent counts what they find in the list.
     const member = await person(workspaceId, "member");
     expect(await agentsService.countAgents(member)).toEqual({
-      counts: { all: 6, administered: 0, active: 0, draft: 5, unassigned: 6 },
+      counts: { all: 6, administered: 0, active: 0, draft: 5 },
     });
-    const unassigned = await agentsService.listAgents(member, {
-      limit: 50,
-      managing_team: "unassigned",
-    });
-    expect(unassigned.items.map((agent) => agent.managing_team_name)).toEqual(
-      Array(6).fill(null),
-    );
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
     ).toBe("FORBIDDEN");

@@ -16,7 +16,7 @@ const COPY = {
     keyTitle: "key 종류",
     keyText:
       "개인 key로 시작한 세션은 사람 세션으로 셉니다. 에이전트 key는 그 에이전트의 세션만 시작할 수 있고, 요청을 승인할 수 없습니다.",
-    outputsTitle: "결과물은 턴이 끝날 때 저장됩니다",
+    outputsTitle: "성과물은 턴이 끝날 때 저장됩니다",
     outputsText: "같은 이름의 파일은 새 버전으로 쌓이고 30일 동안 보관됩니다.",
     secretTitle: "ci-deploy key를 만들었습니다",
     secretText:
