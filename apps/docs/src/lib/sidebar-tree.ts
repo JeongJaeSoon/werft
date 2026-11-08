@@ -152,14 +152,14 @@ export function buildSidebarTree(tree: Root, labels: SidebarLabels): Root {
 
   const sections = sectionsToFolders(selfHosting?.children ?? []);
   // Observability is documented under "use"; the deploy tab only links to it.
-  // `external` keeps the link out of the deploy tab's own URL set.
-  const metrics = sections[3]; // "operations": metrics and diagnosis live here
+  // The fourth section is "operations"; the meta's leading `index` is a plain
+  // child here, so it is not counted.
+  const metrics = sections.filter((n) => n.type === "folder")[3];
   if (metrics?.type === "folder" && observability?.type === "page") {
     metrics.children.push({
       type: "page",
       name: labels.observabilityLink,
       url: observability.url,
-      external: true,
     });
   }
   const deploy: Folder = {

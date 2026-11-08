@@ -60,7 +60,7 @@ export const docsLlms = llms(source, {
   // Operation items carry a method badge as their name; the title is plain text.
   renderName: (node, { lang }) => {
     if (node.type === "page")
-      return source.getNodePage(node, lang)?.data.title ?? "";
+      return source.getNodePage(node, lang)?.data.title ?? String(node.name);
     return node.type === "folder"
       ? String(node.name)
       : messages[(lang ?? i18n.defaultLanguage) as Locale].siteTitle;

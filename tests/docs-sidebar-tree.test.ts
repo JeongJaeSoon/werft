@@ -22,22 +22,20 @@ const tree: Root = {
     page("/en/observability"),
     folder("Run", [
       page("/en/run-server/dev-server"),
-      folder(
-        "Self-hosting",
-        [
-          { type: "separator", name: "Trial" },
-          page("/en/run-server/self-hosting/try-kind"),
-          { type: "separator", name: "Prep" },
-          page("/en/run-server/self-hosting/access"),
-          { type: "separator", name: "Install" },
-          page("/en/run-server/self-hosting/kubernetes"),
-          { type: "separator", name: "Operations" },
-          page("/en/run-server/self-hosting/capacity"),
-          { type: "separator", name: "Reference" },
-          page("/en/run-server/self-hosting/reference"),
-        ],
-        "/en/run-server/self-hosting",
-      ),
+      folder("Self-hosting", [
+        // The loader turns the meta's `index` entry into the first child.
+        page("/en/run-server/self-hosting"),
+        { type: "separator", name: "Trial" },
+        page("/en/run-server/self-hosting/try-kind"),
+        { type: "separator", name: "Prep" },
+        page("/en/run-server/self-hosting/access"),
+        { type: "separator", name: "Install" },
+        page("/en/run-server/self-hosting/kubernetes"),
+        { type: "separator", name: "Operations" },
+        page("/en/run-server/self-hosting/capacity"),
+        { type: "separator", name: "Reference" },
+        page("/en/run-server/self-hosting/reference"),
+      ]),
     ]),
     folder("UI", [page("/en/ui/theme")]),
     folder("Reference", [page("/en/reference/api-guide")]),
@@ -115,10 +113,19 @@ describe("buildSidebarTree", () => {
     for (const g of groups) expect((g as Folder).defaultOpen).toBeUndefined();
   });
 
-  test("the observability link is outside the deploy tab's URL set", () => {
+  test("deploy links to observability inside Operations, as a plain page", () => {
     const deploy = tab("Deploy") as Folder;
-    expect(urls(deploy)).not.toContain("/en/observability");
-    expect(JSON.stringify(deploy)).toContain("Observability (Use)");
+    const operations = deploy.children.find(
+      (c): c is Folder => c.type === "folder" && c.name === "Operations",
+    );
+    const link = operations?.children.at(-1);
+    expect(link).toMatchObject({
+      type: "page",
+      name: "Observability (Use)",
+      url: "/en/observability",
+    });
+    // An external link would skip the site's base path.
+    expect((link as { external?: boolean }).external).toBeUndefined();
     expect(urls(tab("Use") as Folder)).toContain("/en/observability");
   });
 
@@ -130,7 +137,10 @@ describe("buildSidebarTree", () => {
   test("each page sits in exactly one tab and contributing in none", () => {
     const use = urls(tab("Use") as Folder);
     const deploy = urls(tab("Deploy") as Folder);
-    expect(use.filter((u) => deploy.includes(u))).toEqual([]);
+    // The only shared URL is the deploy tab's link to observability.
+    expect(use.filter((u) => deploy.includes(u))).toEqual([
+      "/en/observability",
+    ]);
     expect([...use, ...deploy]).not.toContain("/en/contributing");
   });
 });
