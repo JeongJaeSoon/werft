@@ -385,6 +385,9 @@ integration("settings document import and export", () => {
         "auth_kind",
         "branch",
         "credential_source",
+        // A row of the document is not tied to a GitHub id yet.
+        "github_repository_id",
+        "repository",
         "repository_id",
         "source",
         "url",

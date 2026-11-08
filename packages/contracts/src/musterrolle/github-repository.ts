@@ -35,6 +35,30 @@ export const githubRepositoryParamsSchema = workspaceParamsSchema
   .extend({ repositoryId: z.string().min(1).max(200) })
   .strict();
 
+const REPOSITORY_REF_PREFIX = "r1.";
+
+/**
+ * The opaque token a response gives for a catalog repository. A client hands
+ * it back and never reads it; it proves nothing, so whoever receives one
+ * checks the selection, the caller's right and the ceiling again. The prefix
+ * versions the encoding.
+ */
+export const repositoryRefSchema = z.string().regex(/^r1\.[A-Za-z0-9_-]+$/);
+
+export function repositoryRefOf(catalogId: string): string {
+  return `${REPOSITORY_REF_PREFIX}${Buffer.from(catalogId, "utf8").toString("base64url")}`;
+}
+
+/** The catalog id inside a ref; null for anything `repositoryRefOf` did not make. */
+export function catalogIdOfRef(ref: string): string | null {
+  if (!repositoryRefSchema.safeParse(ref).success) return null;
+  const id = Buffer.from(
+    ref.slice(REPOSITORY_REF_PREFIX.length),
+    "base64url",
+  ).toString("utf8");
+  return repositoryRefOf(id) === ref && id !== "" ? id : null;
+}
+
 export const CATALOG_REPOSITORY_SOURCE_VALUES = [
   "console",
   "seed",
@@ -230,10 +254,44 @@ export const AGENT_GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   "ceiling_listed",
 ] as const;
 
+/** A row of the installation page, as the agent's list shows it. */
+export const agentInstalledGitHubRepositorySchema =
+  installedGitHubRepositorySchema.extend({
+    // Optional only so a client written before them still type-checks; the
+    // server always sends both.
+    /** `owner/repo` as GitHub answered now. */
+    repository: z.string().min(1).optional(),
+    /** Hand it back to keep a catalog repository; null until a pick makes one. */
+    ref: repositoryRefSchema.nullable().optional(),
+  });
+
+/** One repository of the merged list: the catalog's and the page's. */
+export const agentGitHubRepositoryChoiceSchema = z
+  .object({
+    /** Null for a catalog row GitHub was never asked about. */
+    github_repository_id: z.number().int().positive().nullable(),
+    /** `owner/repo`; the installation page's answer wins over the catalog's. */
+    repository: z.string().min(1),
+    full_name: z.string().min(1),
+    /** Null when only the catalog knows the repository: it keeps no visibility. */
+    private: z.boolean().nullable(),
+    /** Null for a repository only the installation page has. */
+    ref: repositoryRefSchema.nullable(),
+  })
+  .strict();
+
 export const listAgentGitHubRepositoriesResponseSchema = z
   .object({
     ...installationPageFields,
-    repositories: z.array(installedGitHubRepositorySchema),
+    repositories: z.array(agentInstalledGitHubRepositorySchema.strict()),
+    /**
+     * Every catalog repository the workspace ceiling allows (turned off
+     * ones too, and under `ceiling_listed` too) together with this page of
+     * the installation, never the installation's whole list. `page` and
+     * `total_count` still describe the installation. Optional only for
+     * clients written before it; the server always sends it.
+     */
+    all_repositories: z.array(agentGitHubRepositoryChoiceSchema).optional(),
     unavailable: z
       .enum(AGENT_GITHUB_REPOSITORIES_UNAVAILABLE_VALUES)
       .nullable(),
@@ -289,6 +347,12 @@ export type PatchGitHubRepositoryRequest = z.infer<
 >;
 export type GitHubRepositoryWriteResponse = z.infer<
   typeof githubRepositoryWriteResponseSchema
+>;
+export type AgentInstalledGitHubRepository = z.infer<
+  typeof agentInstalledGitHubRepositorySchema
+>;
+export type AgentGitHubRepositoryChoice = z.infer<
+  typeof agentGitHubRepositoryChoiceSchema
 >;
 export type ListAgentGitHubRepositoriesResponse = z.infer<
   typeof listAgentGitHubRepositoriesResponseSchema

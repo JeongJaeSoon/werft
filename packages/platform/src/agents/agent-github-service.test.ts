@@ -3,9 +3,11 @@ import {
   type AgentDetail,
   type AgentGitHub,
   type AgentGitHubSettingsRow,
+  catalogIdOfRef,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   type RepositoryCeiling,
+  repositoryRefOf,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
@@ -137,6 +139,7 @@ function serviceWith(input: {
     async activity() {
       return [];
     },
+    repositoryNames: () => Promise.resolve(new Map()),
     ...input.store,
   };
   return createAgentGitHubService({
@@ -275,6 +278,10 @@ describe("the agent GitHub tab's options", () => {
       {
         id: "elsewhere-app",
         url: "https://github.com/acme/elsewhere",
+        repository: "acme/elsewhere",
+        full_name: "acme/elsewhere",
+        private: null,
+        ref: repositoryRefOf("elsewhere-app"),
         available: false,
         reason: "repository_not_allowed",
         installed: unknown,
@@ -282,6 +289,10 @@ describe("the agent GitHub tab's options", () => {
       {
         id: "ghe-app",
         url: "https://ghe.example.com/acme/app",
+        repository: "acme/app",
+        full_name: "acme/app",
+        private: null,
+        ref: repositoryRefOf("ghe-app"),
         available: true,
         reason: null,
         installed: unknown,
@@ -289,6 +300,10 @@ describe("the agent GitHub tab's options", () => {
       {
         id: "sample-app",
         url: "https://github.com/acme/sample-app",
+        repository: "acme/sample-app",
+        full_name: "acme/sample-app",
+        private: null,
+        ref: repositoryRefOf("sample-app"),
         available: true,
         reason: null,
         installed: unknown,
@@ -736,5 +751,93 @@ describe("saving the agent's GitHub settings", () => {
       }),
     );
     expect(puts[0]?.settings.repositories).toEqual(["sample-app"]);
+  });
+});
+
+describe("repositories read as owner/repo", () => {
+  test("a repository the catalog dropped still answers; one it never held does not", async () => {
+    const asked: string[][] = [];
+    const read = await serviceWith({
+      github: {
+        ...WITH_SETTINGS,
+        repositories: ["sample-app", "gone", "nope"],
+      },
+      store: {
+        repositoryNames: (ids) => {
+          asked.push([...ids]);
+          return Promise.resolve(new Map([["gone", "acme/old-name"]]));
+        },
+      },
+    }).get(caller, AGENT);
+    expect(read.selected_repositories).toEqual([
+      {
+        id: "sample-app",
+        repository: "acme/sample-app",
+        private: null,
+        ref: repositoryRefOf("sample-app"),
+      },
+      {
+        id: "gone",
+        repository: "acme/old-name",
+        private: null,
+        ref: repositoryRefOf("gone"),
+      },
+      {
+        id: "nope",
+        repository: null,
+        private: null,
+        ref: repositoryRefOf("nope"),
+      },
+    ]);
+    // Only the ids the live catalog lacks go to the table.
+    expect(asked).toEqual([["gone", "nope"]]);
+  });
+
+  test("a ref hides the catalog id and gives it back only to its own reader", () => {
+    const ref = repositoryRefOf("sample-app");
+    expect(ref).not.toContain("sample-app");
+    expect(catalogIdOfRef(ref)).toBe("sample-app");
+    expect(catalogIdOfRef("sample-app")).toBeNull();
+    expect(catalogIdOfRef("r1.")).toBeNull();
+    expect(catalogIdOfRef(`${ref}x`)).toBeNull();
+  });
+
+  test("activity names the repository: the receipt's own name, then the catalog's now", async () => {
+    const receipt = (id: string, result: unknown) => ({
+      id,
+      operation: "mint_github_token",
+      target_ref: { session_id: "s" },
+      status: "succeeded",
+      result,
+      error: null,
+      created_at: "2026-11-08T00:00:00Z",
+      updated_at: "2026-11-08T00:00:00Z",
+    });
+    const asked: string[][] = [];
+    const response = await serviceWith({
+      store: {
+        activity: () =>
+          Promise.resolve([
+            receipt("new", { repository: "acme/new", repository_id: "a" }),
+            receipt("then", { full_name: "acme/then", repository_id: "b" }),
+            receipt("old", { repository_id: "removed" }),
+            receipt("lost", { repository_id: "never" }),
+            receipt("none", { purpose: "mint" }),
+            receipt("empty", null),
+          ] as never),
+        repositoryNames: (ids) => {
+          asked.push([...ids]);
+          return Promise.resolve(new Map([["removed", "acme/was-removed"]]));
+        },
+      },
+    }).activity(caller, AGENT);
+    expect(response.receipt_repositories).toEqual([
+      { receipt_id: "new", repository: "acme/new" },
+      { receipt_id: "then", repository: "acme/then" },
+      { receipt_id: "old", repository: "acme/was-removed" },
+    ]);
+    expect(response.items).toHaveLength(6);
+    // A receipt that already names its repository is not looked up.
+    expect(asked).toEqual([["removed", "never"]]);
   });
 });

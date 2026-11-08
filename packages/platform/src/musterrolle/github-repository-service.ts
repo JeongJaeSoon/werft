@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  type AgentGitHubRepositoryChoice,
+  type AgentInstalledGitHubRepository,
   type CatalogGitHubRepository,
   type GetGitHubRepositoryAppPinsResponse,
   GITHUB_APP_ROLE_VALUES,
@@ -16,6 +18,7 @@ import {
   type PutGitHubRepositoryAppPinRequest,
   type PutGitHubRepositoryAppPinResponse,
   type RepositoryCeiling,
+  repositoryRefOf,
 } from "@werft-ai/contracts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type {
@@ -357,14 +360,81 @@ export function createGitHubRepositoryService(deps: {
     full_name: `${repository.owner}/${repository.name}`,
     default_branch: repository.defaultBranch,
     private: repository.private,
-    catalog_id:
-      rows.find(
-        (row) =>
-          row.github_repository_id === repository.id ||
-          fullNameOf(row.owner, row.name) ===
-            fullNameOf(repository.owner, repository.name),
-      )?.id ?? null,
+    catalog_id: rowOfRepository(repository, rows)?.id ?? null,
   });
+
+  /**
+   * The row of that GitHub repository: by its id, and by name only a row
+   * not yet tied to an id (another repository may hold a name this one had).
+   */
+  const rowOfRepository = (
+    repository: GitHubInstallationRepository,
+    rows: readonly CatalogRepositoryRow[],
+  ) =>
+    rows.find((row) => row.github_repository_id === repository.id) ??
+    rows.find(
+      (row) =>
+        row.github_repository_id === null &&
+        fullNameOf(row.owner, row.name) ===
+          fullNameOf(repository.owner, repository.name),
+    );
+
+  /**
+   * The catalog rows the workspace ceiling allows for an agent, together
+   * with the installation page's repositories: one entry per repository,
+   * the page's answer for its name and visibility winning.
+   */
+  const choicesOf = (
+    page: readonly GitHubInstallationRepository[],
+    rows: readonly CatalogRepositoryRow[],
+    ceiling: RepositoryCeiling | null,
+  ): AgentGitHubRepositoryChoice[] => {
+    const refOf = (id: string | undefined) =>
+      id === undefined ? null : repositoryRefOf(id);
+    const merged = new Map<string, AgentGitHubRepositoryChoice>();
+    for (const repository of page) {
+      const row = rowOfRepository(repository, rows);
+      const name = `${repository.owner}/${repository.name}`;
+      merged.set(row?.id ?? `github:${repository.id}`, {
+        github_repository_id: repository.id,
+        repository: name,
+        full_name: name,
+        private: repository.private,
+        ref: refOf(row?.id),
+      });
+    }
+    for (const row of rows) {
+      const allowed =
+        ceiling === null ||
+        ceiling.github_app_repositories === "installed" ||
+        ceiling.repository_ids.includes(row.id);
+      if (!allowed || merged.has(row.id)) continue;
+      const name = `${row.owner}/${row.name}`;
+      merged.set(row.id, {
+        github_repository_id: row.github_repository_id,
+        repository: name,
+        full_name: name,
+        private: null,
+        ref: repositoryRefOf(row.id),
+      });
+    }
+    return [...merged.values()].sort((a, b) =>
+      a.repository.toLowerCase().localeCompare(b.repository.toLowerCase()),
+    );
+  };
+
+  const agentRepositoryOf = (
+    repository: GitHubInstallationRepository,
+    rows: readonly CatalogRepositoryRow[],
+  ): AgentInstalledGitHubRepository => {
+    const picked = pickedOf(repository, rows);
+    return {
+      ...picked,
+      repository: picked.full_name,
+      ref:
+        picked.catalog_id === null ? null : repositoryRefOf(picked.catalog_id),
+    };
+  };
 
   const rowView = (
     row: CatalogRepositoryRow,
@@ -596,19 +666,30 @@ export function createGitHubRepositoryService(deps: {
       await manageAgent(caller, agentId);
       const workspaceId = caller.ownerId;
       const blocked = await installedCeiling(workspaceId, agentId);
+      const [rows, ceiling] = await Promise.all([
+        store.listActive(),
+        deps.repositoryCeiling(workspaceId),
+      ]);
       if (blocked !== null) {
         const { role: _author, ...empty } = emptyPage(query, null);
-        return { ...empty, repositories: [], unavailable: blocked };
+        return {
+          ...empty,
+          repositories: [],
+          all_repositories: choicesOf([], rows, ceiling),
+          unavailable: blocked,
+        };
       }
-      const [{ role: _author, ...page }, rows] = await Promise.all([
-        installationPage(workspaceId, query, ["author"]),
-        store.listActive(),
-      ]);
+      const { role: _author, ...page } = await installationPage(
+        workspaceId,
+        query,
+        ["author"],
+      );
       return {
         ...page,
         repositories: page.repositories.map((repository) =>
-          pickedOf(repository, rows),
+          agentRepositoryOf(repository, rows),
         ),
+        all_repositories: choicesOf(page.repositories, rows, ceiling),
       };
     },
 

@@ -6722,6 +6722,12 @@ export interface components {
                 }[];
             } | null;
             settings_revision: number | null;
+            selected_repositories?: {
+                id: string;
+                repository: string | null;
+                private: boolean | null;
+                ref: string;
+            }[];
             start_repository_id: string | null;
             /** @enum {string} */
             push_attached: "allow" | "ask" | "deny";
@@ -6744,6 +6750,10 @@ export interface components {
                 repositories: {
                     id: string;
                     url: string;
+                    repository?: string;
+                    full_name?: string;
+                    private?: boolean | null;
+                    ref?: string;
                     available: boolean;
                     reason: ("repository_not_allowed" | "app_required") | null;
                     installed: {
@@ -6802,6 +6812,11 @@ export interface components {
         };
         AgentGitHubActivityResponse: {
             items: components["schemas"]["Receipt"][];
+            receipt_repositories?: {
+                /** Format: uuid */
+                receipt_id: string;
+                repository: string;
+            }[];
         };
         ReceiptAcceptedResponse: {
             /** Format: uuid */
@@ -7408,6 +7423,15 @@ export interface components {
                 default_branch: string;
                 private: boolean;
                 catalog_id: string | null;
+                repository?: string;
+                ref?: string | null;
+            }[];
+            all_repositories?: {
+                github_repository_id: number | null;
+                repository: string;
+                full_name: string;
+                private: boolean | null;
+                ref: string | null;
             }[];
             unavailable: ("no_author_app" | "no_installation" | "installation_suspended" | "github_unavailable" | "github_app_auth_failed" | "no_active_release" | "ceiling_listed") | null;
         };

@@ -84,6 +84,8 @@ async function receipt(
 
 const auditOf = (row: CatalogRepositoryRow) => ({
   repository_id: row.id,
+  repository: `${row.owner}/${row.name}`,
+  github_repository_id: row.github_repository_id,
   full_name: `${row.owner}/${row.name}`,
   url: row.url,
   branch: row.branch,
