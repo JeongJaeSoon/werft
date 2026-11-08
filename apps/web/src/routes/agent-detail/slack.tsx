@@ -10,6 +10,7 @@ import {
 } from "@werft-ai/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { useToast } from "../../components/toast.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { SlackDmSetting, SlackMentionOnly } from "./slack/basic.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
@@ -26,7 +27,6 @@ import {
   type SectionKey,
 } from "./slack/shared.ts";
 import { SlackStatus } from "./slack/status.tsx";
-import { useToast } from "./toast.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 

@@ -189,7 +189,7 @@ get "/v1/sessions/$SID" | jq -c '{status, runtime, pending_request_count}'
 get "/v1/sessions/$SID/usage" | jq -r .cost.amount_usd
 ```
 
-`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `permission_mode: default` profile로 보내면 첫 `Write`에서 권한 요청이 오고 세션이 `needs_input`이 된다.
+`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `permission_mode: default` profile로 보내도 작업 공간 안 `Write`와 로컬 `git add`·`git commit`은 사전 허용이라 묻지 않는다. 작업 공간 밖 쓰기나 `git push` 같은 사전 허용 밖 호출에서만 권한 요청이 오고 세션이 `needs_input`이 된다.
 
 `permission_mode: auto` profile(지금의 `claude-coding-real`)도 같은 문장으로 승인 없이 끝났다. 다만 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
 

@@ -1848,7 +1848,7 @@ const SESSIONS: SessionSpec[] = [
     repository: true,
     turns: [
       permissionTurn(
-        "bun run db:migrate --env staging",
+        "psql --file migrations/staging.sql",
         "Apply pending migrations to staging",
       )(),
     ],
@@ -1858,7 +1858,7 @@ const SESSIONS: SessionSpec[] = [
     parkNow: true,
     share: { scope: "workspace" },
     keep: permissionTurn(
-      "bun run db:migrate --env staging",
+      "psql --file migrations/staging.sql",
       "Apply pending migrations to staging",
     ),
   },
