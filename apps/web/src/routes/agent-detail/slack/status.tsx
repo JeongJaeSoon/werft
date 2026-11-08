@@ -70,7 +70,7 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
           </AlertDescription>
         </Alert>
       ) : null}
-      <RowList variant="joined">
+      <RowList variant="joined" framed={false}>
         <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
           <Badge
             variant={

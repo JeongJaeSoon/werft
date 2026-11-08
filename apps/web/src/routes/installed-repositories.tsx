@@ -45,6 +45,111 @@ export const installationUnusable = (error: unknown) =>
 export const retryUnlessUnusable = (failures: number, error: unknown) =>
   !installationUnusable(error) && failures < 3;
 
+/** The text for a page GitHub could not list, or null when it listed. */
+export function installedUnavailableKey(
+  unavailable: string | null,
+): MessageKey | null {
+  return unavailable === null
+    ? null
+    : (UNAVAILABLE[unavailable] ?? "github.repo.pickNoInstallation");
+}
+
+/** The installation picker; nothing while there is only one to read. */
+export function InstallationSelect({
+  page,
+  onInstallation,
+}: {
+  readonly page: Pick<Page<never>, "installations" | "installation_id">;
+  readonly onInstallation: (installationId: number) => void;
+}) {
+  const { t } = useI18n();
+  const selectId = useId();
+  // An empty default page may still list installations another can be read from.
+  if (page.installations.length <= (page.installation_id === null ? 0 : 1)) {
+    return null;
+  }
+  return (
+    <Field>
+      <FieldLabel htmlFor={selectId}>
+        {t("github.repo.installation")}
+      </FieldLabel>
+      <NativeSelect
+        id={selectId}
+        size="sm"
+        value={String(page.installation_id ?? "")}
+        onChange={(event) => onInstallation(Number(event.target.value))}
+      >
+        {page.installation_id === null ? (
+          <NativeSelectOption value="" disabled>
+            {t("github.repo.installationChoose")}
+          </NativeSelectOption>
+        ) : null}
+        {page.installations.map((installation) => (
+          <NativeSelectOption
+            key={installation.id}
+            value={String(installation.id)}
+          >
+            {installation.role === "reviewer"
+              ? t("github.repo.installationReviewer", {
+                  account: installation.account,
+                })
+              : installation.account}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </Field>
+  );
+}
+
+/** Previous/next under a page; nothing while one page holds everything. */
+export function InstalledPageNav({
+  page,
+  shown,
+  onPage,
+}: {
+  readonly page: Pick<Page<never>, "page" | "per_page" | "total_count">;
+  /** How many rows this page lists. */
+  readonly shown: number;
+  readonly onPage: (page: number) => void;
+}) {
+  const { t } = useI18n();
+  if (page.total_count <= page.per_page && page.page <= 1) return null;
+  const from = (page.page - 1) * page.per_page + 1;
+  const to = from + shown - 1;
+  return (
+    <nav
+      aria-label={t("github.repo.pickTitle")}
+      className="flex items-center justify-end gap-2"
+    >
+      <span className="text-caption text-subtle-foreground">
+        {t("github.repo.pageOf", {
+          from: Math.min(from, page.total_count),
+          to: Math.max(to, 0),
+          total: page.total_count,
+        })}
+      </span>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={page.page <= 1}
+        onClick={() => onPage(page.page - 1)}
+      >
+        {t("github.repo.previousPage")}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={page.page * page.per_page >= page.total_count}
+        onClick={() => onPage(page.page + 1)}
+      >
+        {t("github.repo.nextPage")}
+      </Button>
+    </nav>
+  );
+}
+
 /**
  * One page of the repositories an installation of the author App reaches,
  * as GitHub pages them: an installation picker when there are several, the
@@ -64,40 +169,9 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
   readonly action?: (repository: R) => ReactNode;
 }) {
   const { t } = useI18n();
-  const selectId = useId();
-  // An empty default page may still list installations another can be read from.
-  const picker =
-    page.installations.length > (page.installation_id === null ? 0 : 1) ? (
-      <Field>
-        <FieldLabel htmlFor={selectId}>
-          {t("github.repo.installation")}
-        </FieldLabel>
-        <NativeSelect
-          id={selectId}
-          size="sm"
-          value={String(page.installation_id ?? "")}
-          onChange={(event) => onInstallation(Number(event.target.value))}
-        >
-          {page.installation_id === null ? (
-            <NativeSelectOption value="" disabled>
-              {t("github.repo.installationChoose")}
-            </NativeSelectOption>
-          ) : null}
-          {page.installations.map((installation) => (
-            <NativeSelectOption
-              key={installation.id}
-              value={String(installation.id)}
-            >
-              {installation.role === "reviewer"
-                ? t("github.repo.installationReviewer", {
-                    account: installation.account,
-                  })
-                : installation.account}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
-    ) : null;
+  const picker = (
+    <InstallationSelect page={page} onInstallation={onInstallation} />
+  );
   if (page.unavailable !== null) {
     return (
       <div className="flex flex-col gap-2">
@@ -108,8 +182,6 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
       </div>
     );
   }
-  const from = (page.page - 1) * page.per_page + 1;
-  const to = from + page.repositories.length - 1;
   return (
     <div className="flex flex-col gap-2">
       {picker}
@@ -133,38 +205,11 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
           ))}
         </RowList>
       )}
-      {page.total_count > page.per_page || page.page > 1 ? (
-        <nav
-          aria-label={t("github.repo.pickTitle")}
-          className="flex items-center justify-end gap-2"
-        >
-          <span className="text-caption text-subtle-foreground">
-            {t("github.repo.pageOf", {
-              from: Math.min(from, page.total_count),
-              to: Math.max(to, 0),
-              total: page.total_count,
-            })}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page.page <= 1}
-            onClick={() => onPage(page.page - 1)}
-          >
-            {t("github.repo.previousPage")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page.page * page.per_page >= page.total_count}
-            onClick={() => onPage(page.page + 1)}
-          >
-            {t("github.repo.nextPage")}
-          </Button>
-        </nav>
-      ) : null}
+      <InstalledPageNav
+        page={page}
+        shown={page.repositories.length}
+        onPage={onPage}
+      />
     </div>
   );
 }

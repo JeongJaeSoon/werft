@@ -104,8 +104,8 @@ function InviteCopy({
   );
 }
 
-// The tag sits in the row's right column, which shares the name's line even
-// at 390px; the description slot would put it under the name.
+// The tag sits beside the channel name, as the private tag does on the GitHub
+// tab's repository rows.
 function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
   const { t } = useI18n();
   return (
@@ -126,6 +126,7 @@ function ChannelSkeleton() {
   return (
     <RowList
       variant="joined"
+      framed={false}
       aria-busy="true"
       aria-label={t("slack.channelsLoading")}
     >
@@ -341,7 +342,11 @@ export function SlackChannels({
               description={t("slack.addChannelHint")}
             />
           ) : (
-            <RowList variant="joined" aria-label={t("slack.connectedChannels")}>
+            <RowList
+              variant="joined"
+              framed={false}
+              aria-label={t("slack.connectedChannels")}
+            >
               {rows.map((row) => {
                 const known = row.external_surface_id
                   ? names[row.external_surface_id]
@@ -365,9 +370,12 @@ export function SlackChannels({
                     key={row.id}
                     title={<ChannelName>{name}</ChannelName>}
                     badge={
-                      row.home ? (
-                        <Badge variant="gray">{t("slack.home")}</Badge>
-                      ) : undefined
+                      <>
+                        {tag}
+                        {row.home ? (
+                          <Badge variant="gray">{t("slack.home")}</Badge>
+                        ) : null}
+                      </>
                     }
                     meta={
                       awaitsInvite(row, known) ? (
@@ -381,27 +389,18 @@ export function SlackChannels({
                     }
                     actions={
                       manages ? (
-                        <span className="flex items-center gap-2">
-                          {tag}
-                          <Text as="span" aria-hidden="true">
-                            {t("slack.inUse")}
-                          </Text>
-                          <Switch
-                            aria-label={t("slack.inUseOf", { channel: name })}
-                            checked={row.mode !== "off"}
-                            aria-disabled={update.isPending}
-                            onCheckedChange={(checked) =>
-                              change(row, checked ? "on" : "off")
-                            }
-                          />
-                        </span>
+                        <Switch
+                          aria-label={t("slack.inUseOf", { channel: name })}
+                          checked={row.mode !== "off"}
+                          aria-disabled={update.isPending}
+                          onCheckedChange={(checked) =>
+                            change(row, checked ? "on" : "off")
+                          }
+                        />
                       ) : (
-                        <span className="flex items-center gap-2">
-                          {tag}
-                          <Text as="span" variant="sub">
-                            {t(row.mode !== "off" ? "slack.on" : "slack.off")}
-                          </Text>
-                        </span>
+                        <Text as="span" variant="sub">
+                          {t(row.mode !== "off" ? "slack.on" : "slack.off")}
+                        </Text>
                       )
                     }
                   />

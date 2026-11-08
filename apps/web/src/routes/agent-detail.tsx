@@ -518,7 +518,8 @@ function AgentView({
       onValueChange={(next) => openTab(next as AgentTab)}
       className="min-w-0 gap-[var(--werft-space-block)]"
     >
-      <div className="border-b">
+      {/* Seven tabs outgrow a phone in en/ja: scroll the row, not the page. */}
+      <div className="overflow-x-auto border-b">
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
             <TabsTrigger

@@ -50,8 +50,12 @@ import {
   receiptTitle,
   useAgentGitHubActivity,
 } from "./github-activity.ts";
-import { AppRepositoryPicker } from "./github-app-repositories.tsx";
-import { AgentPullRequestSettingsCard } from "./github-pull-request.tsx";
+import {
+  AgentPullRequestSettingsCard,
+  PULL_REQUEST_SECTION,
+} from "./github-pull-request.tsx";
+import { RepositoryList } from "./github-repositories.tsx";
+import { useRepositoryToggles } from "./github-repository-toggles.ts";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 
@@ -76,15 +80,16 @@ type Draft = {
   };
 };
 
+// In the order they sit on the page.
 const SECTION = {
   use: "github-use",
   repositories: "github-repositories",
+  pullRequest: PULL_REQUEST_SECTION,
   details: "github-details",
   activity: "github-activity",
 } as const;
 // Inside the collapsed details; not in the side nav.
 const DETAIL_ID = {
-  start: "github-start",
   permissions: "github-permissions",
   allowlist: "github-allowlist",
   push: "github-push",
@@ -116,22 +121,18 @@ export function refusesAgentRef(ref: string): boolean {
 const sameEntry = (a: AllowEntry, b: AllowEntry) =>
   a.workflow === b.workflow && (a.ref ?? null) === (b.ref ?? null);
 
-/** How many things the draft changes from the settings it was made from. */
+/**
+ * How many things the draft changes from the settings it was made from.
+ * Repositories are not drafted: each switch saves on its own.
+ */
 export function pendingCount(
   base: Settings,
   draft: Settings,
-  baseStart: string | null = null,
-  draftStart: string | null = null,
   basePushAttached: PushAttached = "ask",
   draftPushAttached: PushAttached = basePushAttached,
 ): number {
-  const repos = new Set(base.repositories);
-  const drafted = new Set(draft.repositories);
   return (
-    Number(baseStart !== draftStart) +
     Number(basePushAttached !== draftPushAttached) +
-    [...drafted].filter((id) => !repos.has(id)).length +
-    [...repos].filter((id) => !drafted.has(id)).length +
     Number(base.push_approval !== draft.push_approval) +
     FEATURES.filter((f) => base.features[f] !== draft.features[f]).length +
     draft.actions_allow.filter(
@@ -151,15 +152,17 @@ function failure(error: unknown, t: Translate): string {
 function ReceiptRow({
   receipt,
   detail,
+  repository,
 }: {
   readonly receipt: Receipt;
   readonly detail: AgentDetail;
+  /** `owner/repo` the receipt is about, when the server named one. */
+  readonly repository: string | undefined;
 }) {
   const { t, locale } = useI18n();
   const result = (receipt.result ?? {}) as {
     session_id?: string;
     release_id?: string;
-    repository_id?: string;
     purpose?: string;
     workflow?: string;
     ref?: string;
@@ -172,7 +175,7 @@ function ReceiptRow({
         ? `${result.workflow} @ ${result.ref}`
         : result.workflow
       : null,
-    result.repository_id ?? null,
+    repository ?? null,
     result.purpose && receipt.operation === "mint_github_token"
       ? t(`agentGitHub.purpose.${result.purpose}` as MessageKey)
       : null,
@@ -230,24 +233,42 @@ function ReceiptRow({
   );
 }
 
+/** A `<details>` the page can also open from outside, with its open state. */
+type Fold = {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+};
+
 function Activity({
   agentId,
   detail,
-}: {
-  readonly agentId: string;
-  readonly detail: AgentDetail;
-}) {
+  open,
+  onOpenChange,
+}: { readonly agentId: string; readonly detail: AgentDetail } & Fold) {
   const { t } = useI18n();
-  const activity = useAgentGitHubActivity(agentId);
+  // Closed, it asks for nothing.
+  const activity = useAgentGitHubActivity(agentId, open);
+  const repositories = new Map(
+    (activity.data?.receipt_repositories ?? []).map((held) => [
+      held.receipt_id,
+      held.repository,
+    ]),
+  );
   return (
-    <Section
+    <details
       id={SECTION.activity}
       tabIndex={-1}
-      className="scroll-mt-4 outline-none"
-      title={t("agentGitHub.section.activity")}
-      description={t("agentGitHub.activityHint")}
+      className="group scroll-mt-4 outline-none"
+      open={open}
+      onToggle={(event) => onOpenChange(event.currentTarget.open)}
     >
-      <div className={SECTION_BODY}>
+      <summary className="cursor-pointer text-control font-medium">
+        {t("agentGitHub.section.activity")}
+        <Text as="span" variant="meta" className="ml-2">
+          {t("agentGitHub.activityHint")}
+        </Text>
+      </summary>
+      <div className={`${SECTION_BODY} mt-4`}>
         {activity.error ? (
           <LoadFailure
             error={activity.error}
@@ -266,15 +287,21 @@ function Activity({
         ) : (
           <RowList
             variant="joined"
+            framed={false}
             aria-label={t("agentGitHub.section.activity")}
           >
             {activity.data.items.map((receipt) => (
-              <ReceiptRow key={receipt.id} receipt={receipt} detail={detail} />
+              <ReceiptRow
+                key={receipt.id}
+                receipt={receipt}
+                detail={detail}
+                repository={repositories.get(receipt.id)}
+              />
             ))}
           </RowList>
         )}
       </div>
-    </Section>
+    </details>
   );
 }
 
@@ -310,7 +337,7 @@ function EnabledRow({
   });
   return (
     <>
-      <RowList variant="joined">
+      <RowList variant="joined" framed={false}>
         <SettingRow
           title={t("agentGitHub.enabled")}
           badge={<Badge variant="gray">{t("agentGitHub.badge.now")}</Badge>}
@@ -442,17 +469,20 @@ function GitHubSettings({
   data,
   notify,
   sectionKeys,
+  folds,
 }: {
   readonly agentId: string;
   readonly detail: AgentDetail;
   readonly data: GitHubTabData;
   readonly notify: Notify;
   readonly sectionKeys: (keys: readonly SectionKey[]) => void;
+  readonly folds: Readonly<Record<"details" | "activity", Fold>>;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
+  const toggles = useRepositoryToggles(agentId);
   const [draft, setDraft] = useState<Draft | null>(null);
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
@@ -460,7 +490,6 @@ function GitHubSettings({
   const baseStart = draft ? draft.from.start : data.start_repository_id;
   const basePushAttached = draft ? draft.from.pushAttached : data.push_attached;
   const settings = draft?.settings ?? base;
-  const start = draft ? draft.start : baseStart;
   const pushAttached = draft ? draft.pushAttached : basePushAttached;
   const saveError = useRef<HTMLDivElement>(null);
   const pendingRegion = useRef<HTMLDivElement>(null);
@@ -522,34 +551,19 @@ function GitHubSettings({
   const readOnly = !editable || save.isPending;
   const edit = (
     change: (current: Settings) => Settings,
-    nextStart: (current: string | null) => string | null = (s) => s,
     nextAttached: PushAttached = pushAttached,
   ) => {
     if (readOnly || !settings || !base) return;
     const next = change(settings);
-    // A start repository the list no longer holds falls back to none.
-    const nextStartId = nextStart(start);
-    const kept =
-      nextStartId !== null && next.repositories.includes(nextStartId)
-        ? nextStartId
-        : null;
     // Undone by hand: drop the draft so the tab follows the agent again.
-    if (
-      pendingCount(
-        base,
-        next,
-        baseStart,
-        kept,
-        basePushAttached,
-        nextAttached,
-      ) === 0
-    ) {
+    if (pendingCount(base, next, basePushAttached, nextAttached) === 0) {
       setDraft(null);
       return;
     }
     setDraft({
       settings: next,
-      start: kept,
+      // Kept as read: a save sends the start repository the server holds.
+      start: baseStart,
       pushAttached: nextAttached,
       from: draft?.from ?? {
         base,
@@ -561,14 +575,7 @@ function GitHubSettings({
   };
   const pending =
     base && draft
-      ? pendingCount(
-          base,
-          draft.settings,
-          baseStart,
-          draft.start,
-          basePushAttached,
-          draft.pushAttached,
-        )
+      ? pendingCount(base, draft.settings, basePushAttached, draft.pushAttached)
       : 0;
   // A first save turns the github MCP on whatever else it changes, so it
   // keeps its own title instead of a change count.
@@ -578,7 +585,7 @@ function GitHubSettings({
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "use",
-    ...(settings ? (["repositories", "details"] as const) : []),
+    ...(settings ? (["repositories", "pullRequest", "details"] as const) : []),
     "activity",
   ];
   // Joined, so a new array with the same sections does not report again.
@@ -594,7 +601,7 @@ function GitHubSettings({
         className="flex flex-col gap-[var(--werft-space-block)]"
         aria-label={t("agentGitHub.status")}
       >
-        <RowList variant="joined">
+        <RowList variant="joined" framed={false}>
           <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
             <Badge variant={data.enabled ? "green" : "gray"}>
               {t(
@@ -649,8 +656,13 @@ function GitHubSettings({
             <Button
               type="button"
               size="sm"
+              // A switch still on its way changes the revision this save
+              // would be checked against.
               disabled={
-                (pending === 0 && !firstSave) || stale || save.isPending
+                (pending === 0 && !firstSave) ||
+                stale ||
+                save.isPending ||
+                toggles.pending
               }
               onClick={() => save.mutate()}
             >
@@ -714,7 +726,6 @@ function GitHubSettings({
             tabIndex={-1}
             className="scroll-mt-4 outline-none"
             title={t("agentGitHub.section.repositories")}
-            badge={<Badge variant="blue">{t("agentGitHub.badge.next")}</Badge>}
             description={t("agentGitHub.repositoriesHint")}
           >
             <div className={SECTION_BODY}>
@@ -723,96 +734,30 @@ function GitHubSettings({
                   {t("agentGitHub.ceilingUnset")}
                 </Text>
               ) : null}
-              {data.options.repositories.length === 0 ? (
-                <Text as="span" variant="sub">
-                  {t("agentGitHub.repositoriesNone")}
-                </Text>
-              ) : (
-                <RowList variant="joined">
-                  {data.options.repositories.map((repository) => {
-                    const on = settings.repositories.includes(repository.id);
-                    const blocked = !repository.available && !on;
-                    return (
-                      <SettingRow
-                        key={repository.id}
-                        title={repository.id}
-                        badge={
-                          repository.installed.author === false ? (
-                            <Badge variant="amber">
-                              {t("agentGitHub.appNotInstalled")}
-                            </Badge>
-                          ) : undefined
-                        }
-                        description={
-                          <span className="[overflow-wrap:anywhere]">
-                            {repository.url}
-                            {repository.reason
-                              ? ` · ${t(`agentGitHub.repositoryReason.${repository.reason}`)}`
-                              : null}
-                          </span>
-                        }
-                        status={
-                          <Text as="span" variant="sub">
-                            {t(
-                              on
-                                ? "agentGitHub.repositoryUse"
-                                : "agentGitHub.repositoryUnused",
-                            )}
-                          </Text>
-                        }
-                        control={
-                          <Switch
-                            aria-label={repository.id}
-                            checked={on}
-                            disabled={readOnly || blocked}
-                            onCheckedChange={(checked) =>
-                              edit((current) => ({
-                                ...current,
-                                repositories: checked
-                                  ? [...current.repositories, repository.id]
-                                  : current.repositories.filter(
-                                      (id) => id !== repository.id,
-                                    ),
-                              }))
-                            }
-                          />
-                        }
-                      />
-                    );
-                  })}
-                </RowList>
-              )}
-              {manages ? (
-                <AppRepositoryPicker
-                  agentId={agentId}
-                  chosen={settings.repositories}
-                  disabled={readOnly}
-                  onPicked={async (catalogId, name) => {
-                    edit((current) =>
-                      current.repositories.includes(catalogId)
-                        ? current
-                        : {
-                            ...current,
-                            repositories: [...current.repositories, catalogId],
-                          },
-                    );
-                    notify(t("agentGitHub.picked", { name }));
-                    await cache.invalidateQueries({
-                      queryKey: githubKey(client, agentId),
-                    });
-                  }}
-                />
-              ) : null}
+              <RepositoryList
+                agentId={agentId}
+                data={data}
+                chosen={settings.repositories}
+                manages={manages}
+                editable={editable}
+                toggles={toggles}
+              />
               <Text as="span" variant="meta">
                 {t("agentGitHub.repositoriesFoot")}
               </Text>
             </div>
           </Section>
 
+          <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
+
           <details
             id={SECTION.details}
             tabIndex={-1}
             className="group scroll-mt-4 outline-none"
+            open={folds.details.open}
+            onToggle={(event) =>
+              folds.details.onOpenChange(event.currentTarget.open)
+            }
           >
             <summary className="cursor-pointer text-control font-medium">
               {t("agentGitHub.section.details")}
@@ -822,56 +767,14 @@ function GitHubSettings({
             </summary>
             <div className="mt-4 flex flex-col gap-8">
               <Section
-                id={DETAIL_ID.start}
-                tabIndex={-1}
-                className="scroll-mt-4 outline-none"
-                title={t("agentGitHub.section.start")}
-                badge={
-                  <Badge variant="blue">{t("agentGitHub.badge.next")}</Badge>
-                }
-                description={t("agentGitHub.startHint")}
-              >
-                <div className={SECTION_BODY}>
-                  <Field>
-                    <FieldLabel>{t("agentGitHub.startLabel")}</FieldLabel>
-                    <NativeSelect
-                      value={start ?? ""}
-                      disabled={readOnly}
-                      onChange={(event) =>
-                        edit(
-                          (current) => current,
-                          () =>
-                            event.target.value === ""
-                              ? null
-                              : event.target.value,
-                        )
-                      }
-                    >
-                      <NativeSelectOption value="">
-                        {t("agentGitHub.startNone")}
-                      </NativeSelectOption>
-                      {settings.repositories.map((id) => (
-                        <NativeSelectOption key={id} value={id}>
-                          {id}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </Field>
-                </div>
-              </Section>
-
-              <Section
                 id={DETAIL_ID.permissions}
                 tabIndex={-1}
                 className="scroll-mt-4 outline-none"
                 title={t("agentGitHub.section.permissions")}
-                badge={
-                  <Badge variant="blue">{t("agentGitHub.badge.next")}</Badge>
-                }
                 description={t("agentGitHub.permissionsHint")}
               >
                 <div className={SECTION_BODY}>
-                  <RowList variant="joined">
+                  <RowList variant="joined" framed={false}>
                     <SettingRow
                       title={t("agentGitHub.base")}
                       badge={
@@ -892,12 +795,17 @@ function GitHubSettings({
                       // GitHub refuses a review where the reviewer App is not installed.
                       const uninstalled =
                         feature === "review" && option.available
-                          ? settings.repositories.filter(
-                              (id) =>
-                                data.options.repositories.find(
-                                  (repository) => repository.id === id,
-                                )?.installed.reviewer === false,
-                            )
+                          ? data.options.repositories
+                              .filter(
+                                (repository) =>
+                                  settings.repositories.includes(
+                                    repository.id,
+                                  ) && repository.installed.reviewer === false,
+                              )
+                              .map(
+                                (repository) =>
+                                  repository.repository ?? repository.url,
+                              )
                           : [];
                       return (
                         <SettingRow
@@ -995,9 +903,6 @@ function GitHubSettings({
                   tabIndex={-1}
                   className="scroll-mt-4 outline-none"
                   title={t("agentGitHub.section.allowlist")}
-                  badge={
-                    <Badge variant="blue">{t("agentGitHub.badge.next")}</Badge>
-                  }
                   description={t("agentGitHub.allowlistHint")}
                 >
                   <div className={SECTION_BODY}>
@@ -1008,6 +913,7 @@ function GitHubSettings({
                     ) : (
                       <RowList
                         variant="joined"
+                        framed={false}
                         aria-label={t("agentGitHub.section.allowlist")}
                       >
                         {settings.actions_allow.map((entry) => (
@@ -1085,12 +991,9 @@ function GitHubSettings({
                 tabIndex={-1}
                 className="scroll-mt-4 outline-none"
                 title={t("agentGitHub.section.push")}
-                badge={
-                  <Badge variant="blue">{t("agentGitHub.badge.next")}</Badge>
-                }
               >
                 <div className={SECTION_BODY}>
-                  <RowList variant="joined">
+                  <RowList variant="joined" framed={false}>
                     <SettingRow
                       title={t("agentGitHub.pushApproval")}
                       description={t("agentGitHub.pushApprovalHint")}
@@ -1134,7 +1037,6 @@ function GitHubSettings({
                       onChange={(event) =>
                         edit(
                           (current) => current,
-                          (s) => s,
                           event.target.value as PushAttached,
                         )
                       }
@@ -1161,8 +1063,15 @@ function GitHubSettings({
             </div>
           </details>
         </div>
-      ) : null}
-      <Activity agentId={agentId} detail={detail} />
+      ) : (
+        <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
+      )}
+      <Activity
+        agentId={agentId}
+        detail={detail}
+        open={folds.activity.open}
+        onOpenChange={folds.activity.onOpenChange}
+      />
     </>
   );
 }
@@ -1170,6 +1079,7 @@ function GitHubSettings({
 const SECTION_LABEL = {
   use: "agentGitHub.section.use",
   repositories: "agentGitHub.section.repositories",
+  pullRequest: "agentPullRequest.title",
   details: "agentGitHub.section.details",
   activity: "agentGitHub.section.activity",
 } as const satisfies Record<SectionKey, MessageKey>;
@@ -1194,6 +1104,7 @@ export default function GitHubTab({
     retry: false,
   });
   const [keys, setKeys] = useState<readonly SectionKey[]>(["use", "activity"]);
+  const [opened, setOpened] = useState({ details: false, activity: false });
   const [current, setCurrent] = useCurrentSection(keys.map((k) => SECTION[k]));
   const jumped = useRef<string>(undefined);
   const [fits, watchPage] = usePageFits();
@@ -1223,6 +1134,10 @@ export default function GitHubTab({
       onClick={(event) => {
         // Stay off the URL hash: the router owns the location.
         event.preventDefault();
+        // A folded section opens first, or the jump lands on a closed lid.
+        if (key === "details" || key === "activity") {
+          setOpened((held) => ({ ...held, [key]: true }));
+        }
         const target = document.getElementById(SECTION[key]);
         target?.scrollIntoView({
           block: "start",
@@ -1276,8 +1191,19 @@ export default function GitHubTab({
             data={github.data}
             notify={notify}
             sectionKeys={sectionKeys}
+            folds={{
+              details: {
+                open: opened.details,
+                onOpenChange: (open) =>
+                  setOpened((held) => ({ ...held, details: open })),
+              },
+              activity: {
+                open: opened.activity,
+                onOpenChange: (open) =>
+                  setOpened((held) => ({ ...held, activity: open })),
+              },
+            }}
           />
-          <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
         </div>
       </SideNavLayout>
       {toast}
