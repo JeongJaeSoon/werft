@@ -241,6 +241,13 @@ export async function restoreCheckpointTree(input: {
     await check(git(["update-ref", staged.branch, staged.head]), "update-ref");
     await check(git(["symbolic-ref", "HEAD", staged.branch]), "symbolic-ref");
   }
+  // The other local branches come back too: a later push names one of them.
+  for (const source of staged.sources) {
+    const ref = `refs/heads/${source.name}`;
+    if (ref !== staged.branch) {
+      await check(git(["update-ref", ref, source.commit]), "update-ref");
+    }
+  }
   await check(
     git(["read-tree", "--reset", "-u", staged.worktree]),
     "read-tree",

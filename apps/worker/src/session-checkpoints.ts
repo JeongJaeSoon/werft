@@ -1331,6 +1331,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),
         gitCommit: capture.gitCommit,
+        ...(capture.sources.length === 0
+          ? {}
+          : { sources: capture.sources.map((s) => ({ ...s })) }),
         untracked: untracked.map(versioned),
       },
     });

@@ -6,10 +6,12 @@ import {
   CHECKPOINT_BRANCH_PREFIX,
   CHECKPOINT_HEAD_REF,
   CHECKPOINT_INSTRUCTIONS_REF,
+  CHECKPOINT_SOURCE_PREFIX,
   CHECKPOINT_UPSTREAM_PREFIX,
   CHECKPOINT_WORKTREE_REF,
   DEFAULT_MAX_WORKSPACE_BUNDLE_BYTES,
   gitBundleOffersFrom,
+  MAX_CHECKPOINT_SOURCES,
   readWorkspaceFile,
 } from "@werft-ai/runtime-core";
 import type { GitResourceLimits } from "@werft-ai/system";
@@ -50,6 +52,8 @@ export type WorkspaceCapture = {
    * were left uncommitted and `gitCommit` is the platform's snapshot.
    */
   headCommit: string;
+  /** Local branches kept so a push can name them, newest commit first. */
+  sources: Array<{ commit: string; name: string }>;
   untracked: Array<{ bytes: Uint8Array; executable: boolean; path: string }>;
 };
 
@@ -592,6 +596,13 @@ async function captureWorkspaceOnce(
       );
       if (upstream !== undefined) refs.push(upstream);
     }
+    const sources = await localSources(workspace);
+    const headBranch = branch.code === 0 ? branch.stdout.trim() : null;
+    for (const source of sources) {
+      // HEAD's branch is already in the bundle under its own name.
+      if (`refs/heads/${source.name}` === headBranch) continue;
+      refs.push([`${CHECKPOINT_SOURCE_PREFIX}${source.name}`, source.commit]);
+    }
     const bundling = (args: string[]) => run(args, { GIT_DIR: repository });
     if (pin !== undefined) {
       // Gone once the engine pruned what no ref of its own still reached.
@@ -768,6 +779,7 @@ async function captureWorkspaceOnce(
         bundle: { ...built, path: input.bundlePath },
         gitCommit,
         headCommit,
+        sources,
         untracked,
       },
     };
@@ -875,6 +887,42 @@ async function workspaceMarker(
     await rm(scratch, { force: true, recursive: true });
   }
 }
+
+/**
+ * The local branches a push may name, at most `MAX_CHECKPOINT_SOURCES`,
+ * newest commit first. A workspace with more keeps the most recently
+ * committed ones rather than failing every checkpoint; a branch whose name
+ * the manifest cannot carry is left out.
+ */
+async function localSources(
+  workspace: Git,
+): Promise<Array<{ commit: string; name: string }>> {
+  const listed = await workspace([
+    "for-each-ref",
+    "--sort=-committerdate",
+    "--format=%(refname)%00%(objectname)%00%(objecttype)",
+    "refs/heads/",
+  ]);
+  if (listed.code !== 0) return [];
+  const sources: Array<{ commit: string; name: string }> = [];
+  for (const line of listed.stdout.split("\n")) {
+    const [ref = "", commit = "", type = ""] = line.split("\0");
+    const name = ref.slice("refs/heads/".length);
+    if (
+      type !== "commit" ||
+      !/^[0-9a-f]{40}$/.test(commit) ||
+      name === "" ||
+      name.length > MAX_SOURCE_NAME_LENGTH
+    ) {
+      continue;
+    }
+    sources.push({ commit, name });
+    if (sources.length === MAX_CHECKPOINT_SOURCES) break;
+  }
+  return sources;
+}
+
+const MAX_SOURCE_NAME_LENGTH = 200;
 
 /**
  * The `CHECKPOINT_UPSTREAM_PREFIX` ref for what `branch` tracks, when that

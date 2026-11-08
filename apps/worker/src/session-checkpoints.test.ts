@@ -893,6 +893,7 @@ describe("a publish that fails for a reason other than the mirror", () => {
           },
           gitCommit: "c".repeat(40),
           headCommit: "c".repeat(40),
+          sources: [],
           untracked,
         },
       };
