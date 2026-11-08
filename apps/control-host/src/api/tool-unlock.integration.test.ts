@@ -377,6 +377,13 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
     const caller = await owner();
     await legacyAgent(caller, { tools: ["Read"] });
     await run("--apply");
+    // A pending item (what a crashed run could leave) is the one the claim
+    // would take if it did not filter on the rollout's kind.
+    const [applied] = await db.select().from(profileRolloutItems);
+    await db
+      .update(profileRolloutItems)
+      .set({ status: "pending" })
+      .where(eq(profileRolloutItems.agentId, applied?.agentId as string));
     const rolloutRows = await db.select().from(profileRollouts);
     const itemRows = await db.select().from(profileRolloutItems);
 
