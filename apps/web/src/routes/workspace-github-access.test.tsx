@@ -335,7 +335,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
   });
 
   test("자기 PR 머지를 끄기 전에는 개수 없는 문구로 확인한다", async () => {
-    renderAt(
+    const { api } = renderAt(
       PATH,
       routes(
         () =>
@@ -343,7 +343,10 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
             200,
             settingsOf({ ceiling: { ...settingsOf().ceiling, merge: true } }),
           ),
-        () => refusal(503, "BACKEND_UNAVAILABLE"),
+        (body) => {
+          const sent = body as GitHubSettingsResponse;
+          return json(200, settingsOf({ ceiling: sent.ceiling, revision: 5 }));
+        },
       ),
     );
     const user = await setupUser();
@@ -357,6 +360,19 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
       within(confirm).getByText(/자기 PR 머지을\(를\) 끕니다\. .*머지가 거절/),
     ).toBeDefined();
     expect(within(confirm).queryByText(/에이전트 \d+개/)).toBeNull();
+    await user.click(within(confirm).getByRole("button", { name: "끄기" }));
+    await waitFor(() => expect(checked(merge)).toBe(false));
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      ceiling: {
+        workflows: false,
+        actions: false,
+        checks: true,
+        issues: true,
+        review: false,
+        merge: false,
+      },
+      revision: 4,
+    });
   });
 
   test("구성원은 스위치를 바꿀 수 없고 이유를 본다", async () => {

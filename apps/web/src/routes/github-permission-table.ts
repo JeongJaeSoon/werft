@@ -49,7 +49,7 @@ export const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
   actions: { actions: "write" },
   workflows: { workflows: "write" },
   review: { contents: "read", pull_requests: "write" },
-  merge: { contents: "write", pull_requests: "read", metadata: "read" },
+  merge: { contents: "write", pull_requests: "read" },
 };
 
 export const roleOf = (feature: Feature): GitHubAppRole =>
