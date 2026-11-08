@@ -446,7 +446,9 @@ export function CeilingForm({
       <Field className="w-auto max-w-full">
         <FieldLabel>{t("profiles.ceiling.connection")}</FieldLabel>
         <NativeSelect
-          value={draft.connection_id}
+          // A refreshed option list may drop the chosen id; show the empty
+          // placeholder, not the first option React would fall back to.
+          value={connectionOffered ? draft.connection_id : ""}
           disabled={pending}
           aria-invalid={connectionError ? true : undefined}
           onChange={(event) => set({ connection_id: event.target.value })}

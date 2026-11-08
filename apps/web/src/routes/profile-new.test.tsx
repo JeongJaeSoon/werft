@@ -703,6 +703,35 @@ describe("프로필 만들기 (설치 프로필)", () => {
     expect(row()).toEqual(["연결", "gone → local"]);
   });
 
+  test("a connection that leaves the options while the form is open empties the select and blocks the save", async () => {
+    let current: InstallationProfileOptionsResponse = OPTIONS;
+    const server = catalog([CODING, ceiling("wide", 1)]);
+    const { api, services } = renderAt(
+      "/profiles/new?from=op_wide_v1&mode=version",
+      {
+        ...server.routes,
+        "GET /v1/installation-profiles/options": () => json(200, current),
+      },
+    );
+    const select = (await screen.findByLabelText("연결")) as HTMLSelectElement;
+    const user = await setupUser();
+    await user.selectOptions(select, "local");
+    expect(select.value).toBe("local");
+    current = {
+      ...OPTIONS,
+      connections: OPTIONS.connections.filter((item) => item.id !== "local"),
+    };
+    await act(async () => {
+      await services.queryClient.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.queryAllByText(DROPPED).length).toBe(1));
+    // Not the first option React would otherwise fall back to.
+    expect(select.value).toBe("");
+    expect(select.selectedOptions[0]?.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(posted(api)).toEqual([]);
+  });
+
   test("a template on the second connection keeps it, with no placeholder", async () => {
     const { api } = renderAt(
       "/profiles/new?from=op_wide_v1&mode=version",
