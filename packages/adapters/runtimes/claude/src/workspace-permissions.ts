@@ -98,6 +98,22 @@ const LOCAL_GIT = [
   "git stash apply",
 ];
 
+/**
+ * A sample PR starts with `mkdir -p notes && echo ... > notes/x`, and the
+ * engine does not run `mkdir` unasked outside acceptEdits. An empty directory
+ * is cheap to undo; a path that leaves the workspace still asks.
+ */
+const LOCAL_FS = ["mkdir"];
+const LOCAL_FS_ASK = [
+  "mkdir /*",
+  "mkdir * /*",
+  "mkdir *..*",
+  "mkdir ~*",
+  "mkdir * ~*",
+  "mkdir *$*",
+  "mkdir *`*",
+];
+
 /** Bare forms that must not also take the `*` of the shapes above. */
 const GIT_EXACT = ["git stash"];
 
@@ -251,11 +267,12 @@ export function workspaceRules(
     }
   }
   if (tools.has("Bash")) {
-    for (const command of [...LOCAL_GIT, ...DEV_COMMANDS]) {
+    for (const command of [...LOCAL_GIT, ...LOCAL_FS, ...DEV_COMMANDS]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
     allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
     ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
+    ask.push(...LOCAL_FS_ASK.map((pattern) => `Bash(${pattern})`));
     for (const command of SECRET_READERS) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
     }
