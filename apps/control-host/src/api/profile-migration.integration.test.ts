@@ -13,11 +13,9 @@ import {
   agentGitHubSettings,
   agentReleases,
   agents,
-  catalogRepositories,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
-  createPostgresInstallationProfileStore,
   createPostgresWorkspaceProfileStore,
   githubWorkspaceSettings,
   installationProfiles,
@@ -30,8 +28,6 @@ import {
 import {
   type AgentService,
   callerFor,
-  catalogImports,
-  catalogProfileConfigSchema,
   createAgentService,
   createAuthorizationPolicy,
   profileFingerprint,
@@ -46,24 +42,60 @@ import {
 import { eq, inArray, isNotNull } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { settingsCatalog } from "../test-support/settings.ts";
+import {
+  seedSettings,
+  settingsCatalog,
+  settingsDocument,
+} from "../test-support/settings.ts";
 import { runProfileMigration, sha256Of } from "./profile-migration.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const BASE = catalogProfileConfigSchema.parse({
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  models: ["claude-sonnet-5", "claude-haiku-5"],
-  tools: ["Read", "Edit", "Bash"],
-  permission_mode: "acceptEdits",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: { kind: "api_key", value_env: "PROVIDER_KEY" },
-  },
-});
+const BASE_ID = "coding";
+const ENV = {
+  INTEGRATION_PROVIDER_KEY: "provider-key-value",
+  PRIVATE_A_APP_KEY: "app-key-value",
+};
+const PROFILES = `profiles:
+  coding:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    models: [claude-sonnet-5, claude-haiku-5]
+    tools: [Read, Edit, Bash]
+    permission_mode: acceptEdits
+    provider:
+      kind: anthropic
+      endpoint: https://api.anthropic.invalid
+      auth:
+        kind: api_key
+        value_env: INTEGRATION_PROVIDER_KEY
+`;
+const CONNECTIONS = `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: INTEGRATION_PROVIDER_KEY
+`;
+const REPOSITORIES = `repositories:
+  private-a:
+    url: https://git.example.invalid/acme/private-a.git
+    branch: main
+    profiles: [coding]
+    auth:
+      kind: github_app
+      app_id: 7
+      installation_id: 70
+      value_env: PRIVATE_A_APP_KEY
+  url-r:
+    url: https://github.com/acme/url-r.git
+    branch: main
+    profiles: [coding]
+    auth:
+      kind: github_app
+`;
 
 function card(instructions: string) {
   return agentCardRequestSchema.parse({
@@ -92,25 +124,13 @@ integration("profile migration on PostgreSQL (U5)", () => {
     await rm(dir, { recursive: true, force: true });
   }, 60_000);
 
+  const catalogOf = () => settingsCatalog(db, ENV);
+
   async function seedBase() {
-    await createPostgresInstallationProfileStore(db).seedCatalog({
-      entries: async () => catalogImports({ coding: BASE }),
-      repositoryIdsOf: () => ["private-a", "url-r"],
-    });
-    for (const [id, authKind] of [
-      ["private-a", "github_app_explicit"],
-      ["url-r", "none"],
-    ] as const) {
-      await db.insert(catalogRepositories).values({
-        id,
-        owner: "acme",
-        name: id,
-        url: `https://git.example.invalid/acme/${id}.git`,
-        branch: "main",
-        authKind,
-        source: "console",
-      });
-    }
+    await seedSettings(
+      db,
+      settingsDocument(PROFILES, CONNECTIONS, REPOSITORIES),
+    );
   }
 
   async function workspace(options: { ceiling?: boolean } = {}) {
@@ -157,8 +177,8 @@ integration("profile migration on PostgreSQL (U5)", () => {
     name: string,
     tools = ["Read"],
   ) {
-    const base = catalog.profiles.coding;
-    if (!base) throw new Error("coding is not in the catalog");
+    const base = catalog.profiles[BASE_ID];
+    if (!base) throw new Error(`${BASE_ID} is not in the catalog`);
     const made = await createPostgresWorkspaceProfileStore(db).create({
       actor: {
         principal: ws.caller,
@@ -167,7 +187,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       },
       receiptId: randomUUID(),
       name,
-      baseProfileId: "coding",
+      baseProfileId: BASE_ID,
       base: {
         fingerprint: profileFingerprint(base),
         runtimeVersion: "0.3.270",
@@ -283,11 +303,11 @@ integration("profile migration on PostgreSQL (U5)", () => {
   async function world() {
     await seedBase();
     const ws = await workspace();
-    const first = await settingsCatalog(db);
+    const first = await catalogOf();
     const v1 = await wsVersion(ws, first, "strict");
     const v2 = await wsVersion(ws, first, "strict", ["Read", "Edit"]);
     const old = await wsVersion(ws, first, "old");
-    const catalog = await settingsCatalog(db);
+    const catalog = await catalogOf();
     const onV1 = await agentOn(ws, catalog, v1);
     const onV2 = await agentOn(ws, catalog, v2);
     const onOld = await agentOn(ws, catalog, old);
@@ -308,7 +328,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       onV1,
       onV2,
       onOld,
-      catalog: await settingsCatalog(db),
+      catalog: await catalogOf(),
     };
   }
 
@@ -384,8 +404,18 @@ integration("profile migration on PostgreSQL (U5)", () => {
         (a: { repository_id: string }) => a.repository_id,
       ),
     ).toEqual(["private-a"]);
-    expect(w.ceiling.not_added).toEqual([
-      expect.objectContaining({ repository_id: "url-r", reason: "url" }),
+    // One line per version that names it, each with its own basis.
+    expect(
+      w.ceiling.not_added.map(
+        (n: {
+          repository_id: string;
+          reason: string;
+          source: { id: string };
+        }) => [n.repository_id, n.reason, n.source.id],
+      ),
+    ).toEqual([
+      ["url-r", "app_installed", v1],
+      ["url-r", "app_installed", v2],
     ]);
     expect(plan.migration_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(report.sha).toBe(sha256Of(report.text));
@@ -423,7 +453,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
     for (const row of rows) {
       expect(row.workspaceId).toBe(ws.workspaceId);
       expect(row.displayName).toBe("strict");
-      expect(row.derivedFrom).toBe("coding");
+      expect(row.derivedFrom).toBe(BASE_ID);
       expect(row.repositoryIds).toBeNull();
       expect(row.githubAppRepositories).toBeNull();
       expect(row.repositoryScope).toBeNull();
@@ -465,7 +495,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       repository_ids: ["private-a"],
       github_app_repositories: "installed",
     });
-    const fresh = await settingsCatalog(db);
+    const fresh = await catalogOf();
     expect(usesWorkspaceCeiling(fresh, rows[0]?.id as string, "release")).toBe(
       true,
     );
@@ -497,7 +527,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
       catalog,
     );
     const settled = await counts();
-    const again = await dryRun(await settingsCatalog(db));
+    const again = await dryRun(await catalogOf());
     const plan = JSON.parse(again.text);
     expect(
       plan.workspaces[0].profiles.filter(
@@ -506,14 +536,14 @@ integration("profile migration on PostgreSQL (U5)", () => {
     ).toEqual([]);
     const result = await run(
       ["--apply", "--report", again.out, "--report-sha256", again.sha],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(result.code).toBe(0);
     expect(await counts()).toEqual(settled);
 
     const replay = await run(
       ["--apply", "--report", first.out, "--report-sha256", first.sha],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(replay.code).toBe(0);
     expect(await counts()).toEqual(settled);
@@ -522,16 +552,16 @@ integration("profile migration on PostgreSQL (U5)", () => {
   test("it refuses to write while an active release has no settings row, or a workspace has no ceiling", async () => {
     await seedBase();
     const ws = await workspace();
-    const first = await settingsCatalog(db);
+    const first = await catalogOf();
     const v1 = await wsVersion(ws, first, "strict");
-    const catalog = await settingsCatalog(db);
+    const catalog = await catalogOf();
     await agentOn(ws, catalog, v1, { settingsRow: false });
-    const report = await dryRun(await settingsCatalog(db));
+    const report = await dryRun(await catalogOf());
     expect(JSON.parse(report.text).preconditions.r2_complete).toBe(false);
     const before = await counts();
     const refused = await run(
       ["--apply", "--report", report.out, "--report-sha256", report.sha],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(refused.code).toBe(1);
     expect(String(refused.last.refused)).toContain("R2 is not complete");
@@ -539,7 +569,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
 
     const bare = await workspace({ ceiling: false });
     void bare;
-    const second = await dryRun(await settingsCatalog(db));
+    const second = await dryRun(await catalogOf());
     expect(
       JSON.parse(second.text).preconditions.null_ceiling_workspaces,
     ).toHaveLength(1);
@@ -590,7 +620,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
 
     const reverted = await run(
       ["--revert", "--migration-id", migrationId],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(reverted.code).toBe(0);
     const a1 = await agentRow(onV1);
@@ -626,16 +656,17 @@ integration("profile migration on PostgreSQL (U5)", () => {
         ),
     ).toHaveLength(2);
 
-    // Running the revert again undoes nothing and overwrites nothing a person
-    // changed since the first one.
+    // Running the revert again undoes nothing, with nobody having touched
+    // the agent, and overwrites nothing a person changed since.
+    await run(["--revert", "--migration-id", migrationId], await catalogOf());
+    expect((await agentRow(onV1))?.activeReleaseId).toBe(
+      startedOn.v1 as string,
+    );
     await db
       .update(agents)
       .set({ profileTracking: "pinned" })
       .where(eq(agents.id, onV1));
-    await run(
-      ["--revert", "--migration-id", migrationId],
-      await settingsCatalog(db),
-    );
+    await run(["--revert", "--migration-id", migrationId], await catalogOf());
     const again = await agentRow(onV1);
     expect(again?.activeReleaseId).toBe(startedOn.v1 as string);
     expect(again?.profileTracking).toBe("pinned");
@@ -649,10 +680,10 @@ integration("profile migration on PostgreSQL (U5)", () => {
         (a: { agent_id: string }) => a.agent_id === onV2,
       ).tracking_after,
     ).toBe("follow");
-    await wsVersion(ws, await settingsCatalog(db), "strict", ["Read", "Bash"]);
+    await wsVersion(ws, await catalogOf(), "strict", ["Read", "Bash"]);
     const applied = await run(
       ["--apply", "--report", report.out, "--report-sha256", report.sha],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(applied.code).toBe(1);
     expect(JSON.stringify(applied.last)).toContain("plan_changed");
@@ -666,7 +697,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
     await seedBase();
     const result = await run(
       ["--revert", "--migration-id", randomUUID()],
-      await settingsCatalog(db),
+      await catalogOf(),
     );
     expect(result.code).toBe(1);
   });
