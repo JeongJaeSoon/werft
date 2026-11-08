@@ -85,7 +85,7 @@ incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함�
 ### v0.1.0 이후 변경을 처음 적용할 때
 
 - `v0.1.0` 이후 대상 버전까지의 모든 migration(현재 `0241`까지)을 migrate로 적용한다. `0239_connection_replaces_auth`의 새 열은 이전 이미지가 무시하지만, 이것만으로 나머지 checkpoint·protocol rollback이 안전하다는 뜻은 아니다.
-- `v0.1.0` 태그의 compose는 `ANTHROPIC_API_KEY`가 비어 있으면 렌더를 거부한다. `v0.1.0`에서 올릴 때 env 파일에 남은 키는 그대로 두어도 된다. 이후 소스는 키가 있든 없든 받는다. 반대로 `v0.1.0` 소스를 다시 적용할 때만 키가 비어 있지 않아야 한다.
+- `v0.1.0` 태그의 compose는 `ANTHROPIC_API_KEY`가 비어 있으면 렌더를 거부한다. `v0.1.0`에서 올릴 때 env 파일에 남은 키는 그대로 두어도 된다. `a486f20d2` 이후 소스는 키가 있든 없든 받는다. 반대로 `v0.1.0` 소스를 다시 적용할 때만 키가 비어 있지 않아야 한다.
 - control-host를 먼저, worker를 나중에 교체한다. `platform_tool_trust` fallback이 있어도 교체 사이에는 옛 권한 경로를 사용하므로 순서를 지킨다.
 - `AGENT_ACTION_FLOWS`를 켜기 전에 API, Compose maintenance, Kubernetes checkpointGc·sessionArchive CronJob과 worker를 모두 대상 이미지로 바꾸고 **옛 이미지로 시작한 Job이 종료됐는지** 확인한다. 옛 GC가 고정 revision을 지울 수 있다.
 - 활성화 뒤 새 세션이 받는 prompt revision 2는 옛 worker가 읽지 못한다. 켜기 전 교체와 활성화 뒤 rollback 하한을 따로 확인한다. `v0.1.1` 게시 여부는 변경 기록 제목만으로 판단하지 않는다.
