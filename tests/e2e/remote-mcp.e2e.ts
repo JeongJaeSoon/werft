@@ -209,7 +209,7 @@ beforeAll(async () => {
   expect(released.status).toBe(200);
   releaseId = released.body.release.id;
   expect(released.body.release.effective_tools).toEqual({
-    tools: ["Read", "Bash"],
+    tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
     mcp: ["mcp__fake__whoami"],
   });
   const activate = () =>

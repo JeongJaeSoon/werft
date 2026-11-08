@@ -225,6 +225,9 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
         ...identity,
       },
     });
+    // A card that already asks for every tool makes the release the new
+    // calculation made at creation: it exists and is already active.
+    if (inserted.outcome === "exists") return made.agent.id;
     if (inserted.outcome !== "created") throw new Error(inserted.outcome);
     const activated = await store().activate({
       principal,
