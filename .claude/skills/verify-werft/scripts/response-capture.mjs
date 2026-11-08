@@ -133,53 +133,24 @@ function hideEmbedded(text, pattern) {
   return out + text.slice(last);
 }
 
-// The text of an element named like a secret: <password>…</password>.
-// Everything up to the matching close tag is hidden (nested elements
-// included). The rest of the text is hidden instead when there is no close
-// tag, the open tag is cut off, or the content holds CDATA, a comment or a
-// quote, where a close tag may be text. No length bound on names or
-// attributes: a bound let a long open tag pass unrecognised.
-const TAG_OPEN = /<([A-Za-z_][\w:.-]*)([^<>]*)(>?)/g;
-const SECRET_ATTR = new RegExp(`${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`, "i");
-const secretTag = (name, attrs) =>
-  SECRET_KEY.test(name) ||
-  (CODE_KEY.test(name) && !ERROR_KEY.test(name)) ||
-  SECRET_ATTR.test(attrs);
-function hideTags(text) {
-  let out = "";
-  let last = 0;
-  TAG_OPEN.lastIndex = 0;
-  for (let m = TAG_OPEN.exec(text); m; m = TAG_OPEN.exec(text)) {
-    const [whole, name, attrs, closed] = m;
-    // A trailing "/" is not trusted as an empty element: in HTML it is part of
-    // an unquoted attribute value (name=password/) or ignored.
-    if (!secretTag(name, attrs)) continue;
-    const start = m.index + whole.length;
-    if (!closed) {
-      out += `${text.slice(last, start)}(hidden)`;
-      last = text.length;
-      break;
-    }
-    const same = new RegExp(
-      `<(/?)${name.replace(/[.]/g, "\\.")}(?=[\\s/>])`,
-      "gi",
-    );
-    same.lastIndex = start;
-    let end = text.length;
-    for (let depth = 1, t = same.exec(text); t; t = same.exec(text)) {
-      depth += t[1] ? -1 : 1;
-      if (depth === 0) {
-        end = t.index;
-        break;
-      }
-    }
-    if (/<!|["']/.test(text.slice(start, end))) end = text.length;
-    out += `${text.slice(last, start)}(hidden)`;
-    last = end;
-    TAG_OPEN.lastIndex = end;
-  }
-  return out + text.slice(last);
+// Markup is not parsed: a body with a tag and a secret-like name anywhere is
+// withheld whole. A scan for the end of a secret element was bypassed by
+// CDATA, comments, processing instructions, a trailing "/" and character
+// references in turn. Withheld, for example <password>…</password>.
+// The hint is broader than SECRET_WORDS (any "key", "mail", "session",
+// "code"): withholding a harmless page is the safe side. Numeric character
+// references are decoded first (pass&#119;ord), with or without ";".
+const MARKUP = /<[A-Za-z!?/]/;
+const SECRET_HINT =
+  /token|secret|passw|cookie|authoriz|key|csrf|session|sid|mail|code/i;
+function decodeRefs(text) {
+  return text.replace(/&#(?:x([0-9a-f]+)|([0-9]+));?/gi, (_, hex, dec) => {
+    const n = hex ? Number.parseInt(hex, 16) : Number.parseInt(dec, 10);
+    return n <= 0x10ffff ? String.fromCodePoint(n) : "";
+  });
 }
+const withheld = (text) =>
+  MARKUP.test(text) && SECRET_HINT.test(decodeRefs(text));
 
 export function maskBody(text) {
   let out = String(text);
@@ -197,8 +168,10 @@ export function maskBody(text) {
     const c = String.fromCharCode(Number.parseInt(hex, 16));
     return /[A-Za-z0-9_-]/.test(c) ? c : whole;
   });
+  if (withheld(out))
+    return `(markup with secret-like names withheld, ${out.length} chars)`;
   return (
-    hideTags(hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT))
+    hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT)
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 (hidden)")
       .replace(
         /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|"[^"\r\n]*|[^\r\n"])+/gi,
