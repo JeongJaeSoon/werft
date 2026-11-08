@@ -22,6 +22,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -95,9 +96,13 @@ integration("catalog repositories on PostgreSQL", () => {
       name: "Acme",
     });
     const agentId = randomUUID();
-    await db
-      .insert(agents)
-      .values({ id: agentId, workspaceId, slug: "picker", name: "Picker" });
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "picker",
+      name: "Picker",
+    });
     // Picked for that agent: the right to manage it is read again.
     const pick = { agentId, managerRoles: ["owner", "admin"] as const };
     const owner = { ...(await person(workspaceId, "owner")), ...pick };
@@ -340,6 +345,7 @@ integration("catalog repositories on PostgreSQL", () => {
       await db.insert(agents).values({
         id: agentId,
         workspaceId,
+        managingTeamId: await fixtureTeam(db, workspaceId),
         slug: `a-${agentId.slice(0, 8)}`,
         name: "Agent",
       });

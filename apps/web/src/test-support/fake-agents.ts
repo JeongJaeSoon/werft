@@ -77,7 +77,7 @@ export function agentServer({
   const versions: AgentVersion[] = [version(1, CARD)];
   let name = "결제 담당";
   let description = initialDescription;
-  let team: TeamView | null = null;
+  let team: TeamView = TEAM;
   const releases: AgentRelease[] = [];
   const bindings: CredentialBindingView[] = [];
   let active: string | null = null;
@@ -162,8 +162,8 @@ export function agentServer({
         slug: "billing",
         name,
         description,
-        managing_team_id: team?.id ?? null,
-        managing_team_name: team?.name ?? null,
+        managing_team_id: team.id,
+        managing_team_name: team.name,
         status: "active",
         active_release_id: active,
         activation_revision: revision,
@@ -240,7 +240,7 @@ export function agentServer({
       versions.splice(0, versions.length, version(1, body.card));
       name = body.name;
       description = body.description ?? null;
-      team = body.managing_team_id === undefined ? null : TEAM;
+      team = TEAM;
       const release =
         body.runtime_profile_id === undefined
           ? {
@@ -265,7 +265,7 @@ export function agentServer({
       const body = (await request.json()) as { team_id: string };
       if (body.team_id !== TEAM.id)
         return apiError(422, "TEAM_NOT_ALLOWED", "Team not allowed");
-      const changed = team === null;
+      const changed = team.id !== body.team_id;
       team = TEAM;
       return json(200, {
         agent: detail().agent,

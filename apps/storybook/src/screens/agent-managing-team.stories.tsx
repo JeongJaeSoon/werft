@@ -58,7 +58,6 @@ const TEAMS = ["재무", "영업", "고객지원"] as const;
 
 type View =
   | "assigned"
-  | "unassigned"
   | "no-lead"
   | "team-member"
   | "outsider"
@@ -67,9 +66,7 @@ type View =
   | "wizard-no-team";
 
 function TeamName({ detail }: { readonly detail: DetailFixture }) {
-  return detail.agent.managing_team_name === null ? (
-    <Badge variant="amber">담당 팀 미지정</Badge>
-  ) : (
+  return (
     <Text as="span" className="[overflow-wrap:anywhere]">
       {detail.agent.managing_team_name}
     </Text>
@@ -87,7 +84,6 @@ function ManagingTeamSection({
   readonly noLead?: boolean;
 }) {
   const selectId = useId();
-  const unassigned = detail.agent.managing_team_id === null;
   const others = TEAMS.filter(
     (team) => team !== detail.agent.managing_team_name,
   );
@@ -100,12 +96,7 @@ function ManagingTeamSection({
         <div className="flex flex-wrap items-center gap-2">
           <TeamName detail={detail} />
         </div>
-        {unassigned ? (
-          <Text variant="meta">
-            이 에이전트는 담당 팀이 없습니다. 담당 팀을 정하면 그 팀의 팀
-            관리자가 이 에이전트를 관리합니다.
-          </Text>
-        ) : noLead ? (
+        {noLead ? (
           <Alert variant="amber">
             <AlertDescription>
               이 담당 팀에는 팀 관리자가 없습니다.
@@ -114,13 +105,6 @@ function ManagingTeamSection({
         ) : null}
         {manages ? (
           <div className="flex flex-col gap-3">
-            {unassigned ? (
-              <div>
-                <Button type="button" variant="outline">
-                  관리자 팀 재무을(를) 담당 팀으로
-                </Button>
-              </div>
-            ) : null}
             <form className="flex flex-wrap items-center gap-2">
               <label className="sr-only" htmlFor={selectId}>
                 담당 팀으로 정할 팀
@@ -140,7 +124,7 @@ function ManagingTeamSection({
                 ))}
               </NativeSelect>
               <Button type="submit" variant="outline" disabled>
-                {unassigned ? "지정" : "바꾸기"}
+                바꾸기
               </Button>
             </form>
             <Text variant="meta">
@@ -296,7 +280,7 @@ function ManagingTeamScreen({ view }: { readonly view: View }) {
         <NameStep view={view} />
       </ScreenShell>
     );
-  const detail = view === "unassigned" ? RELEASED : ASSIGNED;
+  const detail = ASSIGNED;
   return (
     <ScreenShell
       current="agents"
@@ -344,7 +328,6 @@ const meta = {
       control: "inline-radio",
       options: [
         "assigned",
-        "unassigned",
         "no-lead",
         "team-member",
         "outsider",
@@ -371,16 +354,6 @@ export const Assigned: Story = {
     await expect(
       [...(select as HTMLSelectElement).options].map((o) => o.textContent),
     ).toEqual(["팀 고르기", "영업", "고객지원"]);
-  },
-};
-export const Unassigned: Story = {
-  name: "Admins tab (no managing team, one admin team)",
-  args: { view: "unassigned" },
-  play: async ({ canvas }) => {
-    await expect(canvas.getByText("담당 팀 미지정")).toBeVisible();
-    await expect(
-      canvas.getByRole("button", { name: "관리자 팀 재무을(를) 담당 팀으로" }),
-    ).toBeVisible();
   },
 };
 export const NoLead: Story = {
@@ -430,16 +403,6 @@ export const WizardNoTeam: Story = {
   play: async ({ canvas }) => {
     await expect(canvas.queryByLabelText("이름")).toBeNull();
   },
-};
-export const UnassignedDark: Story = {
-  name: "Admins tab (no managing team, dark)",
-  args: { view: "unassigned" },
-  globals: { theme: "dark" },
-};
-export const UnassignedMobile: Story = {
-  name: "Admins tab (no managing team, 390px)",
-  args: { view: "unassigned" },
-  globals: MOBILE,
 };
 export const OutsiderMobileDark: Story = {
   name: "Outside member (390px, dark)",

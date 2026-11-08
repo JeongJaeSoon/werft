@@ -163,8 +163,8 @@ export const listAdministeredAgentsResponseSchema = z
   .strict();
 
 /**
- * The agent's managing team. Null is refused: an agent from before managing
- * teams is given one, never had one taken.
+ * The agent's managing team. Null is refused: an agent always has one, and
+ * this changes which.
  */
 export const setAgentManagingTeamRequestSchema = z
   .object({ team_id: teamIdSchema })

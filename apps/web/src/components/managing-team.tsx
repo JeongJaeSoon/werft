@@ -5,7 +5,6 @@ import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
-  Badge,
   Button,
   NativeSelect,
   NativeSelectOption,
@@ -14,7 +13,6 @@ import {
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import {
-  agentAdminsQuery,
   agentListsFilter,
   myTeamsQuery,
   queryKeysOf,
@@ -54,10 +52,7 @@ export function useTeamChoices() {
 }
 
 export function ManagingTeamName({ agent }: { readonly agent: Agent }) {
-  const { t } = useI18n();
-  return agent.managing_team_name === null ? (
-    <Badge variant="amber">{t("managingTeam.unassigned")}</Badge>
-  ) : (
+  return (
     <Text as="span" className="[overflow-wrap:anywhere]">
       {agent.managing_team_name}
     </Text>
@@ -83,11 +78,7 @@ export function ManagingTeam({
         <div className="flex flex-wrap items-center gap-2">
           <ManagingTeamName agent={agent} />
         </div>
-        {agent.managing_team_id === null ? (
-          <Text variant="meta">{t("managingTeam.unassignedHint")}</Text>
-        ) : (
-          <NoLeadNotice teamId={agent.managing_team_id} />
-        )}
+        <NoLeadNotice teamId={agent.managing_team_id} />
         {manages ? <ChangeTeam agent={agent} onOutcome={onOutcome} /> : null}
       </div>
     </Section>
@@ -127,15 +118,9 @@ function ChangeTeam({
     useMe()?.workspace?.settings.agent_outsider_session_visibility ===
     "managing_team";
   const { choices, error, refetch } = useTeamChoices();
-  const admins = useQuery(agentAdminsQuery(client, agent.id));
   const [picked, setPicked] = useState("");
   const selectId = useId();
   const others = choices?.filter((team) => team.id !== agent.managing_team_id);
-  const adminTeams = admins.data?.teams ?? [];
-  const adminTeam =
-    agent.managing_team_id === null && adminTeams.length === 1
-      ? choices?.find((team) => team.id === adminTeams[0]?.team_id)
-      : undefined;
 
   const set = useMutation<SetAgentManagingTeamResponse, ApiError, TeamChoice>({
     mutationFn: (team) =>
@@ -181,18 +166,6 @@ function ChangeTeam({
   const choice = others.find((team) => team.id === picked);
   return (
     <div className="flex flex-col gap-3">
-      {adminTeam ? (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={set.isPending}
-            onClick={() => set.mutate(adminTeam)}
-          >
-            {t("managingTeam.recommend", { name: adminTeam.name })}
-          </Button>
-        </div>
-      ) : null}
       {others.length === 0 ? (
         <Text variant="meta">{t("managingTeam.noChoices")}</Text>
       ) : (
@@ -228,11 +201,7 @@ function ChangeTeam({
           >
             {set.isPending
               ? t("managingTeam.saving")
-              : t(
-                  agent.managing_team_id === null
-                    ? "managingTeam.assign"
-                    : "managingTeam.change",
-                )}
+              : t("managingTeam.change")}
           </Button>
         </form>
       )}

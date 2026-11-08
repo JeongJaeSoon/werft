@@ -309,7 +309,7 @@ describe("에이전트 목록", () => {
     const [agentCell, teamCell, , updatedCell] =
       within(row).getAllByRole("cell");
     expect(teamCell?.dataset.hideNarrow).toBe("true");
-    expect(teamCell?.textContent).toBe("담당 팀 미지정");
+    expect(teamCell?.textContent).toBe("재무");
     const updatedAt = server.detail().agent.updated_at;
     expect(updatedCell?.dataset.hideNarrow).toBe("true");
     expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
@@ -1024,7 +1024,6 @@ describe("에이전트 목록 탭과 보기", () => {
             administered: 250,
             active: 0,
             draft: 1,
-            unassigned: 0,
           },
         }),
     });

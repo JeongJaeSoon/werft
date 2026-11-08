@@ -69,7 +69,7 @@ const RETRY_CASES: ReadonlyArray<{
     failingKey: "GET /v1/agents/counts",
     answer: () =>
       json(200, {
-        counts: { all: 0, administered: 0, active: 0, draft: 0, unassigned: 0 },
+        counts: { all: 0, administered: 0, active: 0, draft: 0 },
       }),
     after: /아직 에이전트가 없습니다/,
   },

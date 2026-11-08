@@ -80,7 +80,7 @@ Someone who only sees the session through its share gets `403 FORBIDDEN` (`reaso
 
 The person who creates an agent becomes that agent's administrator. An administrator, even if only a member, can edit the agent's card, create releases, activate, connect credentials, assign administrators, and issue agent keys. You can add a person or a team as an administrator, and for a team, every member of that team is an administrator. Unless you are an owner or admin, the only teams you can newly add are teams you lead (`lead`).
 
-An agent can have one responsible team. The responsible team's leads (`lead`) administer the agent; its members (`member`) do not. Unless you are an owner or admin, you can choose only a team you belong to. A team that is responsible for an agent cannot be deleted until that agent is archived or moved to another team.
+Every agent has one responsible team, which you can change but not clear. The responsible team's leads (`lead`) administer the agent; its members (`member`) do not. Unless you are an owner or admin, you can choose only a team you belong to. A team that is responsible for an agent cannot be deleted until that agent is archived or moved to another team.
 
 Team roles show on the console's team screen. The member table's **Team role** column tells a **Team lead** (`lead`) from a **Member** (`member`), and **Your teams** shows your own role. Owners and admins pick a role with **Change role** on a member's row and **Save** it (`PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`). Deleting a team that is responsible for agents leaves the team in place, and the console names those agents with links (`409 TEAM_MANAGES_AGENTS`). Give each of them another responsible team first.
 
@@ -109,7 +109,7 @@ Owners, admins, the agent's administrators and its responsible team's members ar
 | `agent_outsider_session_visibility` | `managing_team` (default) | `workspace`-shared sessions of an agent with a responsible team are left out of lists, counts, details, events and the usage recent list |
 | | `workspace` | Every member sees those sessions too |
 
-- `agent_outsider_access` applies to agents without a responsible team as well. `agent_outsider_session_visibility` narrows only the sessions of agents with one.
+- `agent_outsider_access` and `agent_outsider_session_visibility` apply to every agent. An agent always has a responsible team.
 - A member outside still sees the sessions they started and the ones shared with them or their team (`people`, `team`).
 - Both settings apply from the next request, to sessions already made too. An open event stream ends at its next check. Changing the responsible team, or leaving it, works the same way.
 - Usage totals (session count, cost, achievement count) stay the same; only the rows of sessions the caller cannot see drop out of the recent achievements list.

@@ -656,7 +656,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 구성원은 판정 때마다 읽는다. 팀에서 빠지거나 팀이 지워지면 그 팀으로 얻은 관리 권한이 다음 요청부터 `403`이다. 비활성 멤버는 팀에 있어도 아무 권한이 없다. 다만 비활성화는 팀 구성원 자격과 에이전트 관리자 지정을 지우지 않으므로, 다시 초대해 활성화하면 그 권한이 그대로 돌아온다. 돌려주지 않으려면 비활성화할 때 팀에서도 빼고 관리자 지정도 해제한다. 팀을 지우면 그 팀의 에이전트 관리자 지정도 함께 지워진다.
 - 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다. owner·admin이 아니면 새로 관리자 팀으로 넣을 수 있는 팀은 자기가 `lead`인 팀뿐이다(아니면 `403`, `reason_code: team_not_allowed`). 이미 들어가 있는 관리자 팀은 그대로 남는다.
 - 팀 구성원에는 역할(`lead`·`member`)이 있다. 처음 넣으면 `member`이고, owner·admin이 `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`로 바꾼다. 바꿀 때마다 `set_team_member_role` receipt가 남는다. `GET /v1/my-teams`는 팀마다 내 `role`을 함께 준다.
-- 에이전트에는 담당 팀(`managing_team_id`)이 하나 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없고 설정을 읽기만 한다(아래). 담당 팀을 필수로 받기 전에 만든 에이전트는 담당 팀이 비어 있을 수 있다. 마이그레이션은 그 값을 채우지 않는다. 그런 에이전트는 지금처럼 읽고 고치고 실행하며, 담당 팀을 정하는 것은 사람이다(`PUT …/managing-team`).
+- 에이전트에는 담당 팀(`managing_team_id`)이 하나 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없고 설정을 읽기만 한다(아래). 담당 팀은 비울 수 없고 바꾸기만 한다(`PUT …/managing-team`). 열은 `NOT NULL`이다(0243). 담당 팀을 필수로 받기 전에 만든 에이전트는 마이그레이션이 채웠다. 담당 팀이 없던 에이전트는 모두 워크스페이스마다 하나씩 만든 구성원 없는 `Unassigned agents` 팀(`created_by` 없음)이 맡았다. 관리자 팀은 소유 조직의 근거가 아니라서 쓰지 않는다. 되돌릴 때 이 팀 하나가 이행 대상 목록이다. 이름이 겹치면 `Unassigned agents (<8자리 id>)`다. 새로 얻는 구성원이나 `lead`가 없으므로 이 단계에서 아무도 권한을 더 얻지 않지만, 축 B가 이 에이전트들에도 적용되어 `managing_team` 설정이면 바깥쪽 구성원은 이 에이전트의 `workspace` 공개 세션을 더는 보지 못한다. 되돌리려면 그 팀을 다른 팀으로 바꾸거나(`PUT …/managing-team`) 워크스페이스 설정에서 축 B를 `workspace`로 둔다.
 - 에이전트 읽기는 두 단계다. **정보**(이름·slug·설명·담당 팀 id와 이름·상태·활성 릴리스 id, `GET /v1/agents`의 행)는 workspace의 모든 멤버가 읽는다(`agent.read`). 담당 팀 이름(`managing_team_name`)은 그 팀을 읽지 못하는 멤버에게도 행과 함께 간다. `GET /v1/agents`와 `GET /v1/agents/counts`는 행마다 이 판정으로 거른다. 그 뒤에 `managing_team=unassigned`가 담당 팀이 없는 에이전트만 남기고, 개수의 `unassigned`가 그 수다. **설정**(카드·버전·릴리스, 관리자, 자격 증명 연결, GitHub, Slack 연결·앱·identity)은 owner·admin, 그 에이전트의 관리자, 담당 팀의 살아 있는 구성원만 읽는다(`agent.settings_read`). `GET /v1/agents/{id}`와 설정 조회가 여기에 든다. 그 밖의 멤버는 `403`(`reason_code: role`)이고, 그 에이전트는 목록의 `ids`로 행만 읽는다. `include=summary`의 요약은 설정을 읽을 수 있는 에이전트에만 붙는다. 설정을 바꾸는 요청은 지금처럼 owner·admin과 관리자만 한다. Slack 채널 이름 조회·검색(`…/slack-channels`, `…/slack/channels`)과 GitHub 저장소 후보(`…/github/repositories`)는 연결·고르기에 쓰는 것이라 바꾸는 사람만 쓴다. 허용된 읽기는 `authz_decisions`에 남지 않고 거절만 남는다.
 - 에이전트 설정을 바꾼 receipt(`target_ref.resource`가 그 에이전트이거나 그 Slack 연결)는 설정을 읽을 수 있는 사람과 그 사람의 개인 key만 `GET /v1/receipts/{id}`로 읽는다. 자격 증명이 연결되지 않아 거절된 세션 시작(`create_session`)의 receipt는 지금처럼 workspace의 누구나 읽는다.
 - 담당 팀은 만들 때(`POST /v1/agents`의 `managing_team_id`) 꼭 넣는다. 빠지면 `400 BAD_REQUEST`이고 `details.issues`에 `path: managing_team_id`, `message: managing_team_id is required`가 있다. 그래서 속한 팀이 없는 member는 에이전트를 만들지 못한다. 이 필드 없이 만들던 API 호출(SDK·스크립트)은 이 이미지부터 실패한다. 이전 이미지로 롤백하면 담당 팀 없는 생성이 다시 받아들여지고, 그렇게 만든 에이전트는 담당 팀이 비어 있다. 담당 팀은 `PUT /v1/agents/{id}/managing-team` `{"team_id"}`로 바꾼다. 바꾸는 것은 owner·admin과 그 에이전트의 관리자다. owner·admin은 살아 있는 팀 아무것이나, 그 밖의 사람은 자기가 속한 팀만 고른다(아니면 `403`, `reason_code: team_not_allowed`). 담당 팀을 비우는 요청은 없다. 바꿀 때마다 `set_agent_managing_team` receipt가 남고 `result`에 바꾸기 전후 팀 id가 있다.
@@ -701,7 +701,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | `team` | 만든 사람과 지정한 팀의 지금 구성원 |
 | `workspace` | workspace 멤버 모두(기본값). 단 담당 팀이 있는 에이전트이고 축 B가 `managing_team`이면 안쪽만 |
 
-- "안쪽"은 그 에이전트의 owner·admin, 에이전트 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`), 담당 팀 구성원이다. 나머지 멤버가 바깥쪽이다. 담당 팀이 없는 에이전트(담당 팀 전의 에이전트)는 안쪽이 owner·admin과 관리자뿐이고, 축 B가 적용되지 않는다.
+- "안쪽"은 그 에이전트의 owner·admin, 에이전트 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`), 담당 팀 구성원이다. 나머지 멤버가 바깥쪽이다.
 - 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
 - 에이전트 key는 멤버가 아니다. 그 에이전트의 세션 가운데 `workspace` 범위인 것과 자기가 만든 것만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다. 축 B에서는 자기 에이전트의 안쪽이다.
@@ -718,7 +718,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | B. `workspace` 범위 세션이 바깥쪽에 보이는가 | `agent_outsider_session_visibility` | `managing_team`: 안쪽에만 / `workspace`: 멤버 모두 | `managing_team` |
 
 - 축 A는 모든 에이전트에 적용한다. 웹·API·Slack 세션 시작이 같은 판정을 거치고, 세션을 만드는 쓰기도 같은 트랜잭션에서 워크스페이스 행과 에이전트·팀·구성원 행을 잠근 채 다시 본다. 이미 있는 세션에 메시지를 보내는 것은 축 A를 보지 않는다.
-- 축 B는 담당 팀이 있는 에이전트의 세션에만 적용한다. 목록·개수·상세·SSE·메시지·승인 쓰기의 재확인·사용량 최근 성과·도구 호출 목록이 같은 판정을 쓴다. 자기 세션(지금 그 세션을 가진 사람)과 `people`·`team` 공유는 그대로 닿는다. 사용량 최근 성과는 볼 수 없는 세션의 행을 통째로 빼고, 합계 수치는 그대로 센다.
+- 축 B는 모든 에이전트의 세션에 적용한다. 목록·개수·상세·SSE·메시지·승인 쓰기의 재확인·사용량 최근 성과·도구 호출 목록이 같은 판정을 쓴다. 자기 세션(지금 그 세션을 가진 사람)과 `people`·`team` 공유는 그대로 닿는다. 사용량 최근 성과는 볼 수 없는 세션의 행을 통째로 빼고, 합계 수치는 그대로 센다.
 - 판정 시점의 상한이라 공유 행을 쓰지 않는다. 담당 팀을 정하거나 바꾸는 순간, 설정을 바꾸는 순간, 팀 구성원이 빠지는 순간 기존 세션에도 다음 요청부터 적용된다. 열린 SSE는 다음 페이지를 읽을 때 다시 판정해 끊는다.
 - `GET /v1/sessions/{id}/share`의 `audience_limited`는 이 세션을 `workspace`로 두면 안쪽에만 닿는지(담당 팀이 있고 축 B가 `managing_team`)를 지금 범위와 상관없이 알려 준다.
 - 바꾼 키가 있을 때만 `set_agent_access_settings` receipt(`result.from`·`result.to`, 바뀐 키만)를 남기고, 없으면 `receipt_id`가 `null`이다.

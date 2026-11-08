@@ -205,13 +205,7 @@ export async function lockAgentUse(
         ),
       )
   ).map((row) => row.teamId);
-  const teamIds = [
-    ...new Set([
-      ...adminTeams,
-      ...(agent.managingTeamId === null ? [] : [agent.managingTeamId]),
-    ]),
-  ].sort();
-  if (teamIds.length === 0) return false;
+  const teamIds = [...new Set([...adminTeams, agent.managingTeamId])].sort();
   const liveTeams = new Set(
     (
       await tx
@@ -250,9 +244,7 @@ export async function lockAgentUse(
         ).map((row) => row.teamId);
   const reaching = [
     ...lending,
-    ...(agent.managingTeamId !== null && liveTeams.has(agent.managingTeamId)
-      ? [agent.managingTeamId]
-      : []),
+    ...(liveTeams.has(agent.managingTeamId) ? [agent.managingTeamId] : []),
   ];
   if (reaching.length === 0) return false;
   const member = await tx

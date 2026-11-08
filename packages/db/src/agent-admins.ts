@@ -93,10 +93,7 @@ export async function lockedAdministers(
       .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
     if (held.length > 0) return true;
   }
-  return (
-    agent.managingTeamId !== null &&
-    lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"])
-  );
+  return lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"]);
 }
 
 /**

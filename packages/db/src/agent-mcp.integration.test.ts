@@ -33,6 +33,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -138,6 +139,7 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `a-${agentId.slice(0, 8)}`,
       name: "agent",
     });

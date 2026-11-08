@@ -89,9 +89,9 @@ function startedBy(viewer: SessionViewer): SQL[] {
 const anyOf = (branches: SQL[]): SQL =>
   branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` OR `)})`;
 
-// The session's agent has a managing team. Qualified by hand: agent_releases
+// The session has an agent, and so a managing team. Qualified by hand: agent_releases
 // and agents have ids of their own.
-const managedAgentSession = sql`EXISTS (SELECT 1 FROM ${agentReleases} mar JOIN ${agents} ma ON ma.id = mar.agent_id WHERE mar.id = ${sessions}.agent_release_id AND ma.managing_team_id IS NOT NULL)`;
+const managedAgentSession = sql`EXISTS (SELECT 1 FROM ${agentReleases} mar JOIN ${agents} ma ON ma.id = mar.agent_id WHERE mar.id = ${sessions}.agent_release_id)`;
 
 // The viewer is inside the session's agent (agent-rbac (b)): an agent key
 // of that agent, or a person inside it, read at this decision.

@@ -80,7 +80,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const versionId = randomUUID();
     const releaseId = `sha256:${randomUUID()}`;
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', $4)",
+      "WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, github_enabled, managing_team_id) VALUES ($1, $2, $3, 'a', $4, (SELECT id FROM t))",
       [agentId, workspaceId, `a-${agentId.slice(0, 8)}`, enabled],
     );
     await pool.query(

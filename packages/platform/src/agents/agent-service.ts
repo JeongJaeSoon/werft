@@ -380,9 +380,7 @@ export function createAgentService(deps: {
       (query.ids === undefined ||
         query.ids.some((id) => id.toLowerCase() === own.id.toLowerCase())) &&
       (query.runtime_profile_id === undefined ||
-        detail.active_release?.runtime_profile_id ===
-          query.runtime_profile_id) &&
-      (query.managing_team === undefined || own.managing_team_id === null);
+        detail.active_release?.runtime_profile_id === query.runtime_profile_id);
     return { items: kept ? [own] : [], next_cursor: null };
   }
 

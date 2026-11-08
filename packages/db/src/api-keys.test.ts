@@ -5,6 +5,7 @@ import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { agents, apiKeys, memberships, users, workspaces } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -52,9 +53,13 @@ test("a list names every key's issuer in one statement, departed ones included",
   const left = await person("Left", { membership: true });
   const disabled = await person("Disabled", { account: true });
   const agentId = crypto.randomUUID();
-  await db
-    .insert(agents)
-    .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
+  await db.insert(agents).values({
+    id: agentId,
+    workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
+    slug: "bot",
+    name: "bot",
+  });
   const issuers = [owner, left, disabled, null];
   for (const createdByUserId of issuers) {
     await db.insert(apiKeys).values({
