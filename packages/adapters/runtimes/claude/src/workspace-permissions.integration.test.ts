@@ -260,9 +260,32 @@ const steps: Step[] = [
     "7 notes/sample.txt",
   ),
   // Code that mentions a secret's name is not a secret.
-  bash("read_code_process_env", "grep -n process.env notes/sample.txt", false),
-  bash("read_code_credentials", "grep credentials notes/sample.txt", false),
-  bash("read_code_keys_ts", "cat src/keys.ts src/object.keys.ts", false),
+  bash(
+    "read_code_process_env",
+    "grep -n process.env src/auth.ts",
+    false,
+    "process.env.TOKEN",
+  ),
+  bash(
+    "read_code_credentials",
+    "grep credentials src/auth.ts",
+    false,
+    "process.env.TOKEN",
+  ),
+  bash(
+    "read_code_keys_ts",
+    "cat src/keys.ts src/object.keys.ts src/service-account.ts",
+    false,
+    "service-account.ts",
+  ),
+  bash(
+    "read_grep_file_flag_dotenv",
+    "grep --file=.env.secret notes/sample.txt",
+    true,
+  ),
+  bash("read_rg_user_word", "rg -n token src", false, "process.env.TOKEN"),
+  bash("read_rg_split_u", "rg -u -u SECRET_SENTINEL", true),
+  bash("read_rg_crossed_u", "rg -unu SECRET_SENTINEL", true),
   bash("read_grep", "grep -n sample notes/sample.txt", false, "1:sample"),
   bash("read_find_name", "find . -name '*.txt' -not -path './.git/*'", false),
   bash(
@@ -419,6 +442,18 @@ async function run(permissionMode: PermissionMode) {
   // A secret the fixture holds on disk, so a read that gets past the rules
   // prints something recognizable. Its name matches the ask-on-write paths.
   await writeFile(join(workspace, ".env.secret"), "SECRET_SENTINEL=1\n");
+  // Ordinary code whose file names or text look like a secret's.
+  await mkdir(join(workspace, "src"), { recursive: true });
+  await writeFile(
+    join(workspace, "src", "auth.ts"),
+    "export const token = process.env.TOKEN; // credentials\n",
+  );
+  for (const name of ["keys.ts", "object.keys.ts", "service-account.ts"]) {
+    await writeFile(
+      join(workspace, "src", name),
+      `export const n = "${name}";\n`,
+    );
+  }
 
   const results = new Map<string, string>();
   server = startFakeAnthropicServer((request) => {
