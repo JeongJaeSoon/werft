@@ -66,7 +66,7 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 도구를 고르고 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
+    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
   "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
@@ -534,7 +534,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model and tools the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
+    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
   "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
@@ -997,7 +997,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデルとツール、プロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
+    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
   "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
