@@ -38,6 +38,7 @@ import {
   USER_ID,
 } from "../test-support/fake-api.ts";
 import { fakeIntersection } from "../test-support/intersection.ts";
+import { denyFor } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, cleanup, render, renderAt, screen, waitFor, within } =
@@ -161,6 +162,7 @@ const catalogProfile = (
   model,
   models: [model],
   tools,
+  deny: denyFor(tools),
   permission_mode: "default",
   runtime_kind: "claude_agent_sdk",
   runtime_version: "0.3.270",
@@ -1209,31 +1211,17 @@ describe("새 에이전트", () => {
       "claude-sonnet-5",
     ]);
     await user.selectOptions(model, CARD.model);
-    // One checklist of the preview profile's tools, no free-text fields.
     expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
     expect((screen.getByLabelText("프로필") as HTMLSelectElement).value).toBe(
       PROFILE,
     );
-    const all = screen.getByRole("switch", {
-      name: "릴리스할 때 프로필이 막지 않은 도구 전부",
-    });
-    expect(all.getAttribute("aria-checked")).toBe("true");
-    const box = (name: string) =>
-      screen.getByRole("checkbox", { name: new RegExp(`^${name}`) });
-    expect((box("Bash") as HTMLButtonElement).disabled).toBe(true);
-    await user.click(all);
-    expect(
-      ["Read", "Edit", "Bash"].map((tool) =>
-        box(tool).getAttribute("aria-checked"),
-      ),
-    ).toEqual(["true", "true", "true"]);
-    expect(
-      screen.getByText("고른 도구를 모두 허용하는 프로필 1개"),
-    ).toBeDefined();
-    await user.click(box("Bash"));
-    expect(
-      screen.getByText("고른 도구를 모두 허용하는 프로필 2개"),
-    ).toBeDefined();
+    const blocked = screen.getByRole("group", { name: "프로필이 막은 도구" });
+    // The profile runs Read, Edit and Bash, so it blocks the rest of the catalog.
+    expect(within(blocked).getByText("Write")).toBeDefined();
+    expect(within(blocked).getByText("WebFetch")).toBeDefined();
+    expect(within(blocked).queryByText("Bash")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "릴리스 만들기" })).toBeNull();
     expect(screen.queryByRole("button", { name: "에이전트 켜기" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "저장하고 다음" }));
@@ -1246,7 +1234,7 @@ describe("새 에이전트", () => {
       managing_team_id: TEAM_ID,
       card: {
         ...CARD,
-        capabilities: { tools: ["Read", "Edit"], mcp: null, forbidden: [] },
+        capabilities: { mcp: null, forbidden: [] },
       },
       runtime_profile_id: PROFILE,
       model_source: "profile",
@@ -2889,6 +2877,7 @@ describe("편집 중 다른 곳의 저장", () => {
               model: CARD.model,
               models: [CARD.model],
               tools: ["Read", "Bash"],
+              deny: denyFor(["Read", "Bash"]),
             } as ProfileSummary,
           ],
         });
@@ -2902,8 +2891,12 @@ describe("편집 중 다른 곳의 저장", () => {
     )) as HTMLSelectElement;
     expect(cardProfile.value).toBe(PROFILE);
     await user.selectOptions(cardProfile, "claude-coding-wide");
-    // The checklist follows the profile picked.
-    await within(card).findByRole("checkbox", { name: /Bash/ });
+    // Edit is run by the first profile and blocked by this one; Bash is the other way.
+    const wide = within(
+      await within(card).findByRole("group", { name: "프로필이 막은 도구" }),
+    );
+    expect(wide.getByText("Edit")).toBeDefined();
+    expect(wide.queryByText("Bash")).toBeNull();
     await user.type(
       screen.getByLabelText("에이전트 지시문"),
       "환불 문의에도 답한다.",

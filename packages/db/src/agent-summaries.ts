@@ -2,7 +2,7 @@ import {
   AGENT_SUMMARY_INSTRUCTIONS_MAX,
   type AgentSlackAction,
   type AgentSummary,
-  agentCapabilitiesSchema,
+  storedAgentCapabilitiesSchema,
 } from "@werft-ai/contracts";
 import type { SessionViewer } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -277,7 +277,9 @@ export async function agentSummaries(
   );
   const summaries = new Map<string, AgentSummary>();
   for (const version of versions) {
-    const capabilities = agentCapabilitiesSchema.parse(version.capabilities);
+    const capabilities = storedAgentCapabilitiesSchema.parse(
+      version.capabilities,
+    );
     const settings = mcpSettings.get(version.agentId);
     summaries.set(version.agentId, {
       version: {

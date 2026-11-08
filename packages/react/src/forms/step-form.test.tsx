@@ -191,16 +191,16 @@ describe("a step form", () => {
       instructions: "Answer.",
       language: "ko",
       model: "claude-sonnet-5",
-      capabilities: { tools: null, mcp: null, forbidden: [] },
+      capabilities: {
+        mcp: null,
+        forbidden: [`mcp__${"x".repeat(125)}`],
+      },
       rules: [],
     };
     const send = mock();
     const draft: AgentCardDraft = {
       language: "ko",
       model: "claude-sonnet-5",
-      toolsMode: "list",
-      tools: ["x".repeat(129)],
-      forbidden: [],
     };
     const view = render(
       <Wrap>

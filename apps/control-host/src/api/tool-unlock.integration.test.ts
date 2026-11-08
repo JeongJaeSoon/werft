@@ -10,6 +10,7 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentActivationEvents,
   agentReleases,
   agents,
   createDatabaseIdentityReader,
@@ -21,6 +22,7 @@ import {
   memberTeams,
   profileRolloutItems,
   profileRollouts,
+  ROLLOUT_MAX_CLAIMS,
   receipts,
   users,
   workspaces,
@@ -397,6 +399,65 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
     expect(await releasesOf(id)).toEqual(released);
   });
 
+  test("a change that lands between the plan and the swap is stopped by the database", async () => {
+    const caller = await owner();
+    const id = await legacyAgent(caller, { tools: ["Read"] });
+    const before = await agentRow(id);
+    const record = await store().get(caller.ownerId, id);
+    const made = await service().createRelease(caller, id, {
+      version_id: record?.versions[0]?.id as string,
+      runtime_profile_id: "op_ops_v1",
+    });
+    expect(made.release.id).not.toBe(before?.activeReleaseId);
+    const releases = await releasesOf(id);
+    const events = await db.select().from(agentActivationEvents);
+
+    const outcome = await store().activate({
+      principal: caller,
+      workspaceId: caller.ownerId,
+      agentId: id,
+      releaseId: made.release.id,
+      expectedRevision: before?.activationRevision as number,
+      approvedBy: caller.actor?.userId as string,
+      managerRoles: ["owner", "admin"],
+      intent: {
+        kind: "tool_unlock",
+        rolloutId: null,
+        expected: {
+          activeReleaseId: before?.activeReleaseId as string,
+          activationRevision: before?.activationRevision as number,
+          behaviorRevision: (before?.behaviorRevision as number) + 1,
+        },
+        tools: { before: ["Read"], after: ["Read", "Grep", "Edit", "Write"] },
+      },
+    });
+    expect(outcome).toEqual({ outcome: "superseded" });
+    expect(await agentRow(id)).toEqual(before);
+    expect(await releasesOf(id)).toEqual(releases);
+    expect(await db.select().from(agentActivationEvents)).toEqual(events);
+  });
+
+  test("an apply whose report directory is missing still unlocks, and says why", async () => {
+    const caller = await owner();
+    const id = await legacyAgent(caller, { tools: ["Read"] });
+    const path = join(dir, "missing", "report.json");
+    const lines: string[] = [];
+    const say = (line: string) => lines.push(line);
+
+    const code = await runToolUnlock(["--apply", "--out", path], deps(), say);
+    expect(code).toBe(0);
+    expect(JSON.parse(lines.at(-1) ?? "{}")).toMatchObject({
+      report: null,
+      report_sha256: null,
+      report_error: expect.stringContaining("ENOENT"),
+    });
+    expect(await activeToolsOf(id)).toEqual(["Read", "Grep", "Edit", "Write"]);
+
+    await expect(
+      runToolUnlock(["--dry-run", "--out", path], deps(), say),
+    ).rejects.toThrow(/ENOENT/);
+  });
+
   test("the rollout runner and its sweep never take a tool_unlock item", async () => {
     const caller = await owner();
     await legacyAgent(caller, { tools: ["Read"] });
@@ -420,6 +481,24 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
     });
     expect(await runner.runOnce()).toEqual({ claimed: 0, settled: 0 });
     expect(await db.select().from(profileRollouts)).toEqual(rolloutRows);
+    expect(await db.select().from(profileRolloutItems)).toEqual(itemRows);
+  });
+
+  test("an item out of claims is not failed by the profile-update sweep", async () => {
+    const caller = await owner();
+    await legacyAgent(caller, { tools: ["Read"] });
+    await run("--apply");
+    await db
+      .update(profileRolloutItems)
+      .set({ status: "pending", attempts: ROLLOUT_MAX_CLAIMS });
+    const itemRows = await db.select().from(profileRolloutItems);
+    expect(itemRows[0]?.attempts).toBe(ROLLOUT_MAX_CLAIMS);
+
+    const claimed = await createPostgresProfileRolloutStore(db).claim({
+      leaseMs: 60_000,
+      limit: 10,
+    });
+    expect(claimed).toEqual([]);
     expect(await db.select().from(profileRolloutItems)).toEqual(itemRows);
   });
 });

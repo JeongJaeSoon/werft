@@ -66,7 +66,7 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 도구를 고르고 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
+    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
   "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
@@ -90,23 +90,17 @@ export const agentsKo = {
   "agentCard.model": "모델",
   "agentCard.modelHint":
     "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
-  "agentCard.tools": "쓸 수 있는 도구",
-  "agentCard.toolsAll": "릴리스할 때 프로필이 막지 않은 도구 전부",
-  "agentCard.toolsAllHint":
-    "릴리스를 만들 때 그 프로필이 막지 않은 도구로 정해집니다. 프로필 새 버전에서 막기를 푼 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만 씁니다.",
+  "agentCard.blockedTools": "프로필이 막은 도구",
+  "agentCard.blockedNone": "이 프로필이 막은 도구는 없습니다.",
+  "agentCard.blockedUnknown":
+    "이 프로필은 도구 목록을 알 수 없는 런타임이라 막은 도구를 보여 줄 수 없습니다.",
+  "agentCard.blockedHint":
+    "에이전트가 쓰는 도구는 프로필이 정합니다. 에이전트마다 따로 고르지 않습니다.",
   "agentCard.previewProfile": "프로필",
   "agentCard.previewProfileHint":
-    "이 프로필의 도구에서 고르고, 새 릴리스도 이 프로필로 만듭니다. 카드에는 저장하지 않습니다.",
-  "agentCard.noPreview": "이 모델을 돌리는 프로필이 없어 고를 도구가 없습니다.",
-  "agentCard.toolOutside": "프로필에 없는 도구 · 끌 수만 있습니다",
-  "agentCard.toolForbidden": "금지 도구 · 아래에서 지우면 고를 수 있습니다",
-  "agentCard.allowing": "고른 도구를 모두 허용하는 프로필 {count}개",
-  "agentCard.allowingNone":
-    "고른 도구를 모두 허용하는 프로필이 없어 저장할 수 없습니다. 체크를 줄이거나 다른 모델을 고르세요.",
-  "agentCard.forbidden": "금지 도구",
-  "agentCard.forbiddenHint":
-    "전에 적어 둔 금지 도구입니다. 지우기 전에는 체크할 수 없고 쓰지 않습니다.",
-  "agentCard.forbiddenClear": "금지 도구 지우기",
+    "이 프로필이 막은 도구를 보여 주고, 새 릴리스도 이 프로필로 만듭니다. 카드에는 저장하지 않습니다.",
+  "agentCard.noPreview":
+    "이 모델을 돌리는 프로필이 없어 보여 줄 도구가 없습니다.",
   "agent.created":
     "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 상세 설정에서 프로필을 골라 저장하세요. 저장하면 첫 릴리스가 만들어집니다.",
   "agent.noActive": "없음",
@@ -261,8 +255,6 @@ export const agentsKo = {
   "agent.releases.field.defaultRepository": "기본 저장소",
   "agent.releases.field.model": "모델",
   "agent.releases.field.tools": "쓸 수 있는 도구",
-  "agent.releases.field.cardTools": "카드가 고른 도구",
-  "agent.releases.field.forbidden": "금지한 도구",
   "agent.releases.field.mcpServers": "MCP 서버",
   "agent.releases.field.mcpTools": "MCP 도구",
   "agent.releases.field.toolPolicy": "도구별 정책",
@@ -277,7 +269,6 @@ export const agentsKo = {
   "agent.releases.field.card": "카드의 다른 칸",
   "agent.releases.absent.none": "없음",
   "agent.releases.absent.profileRepositories": "프로필이 허용하는 저장소 전체",
-  "agent.releases.absent.profileTools": "프로필이 허용하는 도구 전체",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
@@ -543,7 +534,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model and tools the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
+    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
   "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
@@ -566,24 +557,17 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.model": "Model",
   "agentCard.modelHint":
     "Only profiles that run the model you pick can be chosen below",
-  "agentCard.tools": "Tools it may use",
-  "agentCard.toolsAll": "Every tool the profile does not block at release",
-  "agentCard.toolsAllHint":
-    "The tools are fixed when a release is made: every tool its profile does not block. A tool unblocked in a new profile version comes in with a new release. Turn this off to use only the tools checked below.",
+  "agentCard.blockedTools": "Tools the profile blocks",
+  "agentCard.blockedNone": "This profile blocks no tools.",
+  "agentCard.blockedUnknown":
+    "This profile's runtime has no tool list, so the tools it blocks cannot be shown.",
+  "agentCard.blockedHint":
+    "The profile decides which tools an agent uses. They are not chosen per agent.",
   "agentCard.previewProfile": "Profile",
   "agentCard.previewProfileHint":
-    "You choose from this profile's tools, and a new release uses this profile. It is not saved on the card.",
+    "Shows the tools this profile blocks, and a new release uses this profile. It is not saved on the card.",
   "agentCard.noPreview":
-    "No profile runs this model, so there are no tools to choose.",
-  "agentCard.toolOutside": "Not in the profile · can only be turned off",
-  "agentCard.toolForbidden": "Blocked · clear the list below to choose it",
-  "agentCard.allowing": "{count} profiles allow every tool chosen",
-  "agentCard.allowingNone":
-    "No profile allows every tool chosen, so this cannot be saved. Check fewer tools or pick another model.",
-  "agentCard.forbidden": "Blocked tools",
-  "agentCard.forbiddenHint":
-    "Blocked earlier. Until cleared they cannot be checked and stay unused.",
-  "agentCard.forbiddenClear": "Clear blocked tools",
+    "No profile runs this model, so there are no tools to show.",
   "agent.created":
     "Agent created as version 1. To use it in sessions, choose a profile in Settings and save. Saving makes the first release.",
   "agent.noActive": "None",
@@ -742,8 +726,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.defaultRepository": "Default repository",
   "agent.releases.field.model": "Model",
   "agent.releases.field.tools": "Available tools",
-  "agent.releases.field.cardTools": "Tools the card picks",
-  "agent.releases.field.forbidden": "Forbidden tools",
   "agent.releases.field.mcpServers": "MCP servers",
   "agent.releases.field.mcpTools": "MCP tools",
   "agent.releases.field.toolPolicy": "Per-tool policy",
@@ -759,7 +741,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.absent.none": "None",
   "agent.releases.absent.profileRepositories":
     "Every repository the profile allows",
-  "agent.releases.absent.profileTools": "Every tool the profile allows",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
@@ -1016,7 +997,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデルとツール、プロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
+    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
   "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
@@ -1039,25 +1020,18 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
   "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
-  "agentCard.tools": "使用できるツール",
-  "agentCard.toolsAll":
-    "リリース時にプロファイルがブロックしていないすべてのツール",
-  "agentCard.toolsAllHint":
-    "リリースを作成するときに、そのプロファイルがブロックしていないツールに固定されます。プロファイルの新しいバージョンでブロックを外したツールは、新しいリリースから入ります。オフにすると、下でチェックしたツールだけを使います。",
+  "agentCard.blockedTools": "プロファイルがブロックしているツール",
+  "agentCard.blockedNone":
+    "このプロファイルがブロックしているツールはありません。",
+  "agentCard.blockedUnknown":
+    "このプロファイルのランタイムにはツール一覧がないため、ブロックしているツールを表示できません。",
+  "agentCard.blockedHint":
+    "エージェントが使うツールはプロファイルが決めます。エージェントごとには選びません。",
   "agentCard.previewProfile": "プロファイル",
   "agentCard.previewProfileHint":
-    "このプロファイルのツールから選び、新しいリリースもこのプロファイルで作ります。カードには保存しません。",
+    "このプロファイルがブロックしているツールを表示し、新しいリリースもこのプロファイルで作ります。カードには保存しません。",
   "agentCard.noPreview":
-    "このモデルを実行するプロファイルがないため、選べるツールがありません。",
-  "agentCard.toolOutside": "プロファイルにないツール · オフにのみできます",
-  "agentCard.toolForbidden": "禁止ツール · 下の一覧を消すと選べます",
-  "agentCard.allowing": "選んだツールをすべて許可するプロファイル {count} 件",
-  "agentCard.allowingNone":
-    "選んだツールをすべて許可するプロファイルがないため保存できません。チェックを減らすか、別のモデルを選んでください。",
-  "agentCard.forbidden": "禁止するツール",
-  "agentCard.forbiddenHint":
-    "以前に設定した禁止ツールです。消すまではチェックできず、使いません。",
-  "agentCard.forbiddenClear": "禁止ツールを消す",
+    "このモデルを実行するプロファイルがないため、表示できるツールがありません。",
   "agent.created":
     "エージェントを作成しました（バージョン 1）。セッションで使うには、「詳細設定」でプロファイルを選んで保存してください。保存すると最初のリリースが作成されます。",
   "agent.noActive": "なし",
@@ -1216,8 +1190,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.defaultRepository": "既定のリポジトリ",
   "agent.releases.field.model": "モデル",
   "agent.releases.field.tools": "使えるツール",
-  "agent.releases.field.cardTools": "カードが選んだツール",
-  "agent.releases.field.forbidden": "禁止したツール",
   "agent.releases.field.mcpServers": "MCP サーバー",
   "agent.releases.field.mcpTools": "MCP ツール",
   "agent.releases.field.toolPolicy": "ツールごとのポリシー",
@@ -1233,7 +1205,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.absent.none": "なし",
   "agent.releases.absent.profileRepositories":
     "プロファイルが許可するすべてのリポジトリ",
-  "agent.releases.absent.profileTools": "プロファイルが許可するすべてのツール",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",

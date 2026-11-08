@@ -432,7 +432,7 @@ const card = (c: Card) => ({
   instructions: c.instructions,
   language: c.language ?? "ko",
   model: MODEL,
-  capabilities: { tools: null, mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
   rules: c.rules ?? [],
 });
 

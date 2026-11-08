@@ -241,21 +241,6 @@ export function releaseChanges(
       before.effective_tools.tools,
       after.effective_tools.tools,
     ),
-    // `null` on the card asks for every tool the profile allows.
-    ...(cardA && cardB
-      ? optionalListChange(
-          "tools",
-          "cardTools",
-          cardA.capabilities.tools,
-          cardB.capabilities.tools,
-        )
-      : []),
-    ...listChange(
-      "tools",
-      "forbidden",
-      cardA?.capabilities.forbidden ?? [],
-      cardB?.capabilities.forbidden ?? [],
-    ),
     ...listChange(
       "tools",
       "mcpServers",

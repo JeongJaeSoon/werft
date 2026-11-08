@@ -505,7 +505,7 @@ const card = agentCardSchema.parse({
   role: "분석가",
   instructions: "요약한다.",
   model: "claude-sonnet-5",
-  capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
 });
 
 function agentStore() {

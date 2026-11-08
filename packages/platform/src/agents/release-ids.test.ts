@@ -46,7 +46,7 @@ const card: AgentCard = agentCardSchema.parse({
   role: "재무 분석가",
   instructions: "분기 보고서를 읽고 이상치를 요약한다.",
   model: "claude-sonnet-5",
-  capabilities: { tools: ["Grep", "Read"], mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
 });
 
 function identityOf(
@@ -335,9 +335,9 @@ describe("resolveReleaseContent", () => {
     );
   });
 
-  test("runs every tool the profile allows, whatever the card lists or forbids", () => {
-    const withTools = (capabilities: AgentCard["capabilities"]) =>
-      identityOf(agentCardSchema.parse({ ...card, capabilities }));
+  test("runs every tool the profile allows, whatever a card stored earlier lists or forbids", () => {
+    const withTools = (capabilities: Record<string, unknown>) =>
+      identityOf(storedAgentCardSchema.parse({ ...card, capabilities }));
     for (const capabilities of [
       { tools: null, mcp: null, forbidden: ["Bash"] },
       { tools: [], mcp: null, forbidden: [] },
@@ -357,17 +357,17 @@ describe("resolveReleaseContent", () => {
     }
   });
 
-  test("a card's tools, forbidden and built-in policy change nothing the release runs", () => {
+  test("a stored card's tools, forbidden and built-in policy change nothing the release runs", () => {
     const plain = resolveReleaseContent(
       agentCardSchema.parse({
         ...card,
-        capabilities: { tools: null, mcp: null, forbidden: [] },
+        capabilities: { mcp: null, forbidden: [] },
       }),
       "coding",
       profile,
     );
     const edited = resolveReleaseContent(
-      agentCardSchema.parse({
+      storedAgentCardSchema.parse({
         ...card,
         capabilities: {
           tools: ["Read"],
@@ -404,7 +404,6 @@ describe("resolveReleaseContent", () => {
       agentCardSchema.parse({
         ...card,
         capabilities: {
-          tools: null,
           mcp: null,
           forbidden: [],
           tool_policy: { per_tool: { mcp__docs__search: "allow" } },

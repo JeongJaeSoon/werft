@@ -121,9 +121,6 @@ export function resolveReleaseContent(
       },
     };
   }
-  // The card's built-in `tools`, `forbidden` and `tool_policy` are not read:
-  // the profile decides (the request schema still accepts them until they
-  // are removed).
   const tools = [...profile.tools];
   const policy = resolveToolPolicy(card, tools);
   if (!policy.ok) return policy;

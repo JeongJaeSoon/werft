@@ -129,7 +129,6 @@ const CARD: AgentCard = agentCardSchema.parse({
   instructions: "Answer from the docs.",
   model: "claude-sonnet-5",
   capabilities: {
-    tools: ["Read"],
     mcp: [{ server: "docs" }],
     credential_refs: ["docs_token"],
     tool_policy: { per_tool: { mcp__docs__search: "allow" } },

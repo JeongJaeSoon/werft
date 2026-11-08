@@ -73,12 +73,18 @@ export const DEFAULT_TOOL_POLICY = {
   mcp: "ask",
 } as const satisfies z.infer<typeof toolPolicyDefaultsSchema>;
 
-/** A card's say over its tools; anything left out takes the default. */
+const mcpToolNameSchema = toolNameSchema.refine(
+  (name) => name.startsWith(MCP_TOOL_PREFIX),
+  `must be an ${MCP_TOOL_PREFIX} tool name`,
+);
+
+/**
+ * A card's say over the MCP tools it calls. Built-in tools follow the runtime
+ * profile and have no entry here.
+ * TODO(94S-1373): removed with `mcp` when the MCP server moves to agent settings.
+ */
 export const cardToolPolicySchema = z
-  .object({
-    default: toolPolicyDefaultsSchema.partial().strict().optional(),
-    per_tool: z.record(toolNameSchema, toolPolicySchema).optional(),
-  })
+  .object({ per_tool: z.record(mcpToolNameSchema, toolPolicySchema) })
   .strict();
 
 export const agentRuleSchema = z
@@ -114,16 +120,14 @@ export type McpStart = z.infer<typeof mcpStartSchema>;
 
 export const agentCapabilitiesSchema = z
   .object({
-    /** `null` = every tool the runtime profile allows, `[]` = none. */
-    tools: z.array(toolNameSchema).nullable(),
     /**
      * The remote MCP server the agent calls, by the operator catalog's id
      * (`mcp_servers.<id>`), which fixes its URL, credential and workspaces.
      * Null for none, so a card written before it keeps its content hash.
      */
     mcp: z.array(cardMcpServerSchema).min(1).max(1).nullable(),
-    /** Server-enforced denials, not prose in the instructions. */
-    forbidden: z.array(toolNameSchema).default([]),
+    /** MCP tools the release must not allow. TODO(94S-1373): goes with `mcp`. */
+    forbidden: z.array(mcpToolNameSchema).default([]),
     /**
      * Optional, with no default, so a card written before it existed keeps
      * its content hash. Changing it makes a new version, hence a new release.
@@ -178,20 +182,95 @@ export const agentCardSchema = z
   })
   .strict();
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isMcpTool = (name: unknown) =>
+  typeof name === "string" && name.startsWith(MCP_TOOL_PREFIX);
+
+/**
+ * Capabilities as an older client or an older stored card wrote them, without
+ * what no longer exists: `tools`, built-in names in `forbidden` and in
+ * `tool_policy.per_tool`, and `tool_policy.default`. The profile decides
+ * built-in tools, and these were already ignored when a release is made, so
+ * they are dropped rather than refused. MCP entries pass through.
+ */
+function withoutRetiredToolFields(capabilities: unknown): unknown {
+  if (!isRecord(capabilities)) return capabilities;
+  const {
+    tools: _tools,
+    forbidden,
+    tool_policy: policy,
+    ...rest
+  } = capabilities;
+  return {
+    ...rest,
+    ...(forbidden === undefined
+      ? {}
+      : {
+          forbidden: Array.isArray(forbidden)
+            ? forbidden.filter(isMcpTool)
+            : forbidden,
+        }),
+    ...(policy === undefined ? {} : withoutRetiredPolicy(policy)),
+  };
+}
+
+/**
+ * Only the retired `default` and the built-in `per_tool` names go; any other
+ * key stays, so a misspelled one is still refused by the strict schema.
+ */
+function withoutRetiredPolicy(policy: unknown): { tool_policy?: unknown } {
+  if (!isRecord(policy)) return { tool_policy: policy };
+  const { default: _default, per_tool: perTool, ...others } = policy;
+  const mcp = isRecord(perTool)
+    ? Object.fromEntries(
+        Object.entries(perTool).filter(([tool]) => isMcpTool(tool)),
+      )
+    : perTool;
+  const kept = {
+    ...others,
+    ...(mcp === undefined || (isRecord(mcp) && Object.keys(mcp).length === 0)
+      ? {}
+      : { per_tool: mcp }),
+  };
+  return Object.keys(kept).length === 0 ? {} : { tool_policy: kept };
+}
+
+function withoutRetiredCardFields(card: unknown): unknown {
+  if (!isRecord(card)) return card;
+  return { ...card, capabilities: withoutRetiredToolFields(card.capabilities) };
+}
+
 /**
  * The card a request may write: the shape it is read in, so an edit can send
- * back the stored card it started from.
+ * back the stored card it started from. A request from before the card lost
+ * its built-in tool fields is still accepted; see `withoutRetiredToolFields`.
+ * Its documented shape is `agentCardSchema`.
  */
-export const agentCardRequestSchema = agentCardSchema;
+export const agentCardRequestSchema = z.preprocess(
+  withoutRetiredCardFields,
+  agentCardSchema,
+);
+
+/** `capabilities` of a stored card, read by the agent list's summaries. */
+export const storedAgentCapabilitiesSchema = z.preprocess(
+  withoutRetiredToolFields,
+  agentCapabilitiesSchema,
+);
 
 /**
  * A card as stored. Cards written before `tone` was dropped (94S-761) still
- * hold it; it is accepted and left out of what is read. The version's
+ * hold it, and cards from before the built-in tool fields were dropped (94S-1371)
+ * hold those; they are accepted and left out of what is read. The version's
  * `content_sha256` and its releases' `card_sha256` keep hashing the stored
  * card, so nothing re-hashes what this returns.
  */
-export const storedAgentCardSchema = agentCardSchema
-  .extend({ tone: z.string().optional() })
+export const storedAgentCardSchema = z
+  .preprocess(
+    withoutRetiredCardFields,
+    agentCardSchema.extend({ tone: z.string().optional() }),
+  )
   .transform(({ tone: _dropped, ...card }): AgentCard => card);
 
 // Postgres text cannot store NUL, so it is refused here rather than at insert.
@@ -838,26 +917,13 @@ export function behaviorKey(
   runtimeProfileId: string,
 ): string {
   const { role: _role, instructions: _instructions, ...behavior } = card;
-  // A release ignores the card's built-in tool fields, so they are not part of
-  // what the card does. MCP entries still decide the release and stay.
-  const {
-    tools: _tools,
-    forbidden,
-    tool_policy: policy,
-    ...capabilities
-  } = behavior.capabilities;
-  const mcpPolicy = Object.fromEntries(
-    Object.entries(policy?.per_tool ?? {}).filter(([tool]) =>
-      tool.startsWith(MCP_TOOL_PREFIX),
-    ),
-  );
+  const { tool_policy: policy, ...capabilities } = behavior.capabilities;
   return canonicalJsonOfJson({
     card: {
       ...behavior,
       capabilities: {
         ...capabilities,
-        forbidden: forbidden.filter((tool) => tool.startsWith(MCP_TOOL_PREFIX)),
-        per_tool: mcpPolicy,
+        per_tool: policy?.per_tool ?? {},
       },
       model,
     },

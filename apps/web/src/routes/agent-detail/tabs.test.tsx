@@ -210,8 +210,6 @@ describe("에이전트 상세 탭", () => {
       "MCP",
       "모델",
       "답변 언어",
-      "쓸 수 있는 도구",
-      "금지 도구",
     ]);
     expect(
       within(summary).getByText("릴리스", { selector: "dt" }).nextElementSibling
@@ -289,105 +287,25 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement?.contains(saved)).toBe(true);
   });
 
-  test("카드 편집의 도구는 프로필 도구 체크 목록이고, 프로필에 없는 도구·금지 도구는 끄거나 지울 수만 있다", async () => {
-    const server = agentServer();
-    const first = server.versions[0];
-    if (!first) throw new Error("agentServer starts with a version");
-    server.versions[0] = {
-      ...first,
-      card: {
-        ...first.card,
-        capabilities: {
-          tools: ["Read", "WebFetch"],
-          mcp: null,
-          forbidden: ["Bash"],
-        },
-      },
-    };
+  test("카드 편집에는 도구 체크 목록이 없고 프로필이 막은 도구를 읽기 전용으로 보인다", async () => {
     const { api } = renderAt(`${DETAIL}?tab=card`, {
       ...meOk,
-      ...server.routes,
+      ...agentServer().routes,
     });
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "상세 설정 편집" }),
     );
-    expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
-    const all = await screen.findByRole("switch", {
-      name: "릴리스할 때 프로필이 막지 않은 도구 전부",
+    const blocked = await screen.findByRole("group", {
+      name: "프로필이 막은 도구",
     });
-    expect(all.getAttribute("aria-checked")).toBe("false");
-    const read = screen.getByRole("checkbox", { name: /^Read/ });
-    expect(read.getAttribute("aria-checked")).toBe("true");
-    const outside = screen.getByRole("checkbox", { name: /^WebFetch/ });
-    expect(outside.getAttribute("aria-checked")).toBe("true");
-    expect(
-      screen.getByText("프로필에 없는 도구 · 끌 수만 있습니다"),
-    ).toBeDefined();
-    expect(
-      screen.getByText(
-        /고른 도구를 모두 허용하는 프로필이 없어 저장할 수 없습니다/,
-      ),
-    ).toBeDefined();
-    const save = screen.getByRole("button", { name: "저장" });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
-
-    const blocked = screen.getByRole("group", { name: "금지 도구" });
     expect(within(blocked).getByText("Bash")).toBeDefined();
-    await user.click(
-      within(blocked).getByRole("button", { name: "금지 도구 지우기" }),
-    );
-    expect(screen.queryByRole("group", { name: "금지 도구" })).toBeNull();
+    expect(within(blocked).getByText("WebFetch")).toBeDefined();
+    expect(within(blocked).queryByRole("checkbox")).toBeNull();
+    expect(within(blocked).queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /^Read/ })).toBeNull();
 
-    await user.click(outside);
-    expect(screen.queryByRole("checkbox", { name: /^WebFetch/ })).toBeNull();
-    expect(
-      screen.getByText("고른 도구를 모두 허용하는 프로필 1개"),
-    ).toBeDefined();
-    expect((save as HTMLButtonElement).disabled).toBe(false);
-    await user.click(save);
-    await screen.findByText(/저장했습니다/);
-    const patch = api.calls.find(
-      (call) =>
-        call.method === "PATCH" && call.path === `/v1/agents/${AGENT_ID}`,
-    );
-    expect(
-      (patch?.body as { card: { capabilities: unknown } }).card.capabilities,
-    ).toEqual({ tools: ["Read"], mcp: null, forbidden: [] });
-  });
-
-  test("금지 도구는 지우기 전까지 체크 목록에서 꺼진 채 바꿀 수 없고, 저장해도 금지로 남는다", async () => {
-    const server = agentServer();
-    const first = server.versions[0];
-    if (!first) throw new Error("agentServer starts with a version");
-    server.versions[0] = {
-      ...first,
-      card: {
-        ...first.card,
-        role: "금지 확인",
-        capabilities: { tools: null, mcp: null, forbidden: ["Read"] },
-      },
-    };
-    const { api } = renderAt(`${DETAIL}?tab=card`, {
-      ...meOk,
-      ...server.routes,
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "상세 설정 편집" }),
-    );
-    await user.click(
-      await screen.findByRole("switch", {
-        name: "릴리스할 때 프로필이 막지 않은 도구 전부",
-      }),
-    );
-    const read = screen.getByRole("checkbox", { name: /^Read/ });
-    expect(read.getAttribute("aria-checked")).toBe("false");
-    expect((read as HTMLButtonElement).disabled).toBe(true);
-    expect(
-      screen.getByText("금지 도구 · 아래에서 지우면 고를 수 있습니다"),
-    ).toBeDefined();
-    await user.click(read);
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(/저장했습니다/);
     const patch = api.calls.find(
@@ -396,7 +314,7 @@ describe("에이전트 상세 탭", () => {
     );
     expect(
       (patch?.body as { card: { capabilities: unknown } }).card.capabilities,
-    ).toEqual({ tools: [], mcp: null, forbidden: ["Read"] });
+    ).toEqual({ mcp: null, forbidden: [] });
   });
 
   test("개요의 켜기까지 단계는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
@@ -924,9 +842,8 @@ describe("에이전트 상세 탭", () => {
     ).toBeNull();
     expect(value("식별자")).toBe("billing");
     expect(value("모델")).toBe("claude-sonnet-5");
-    expect(value("쓸 수 있는 도구")).toBe(
-      "릴리스할 때 프로필이 막지 않은 도구 전부",
-    );
+    expect(within(summary).queryByText("쓸 수 있는 도구")).toBeNull();
+    expect(within(summary).queryByText("금지 도구")).toBeNull();
     expect(within(summary).queryByRole("textbox")).toBeNull();
     const raw = screen
       .getByRole("region", { name: "카드 원문" })

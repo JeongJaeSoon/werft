@@ -94,9 +94,8 @@ const LEGACY_CARD: AgentDetail["versions"][number]["card"] = {
   language: "ko",
   model: "claude-sonnet-5",
   capabilities: {
-    tools: null,
     mcp: [{ server: "billing-db" }],
-    forbidden: ["Bash"],
+    forbidden: [],
     credential_refs: ["BILLING_DB"],
   },
   rules: [],
@@ -966,19 +965,6 @@ export function CardSummary({
               },
               { label: "모델", value: <Value mono={true}>{card.model}</Value> },
               { label: "답변 언어", value: <Value>한국어</Value> },
-              {
-                label: "쓸 수 있는 도구",
-                value:
-                  card.capabilities.tools === null ? (
-                    <Value>프로필이 허용하는 도구 전부</Value>
-                  ) : (
-                    <Names items={card.capabilities.tools} />
-                  ),
-              },
-              {
-                label: "금지 도구",
-                value: <Names items={card.capabilities.forbidden} />,
-              },
             ]}
           />
         ) : null}

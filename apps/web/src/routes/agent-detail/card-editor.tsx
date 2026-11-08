@@ -41,7 +41,6 @@ import {
   type CardDraft,
   cardFromDraft,
   draftFromCard,
-  toolsBlocked,
 } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -331,10 +330,7 @@ export function CardEditor({
                 save.isPending ||
                 // A save of the name or description alone sends no card,
                 // so the run settings' checks do not hold it back.
-                (draft !== null &&
-                  sendsCard &&
-                  (!catalog.isSuccess ||
-                    toolsBlocked(catalog.data.items, draft)))
+                (draft !== null && sendsCard && !catalog.isSuccess)
               }
             >
               {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
