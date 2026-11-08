@@ -706,6 +706,28 @@ describe("GitHub settings service", () => {
     ]);
   });
 
+  test("turning merge on is a manager's: a member is FORBIDDEN, an admin stores it", async () => {
+    const MERGE_ON: GitHubCeiling = { ...GITHUB_CEILING_NONE, merge: true };
+    const denied = harness();
+    expect(
+      (
+        await refusal(
+          denied.service.put(user("member"), WORKSPACE, async () => ({
+            ceiling: MERGE_ON,
+            revision: 0,
+          })),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(denied.puts).toEqual([]);
+    const allowed = harness();
+    await allowed.service.put(user("admin"), WORKSPACE, async () => ({
+      ceiling: MERGE_ON,
+      revision: 0,
+    }));
+    expect(allowed.puts.map((put) => put.ceiling)).toEqual([MERGE_ON]);
+  });
+
   test("a member PUT is FORBIDDEN and the body is not read", async () => {
     const { service, puts } = harness();
     let read = false;

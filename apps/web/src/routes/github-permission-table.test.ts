@@ -17,6 +17,7 @@ const OFF = {
   checks: false,
   issues: false,
   review: false,
+  merge: false,
 };
 
 describe("GitHub 기능별 권한 판정", () => {

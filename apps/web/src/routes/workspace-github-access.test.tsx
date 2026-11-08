@@ -31,6 +31,7 @@ const settingsOf = (
     checks: true,
     issues: true,
     review: false,
+    merge: false,
   },
   revision: 4,
   agents_using: { workflows: 0, actions: 2, checks: 0, issues: 0, review: 0 },
@@ -114,6 +115,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         checks: true,
         issues: true,
         review: false,
+        merge: false,
       },
       revision: 4,
     });
@@ -133,6 +135,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         checks: true,
         issues: true,
         review: false,
+        merge: false,
       },
       revision: 5,
     });

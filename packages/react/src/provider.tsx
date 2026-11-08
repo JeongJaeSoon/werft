@@ -22,7 +22,10 @@ import {
 } from "./messages/index.ts";
 
 /** A place a module links to; the host app turns it into its own URL. */
-export type LinkTarget = { readonly to: "session"; readonly id: string };
+export type LinkTarget = {
+  readonly to: "session" | "agent";
+  readonly id: string;
+};
 
 export type RenderLink = (
   link: LinkTarget & {

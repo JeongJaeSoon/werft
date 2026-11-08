@@ -106,6 +106,7 @@ export function attachmentContext(
       checks: false,
       issues: false,
       review: false,
+      merge: false,
     },
     repositoryCeiling: null,
     ceilingRevision: 0,

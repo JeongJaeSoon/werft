@@ -834,10 +834,36 @@ describe("Claude SDK adapter options", () => {
       ...PLATFORM_AUTO_MODE.allow,
       ...PLATFORM_AUTO_MODE.soft_deny,
     ]) {
-      expect(rule).not.toMatch(/mcp__|request_push|_pull_request/);
+      expect(
+        rule
+          .replace(/`merge_pull_request`/g, "")
+          .replace(/`mcp__github__merge_pull_request`/g, ""),
+      ).not.toMatch(/mcp__|request_push|_pull_request/);
     }
     expect(PLATFORM_AUTO_MODE.environment.join(" ")).toContain(
       "`request_push` pushes",
+    );
+    // Merging: allowed for the one tool and for a pull request this session
+    // opened when the user asked; denied by any other route; not trusted.
+    const merge = (rules: readonly string[]) =>
+      rules.filter((rule) => rule.startsWith("Werft Pull Request Merge:"));
+    for (const mode of [PLATFORM_AUTO_MODE, TRUSTED_PLATFORM_AUTO_MODE]) {
+      const [rule, ...more] = merge(mode.allow);
+      expect(more).toEqual([]);
+      expect(rule).toContain("`merge_pull_request`");
+      expect(rule).toContain("this session opened");
+      expect(rule).toContain("when the user asked");
+      expect(rule).toContain("any other route to merge");
+      expect(rule).toContain("bypassing branch protection");
+      expect(mode.soft_deny.join(" ")).toContain(
+        "merging pull requests by any route other than `mcp__github__merge_pull_request`",
+      );
+    }
+    expect(PLATFORM_AUTO_MODE.allow.join(" ")).not.toContain(
+      "merging or approving",
+    );
+    expect(PLATFORM_AUTO_MODE.environment.join(" ")).toContain(
+      "`merge_pull_request` squash-merges",
     );
     for (const permissionMode of [
       "default",

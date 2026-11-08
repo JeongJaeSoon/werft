@@ -46,10 +46,6 @@ import {
   RadioGroup,
   RadioGroupItem,
   RowAction,
-  RowLines,
-  RowList,
-  RowListItem,
-  Section,
   Text,
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
@@ -75,7 +71,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
-import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
   errorKey,
@@ -206,7 +201,13 @@ export function MembersLayout() {
   return (
     <Page
       title={t("members.title")}
-      description={t(manages ? "members.description" : "members.withheld")}
+      description={t(
+        !manages
+          ? "members.withheld"
+          : onTeamList && managesTeams
+            ? "teams.intro"
+            : "members.description",
+      )}
       actions={action}
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -777,73 +778,102 @@ function InviteList({
     invites.data?.items.filter((invite) => invite.status === "pending") ?? [];
 
   return (
-    <Section title={t("members.invites.title")}>
-      <div className={SECTION_BODY}>
-        {invites.isPending ? (
-          <StatusScreen kind="loading" />
-        ) : invites.error ? (
-          isApiError(invites.error, "FORBIDDEN") ? (
-            <FormError>{refusal(t, invites.error, role)}</FormError>
-          ) : (
-            <LoadFailure
-              error={invites.error}
-              onRetry={() => void invites.refetch()}
-            />
-          )
-        ) : pending.length === 0 ? (
-          <EmptyState title={t("members.invites.empty")} />
+    <>
+      {invites.isPending ? (
+        <StatusScreen kind="loading" />
+      ) : invites.error ? (
+        isApiError(invites.error, "FORBIDDEN") ? (
+          <FormError>{refusal(t, invites.error, role)}</FormError>
         ) : (
-          <RowList>
-            {pending.map((invite) => (
-              <RowListItem key={invite.id}>
-                <RowLines>
-                  <Text as="span" weight="medium" className="block break-words">
-                    {invite.email}
-                  </Text>
-                  <Text
-                    as="span"
-                    variant="meta"
-                    className="block [overflow-wrap:anywhere]"
-                  >
-                    {roleLabel(t, invite.role)} ·{" "}
-                    {t("members.invites.expires", {
-                      expires: formatTimestamp(invite.expires_at, locale),
-                    })}
-                  </Text>
-                </RowLines>
-                <RowAction
-                  variant="danger"
-                  className="ml-auto"
-                  disabled={revoke.isPending}
-                  aria-label={t("members.invites.revokeFor", {
-                    email: invite.email,
-                  })}
-                  onClick={() => setRevoking(invite)}
-                >
-                  {t("members.invites.revoke")}
-                </RowAction>
-              </RowListItem>
-            ))}
-          </RowList>
-        )}
-        <ConfirmDialog
-          open={revoking !== null}
-          onOpenChange={(open) => {
-            if (!open) setRevoking(null);
-          }}
-          title={t("members.invites.revokeTitle", {
-            email: revoking?.email ?? "",
-          })}
-          consequence={t("members.invites.revokeConsequence")}
-          confirmLabel={t("members.invites.revoke")}
-          cancelLabel={t("common.cancel")}
-          tone="danger"
-          busy={revoke.isPending}
-          onConfirm={() => {
-            if (revoking) revoke.mutate(revoking);
-          }}
-        />
-      </div>
-    </Section>
+          <LoadFailure
+            error={invites.error}
+            onRetry={() => void invites.refetch()}
+          />
+        )
+      ) : pending.length === 0 ? (
+        <EmptyState title={t("members.invites.empty")} />
+      ) : (
+        // Same frame and padding as the 구성원 table.
+        <div className="-m-1 grid overflow-x-auto p-1">
+          <GridTable
+            aria-label={t("members.invites.tableLabel")}
+            columns={MEMBER_COLUMNS}
+            narrowAt={640}
+            narrowColumns={MEMBER_NARROW_COLUMNS}
+            framed={true}
+            className={MEMBER_TABLE_MIN}
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("members.tab.invites")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("members.column.role")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader action={true}>
+                {t("members.column.actions")}
+              </GridTableColumnHeader>
+            </GridTableHeader>
+            {pending.map((invite) => {
+              // The cell ellipsizes a long line; the title keeps the full time.
+              const expires = t("members.invites.expires", {
+                expires: formatTimestamp(invite.expires_at, locale),
+              });
+              return (
+                <GridTableRow key={invite.id}>
+                  <GridTableCell lines={true}>
+                    <Text
+                      as="span"
+                      weight="medium"
+                      truncate
+                      title={invite.email}
+                    >
+                      {invite.email}
+                    </Text>
+                    <Text as="span" variant="meta" title={expires}>
+                      {expires}
+                    </Text>
+                  </GridTableCell>
+                  <GridTableCell>
+                    <Badge variant={invite.role === "member" ? "gray" : "blue"}>
+                      {roleLabel(t, invite.role)}
+                    </Badge>
+                  </GridTableCell>
+                  <GridTableCell align="end">
+                    <RowAction
+                      variant="danger"
+                      disabled={revoke.isPending}
+                      aria-label={t("members.invites.revokeFor", {
+                        email: invite.email,
+                      })}
+                      onClick={() => setRevoking(invite)}
+                    >
+                      {t("members.invites.revoke")}
+                    </RowAction>
+                  </GridTableCell>
+                </GridTableRow>
+              );
+            })}
+          </GridTable>
+        </div>
+      )}
+      <ConfirmDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (!open) setRevoking(null);
+        }}
+        title={t("members.invites.revokeTitle", {
+          email: revoking?.email ?? "",
+        })}
+        consequence={t("members.invites.revokeConsequence")}
+        confirmLabel={t("members.invites.revoke")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={revoke.isPending}
+        onConfirm={() => {
+          if (revoking) revoke.mutate(revoking);
+        }}
+      />
+    </>
   );
 }

@@ -313,6 +313,7 @@ export function githubSettings(
       checks: false,
       issues: false,
       review: false,
+      merge: false,
     },
     revision: 0,
     pull_request: {

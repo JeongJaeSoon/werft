@@ -703,6 +703,7 @@ describe("a release's GitHub settings", () => {
     checks: false,
     issues: false,
     review: false,
+    merge: false,
   };
   const github: AgentGitHub = {
     repositories: ["sample-app"],

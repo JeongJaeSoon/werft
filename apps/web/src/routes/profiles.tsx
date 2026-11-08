@@ -32,7 +32,7 @@ import {
   versionOf,
 } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { ModelConnections } from "./model-connections.tsx";
+import { settingsConnectionsQuery } from "./settings-entries.tsx";
 
 // Name, version, base, default model, permission mode, blocked tools,
 // state; a phone keeps the name and the state, and the name cell says the version.
@@ -108,6 +108,16 @@ export function ProfilesScreen() {
   const profiles = useQuery(profilesQuery(client));
   const manages = useHasPermission("workspace.manage");
   const operates = useHasPermission("profile.installation.manage");
+  // Only the one who can manage connections reads them or gets a link to them.
+  const owns = useHasPermission("installation.settings.manage");
+  // Pending and failed are unknown, not zero: only a loaded answer with no
+  // active connection says one is missing.
+  const connections = useQuery({
+    ...settingsConnectionsQuery(client, owns),
+    select: (page) => !page.items.some((item) => item.state === "active"),
+  });
+  // A refetch that failed keeps the cached data, so success is checked too.
+  const noActiveConnection = connections.isSuccess && connections.data;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const items = profiles.data?.items ?? [];
@@ -152,7 +162,22 @@ export function ProfilesScreen() {
             </Text>
           )}
           {groups.length === 0 ? (
-            <EmptyState title={t("profiles.empty")} />
+            <EmptyState
+              title={t("profiles.empty")}
+              {...(owns && noActiveConnection
+                ? {
+                    description: t("profiles.empty.noConnection"),
+                    action: (
+                      <Link
+                        className={buttonVariants({ variant: "outline" })}
+                        to="/settings/workspace/connections"
+                      >
+                        {t("profiles.new.goToConnections")}
+                      </Link>
+                    ),
+                  }
+                : {})}
+            />
           ) : (
             <GridTable
               className="[--werft-row-padding-x:0px]"
@@ -208,7 +233,6 @@ export function ProfilesScreen() {
           )}
         </div>
       )}
-      <ModelConnections profiles={ceilings} />
     </Page>
   );
 }

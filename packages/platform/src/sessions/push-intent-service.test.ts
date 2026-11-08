@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type Principal,
   type PushRequest,
 } from "@werft-ai/contracts";
@@ -92,7 +92,7 @@ function harness(
       attached: null,
       github: {
         repositories: ["sample-app", "docs"],
-        features: GITHUB_CEILING_NONE,
+        features: GITHUB_FEATURES_NONE,
         actions_allow: [],
         push_approval: true,
       },
