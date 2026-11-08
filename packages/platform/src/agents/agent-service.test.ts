@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   type AgentRelease,
-  agentCardSchema,
+  storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type {
@@ -70,7 +70,7 @@ const catalogOf = (profile: CatalogProfile): SessionCatalog =>
   });
 
 function cardWith(tools: string[]) {
-  return agentCardSchema.parse({
+  return storedAgentCardSchema.parse({
     role: "재무 분석가",
     instructions: "분기 보고서를 읽고 이상치를 요약한다.",
     model: "claude-sonnet-5",

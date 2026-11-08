@@ -67,7 +67,6 @@ import {
   cardDraftOf,
   chosenProfile,
   EMPTY_DRAFT,
-  toolsBlocked,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
 import { LoadFailure } from "./load-failure.tsx";
@@ -722,8 +721,7 @@ function JobStep({
           disabled={
             isSubmitting ||
             !catalog.isSuccess ||
-            (draft.model !== "" && profile === undefined) ||
-            toolsBlocked(catalog.data.items, draft)
+            (draft.model !== "" && profile === undefined)
           }
         >
           {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveNext")}

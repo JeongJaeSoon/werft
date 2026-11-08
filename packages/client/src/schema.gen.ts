@@ -4746,20 +4746,13 @@ export interface components {
                 language: "ko" | "en";
                 model: string;
                 capabilities: {
-                    tools: string[] | null;
                     mcp: {
                         server: string;
                     }[] | null;
                     /** @default [] */
                     forbidden: string[];
                     tool_policy?: {
-                        default?: {
-                            /** @enum {string} */
-                            builtin?: "allow" | "ask" | "deny";
-                            /** @enum {string} */
-                            mcp?: "allow" | "ask" | "deny";
-                        };
-                        per_tool?: {
+                        per_tool: {
                             [key: string]: "allow" | "ask" | "deny";
                         };
                     };
@@ -4791,20 +4784,13 @@ export interface components {
                 language: "ko" | "en";
                 model: string;
                 capabilities: {
-                    tools: string[] | null;
                     mcp: {
                         server: string;
                     }[] | null;
                     /** @default [] */
                     forbidden: string[];
                     tool_policy?: {
-                        default?: {
-                            /** @enum {string} */
-                            builtin?: "allow" | "ask" | "deny";
-                            /** @enum {string} */
-                            mcp?: "allow" | "ask" | "deny";
-                        };
-                        per_tool?: {
+                        per_tool: {
                             [key: string]: "allow" | "ask" | "deny";
                         };
                     };
@@ -8615,20 +8601,13 @@ export interface components {
                     language: "ko" | "en";
                     model: string;
                     capabilities: {
-                        tools: string[] | null;
                         mcp: {
                             server: string;
                         }[] | null;
                         /** @default [] */
                         forbidden: string[];
                         tool_policy?: {
-                            default?: {
-                                /** @enum {string} */
-                                builtin?: "allow" | "ask" | "deny";
-                                /** @enum {string} */
-                                mcp?: "allow" | "ask" | "deny";
-                            };
-                            per_tool?: {
+                            per_tool: {
                                 [key: string]: "allow" | "ask" | "deny";
                             };
                         };
@@ -8833,20 +8812,13 @@ export interface components {
                     language: "ko" | "en";
                     model: string;
                     capabilities: {
-                        tools: string[] | null;
                         mcp: {
                             server: string;
                         }[] | null;
                         /** @default [] */
                         forbidden: string[];
                         tool_policy?: {
-                            default?: {
-                                /** @enum {string} */
-                                builtin?: "allow" | "ask" | "deny";
-                                /** @enum {string} */
-                                mcp?: "allow" | "ask" | "deny";
-                            };
-                            per_tool?: {
+                            per_tool: {
                                 [key: string]: "allow" | "ask" | "deny";
                             };
                         };

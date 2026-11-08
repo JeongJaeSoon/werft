@@ -1,14 +1,12 @@
 import {
   type AgentCard,
   acceptInviteRequestSchema,
-  agentCardRequestSchema,
   agentCardSchema,
   agentDescriptionSchema,
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
   createWorkspaceProfileRequestSchema,
-  MCP_TOOL_PREFIX,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the forms entry, like the schemas entry, may name zod; the root entry still may not.
 import { z } from "zod";
@@ -80,53 +78,13 @@ const agentCardDraftSchema = z.object({
   agentInstructions: z.string().optional(),
   language: agentCardSchema.shape.language.unwrap(),
   model: z.string(),
-  /** `all` = whatever the runtime profile allows (`tools: null`). */
-  toolsMode: z.enum(["all", "list"]),
-  /** The checked tools; read only in `list` mode. */
-  tools: z.array(z.string()),
-  /** Only ever shrinks in the form: it shows the list and can clear it. */
-  forbidden: z.array(z.string()),
 });
 export type AgentCardDraft = z.input<typeof agentCardDraftSchema>;
 
-/**
- * The capabilities a draft sends, over those of the card it edits. A
- * built-in tool that will not run (unchecked, or forbidden) loses its
- * `per_tool` entry: a release refuses a policy for a built-in tool it does
- * not run, and the form has no way to edit one. MCP entries attach apart
- * from this list and stay.
- */
 export function draftCapabilities(
-  draft: Pick<AgentCardDraft, "toolsMode" | "tools" | "forbidden">,
   base?: AgentCard["capabilities"],
 ): AgentCard["capabilities"] {
-  const tools = draft.toolsMode === "all" ? null : [...new Set(draft.tools)];
-  const policy = base?.tool_policy;
-  const perTool = policy?.per_tool;
-  const runs = (tool: string) =>
-    (tools === null || tools.includes(tool)) && !draft.forbidden.includes(tool);
-  const kept =
-    perTool === undefined
-      ? perTool
-      : Object.fromEntries(
-          Object.entries(perTool).filter(
-            ([tool]) => tool.startsWith(MCP_TOOL_PREFIX) || runs(tool),
-          ),
-        );
-  return {
-    ...base,
-    tools,
-    mcp: base?.mcp ?? null,
-    forbidden: [...draft.forbidden],
-    ...(policy === undefined
-      ? {}
-      : {
-          tool_policy: {
-            ...policy,
-            ...(kept === undefined ? {} : { per_tool: kept }),
-          },
-        }),
-  };
+  return { mcp: null, forbidden: [], ...base };
 }
 
 /**
@@ -156,16 +114,16 @@ export function withAgentInstructions<T extends object>(
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
     .transform(
-      (draft): z.input<typeof agentCardRequestSchema> =>
+      (draft): z.input<typeof agentCardSchema> =>
         withAgentInstructions(
           {
             ...base,
             language: draft.language,
             model: draft.model.trim(),
-            capabilities: draftCapabilities(draft, base?.capabilities),
+            capabilities: draftCapabilities(base?.capabilities),
           },
           draft.agentInstructions,
         ),
     )
-    .pipe(agentCardRequestSchema);
+    .pipe(agentCardSchema);
 }

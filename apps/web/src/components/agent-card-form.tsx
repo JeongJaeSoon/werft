@@ -14,9 +14,7 @@ import {
   AlertTitle,
   Badge,
   Button,
-  Checkbox,
   Field,
-  FieldContent,
   FieldDescription,
   FieldError,
   FieldLabel,
@@ -25,13 +23,11 @@ import {
   NativeSelect,
   NativeSelectOption,
   Skeleton,
-  Switch,
   Textarea,
 } from "@werft-ai/ui";
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, LOCALE_NAMES, useI18n } from "../i18n/i18n.tsx";
-import { builtinToolNote } from "../routes/operations-tool-notes.ts";
 import { ProfileOptions, pickable } from "./profile-options.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
@@ -49,20 +45,11 @@ export interface CardDraft {
   readonly agentInstructions?: string | undefined;
   readonly language: AgentCard["language"];
   readonly model: string;
-  /** `all` = whatever the runtime profile allows (`tools: null`). */
-  readonly toolsMode: "all" | "list";
-  /** The checked tools; read only in `list` mode. */
-  readonly tools: string[];
-  /** Only ever shrinks here: the form shows the list and can clear it. */
-  readonly forbidden: string[];
 }
 
 export const EMPTY_DRAFT: CardDraft = {
   language: "ko",
   model: "",
-  toolsMode: "all",
-  tools: [],
-  forbidden: [],
 };
 
 export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
@@ -72,25 +59,8 @@ export function draftFromCard(card: AgentCard): CardDraft {
     agentInstructions: card.agent_instructions ?? "",
     language: card.language,
     model: card.model,
-    toolsMode: card.capabilities.tools === null ? "all" : "list",
-    tools: [...(card.capabilities.tools ?? [])],
-    forbidden: [...card.capabilities.forbidden],
   };
 }
-
-const isStrings = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === "string");
-
-// Input kept from before the checklist held each list as one name per line.
-const listOf = (value: unknown): string[] | null =>
-  isStrings(value)
-    ? value
-    : typeof value === "string"
-      ? value
-          .split("\n")
-          .map((item) => item.trim())
-          .filter(Boolean)
-      : null;
 
 /**
  * A draft from input kept across a reload (history.state, sessionStorage),
@@ -99,30 +69,21 @@ const listOf = (value: unknown): string[] | null =>
 export function cardDraftOf(value: unknown): CardDraft | null {
   if (typeof value !== "object" || value === null) return null;
   const kept = value as Record<keyof CardDraft, unknown>;
-  const tools = listOf(kept.tools);
-  const forbidden = listOf(kept.forbidden);
   if (
-    tools === null ||
-    forbidden === null ||
     typeof kept.model !== "string" ||
     !(
       kept.agentInstructions === undefined ||
       typeof kept.agentInstructions === "string"
     ) ||
-    !AGENT_CARD_LANGUAGE_VALUES.includes(kept.language as never) ||
-    (kept.toolsMode !== "all" && kept.toolsMode !== "list")
+    !AGENT_CARD_LANGUAGE_VALUES.includes(kept.language as never)
   )
     return null;
-  // Input kept before the role and instructions fields left the form drops them.
   return {
     ...(kept.agentInstructions === undefined
       ? {}
       : { agentInstructions: kept.agentInstructions as string }),
     language: kept.language as CardDraft["language"],
     model: kept.model,
-    toolsMode: kept.toolsMode,
-    tools,
-    forbidden,
   };
 }
 
@@ -137,7 +98,7 @@ export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
       ...(base ?? { rules: [] }),
       language: draft.language,
       model: draft.model.trim(),
-      capabilities: draftCapabilities(draft, base?.capabilities),
+      capabilities: draftCapabilities(base?.capabilities),
     },
     draft.agentInstructions,
   );
@@ -185,31 +146,6 @@ export function chosenProfile(
   return candidates.find((profile) => profile.id === wanted) ?? candidates[0];
 }
 
-/** Of `candidates`, those that allow every tool the draft names. */
-export function allowingProfiles(
-  candidates: readonly ProfileSummary[],
-  draft: Pick<CardDraft, "toolsMode" | "tools">,
-): ProfileSummary[] {
-  return draft.toolsMode === "all"
-    ? [...candidates]
-    : candidates.filter((profile) =>
-        draft.tools.every((tool) => profile.tools.includes(tool)),
-      );
-}
-
-/**
- * Whether the save must wait: no profile that runs the model allows the
- * tools chosen, so no release could. A model the catalog does not run is
- * left to the model field, which says so.
- */
-export function toolsBlocked(
-  profiles: readonly ProfileSummary[],
-  draft: CardDraft,
-): boolean {
-  const running = runningProfiles(profiles, draft.model);
-  return running.length > 0 && allowingProfiles(running, draft).length === 0;
-}
-
 export interface ModelOption {
   readonly model: string;
   /** The profiles that run it; empty for a model the catalog does not have. */
@@ -244,13 +180,8 @@ export function modelOptions(
 export const AGENT_FORM =
   "flex w-full flex-col gap-4 rounded-card border bg-card p-4 [&_[data-slot=field-description]]:mt-0! [&_[data-slot=field-description]]:text-caption [&_[data-slot=field-label]]:text-control [&_[data-slot=field][data-orientation=vertical]]:gap-2";
 
-/**
- * The fields that show an error: language, tools mode and the read-only
- * forbidden list cannot be wrong.
- */
 export const CARD_ERROR_FIELDS = [
   "model",
-  "tools",
 ] as const satisfies readonly (keyof CardDraft)[];
 
 /** A message per card field, from a form that validates the card. */
@@ -301,12 +232,10 @@ export function AgentCardFields({
             error={errors.model}
             onChange={(model) => set("model", model)}
           />
-          <ToolFields
-            draft={draft}
+          <BlockedTools
+            model={draft.model}
             profiles={catalog.data.items}
             previewable={previewable}
-            error={errors.tools}
-            onChange={onChange}
             previewId={previewId}
             onPreviewChange={onPreviewChange}
           />
@@ -384,80 +313,47 @@ export function AgentInstructionsField({
   );
 }
 
-const without = (list: readonly string[], item: string) =>
-  list.filter((entry) => entry !== item);
-
-/**
- * The tools as one checklist of the preview profile's tools (decision
- * agent-wizard-rework.md 3b). Unchecking is what forbids; the card's
- * `forbidden` is shown only to be cleared.
- */
-function ToolFields({
-  draft,
+function BlockedTools({
+  model,
   profiles,
   previewable,
-  error,
-  onChange,
   previewId,
   onPreviewChange,
 }: {
-  readonly draft: CardDraft;
+  readonly model: string;
   readonly profiles: readonly ProfileSummary[];
   readonly previewable: ((profile: ProfileSummary) => boolean) | undefined;
-  readonly error: string | undefined;
-  readonly onChange: (draft: CardDraft) => void;
   readonly previewId: string | undefined;
   readonly onPreviewChange: ((profileId: string) => void) | undefined;
 }) {
-  const { t, locale } = useI18n();
-  const candidates = previewProfiles(profiles, draft.model, previewable);
+  const { t } = useI18n();
+  const candidates = previewProfiles(profiles, model, previewable);
   const [ownPick, setOwnPick] = useState<string>();
   const preview = chosenProfile(
     profiles,
-    draft.model,
+    model,
     previewId ?? ownPick,
     previewable,
   );
-  // The shared value follows what the checklist resolves to when the draft
-  // model changes, or when the shared one can no longer be picked at all (a
-  // refetch dropped or retired it). A pick made in the releases tab that this
-  // draft's model cannot show stays.
   const resolved = preview?.id;
   const usable = previewable ?? pickable;
   const sharedGone =
     previewId !== undefined &&
     profiles.length > 0 &&
     !profiles.some((profile) => profile.id === previewId && usable(profile));
-  const modelSeen = useRef(draft.model);
+  const modelSeen = useRef(model);
   useEffect(() => {
-    const modelChanged = modelSeen.current !== draft.model;
-    modelSeen.current = draft.model;
+    const modelChanged = modelSeen.current !== model;
+    modelSeen.current = model;
     if (!modelChanged && !sharedGone) return;
     if (resolved !== undefined && resolved !== previewId) {
       onPreviewChange?.(resolved);
     }
-  }, [draft.model, sharedGone, resolved, previewId, onPreviewChange]);
-  const offered = preview?.tools ?? [];
-  const all = draft.toolsMode === "all";
-  const outside = all
-    ? []
-    : draft.tools.filter((tool) => !offered.includes(tool));
-  const forbidden = (tool: string) => draft.forbidden.includes(tool);
-  const check = (tool: string, on: boolean) =>
-    onChange({
-      ...draft,
-      tools: on
-        ? [...without(draft.tools, tool), tool]
-        : without(draft.tools, tool),
-    });
-  const allowing = allowingProfiles(
-    runningProfiles(profiles, draft.model),
-    draft,
-  ).length;
-  const blocked = toolsBlocked(profiles, draft);
+  }, [model, sharedGone, resolved, previewId, onPreviewChange]);
+  const deny = preview?.deny ?? null;
   return (
     <FieldSet className="gap-3">
-      <FieldLegend variant="label">{t("agentCard.tools")}</FieldLegend>
+      <FieldLegend variant="label">{t("agentCard.blockedTools")}</FieldLegend>
       {candidates.length > 0 ? (
         <Field>
           <FieldLabel>{t("agentCard.previewProfile")}</FieldLabel>
@@ -474,115 +370,24 @@ function ToolFields({
             {t("agentCard.previewProfileHint")}
           </FieldDescription>
         </Field>
-      ) : draft.model === "" ? null : (
+      ) : model === "" ? null : (
         <FieldDescription>{t("agentCard.noPreview")}</FieldDescription>
       )}
-      <Field orientation="horizontal">
-        <Switch
-          checked={all}
-          onCheckedChange={(on) =>
-            onChange({
-              ...draft,
-              toolsMode: on ? "all" : "list",
-              // Turning it off starts from what ran so far: every tool.
-              tools:
-                on || draft.tools.length > 0
-                  ? draft.tools
-                  : offered.filter((tool) => !draft.forbidden.includes(tool)),
-            })
-          }
-        />
-        <FieldContent>
-          <FieldLabel>{t("agentCard.toolsAll")}</FieldLabel>
-          <FieldDescription>{t("agentCard.toolsAllHint")}</FieldDescription>
-        </FieldContent>
-      </Field>
-      {offered.map((tool) => (
-        <ToolRow
-          key={tool}
-          tool={tool}
-          // A forbidden tool stays off until the list below is cleared.
-          note={
-            forbidden(tool)
-              ? t("agentCard.toolForbidden")
-              : builtinToolNote(locale, tool)
-          }
-          checked={(all || draft.tools.includes(tool)) && !forbidden(tool)}
-          disabled={all || forbidden(tool)}
-          onCheckedChange={(on) => check(tool, on)}
-        />
-      ))}
-      {outside.map((tool) => (
-        <ToolRow
-          key={tool}
-          tool={tool}
-          note={t("agentCard.toolOutside")}
-          checked
-          onCheckedChange={(on) => {
-            if (!on) check(tool, false);
-          }}
-        />
-      ))}
-      {candidates.length > 0 ? (
-        <FieldDescription>
-          {t("agentCard.allowing", { count: allowing })}
-        </FieldDescription>
-      ) : null}
-      <FieldError>{blocked ? t("agentCard.allowingNone") : error}</FieldError>
-      {draft.forbidden.length > 0 ? (
-        <FieldSet className="gap-2">
-          <FieldLegend variant="label" className="mb-0">
-            {t("agentCard.forbidden")}
-          </FieldLegend>
-          <ul className="flex flex-wrap gap-1">
-            {draft.forbidden.map((tool) => (
-              <li key={tool}>
-                <Badge variant="mono">{tool}</Badge>
-              </li>
-            ))}
-          </ul>
-          <FieldDescription>{t("agentCard.forbiddenHint")}</FieldDescription>
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onChange({ ...draft, forbidden: [] })}
-            >
-              {t("agentCard.forbiddenClear")}
-            </Button>
-          </div>
-        </FieldSet>
-      ) : null}
+      {preview === undefined ? null : deny === null ? (
+        <FieldDescription>{t("agentCard.blockedUnknown")}</FieldDescription>
+      ) : deny.length === 0 ? (
+        <FieldDescription>{t("agentCard.blockedNone")}</FieldDescription>
+      ) : (
+        <ul className="flex flex-wrap gap-1">
+          {deny.map((tool) => (
+            <li key={tool}>
+              <Badge variant="mono">{tool}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      <FieldDescription>{t("agentCard.blockedHint")}</FieldDescription>
     </FieldSet>
-  );
-}
-
-function ToolRow({
-  tool,
-  note,
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  readonly tool: string;
-  readonly note: string | undefined;
-  readonly checked: boolean;
-  readonly disabled?: boolean;
-  readonly onCheckedChange: (on: boolean) => void;
-}) {
-  return (
-    <Field orientation="horizontal">
-      <Checkbox
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={(state) => onCheckedChange(state === true)}
-      />
-      <FieldContent>
-        <FieldLabel className="font-mono">{tool}</FieldLabel>
-        {note ? <FieldDescription>{note}</FieldDescription> : null}
-      </FieldContent>
-    </Field>
   );
 }
 

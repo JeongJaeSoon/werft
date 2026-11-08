@@ -622,19 +622,6 @@ export function CardSummary({
                       </span>
                     ),
                   },
-                  {
-                    label: t("agentCard.tools"),
-                    value:
-                      card.capabilities.tools === null ? (
-                        <span className={VALUE}>{t("agentCard.toolsAll")}</span>
-                      ) : (
-                        names(card.capabilities.tools)
-                      ),
-                  },
-                  {
-                    label: t("agentCard.forbidden"),
-                    value: names(card.capabilities.forbidden),
-                  },
                 ]
               : []),
           ]}

@@ -452,7 +452,7 @@ async function ensureAgent(
         instructions: agent.instructions,
         language: "ko",
         model: MODEL,
-        capabilities: { tools: null, mcp: null, forbidden: [] },
+        capabilities: { mcp: null, forbidden: [] },
         rules: [],
       },
     });

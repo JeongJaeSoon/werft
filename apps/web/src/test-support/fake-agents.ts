@@ -38,7 +38,7 @@ const VERSION_IDS = [
 export const CARD: AgentCardRequest = {
   language: "ko",
   model: "claude-sonnet-5",
-  capabilities: { tools: null, mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
   rules: [],
 };
 
@@ -477,6 +477,7 @@ function profile(
     model,
     models: [model],
     tools: ["Read"],
+    deny: ["Bash", "WebFetch"],
     permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",

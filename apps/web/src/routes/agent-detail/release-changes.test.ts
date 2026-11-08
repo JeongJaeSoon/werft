@@ -14,7 +14,6 @@ const card = (over: Partial<AgentCard> = {}): AgentCard => ({
   language: "ko",
   model: "claude-sonnet-5",
   capabilities: {
-    tools: null,
     mcp: null,
     forbidden: [],
     credential_refs: ["github-token"],
@@ -100,7 +99,6 @@ const cards = new Map([
       model: "claude-opus-5",
       agent_instructions: "PR을 리뷰한다.\nagent-skills도 본다.",
       capabilities: {
-        tools: null,
         mcp: null,
         forbidden: [],
         credential_refs: ["github-token", "slack-bot"],

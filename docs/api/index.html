@@ -2868,21 +2868,6 @@
               "capabilities": {
                 "type": "object",
                 "properties": {
-                  "tools": {
-                    "anyOf": [
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "mcp": {
                     "anyOf": [
                       {
@@ -2920,28 +2905,6 @@
                   "tool_policy": {
                     "type": "object",
                     "properties": {
-                      "default": {
-                        "type": "object",
-                        "properties": {
-                          "builtin": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          },
-                          "mcp": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          }
-                        },
-                        "additionalProperties": false
-                      },
                       "per_tool": {
                         "type": "object",
                         "propertyNames": {
@@ -2959,6 +2922,9 @@
                         }
                       }
                     },
+                    "required": [
+                      "per_tool"
+                    ],
                     "additionalProperties": false
                   },
                   "credential_refs": {
@@ -2971,7 +2937,6 @@
                   }
                 },
                 "required": [
-                  "tools",
                   "mcp"
                 ],
                 "additionalProperties": false
@@ -3088,21 +3053,6 @@
               "capabilities": {
                 "type": "object",
                 "properties": {
-                  "tools": {
-                    "anyOf": [
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 128
-                        }
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "mcp": {
                     "anyOf": [
                       {
@@ -3140,28 +3090,6 @@
                   "tool_policy": {
                     "type": "object",
                     "properties": {
-                      "default": {
-                        "type": "object",
-                        "properties": {
-                          "builtin": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          },
-                          "mcp": {
-                            "type": "string",
-                            "enum": [
-                              "allow",
-                              "ask",
-                              "deny"
-                            ]
-                          }
-                        },
-                        "additionalProperties": false
-                      },
                       "per_tool": {
                         "type": "object",
                         "propertyNames": {
@@ -3179,6 +3107,9 @@
                         }
                       }
                     },
+                    "required": [
+                      "per_tool"
+                    ],
                     "additionalProperties": false
                   },
                   "credential_refs": {
@@ -3191,7 +3122,6 @@
                   }
                 },
                 "required": [
-                  "tools",
                   "mcp"
                 ],
                 "additionalProperties": false
@@ -22637,21 +22567,6 @@
                     "capabilities": {
                       "type": "object",
                       "properties": {
-                        "tools": {
-                          "anyOf": [
-                            {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 128
-                              }
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "mcp": {
                           "anyOf": [
                             {
@@ -22689,28 +22604,6 @@
                         "tool_policy": {
                           "type": "object",
                           "properties": {
-                            "default": {
-                              "type": "object",
-                              "properties": {
-                                "builtin": {
-                                  "type": "string",
-                                  "enum": [
-                                    "allow",
-                                    "ask",
-                                    "deny"
-                                  ]
-                                },
-                                "mcp": {
-                                  "type": "string",
-                                  "enum": [
-                                    "allow",
-                                    "ask",
-                                    "deny"
-                                  ]
-                                }
-                              },
-                              "additionalProperties": false
-                            },
                             "per_tool": {
                               "type": "object",
                               "propertyNames": {
@@ -22728,6 +22621,9 @@
                               }
                             }
                           },
+                          "required": [
+                            "per_tool"
+                          ],
                           "additionalProperties": false
                         },
                         "credential_refs": {
@@ -22740,7 +22636,6 @@
                         }
                       },
                       "required": [
-                        "tools",
                         "mcp",
                         "forbidden"
                       ],
@@ -23868,21 +23763,6 @@
                     "capabilities": {
                       "type": "object",
                       "properties": {
-                        "tools": {
-                          "anyOf": [
-                            {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 128
-                              }
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "mcp": {
                           "anyOf": [
                             {
@@ -23920,28 +23800,6 @@
                         "tool_policy": {
                           "type": "object",
                           "properties": {
-                            "default": {
-                              "type": "object",
-                              "properties": {
-                                "builtin": {
-                                  "type": "string",
-                                  "enum": [
-                                    "allow",
-                                    "ask",
-                                    "deny"
-                                  ]
-                                },
-                                "mcp": {
-                                  "type": "string",
-                                  "enum": [
-                                    "allow",
-                                    "ask",
-                                    "deny"
-                                  ]
-                                }
-                              },
-                              "additionalProperties": false
-                            },
                             "per_tool": {
                               "type": "object",
                               "propertyNames": {
@@ -23959,6 +23817,9 @@
                               }
                             }
                           },
+                          "required": [
+                            "per_tool"
+                          ],
                           "additionalProperties": false
                         },
                         "credential_refs": {
@@ -23971,7 +23832,6 @@
                         }
                       },
                       "required": [
-                        "tools",
                         "mcp",
                         "forbidden"
                       ],

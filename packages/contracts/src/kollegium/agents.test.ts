@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+// biome-ignore lint/style/noRestrictedImports: reads the generated JSON Schema of the request.
+import { z } from "zod";
 
 import { canonicalJson } from "../shared/index.ts";
 import {
   AGENT_SUMMARY_INSTRUCTIONS_MAX,
   type AgentCard,
   activateAgentRequestSchema,
+  agentCardRequestSchema,
   agentCardSchema,
   agentListItemSchema,
   agentReleaseSchema,
@@ -19,6 +22,7 @@ import {
   listAgentsQuerySchema,
   listAgentsResponseSchema,
   policyPinsSchema,
+  storedAgentCapabilitiesSchema,
   storedAgentCardSchema,
   updateAgentRequestSchema,
 } from "./agents.ts";
@@ -39,7 +43,7 @@ const card = {
   role: "재무 분석가",
   instructions: "분기 보고서를 읽고 이상치를 요약한다.",
   model: "claude-sonnet-5",
-  capabilities: { tools: ["Read", "Grep"], mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
 } satisfies Record<string, unknown>;
 
 function cardHash(value: AgentCard): string {
@@ -106,12 +110,14 @@ describe("AgentCard", () => {
     expect(cardHash(agentCardSchema.parse(changed))).not.toBe(
       cardHash(agentCardSchema.parse(card)),
     );
-    const reorderedTools = {
+    const forbidden = (names: string[]) => ({
       ...card,
-      capabilities: { ...card.capabilities, tools: ["Grep", "Read"] },
-    };
-    expect(cardHash(agentCardSchema.parse(reorderedTools))).not.toBe(
-      cardHash(agentCardSchema.parse(card)),
+      capabilities: { ...card.capabilities, forbidden: names },
+    });
+    expect(
+      cardHash(agentCardSchema.parse(forbidden(["mcp__a__x", "mcp__a__y"]))),
+    ).not.toBe(
+      cardHash(agentCardSchema.parse(forbidden(["mcp__a__y", "mcp__a__x"]))),
     );
   });
 
@@ -160,6 +166,96 @@ describe("AgentCard", () => {
     ).toBe(false);
   });
 
+  describe("a card from before the built-in tool fields were dropped", () => {
+    const old = {
+      ...card,
+      capabilities: {
+        tools: ["Read", "Grep"],
+        mcp: [{ server: "docs" }],
+        forbidden: ["Bash", "mcp__docs__delete"],
+        tool_policy: {
+          default: { builtin: "deny", mcp: "deny" },
+          per_tool: { Read: "ask", mcp__docs__search: "allow" },
+        },
+        credential_refs: ["docs"],
+      },
+    };
+    const current = {
+      ...card,
+      capabilities: {
+        mcp: [{ server: "docs" }],
+        forbidden: ["mcp__docs__delete"],
+        tool_policy: { per_tool: { mcp__docs__search: "allow" } },
+        credential_refs: ["docs"],
+      },
+    };
+
+    test("a request with the old fields is accepted and keeps only MCP entries", () => {
+      const parsed = agentCardRequestSchema.parse(old);
+      expect(parsed).toEqual(agentCardSchema.parse(current));
+      expect(Object.hasOwn(parsed.capabilities, "tools")).toBe(false);
+      expect(
+        createAgentRequestSchema.shape.card.parse(old).capabilities,
+      ).toEqual(parsed.capabilities);
+    });
+
+    test("a request whose old fields held nothing for MCP has no policy at all", () => {
+      const parsed = agentCardRequestSchema.parse({
+        ...card,
+        capabilities: {
+          tools: null,
+          mcp: null,
+          forbidden: ["Bash"],
+          tool_policy: {
+            default: { builtin: "ask" },
+            per_tool: { Read: "ask" },
+          },
+        },
+      });
+      expect(parsed).toEqual(agentCardSchema.parse(card));
+      expect(Object.hasOwn(parsed.capabilities, "tool_policy")).toBe(false);
+    });
+
+    test("what is wrong besides the dropped fields is still refused", () => {
+      for (const capabilities of [
+        { ...old.capabilities, mcp: [] },
+        { ...old.capabilities, extra: true },
+        {
+          ...old.capabilities,
+          tool_policy: { per_tool: { mcp__docs__search: "auto" } },
+        },
+        { ...old.capabilities, tool_policy: "allow" },
+        { ...old.capabilities, forbidden: "Bash" },
+      ]) {
+        expect(
+          agentCardRequestSchema.safeParse({ ...card, capabilities }).success,
+        ).toBe(false);
+      }
+      expect(
+        agentCardRequestSchema.safeParse({ ...old, api_key: "x" }).success,
+      ).toBe(false);
+    });
+
+    test("a stored card reads without them, and its stored JSON is not touched", () => {
+      const before = canonicalJson(old);
+      expect(storedAgentCardSchema.parse(old)).toEqual(
+        agentCardSchema.parse(current),
+      );
+      expect(canonicalJson(old)).toBe(before);
+      expect(storedAgentCapabilitiesSchema.parse(old.capabilities)).toEqual(
+        agentCardSchema.parse(current).capabilities,
+      );
+    });
+
+    test("the request schema documents the new shape", () => {
+      const schema = z.toJSONSchema(createAgentRequestSchema, { io: "input" });
+      const body = JSON.stringify(schema);
+      expect(body).toContain('"credential_refs"');
+      expect(body).not.toContain('"tools"');
+      expect(body).not.toContain('"builtin"');
+    });
+  });
+
   test("has nowhere to put a credential", () => {
     expect(
       agentCardSchema.safeParse({ ...card, api_key: "sk-live-example" })
@@ -186,29 +282,34 @@ describe("AgentCard", () => {
     );
   });
 
-  test("distinguishes every tool from no tool", () => {
-    const all = agentCardSchema.parse({
+  test("holds no built-in tool field: the profile decides the tools", () => {
+    const parsed = agentCardSchema.safeParse({
       ...card,
-      capabilities: { tools: null, mcp: null, forbidden: [] },
+      capabilities: { ...card.capabilities, tools: ["Read"] },
     });
-    const none = agentCardSchema.parse({
-      ...card,
-      capabilities: { tools: [], mcp: null, forbidden: [] },
-    });
-    expect(all.capabilities.tools).toBeNull();
-    expect(none.capabilities.tools).toEqual([]);
-    expect(cardHash(all)).not.toBe(cardHash(none));
+    expect(parsed.success).toBe(false);
+    for (const capabilities of [
+      { ...card.capabilities, forbidden: ["Bash"] },
+      {
+        ...card.capabilities,
+        tool_policy: { per_tool: { Read: "allow" } },
+      },
+      {
+        ...card.capabilities,
+        tool_policy: { default: { mcp: "deny" }, per_tool: {} },
+      },
+    ]) {
+      expect(agentCardSchema.safeParse({ ...card, capabilities }).success).toBe(
+        false,
+      );
+    }
   });
 
   test("names at most one catalog MCP server, and null for none", () => {
     expect(
       agentCardSchema.safeParse({
         ...card,
-        capabilities: {
-          tools: null,
-          mcp: [{ server: "notion" }],
-          forbidden: [],
-        },
+        capabilities: { mcp: [{ server: "notion" }], forbidden: [] },
       }).success,
     ).toBe(true);
     for (const mcp of [
@@ -221,7 +322,7 @@ describe("AgentCard", () => {
       expect(
         agentCardSchema.safeParse({
           ...card,
-          capabilities: { tools: null, mcp, forbidden: [] },
+          capabilities: { mcp, forbidden: [] },
         }).success,
       ).toBe(false);
     }
@@ -288,21 +389,7 @@ describe("behaviorKey", () => {
       "claude-sonnet-5",
       "coding",
     );
-  const base = { tools: ["Read"], mcp: null, forbidden: [] };
-
-  test("ignores the card's built-in tools, forbidden and policy", () => {
-    expect(
-      key({
-        tools: null,
-        mcp: null,
-        forbidden: ["Bash"],
-        tool_policy: {
-          default: { builtin: "deny" },
-          per_tool: { Read: "ask" },
-        },
-      }),
-    ).toBe(key(base));
-  });
+  const base = { mcp: null, forbidden: [] };
 
   test("keeps MCP policy entries and forbidden MCP tools", () => {
     const mcp = { ...base, tool_policy: { per_tool: { mcp__a__b: "allow" } } };
@@ -321,22 +408,23 @@ describe("tool policy", () => {
     expect("tool_policy" in parsed.capabilities).toBe(false);
   });
 
-  test("a card names allow, ask or deny per tool and nothing else", () => {
+  test("a card names allow, ask or deny per MCP tool and nothing else", () => {
     const parsed = agentCardSchema.parse({
       ...card,
       capabilities: {
         ...card.capabilities,
         tool_policy: {
-          default: { mcp: "deny" },
-          per_tool: { Read: "allow", Grep: "ask", mcp__docs__search: "deny" },
+          per_tool: { mcp__docs__read: "ask", mcp__docs__search: "deny" },
         },
       },
     });
-    expect(parsed.capabilities.tool_policy?.per_tool?.Grep).toBe("ask");
+    expect(parsed.capabilities.tool_policy?.per_tool.mcp__docs__read).toBe(
+      "ask",
+    );
     for (const tool_policy of [
-      { per_tool: { Read: "auto" } },
-      { default: { builtin: "always_allow" } },
-      { default: { other: "allow" } },
+      { per_tool: { mcp__docs__read: "auto" } },
+      { per_tool: { Read: "allow" } },
+      { default: { mcp: "deny" }, per_tool: {} },
       { per_tool: {}, rules: [] },
     ]) {
       expect(

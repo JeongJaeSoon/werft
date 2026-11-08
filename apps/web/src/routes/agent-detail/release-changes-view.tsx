@@ -40,8 +40,6 @@ const FIELD: Record<string, MessageKey> = {
   defaultRepository: "agent.releases.field.defaultRepository",
   model: "agent.releases.field.model",
   tools: "agent.releases.field.tools",
-  cardTools: "agent.releases.field.cardTools",
-  forbidden: "agent.releases.field.forbidden",
   mcpServers: "agent.releases.field.mcpServers",
   mcpTools: "agent.releases.field.mcpTools",
   toolPolicy: "agent.releases.field.toolPolicy",
@@ -59,7 +57,6 @@ const FIELD: Record<string, MessageKey> = {
 // What a missing value means differs by field: no pin is the profile's range.
 const ABSENT: Record<string, MessageKey> = {
   repositories: "agent.releases.absent.profileRepositories",
-  cardTools: "agent.releases.absent.profileTools",
   defaultRepository: "agent.releases.repositoryNone",
 };
 

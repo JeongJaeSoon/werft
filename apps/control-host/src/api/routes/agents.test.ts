@@ -61,7 +61,7 @@ const card = {
   instructions: "분기 보고서를 읽고 이상치를 요약한다.",
   language: "ko" as const,
   model: "claude-sonnet-5",
-  capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
+  capabilities: { mcp: null, forbidden: [] },
   rules: [],
 };
 
@@ -584,6 +584,44 @@ describe("POST /v1/agents", () => {
     });
   });
 
+  test("a client that still sends the built-in tool fields is accepted, and they are not stored", async () => {
+    let created: { card?: unknown; contentSha256?: string } = {};
+    const old = {
+      ...card,
+      capabilities: {
+        tools: ["Read", "Bash"],
+        mcp: null,
+        forbidden: ["Bash"],
+        tool_policy: {
+          default: { builtin: "deny" },
+          per_tool: { Read: "ask" },
+        },
+      },
+    };
+    const send201 = async (sent: unknown) => {
+      const response = await send(
+        app(
+          store({
+            create: async (input) => {
+              created = input as typeof created;
+              return { outcome: "created", detail };
+            },
+          }),
+        ),
+        "POST",
+        "/v1/agents",
+        { ...body, card: sent },
+      );
+      expect(response.status).toBe(201);
+      return created;
+    };
+    const withOld = await send201(old);
+    const without = await send201(card);
+    expect(withOld.card).toEqual(card);
+    expect(withOld.card).toEqual(without.card);
+    expect(withOld.contentSha256).toBe(without.contentSha256);
+  });
+
   test("refuses a card that names an MCP server or a bad slug", async () => {
     for (const bad of [
       {
@@ -884,21 +922,25 @@ describe("POST /v1/agents/{id}/releases", () => {
     });
   });
 
-  test("a card tool outside the profile is not read; an unknown profile is 422", async () => {
-    const wide = {
+  test("a stored card that still holds built-in tool fields releases; an unknown profile is 422", async () => {
+    const legacy = {
       ...detail.versions[0],
       card: {
         ...card,
-        capabilities: { ...card.capabilities, tools: ["Bash"] },
+        capabilities: {
+          ...card.capabilities,
+          tools: ["Bash"],
+          forbidden: ["Read"],
+        },
       },
-    } as NonNullable<AgentDetail["versions"][0]>;
-    const tooWide = await send(
-      app(store({ findVersion: async () => wide })),
+    } as unknown as NonNullable<AgentDetail["versions"][0]>;
+    const released = await send(
+      app(store({ findVersion: async () => legacy })),
       "POST",
       path,
       body,
     );
-    expect(tooWide.status).toBe(200);
+    expect(released.status).toBe(200);
     expect(
       (
         await send(app(), "POST", path, {

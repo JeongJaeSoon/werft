@@ -2006,6 +2006,71 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     });
   });
 
+  test("a card stored with the retired tool fields reads without them and its release still verifies", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const created = await newAgent(agentsService, owner, cardWith("v1"));
+    const base = cardWith("with tools");
+    const storedCard = {
+      ...base,
+      capabilities: {
+        ...base.capabilities,
+        tools: ["Read", "Grep"],
+        forbidden: ["Bash"],
+        tool_policy: { default: "ask", per_tool: { Read: "allow" } },
+      },
+    };
+    const storedSha = cardContentSha256(storedCard as unknown as AgentCard);
+    const versionId = randomUUID();
+    await db.insert(agentVersions).values({
+      id: versionId,
+      agentId: created.agent.id,
+      versionNo: 2,
+      card: storedCard,
+      contentSha256: storedSha,
+      createdBy: owner.actor?.userId ?? null,
+    });
+
+    const resolved = resolveReleaseContent(
+      storedCard as unknown as AgentCard,
+      "coding",
+      PROFILE,
+    );
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    const identity = {
+      ...resolved.content,
+      agent_id: created.agent.id,
+      card_sha256: storedSha,
+      repository_id: null,
+    };
+    const storedId = deriveReleaseId(identity);
+    await db.insert(agentReleases).values({
+      id: storedId,
+      agentId: identity.agent_id,
+      versionId,
+      cardSha256: identity.card_sha256,
+      runtimeProfileId: identity.runtime_profile_id,
+      profileDigest: identity.profile_digest,
+      runtimeConfigSnapshot: identity.runtime_config_snapshot,
+      effectiveTools: identity.effective_tools,
+      policyPins: identity.policy_pins,
+      createdBy: owner.actor?.userId ?? null,
+    });
+
+    const detail = await agentsService.getAgent(owner, created.agent.id);
+    const stored = detail.versions.find((version) => version.id === versionId);
+    expect(stored?.card.capabilities).toEqual(base.capabilities);
+    expect(stored?.content_sha256).toBe(storedSha);
+    expect(detail.releases.map((release) => release.id)).toEqual([storedId]);
+    await expect(agentsService.listAgents(owner, PAGE)).resolves.toBeDefined();
+    const again = await agentsService.createRelease(owner, created.agent.id, {
+      version_id: versionId,
+      runtime_profile_id: "coding",
+    });
+    expect(again).toMatchObject({ created: false, release: { id: storedId } });
+  });
+
   test("members and API keys cannot manage agents; a slug is taken once", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

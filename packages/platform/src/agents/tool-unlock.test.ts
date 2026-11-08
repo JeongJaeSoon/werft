@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentCardSchema } from "@werft-ai/contracts";
+import { storedAgentCardSchema } from "@werft-ai/contracts";
 import type { CatalogProfile, SessionCatalog } from "../sessions/catalog.ts";
 import { planToolUnlock, type ToolUnlockAgentFact } from "./tool-unlock.ts";
 
@@ -37,7 +37,7 @@ const fact = (
   behavior_revision: 1,
   active_release_id: "sha256:old",
   profile_id: "coding",
-  card: agentCardSchema.parse({
+  card: storedAgentCardSchema.parse({
     role: "r",
     instructions: "i",
     model: "claude-sonnet-5",

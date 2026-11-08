@@ -20,13 +20,9 @@ const BASE: AgentCard = {
   language: "en",
   model: "claude-sonnet-5",
   capabilities: {
-    tools: ["Read", "Grep"],
     mcp: null,
-    forbidden: ["Bash"],
-    tool_policy: {
-      default: { mcp: "deny" },
-      per_tool: { Read: "allow", Grep: "ask" },
-    },
+    forbidden: ["mcp__docs__delete"],
+    tool_policy: { per_tool: { mcp__docs__search: "ask" } },
     credential_refs: ["github/app", "slack:bot"],
   },
   rules: [{ id: "r1", text: "Hand refunds to a person.", source: "user" }],
@@ -35,9 +31,6 @@ const BASE: AgentCard = {
 const DRAFT: AgentCardDraft = {
   language: "en",
   model: "claude-sonnet-5",
-  toolsMode: "list",
-  tools: ["Read", "Grep"],
-  forbidden: ["Bash"],
 };
 
 const paths = (result: { error?: { issues: { path: PropertyKey[] }[] } }) =>
@@ -162,71 +155,18 @@ describe("the card step keeps what its base has", () => {
   });
 
   test("the form's inputs win over the base", () => {
-    const card = agentCardStep(BASE).parse({
-      ...DRAFT,
-      toolsMode: "all",
-      forbidden: [],
-      language: "ko",
-    });
-    expect(card.capabilities.tools).toBeNull();
-    expect(card.capabilities.forbidden).toEqual([]);
+    const card = agentCardStep(BASE).parse({ ...DRAFT, language: "ko" });
     expect(card.language).toBe("ko");
+    expect(card.capabilities.forbidden).toEqual(["mcp__docs__delete"]);
     expect(card.capabilities.tool_policy).toEqual(
       BASE.capabilities.tool_policy,
     );
     expect(card.rules).toEqual(BASE.rules);
   });
 
-  test("a built-in tool unchecked loses its per_tool entry; MCP entries stay", () => {
-    const base: AgentCard = {
-      ...BASE,
-      capabilities: {
-        ...BASE.capabilities,
-        forbidden: [],
-        tool_policy: {
-          default: { mcp: "deny" },
-          per_tool: {
-            Read: "allow",
-            Grep: "ask",
-            Bash: "ask",
-            mcp__docs__search: "allow",
-          },
-        },
-      },
-    };
-    const card = agentCardStep(base).parse({
-      ...DRAFT,
-      tools: ["Read"],
-      forbidden: [],
-    });
-    expect<unknown>(card.capabilities.tool_policy).toEqual({
-      default: { mcp: "deny" },
-      per_tool: { Read: "allow", mcp__docs__search: "allow" },
-    });
-    // Every tool the profile allows: nothing was unchecked.
-    const all = agentCardStep(base).parse({
-      ...DRAFT,
-      toolsMode: "all",
-      forbidden: [],
-    });
-    expect<unknown>(all.capabilities.tool_policy).toEqual(
-      base.capabilities.tool_policy,
-    );
-    // A forbidden tool does not run either, checked or not.
-    const forbidden = agentCardStep(base).parse({
-      ...DRAFT,
-      toolsMode: "all",
-      forbidden: ["Bash"],
-    });
-    expect<unknown>(forbidden.capabilities.tool_policy).toEqual({
-      default: { mcp: "deny" },
-      per_tool: { Read: "allow", Grep: "ask", mcp__docs__search: "allow" },
-    });
-  });
-
-  test("a tool checked twice is sent once", () => {
-    const card = agentCardStep().parse({ ...DRAFT, tools: ["Read", "Read"] });
-    expect(card.capabilities.tools).toEqual(["Read"]);
+  test("a card has no tool field to send", () => {
+    const card = agentCardStep().parse(DRAFT);
+    expect<unknown>(card.capabilities).toEqual({ mcp: null, forbidden: [] });
   });
 
   test("the MCP server set elsewhere survives a wizard edit", () => {
