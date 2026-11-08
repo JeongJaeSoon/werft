@@ -20,7 +20,7 @@ import {
   type SettingsKind,
   type TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
@@ -460,6 +460,8 @@ type HeldRow = {
   entry: unknown;
   credentialSource: string | null;
   disabled: boolean;
+  /** A connection's earlier `auth`, kept after a move to a stored value. */
+  replacesAuth?: Record<string, unknown> | null;
 };
 
 /** The row under its lock, as an entry, or null. */
@@ -480,6 +482,7 @@ async function heldRow(
             entry: row.definition,
             credentialSource: row.credentialSource,
             disabled: row.disabledAt !== null,
+            replacesAuth: row.replacesAuth,
           }
         : null;
     }
@@ -576,7 +579,12 @@ function consoleWrites(
   key: SecretKey | null,
 ): Pick<
   SettingsDocumentStore,
-  "create" | "setValue" | "convertConnection" | "disable" | "setMcpWorkspaces"
+  | "create"
+  | "setValue"
+  | "convertConnection"
+  | "disable"
+  | "enableConnection"
+  | "setMcpWorkspaces"
 > {
   const sealIn = async (
     tx: Database,
@@ -778,6 +786,66 @@ function consoleWrites(
             source: "console",
           },
         );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    enableConnection(id, actor) {
+      return asWriter("connection", actor, async (tx) => {
+        const held = await heldRow(tx, "connection", id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (!held.disabled) {
+          return { outcome: "conflict" as const, reason: "not_disabled" };
+        }
+        // A profile finds its connection by what it is, so two live rows
+        // holding one definition (or one's old reference) would make the
+        // match depend on which of them is usable at the moment.
+        const namesOf = (
+          definition: unknown,
+          replacesAuth: Record<string, unknown> | null | undefined,
+        ): string[] => [
+          canonicalJson(definition),
+          ...(replacesAuth == null || !isRecord(definition)
+            ? []
+            : [canonicalJson({ ...definition, auth: replacesAuth })]),
+        ];
+        const mine = new Set(namesOf(held.entry, held.replacesAuth));
+        for (const other of await tx
+          .select()
+          .from(providerConnections)
+          .where(
+            and(
+              ne(providerConnections.id, id),
+              isNull(providerConnections.disabledAt),
+            ),
+          )) {
+          if (
+            namesOf(other.definition, other.replacesAuth).some((name) =>
+              mine.has(name),
+            )
+          ) {
+            return {
+              outcome: "conflict" as const,
+              reason: "definition_active",
+            };
+          }
+        }
+        // A deployment's reference cannot be checked here; it shows as
+        // `unresolved` if it does not resolve. A stored value must exist.
+        if (held.credentialSource === "stored") {
+          const values = await storedLast4(tx, await firstWorkspace(tx));
+          if (!values.has(`connection:${id}`)) {
+            return { outcome: "conflict" as const, reason: "needs_value" };
+          }
+        }
+        await tx
+          .update(providerConnections)
+          .set({ disabledAt: null, disabledBy: null })
+          .where(eq(providerConnections.id, id));
+        const receiptId = await consoleReceipt(tx, actor, "enable_connection", {
+          connection_id: id,
+          source: "console",
+        });
         return { outcome: "done" as const, receiptId };
       });
     },
