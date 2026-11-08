@@ -303,11 +303,11 @@ describe("a session pinned to an agent release", () => {
       });
     });
 
-    test("a session created while the action flows are on is snapshotted at revision 4, and with them off or the prompt off it is not", async () => {
+    test("a session created while the action flows are on is snapshotted at revision 6, and with them off or the prompt off it is not", async () => {
       expect(
         (await create({ promptRevision: 1, identity, actionFlows: true }))
           ?.prompt_revision,
-      ).toBe(4);
+      ).toBe(6);
       expect(
         (await create({ promptRevision: 1, identity, actionFlows: false }))
           ?.prompt_revision,
@@ -315,6 +315,20 @@ describe("a session pinned to an agent release", () => {
       expect(
         await create({ promptRevision: 0, identity, actionFlows: true }),
       ).toBeUndefined();
+    });
+
+    test("setting 2 is read and gives what 1 gives, and no setting gives revision 4 or 5", async () => {
+      for (const actionFlows of [false, true]) {
+        expect(
+          await create({ promptRevision: 2, identity, actionFlows }),
+        ).toEqual(await create({ promptRevision: 1, identity, actionFlows }));
+        expect(
+          (await create({ promptRevision: 2, identity, actionFlows }))
+            ?.prompt_revision,
+        ).toBe(actionFlows ? 6 : 1);
+      }
+      expect(await create({ promptRevision: 0, identity })).toBeUndefined();
+      expect(await create({ identity })).toBeUndefined();
     });
 
     test("GitHub settings change nothing in it, and a blank description is none", async () => {

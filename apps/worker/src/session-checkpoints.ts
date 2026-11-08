@@ -1108,8 +1108,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...(bound.claim.workspace.repository === null
             ? { markNewFiles: true }
             : {}),
-          ...((bound.claim.runtime_config.platform_prompt?.prompt_revision ??
-            0) >= 4
+          ...(bound.claim.runtime_config.platform_prompt?.prompt_revision === 6
             ? { keepBranches: true }
             : {}),
           ...(previous === undefined

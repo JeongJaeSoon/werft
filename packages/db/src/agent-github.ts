@@ -14,6 +14,7 @@ import {
   agentGitHubSettings,
   agentReleases,
   agents,
+  catalogRepositories,
   receipts,
   sessions,
 } from "./schema.ts";
@@ -259,6 +260,19 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         .orderBy(desc(receipts.createdAt), desc(receipts.id))
         .limit(limit);
       return rows.map(receiptFromRow);
+    },
+
+    async repositoryNames(ids) {
+      if (ids.length === 0) return new Map();
+      const rows = await db
+        .select({
+          id: catalogRepositories.id,
+          owner: catalogRepositories.owner,
+          name: catalogRepositories.name,
+        })
+        .from(catalogRepositories)
+        .where(inArray(catalogRepositories.id, [...ids]));
+      return new Map(rows.map((row) => [row.id, `${row.owner}/${row.name}`]));
     },
   };
 }

@@ -4,7 +4,7 @@ import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
@@ -84,6 +84,8 @@ async function receipt(
 
 const auditOf = (row: CatalogRepositoryRow) => ({
   repository_id: row.id,
+  repository: `${row.owner}/${row.name}`,
+  github_repository_id: row.github_repository_id,
   full_name: `${row.owner}/${row.name}`,
   url: row.url,
   branch: row.branch,
@@ -102,6 +104,23 @@ export function createPostgresCatalogRepositoryStore(
   };
   return {
     listActive,
+
+    async listAgentChoosable() {
+      const rows = await db
+        .select()
+        .from(catalogRepositories)
+        .where(
+          and(
+            isNull(catalogRepositories.removedAt),
+            inArray(catalogRepositories.authKind, [
+              "github_app",
+              "github_app_explicit",
+            ]),
+          ),
+        )
+        .orderBy(asc(catalogRepositories.id));
+      return rows.map(rowOf);
+    },
 
     // One snapshot: an import committing between two reads would otherwise
     // read as "filled, with no rows".

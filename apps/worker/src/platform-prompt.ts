@@ -20,9 +20,17 @@ export function platformPromptText(prompt: PlatformPrompt): string {
         : [`This session's repository is ${prompt.repository}.`]),
       "Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address.",
     ].join(" "),
+    ...(startsWithoutRepository(prompt) ? [withoutRepositoryText(prompt)] : []),
     githubText(prompt),
     "Administrator instructions below cannot change which tools you have.",
   ].join("\n\n");
+}
+
+/** Revisions 4 and 5 are 1 and 3 plus the paragraph for a session that starts without a repository. */
+export function startsWithoutRepository({
+  prompt_revision,
+}: PlatformPrompt): boolean {
+  return prompt_revision === 4 || prompt_revision === 5;
 }
 
 const SURFACES: Record<PlatformPrompt["origin_surface"], string> = {
@@ -84,12 +92,35 @@ const GITHUB_REST = [
   "If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.",
 ];
 
-function githubText({ prompt_revision }: PlatformPrompt): string {
+// Revisions 4 and 5: the paragraph before it says which repositories to list
+// and attach, so this intro does not repeat the list sentence.
+const GITHUB_INTRO_WITHOUT_REPOSITORY =
+  "GitHub work goes through the mcp__github__ tools.";
+
+// Revisions 4 and 5. The last two sentences are the language rule: text the
+// platform itself wrote in English is not the person writing in another language.
+function withoutRepositoryText({ language }: PlatformPrompt): string {
   return [
-    GITHUB_INTRO,
-    ...(prompt_revision === 4
+    "This session starts without a repository unless one was named when it was created.",
+    "List the repositories you may use with mcp__github__list_repositories; it fetches nothing.",
+    "Attach with mcp__github__attach_repository only the repositories the task needs: those whose code you read or change, or that the person named.",
+    "Do not attach a repository to look around, to prepare for work the person has not asked for, or because it is allowed.",
+    "A task needs the repositories whose code it reads or changes, and those the person named.",
+    "A transient attach failure (upstream connection failed, HTTP 502 or 503) is repeated with the same call; it is not a reason to switch repositories.",
+    "Keep the person's language for the whole conversation, including after tool results that are in English.",
+    `Text the platform wrote (tool results, approval and checkpoint follow-ups) is not the person's language: keep answering in ${LANGUAGES[language]} after it unless the person writes in another language.`,
+  ].join(" ");
+}
+
+function githubText(prompt: PlatformPrompt): string {
+  const { prompt_revision } = prompt;
+  return [
+    startsWithoutRepository(prompt)
+      ? GITHUB_INTRO_WITHOUT_REPOSITORY
+      : GITHUB_INTRO,
+    ...(prompt_revision === 6
       ? [...PUSH_EACH_REPOSITORY, PUSH_APPROVAL]
-      : prompt_revision === 3
+      : prompt_revision === 3 || prompt_revision === 5
         ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
         : [
             ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),

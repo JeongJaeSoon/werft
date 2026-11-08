@@ -10,6 +10,7 @@ import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import {
   claimFingerprint,
   OUT_DIRECTORY_PROMPT,
+  OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY,
   runtimeProfile,
 } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
@@ -190,7 +191,7 @@ describe("platformPromptText (revision 3, action flows on)", () => {
   const two: PlatformPrompt = { ...withRepository, prompt_revision: 2 };
 
   test("is accepted by the claim schema, and revisions 1 and 2 still are", () => {
-    for (const prompt_revision of [1, 2, 3, 4] as const) {
+    for (const prompt_revision of [1, 2, 3, 6] as const) {
       expect(
         runtimeConfigSchema.safeParse({
           ...base,
@@ -235,8 +236,8 @@ describe("platformPromptText (revision 3, action flows on)", () => {
   });
 });
 
-describe("platformPromptText (revision 4, one reply for every repository)", () => {
-  const four: PlatformPrompt = { ...withRepository, prompt_revision: 4 };
+describe("platformPromptText (revision 6, one reply for every repository)", () => {
+  const four: PlatformPrompt = { ...withRepository, prompt_revision: 6 };
   const three: PlatformPrompt = { ...withRepository, prompt_revision: 3 };
 
   test("is accepted by the claim schema", () => {
@@ -293,6 +294,112 @@ describe("platformPromptText (revision 4, one reply for every repository)", () =
       )
       .replace(/Do not mention checkpoints[^.]*\./, "");
     expect(push).not.toMatch(/\b(turns?|checkpoints?)\b/i);
+  });
+});
+
+describe("platformPromptText (revisions 4 and 5, a session that starts without a repository)", () => {
+  const paragraph = (language: string) =>
+    [
+      "This session starts without a repository unless one was named when it was created.",
+      "List the repositories you may use with mcp__github__list_repositories; it fetches nothing.",
+      "Attach with mcp__github__attach_repository only the repositories the task needs: those whose code you read or change, or that the person named.",
+      "Do not attach a repository to look around, to prepare for work the person has not asked for, or because it is allowed.",
+      "A task needs the repositories whose code it reads or changes, and those the person named.",
+      "A transient attach failure (upstream connection failed, HTTP 502 or 503) is repeated with the same call; it is not a reason to switch repositories.",
+      "Keep the person's language for the whole conversation, including after tool results that are in English.",
+      `Text the platform wrote (tool results, approval and checkpoint follow-ups) is not the person's language: keep answering in ${language} after it unless the person writes in another language.`,
+    ].join(" ");
+  const oldIntro =
+    "GitHub work goes through the mcp__github__ tools; mcp__github__list_repositories says which repositories you can use now.";
+  // What revision 4 or 5 changes in the text of revision 1 or 3: the new
+  // paragraph in front of the GitHub paragraph, and its intro without the list sentence.
+  const withParagraph = (text: string, language: string) => {
+    expect(text).toContain(`\n\n${oldIntro}`);
+    return text.replace(
+      `\n\n${oldIntro}`,
+      `\n\n${paragraph(language)}\n\nGitHub work goes through the mcp__github__ tools.`,
+    );
+  };
+
+  test("revision 4 is revision 1 with that paragraph, and revision 5 is revision 3 with it", () => {
+    for (const [prompt, language] of [
+      [withRepository, "Korean"],
+      [withoutRepository, "English"],
+    ] as const) {
+      expect(platformPromptText({ ...prompt, prompt_revision: 4 })).toBe(
+        withParagraph(
+          platformPromptText({ ...prompt, prompt_revision: 1 }),
+          language,
+        ),
+      );
+      expect(platformPromptText({ ...prompt, prompt_revision: 5 })).toBe(
+        withParagraph(
+          platformPromptText({ ...prompt, prompt_revision: 3 }),
+          language,
+        ),
+      );
+    }
+  });
+
+  test("the paragraph is the design's text and states the attach rule as facts about the task, not as a default repository", () => {
+    const text = platformPromptText({ ...withRepository, prompt_revision: 4 });
+    expect(text).toContain(paragraph("Korean"));
+    const own = paragraph("Korean");
+    expect(own).not.toMatch(/\b(primary|available)\b|default repository/i);
+    expect(own).toContain("including after tool results that are in English");
+    expect(text).not.toContain("which repositories you can use now");
+  });
+
+  test("revisions 1, 2 and 3 do not have the paragraph, and the claim schema accepts 1 to 5", () => {
+    for (const prompt_revision of [1, 2, 3] as const) {
+      expect(
+        platformPromptText({ ...withRepository, prompt_revision }),
+      ).not.toContain("starts without a repository");
+    }
+    for (const prompt_revision of [1, 2, 3, 4, 5] as const) {
+      expect(
+        runtimeConfigSchema.safeParse({
+          ...base,
+          platform_prompt: { ...withRepository, prompt_revision },
+        }).success,
+      ).toBe(true);
+    }
+  });
+
+  test("a workspace without a repository gets the out/ sentence of its revision", () => {
+    const outTextOf = (prompt_revision: 1 | 2 | 3 | 4 | 5) =>
+      runtimeProfile(
+        config,
+        claude,
+        {
+          principal,
+          runtimeConfig: {
+            ...base,
+            platform_prompt: { ...withRepository, prompt_revision },
+          },
+          workspace: { repository: null },
+        },
+        () => null,
+      ).bundle.instructions[1]?.text;
+    for (const old of [1, 2, 3] as const) {
+      expect(outTextOf(old)).toBe(OUT_DIRECTORY_PROMPT);
+    }
+    for (const next of [4, 5] as const) {
+      expect(outTextOf(next)).toBe(
+        OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY,
+      );
+    }
+    expect(OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY).toBe(
+      "This workspace starts without a repository. Put files meant for people in `out/` at the workspace root; a repository you attach is a git remote, not this directory.",
+    );
+    expect(
+      runtimeProfile(
+        config,
+        claude,
+        { principal, runtimeConfig: base, workspace: { repository: null } },
+        () => null,
+      ).bundle.instructions,
+    ).toEqual([{ scope: "platform", text: OUT_DIRECTORY_PROMPT }]);
   });
 });
 
@@ -360,7 +467,7 @@ describe("runtimeProfile with a platform prompt", () => {
 
   // A change in wording moves these, and a session of that revision then
   // cannot resume its checkpoint (INCOMPATIBLE_CHECKPOINT): add a revision.
-  test("a revision 1, 2, 3 and 4 claim each keep their digest, so a session resumes the checkpoint it made", () => {
+  test("a revision 1, 2, 3 and 6 claim each keep their digest, so a session resumes the checkpoint it made", () => {
     const digest = (prompt: PlatformPrompt) =>
       claimFingerprint(config)({
         principal,
@@ -375,9 +482,42 @@ describe("runtimeProfile with a platform prompt", () => {
     expect(digest({ ...withRepository, prompt_revision: 3 })).toBe(
       "cee5226abc6fe9f9a5c34bd9a98ab4a06ba3e30c8f5c1b416f73aa8c7c6830e7",
     );
-    expect(digest({ ...withRepository, prompt_revision: 4 })).toBe(
+    expect(digest({ ...withRepository, prompt_revision: 6 })).toBe(
       "2ac342a73992c0f2e1f4f666ecbd0141a8a23db260c95617cdef11169b7384bd",
     );
+  });
+
+  // Taken from main before revisions 4 and 5 existed: adding them must not move
+  // a byte of what revisions 1 to 3 send, with or without a repository, in a
+  // workspace that has none (which adds the out/ sentence) or one.
+  test("revisions 1, 2 and 3 keep their digest without a repository and in a workspace without one", () => {
+    const digest = (prompt: PlatformPrompt, workspace?: { repository: null }) =>
+      claimFingerprint(config)({
+        principal,
+        runtime_config: { ...base, platform_prompt: prompt },
+        ...(workspace === undefined ? {} : { workspace }),
+      }).profileSha256;
+    const observed = [1, 2, 3].map((prompt_revision) => [
+      digest({ ...withoutRepository, prompt_revision: prompt_revision as 1 }),
+      digest(
+        { ...withRepository, prompt_revision: prompt_revision as 1 },
+        { repository: null },
+      ),
+    ]);
+    expect(observed).toEqual([
+      [
+        "71f46b841c05f003b01d55558f79908e4d9023e24f520dc14d4d79bb54280c68",
+        "1388c8635c9738004d74884cc87da172523b0e843fe142e07403985918c1fa97",
+      ],
+      [
+        "dc7f725b42c29a8acf0b202c69a0e4b93f503779375412832b3ac08cf6ca0e1e",
+        "026fd41cd4dd4bee14082c42ce40e57573749f0f23871a1e7a70abcc42894093",
+      ],
+      [
+        "79e65e0b457874f6be02c7c3a0debb0350d41ebacf2c61f69db526e3337067fb",
+        "f3776be081e5258b71e99e93b51cd1f33b7c816f702c24f7344a6fb674da0d66",
+      ],
+    ]);
   });
 
   test("a revision 0 claim keeps the digest it had before the field, so its checkpoints resume", () => {
@@ -413,7 +553,8 @@ describe("runtimeProfile with a platform prompt", () => {
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
     for (const prompt of [
-      { ...withRepository, prompt_revision: 5 },
+      { ...withRepository, prompt_revision: 7 },
+      { ...withRepository, prompt_revision: 0 },
       { ...withRepository, repository: "/workspace" },
       { ...withRepository, repository: "group/sub/repo" },
       { ...withRepository, github: { repositories: ["acme/web"] } },

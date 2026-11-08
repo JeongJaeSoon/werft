@@ -278,14 +278,19 @@ export const platformPromptSchema = z
     // 2 differs from 1 only in how the worker words `request_push`: this
     // turn's commit is pushed (AGENT_ACTION_FLOWS on at session creation).
     // 3 adds to 2 that the pull request is scheduled in the same turn and
-    // that a push carries one repository's commit per turn. 4 pushes each
-    // repository from its own local branch in the one reply. A session keeps the
+    // that a push carries one repository's commit per turn. 4 and 5 are 1 and
+    // 3 with the paragraph for a session that starts without a repository;
+    // nothing creates them yet, and an older worker refuses them, so they are
+    // turned on only after every worker knows them. 6 pushes each repository
+    // from its own local branch in the one reply. A session keeps the
     // revision it was created with: the wording is in its fingerprint.
     prompt_revision: z.union([
       z.literal(1),
       z.literal(2),
       z.literal(3),
       z.literal(4),
+      z.literal(5),
+      z.literal(6),
     ]),
     agent_identity: z
       .object({

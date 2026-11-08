@@ -1184,7 +1184,7 @@ describe("a publish that fails for a reason other than the mirror", () => {
 });
 
 describe("local branches in a checkpoint", () => {
-  const promptOf = (prompt_revision: 1 | 2 | 3 | 4) => ({
+  const promptOf = (prompt_revision: 1 | 2 | 3 | 4 | 5 | 6) => ({
     prompt_revision,
     agent_identity: { name: "a", description: null },
     origin_surface: "console" as const,
@@ -1196,7 +1196,8 @@ describe("local branches in a checkpoint", () => {
     ["no platform prompt", undefined, false],
     ["revision 1", 1, false],
     ["revision 3", 3, false],
-    ["revision 4", 4, true],
+    ["revision 5", 5, false],
+    ["revision 6", 6, true],
   ] as const)(
     "a session with %s asks the capture for branches: %p",
     async (_label, revision, keeps) => {

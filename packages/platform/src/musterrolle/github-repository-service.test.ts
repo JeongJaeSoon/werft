@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { AgentDetail, RepositoryCeiling } from "@werft-ai/contracts";
+import {
+  type AgentDetail,
+  catalogIdOfRef,
+  type RepositoryCeiling,
+  repositoryRefOf,
+} from "@werft-ai/contracts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
@@ -160,11 +165,16 @@ function serviceWith(
   registered: GitHubAppStore = apps,
   pins: ReturnType<typeof memoryPins> | null = null,
   active: readonly CatalogRepositoryRow[] = [],
+  /** Rows with an App of their own: not the console App's list. */
+  explicit: readonly CatalogRepositoryRow[] = [],
 ) {
   const resolved: string[] = [];
   const store = {
     async listActive() {
       return [...active];
+    },
+    async listAgentChoosable() {
+      return [...active, ...explicit];
     },
     async agentCounts() {
       return new Map();
@@ -489,6 +499,231 @@ describe("the workspace's page of App installations", () => {
     // No ceiling yet: shown as the default the first save writes.
     ceilingHeld = null;
     expect((await agentPage()).unavailable).toBeNull();
+  });
+});
+
+describe("the agent's repositories read as owner/repo", () => {
+  const BILLING = {
+    ...ROW,
+    id: "billing",
+    github_repository_id: 9,
+    name: "billing",
+    url: "https://github.com/acme/billing.git",
+  };
+  const OUTSIDE = {
+    ...ROW,
+    id: "outside",
+    github_repository_id: 10,
+    name: "outside",
+    url: "https://github.com/acme/outside.git",
+  };
+  const pageOf = (...repositories: GitHubInstallationRepository[]) => ({
+    async installationRepositoriesPage() {
+      return { repositories, totalCount: repositories.length };
+    },
+  });
+
+  test("under ceiling_listed the list is empty but every allowed repository is in the merged one", async () => {
+    const { agentPage } = serviceWith(pageOf(), apps, null, [
+      ROW,
+      BILLING,
+      OUTSIDE,
+    ]);
+    ceilingHeld = {
+      repository_ids: ["widget", "billing"],
+      github_app_repositories: "listed",
+    };
+    const page = await agentPage();
+    expect(page.unavailable).toBe("ceiling_listed");
+    expect(page.repositories).toEqual([]);
+    expect(page.all_repositories).toEqual([
+      {
+        github_repository_id: 9,
+        repository: "acme/billing",
+        full_name: "acme/billing",
+        private: null,
+        ref: repositoryRefOf("billing"),
+      },
+      {
+        github_repository_id: 5,
+        repository: "acme/widget",
+        full_name: "acme/widget",
+        private: null,
+        ref: repositoryRefOf("widget"),
+      },
+    ]);
+  });
+
+  test("a row with an App of its own is a choice only where the ceiling names it", async () => {
+    const OWN = {
+      ...ROW,
+      id: "ghe",
+      github_repository_id: null,
+      name: "ghe",
+      url: "https://ghe.example.invalid/acme/ghe.git",
+    };
+    const { agentPage } = serviceWith(pageOf(), apps, null, [ROW], [OWN]);
+    const names = async () =>
+      ((await agentPage()).all_repositories ?? []).map(
+        (entry) => entry.repository,
+      );
+    // `installed` opens the console App's rows, not this one.
+    expect(await names()).toEqual(["acme/widget"]);
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "installed",
+    };
+    expect(await names()).toEqual(["acme/ghe", "acme/widget"]);
+    // Under a list the console App's rows need naming too.
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "listed",
+    };
+    const page = await agentPage();
+    expect(page.unavailable).toBe("ceiling_listed");
+    expect((page.all_repositories ?? []).map((entry) => entry.ref)).toEqual([
+      repositoryRefOf("ghe"),
+    ]);
+  });
+
+  test("the installation page and the catalog merge into one line per repository, the page's name and visibility winning", async () => {
+    const { agentPage } = serviceWith(
+      pageOf(
+        // Renamed on GitHub since the row was made.
+        { ...repository(5, "widget-2"), private: true },
+        repository(77, "fresh"),
+      ),
+      apps,
+      null,
+      [ROW, BILLING],
+    );
+    const page = await agentPage();
+    expect(page.repositories).toEqual([
+      {
+        github_repository_id: 5,
+        full_name: "acme/widget-2",
+        repository: "acme/widget-2",
+        default_branch: "main",
+        private: true,
+        catalog_id: "widget",
+        ref: repositoryRefOf("widget"),
+      },
+      {
+        github_repository_id: 77,
+        full_name: "acme/fresh",
+        repository: "acme/fresh",
+        default_branch: "main",
+        private: false,
+        catalog_id: null,
+        ref: null,
+      },
+    ]);
+    expect(
+      (page.all_repositories ?? []).map(
+        ({ repository, private: hidden, ref }) => [
+          repository,
+          hidden,
+          ref === null ? null : catalogIdOfRef(ref),
+        ],
+      ),
+    ).toEqual([
+      ["acme/billing", null, "billing"],
+      ["acme/fresh", false, null],
+      ["acme/widget-2", true, "widget"],
+    ]);
+  });
+
+  test("a row renamed away and a row with no GitHub id under the new name are one repository, not two lines", async () => {
+    const OLD = { ...ROW, id: "old", github_repository_id: 5, name: "old" };
+    const SEEDED = {
+      ...ROW,
+      id: "widget",
+      github_repository_id: null,
+      name: "widget",
+    };
+    const { agentPage } = serviceWith(
+      pageOf({ ...repository(5, "widget"), private: true }),
+      apps,
+      null,
+      [OLD, SEEDED],
+    );
+    const page = await agentPage();
+    expect(page.all_repositories).toEqual([
+      {
+        github_repository_id: 5,
+        repository: "acme/widget",
+        full_name: "acme/widget",
+        private: true,
+        // The row GitHub's id names; the id-less one is its duplicate.
+        ref: repositoryRefOf("old"),
+      },
+    ]);
+  });
+
+  test("a row with an App of its own and the page's entry for the same GitHub id are one line", async () => {
+    const OWN = {
+      ...ROW,
+      id: "ghe",
+      github_repository_id: 9,
+      name: "shared",
+      url: "https://ghe.example.invalid/acme/shared.git",
+    };
+    ceilingHeld = {
+      repository_ids: ["ghe"],
+      github_app_repositories: "installed",
+    };
+    const { agentPage } = serviceWith(
+      pageOf({ ...repository(9, "shared"), private: false }),
+      apps,
+      null,
+      [],
+      [OWN],
+    );
+    const page = await agentPage();
+    expect(page.all_repositories).toEqual([
+      {
+        github_repository_id: 9,
+        repository: "acme/shared",
+        full_name: "acme/shared",
+        private: false,
+        ref: repositoryRefOf("ghe"),
+      },
+    ]);
+  });
+
+  test("a row without a GitHub id listed first does not swallow differently numbered rows of its name", async () => {
+    const rowOf = (id: string, githubId: number | null) => ({
+      ...ROW,
+      id,
+      github_repository_id: githubId,
+    });
+    // Catalog order puts the id-less row first.
+    const { agentPage } = serviceWith(pageOf(), apps, null, [
+      rowOf("a", null),
+      rowOf("b", 5),
+      rowOf("c", 8),
+    ]);
+    const choices = (await agentPage()).all_repositories ?? [];
+    expect(choices.map((entry) => entry.github_repository_id)).toEqual([5, 8]);
+    expect(choices.map((entry) => entry.ref)).toEqual([
+      repositoryRefOf("b"),
+      repositoryRefOf("c"),
+    ]);
+  });
+
+  test("a name an older repository held is not taken for the repository that has it now", async () => {
+    const { agentPage } = serviceWith(
+      pageOf(repository(8, "widget")),
+      apps,
+      null,
+      [ROW],
+    );
+    const page = await agentPage();
+    // Row `widget` is GitHub repository 5; the page's `acme/widget` is 8.
+    expect(page.repositories[0]?.ref).toBeNull();
+    expect(
+      (page.all_repositories ?? []).map((entry) => entry.github_repository_id),
+    ).toEqual([8, 5]);
   });
 });
 
