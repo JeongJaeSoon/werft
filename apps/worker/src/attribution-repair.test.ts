@@ -316,6 +316,62 @@ describe("repairAttribution", () => {
       "Agent-Session: https://c/s/1",
     );
   });
+
+  test("a commit remade after its turn keeps its own co-author when another requester's repair runs", async () => {
+    writeFileSync(
+      join(root, "gitconfig"),
+      `[user]\n\tname = Werft\n\temail = noreply@werft.invalid\n[include]\n\tpath = ~/${GIT_IDENTITY_PATH}\n`,
+    );
+    const octocat = {
+      name: "octocat",
+      email: "583231+octocat@users.noreply.github.com",
+    };
+    const hubot = {
+      name: "hubot",
+      email: "1+hubot@users.noreply.github.com",
+    };
+    const turn = (co_author: typeof octocat) =>
+      writeGitTrailers(home, {
+        session_id: SESSION_ID,
+        git: { co_author, session_url: "https://c/s/1" },
+        git_author: BOT,
+        git_strip: ENGINE_COAUTHOR_EMAILS,
+      });
+    const repair = async (judged: readonly string[]) => {
+      process.env.GIT_CONFIG_SYSTEM = join(root, "gitconfig");
+      try {
+        return await repairAttribution({
+          ...base,
+          root: repo,
+          home,
+          spool,
+          tool: TOOL,
+          gateway: { protectedCommits: async () => ({ commits: [] }) },
+          judged,
+        });
+      } finally {
+        delete process.env.GIT_CONFIG_SYSTEM;
+      }
+    };
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    await turn(octocat);
+    commit("octocat's work");
+    const first = await repair([]);
+    const judgedTip = "head" in first ? first.head : undefined;
+    // The next turn rewrites that commit (a rebase onto new work does the
+    // same): its hash is no longer under the judged tip.
+    await turn(hubot);
+    git(["commit", "--amend", "--no-edit", "--allow-empty", "--date=now"]);
+    git(["commit", "--amend", "--no-edit", "--reset-author"]);
+    expect(git(["rev-parse", "HEAD"])).not.toBe(judgedTip);
+    await repair(judgedTip === undefined ? [] : [judgedTip]);
+    const trailers = git(["show", "-s", "--format=%B", "HEAD"])
+      .split("\n")
+      .filter((line) => line.startsWith("Co-authored-by:"));
+    expect(trailers).toEqual([
+      `Co-authored-by: ${octocat.name} <${octocat.email}>`,
+    ]);
+  });
 });
 
 describe("claimExpectations", () => {

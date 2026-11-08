@@ -318,6 +318,14 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       expect(handed).toEqual([null]);
     });
 
+    test("an input without the field after one that had it goes back to the claim's value", async () => {
+      const { handed } = await runTurns(
+        [{ coAuthor: octocat }, {}],
+        async () => {},
+      );
+      expect(handed).toEqual([null, octocat, null]);
+    });
+
     test("a turn whose files cannot be written is not started", async () => {
       const { handed, warnings, summary } = await runTurns(
         [{ coAuthor: octocat }],
@@ -328,6 +336,9 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       expect(handed[1]).toEqual(octocat);
       expect(warnings).toContain("worker.git_trailers.turn_not_started");
       expect(summary.turns).toEqual([]);
+      // The attempt stops instead of being handed the same input again.
+      expect(summary.outcome).toBe("failed");
+      expect(handed).toHaveLength(2);
     });
   });
 

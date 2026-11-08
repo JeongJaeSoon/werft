@@ -351,6 +351,7 @@ export class WorkerHost {
   private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
   private claimValue: BootstrapClaimResponse | undefined;
+  private turnCoAuthorWritten = false;
   private scrubber: SecretScrubber;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -1332,23 +1333,34 @@ export class WorkerHost {
     }
     const claim = this.claimValue;
     if (
-      input.co_author !== undefined &&
       claim?.git !== undefined &&
-      this.options.gitTrailers !== undefined
+      this.options.gitTrailers !== undefined &&
+      (input.co_author !== undefined || this.turnCoAuthorWritten)
     ) {
+      // An input without the field goes back to the claim's own value, so a
+      // turn from an older control host never inherits the previous turn's.
+      const coAuthor =
+        input.co_author === undefined ? claim.git.co_author : input.co_author;
       try {
         await this.options.gitTrailers({
           ...claim,
-          git: { ...claim.git, co_author: input.co_author },
+          git: { ...claim.git, co_author: coAuthor },
         });
       } catch (error) {
+        const reason = describe(error);
         this.logger.warn("worker.git_trailers.turn_not_started", {
           turn_id: input.turn_id,
-          reason: describe(error),
+          reason,
         });
+        // Left open, and this attempt stops: the same input would otherwise
+        // be handed back on every poll while the lease is kept.
+        this.fail(`The trailer files could not be written: ${reason}`);
         return;
       }
-      noteTurnCoAuthor(claim, input.co_author);
+      this.turnCoAuthorWritten = input.co_author !== undefined;
+      if (input.co_author !== undefined) {
+        noteTurnCoAuthor(claim, input.co_author);
+      }
     }
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what

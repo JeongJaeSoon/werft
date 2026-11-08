@@ -108,6 +108,17 @@ fi
 [ -s "$work/range" ] || { echo clean; exit 0; }
 sort "$work/range" >"$work/range.sorted"
 
+# True when the message's last trailer block holds this session's own
+# Agent-Session line (the hook writes it with every co-author line).
+issued_here() {
+  _session=$(grep -m1 '^Agent-Session: ' "${HOME:-/nonexistent}/.werft/git-trailers" 2>/dev/null) || return 1
+  (
+    cd / || exit 1
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0 \
+      git interpret-trailers --parse --no-divider "$1" | grep -qxF -- "$_session"
+  )
+}
+
 mkdir "$work/map" "$work/msg"
 while IFS= read -r c; do
   # <commit> <parent>...
@@ -141,7 +152,13 @@ while IFS= read -r c; do
   git cat-file commit "$c" | awk 'f { print } /^$/ && !f { f = 1 }' >"$work/msg/$c" ||
     fail "message of $c"
   cp "$work/msg/$c" "$work/msg/$c.orig" || fail "message copy of $c"
-  werft_fix_message "$work/msg/$c" || fail "message fix of $c"
+  if issued_here "$work/msg/$c"; then
+    # Made under this session's attribution, perhaps for another turn's
+    # requester and since rebased: a different co-author is not added to it.
+    werft_strip_engine_coauthors "$work/msg/$c" || fail "message fix of $c"
+  else
+    werft_fix_message "$work/msg/$c" || fail "message fix of $c"
+  fi
 
   # A commit that already carries the issued attribution, on unchanged
   # parents, stays as it is: its hash and any signature survive. Blank lines
