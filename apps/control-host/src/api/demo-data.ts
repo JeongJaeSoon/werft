@@ -182,7 +182,9 @@ export const DEMO_SESSIONS: readonly DemoSession[] = [
       [
         {
           tool: "Bash",
-          input: { command: "npm test", description: "테스트 실행" },
+          // Not `npm test`: tests under the session workspace are
+          // pre-approved, and this session has to stop on a permission card.
+          input: { command: "npm install", description: "의존성 설치" },
         },
       ],
       "테스트에 영향을 주는 변경은 없었습니다.",

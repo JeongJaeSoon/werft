@@ -27,7 +27,7 @@ const note = await werft.sessions.create({
   profile_id: "claude-coding-local",
   repository_id: "sample-app",
   message:
-    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}',
+    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}',
 });
 const sessionId = note.session_id;
 await waitForTurn(werft, sessionId, note.turn_id, {
@@ -43,7 +43,7 @@ SID=$(curl -sS "$API/v1/sessions" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested | tee -a README.md","description":"append to README.md"}}],"final":"updated README.md"}' \
     '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" \
   | jq -r .session_id)
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = needs_input ]; do
