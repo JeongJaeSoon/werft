@@ -446,7 +446,10 @@ export function createWorkspaceProfileService(deps: {
         );
       // A lifted name is judged against the version the form read, so a
       // later one that blocks it again is not lifted unseen.
-      if (request.unblock_mcp_tools?.length && request.previous_id === undefined) {
+      if (
+        request.unblock_mcp_tools?.length &&
+        request.previous_id === undefined
+      ) {
         throw new SessionServiceError(
           "BAD_REQUEST",
           "unblock_mcp_tools needs previous_id: the version it was read from",

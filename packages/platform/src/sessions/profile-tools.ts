@@ -201,9 +201,10 @@ export function withKeptMcpDeny<
   }
   // What the request names and what the previous version held; only
   // `unblock_mcp_tools` lifts one of the latter.
-  const kept = mcpNamesOf([...requested, ...(input.previous?.deny ?? [])]).filter(
-    (name) => !lifted.has(name),
-  );
+  const kept = mcpNamesOf([
+    ...requested,
+    ...(input.previous?.deny ?? []),
+  ]).filter((name) => !lifted.has(name));
   if (kept.length === 0) return input.denied;
   if (input.denied) {
     return { ...input.denied, deny: [...input.denied.deny, ...kept] };

@@ -394,10 +394,15 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
 
     // What the lift refuses writes nothing.
     const before = (await db.select().from(installationProfiles)).length;
-    for (const [body, reason] of [
-      [{ unblock_mcp_tools: [DOCS] }, "mcp_unblock_unknown"],
-      [{ unblock_mcp_tools: ["mcp__docs__a"], deny: [DOCS, "mcp__docs__a"] }, "mcp_unblock_conflict"],
-    ] as const) {
+    const refusedLifts: [Partial<CreateInstallationProfileRequest>, string][] =
+      [
+        [{ unblock_mcp_tools: [DOCS] }, "mcp_unblock_unknown"],
+        [
+          { unblock_mcp_tools: ["mcp__docs__a"], deny: [DOCS, "mcp__docs__a"] },
+          "mcp_unblock_conflict",
+        ],
+      ];
+    for (const [body, reason] of refusedLifts) {
       await expect(
         ceilings.create(caller, {
           ...CEILING,
