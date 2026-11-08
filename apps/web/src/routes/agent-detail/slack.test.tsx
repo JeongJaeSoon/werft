@@ -1220,6 +1220,13 @@ describe("Slack management", () => {
             name: "/invite 명령",
           }) as HTMLInputElement;
           expect(field.value).toBe("/invite @billing");
+          await waitFor(() =>
+            expect(document.activeElement === field).toBe(true),
+          );
+          expect([field.selectionStart, field.selectionEnd]).toEqual([
+            0,
+            field.value.length,
+          ]);
         } else expect(document.activeElement === button).toBe(true);
         const open = within(advanced).getByRole("link", {
           name: "Slack에서 열기 (새 탭에서 열림)",
