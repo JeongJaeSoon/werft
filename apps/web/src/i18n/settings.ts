@@ -66,7 +66,7 @@ export const settingsKo = {
     "다른 켜진 연결로 이어지지 않는 프로필: {count}개",
   "settings.connections.impact.agents":
     "그 프로필을 쓰는 활성 릴리스의 에이전트: {count}개",
-  "settings.connections.impact.sessions": "실행 중인 세션: {count}개",
+  "settings.connections.impact.sessions": "끝나지 않은 세션: {count}개",
   "settings.connections.impact.judge":
     "성과 판정 설정이 이 연결을 가리키고 있습니다.",
   "settings.done.created": "{id}를 만들었습니다.",
@@ -196,7 +196,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
     "Profiles with no other enabled connection: {count}",
   "settings.connections.impact.agents":
     "Agents whose active release uses those profiles: {count}",
-  "settings.connections.impact.sessions": "Running sessions: {count}",
+  "settings.connections.impact.sessions": "Sessions not yet ended: {count}",
   "settings.connections.impact.judge":
     "A workspace's achievement judge setting points at this connection.",
   "settings.done.created": "{id} was created.",
@@ -327,7 +327,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
     "ほかの有効な接続に移れないプロファイル: {count}件",
   "settings.connections.impact.agents":
     "そのプロファイルを使う有効なリリースのエージェント: {count}件",
-  "settings.connections.impact.sessions": "実行中のセッション: {count}件",
+  "settings.connections.impact.sessions": "終了していないセッション: {count}件",
   "settings.connections.impact.judge":
     "成果判定の設定がこの接続を指しています。",
   "settings.done.created": "{id} を作成しました。",

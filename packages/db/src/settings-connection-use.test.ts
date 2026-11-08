@@ -39,8 +39,11 @@ afterEach(async () => {
 
 const store = () => createPostgresSettingsDocumentStore(db);
 
-/** An agent whose active release runs `profile`. */
-async function agent(profile: string, status = "active") {
+/**
+ * An agent whose active release runs `profile`; `past` adds an earlier release
+ * on another profile that is no longer the active one.
+ */
+async function agent(profile: string, status = "active", past?: string) {
   const agentId = randomUUID();
   const versionId = randomUUID();
   const releaseId = `sha256:${randomUUID()}`;
@@ -71,6 +74,28 @@ async function agent(profile: string, status = "active") {
     "UPDATE agents SET active_release_id = $2, activation_revision = 0 WHERE id = $1",
     [agentId, releaseId],
   );
+  if (past) {
+    const pastVersionId = randomUUID();
+    await client.query(
+      `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
+       VALUES ($1, $2, 2, '{}', $3)`,
+      [pastVersionId, agentId, "b".repeat(64)],
+    );
+    await client.query(
+      `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+         runtime_profile_id, repository_id, profile_digest,
+         runtime_config_snapshot, effective_tools, policy_pins)
+       VALUES ($1, $2, $3, $4, $5, 'sample-app', $6, '{}', '{}', '{}')`,
+      [
+        `sha256:${randomUUID()}`,
+        agentId,
+        pastVersionId,
+        "b".repeat(64),
+        past,
+        `sha256:${"c".repeat(64)}`,
+      ],
+    );
+  }
 }
 
 /** A session on `profile`, optionally holding an attempt that claimed another. */
@@ -126,6 +151,28 @@ describe("connectionUse", () => {
         })
       ).agents,
     ).toBe(0);
+  });
+
+  test("a release the agent no longer runs does not count", async () => {
+    // Active on a profile the connection does not touch, with an older release
+    // on one it does: the agent is not left without a model.
+    await agent("use-b_v1", "active", "use-a_v1");
+    expect(
+      (
+        await store().connectionUse({
+          profileIds: ["use-a_v1"],
+          connectionId: "console",
+        })
+      ).agents,
+    ).toBe(0);
+    expect(
+      (
+        await store().connectionUse({
+          profileIds: ["use-b_v1"],
+          connectionId: "console",
+        })
+      ).agents,
+    ).toBe(1);
   });
 
   test("sessions not yet failed or stopped count, by their profile or their open attempt's", async () => {

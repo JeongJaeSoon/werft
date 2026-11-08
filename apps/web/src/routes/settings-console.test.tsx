@@ -380,12 +380,20 @@ describe("모델 연결", () => {
     const impactCalls = (calls: readonly { path: string }[]) =>
       calls.filter((call) => call.path.endsWith("/impact"));
 
-    async function openDisable(impact: () => Response | Promise<Response>) {
-      const rendered = renderAt(CONNECTIONS_PAGE, {
-        ...routes(),
-        [`GET ${IMPACT}`]: impact,
-        [`POST ${DISABLE}`]: () => json(200, CHANGE("console-key")),
-      });
+    async function openDisable(
+      impact: () => Response | Promise<Response>,
+      validate: "strict" | "warn" = "strict",
+    ) {
+      const rendered = renderAt(
+        CONNECTIONS_PAGE,
+        {
+          ...routes(),
+          [`GET ${IMPACT}`]: impact,
+          [`POST ${DISABLE}`]: () => json(200, CHANGE("console-key")),
+        },
+        "ko",
+        validate,
+      );
       const user = await setupUser();
       const table = await screen.findByRole("table", { name: "모델 연결" });
       // Nothing is read for a table nobody is disabling from.
@@ -408,7 +416,7 @@ describe("모델 연결", () => {
       expect(warning.textContent).toContain("거절되거나 끊길 수 있습니다");
       expect(warning.textContent).toContain("프로필: 2개");
       expect(warning.textContent).toContain("에이전트: 3개");
-      expect(warning.textContent).toContain("실행 중인 세션: 1개");
+      expect(warning.textContent).toContain("끝나지 않은 세션: 1개");
       expect(warning.textContent).not.toContain("성과 판정");
       expect(impactCalls(api.calls).length).toBe(1);
       await user.click(
@@ -416,6 +424,38 @@ describe("모델 연결", () => {
       );
       await screen.findByText("console-key를 사용 중지했습니다.");
       expect(writes(api.calls).map((call) => call.path)).toEqual([DISABLE]);
+    });
+
+    // A retired version still runs what was started on it, so the profile
+    // count alone cannot decide whether to warn.
+    for (const [name, over, line] of [
+      ["agents", { agent_count: 2 }, "에이전트: 2개"],
+      ["sessions", { session_count: 1 }, "끝나지 않은 세션: 1개"],
+    ] as const) {
+      test(`${name} alone warn, with no profile counted`, async () => {
+        const { confirm } = await openDisable(() => json(200, counts(over)));
+        const warning = await within(confirm).findByRole("alert");
+        expect(warning.textContent).not.toContain("프로필:");
+        expect(warning.textContent).toContain(line);
+      });
+    }
+
+    test("a refetch that fails is a failed check, not the numbers of the read before it", async () => {
+      let reads = 0;
+      const { api, confirm } = await openDisable(() => {
+        reads += 1;
+        return reads === 1
+          ? json(200, counts({ profile_count: 4 }))
+          : json(500, { code: "INTERNAL", message: "boom", details: null });
+      });
+      await within(confirm).findByRole("alert");
+      // Back on the window: React Query reads the stale count again.
+      await act(async () => {
+        window.dispatchEvent(new Event("visibilitychange"));
+      });
+      await within(confirm).findByText(/확인하지 못했습니다/);
+      expect(impactCalls(api.calls).length).toBe(2);
+      expect(within(confirm).queryByText(/프로필: 4개/)).toBeNull();
     });
 
     test("a judge setting alone warns, without a word about a judgment stopping", async () => {
@@ -464,8 +504,10 @@ describe("모델 연결", () => {
     });
 
     test("a 200 of another shape is a failed check, never a number read from it", async () => {
-      const { confirm } = await openDisable(() =>
-        json(200, { id: "console-key", profile_count: "2" }),
+      // Production does not validate a response, so the page has to.
+      const { confirm } = await openDisable(
+        () => json(200, counts({ profile_count: "2" })),
+        "warn",
       );
       await within(confirm).findByText(/확인하지 못했습니다/);
       expect(within(confirm).queryByRole("alert")).toBeNull();

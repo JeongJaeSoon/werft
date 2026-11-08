@@ -465,7 +465,9 @@ function ConnectionImpactNotice({ id }: { readonly id: string }) {
       </output>
     );
   }
-  if (impact.data === undefined) {
+  // A refetch that failed keeps the data of the one before, which is no
+  // longer what the server says.
+  if (impact.isError || impact.data === undefined) {
     return (
       <Alert variant="amber" role="status">
         <AlertDescription>

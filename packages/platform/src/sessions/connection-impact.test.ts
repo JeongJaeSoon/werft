@@ -245,6 +245,21 @@ describe("the profiles left with no connection", () => {
     expect(impactOf(catalog, settings, "one").profile_ids).toEqual(["live"]);
   });
 
+  test("a row whose stored definition no longer matches its fingerprint is not counted", async () => {
+    const settings = { connections: { one: A } };
+    const drifted = row("drifted", made(A));
+    drifted.definition = {
+      ...(drifted.definition as Record<string, unknown>),
+      tools: ["Bash"],
+    };
+    const catalog = await catalogOf([drifted, row("live", made(A))], settings);
+    expect(catalog.installation.get("drifted")?.state).toBe("definition_drift");
+    expect(impactOf(catalog, settings, "one")).toEqual({
+      profile_ids: ["live"],
+      current_profile_count: 1,
+    });
+  });
+
   test("a workspace version follows its base while it still resolves", async () => {
     const settings = { connections: { one: A } };
     const base = row("base", made(A));
