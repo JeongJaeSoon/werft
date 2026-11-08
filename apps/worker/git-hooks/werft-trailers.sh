@@ -64,12 +64,26 @@ werft_add_trailers() {
     # The block git reads as the message's trailers (the push check counts
     # only that block). --no-divider: a `---` line is ordinary text to it.
     last=$(git interpret-trailers --parse --no-divider "$_werft_file") || exit 1
-    # A message that already ends with this session's Agent-Session line was
-    # issued by an earlier turn (an amend, a rebase): another requester's
-    # co-author is not added next to the first one's.
+    wanted=$_werft_trailers
+    trap 'rm -f "$_werft_file.werft-wanted" "$_werft_file.werft-move"' EXIT
+    # A message that already holds this session's Agent-Session line was issued
+    # by an earlier turn (an amend, a rebase). It keeps the lines it was issued
+    # with, wherever a later hook left them, and no other requester's
+    # co-author is added next to them.
     session=$(grep -m1 '^Agent-Session: ' "$_werft_trailers")
-    if [ -n "$session" ] && printf '%s\n' "$last" | grep -qxF -- "$session"; then
-      exit 0
+    if [ -n "$session" ] && grep -qxF -- "$session" "$_werft_file"; then
+      WERFT_SESSION=$session awk '
+        BEGIN { RS = "" }
+        {
+          n = split($0, l, "\n"); hit = 0
+          for (i = 1; i <= n; i++) if (l[i] == ENVIRON["WERFT_SESSION"]) hit = 1
+          if (!hit) next
+          for (i = 1; i <= n; i++)
+            if (l[i] == ENVIRON["WERFT_SESSION"] || l[i] ~ /^Co-authored-by: /) print l[i]
+          exit
+        }
+      ' "$_werft_file" >"$_werft_file.werft-wanted" || exit 1
+      wanted=$_werft_file.werft-wanted
     fi
     set --
     while IFS= read -r line || [ -n "$line" ]; do
@@ -94,9 +108,9 @@ werft_add_trailers() {
           set -- "$@" --trailer "$line"
           ;;
       esac
-    done <"$_werft_trailers"
+    done <"$wanted"
     [ $# -gt 0 ] || exit 0
-    exec git interpret-trailers --no-divider --if-exists addIfDifferent --in-place "$@" "$_werft_file"
+    git interpret-trailers --no-divider --if-exists addIfDifferent --in-place "$@" "$_werft_file"
   )
 }
 

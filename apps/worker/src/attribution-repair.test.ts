@@ -391,14 +391,24 @@ describe("claimExpectations", () => {
     ]);
   });
 
-  test("a restarted claim carries the co-authors earlier turns were issued", () => {
+  test("a restarted claim carries the bundles the server issued, as issued", () => {
     const earlier = {
       name: "grace",
       email: "2+grace@users.noreply.github.com",
     };
-    expect(claimExpectations({ ...claim, git_co_authors: [earlier] })).toEqual([
+    const old = { name: "Werft", email: "noreply@werft.invalid" };
+    expect(
+      claimExpectations({
+        ...claim,
+        git_issued: [
+          { author: old, co_author: earlier, agent_session: "https://c/s/1" },
+          { author: BOT, co_author: null, agent_session: "https://c/s/1" },
+        ],
+      }),
+    ).toEqual([
       { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
-      { author: BOT, coAuthor: earlier, agentSession: "https://c/s/1" },
+      { author: old, coAuthor: earlier, agentSession: "https://c/s/1" },
+      { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
     ]);
   });
 

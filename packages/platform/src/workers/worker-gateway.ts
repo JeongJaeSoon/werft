@@ -722,25 +722,20 @@ export function createWorkerGateway(deps: {
     });
   }
 
-  // The co-authors the session was issued for earlier turns, other than the
-  // claim's own: a worker that restarted has lost them, and its check would
-  // refuse a commit the push check accepts.
-  async function pastCoAuthorsOf(
-    sessionId: string,
-    own: { name: string; email: string } | null,
-  ): Promise<{ name: string; email: string }[]> {
+  // The bundles the push check will accept, as the ledger holds them: a worker
+  // that restarted has lost the earlier turns' and its own check would refuse
+  // a commit the push check accepts.
+  async function issuedBundlesOf(sessionId: string) {
     const ledger = deps.attribution?.ledger;
     if (ledger === undefined) return [];
-    const seen = new Map<string, { name: string; email: string }>();
-    for (const { coAuthor } of await ledger.list(sessionId)) {
-      if (coAuthor === null) continue;
-      if (own !== null && coAuthor.email === own.email) continue;
-      seen.set(`${coAuthor.name}\n${coAuthor.email}`, {
-        name: coAuthor.name,
-        email: coAuthor.email,
-      });
-    }
-    return [...seen.values()].slice(0, 64);
+    return (await ledger.list(sessionId)).slice(0, 5000).map((bundle) => ({
+      author: { name: bundle.author.name, email: bundle.author.email },
+      co_author:
+        bundle.coAuthor === null
+          ? null
+          : { name: bundle.coAuthor.name, email: bundle.coAuthor.email },
+      agent_session: bundle.agentSession,
+    }));
   }
 
   // The co-author a turn's commits name is the turn's requester, not the
@@ -1738,10 +1733,7 @@ export function createWorkerGateway(deps: {
             binding.repository?.id ?? null,
           );
           await recordIssuedAttribution(binding.sessionId, git, gitAuthor);
-          const pastCoAuthors = await pastCoAuthorsOf(
-            binding.sessionId,
-            git?.co_author ?? null,
-          );
+          const issued = await issuedBundlesOf(binding.sessionId);
           const additional = await additionalWorkspaceRepositories(
             binding.sessionId,
             repositoryToken,
@@ -1813,9 +1805,7 @@ export function createWorkerGateway(deps: {
               ? {}
               : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
             ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
-            ...(pastCoAuthors.length === 0
-              ? {}
-              : { git_co_authors: pastCoAuthors }),
+            ...(issued.length === 0 ? {} : { git_issued: issued }),
           };
         }
       }

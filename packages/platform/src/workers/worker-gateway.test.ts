@@ -1132,9 +1132,26 @@ describe("WorkerGateway", () => {
       session_url: sessionUrl,
     });
     expect(linked.git_strip).toEqual(["noreply@anthropic.com"]);
-    // The starter's own co-author is not repeated; an earlier turn's is sent.
-    expect(linked.git_co_authors).toEqual([
-      { name: "grace", email: "2+grace@users.noreply.github.com" },
+    // Every ledger bundle goes, an unlinked requester's (no co-author) too.
+    const issuedAuthor = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
+    expect(linked.git_issued).toEqual([
+      { author: issuedAuthor, co_author: null, agent_session: "https://c/s/1" },
+      {
+        author: issuedAuthor,
+        co_author: {
+          name: "octocat",
+          email: "583231+octocat@users.noreply.github.com",
+        },
+        agent_session: "https://c/s/1",
+      },
+      {
+        author: issuedAuthor,
+        co_author: {
+          name: "grace",
+          email: "2+grace@users.noreply.github.com",
+        },
+        agent_session: "https://c/s/1",
+      },
     ]);
     starter = null;
     const agentKey = await attributed.bootstrapClaim(

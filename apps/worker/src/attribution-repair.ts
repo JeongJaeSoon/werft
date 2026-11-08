@@ -77,16 +77,20 @@ export function noteTurnCoAuthor(claim: object, coAuthor: CoAuthor): void {
 export function claimExpectations(
   claim: Pick<
     BootstrapClaimResponse,
-    "session_id" | "git" | "git_author" | "git_co_authors"
+    "session_id" | "git" | "git_author" | "git_issued"
   >,
 ): AttributionExpectation[] {
   const base = claimExpectation(claim);
   if (base === null) return [];
-  const turns = [
-    ...(claim.git_co_authors ?? []),
-    ...(turnCoAuthors.get(claim)?.values() ?? []),
-  ].map((coAuthor) => ({ ...base, coAuthor }));
-  return [base, ...turns];
+  const issued = (claim.git_issued ?? []).map((bundle) => ({
+    author: bundle.author,
+    coAuthor: bundle.co_author,
+    agentSession: bundle.agent_session,
+  }));
+  const turns = [...(turnCoAuthors.get(claim)?.values() ?? [])].map(
+    (coAuthor) => ({ ...base, coAuthor }),
+  );
+  return [base, ...issued, ...turns];
 }
 
 /**

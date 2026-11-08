@@ -212,6 +212,26 @@ describe("the commit-msg hook", () => {
     );
   });
 
+  test("another requester's amend in a husky repository keeps the first requester's lines in the last block (94S-1304)", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    repoHook("commit-msg", `printf '\\nHusky-Ran: yes\\n' >>"$1"`);
+    git(["commit", "-q", "--allow-empty", "-m", "Fix the thing"]);
+    const grace = { name: "grace", email: "2+grace@users.noreply.github.com" };
+    await writeGitTrailers(
+      home,
+      claim({ co_author: grace, session_url: SESSION_URL }),
+    );
+    git(["commit", "-q", "--amend", "--allow-empty", "--no-edit"]);
+    const parsed = git(["log", "-1", "--format=%(trailers:only,unfold)"])
+      .out.split("\n")
+      .filter((l) => l.startsWith("Co-authored-by:") || l.startsWith("Agent-"));
+    expect(parsed).toEqual([
+      `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+      `Agent-Session: ${SESSION_URL}`,
+    ]);
+    expect(lastMessage()).not.toContain("grace");
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,
