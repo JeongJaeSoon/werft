@@ -440,14 +440,18 @@ export async function webReactLazyCalls(directory: string): Promise<string[]> {
 }
 
 /** Parsed rather than matched, so comments, strings and JSX text never pass for code. */
-async function parse(file: string): Promise<ts.SourceFile> {
+function parseText(file: string, text: string): ts.SourceFile {
   return ts.createSourceFile(
     file,
-    await readFile(file, "utf8"),
+    text,
     ts.ScriptTarget.Latest,
     true,
     /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+}
+
+async function parse(file: string): Promise<ts.SourceFile> {
+  return parseText(file, await readFile(file, "utf8"));
 }
 
 function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
@@ -581,7 +585,11 @@ async function testingHelperImports(
       path.includes("node_modules")
     )
       continue;
-    walk(await parse(file), (node) => {
+    // A specifier with a `testing` segment needs that word in the text, so
+    // most files skip the parse.
+    const text = await readFile(file, "utf8");
+    if (!text.includes("testing")) continue;
+    walk(parseText(file, text), (node) => {
       let reference: ts.Node | undefined;
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
         reference = node.moduleSpecifier;
