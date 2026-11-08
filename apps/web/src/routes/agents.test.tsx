@@ -2329,6 +2329,8 @@ describe("에이전트 상세", () => {
     await waitFor(() => expect(rows()).toHaveLength(2));
     const [second, first] = rows();
     expect(first?.textContent).toContain("MCP 설정 저장");
+    expect(first?.textContent).toContain("새 릴리스를 만들지 않습니다.");
+    expect(first?.textContent).not.toContain("저장소와 GitHub");
     expect(first?.textContent).toContain("처음 저장");
     expect(first?.textContent).toContain(
       "이후: 서버 docs · 도구 mcp__docs__read · 자격 증명 docs-key",

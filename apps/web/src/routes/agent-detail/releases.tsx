@@ -192,7 +192,11 @@ export function Releases({
                         </Text>
                         <Text as="span" variant="sub" className="wrap-anywhere">
                           {receiptTitle(entry.item, t)} ·{" "}
-                          {t("agent.releases.accessNoRelease")}
+                          {t(
+                            entry.item.operation === "set_agent_mcp"
+                              ? "agent.releases.accessNoReleaseMcp"
+                              : "agent.releases.accessNoRelease",
+                          )}
                         </Text>
                         {entry.item.operation === "set_agent_mcp" ? (
                           <McpChangeLines receipt={entry.item} />

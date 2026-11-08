@@ -1066,7 +1066,7 @@ describe("차단할 내장 도구", () => {
   const TOOL_REFUSALS: readonly [string, string][] = [
     [
       "mcp_tool",
-      "MCP 도구 이름은 차단할 도구에만 쓸 수 있습니다. 허용 목록에는 내장 도구만 넣으세요.",
+      "새로 열 도구로 수락할 수 있는 것은 내장 도구뿐입니다. MCP 도구 이름은 차단할 도구에 적으세요.",
     ],
     [
       "mcp_tool_name",

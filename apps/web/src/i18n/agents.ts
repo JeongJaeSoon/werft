@@ -205,6 +205,7 @@ export const agentsKo = {
   "agent.releases.access": "접근 변경",
   "agent.releases.accessNoRelease":
     "저장소와 GitHub 설정 변경입니다. 새 릴리스를 만들지 않습니다.",
+  "agent.releases.accessNoReleaseMcp": "새 릴리스를 만들지 않습니다.",
   "agent.releases.rollback": "되돌리기",
   "agent.releases.rollbackFor": "{release}(으)로 되돌리기",
   "agent.releases.rollingBack": "되돌리는 중…",
@@ -671,6 +672,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.access": "Access change",
   "agent.releases.accessNoRelease":
     "A change to repositories and GitHub settings. It makes no new release.",
+  "agent.releases.accessNoReleaseMcp": "It makes no new release.",
   "agent.releases.rollback": "Roll back",
   "agent.releases.rollbackFor": "Roll back to {release}",
   "agent.releases.rollingBack": "Rolling back…",
@@ -1134,6 +1136,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.access": "アクセスの変更",
   "agent.releases.accessNoRelease":
     "リポジトリと GitHub 設定の変更です。新しいリリースは作成しません。",
+  "agent.releases.accessNoReleaseMcp": "新しいリリースは作成しません。",
   "agent.releases.rollback": "元に戻す",
   "agent.releases.rollbackFor": "{release}に戻す",
   "agent.releases.rollingBack": "戻しています…",

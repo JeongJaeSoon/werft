@@ -107,7 +107,7 @@ const isMcpName = (name: string) => name.startsWith(MCP_TOOL_PREFIX);
 
 const choiceOf = (profile: ProfileSummary) => ({
   tools: profile.tools,
-  deny: profile.deny?.filter((name) => !isMcpName(name)) ?? null,
+  deny: profile.deny ?? null,
 });
 
 /**

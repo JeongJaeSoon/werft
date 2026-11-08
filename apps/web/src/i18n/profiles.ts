@@ -308,7 +308,7 @@ export const profilesKo = {
   "profiles.tools.baseNoCatalog":
     "바탕 프로필의 런타임 버전에는 지원 카탈로그가 없어 이 프로필을 차단목록으로 저장할 수 없습니다.",
   "profiles.tools.error.mcpTool":
-    "MCP 도구 이름은 차단할 도구에만 쓸 수 있습니다. 허용 목록에는 내장 도구만 넣으세요.",
+    "새로 열 도구로 수락할 수 있는 것은 내장 도구뿐입니다. MCP 도구 이름은 차단할 도구에 적으세요.",
   "profiles.tools.error.mcpToolName":
     "mcp__서버__도구 형식이 아닌 이름이 있습니다. 128자 이하, 공백과 제어 문자가 없어야 합니다.",
   "profiles.tools.error.githubServer":
@@ -667,7 +667,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.tools.baseNoCatalog":
     "No supported catalog lists the base profile's runtime version, so this profile cannot be saved as a block list.",
   "profiles.tools.error.mcpTool":
-    "An MCP tool name can only go in the tools to block. Put built-in tools only in an allow list.",
+    "Only built-in tools can be accepted as newly opened. Put an MCP tool name in the tools to block.",
   "profiles.tools.error.mcpToolName":
     "A name is not in the mcp__server__tool form. Use at most 128 characters, with no spaces or control characters.",
   "profiles.tools.error.githubServer":
@@ -1034,7 +1034,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.tools.baseNoCatalog":
     "ベースのプロファイルのランタイムバージョンにはサポートするカタログがないため、このプロファイルをブロックリストとして保存できません。",
   "profiles.tools.error.mcpTool":
-    "MCP ツール名はブロックするツールにだけ使えます。許可リストには組み込みツールだけを入れてください。",
+    "新たに開くツールとして受け入れられるのは組み込みツールだけです。MCP ツール名はブロックするツールに書いてください。",
   "profiles.tools.error.mcpToolName":
     "mcp__サーバー__ツール の形式でない名前があります。128 文字以内で、空白と制御文字は使えません。",
   "profiles.tools.error.githubServer":
