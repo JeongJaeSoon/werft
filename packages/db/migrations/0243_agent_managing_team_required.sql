@@ -4,17 +4,21 @@
 -- move the agents to the teams that own them.
 -- Writers wait, so no row can turn up without a team before SET NOT NULL.
 LOCK TABLE "agents" IN SHARE ROW EXCLUSIVE MODE;--> statement-breakpoint
+-- Marks the holding team, so its agents' workspace sessions stay as visible as
+-- they were without a team (axis B does not hide them).
+ALTER TABLE "member_teams" ADD COLUMN "holds_unassigned" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 WITH needing AS (
 	SELECT DISTINCT "workspace_id" FROM "agents" WHERE "managing_team_id" IS NULL
 ), holding AS (
-	INSERT INTO "member_teams" ("id", "workspace_id", "name")
+	INSERT INTO "member_teams" ("id", "workspace_id", "name", "holds_unassigned")
 	SELECT
 		gen_random_uuid(),
 		n."workspace_id",
 		CASE WHEN EXISTS (
 			SELECT 1 FROM "member_teams" t
 			WHERE t."workspace_id" = n."workspace_id" AND t."archived_at" IS NULL AND t."name" = 'Unassigned agents'
-		) THEN 'Unassigned agents (' || substr(gen_random_uuid()::text, 1, 8) || ')' ELSE 'Unassigned agents' END
+		) THEN 'Unassigned agents (' || substr(gen_random_uuid()::text, 1, 8) || ')' ELSE 'Unassigned agents' END,
+		true
 	FROM needing n
 	RETURNING "id", "workspace_id"
 )

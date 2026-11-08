@@ -344,9 +344,14 @@ export async function lockSessionReach(
   ) {
     // The share lock queues this behind a change of the managing team.
     const [agent] = await tx
-      .select({ id: agents.id, managingTeamId: agents.managingTeamId })
+      .select({
+        id: agents.id,
+        managingTeamId: agents.managingTeamId,
+        holdsUnassigned: memberTeams.holdsUnassigned,
+      })
       .from(agents)
       .innerJoin(agentReleases, eq(agentReleases.agentId, agents.id))
+      .innerJoin(memberTeams, eq(memberTeams.id, agents.managingTeamId))
       .where(
         and(
           eq(agentReleases.id, session.agentReleaseId),
@@ -357,7 +362,13 @@ export async function lockSessionReach(
       .for("share", { of: agents });
     agentId = agent?.id ?? null;
     managingTeamId = agent?.managingTeamId ?? null;
-    if (managingTeamId === null || same(agentId, requester.keyAgentId)) {
+    // The holding team of migration 0243 does not limit who sees its agents'
+    // workspace sessions, as sessionVisibleTo has it.
+    if (
+      managingTeamId === null ||
+      agent?.holdsUnassigned ||
+      same(agentId, requester.keyAgentId)
+    ) {
       gated = false;
     }
   }

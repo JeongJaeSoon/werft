@@ -301,6 +301,40 @@ integration("agent access settings on PostgreSQL", () => {
   };
   const insideOnly = { ...everyone, outsider: false };
 
+  test("the holding team of 0243 keeps its agents' workspace sessions as visible as before, until they move to a real team", async () => {
+    const c = await cast();
+    const holding = randomUUID();
+    await db.insert(memberTeams).values({
+      id: holding,
+      workspaceId: c.ws,
+      name: "Unassigned agents",
+      holdsUnassigned: true,
+    });
+    await db
+      .update(agents)
+      .set({ managingTeamId: holding })
+      .where(eq(agents.id, c.agentId));
+    await setVisibility(c.ws, "managing_team");
+    expect(await whoSees(c)).toEqual(everyone);
+    expect(await shares().get(c.ws, c.id)).toMatchObject({
+      scope: "workspace",
+      audienceLimited: false,
+    });
+    expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe("ok");
+
+    await db
+      .update(agents)
+      .set({ managingTeamId: c.managing })
+      .where(eq(agents.id, c.agentId));
+    expect(await whoSees(c)).toEqual(insideOnly);
+    expect(await shares().get(c.ws, c.id)).toMatchObject({
+      audienceLimited: true,
+    });
+    expect(await reaches(c.ws, c.id, viewer(c.outsider), "member")).toBe(
+      "not_found",
+    );
+  });
+
   test("naming a managing team takes the agent's workspace sessions, old ones too, from those outside it", async () => {
     const c = await cast();
     // The holder is outside the agent too, yet keeps their own session.

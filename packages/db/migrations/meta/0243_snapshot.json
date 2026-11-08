@@ -6298,6 +6298,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 1
+        },
+        "holds_unassigned": {
+          "name": "holds_unassigned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {

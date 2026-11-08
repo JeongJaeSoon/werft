@@ -309,6 +309,29 @@ integration("0243 gives every agent a managing team", () => {
           [holding?.id],
         ),
       ).toEqual([{ n: 0 }]);
+      // Only the holding team is flagged, so only its agents keep their
+      // workspace sessions visible past axis B.
+      expect(
+        await query(
+          "SELECT id FROM member_teams WHERE holds_unassigned = true",
+        ),
+      ).toEqual([{ id: holding?.id }]);
+      // Admin links stay: nothing about who administers an agent changed.
+      expect(
+        await query(
+          "SELECT agent_id, team_id FROM agent_admin_teams ORDER BY agent_id, team_id",
+        ),
+      ).toEqual(
+        [
+          { agent_id: viaAdminTeams, team_id: newer },
+          { agent_id: viaAdminTeams, team_id: older },
+          { agent_id: onlyArchived, team_id: gone },
+        ].sort((a, b) =>
+          a.agent_id === b.agent_id
+            ? a.team_id.localeCompare(b.team_id)
+            : a.agent_id.localeCompare(b.agent_id),
+        ),
+      );
       // No agent was deleted, and the column refuses null from here on.
       expect(await query("SELECT count(*)::int AS n FROM agents")).toEqual([
         { n: 5 },

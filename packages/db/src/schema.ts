@@ -3458,6 +3458,12 @@ export const memberTeams = pgTable(
       .defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     revision: integer().notNull().default(1),
+    /**
+     * Set only by migration 0243 on the team that took the agents which had
+     * no managing team. Such agents keep the visibility they had: axis B does
+     * not hide their workspace sessions, until an agent moves to a real team.
+     */
+    holdsUnassigned: boolean("holds_unassigned").notNull().default(false),
   },
   (table) => [
     unique("member_teams_workspace_id_key").on(table.workspaceId, table.id),

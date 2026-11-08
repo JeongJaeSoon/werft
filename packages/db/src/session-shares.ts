@@ -89,9 +89,11 @@ function startedBy(viewer: SessionViewer): SQL[] {
 const anyOf = (branches: SQL[]): SQL =>
   branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` OR `)})`;
 
-// The session has an agent, and so a managing team. Qualified by hand: agent_releases
-// and agents have ids of their own.
-const managedAgentSession = sql`EXISTS (SELECT 1 FROM ${agentReleases} mar JOIN ${agents} ma ON ma.id = mar.agent_id WHERE mar.id = ${sessions}.agent_release_id)`;
+// The session has an agent whose managing team limits its audience: every team
+// does, save the one migration 0243 made to hold agents that had none, whose
+// agents stay as visible as before. Qualified by hand: agent_releases, agents
+// and member_teams have ids of their own.
+const managedAgentSession = sql`EXISTS (SELECT 1 FROM ${agentReleases} mar JOIN ${agents} ma ON ma.id = mar.agent_id JOIN ${memberTeams} mt ON mt.id = ma.managing_team_id WHERE mar.id = ${sessions}.agent_release_id AND NOT mt.holds_unassigned)`;
 
 // The viewer is inside the session's agent (agent-rbac (b)): an agent key
 // of that agent, or a person inside it, read at this decision.
