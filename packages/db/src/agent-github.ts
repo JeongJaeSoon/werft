@@ -1,8 +1,21 @@
 import { randomUUID } from "node:crypto";
-import type { AgentGitHubStore } from "@werft-ai/platform";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  agentGitHubSettingsSchema,
+  GITHUB_FEATURES_NONE,
+} from "@werft-ai/contracts";
+import type {
+  AgentGitHubStore,
+  SetAgentGitHubRepositoryResult,
+} from "@werft-ai/platform";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { lockAgentToChange } from "./agents.ts";
+import {
+  createPostgresCatalogRepositoryStore,
+  lockCatalogWrites,
+} from "./catalog-repositories.ts";
 import { receiptActorOf } from "./control-shared.ts";
+import { lockGitHubApps } from "./github-apps.ts";
+import { createPostgresGitHubPinStore } from "./github-pins.ts";
 import {
   agentGitHubSettingsOf,
   ensureRepositoryCeilingWhenUnset,
@@ -68,7 +81,83 @@ const sorted = (value: unknown): unknown =>
 const canonical = (row: SettingsValues) =>
   JSON.stringify(sorted(valuesOf(row)));
 
+/** Thrown inside a transaction to roll it back and answer with `result`. */
+class Abort extends Error {
+  constructor(readonly result: SetAgentGitHubRepositoryResult) {
+    super(result.outcome);
+  }
+}
+
+type RepositorySettings = {
+  repositories: string[];
+  pushApproval: boolean;
+  features: typeof agentGitHubSettings.$inferInsert.features;
+  actionsAllow: unknown[];
+  startRepositoryId: string | null;
+  pushAttached: string | null;
+};
+
+// The columns were validated when they were written.
+const settingsOf = (row: SettingsValues): RepositorySettings => ({
+  repositories: Array.isArray(row.repositories)
+    ? row.repositories.filter((id): id is string => typeof id === "string")
+    : [],
+  pushApproval: row.pushApproval,
+  features: row.features as RepositorySettings["features"],
+  actionsAllow: Array.isArray(row.actionsAllow) ? row.actionsAllow : [],
+  startRepositoryId: row.startRepositoryId,
+  pushAttached: row.pushAttached,
+});
+
+/**
+ * What an agent with no settings row starts from: its active release's GitHub
+ * pins, as the tab shows them, read again under the agent's lock. Null with
+ * no active release or pins this image cannot read; a release with no pin
+ * starts from the tab's defaults for it.
+ */
+async function seedOf(
+  tx: Database,
+  releaseId: string | null,
+): Promise<RepositorySettings | null> {
+  if (releaseId === null) return null;
+  const [release] = await tx
+    .select({
+      github: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+      repositoryId: agentReleases.repositoryId,
+    })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId));
+  if (release === undefined) return null;
+  const github =
+    release.github === null || release.github === undefined
+      ? {
+          repositories: [] as string[],
+          push_approval: false,
+          features: { ...GITHUB_FEATURES_NONE },
+          actions_allow: [] as unknown[],
+        }
+      : agentGitHubSettingsSchema.safeParse(release.github).data;
+  if (github === undefined) return null;
+  return {
+    repositories: [...github.repositories],
+    pushApproval: github.push_approval,
+    features: github.features,
+    actionsAllow: github.actions_allow,
+    // The row would otherwise lose the release's repository, which a session
+    // naming none starts on.
+    startRepositoryId:
+      release.repositoryId !== null &&
+      github.repositories.includes(release.repositoryId)
+        ? release.repositoryId
+        : null,
+    // As a first save of settings writes it.
+    pushAttached: "allow",
+  };
+}
+
 export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
+  const catalogStore = createPostgresCatalogRepositoryStore(db);
+  const pinStore = createPostgresGitHubPinStore(db);
   return {
     settings: (agentId) => agentGitHubSettingsOf(db, agentId),
     repositoryCeiling: (workspaceId) =>
@@ -230,6 +319,236 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         });
         return { outcome: "saved" as const, revision, receiptId };
       });
+    },
+
+    async setRepository(input) {
+      const agentId = input.agentId.toLowerCase();
+      try {
+        return await db.transaction(async (tx) => {
+          // Lock order, which every other writer of these also follows:
+          // catalog writes, the App lock, then the agent, its settings and the
+          // workspace's settings. Profile backfills take the catalog lock
+          // before updating agents, and App changes take theirs before the
+          // workspace's settings.
+          const pick = input.target.kind === "github" ? input.target : null;
+          if (pick !== null) {
+            await lockCatalogWrites(tx);
+            if (pick.pin !== null) await lockGitHubApps(tx, input.workspaceId);
+          }
+          const locked = await lockAgentToChange(tx, input, agentId);
+          if ("outcome" in locked) return locked;
+          const [held] = await tx
+            .select()
+            .from(agentGitHubSettings)
+            .where(eq(agentGitHubSettings.agentId, agentId))
+            .for("update");
+          const heldRevision = held?.revision ?? null;
+          if (
+            input.expectedRevision !== undefined &&
+            heldRevision !== input.expectedRevision
+          ) {
+            return { outcome: "conflict" as const, revision: heldRevision };
+          }
+          const ceiling = await ensureRepositoryCeilingWhenUnset(
+            tx,
+            input.workspaceId,
+          );
+
+          let repository: { id: string; owner: string; name: string };
+          let githubRepositoryId: number | null;
+          let authKind: string;
+          let catalogReceiptId: string | null = null;
+          if (pick === null) {
+            const [row] = await tx
+              .select({
+                id: catalogRepositories.id,
+                owner: catalogRepositories.owner,
+                name: catalogRepositories.name,
+                githubRepositoryId: catalogRepositories.githubRepositoryId,
+                authKind: catalogRepositories.authKind,
+              })
+              .from(catalogRepositories)
+              .where(
+                and(
+                  eq(
+                    catalogRepositories.id,
+                    input.target.kind === "catalog" ? input.target.id : "",
+                  ),
+                  isNull(catalogRepositories.removedAt),
+                ),
+              );
+            if (row === undefined)
+              throw new Abort({ outcome: "repository_not_found" });
+            ({ authKind, githubRepositoryId } = row);
+            repository = row;
+          } else {
+            const actor = receiptActorOf(input.principal);
+            // A pick is made by a person; nobody behind the principal means
+            // the right it rests on is gone.
+            if (actor === null) throw new Abort({ outcome: "actor_inactive" });
+            const resolved = await catalogStore.resolve(
+              {
+                workspaceId: input.workspaceId,
+                userId: input.userId,
+                actor,
+                requestId: null,
+                agentId,
+                managerRoles: input.managerRoles,
+                ...pick.resolve,
+              },
+              tx,
+            );
+            if (resolved.outcome === "name_held") {
+              throw new Abort({ outcome: "name_held", id: resolved.id });
+            }
+            if (resolved.outcome !== "resolved") {
+              throw new Abort({ outcome: resolved.outcome });
+            }
+            // `resolve` only matches the console App's rows.
+            authKind = "github_app";
+            githubRepositoryId = resolved.repository.github_repository_id;
+            repository = resolved.repository;
+            if (resolved.changed) catalogReceiptId = pick.resolve.receiptId;
+          }
+
+          const current = held === undefined ? null : settingsOf(held);
+          const base =
+            current ?? (await seedOf(tx, locked.agent.activeReleaseId));
+          if (base === null) throw new Abort({ outcome: "seed_unavailable" });
+          const has = base.repositories.includes(repository.id);
+          if (input.enabled && !has) {
+            input.check(
+              {
+                id: repository.id,
+                authKind,
+                via: pick === null ? "catalog" : "github",
+              },
+              ceiling,
+            );
+          }
+          const repositories = input.enabled
+            ? has
+              ? base.repositories
+              : [...base.repositories, repository.id]
+            : base.repositories.filter((id) => id !== repository.id);
+          const next = {
+            repositories,
+            pushApproval: base.pushApproval,
+            features: base.features,
+            actionsAllow: base.actionsAllow,
+            // The CHECK `repositories ? start_repository_id`.
+            startRepositoryId:
+              base.startRepositoryId !== null &&
+              repositories.includes(base.startRepositoryId)
+                ? base.startRepositoryId
+                : null,
+            pushAttached: base.pushAttached,
+          };
+
+          let revision: number;
+          let receiptId: string | null = null;
+          if (held !== undefined && has === input.enabled) {
+            revision = held.revision;
+          } else {
+            if (held === undefined) {
+              const [inserted] = await tx
+                .insert(agentGitHubSettings)
+                .values({
+                  agentId,
+                  workspaceId: input.workspaceId,
+                  ...next,
+                  revision: 1,
+                  updatedBy: input.userId,
+                })
+                .onConflictDoNothing({ target: agentGitHubSettings.agentId })
+                .returning({ revision: agentGitHubSettings.revision });
+              if (inserted === undefined) {
+                throw new Abort({ outcome: "conflict", revision: null });
+              }
+              revision = inserted.revision;
+            } else {
+              const [updated] = await tx
+                .update(agentGitHubSettings)
+                .set({
+                  ...next,
+                  revision: sql`${agentGitHubSettings.revision} + 1`,
+                  updatedBy: input.userId,
+                  updatedAt: sql`now()`,
+                })
+                .where(
+                  and(
+                    eq(agentGitHubSettings.agentId, agentId),
+                    eq(agentGitHubSettings.revision, held.revision),
+                  ),
+                )
+                .returning({ revision: agentGitHubSettings.revision });
+              if (updated === undefined) {
+                throw new Abort({
+                  outcome: "conflict",
+                  revision: held.revision,
+                });
+              }
+              revision = updated.revision;
+            }
+            receiptId = randomUUID();
+            await tx.insert(receipts).values({
+              id: receiptId,
+              ownerId: input.principal.ownerId,
+              actor: receiptActorOf(input.principal),
+              operation: "set_agent_github",
+              targetRef: {
+                resource: { kind: "agent", id: agentId },
+                workspace_id: input.workspaceId,
+              },
+              status: "succeeded",
+              result: {
+                agent_id: agentId,
+                change: "repository",
+                agent_settings_revision: revision,
+                repository_id: repository.id,
+                repository: `${repository.owner}/${repository.name}`,
+                github_repository_id: githubRepositoryId,
+                enabled: input.enabled,
+                before: held === undefined ? null : valuesOf(held),
+                after: valuesOf(next),
+              },
+            });
+          }
+
+          const pinActor = receiptActorOf(input.principal);
+          if (pick?.pin != null && pinActor !== null) {
+            await pinStore.pinFirst(
+              {
+                repositoryId: repository.id,
+                role: "author",
+                connectionId: pick.pin.connectionId,
+                appId: pick.pin.appId,
+                pinnedBy: "selection",
+                audit: {
+                  ownerId: input.workspaceId,
+                  actor: pinActor,
+                  receiptId: pick.pin.receiptId,
+                },
+              },
+              tx,
+            );
+          }
+          return {
+            outcome: "saved" as const,
+            revision,
+            receiptId: receiptId ?? catalogReceiptId,
+            repository: {
+              id: repository.id,
+              owner: repository.owner,
+              name: repository.name,
+            },
+            catalogChanged: catalogReceiptId !== null,
+          };
+        });
+      } catch (error) {
+        if (error instanceof Abort) return error.result;
+        throw error;
+      }
     },
 
     async activity(workspaceId, agentId, viewer, limit) {

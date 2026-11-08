@@ -188,6 +188,8 @@ import {
   pushRequestSchema,
   putAgentGitHubEnabledRequestSchema,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubRepositoryAccessRequestSchema,
+  putAgentGitHubRepositoryAccessResponseSchema,
   putAgentGitHubSettingsRequestSchema,
   putAgentGitHubSettingsResponseSchema,
   putAgentMcpSettingsRequestSchema,
@@ -385,6 +387,8 @@ const requestComponents = {
   GitHubLinkCallbackRequest: githubLinkCallbackRequestSchema,
   PutAgentGitHubEnabledRequest: putAgentGitHubEnabledRequestSchema,
   PutAgentGitHubSettingsRequest: putAgentGitHubSettingsRequestSchema,
+  PutAgentGitHubRepositoryAccessRequest:
+    putAgentGitHubRepositoryAccessRequestSchema,
   PutAgentMcpSettingsRequest: putAgentMcpSettingsRequestSchema,
   BootstrapRequest: bootstrapRequestSchema,
   LoginRequest: loginRequestSchema,
@@ -498,6 +502,8 @@ const responseComponents = {
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
   PutAgentGitHubSettingsResponse: putAgentGitHubSettingsResponseSchema,
+  PutAgentGitHubRepositoryAccessResponse:
+    putAgentGitHubRepositoryAccessResponseSchema,
   AgentMcpResponse: agentMcpResponseSchema,
   PutAgentMcpSettingsResponse: putAgentMcpSettingsResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
@@ -5199,6 +5205,39 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/github/repository-access",
+    operationId: "putAgentGitHubRepositoryAccess",
+    tag: "Agents",
+    summary: "Turn one GitHub repository on or off for the agent",
+    description:
+      "One toggle, one change, no release: a new session reads it at once, and turning a repository off reaches running sessions too. `repository` is a `ref` from `GET …/github` (`selected_repositories`, `options.repositories`) to turn a repository the catalog holds on or off, or `installation_id` with `github_repository_id` from `GET …/github/repositories` to turn on one the catalog may not hold yet; a repository is turned off by its `ref` only. The catalog row (added, or moved to a new name after a rename on GitHub), the settings, the receipts and the author App pin are written in one transaction, so a refusal or a failure anywhere leaves none of them. The change is applied to the row as it stands, so toggles of other repositories are kept and the last one of a repository stays. `expected_revision` is optional: left out, nothing is compared; given (null when there was no row) and different, the answer is 409 `REVISION_CONFLICT` with `details.revision`, and the caller reads `GET …/github` again. Turning off the repository sessions start on clears `start_repository_id`. An agent with no settings row starts from its active release's GitHub pins, read under the agent's lock; with no active release, or pins this image cannot read, that is 409 `REVISION_CONFLICT` with `reason_code: settings_seed_unavailable`. 400 `reason_code`: `invalid_ref`, `repository_not_found`, `repository_not_allowed` (the workspace's repository ceiling; a repository picked from an installation also needs a ceiling that runs on the App's repositories), `app_required`, `name_held` (another row has that name), `no_author_app` or `not_installed` (as `POST …/github/repositories`). Writes a `set_agent_github` receipt with `result.change = \"repository\"` when the settings changed; `receipt_id` is null when the repository already was in that state. Agent managers with a web session only; API keys are refused.",
+    auth: "session",
+    body: "PutAgentGitHubRepositoryAccessRequest",
+    requestExample: {
+      repository: { ref: "r1.d2Vyc3QtYXBw" },
+      enabled: true,
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentGitHubRepositoryAccessResponse",
+      description: "The repository is in the requested state.",
+      example: {
+        settings_revision: 4,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        enabled: true,
+        repository: {
+          ref: "r1.d2Vyc3QtYXBw",
+          repository: "octo/werft-app",
+          private: null,
+        },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 502, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"], 502: ["GITHUB_UNAVAILABLE"] },
     idempotent: false,
   },
   {
