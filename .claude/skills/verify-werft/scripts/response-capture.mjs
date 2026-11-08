@@ -62,11 +62,16 @@ function valueEnd(s, i) {
     return s.length;
   }
   if (open === "[" || open === "{") {
-    let depth = 0;
+    const closers = [];
     for (let j = i; j < s.length; j++) {
       if (s[j] === '"') j = valueEnd(s, j) - 1;
-      else if (s[j] === "[" || s[j] === "{") depth++;
-      else if ((s[j] === "]" || s[j] === "}") && --depth === 0) return j + 1;
+      else if (s[j] === "[") closers.push("]");
+      else if (s[j] === "{") closers.push("}");
+      else if (s[j] === "]" || s[j] === "}") {
+        // A closer of the wrong kind means the text is not JSON: hide the rest.
+        if (closers.pop() !== s[j]) return s.length;
+        if (closers.length === 0) return j + 1;
+      }
     }
     return s.length;
   }
@@ -77,16 +82,27 @@ function valueEnd(s, i) {
 // JSON that sits inside other text, or a body that is not valid JSON: find
 // each `"key":` and hide the value after a secret key, whatever its shape.
 function hideEmbedded(text) {
-  const keyAt = /("(?:[^"\\]|\\.)*")(\s*:\s*)/g;
+  // A scan, not a regex: every string is walked once, so long runs of quotes
+  // and backslashes stay linear.
+  const colon = /\s*:\s*/y;
   let out = "";
   let last = 0;
-  for (let m = keyAt.exec(text); m; m = keyAt.exec(text)) {
-    if (!SECRET_KEY.test(jsonText(m[1]))) continue;
-    const start = m.index + m[0].length;
+  for (let i = text.indexOf('"'); i !== -1 && i < text.length; ) {
+    const stringEnd = valueEnd(text, i);
+    colon.lastIndex = stringEnd;
+    if (!colon.test(text)) {
+      i = text.indexOf('"', stringEnd);
+      continue;
+    }
+    const start = colon.lastIndex;
+    if (!SECRET_KEY.test(jsonText(text.slice(i, stringEnd)))) {
+      i = text.indexOf('"', start);
+      continue;
+    }
     const end = valueEnd(text, start);
     out += `${text.slice(last, start)}"(hidden)"`;
     last = end;
-    keyAt.lastIndex = end;
+    i = text.indexOf('"', end);
   }
   return out + text.slice(last);
 }
@@ -124,12 +140,22 @@ export function shortBody(text, limit = BODY_LIMIT) {
 export function safeUrl(raw) {
   try {
     const u = new URL(raw);
-    // Decode first: /in%76ite/<token> is the same path as /invite/<token>.
-    let path = u.pathname;
-    try {
-      path = decodeURIComponent(path);
-    } catch {}
-    return `${maskBody(path)}${u.search ? "?(query hidden)" : ""}`;
+    // Decide per segment, decoded on its own: /in%76ite/<token> is the invite
+    // path too, and one bad escape elsewhere must not hide that. Nothing after
+    // an invite segment is printed.
+    const segments = u.pathname.split("/");
+    const at = segments.findIndex((segment) => {
+      try {
+        return decodeURIComponent(segment).toLowerCase() === "invite";
+      } catch {
+        return false;
+      }
+    });
+    const path =
+      at === -1
+        ? maskBody(u.pathname)
+        : `${segments.slice(0, at + 1).join("/")}/(token)`;
+    return `${path}${u.search ? "?(query hidden)" : ""}`;
   } catch {
     return "(unparsable url)";
   }

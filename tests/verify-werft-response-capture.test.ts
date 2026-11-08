@@ -91,6 +91,16 @@ describe("maskBody: shapes a first version leaked", () => {
     expect(leaks('Cookie: a="SENTINEL')).toBe(false);
   });
 
+  test("mismatched brackets hide the rest instead of ending early", () => {
+    expect(leaks('prefix {"token":[}SENTINEL]}')).toBe(false);
+  });
+
+  test("a long run of escaped quotes is scanned in linear time", () => {
+    const started = performance.now();
+    maskBody('\\"'.repeat(100_000));
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("keeps the fields after a hidden one in embedded JSON", () => {
     expect(maskBody('x {"token":"s","error":"bad request"}')).toContain(
       '"error":"bad request"',
@@ -123,6 +133,30 @@ describe("maskBody: shapes a first version leaked", () => {
       body: "missing",
     });
     expect(encoded).not.toContain("SENTINEL");
+    for (const path of [
+      "/invite/PREFIX%20SENTINEL",
+      "/invite/a%22SENTINEL",
+      "/in%76ite/SENTINEL%ZZ",
+    ])
+      expect(
+        formatCapture({
+          method: "GET",
+          url: `http://h${path}`,
+          status: 404,
+          body: "",
+        }),
+      ).not.toContain("SENTINEL");
+  });
+
+  test("a non-invite path is printed as it is", () => {
+    expect(
+      formatCapture({
+        method: "GET",
+        url: "http://h/v1/members?x=1",
+        status: 500,
+        body: "",
+      }),
+    ).toContain("GET /v1/members?(query hidden) -> 500");
   });
 });
 
