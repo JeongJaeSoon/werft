@@ -127,7 +127,7 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
 
   // An agent running a release whose card names `docs` and `docs-key`, with
   // the pins a release writes; raw, so the stored shape is the one under test.
-  async function setup() {
+  async function setup(options: { snapshot?: Record<string, unknown> } = {}) {
     const workspaceId = randomUUID();
     const slug = `ws-${workspaceId.slice(0, 8)}`;
     await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
@@ -167,7 +167,8 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       cardSha256: "0".repeat(64),
       runtimeProfileId: "coding",
       profileDigest: "digest",
-      runtimeConfigSnapshot: {},
+      // A release is immutable once written, so a test names its snapshot here.
+      runtimeConfigSnapshot: options.snapshot ?? {},
       effectiveTools: { tools: [], mcp: [READ] },
       policyPins: {
         tools: {
@@ -405,11 +406,9 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
   });
 
   test("a tool the active release's snapshot blocks cannot be added; one it leaves open can; a held one can be narrowed past", async () => {
-    const { agentId, releaseId, owner } = await setup();
-    await db
-      .update(agentReleases)
-      .set({ runtimeConfigSnapshot: { mcp_deny: [SEARCH] } })
-      .where(eq(agentReleases.id, releaseId));
+    const { agentId, owner } = await setup({
+      snapshot: { mcp_deny: [SEARCH] },
+    });
     expect(await refusal(service().put(owner, agentId, request(null)))).toBe(
       "BAD_REQUEST:mcp_tool_denied",
     );
