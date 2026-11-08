@@ -19,22 +19,36 @@ export interface AppProps {
 
 // The parts set their own underline; the colour defaults to the link colour.
 const renderLink: RenderLink = ({
+  to,
   id,
   children,
   className,
   title,
   "aria-label": label,
-}) => (
-  <Link
-    to="/sessions/$id"
-    params={{ id }}
-    className={cn("text-link", className)}
-    title={title}
-    aria-label={label}
-  >
-    {children}
-  </Link>
-);
+}) =>
+  to === "agent" ? (
+    <Link
+      to="/agents/$id"
+      params={{ id }}
+      // A parent path counts as active by default; an agent link names no tab.
+      activeOptions={{ exact: true }}
+      className={cn("text-link", className)}
+      title={title}
+      aria-label={label}
+    >
+      {children}
+    </Link>
+  ) : (
+    <Link
+      to="/sessions/$id"
+      params={{ id }}
+      className={cn("text-link", className)}
+      title={title}
+      aria-label={label}
+    >
+      {children}
+    </Link>
+  );
 
 function Platform({
   services,

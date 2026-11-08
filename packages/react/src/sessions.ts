@@ -27,6 +27,7 @@ import {
   type TerminateSessionResponse,
 } from "@werft-ai/contracts";
 import {
+  agentQuery,
   agentSessionListsFilter,
   pendingRequestsQuery,
   sessionGithubWorkQuery,
@@ -51,6 +52,19 @@ const EVENT_WINDOW = 200;
 export function useSessions() {
   const { client } = useWerft();
   return useInfiniteQuery(sessionsQuery(client));
+}
+
+/**
+ * Whether the viewer can open the agent's page: the read succeeds. A deleted
+ * agent (404) or one the viewer may not read (403) leaves it unanswered, and
+ * so does a read still in flight.
+ */
+export function useAgentOpenable(id: string | undefined): boolean {
+  const { client } = useWerft();
+  return useQuery({
+    ...agentQuery(client, id ?? ""),
+    enabled: id !== undefined,
+  }).isSuccess;
 }
 
 export function useSession(id: string) {
