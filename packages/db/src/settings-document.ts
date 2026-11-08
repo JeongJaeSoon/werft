@@ -216,8 +216,12 @@ function auditOf(add: SettingsImportAdd): Record<string, unknown> {
       };
     case "repository": {
       const entry: CatalogRepositoryConfig = add.entry;
+      const { owner, name } = repositoryNameOf(entry);
       return {
         repository_id: add.id,
+        repository: `${owner}/${name}`,
+        // A row of this document has no GitHub id until a pick fills it.
+        github_repository_id: null,
         url: entry.url,
         branch: entry.branch,
         auth_kind: repositoryAuthKindOf(entry),
@@ -319,6 +323,52 @@ export function createPostgresSettingsDocumentStore(
         repository_id: string;
         via: "primary" | "attached" | "policy";
       }>(result);
+    },
+
+    async connectionUse({ profileIds, connectionId }) {
+      // No profile to look for makes both counts zero without a query.
+      const among = (column: ReturnType<typeof sql.raw>) =>
+        profileIds.length === 0
+          ? sql`false`
+          : sql`${column} IN (${sql.join(
+              profileIds.map((id) => sql`${id}`),
+              sql`, `,
+            )})`;
+      const result = await db.execute<{
+        agents: string;
+        sessions: string;
+        judge_named: boolean;
+      }>(sql`
+        SELECT
+          (SELECT count(*) FROM agents a
+             JOIN agent_releases r
+               ON r.agent_id = a.id AND r.id = a.active_release_id
+            WHERE a.status = 'active' AND ${among(sql.raw("r.runtime_profile_id"))}
+          ) AS agents,
+          -- A bound attempt runs the profile it claimed, so a session moved
+          -- onto another profile since is still counted under the old one.
+          (SELECT count(*) FROM sessions s
+            WHERE s.status NOT IN ('failed', 'stopped')
+              AND (${among(sql.raw("s.profile_id"))}
+                OR EXISTS (
+                  SELECT 1 FROM attempts t
+                   WHERE t.session_id = s.id AND t.ended_at IS NULL
+                     AND ${among(sql.raw("t.profile_id"))}))
+          ) AS sessions,
+          EXISTS (
+            SELECT 1 FROM workspaces w
+             WHERE w.settings -> 'achievement_judge' ->> 'connection_id' = ${connectionId}
+          ) AS judge_named`);
+      const [row] = rowsOf<{
+        agents: string;
+        sessions: string;
+        judge_named: boolean;
+      }>(result);
+      return {
+        agents: Number(row?.agents ?? 0),
+        sessions: Number(row?.sessions ?? 0),
+        judgeNamed: row?.judge_named === true,
+      };
     },
 
     importEntries(entries, options) {

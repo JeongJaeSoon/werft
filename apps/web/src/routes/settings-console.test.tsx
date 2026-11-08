@@ -282,12 +282,12 @@ describe("모델 연결", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("바꾸려면 새 id로 만드세요");
     // Anthropic takes an API key only.
-    expect(within(dialog).queryByLabelText("인증 방식")).toBeNull();
+    expect(within(dialog).queryByLabelText("인증 방식") === null).toBe(true);
     await user.type(within(dialog).getByLabelText("id"), "litellm-proxy");
     await user.selectOptions(within(dialog).getByLabelText("종류"), "litellm");
     const endpoint = within(dialog).getByLabelText("엔드포인트");
     await user.type(endpoint, "https://api.anthropic.com");
-    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
     await user.clear(endpoint);
     await user.type(endpoint, "https://llm.internal:8443/v1");
     expect(within(dialog).getByRole("status").textContent).toContain(
@@ -327,7 +327,7 @@ describe("모델 연결", () => {
       within(dialog).getByLabelText("엔드포인트"),
       "https://elsewhere.example.com",
     );
-    expect(within(dialog).queryByRole("status")).toBeNull();
+    expect(within(dialog).queryByRole("status") === null).toBe(true);
   });
 
   test("a new value and a disable each go to their own route; disabling asks first", async () => {
@@ -352,7 +352,9 @@ describe("모델 연결", () => {
       within(table).getByRole("button", { name: "console-key 사용 중지" }),
     );
     const confirm = await screen.findByRole("dialog");
-    expect(confirm.textContent).toContain("되돌릴 수 없습니다");
+    expect(confirm.textContent).toContain(
+      "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+    );
     expect(writes(api.calls).length).toBe(1);
     await user.click(
       within(confirm).getByRole("button", { name: "사용 중지" }),
@@ -362,6 +364,221 @@ describe("모델 연결", () => {
       [`${CONNECTIONS}/console-key/credential`, { value: "rotated-key" }],
       [`${CONNECTIONS}/console-key/disable`, null],
     ]);
+  });
+
+  describe("disabling reads what it would leave without a model", () => {
+    const IMPACT = `${CONNECTIONS}/console-key/impact`;
+    const DISABLE = `${CONNECTIONS}/console-key/disable`;
+    const counts = (over: Record<string, unknown> = {}) => ({
+      id: "console-key",
+      profile_count: 0,
+      agent_count: 0,
+      session_count: 0,
+      judge_used: false,
+      ...over,
+    });
+    const impactCalls = (calls: readonly { path: string }[]) =>
+      calls.filter((call) => call.path.endsWith("/impact"));
+
+    async function openDisable(
+      impact: () => Response | Promise<Response>,
+      validate: "strict" | "warn" = "strict",
+    ) {
+      const rendered = renderAt(
+        CONNECTIONS_PAGE,
+        {
+          ...routes(),
+          [`GET ${IMPACT}`]: impact,
+          [`POST ${DISABLE}`]: () => json(200, CHANGE("console-key")),
+        },
+        "ko",
+        validate,
+      );
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      // Nothing is read for a table nobody is disabling from.
+      expect(impactCalls(rendered.api.calls)).toEqual([]);
+      await user.click(
+        within(table).getByRole("button", { name: "console-key 사용 중지" }),
+      );
+      const confirm = await screen.findByRole("dialog");
+      return { ...rendered, user, table, confirm };
+    }
+
+    test("a count above zero warns with each number, and disabling still goes through", async () => {
+      const { api, user, confirm } = await openDisable(() =>
+        json(
+          200,
+          counts({ profile_count: 2, agent_count: 3, session_count: 1 }),
+        ),
+      );
+      const warning = await within(confirm).findByRole("alert");
+      expect(warning.textContent).toContain("거절되거나 끊길 수 있습니다");
+      expect(warning.textContent).toContain("프로필: 2개");
+      expect(warning.textContent).toContain("에이전트: 3개");
+      expect(warning.textContent).toContain("끝나지 않은 세션: 1개");
+      expect(warning.textContent).not.toContain("성과 판정");
+      expect(impactCalls(api.calls).length).toBe(1);
+      await user.click(
+        within(confirm).getByRole("button", { name: "사용 중지" }),
+      );
+      await screen.findByText("console-key를 사용 중지했습니다.");
+      expect(writes(api.calls).map((call) => call.path)).toEqual([DISABLE]);
+    });
+
+    // A retired version still runs what was started on it, so the profile
+    // count alone cannot decide whether to warn.
+    for (const [name, over, line] of [
+      ["agents", { agent_count: 2 }, "에이전트: 2개"],
+      ["sessions", { session_count: 1 }, "끝나지 않은 세션: 1개"],
+    ] as const) {
+      test(`${name} alone warn, with no profile counted`, async () => {
+        const { confirm } = await openDisable(() => json(200, counts(over)));
+        const warning = await within(confirm).findByRole("alert");
+        expect(warning.textContent).not.toContain("프로필:");
+        expect(warning.textContent).toContain(line);
+      });
+    }
+
+    test("a refetch that fails is a failed check, not the numbers of the read before it", async () => {
+      let reads = 0;
+      const { api, confirm } = await openDisable(() => {
+        reads += 1;
+        return reads === 1
+          ? json(200, counts({ profile_count: 4 }))
+          : json(500, { code: "INTERNAL", message: "boom", details: null });
+      });
+      await within(confirm).findByRole("alert");
+      // Back on the window: React Query reads the stale count again.
+      await act(async () => {
+        window.dispatchEvent(new Event("visibilitychange"));
+      });
+      await within(confirm).findByText(/확인하지 못했습니다/);
+      expect(impactCalls(api.calls).length).toBe(2);
+      expect(within(confirm).queryByText(/프로필: 4개/) === null).toBe(true);
+    });
+
+    test("a judge setting alone warns, without a word about a judgment stopping", async () => {
+      const { confirm } = await openDisable(() =>
+        json(200, counts({ judge_used: true })),
+      );
+      const warning = await within(confirm).findByRole("alert");
+      expect(warning.textContent).toContain(
+        "성과 판정 설정이 이 연결을 가리키고 있습니다.",
+      );
+      expect(warning.textContent).not.toContain("프로필:");
+      expect(warning.textContent).not.toContain("모델 호출이 거절되거나");
+    });
+
+    test("a judge setting beside affected profiles keeps both lines", async () => {
+      const { confirm } = await openDisable(() =>
+        json(200, counts({ profile_count: 2, judge_used: true })),
+      );
+      const warning = await within(confirm).findByRole("alert");
+      expect(warning.textContent).toContain("모델 호출이 거절되거나");
+      expect(warning.textContent).toContain("프로필: 2개");
+      expect(warning.textContent).toContain(
+        "성과 판정 설정이 이 연결을 가리키고 있습니다.",
+      );
+    });
+
+    test("zero everywhere asks as before, with no warning and no failure line", async () => {
+      const { api, confirm } = await openDisable(() => json(200, counts()));
+      await waitFor(() => expect(impactCalls(api.calls).length).toBe(1));
+      await waitFor(() =>
+        expect(
+          within(confirm).queryByText("영향을 확인하는 중…") === null,
+        ).toBe(true),
+      );
+      expect(within(confirm).queryByRole("alert") === null).toBe(true);
+      expect(confirm.textContent).not.toContain("확인하지 못했습니다");
+      expect(confirm.textContent).toContain(
+        "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+      );
+    });
+
+    test("a failed read says so and does not stop the disable", async () => {
+      const { api, user, confirm } = await openDisable(() =>
+        json(500, { code: "INTERNAL", message: "boom", details: null }),
+      );
+      await within(confirm).findByText(
+        "영향 수를 확인하지 못했습니다. 그래도 사용 중지할 수 있습니다.",
+      );
+      await user.click(
+        within(confirm).getByRole("button", { name: "사용 중지" }),
+      );
+      await screen.findByText("console-key를 사용 중지했습니다.");
+      expect(writes(api.calls).map((call) => call.path)).toEqual([DISABLE]);
+    });
+
+    test("a server without the route (404) reads as a failed check, not a crash", async () => {
+      const { confirm } = await openDisable(() =>
+        json(404, { code: "NOT_FOUND", message: "no", details: null }),
+      );
+      await within(confirm).findByText(/확인하지 못했습니다/);
+    });
+
+    test("a 200 of another shape is a failed check, never a number read from it", async () => {
+      // Production does not validate a response, so the page has to.
+      const { confirm } = await openDisable(
+        () => json(200, counts({ profile_count: "2" })),
+        "warn",
+      );
+      await within(confirm).findByText(/확인하지 못했습니다/);
+      expect(within(confirm).queryByRole("alert") === null).toBe(true);
+    });
+
+    test("while the count loads, the button already works", async () => {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { api, user, confirm } = await openDisable(async () => {
+        await gate;
+        return json(200, counts({ profile_count: 1 }));
+      });
+      within(confirm).getByText("영향을 확인하는 중…");
+      const button = within(confirm).getByRole("button", {
+        name: "사용 중지",
+      }) as HTMLButtonElement;
+      expect(button.disabled === false).toBe(true);
+      await user.click(button);
+      await screen.findByText("console-key를 사용 중지했습니다.");
+      expect(writes(api.calls).map((call) => call.path)).toEqual([DISABLE]);
+      release();
+    });
+
+    test("closing and opening again reads again", async () => {
+      const { api, user, table, confirm } = await openDisable(() =>
+        json(200, counts({ profile_count: 1 })),
+      );
+      await within(confirm).findByRole("alert");
+      await user.click(within(confirm).getByRole("button", { name: "취소" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog") === null).toBe(true),
+      );
+      await user.click(
+        within(table).getByRole("button", { name: "console-key 사용 중지" }),
+      );
+      await within(await screen.findByRole("dialog")).findByRole("alert");
+      expect(impactCalls(api.calls).length).toBe(2);
+    });
+
+    test("an MCP server is disabled without reading any connection count", async () => {
+      const { api } = renderAt("/settings/workspace/mcp-servers", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${MCP}`]: () => json(200, { items: [mcp("docs")] }),
+        [`POST ${MCP}/docs/disable`]: () => json(200, CHANGE("docs")),
+      });
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "MCP 서버" });
+      await user.click(
+        within(table).getByRole("button", { name: "docs 사용 중지" }),
+      );
+      const confirm = await screen.findByRole("dialog");
+      expect(confirm.textContent).toContain("되돌릴 수 없습니다");
+      expect(impactCalls(api.calls)).toEqual([]);
+    });
   });
 
   test("an env-referenced connection moves to a typed key through its own route", async () => {
@@ -440,8 +657,12 @@ describe("모델 연결", () => {
   test("an admin neither reads the connections nor gets a way to change them", async () => {
     const { api } = renderAt("/profiles", routes(me(undefined, "admin")));
     await screen.findByRole("table", { name: "프로필" });
-    expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
-    expect(screen.queryByRole("table", { name: "모델 연결" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
+      true,
+    );
+    expect(screen.queryByRole("table", { name: "모델 연결" }) === null).toBe(
+      true,
+    );
     expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
   });
 });
@@ -721,8 +942,12 @@ describe("설정의 모델 연결", () => {
       );
       await screen.findByText("이 화면을 볼 권한이 없습니다");
       const nav = screen.getByRole("navigation", { name: "설정" });
-      expect(within(nav).queryByRole("link", { name: "모델 연결" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
+      expect(
+        within(nav).queryByRole("link", { name: "모델 연결" }) === null,
+      ).toBe(true);
+      expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
+        true,
+      );
       expect(
         api.calls.some(
           (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",

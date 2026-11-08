@@ -75,4 +75,9 @@ export interface AgentGitHubStore {
     viewer: SessionViewer,
     limit: number,
   ): Promise<Receipt[]>;
+  /**
+   * `owner/repo` per catalog id, rows removed from the catalog included
+   * (their ids are never reused). An id no row ever held is left out.
+   */
+  repositoryNames(ids: readonly string[]): Promise<Map<string, string>>;
 }

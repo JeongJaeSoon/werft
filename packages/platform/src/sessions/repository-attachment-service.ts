@@ -1,6 +1,7 @@
 import {
   githubPolicyReceiptFields,
   LIST_REPOSITORIES_LIMIT_DEFAULT,
+  LISTED_REPOSITORY_MEANING,
   type ListedRepository,
   type ListRepositoriesResponse,
   type ReceiptActor,
@@ -148,8 +149,9 @@ export function createRepositoryAttachmentService(deps: {
       }
       const nameOf = (id: string, url: string | undefined) =>
         (url === undefined ? null : pathNameOf(url)) ?? id;
-      const repositories: ListedRepository[] = [];
-      let primary: ListedRepository | null = null;
+      type Listed = Omit<ListedRepository, "meaning">;
+      const repositories: Listed[] = [];
+      let primary: Listed | null = null;
       if (context.repositoryId !== null) {
         primary = {
           id: context.repositoryId,
@@ -201,7 +203,7 @@ export function createRepositoryAttachmentService(deps: {
       // Pages walk the ids, never the status: a fetch settling between two
       // calls moves a row's status but not its place.
       const needle = page.query?.toLowerCase();
-      const matches = ({ id, name }: ListedRepository) =>
+      const matches = ({ id, name }: Listed) =>
         needle === undefined ||
         id.toLowerCase().includes(needle) ||
         name.toLowerCase().includes(needle);
@@ -222,7 +224,10 @@ export function createRepositoryAttachmentService(deps: {
             ? [primary]
             : []),
           ...shown,
-        ],
+        ].map((repository) => ({
+          ...repository,
+          meaning: LISTED_REPOSITORY_MEANING[repository.status],
+        })),
         next_cursor:
           rest.length > limit ? (shown[shown.length - 1]?.id ?? null) : null,
       };

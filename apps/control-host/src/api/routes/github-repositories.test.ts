@@ -152,6 +152,9 @@ function memoryRepositories() {
     async listActive() {
       return [...rows.values()];
     },
+    async listAgentChoosable() {
+      return store.listActive();
+    },
     async readCatalog() {
       return rows.size === 0 ? null : store.listActive();
     },

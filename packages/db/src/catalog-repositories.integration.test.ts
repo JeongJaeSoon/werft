@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import * as schema from "./schema.ts";
 import {
@@ -162,6 +163,9 @@ integration("catalog repositories on PostgreSQL", () => {
       result: {
         repository_id: "app1",
         full_name: "Acme/App1",
+        // The name a person reads and the id that outlives a rename.
+        repository: "Acme/App1",
+        github_repository_id: 1001,
         branch: "main",
       },
     });
@@ -225,6 +229,8 @@ integration("catalog repositories on PostgreSQL", () => {
       result: {
         repository_id: "app1",
         full_name: "Acme/App1-old",
+        repository: "Acme/App1-old",
+        github_repository_id: 1001,
         previous_full_name: "Acme/App1",
       },
     });
@@ -310,10 +316,11 @@ integration("catalog repositories on PostgreSQL", () => {
         version: 1,
       }),
     ).toEqual({ outcome: "revision_conflict" });
+    const branchReceipt = randomUUID();
     expect(
       await store.setBranch({
         ...owner,
-        receiptId: randomUUID(),
+        receiptId: branchReceipt,
         id: "app1",
         branch: "develop",
         version: 2,
@@ -321,6 +328,18 @@ integration("catalog repositories on PostgreSQL", () => {
     ).toMatchObject({
       outcome: "stored",
       repository: { branch: "develop", version: 3 },
+    });
+    const [branched] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, branchReceipt));
+    expect(branched).toMatchObject({
+      operation: "set_repository_branch",
+      result: {
+        repository: "Acme/App1-old",
+        github_repository_id: 1001,
+        branch: "develop",
+      },
     });
     expect((await store.listActive()).map((row) => row.id)).toEqual([
       "app1",
@@ -330,6 +349,90 @@ integration("catalog repositories on PostgreSQL", () => {
     ]);
     // No agent has an active release here.
     expect((await store.agentCounts()).size).toBe(0);
+  });
+
+  test("names a row the catalog removed, and leaves out an id no row held", async () => {
+    await db.insert(catalogRepositories).values([
+      {
+        id: "names-live",
+        owner: "Acme",
+        name: "Live",
+        url: "https://github.com/Acme/Live.git",
+        branch: "main",
+        source: "seed",
+      },
+      {
+        id: "names-gone",
+        owner: "Acme",
+        name: "Gone",
+        url: "https://github.com/Acme/Gone.git",
+        branch: "main",
+        source: "seed",
+        removedAt: new Date(),
+      },
+    ]);
+    const names = await createPostgresAgentGitHubStore(db).repositoryNames([
+      "names-live",
+      "names-gone",
+      "names-never",
+    ]);
+    expect([...names.entries()].sort()).toEqual([
+      ["names-gone", "Acme/Gone"],
+      ["names-live", "Acme/Live"],
+    ]);
+    expect(
+      (await createPostgresAgentGitHubStore(db).repositoryNames([])).size,
+    ).toBe(0);
+  });
+
+  test("an agent can be given a console App row or one with an App of its own, never a PAT or removed one", async () => {
+    const own = { source: "seed" as const, branch: "main" };
+    await db.insert(catalogRepositories).values([
+      {
+        ...own,
+        id: "choose-console",
+        owner: "Acme",
+        name: "Console",
+        url: "https://github.com/Acme/Console.git",
+      },
+      {
+        ...own,
+        id: "choose-explicit",
+        owner: "Acme",
+        name: "Explicit",
+        url: "https://ghe.example.invalid/Acme/Explicit.git",
+        authKind: "github_app_explicit",
+        auth: { kind: "github_app", app_id: 1, installation_id: 2 },
+        credentialSource: "external",
+      },
+      {
+        ...own,
+        id: "choose-pat",
+        owner: "Acme",
+        name: "Pat",
+        url: "https://github.com/Acme/Pat.git",
+        authKind: "basic",
+        auth: { kind: "basic", username: "u" },
+        credentialSource: "external",
+      },
+      {
+        ...own,
+        id: "choose-removed",
+        owner: "Acme",
+        name: "Removed",
+        url: "https://github.com/Acme/Removed.git",
+        removedAt: new Date(),
+      },
+    ]);
+    const store = createPostgresCatalogRepositoryStore(db);
+    const ids = (rows: { id: string }[]) =>
+      rows.map((row) => row.id).filter((id) => id.startsWith("choose-"));
+    expect(ids(await store.listAgentChoosable())).toEqual([
+      "choose-console",
+      "choose-explicit",
+    ]);
+    // The console App's list leaves the explicit one out.
+    expect(ids(await store.listActive())).toEqual(["choose-console"]);
   });
 
   test("counts agents by the repositories their active release names, reviewers apart", async () => {

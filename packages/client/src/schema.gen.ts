@@ -3707,6 +3707,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation/settings/connections/{id}/impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What disabling a connection would leave without a model
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Counts, read when the confirmation opens: the current profile versions with no other enabled connection that fits once this one is gone (the whole installation, any workspace's derived version included), the active agents whose active release runs one of them, the sessions not yet failed or stopped that run one of them, and whether a workspace's achievement judge setting names the connection. Counts only, no names. Changes nothing; disabling is never blocked by it. `404` for an id the console does not hold.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSettingsConnectionImpact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/installation/settings/connections/{id}/credential": {
         parameters: {
             query?: never;
@@ -6733,6 +6755,12 @@ export interface components {
                 }[];
             } | null;
             settings_revision: number | null;
+            selected_repositories?: {
+                id: string;
+                repository: string | null;
+                private: boolean | null;
+                ref: string;
+            }[];
             start_repository_id: string | null;
             /** @enum {string} */
             push_attached: "allow" | "ask" | "deny";
@@ -6755,6 +6783,10 @@ export interface components {
                 repositories: {
                     id: string;
                     url: string;
+                    repository?: string;
+                    full_name?: string;
+                    private?: boolean | null;
+                    ref?: string;
                     available: boolean;
                     reason: ("repository_not_allowed" | "app_required") | null;
                     installed: {
@@ -6813,6 +6845,11 @@ export interface components {
         };
         AgentGitHubActivityResponse: {
             items: components["schemas"]["Receipt"][];
+            receipt_repositories?: {
+                /** Format: uuid */
+                receipt_id: string;
+                repository: string;
+            }[];
         };
         ReceiptAcceptedResponse: {
             /** Format: uuid */
@@ -7419,6 +7456,15 @@ export interface components {
                 default_branch: string;
                 private: boolean;
                 catalog_id: string | null;
+                repository?: string;
+                ref?: string | null;
+            }[];
+            all_repositories?: {
+                github_repository_id: number | null;
+                repository: string;
+                full_name: string;
+                private: boolean | null;
+                ref: string | null;
             }[];
             unavailable: ("no_author_app" | "no_installation" | "installation_suspended" | "github_unavailable" | "github_app_auth_failed" | "no_active_release" | "ceiling_listed") | null;
         };
@@ -8628,6 +8674,13 @@ export interface components {
             id: string;
             /** Format: uuid */
             receipt_id: string;
+        };
+        SettingsConnectionImpactResponse: {
+            id: string;
+            profile_count: number;
+            agent_count: number;
+            session_count: number;
+            judge_used: boolean;
         };
         AgentDetail: {
             agent: {
@@ -36085,6 +36138,100 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSettingsConnectionImpact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The counts for the connection. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "anthropic-console",
+                     *       "profile_count": 2,
+                     *       "agent_count": 3,
+                     *       "session_count": 1,
+                     *       "judge_used": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SettingsConnectionImpactResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
                         };
                     };
                 };
