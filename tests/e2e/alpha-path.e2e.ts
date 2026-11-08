@@ -322,9 +322,10 @@ describe("default commit identity", () => {
         ),
       );
       const sessionId = created.body.session_id;
-      const [request] = await api.pendingUntil(sessionId, 1);
-      await api.allow(sessionId, must(request).request_id);
+      // A local commit is pre-approved under the session workspace, so the
+      // turn finishes without a permission request to answer.
       expect((await api.settledTurn(sessionId, "1")).status).toBe("completed");
+      expect(await api.pendingUntil(sessionId, 0)).toEqual([]);
       const result = (
         await api.events(
           sessionId,
