@@ -213,6 +213,9 @@ describe("a person's reason survives the tool answer", () => {
         setState: async () => {
           throw new Error("not used");
         },
+        merge: async () => {
+          throw new Error("not used");
+        },
       },
       githubWork: {} as never,
       attachments: {} as never,

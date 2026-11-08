@@ -126,6 +126,10 @@ export const API_ERROR_CODE_VALUES = [
   "PULL_REQUEST_MISSING",
   // Closing or reopening a pull request that was merged.
   "PULL_REQUEST_MERGED",
+  // Merging: GitHub will not merge the pull request now (checks, reviews,
+  // conversations, conflicts, draft); try again once that changes.
+  "PULL_REQUEST_MERGE_BLOCKED",
+  "PULL_REQUEST_CLOSED",
   // The platform refused a GitHub token before asking GitHub;
   // `details.reason_code` is one of GITHUB_REFUSAL_VALUES, or of
   // REPOSITORY_ATTACH_REFUSAL_VALUES from `attach_repository`.

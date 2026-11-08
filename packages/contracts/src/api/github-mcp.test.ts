@@ -99,6 +99,7 @@ describe("the action class every tool carries", () => {
       "push.primary": "ask",
       "push.attached": "ask",
       "pull_request.write": "allow",
+      "pull_request.merge": "workspace_ceiling",
       review: "deny",
       workflow: "deny",
       "repository.read": "allow",
@@ -127,6 +128,7 @@ describe("githubMcpTools", () => {
       "comment_pull_request",
       "close_pull_request",
       "reopen_pull_request",
+      "merge_pull_request",
       "list_repositories",
       "attach_repository",
     ]);
@@ -140,6 +142,7 @@ describe("githubMcpTools", () => {
       "comment_pull_request",
       "close_pull_request",
       "reopen_pull_request",
+      "merge_pull_request",
       "list_repositories",
       "attach_repository",
     ]);

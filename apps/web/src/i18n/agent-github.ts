@@ -173,6 +173,7 @@ export const agentGitHubKo = {
   "agentGitHub.purpose.rerun": "다시 실행",
   "agentGitHub.purpose.review": "리뷰",
   "agentGitHub.purpose.outcome_refresh": "PR 상태 확인",
+  "agentGitHub.purpose.merge": "PR 머지",
   "agentGitHub.refusal.github_disabled": "GitHub 사용 꺼짐",
   "agentGitHub.refusal.repository_not_allowed": "저장소 범위 밖",
   "agentGitHub.refusal.feature_off": "릴리스에서 꺼진 권한",
@@ -189,6 +190,7 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.repository_none": "저장소 없음",
   "agentGitHub.refusal.ambiguous_app": "App 선택 필요",
   "agentGitHub.refusal.pinned_app_removed": "고정된 App 삭제됨",
+  "agentGitHub.refusal.merge_off": "워크스페이스가 머지를 허용하지 않음",
   "agentGitHub.refusalNext.ambiguous_app":
     "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -394,6 +396,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.purpose.rerun": "rerun",
   "agentGitHub.purpose.review": "review",
   "agentGitHub.purpose.outcome_refresh": "pull request check",
+  "agentGitHub.purpose.merge": "merge",
   "agentGitHub.refusal.github_disabled": "GitHub off",
   "agentGitHub.refusal.repository_not_allowed": "Repository out of scope",
   "agentGitHub.refusal.feature_off": "Permission off in the release",
@@ -411,6 +414,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.repository_none": "No repository",
   "agentGitHub.refusal.ambiguous_app": "App choice needed",
   "agentGitHub.refusal.pinned_app_removed": "Pinned App removed",
+  "agentGitHub.refusal.merge_off": "The workspace does not allow merging",
   "agentGitHub.refusalNext.ambiguous_app":
     "Choose the App that handles this repository under Workspace settings › GitHub connection › Manage repositories",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -615,6 +619,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.purpose.rerun": "再実行",
   "agentGitHub.purpose.review": "レビュー",
   "agentGitHub.purpose.outcome_refresh": "PR の状態確認",
+  "agentGitHub.purpose.merge": "PR のマージ",
   "agentGitHub.refusal.github_disabled": "GitHub オフ",
   "agentGitHub.refusal.repository_not_allowed": "リポジトリの範囲外",
   "agentGitHub.refusal.feature_off": "リリースでオフの権限",
@@ -633,6 +638,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.repository_none": "リポジトリなし",
   "agentGitHub.refusal.ambiguous_app": "App の選択が必要",
   "agentGitHub.refusal.pinned_app_removed": "固定した App は削除済み",
+  "agentGitHub.refusal.merge_off": "ワークスペースがマージを許可していない",
   "agentGitHub.refusalNext.ambiguous_app":
     "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する App を選んでください",
   "agentGitHub.refusalNext.pinned_app_removed":

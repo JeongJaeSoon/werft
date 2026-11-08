@@ -22,15 +22,31 @@ export const githubFeaturesSchema = z
   })
   .strict();
 
-/** What a workspace lets its agents turn on; no settings row reads all false. */
-export const githubCeilingSchema = githubFeaturesSchema;
+/**
+ * What a workspace lets its agents do; no settings row reads all false.
+ * `merge` is the workspace's alone: an agent row or a release pin never
+ * carries it (both stay `githubFeaturesSchema`), and a stored ceiling without
+ * the key reads as off.
+ */
+export const githubCeilingSchema = z
+  .object({
+    ...githubFeaturesSchema.shape,
+    /** Lets an agent squash-merge the pull request its own session opened. */
+    merge: z.boolean().default(false),
+  })
+  .strict();
 
-export const GITHUB_CEILING_NONE: GitHubCeiling = {
+export const GITHUB_FEATURES_NONE: GitHubFeatures = {
   workflows: false,
   actions: false,
   checks: false,
   issues: false,
   review: false,
+};
+
+export const GITHUB_CEILING_NONE: GitHubCeiling = {
+  ...GITHUB_FEATURES_NONE,
+  merge: false,
 };
 
 /**
@@ -112,6 +128,7 @@ export const GITHUB_REFUSAL_VALUES = [
   "ambiguous_app",
   // The connection pinned to the repository was removed.
   "pinned_app_removed",
+  "merge_off",
 ] as const;
 export const githubRefusalSchema = z.enum(GITHUB_REFUSAL_VALUES);
 
@@ -140,6 +157,7 @@ export const GITHUB_PURPOSE_VALUES = [
   "review",
   // GA-4b: the platform reading a pull request it recorded.
   "outcome_refresh",
+  "merge",
 ] as const;
 export const githubPurposeSchema = z.enum(GITHUB_PURPOSE_VALUES);
 
@@ -156,6 +174,8 @@ export function githubPermissionsFor(
 ): {
   role: GitHubAppRole;
   feature: keyof GitHubFeatures | null;
+  /** A ceiling key the workspace alone sets, which no agent or release holds. */
+  ceilingFeature?: "merge";
   permissions: Record<string, GitHubPermissionLevel>;
 } {
   switch (purpose) {
@@ -203,6 +223,15 @@ export function githubPermissionsFor(
         role: "author",
         feature: null,
         permissions: { pull_requests: "read" },
+      };
+    case "merge":
+      // GitHub's merge endpoint wants Contents: write; the pull request is
+      // read first. Widen to `pull_requests: write` only if GitHub refuses.
+      return {
+        role: "author",
+        feature: null,
+        ceilingFeature: "merge",
+        permissions: { contents: "write", pull_requests: "read" },
       };
   }
 }

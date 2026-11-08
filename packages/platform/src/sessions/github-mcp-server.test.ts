@@ -166,6 +166,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     }),
     updatePullRequestBody: unused,
     setPullRequestState: unused,
+    mergePullRequest: unused,
     upsertComment: unused,
     dispatchWorkflow: async () => ({
       id: 42,
@@ -322,6 +323,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         },
         update: unused,
         comment: unused,
+        merge: unused,
         setState: async (_actor, sessionId, pushRequestId, state) => {
           states.push({ sessionId, pushRequestId, state });
           return { state, changed: true } as never;
@@ -487,6 +489,7 @@ describe("tools/list", () => {
       "comment_pull_request",
       "close_pull_request",
       "reopen_pull_request",
+      "merge_pull_request",
       "list_repositories",
       "attach_repository",
     ]);
@@ -501,6 +504,7 @@ describe("tools/list", () => {
       "comment_pull_request",
       "close_pull_request",
       "reopen_pull_request",
+      "merge_pull_request",
       "dispatch_workflow",
       "get_workflow_run",
       "rerun_workflow",
