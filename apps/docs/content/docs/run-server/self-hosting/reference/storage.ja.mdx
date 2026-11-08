@@ -20,9 +20,9 @@ outcome: "ストレージごとの保証とデータ保持条件を確認しま�
 | 保存先 | セッションごとの Docker `local` volume。Docker データルートの XFS | セッションごとに PVC 一つ（`werft-ws-<installationId>-<sessionId>`）を worker の `/workspace` に mount します。`ReadWriteOnce`、`Filesystem`。`/tmp` と HOME はメモリ emptyDir で、hostPath は使いません |
 | 容量上限 | `EXECUTION_WORKSPACE_QUOTA_MB`、既定 4096MiB（最小 1024） | PVC の `requests.storage`、helm の `worker.workspace.quotaMb`、既定 4096MiB（最小 1024）。実際の強制は StorageClass が決めます |
 | inode 上限 | `EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000 | **ありません。** Werft も chart も設定せず、ファイルシステムの既定値に従います（ext4 は作成時に個数が決まります） |
-| 強制主体 | XFS の `prjquota`（カーネル）。scheduler preflight が確認します | kubelet と CSI ドライバー。Werft はサイズを要求するだけで使用量を読みません。確認する preflight もありません |
+| 強制主体 | XFS の `prjquota`（カーネル）。scheduler preflight が確認します | CSI ドライバーとファイルシステム。Werft は PVC 容量と workspace 使用量を読みますが、実際の強制を検証する preflight はありません |
 | 超過時 | worker の書き込みが `ENOSPC`。上限を設定できなければ scheduler が起動しません | StorageClass が容量を強制すれば `ENOSPC`。強制しなければ上限がないのと同じです。PVC 外のノードディスク使用量（主にログ）が `worker.ephemeralStorageMb`（既定 1024MiB、requests=limits）を超えると kubelet が Pod を evict します |
-| 運用者の設定値 | Docker データルートのファイルシステムとサイズ、上記二つの上限 | `worker.storageClass`（空ならクラスタ既定）、`worker.workspace.quotaMb`、`worker.ephemeralStorageMb`、worker ノードのファイルシステムサイズ |
+| 運用者の設定値 | Docker データルートのファイルシステムとサイズ、上記二つの上限 | `worker.storageClass`（空ならクラスタ既定）、`worker.workspace.quotaMb`、`worker.workspace.enforcedByStorage`、`worker.ephemeralStorageMb`、worker ノードのファイルシステムサイズ |
 | 確認コマンド | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`、`xfs_quota -x -c 'report -p'` | 下記 |
 
 ```bash
@@ -36,13 +36,21 @@ kubectl -n werft exec <worker-pod> -- df -i /workspace
 `kubectl get storageclass` で、使う StorageClass の provisioner が容量を強制する volume を作るか確認します（例えば EBS gp3 では要求サイズがそのままブロックデバイスのサイズです）。PVC の `REQUEST` は Werft の要求値、`CAPACITY` は provisioner が作成したサイズです。`df -h` の総量はファイルシステムの overhead により異なる場合があるため、一致するかでは判断しません。確認するのは、`CAPACITY` が `REQUEST` 以上であることと、同じ StorageClass の試験 PVC に `REQUEST` を超えて書くと `ENOSPC` になることです。`df -i` で inode 総数を確認します。これら Kubernetes コマンド、容量強制、AZ 再接続は実行確認していません。値はコード（`specs.ts`、`config.ts`）と chart に基づきます。
 
 - **PVC は必須です。** worker Pod の workspace volume は PVC だけで（`specs.ts`）、emptyDir や hostPath に変える設定はありません。セッションの PVC は Pod と独立して存続し、Pod が置き換わっても同名の PVC に再接続します。scheduler がセッションごとに Pod と PVC を作成します。
-- **StorageClass による容量の強制は Werft は確認しません。** コードは `requests.storage` を要求し、その値を `werft.workspace-size` annotation に記録して設定と比較するだけで、`status.capacity` や使用量は読みません。強制の有無は CSI ドライバーとファイルシステムにより異なるため、設置前にインフラ側へ確認します。
+- **StorageClass による容量の強制は Werft は検証しません。** コードは `requests.storage` を要求し、その値を `werft.workspace-size` annotation に記録して設定と比較します。PVC の `status.capacity` を読み worker に渡し、worker は workspace 使用量とファイルシステムの総量・inode を観測します。この観測は実際の強制の検証ではありません。強制の有無は CSI ドライバーとファイルシステムにより異なるため、設置前にインフラ側へ確認します。
 - kind の既定 StorageClass（local-path 系）は PVC サイズを強制しないことが知られています。kind で `Bound` になっても上限が設定されたとは限りません。
 - **既知の制限。** inode 上限がなく、容量上限は StorageClass に委ねられています。上限を強制しない StorageClass を選んでも chart は拒否しません。この制限を解消するコード変更はこのページの範囲外です。
 
 EBS のような zonal PVC は AZ に結び付きます。ノード交換や Kubernetes 更新後、worker が同じ AZ の利用可能なノードで PVC に再接続することを設置環境で確認します。
 
 Kubernetes の `worker.workspace.quotaMb` を変えると、既存 PVC の `werft.workspace-size` annotation と異なるため、そのセッションの launch が拒否されます。進行中のセッションがないときに新規セッション用の値を変更します。サイズ変更のために既存 PVC を削除しないでください。
+
+`worker.workspace.enforcedByStorage: true`（既定 `false`）は、**この設置の全 workspace PVC（既存を含む）**で保存先が要求バイト数をハードに強制するという運用者の宣言です。`worker.storageClass` が空ならクラスタ既定値なので、各 PVC が実際に強制することを運用者が確認します。Werft は確認しません。宣言自体が保存先に上限を設定するわけではありません。
+
+宣言経路では、ファイルシステム総量が要求の 0.95〜1.05 倍、PVC capacity が要求以上、mount point が `/` 以外の専用書き込み可能 mount（`rw` あり、`ro` なし）の場合、worker はバイトを `hard`、inode を `unknown` と判定します（`storage_declaration_and_capacity`）。mount・ファイルシステム証拠や capacity がなければ `unknown` です。他の宣言条件が不足すると `unknown`/`storage_enforcement_unverified` となり、共有ファイルシステム・inode 総数 0・要求の 1.5 倍を超えるファイルシステムは既存の `soft` 判定を維持します。サイズと mount の条件はヒューリスティックであり強制検証ではありません。宣言と判定根拠は `workspace_limit_mode` ログの evidence に残ります。
+
+PVC がまだ bind されていないか、scheduler に PVC の `get` 権限がないと capacity は分かりません。共有ファイルシステムなど既存の `soft` 判定に該当せず mount・ファイルシステム証拠があっても、capacity がなければ宣言だけでは引き上げず `unknown`（`storage_capacity_unavailable`）のままです。
+
+宣言を変えても PVC サイズ・名前・annotation と isolation stamp は変わらず、既存 Pod の置換や resume 拒否は起きません。実行中 Pod の env はそのままで、新しく作る Pod だけが新しい宣言を受け取ります。
 
 <a id="transcript-상한" />
 ## transcript 上限

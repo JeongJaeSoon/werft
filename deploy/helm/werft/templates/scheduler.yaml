@@ -68,6 +68,8 @@ spec:
               value: {{ include "ap.installationId" . | quote }}
             - name: EXECUTION_WORKSPACE_QUOTA_MB
               value: {{ .Values.worker.workspace.quotaMb | quote }}
+            - name: EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE
+              value: {{ .Values.worker.workspace.enforcedByStorage | quote }}
             - name: EXECUTION_WORKSPACE_GC_MIN_AGE_SEC
               value: {{ .Values.worker.workspace.gcMinAgeSec | quote }}
             - name: WORKER_CPUS

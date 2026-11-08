@@ -84,6 +84,62 @@ test("missing filesystem and unavailable inodes remain conservative", () => {
   ).toMatchObject({ bytes: "soft", inodes: "soft" });
 });
 
+test.each([
+  { mountPoint: "/", options: ["rw"] },
+  { mountPoint: "/workspace", options: ["ro"] },
+  { mountPoint: "/workspace", options: ["rw", "ro"] },
+  { mountPoint: "/workspace", options: [] },
+])("a storage declaration needs a dedicated writable mount: %j", (mount) => {
+  expect(
+    workspaceLimitMode({
+      ...evidence,
+      mount: { ...evidence.mount, ...mount, options: [...mount.options] },
+      enforcedByStorage: true,
+    }),
+  ).toEqual({
+    bytes: "unknown",
+    inodes: "unknown",
+    reason: "storage_enforcement_unverified",
+  });
+});
+
+test("declarations cannot replace capacity or filesystem evidence", () => {
+  const { mount: _mount, ...withoutMount } = evidence;
+  const { filesystem: _filesystem, ...withoutFilesystem } = evidence;
+  for (const partial of [withoutMount, withoutFilesystem]) {
+    expect(workspaceLimitMode({ ...partial, enforcedByStorage: true })).toEqual(
+      {
+        bytes: "unknown",
+        inodes: "unknown",
+        reason: "filesystem_evidence_unavailable",
+      },
+    );
+  }
+  expect(
+    workspaceLimitMode({
+      ...evidence,
+      pvcCapacityBytes: 999,
+      enforcedByStorage: true,
+    }),
+  ).toEqual({
+    bytes: "unknown",
+    inodes: "unknown",
+    reason: "storage_enforcement_unverified",
+  });
+  expect(
+    workspaceLimitMode({
+      ...evidence,
+      filesystem: { ...evidence.filesystem, totalInodes: 0 },
+      enforcedByStorage: true,
+    }),
+  ).toMatchObject({ bytes: "soft", inodes: "soft" });
+  expect(workspaceLimitMode({ ...evidence, enforcedByStorage: true })).toEqual({
+    bytes: "hard",
+    inodes: "unknown",
+    reason: "storage_declaration_and_capacity",
+  });
+});
+
 test("local preflight establishes both axes on XFS; explicit off is soft", () => {
   const mount = { mountPoint: "/workspace", filesystem: "xfs", options: [] };
   const { pvcCapacityBytes: _capacity, ...withoutCapacity } = evidence;

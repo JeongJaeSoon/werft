@@ -20,9 +20,9 @@ This is the source of truth for storage limits and reclamation conditions. For r
 | Location | Docker `local` volume per session, on Docker data-root XFS | One PVC/session (`werft-ws-<installationId>-<sessionId>`), mounted at worker `/workspace`; `ReadWriteOnce`, `Filesystem`. `/tmp` and HOME are memory emptyDir; no hostPath |
 | Capacity limit | `EXECUTION_WORKSPACE_QUOTA_MB`, default 4096MiB, minimum 1024 | PVC `requests.storage`, Helm `worker.workspace.quotaMb`, default 4096MiB, minimum 1024. Actual enforcement depends on StorageClass |
 | Inode limit | `EXECUTION_WORKSPACE_QUOTA_INODES`, default 1,000,000 | **None.** Neither Werft nor chart sets it. Filesystem defaults apply (ext4 fixes inode counts at creation) |
-| Enforcement | Kernel XFS `prjquota`, checked by scheduler preflight | kubelet/CSI. Werft requests size without reading usage or running an enforcement preflight |
+| Enforcement | Kernel XFS `prjquota`, checked by scheduler preflight | CSI driver and filesystem. Werft reads PVC capacity and workspace usage, but has no preflight that verifies actual enforcement |
 | When exceeded | Worker writes get `ENOSPC`. Scheduler cannot start without enforceable limits | `ENOSPC` if StorageClass enforces capacity; otherwise effectively unlimited. If node disk usage outside the PVC (primarily logs) exceeds `worker.ephemeralStorageMb` (default 1024 MiB, requests=limits), kubelet evicts the Pod |
-| Operator settings | Docker data-root filesystem/size and both limits above | `worker.storageClass` (empty uses cluster default), `worker.workspace.quotaMb`, `worker.ephemeralStorageMb`, worker-node filesystem size |
+| Operator settings | Docker data-root filesystem/size and both limits above | `worker.storageClass` (empty uses cluster default), `worker.workspace.quotaMb`, `worker.workspace.enforcedByStorage`, `worker.ephemeralStorageMb`, worker-node filesystem size |
 | Checks | `findmnt -no FSTYPE,OPTIONS -T "$(docker info -f '{{.DockerRootDir}}')"`, `xfs_quota -x -c 'report -p'` | Below |
 
 ```bash
@@ -36,13 +36,21 @@ kubectl -n werft exec <worker-pod> -- df -i /workspace
 Use `kubectl get storageclass` to check whether the chosen provisioner creates capacity-enforcing volumes (EBS gp3, for example, creates a block device of the requested size). PVC `REQUEST` is Werft's request; `CAPACITY` is provisioned size. Filesystem overhead can change `df -h` totals, so do not require exact equality. Verify `CAPACITY` is at least `REQUEST` and that a test PVC using the same StorageClass returns `ENOSPC` when writes exceed `REQUEST`. Check inode totals with `df -i`. These Kubernetes commands, capacity enforcement, and AZ reattachment have not been verified by execution. Values come from code (`specs.ts`, `config.ts`) and the chart.
 
 - **PVCs are mandatory.** Worker workspace volumes are always PVCs (`specs.ts`), with no emptyDir/hostPath option. Session PVCs outlive Pods and reattach under the same name after replacement. The scheduler creates Pods and PVCs per session.
-- **Werft does not check StorageClass hard enforcement.** It requests `requests.storage`, records it in `werft.workspace-size`, and compares configuration; it does not read `status.capacity` or usage. Confirm CSI/filesystem enforcement with infrastructure operators before installation.
+- **Werft does not verify StorageClass hard enforcement.** It requests `requests.storage`, records it in `werft.workspace-size`, and compares configuration. It reads PVC `status.capacity` and passes it to the worker, which observes workspace usage and filesystem totals/inodes. These observations do not verify enforcement. Confirm CSI/filesystem enforcement with infrastructure operators before installation.
 - kind's default local-path-style StorageClass is known not to enforce PVC size. Bound status does not establish a hard limit.
 - **Known limits:** no inode limit; capacity enforcement is delegated to StorageClass. The chart does not reject non-enforcing classes. Code changes addressing this are outside this page's scope.
 
 Zonal PVCs such as EBS are bound to an AZ. After node replacement or Kubernetes upgrades, verify workers reattach on available nodes in the same AZ.
 
 Changing `worker.workspace.quotaMb` makes existing PVC `werft.workspace-size` annotations differ and rejects those sessions' launches. Change it for new sessions when none are active. Do not delete existing PVCs to resize them.
+
+`worker.workspace.enforcedByStorage: true` (default `false`) is an operator declaration that storage hard-enforces requested bytes for **every workspace PVC in this installation, including existing PVCs**. With an empty `worker.storageClass`, the cluster default applies: operators must verify actual enforcement for each PVC. Werft does not verify it. The declaration does not impose a storage limit.
+
+In the declaration path, the worker classifies bytes as `hard` and inodes as `unknown` when filesystem total size is 0.95–1.05 times the request, PVC capacity is at least the request, and a dedicated writable mount has a mount point other than `/` (`rw` present, `ro` absent): `storage_declaration_and_capacity`. Missing mount/filesystem evidence or capacity yields `unknown`. Other unmet declaration conditions yield `unknown`/`storage_enforcement_unverified`; shared filesystems, zero total inodes, and filesystems over 1.5 times the request retain their existing `soft` classification. These size/mount checks are heuristics, not enforcement verification. The declaration and classification evidence appear in the `workspace_limit_mode` log's evidence.
+
+If a PVC is not yet bound or the scheduler lacks PVC `get` permission, its capacity is unavailable. Even with mount/filesystem evidence and no existing `soft` classification such as a shared filesystem, missing capacity keeps the result `unknown` (`storage_capacity_unavailable`); the declaration cannot replace that evidence.
+
+Changing the declaration leaves PVC size/name/annotations and the isolation stamp unchanged, so it neither replaces existing Pods nor rejects resume. Running Pods keep their env; only newly created Pods receive the new declaration.
 
 <a id="transcript-상한" />
 ## Transcript limits

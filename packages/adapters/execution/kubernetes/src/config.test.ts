@@ -32,6 +32,7 @@ describe("kubernetesConfigFromEnv", () => {
       volumeNamePrefix: "werft-ws-",
       workerServiceAccount: null,
       workspaceDir: "/workspace",
+      workspaceEnforcedByStorage: false,
       workspaceGcMinAgeMs: 3_600_000,
       workspaceSizeBytes: 4096 * 1024 * 1024,
     });
@@ -154,5 +155,42 @@ describe("kubernetesConfigFromEnv", () => {
         noFile,
       ),
     ).toThrow("WORKER_GATEWAY_URL is required");
+  });
+
+  test.each([undefined, "false", "true"])(
+    "reads the storage declaration %s",
+    (value) => {
+      expect(
+        kubernetesConfigFromEnv(
+          { ...BASE, EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE: value },
+          () => "agents",
+        ).workspaceEnforcedByStorage,
+      ).toBe(value === "true");
+    },
+  );
+
+  test.each([
+    "",
+    " ",
+    " true",
+    "false ",
+    "TRUE",
+    "False",
+    "1",
+    "0",
+    "on",
+    "off",
+    "fixture-private-value",
+  ])("refuses storage declaration %j without exposing its value", (value) => {
+    expect(() =>
+      kubernetesConfigFromEnv(
+        { ...BASE, EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE: value },
+        () => "agents",
+      ),
+    ).toThrow(
+      new Error(
+        "EXECUTION_WORKSPACE_ENFORCED_BY_STORAGE must be true or false",
+      ),
+    );
   });
 });
