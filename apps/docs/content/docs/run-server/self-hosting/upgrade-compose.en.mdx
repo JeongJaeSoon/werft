@@ -97,6 +97,7 @@ Test new control-host with the previous worker before deployment: complete sessi
 ### First applying changes after v0.1.0
 
 - Apply every migration from `v0.1.0` through the target version (currently through `0241`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
+- Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. Later sources accept it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
 - Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
 - Before enabling `AGENT_ACTION_FLOWS`, update API, Compose maintenance, Kubernetes checkpointGc/sessionArchive CronJobs, and workers, and **confirm Jobs started from old images have finished**. Old GC can delete pinned revisions.
 - Prompt revision 2 received by new sessions after activation is unreadable by old workers. Check pre-activation replacement and post-activation rollback floors separately. A `v0.1.1` changelog heading does not prove publication.
