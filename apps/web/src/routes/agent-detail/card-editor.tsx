@@ -43,6 +43,7 @@ import {
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { useProfileDisplay } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
@@ -73,6 +74,7 @@ export function CardEditor({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
+  const profile = useProfileDisplay();
   const latest = openVersion(detail);
   // The edit is tied to the version it started from, not to whatever a
   // background refetch last brought in, so unsaved input is never replaced.
@@ -241,7 +243,10 @@ export function CardEditor({
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
     onError: (error) =>
-      onOutcome({ kind: "error", text: agentRefusal(t, error, role) }),
+      onOutcome({
+        kind: "error",
+        text: agentRefusal(t, error, role, profile.show),
+      }),
   });
 
   // A save with nothing changed still sends the card, which the server

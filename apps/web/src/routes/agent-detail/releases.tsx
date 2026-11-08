@@ -20,6 +20,7 @@ import { type ReactNode, useState } from "react";
 import { memberSummariesQuery, profilesQuery } from "../../api/queries.ts";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { profileDisplay } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
@@ -75,9 +76,10 @@ export function Releases({
   const { client } = useWerft();
   const manages = useManagesAgent();
   const [confirming, setConfirming] = useState<AgentRelease | null>(null);
+  // Names every role that reads the tab; the rollback preview needs it too.
   const profiles = useQuery({
     ...profilesQuery(client),
-    enabled: manages && shown,
+    enabled: shown,
   });
   // Only roles that list members get names; anyone else reads "a member".
   // Read when the tab opens, not with every visit to the agent, and only
@@ -193,7 +195,11 @@ export function Releases({
                 });
               const label = t("agent.releaseLabel", {
                 release: name,
-                profile: item.runtime_profile_id,
+                profile: profileDisplay(
+                  t,
+                  profiles.data?.items,
+                  item.runtime_profile_id,
+                ),
               });
               // `== null`: an API from before these fields omits them mid-rollout.
               const activated =

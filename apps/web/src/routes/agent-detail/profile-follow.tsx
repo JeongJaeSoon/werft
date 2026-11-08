@@ -6,6 +6,7 @@ import { Alert, AlertActions, Button, Heading, Text } from "@werft-ai/ui";
 import { useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
+import { useProfileDisplay } from "../../components/profile-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { saveFailureText } from "./effective-behavior.tsx";
@@ -21,6 +22,7 @@ export function ProfileFollow({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
+  const profile = useProfileDisplay();
   const [outcome, setOutcome] = useState<string | null>(null);
 
   const raise = useMutation<SaveAgentResponse, ApiError>({
@@ -48,7 +50,7 @@ export function ProfileFollow({
       );
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
-    onError: (error) => setOutcome(agentRefusal(t, error, role)),
+    onError: (error) => setOutcome(agentRefusal(t, error, role, profile.show)),
   });
 
   const step = detail.profile_rollout;

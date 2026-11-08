@@ -28,6 +28,7 @@ import {
   cardFromDraft,
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
+import { profileDisplay } from "../../components/profile-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { draftVersion, shownVersion } from "./versions.tsx";
@@ -140,16 +141,25 @@ export function EffectiveBehavior({
       );
       await queryClient.invalidateQueries(agentListsFilter(client));
     },
-    onError: (error) => setOutcome(agentRefusal(t, error, role)),
+    onError: (error) =>
+      setOutcome(
+        agentRefusal(t, error, role, (id) =>
+          profileDisplay(t, profiles.data?.items, id),
+        ),
+      ),
   });
 
   const values = (v: BehaviorValues) => [
     {
       label: t("agent.effective.profile"),
-      value: (
-        <Code size="inherit" className="[overflow-wrap:anywhere]">
-          {v.runtime_profile_id}
-        </Code>
+      // The id stays reachable as the tooltip; until the list has answered the
+      // row holds its line instead of flashing the id.
+      value: profiles.isPending ? (
+        <span aria-busy="true">&nbsp;</span>
+      ) : (
+        <span className="[overflow-wrap:anywhere]" title={v.runtime_profile_id}>
+          {profileDisplay(t, profiles.data?.items, v.runtime_profile_id)}
+        </span>
       ),
     },
     {

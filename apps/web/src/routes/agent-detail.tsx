@@ -50,6 +50,7 @@ import {
   ManagingTeamName,
 } from "../components/managing-team.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { useProfileDisplay } from "../components/profile-options.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -321,12 +322,13 @@ function AgentView({
   const newSessionReason = useNewSessionReason(detail);
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
+  const profile = useProfileDisplay();
   const releaseLabel = (releaseId: string | null) => {
     const release = detail.releases.find((r) => r.id === releaseId);
     return release
       ? t("agent.releaseLabel", {
           release: release.label,
-          profile: release.runtime_profile_id,
+          profile: profile.show(release.runtime_profile_id),
         })
       : t("agent.noActive");
   };
@@ -414,7 +416,7 @@ function AgentView({
               : after.agent.activation_revision === expected
                 ? {
                     kind: "error",
-                    text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+                    text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
                   }
                 : {
                     // The pointer moved but not to the target: this rollback
@@ -449,7 +451,7 @@ function AgentView({
       }
       onOutcome({
         kind: "error",
-        text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
+        text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
       });
     },
   });
