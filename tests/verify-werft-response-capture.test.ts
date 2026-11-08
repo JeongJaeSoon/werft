@@ -374,6 +374,183 @@ describe("createCollector", () => {
     for (const m of [...request("1", 400), finished("1")]) c.onEvent(m);
     expect((await c.report())[0]).toContain("| héllo");
   });
+
+  const responded = (
+    id: string,
+    status: number,
+    response: Record<string, unknown> = {},
+  ) => ({
+    method: "Network.responseReceived",
+    params: {
+      requestId: id,
+      response: { status, url: "http://h/v1/x", ...response },
+    },
+  });
+
+  test("a binary body is not read", async () => {
+    const c = setup(async () => ({ body: "x", base64Encoded: false }));
+    c.onEvent(sentEvent("1"));
+    c.onEvent(responded("1", 500, { mimeType: "application/octet-stream" }));
+    c.onEvent(finished("1"));
+    const out = await c.report();
+    expect(sent).toEqual([]);
+    expect(out[0]).toContain(
+      "body unavailable: not read (application/octet-stream)",
+    );
+  });
+
+  test("a body over the read limit is not read", async () => {
+    const c = setup(async () => ({ body: "x", base64Encoded: false }));
+    c.onEvent(sentEvent("1"));
+    c.onEvent(responded("1", 500, { mimeType: "application/json" }));
+    c.onEvent({
+      method: "Network.dataReceived",
+      params: { requestId: "1", dataLength: 1_000_000 },
+    });
+    c.onEvent(finished("1"));
+    c.onEvent(sentEvent("2"));
+    c.onEvent(
+      responded("2", 500, {
+        mimeType: "text/plain",
+        headers: { "Content-Length": "1000000" },
+      }),
+    );
+    c.onEvent(finished("2"));
+    const out = await c.report();
+    expect(sent).toEqual([]);
+    expect(out[0]).toContain("not read (1000000 bytes");
+    expect(out[1]).toContain("not read (1000000 bytes");
+  });
+
+  test("a body read without a size is cut before it is masked", async () => {
+    const c = setup(async () => ({
+      body: `{"error":"${"y".repeat(1_000_000)}"}`,
+      base64Encoded: false,
+    }));
+    for (const m of [...request("1", 500), finished("1")]) c.onEvent(m);
+    const out = await c.report();
+    expect(out[0].length).toBeLessThan(BODY_LIMIT + 200);
+    expect(out[0]).not.toContain("+998");
+  });
+
+  test("the number of listed requests and bytes read is capped", async () => {
+    const c = setup(async () => ({
+      body: "z".repeat(60_000),
+      base64Encoded: false,
+    }));
+    for (let i = 0; i < 300; i++)
+      for (const m of [...request(String(i), 500), finished(String(i))])
+        c.onEvent(m);
+    const out = await c.report();
+    expect(sent.length).toBeLessThan(10);
+    expect(out.length).toBeLessThan(110);
+    expect(out.at(-1)).toContain("more failed requests not listed");
+  });
+
+  test("a failed request whose headers arrive after report() started is listed", async () => {
+    const c = setup(async () => ({ body: "late-500", base64Encoded: false }));
+    c.onEvent(sentEvent("1"));
+    const lines = c.report();
+    setTimeout(() => {
+      c.onEvent(responded("1", 500));
+      c.onEvent(finished("1"));
+    }, 100);
+    expect(await lines).toEqual([
+      "! failed request: POST /v1/x -> 500 | late-500",
+    ]);
+  });
+
+  test("a request sent just after report() started is waited for", async () => {
+    const c = setup(async () => ({ body: "later", base64Encoded: false }));
+    const lines = c.report();
+    setTimeout(() => {
+      for (const m of [...request("1", 502), finished("1")]) c.onEvent(m);
+    }, 100);
+    expect(await lines).toEqual([
+      "! failed request: POST /v1/x -> 502 | later",
+    ]);
+  });
+
+  test("a request with no headers by the deadline is listed", async () => {
+    const c = setup(async () => ({ body: "", base64Encoded: false }));
+    c.onEvent(sentEvent("1"));
+    expect(await c.report()).toEqual([
+      "! failed request: POST /v1/x -> no response | body unavailable: no response within the wait",
+    ]);
+  });
+
+  test("a successful stream does not hold the report", async () => {
+    const c = setup(
+      async () => ({ body: "", base64Encoded: false }),
+      undefined,
+      2000,
+    );
+    c.onEvent(sentEvent("1"));
+    c.onEvent(responded("1", 200, { mimeType: "text/event-stream" }));
+    const started = performance.now();
+    expect(await c.report()).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("maskBody: werft#1327 review", () => {
+  const SYN = [
+    "syn-sid-01",
+    "syn-sid-02",
+    "syn-sid-03",
+    "syn-mail-04@example.test",
+    "syn-sess-05",
+    "syn-oauth-06",
+    "syn-bearer-07",
+    "c3luLWJhc2ljLTA4",
+    "syn-inv-09",
+    "syn-inv-10",
+    "syn-inv-11",
+    "syn-pw-12",
+    "syn-sid-13",
+    "syn-mail-14@example.test",
+    "syn-inv-15",
+    "syn-code-16",
+  ];
+  const leaked = (text: string) =>
+    SYN.filter((s) => maskBody(text).includes(s));
+
+  test("session ids, sid, email and session.id in JSON", () => {
+    expect(
+      leaked(
+        '{"session_id":"syn-sid-01","sessionId":"syn-sid-02","sid":"syn-sid-03","email":"syn-mail-04@example.test"}',
+      ),
+    ).toEqual([]);
+    expect(leaked('{"session":{"id":"syn-sess-05"}}')).toEqual([]);
+  });
+
+  test("a top-level OAuth code is hidden, error.code is kept", () => {
+    expect(leaked('{"code":"syn-oauth-06","state":"x"}')).toEqual([]);
+    expect(leaked('{"data":{"authCode":"syn-code-16"}}')).toEqual([]);
+    expect(maskBody('{"error":{"code":"UNAUTHORIZED"}}')).toContain(
+      "UNAUTHORIZED",
+    );
+    expect(maskBody('{"errors":[{"code":"BAD_INPUT"}]}')).toContain(
+      "BAD_INPUT",
+    );
+  });
+
+  test("the same keys in a body that is not JSON", () => {
+    expect(leaked('prefix {"sid":"syn-sid-13"}')).toEqual([]);
+    expect(leaked("email: syn-mail-14@example.test")).toEqual([]);
+    expect(leaked("session_id=syn-sid-01")).toEqual([]);
+  });
+
+  test("lower-case schemes, upper-case and encoded invite paths, tags", () => {
+    expect(leaked("authorization failed for bearer syn-bearer-07")).toEqual([]);
+    expect(leaked("got basic c3luLWJhc2ljLTA4 back")).toEqual([]);
+    expect(leaked("see https://h/INVITE/syn-inv-09")).toEqual([]);
+    expect(leaked("see https://h/in%76ite/syn-inv-10")).toEqual([]);
+    expect(leaked("see https://h/invite%2Fsyn-inv-11")).toEqual([]);
+    expect(leaked("see https://h/in%2576ite/syn-inv-15")).toEqual([]);
+    expect(leaked("<password>syn-pw-12</password>")).toEqual([]);
+    expect(leaked("<Session-Id>syn-sid-13</Session-Id>")).toEqual([]);
+  });
 });
 
 describe("shortBody", () => {
