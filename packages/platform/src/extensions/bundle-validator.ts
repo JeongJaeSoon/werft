@@ -163,6 +163,7 @@ export function validateExtensionBundle(
 
   const seen = new Map<string, string>();
   const kept: BundleInputFile[] = [];
+  const dirs: string[] = [];
   for (const file of input.files) {
     const path = file.path;
     const unsafe = unsafePathReason(path);
@@ -170,7 +171,19 @@ export function validateExtensionBundle(
       issue(path, "unsafe_path", unsafe);
       continue;
     }
-    if (file.kind === "directory") continue;
+    if (file.kind !== "directory" && path.endsWith("/")) {
+      issue(path, "unsafe_path", "A file path cannot end with a slash.");
+      continue;
+    }
+    if (file.kind === "directory") {
+      // A directory entry is held to the same policy as a file: a bundle that
+      // names hooks/ is refused even if the entry would carry no bytes.
+      const dir = path.endsWith("/") ? path.slice(0, -1) : path;
+      const policy = pathPolicy(dir);
+      if (policy) issue(path, policy.code, policy.message);
+      else dirs.push(dir);
+      continue;
+    }
     if (file.kind !== "file") {
       issue(
         path,
@@ -203,6 +216,25 @@ export function validateExtensionBundle(
     kept.push(file);
   }
 
+  // A path that is a file cannot also be a directory above another entry.
+  for (const entry of [...kept.map((f) => f.path), ...dirs]) {
+    const parts = entry.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const parent = parts.slice(0, i).join("/");
+      const clash = seen.get(parent.toLowerCase());
+      if (clash !== undefined) {
+        issue(entry, "path_collision", `${clash} is a file, not a directory.`);
+        break;
+      }
+    }
+  }
+  for (const dir of dirs) {
+    const clash = seen.get(dir.toLowerCase());
+    if (clash !== undefined) {
+      issue(dir, "path_collision", `Collides with the file ${clash}.`);
+    }
+  }
+
   const out = new Map<string, CanonicalBundleFile>();
   const skills = new Map<
     string,
@@ -213,7 +245,6 @@ export function validateExtensionBundle(
 
   for (const file of kept) {
     const path = file.path;
-    const segments = path.split("/");
 
     if (path === MANIFEST_NAME) continue; // the control plane writes its own
     if (path === "CLAUDE.md" || path === "AGENTS.md") {
@@ -224,17 +255,9 @@ export function validateExtensionBundle(
       continue;
     }
 
-    const denied = segments.find(
-      (segment) =>
-        DENIED_SEGMENTS.has(segment.toLowerCase()) ||
-        SETTINGS_FILE.test(segment),
-    );
-    if (denied !== undefined) {
-      issue(
-        path,
-        "denied_path",
-        `${denied} can run code or widen permissions and is never accepted.`,
-      );
+    const policy = pathPolicy(path);
+    if (policy) {
+      issue(path, policy.code, policy.message);
       continue;
     }
 
@@ -245,16 +268,25 @@ export function validateExtensionBundle(
     }
 
     const match = /^skills\/([^/]+)\/(.+)$/.exec(path);
-    if (!match || !NAME.test(match[1] ?? "")) {
-      issue(
-        path,
-        "path_not_allowed",
-        "Only .claude-plugin/plugin.json and skills/<name>/... are accepted.",
-      );
+    if (!match) {
+      issue(path, "path_not_allowed", ALLOWED_SHAPES);
       continue;
     }
     const skill = match[1] as string;
     const rest = match[2] as string;
+    // Only the skill root's SKILL.md is re-emitted; a copy deeper down could be
+    // discovered by the engine and would carry bytes we never parsed.
+    if (
+      rest !== "SKILL.md" &&
+      rest.slice(rest.lastIndexOf("/") + 1).toLowerCase() === "skill.md"
+    ) {
+      issue(
+        path,
+        "path_not_allowed",
+        "SKILL.md is only accepted at skills/<name>/SKILL.md.",
+      );
+      continue;
+    }
     const state = skills.get(skill) ?? {
       hasScripts: false,
       hasSkillFile: false,
@@ -332,6 +364,35 @@ export function bundleDigest(
   return createHash("sha256").update(lines.join("")).digest("hex");
 }
 
+const ALLOWED_SHAPES =
+  "Only .claude-plugin/plugin.json and skills/<name>/... are accepted.";
+
+/** The allow-list for a file or directory path (no trailing slash). */
+function pathPolicy(
+  path: string,
+): { code: BundleIssueCode; message: string } | null {
+  const denied = path
+    .split("/")
+    .find(
+      (segment) =>
+        DENIED_SEGMENTS.has(segment.toLowerCase()) ||
+        SETTINGS_FILE.test(segment),
+    );
+  if (denied !== undefined) {
+    return {
+      code: "denied_path",
+      message: `${denied} can run code or widen permissions and is never accepted.`,
+    };
+  }
+  const skillDir = /^skills\/([^/]+)(\/.*)?$/.exec(path);
+  const ok =
+    path === ".claude-plugin" ||
+    path === ".claude-plugin/plugin.json" ||
+    path === "skills" ||
+    (skillDir !== null && NAME.test(skillDir[1] ?? ""));
+  return ok ? null : { code: "path_not_allowed", message: ALLOWED_SHAPES };
+}
+
 function unsafePathReason(path: string): string | null {
   if (path === "") return "Empty path.";
   if (path.normalize("NFC") !== path) return "Path is not Unicode NFC.";
@@ -372,11 +433,13 @@ function canonicalFile(
   mode: 0o644 | 0o755,
   bytes: Uint8Array,
 ): CanonicalBundleFile {
+  // Copied so a caller mutating its input buffer cannot desync bytes and hash.
+  const owned = bytes.slice();
   return {
     path,
     mode,
-    bytes,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: owned,
+    sha256: createHash("sha256").update(owned).digest("hex"),
   };
 }
 

@@ -305,7 +305,53 @@ describe("paths and entry kinds", () => {
     );
   });
 
-  test("directory entries are ignored", () => {
+  test.each(["hooks/", "bin/", "node_modules/", "agents/", "docs/"])(
+    "a directory entry %s is held to the same policy as a file",
+    (path) => {
+      const issues = rejected([
+        ...base(),
+        file(path, "", { kind: "directory", mode: 0o755 }),
+      ]);
+      expect(issues.map((i) => i.path)).toEqual([path]);
+    },
+  );
+
+  test("a file cannot also be a directory, and a file path cannot end in a slash", () => {
+    expectIssue(
+      [...base(), file("skills/research/notes.md/child.md", "x")],
+      "skills/research/notes.md/child.md",
+      "path_collision",
+    );
+    expectIssue(
+      [...base(), file("skills/research/notes.md/", "x")],
+      "skills/research/notes.md/",
+      "unsafe_path",
+    );
+    expectIssue(
+      [...base(), file("skills/research/notes.md", "", { kind: "directory" })],
+      "skills/research/notes.md",
+      "path_collision",
+    );
+  });
+
+  test("a SKILL.md below the skill root is rejected", () => {
+    expectIssue(
+      [...base(), file("skills/research/nested/SKILL.md", skillMd("nested"))],
+      "skills/research/nested/SKILL.md",
+      "path_not_allowed",
+    );
+  });
+
+  test("changing the input buffer after validation does not change the output", () => {
+    const input = text("normal");
+    const result = validate([...base(), file("skills/research/x.md", input)]);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    input.set(text("#!sh\n"));
+    const kept = result.bundle.files.find((f) => f.path.endsWith("x.md"));
+    expect(new TextDecoder().decode(kept?.bytes)).toBe("normal");
+  });
+
+  test("directory entries inside the allow-list are ignored", () => {
     const result = validate([
       ...base(),
       file("skills/research/", "", { kind: "directory" }),
