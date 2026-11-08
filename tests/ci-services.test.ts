@@ -137,8 +137,10 @@ describe("ci.yml integration jobs", () => {
     const install = at((step) => step.uses === "./.github/actions/bun-setup");
     const wait = at(script("wait"));
     const tests = at((step) => step.name === "Tests of this domain");
-    expect(checkout).toBe(0);
-    expect(start).toBe(1);
+    // The gate step comes first and every later step waits on it.
+    expect(steps[0]?.id).toBe("gate");
+    expect(checkout).toBe(1);
+    expect(start).toBe(2);
     expect(install).toBeGreaterThan(start);
     expect(wait).toBeGreaterThan(install);
     expect(tests).toBeGreaterThan(wait);
@@ -146,6 +148,6 @@ describe("ci.yml integration jobs", () => {
 
   test("remove the containers whatever happened", () => {
     const stop = steps[at(script("stop"))];
-    expect(stop?.if).toBe("always()");
+    expect(stop?.if).toBe("always() && steps.gate.outputs.run == 'true'");
   });
 });
