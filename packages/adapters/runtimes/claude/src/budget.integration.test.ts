@@ -185,7 +185,7 @@ describe("maxBudgetUsd with the actual Claude SDK", () => {
       subtype: "error_max_budget_usd",
       session_id: sessionId,
     });
-    // Since SDK 0.3.3xx the reported total of a resumed query starts from the
+    // Since SDK 0.3.277 the reported total of a resumed query starts from the
     // session's earlier $3 (3 + 6), while the budget above still counts from
     // zero.
     expect(resumed.total_cost_usd).toBeCloseTo(9, 3);

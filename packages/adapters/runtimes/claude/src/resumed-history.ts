@@ -14,6 +14,7 @@ import type { TranscriptEntry, TranscriptMirror } from "@werft-ai/runtime-core";
  */
 export class ResumedHistory {
   readonly #settle = Promise.withResolvers<ReadonlySet<string>>();
+  readonly #cost = Promise.withResolvers<number | undefined>();
 
   private constructor() {
     // Nobody may ask before the run ends, and an unobserved rejection is noise.
@@ -24,6 +25,7 @@ export class ResumedHistory {
   static empty(): ResumedHistory {
     const history = new ResumedHistory();
     history.#settle.resolve(new Set());
+    history.#cost.resolve(undefined);
     return history;
   }
 
@@ -54,15 +56,14 @@ export class ResumedHistory {
           `${sessionId}.jsonl`,
         );
         const text = await readFile(path, "utf8");
-        history.#settle.resolve(
-          uuidsOf(
-            text
-              .split("\n")
-              .filter(Boolean)
-              .map((line) => JSON.parse(line) as TranscriptEntry),
-          ),
-        );
+        const entries = text
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as TranscriptEntry);
+        history.#settle.resolve(uuidsOf(entries));
+        history.#cost.resolve(savedCostOf(entries));
       } catch (error) {
+        history.#cost.resolve(undefined);
         history.#settle.reject(
           new Error(
             `The resumed transcript for session ${sessionId} could not be read: ${describe(error)}`,
@@ -100,7 +101,9 @@ export class ResumedHistory {
             entries === null ? store.resumedEntryIds?.() : undefined;
           if (written !== undefined) {
             history.#settle.resolve(written);
+            history.#cost.resolve(undefined);
           } else if (entries === null) {
+            history.#cost.resolve(undefined);
             history.#settle.reject(
               new Error(
                 `The resumed transcript for session ${key.sessionId} is empty`,
@@ -108,9 +111,11 @@ export class ResumedHistory {
             );
           } else {
             history.#settle.resolve(uuidsOf(entries));
+            history.#cost.resolve(savedCostOf(entries));
           }
           return entries;
         } catch (error) {
+          history.#cost.resolve(undefined);
           history.#settle.reject(
             new Error(
               `The resumed transcript for session ${key.sessionId} could not be loaded: ${describe(error)}`,
@@ -127,8 +132,18 @@ export class ResumedHistory {
     return this.#settle.promise;
   }
 
+  /**
+   * The running cost the resumed transcript saved, which the engine reports
+   * again in its first result. Undefined when the transcript holds none or
+   * was not read (a mirror that wrote it to disk before the engine asked).
+   */
+  priorCostUsd(): Promise<number | undefined> {
+    return this.#cost.promise;
+  }
+
   /** The engine is gone; a load it never made will not come. No-op once settled. */
   abandon(): void {
+    this.#cost.resolve(undefined);
     this.#settle.reject(
       new Error("The engine ended before it loaded the resumed transcript"),
     );
@@ -141,6 +156,19 @@ function uuidsOf(entries: readonly TranscriptEntry[]): ReadonlySet<string> {
       typeof entry.uuid === "string" ? [entry.uuid] : [],
     ),
   );
+}
+
+/** The engine saves its running cost as `cost-state` entries; the last one wins. */
+function savedCostOf(entries: readonly TranscriptEntry[]): number | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry?.type !== "cost-state") continue;
+    const total = entry.totalCostUSD;
+    return typeof total === "number" && Number.isFinite(total) && total >= 0
+      ? total
+      : undefined;
+  }
+  return undefined;
 }
 
 function describe(error: unknown): string {

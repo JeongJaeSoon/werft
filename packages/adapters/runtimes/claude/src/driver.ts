@@ -106,6 +106,11 @@ export interface DriverRun extends AsyncIterable<AgentFrame> {
   parkable(): ParkReadiness;
   prepareCheckpoint(point?: CheckpointPoint): Promise<CheckpointPreparation>;
   /**
+   * The running cost a resumed session had saved, which the engine's totals
+   * continue from. Absent or undefined: none is known.
+   */
+  priorCostUsd?(): Promise<number | undefined>;
+  /**
    * True when `approval_wait` checkpoints can be taken: the driver watches
    * a transcript mirror it can wait on. Absent is false.
    */

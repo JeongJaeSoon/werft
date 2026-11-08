@@ -24,6 +24,45 @@ describe("TurnAccounting", () => {
     expect(charges([0.25, 0.75, 1])).toEqual([0.25, 0.5, 0.25]);
   });
 
+  // The engine's totals continue across resumes (SDK 0.3.277 and later), so
+  // what is charged must add up to its last total, not exceed it.
+  test("a resumed run is charged only what it spent past the saved cost", () => {
+    // New session: $3. Resume 1 saved $3 and spends $3 (total 6). Resume 2
+    // saved $6 and spends $1.5 (total 7.5).
+    const runs: Array<{ saved: number | undefined; totals: number[] }> = [
+      { saved: undefined, totals: [3] },
+      { saved: 3, totals: [6] },
+      { saved: 6, totals: [7, 7.5] },
+    ];
+    let charged = 0;
+    for (const { saved, totals } of runs) {
+      const accounting = new TurnAccounting();
+      accounting.continueFrom(saved);
+      for (const total of totals) {
+        accounting.observe(result(total));
+        charged += accounting.settle().costUsd ?? 0;
+      }
+      expect(accounting.restarted).toBe(false);
+    }
+    expect(charged).toBe(7.5);
+  });
+
+  test("a resume with no saved cost counts its first total in full", () => {
+    const accounting = new TurnAccounting();
+    accounting.continueFrom(undefined);
+    accounting.observe(result(6));
+    expect(accounting.settle().costUsd).toBe(6);
+  });
+
+  test("a resume whose total starts below the saved cost counts it in full", () => {
+    // An engine that counts from zero again must not be charged less.
+    const accounting = new TurnAccounting();
+    accounting.continueFrom(3);
+    accounting.observe(result(1));
+    expect(accounting.settle().costUsd).toBe(1);
+    expect(accounting.restarted).toBe(true);
+  });
+
   test("a total that drops counts the new total in full", () => {
     expect(charges([1, 0.25, 0.5])).toEqual([1, 0.25, 0.25]);
   });

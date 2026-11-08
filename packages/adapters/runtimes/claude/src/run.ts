@@ -181,6 +181,10 @@ export class ClaudeSdkRun implements DriverRun {
     await this.sdkQuery.initializationResult();
   }
 
+  priorCostUsd(): Promise<number | undefined> {
+    return this.history.priorCostUsd();
+  }
+
   async holdsInput(uuid: string): Promise<boolean> {
     if (this.ledger.wasSent(uuid)) return true;
     return (await this.history.uuids()).has(uuid);

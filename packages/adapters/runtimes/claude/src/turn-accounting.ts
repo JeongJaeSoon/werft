@@ -48,6 +48,19 @@ export class TurnAccounting {
     return this.countRestarted;
   }
 
+  /**
+   * A resumed query's first total continues from the cost its transcript
+   * saved (since SDK 0.3.277), so that cost is the baseline, not part of the first
+   * turn. Without a saved figure the total is counted in full, as before.
+   * A total below the baseline is an engine that counts from zero again, and
+   * counts in full too.
+   */
+  continueFrom(savedUsd: number | undefined): void {
+    if (savedUsd !== undefined && this.lastSessionId === undefined) {
+      this.lastTotalUsd = savedUsd;
+    }
+  }
+
   observe(native: NativeSdkMessage): void {
     if (native.type === "result") {
       const total = native.total_cost_usd;
