@@ -221,31 +221,32 @@ describe("팀 화면", () => {
   test("사이드바에서 빠져도 팀 주소는 그대로 열린다", async () => {
     const server = teamServer();
     renderAt("/teams", server.routes);
-    expect(await screen.findByRole("link", { name: "결제팀" })).toBeDefined();
+    expect(
+      await screen.findByRole("link", { name: "팀 열기: 결제팀" }),
+    ).toBeDefined();
   });
 
   test("헤더의 팀 만들기가 대화상자를 열어 만든다. 같은 이름은 대화상자 안에서 말한다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
-    const link = await screen.findByRole("link", { name: "결제팀" });
+    const link = await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     expect(link.getAttribute("href")).toBe(`/members/teams/${TEAM_ID}`);
-    // The row opens as a whole through the name link: its box covers the
-    // row, the row takes the hover fill, and the chevron sits at the row's end.
-    const row = link.closest("li") as HTMLElement;
-    const rowClasses = row.className.split(" ");
-    expect(rowClasses).toContain("relative");
-    expect(rowClasses).toContain("cursor-pointer");
-    expect(rowClasses).toContain("hover:bg-hover");
-    const linkClasses = link.className.split(" ");
-    expect(linkClasses).toContain("after:absolute");
-    expect(linkClasses).toContain("after:inset-0");
-    expect(linkClasses).toContain("focus-visible:after:outline-2");
-    // One ring, the row's: the link's own is off over styles.css's rule.
-    expect(linkClasses).toContain("focus-visible:outline-none!");
+    // Same table as 구성원: a header row, and the row opens as a whole
+    // through one link that covers it.
+    const table = screen.getByRole("table", { name: "팀 표" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["팀", "구성원"]);
+    expect(link.getAttribute("data-slot")).toBe("grid-table-row-opener");
+    // Keyboard reachable, and a list link is not the current page.
+    expect(link.getAttribute("tabindex")).toBeNull();
+    expect(link.getAttribute("aria-current")).toBeNull();
+    const row = link.closest("[role=row]") as HTMLElement;
     expect(row.querySelectorAll("a").length).toBe(1);
-    const chevron = row.lastElementChild as Element;
-    expect(chevron.tagName.toLowerCase()).toBe("svg");
-    expect(chevron.getAttribute("aria-hidden")).toBe("true");
+    expect(row.textContent).toContain("결제팀");
+    expect(row.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(link.querySelector("svg")).toBeNull();
     // The tab no longer carries a form of its own.
     expect(screen.queryByLabelText("팀 이름")).toBeNull();
@@ -308,7 +309,7 @@ describe("팀 화면", () => {
   test("끝에 / 가 붙은 팀 목록 주소에서도 헤더에 팀 만들기가 있다", async () => {
     const server = teamServer();
     renderAt("/members/teams/", server.routes);
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     expect(
       await screen.findByRole("button", { name: "팀 만들기" }),
     ).toBeDefined();
@@ -324,7 +325,7 @@ describe("팀 화면", () => {
           answer = resolve;
         }),
     });
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     const user = await setupUser();
     const open = await waitFor(() => {
       const button = screen.getByRole("button", { name: "팀 만들기" });
@@ -340,7 +341,7 @@ describe("팀 화면", () => {
       expect(screen.queryByRole("dialog", { name: "팀 만들기" })).toBeNull(),
     );
     act(() => history.back());
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     answer?.(
       json(201, {
         team: {
@@ -377,7 +378,7 @@ describe("팀 화면", () => {
   test("Esc로 닫으면 포커스가 헤더의 팀 만들기로 돌아오고 아무것도 보내지 않는다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     const user = await setupUser();
     const open = await waitFor(() => {
       const button = screen.getByRole("button", { name: "팀 만들기" });
@@ -408,7 +409,7 @@ describe("팀 화면", () => {
           answer = resolve;
         }),
     });
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     const user = await setupUser();
     const open = await waitFor(() => {
       const button = screen.getByRole("button", { name: "팀 만들기" });
@@ -567,7 +568,7 @@ describe("팀 화면", () => {
   test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {
     const server = teamServer();
     const { api } = renderAt("/members/teams", server.routes);
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     expect(screen.queryByRole("heading", { name: "내가 속한 팀" })).toBeNull();
     expect(api.calls.some((c) => c.path === "/v1/my-teams")).toBe(false);
   });
@@ -585,13 +586,15 @@ describe("팀 화면", () => {
       "GET /v1/teams?q=%EC%A7%80%EC%9B%90": () =>
         json(200, { items: [second], next_cursor: null }),
     });
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     const shown = (name: string) =>
-      screen.queryByRole("link", { name }) !== null;
+      screen.queryByRole("link", { name: `팀 열기: ${name}` }) !== null;
     expect(shown("지원팀")).toBe(false);
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    expect(await screen.findByRole("link", { name: "지원팀" })).toBeDefined();
+    expect(
+      await screen.findByRole("link", { name: "팀 열기: 지원팀" }),
+    ).toBeDefined();
     expect(screen.queryByRole("button", { name: "더 보기" }) === null).toBe(
       true,
     );
@@ -606,7 +609,9 @@ describe("팀 화면", () => {
         ).toBe(true),
       { timeout: 3000 },
     );
-    expect(await screen.findByRole("link", { name: "지원팀" })).toBeDefined();
+    expect(
+      await screen.findByRole("link", { name: "팀 열기: 지원팀" }),
+    ).toBeDefined();
     expect(
       api.calls
         .filter((c) => c.path === "/v1/teams")
@@ -639,7 +644,7 @@ describe("팀 화면", () => {
   test("예전 팀 주소는 구성원의 팀 탭으로 옮겨 간다", async () => {
     const server = teamServer();
     const list = renderAt("/teams", server.routes);
-    await screen.findByRole("link", { name: "결제팀" });
+    await screen.findByRole("link", { name: "팀 열기: 결제팀" });
     expect(list.history.location.pathname).toBe("/members/teams");
     const tab = screen.getByRole("link", { name: "팀", current: "page" });
     expect(tab.getAttribute("href")).toBe("/members/teams");
