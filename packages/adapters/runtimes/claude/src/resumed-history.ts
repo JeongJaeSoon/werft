@@ -65,7 +65,7 @@ export class ResumedHistory {
           .filter(Boolean)
           .map((line) => JSON.parse(line) as TranscriptEntry);
         history.#settle.resolve(uuidsOf(entries));
-        history.#cost.resolve(savedCostOf(entries));
+        history.#cost.resolve(savedCostOf(entries, sessionId));
       } catch (error) {
         history.#cost.resolve(undefined);
         history.#settle.reject(
@@ -118,7 +118,7 @@ export class ResumedHistory {
             );
           } else {
             history.#settle.resolve(uuidsOf(entries));
-            history.#cost.resolve(savedCostOf(entries));
+            history.#cost.resolve(savedCostOf(entries, key.sessionId));
           }
           return entries;
         } catch (error) {
@@ -164,16 +164,21 @@ function uuidsOf(entries: readonly TranscriptEntry[]): ReadonlySet<string> {
   );
 }
 
-/** The engine saves its running cost as `cost-state` entries; the last one wins. */
+/**
+ * The engine saves its running cost as `cost-state` entries. It resumes from
+ * the last valid one of the session, so that is the one taken here.
+ */
 function savedCostOf(
   entries: readonly TranscriptEntry[],
+  sessionId: string,
 ): SavedCost | undefined {
   let saved: SavedCost | undefined;
-  for (const entry of entries) saved = savedCostOfEntry(entry) ?? saved;
+  for (const entry of entries) {
+    saved = savedCostOfEntry(entry, sessionId) ?? saved;
+  }
   return saved;
 }
 
-/** The numeric fields the engine requires of a `cost-state` entry besides the cost. */
 const COST_STATE_NUMBERS = [
   "totalAPIDuration",
   "totalAPIDurationWithoutRetries",
@@ -184,29 +189,97 @@ const COST_STATE_NUMBERS = [
   "startTime",
 ] as const;
 
-function isCount(value: unknown): boolean {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+const MODEL_USAGE_REQUIRED = [
+  "inputTokens",
+  "outputTokens",
+  "cacheReadInputTokens",
+  "cacheCreationInputTokens",
+  "webSearchRequests",
+  "costUSD",
+] as const;
+
+const MODEL_USAGE_OPTIONAL = [
+  "thinkingTokens",
+  "cacheCreationEphemeral5mInputTokens",
+  "cacheCreationEphemeral1hInputTokens",
+] as const;
+
+/** The four token counts the engine also bounds as a sum over all models. */
+const MODEL_USAGE_SUMMED = [
+  "inputTokens",
+  "outputTokens",
+  "cacheReadInputTokens",
+  "cacheCreationInputTokens",
+] as const;
+
+const MAX_COUNT = 1e15;
+const MAX_COST_USD = 1e9;
+
+function within(value: unknown, max: number): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= max
+  );
 }
 
-/** The cost one `cost-state` entry saved; undefined for any other entry. */
+/** A model name the engine accepts: not empty, no control or format characters. */
+function isModelName(name: string): boolean {
+  return name !== "" && !/[\p{Cc}\p{Cf}]/u.test(name);
+}
+
+/**
+ * Whether `modelUsage` is what the engine accepts. Anything it would drop is
+ * dropped here, since a baseline taken from an entry the engine ignored is
+ * larger than the total it starts from and charges the run short.
+ */
+function isModelUsage(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const sums = MODEL_USAGE_SUMMED.map(() => 0);
+  for (const [name, usage] of Object.entries(value)) {
+    if (!isModelName(name)) return false;
+    if (typeof usage !== "object" || usage === null || Array.isArray(usage)) {
+      return false;
+    }
+    const fields = usage as Record<string, unknown>;
+    if (!MODEL_USAGE_REQUIRED.every((key) => within(fields[key], MAX_COUNT))) {
+      return false;
+    }
+    for (const key of MODEL_USAGE_OPTIONAL) {
+      if (fields[key] !== undefined && !within(fields[key], MAX_COUNT)) {
+        return false;
+      }
+    }
+    MODEL_USAGE_SUMMED.forEach((key, i) => {
+      sums[i] = (sums[i] ?? 0) + (fields[key] as number);
+    });
+  }
+  return sums.every((sum) => sum <= MAX_COUNT);
+}
+
+/**
+ * The cost one `cost-state` entry of `sessionId` saved. Undefined for any
+ * other entry, for another session's, and for one the engine (0.3.319) would
+ * drop for not matching its schema. Charging in full is the safe side when
+ * unsure, so this errs toward rejecting.
+ */
 export function savedCostOfEntry(
   entry: TranscriptEntry,
+  sessionId: string,
 ): SavedCost | undefined {
-  if (entry.type !== "cost-state") return undefined;
-  const usd = entry.totalCostUSD;
-  if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) {
+  if (entry.type !== "cost-state" || entry.sessionId !== sessionId) {
     return undefined;
   }
-  // The engine drops a `cost-state` entry that does not match its whole
-  // schema, so one without what a real entry carries is not a baseline.
-  // Charging in full is the safe side when unsure.
-  const { modelUsage, sessionId } = entry;
+  const usd = entry.totalCostUSD;
   if (
-    typeof sessionId !== "string" ||
-    typeof modelUsage !== "object" ||
-    modelUsage === null ||
-    Array.isArray(modelUsage) ||
-    !COST_STATE_NUMBERS.every((key) => isCount(entry[key]))
+    !within(usd, MAX_COST_USD) ||
+    !COST_STATE_NUMBERS.every((key) => within(entry[key], MAX_COUNT)) ||
+    !isModelUsage(entry.modelUsage) ||
+    (entry.hasUnknownModelCost !== undefined &&
+      typeof entry.hasUnknownModelCost !== "boolean")
   ) {
     return undefined;
   }

@@ -421,6 +421,7 @@ export class ClaudeSessionStore implements TranscriptStore {
           (part) => this.#adoptedBody(part),
           lane !== "",
           signal,
+          inherit.sessionId,
         );
         if (lane === "") {
           uuids = written.uuids;
@@ -1190,6 +1191,7 @@ async function writeTranscript(
   body: (part: ObjectRef) => Promise<Uint8Array>,
   subagent: boolean,
   signal: AbortSignal | undefined,
+  sessionId: string,
 ): Promise<{
   cost?: SavedCost;
   uuids: Set<string>;
@@ -1211,7 +1213,7 @@ async function writeTranscript(
           continue;
         }
         if (typeof entry.uuid === "string") uuids.add(entry.uuid);
-        cost = savedCostOfEntry(entry) ?? cost;
+        cost = savedCostOfEntry(entry, sessionId) ?? cost;
         lines += `${JSON.stringify(entry)}\n`;
       }
       if (lines === "") continue;
