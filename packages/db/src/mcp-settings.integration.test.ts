@@ -81,7 +81,7 @@ integration("agent MCP settings on PostgreSQL", () => {
   // one under test.
   async function agentOnRelease(
     workspaceId: string,
-    options: { snapshot?: Record<string, unknown> } = {},
+    options: { snapshot?: Record<string, unknown>; refs?: string[] } = {},
   ) {
     const agentId = randomUUID();
     await db.insert(agents).values({
@@ -103,7 +103,7 @@ integration("agent MCP settings on PostgreSQL", () => {
           tools: null,
           mcp: [{ server: "docs" }],
           forbidden: [],
-          credential_refs: ["docs-key"],
+          credential_refs: options.refs ?? ["docs-key"],
         },
       },
       contentSha256: "0".repeat(64),
@@ -237,6 +237,54 @@ integration("agent MCP settings on PostgreSQL", () => {
       server: "docs",
       tools: [],
     });
+  });
+
+  // Waits until some backend of this database is waiting on a lock, so a
+  // test acts after the statement under test is truly held, not after a delay.
+  async function untilSomeoneWaits() {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const { rows } = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0",
+      );
+      if ((rows[0]?.n ?? 0) > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("no statement ever waited on a lock");
+  }
+
+  test("a session start waits for a save that holds the row, and snapshots what it saved", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId);
+    await saveSettings(workspaceId, agentId, { allowedTools: [READ, SEARCH] });
+    const saver = await pool.connect();
+    try {
+      // A save in flight: the row locked and changed, not yet committed.
+      await saver.query("BEGIN");
+      await saver.query(
+        "SELECT 1 FROM agent_mcp_settings WHERE agent_id = $1 FOR UPDATE",
+        [agentId],
+      );
+      await saver.query(
+        "UPDATE agent_mcp_settings SET allowed_tools = $2::jsonb, revision = revision + 1 WHERE agent_id = $1",
+        [agentId, JSON.stringify([READ])],
+      );
+      let settled = false;
+      const starting = db
+        .transaction((tx) => captureMcpStart(tx, releaseId))
+        .finally(() => {
+          settled = true;
+        });
+      await untilSomeoneWaits();
+      expect(settled).toBe(false);
+      await saver.query("COMMIT");
+      // It saw the save, not the row as it was before it.
+      expect(await starting).toMatchObject({
+        allowed_tools: [READ],
+        revision: 2,
+      });
+    } finally {
+      saver.release();
+    }
   });
 
   test("a session that will follow its release is judged on the card's names, whatever a row says", async () => {
@@ -401,6 +449,36 @@ integration("agent MCP settings on PostgreSQL", () => {
           revision: 1,
         },
       ]);
+    });
+
+    test("create judges the release's names when the row appears after it read none", async () => {
+      const workspaceId = await workspace();
+      const caller = await owner(workspaceId);
+      // The card needs two names; only one is bound, so the other is unbound.
+      const { agentId, releaseId } = await agentOnRelease(workspaceId, {
+        refs: ["docs-key", "wiki-key"],
+      });
+      await bound(workspaceId, agentId, "docs-key");
+      const holder = await pool.connect();
+      try {
+        // The binding row held, so create stops at its unbound check, after
+        // it has read no settings row and before it looks at any name.
+        await holder.query("BEGIN");
+        await holder.query(
+          "SELECT 1 FROM credential_bindings WHERE target_id = $1 AND revoked_at IS NULL FOR UPDATE",
+          [agentId],
+        );
+        const creating = create(caller, releaseId);
+        await untilSomeoneWaits();
+        // A row with no names arrives and commits in that gap.
+        await saveSettings(workspaceId, agentId, { credentialRefs: [] });
+        await holder.query("COMMIT");
+        // The session follows its release, so the card's other name counts.
+        expect((await creating).outcome).toBe("credential_unbound");
+        expect(await startOf(releaseId)).toEqual([]);
+      } finally {
+        holder.release();
+      }
     });
 
     test("create judges the names it stores, a message the names it started with", async () => {
