@@ -335,7 +335,11 @@ function AdminList({
               value={null}
               clearOnSelect
               maxLength={SEARCH_MAX}
-              disabled={!listsMembers && !listsTeams}
+              // Locked while a change is in flight: the picker clears its query on
+              // select, so a choice made now would be dropped with nothing to retry.
+              // Locked while a change is in flight: the picker clears its query on
+              // select, so a choice made now would be dropped with nothing to retry.
+              disabled={change.isPending || (!listsMembers && !listsTeams)}
               filter="none"
               onQueryChange={setTerm}
               debounceMs={SEARCH_SETTLE_MS}
@@ -347,7 +351,6 @@ function AdminList({
               // Choosing from the results adds at once; there is no second
               // button to leave disabled.
               onValueChange={(value, option) => {
-                if (change.isPending) return;
                 const [kind, id] = value.split(":") as [AgentAdminKind, string];
                 change.mutate({ add: true, kind, id, name: option.label });
               }}

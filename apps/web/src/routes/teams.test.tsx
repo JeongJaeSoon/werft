@@ -1416,10 +1416,12 @@ describe("에이전트 관리자", () => {
     await waitFor(() =>
       expect(picker.getAttribute("aria-describedby")).not.toBeNull(),
     );
-    expect(
-      document.getElementById(picker.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).not.toBe("");
+    // The id must resolve to a real element: a dangling aria-describedby reads
+    // as `undefined`, which a bare `.not.toBe("")` would let through.
+    const hintText = document.getElementById(
+      picker.getAttribute("aria-describedby") ?? "",
+    )?.textContent;
+    expect(hintText?.length ?? 0).toBeGreaterThan(0);
     expect(picker.disabled).toBe(false);
     const user = await setupUser();
     await user.type(picker, "a");
@@ -1432,6 +1434,51 @@ describe("에이전트 관리자", () => {
         ).toBe(true),
       { timeout: 3000 },
     );
+  });
+
+  test("관리자를 추가하는 동안 칸이 잠겨, 그사이 고른 사람이 말없이 사라지지 않는다", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let current = admins();
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: async (request: Request) => {
+        const body = (await request.json()) as { team_id?: string };
+        await gate;
+        current = admins({
+          teams: [
+            {
+              team_id: body.team_id ?? "",
+              name: "결제팀",
+              created_by: USER_ID,
+              created_at: AT,
+            },
+          ],
+        });
+        return json(200, { admins: current, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    await pick(user, picker, "결제");
+    // The request is held: the picker clears its query on select, so an open
+    // picker here would swallow a second choice with nothing left to retry.
+    await waitFor(() => expect(picker.disabled).toBe(true));
+    expect(
+      api.calls.filter(
+        (c) => c.method === "POST" && c.path.endsWith("/admins"),
+      ),
+    ).toHaveLength(1);
+
+    act(() => release());
+    expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
+    await waitFor(() => expect(picker.disabled).toBe(false));
   });
 
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
