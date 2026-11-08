@@ -232,7 +232,6 @@ export function createPostgresAgentMcpStore(db: Database): AgentMcpStore {
   };
 }
 
-// ---------------------------------------------------------------------------
 // The one-time copy of release values into settings rows (the operator's
 // CLI). A row it writes has `updated_by` NULL and `revision` 1, which is how
 // `--revert` tells it from a person's row: nothing else may write that pair,

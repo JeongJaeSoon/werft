@@ -1,7 +1,6 @@
 import type { AgentMcpSettings, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
-/** The settings row as stored. */
 export type AgentMcpRow = {
   server: string | null;
   allowedTools: string[];
@@ -27,7 +26,6 @@ export type PutAgentMcpSettingsResult =
   | { outcome: "conflict"; revision: number | null }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
-/** An agent's MCP settings (`agent_mcp_settings`). */
 export interface AgentMcpStore {
   /**
    * Null when the workspace has no such agent. The slug is what a catalog
