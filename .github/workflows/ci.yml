@@ -346,6 +346,7 @@ jobs:
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/local-sh.
+              - tests/pages-workflow.
               - tests/preview-reap.
               - tests/release-auto.
               - tests/sdk-release.
