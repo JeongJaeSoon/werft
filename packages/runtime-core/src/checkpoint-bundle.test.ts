@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { checkpointBundleRefs, peeledCommits } from "./checkpoint-bundle.ts";
+import {
+  checkpointBundleRefs,
+  MAX_CHECKPOINT_SOURCES,
+  peeledCommits,
+} from "./checkpoint-bundle.ts";
 
 const head = "1".repeat(40);
 const worktree = "2".repeat(40);
@@ -22,10 +26,69 @@ describe("checkpoint bundle refs", () => {
         branch: "refs/heads/main",
         head,
         instructions: null,
+        sources: [],
         upstream: null,
         worktree,
       },
     });
+  });
+
+  test("reads the source branches, sorted by name", () => {
+    const other = "3".repeat(40);
+    const verdict = checkpointBundleRefs(
+      [
+        ["refs/checkpoint/head", head],
+        ["refs/checkpoint/worktree", worktree],
+        ["refs/heads/main", head],
+        ["refs/checkpoint/source/guard/docs", other],
+        ["refs/checkpoint/source/skills-sample", worktree],
+      ],
+      worktree,
+    );
+
+    expect(verdict).toMatchObject({
+      status: "valid",
+      refs: {
+        sources: [
+          { name: "guard/docs", commit: other },
+          { name: "skills-sample", commit: worktree },
+        ],
+      },
+    });
+  });
+
+  test("refuses more source branches than a capture writes", () => {
+    const sources = Array.from(
+      { length: MAX_CHECKPOINT_SOURCES + 1 },
+      (_, at) => [`refs/checkpoint/source/b${at}`, head] as const,
+    );
+    const verdict = checkpointBundleRefs(
+      [
+        ["refs/checkpoint/head", head],
+        ["refs/checkpoint/worktree", worktree],
+        ...sources,
+      ],
+      worktree,
+    );
+
+    expect(verdict.status === "invalid" && verdict.reason).toContain(
+      "source branches",
+    );
+  });
+
+  test("refuses a source branch that is not a commit", () => {
+    const verdict = checkpointBundleRefs(
+      [
+        ["refs/checkpoint/head", head],
+        ["refs/checkpoint/worktree", worktree],
+        ["refs/checkpoint/source/docs", null],
+      ],
+      worktree,
+    );
+
+    expect(verdict.status === "invalid" && verdict.reason).toContain(
+      "refs/checkpoint/source/docs is not a commit",
+    );
   });
 
   test("reads the branch's upstream on origin", () => {

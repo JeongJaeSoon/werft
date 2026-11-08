@@ -20,6 +20,14 @@ export const CHECKPOINT_INSTRUCTIONS_REF = "refs/checkpoint/instructions";
  * `origin/main`), so a restore sets the branch's upstream again.
  */
 export const CHECKPOINT_UPSTREAM_PREFIX = "refs/checkpoint/upstream/";
+/**
+ * Where a bundle carries a local branch other than HEAD's so a push can name
+ * it later (`refs/checkpoint/source/<branch>` for `refs/heads/<branch>`). A
+ * restore does not check these out; they keep the commits reachable.
+ */
+export const CHECKPOINT_SOURCE_PREFIX = "refs/checkpoint/source/";
+/** Most local branches one checkpoint carries as push sources. */
+export const MAX_CHECKPOINT_SOURCES = 16;
 
 /**
  * `git for-each-ref --format` for `peeledCommits`: each ref with what it
@@ -51,12 +59,31 @@ export function peeledCommits(output: string): Map<string, string | null> {
   return commits;
 }
 
+/**
+ * The manifest's `workspace.sources` as a bundle proves them: its source
+ * refs plus HEAD's branch, which the bundle carries under its own name.
+ */
+export function manifestSourcesOf(
+  refs: Pick<CheckpointBundleRefs, "branch" | "head" | "sources">,
+): Array<{ name: string; commit: string }> {
+  const all = [...refs.sources];
+  if (refs.branch !== null) {
+    all.push({
+      name: refs.branch.slice("refs/heads/".length),
+      commit: refs.head,
+    });
+  }
+  return all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 /** What a restore checks out of a checkpoint bundle. */
 export type CheckpointBundleRefs = {
   /** `refs/heads/<name>` HEAD was on, or null for a detached HEAD. */
   branch: string | null;
   head: string;
   instructions: string | null;
+  /** Local branches kept for push requests, by short name, sorted. */
+  sources: Array<{ name: string; commit: string }>;
   /** origin's `refs/heads/<name>` the branch tracks, at the commit it had. */
   upstream: { commit: string; merge: string } | null;
   worktree: string;
@@ -98,10 +125,14 @@ export function checkpointBundleRefs(
   const upstreams = [...commits.keys()].filter((name) =>
     name.startsWith(CHECKPOINT_UPSTREAM_PREFIX),
   );
+  const sourceRefs = [...commits.keys()].filter((name) =>
+    name.startsWith(CHECKPOINT_SOURCE_PREFIX),
+  );
   const unknown = [...commits.keys()].filter(
     (name) =>
       !branches.includes(name) &&
       !upstreams.includes(name) &&
+      !sourceRefs.includes(name) &&
       name !== CHECKPOINT_HEAD_REF &&
       name !== CHECKPOINT_WORKTREE_REF &&
       name !== CHECKPOINT_INSTRUCTIONS_REF,
@@ -122,6 +153,11 @@ export function checkpointBundleRefs(
   ) {
     return invalid(
       `Checkpoint bundle carries ${tracked}, which is no upstream of a branch`,
+    );
+  }
+  if (sourceRefs.length > MAX_CHECKPOINT_SOURCES) {
+    return invalid(
+      `Checkpoint bundle carries ${sourceRefs.length} source branches, over the ${MAX_CHECKPOINT_SOURCES} a capture writes`,
     );
   }
   const notCommit = [...commits].find(([, commit]) => commit === null);
@@ -158,6 +194,12 @@ export function checkpointBundleRefs(
       branch,
       head,
       instructions: commits.get(CHECKPOINT_INSTRUCTIONS_REF) ?? null,
+      sources: sourceRefs
+        .map((name) => ({
+          name: name.slice(CHECKPOINT_SOURCE_PREFIX.length),
+          commit: commits.get(name) as string,
+        }))
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
       upstream:
         merge === null || upstreamCommit == null
           ? null
