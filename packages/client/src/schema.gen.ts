@@ -1551,7 +1551,7 @@ export interface paths {
         };
         /**
          * Read why GitHub work of the session was refused lately
-         * @description The session's latest refusals by the GitHub gate, newest first, at most 10: each refused clone, push, pull request, Actions call or review leaves a failed receipt (`mint_github_token`, `dispatch_workflow`, `rerun_workflow` or `review_pull_request`), and this lists its `receipt_id`, `operation`, `purpose` and `reason_code` (a `GITHUB_REFUSED` reason such as `github_disabled` or `repository_not_allowed`). GitHub's own refusals of a call it received are not listed: they are the work's own receipt. Reading changes nothing.
+         * @description The session's latest refusals by the GitHub gate, newest first, at most 10: each refused clone, push, pull request, Actions call, review or merge leaves a failed receipt (`mint_github_token`, `dispatch_workflow`, `rerun_workflow`, `review_pull_request` or `merge_pull_request`), and this lists its `receipt_id`, `operation`, `purpose` and `reason_code` (a `GITHUB_REFUSED` reason such as `github_disabled` or `repository_not_allowed`). GitHub's own refusals of a call it received are not listed: they are the work's own receipt. Reading changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -6497,7 +6497,7 @@ export interface components {
                 /** Format: uuid */
                 receipt_id: string;
                 /** @enum {string} */
-                operation: "mint_github_token" | "dispatch_workflow" | "rerun_workflow" | "review_pull_request";
+                operation: "mint_github_token" | "dispatch_workflow" | "rerun_workflow" | "review_pull_request" | "merge_pull_request";
                 /** @enum {string} */
                 purpose: "clone" | "push" | "pull_request" | "actions_read" | "dispatch" | "rerun" | "review" | "outcome_refresh" | "merge";
                 /** @enum {string} */
