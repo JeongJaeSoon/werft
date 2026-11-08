@@ -53,15 +53,6 @@ werft_add_trailers() {
   _werft_trailers=${HOME:-/nonexistent}/.werft/git-trailers
   [ -n "$_werft_file" ] && [ -f "$_werft_trailers" ] || return 0
   (
-    cr=$(printf '\r')
-    set --
-    while IFS= read -r line || [ -n "$line" ]; do
-      case $line in
-        *"$cr"*) continue ;;
-        "Co-authored-by: "* | "Agent-Session: "*) set -- "$@" --trailer "$line" ;;
-      esac
-    done <"$_werft_trailers"
-    [ $# -gt 0 ] || exit 0
     # Outside any repository and with no config at all: a repository's or a
     # `git -c` trailer.* setting could otherwise rename these keys or run a
     # command that writes other lines.
@@ -69,8 +60,35 @@ werft_add_trailers() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_PARAMETERS
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0
     cd / || exit 1
-    # --no-divider: the push check reads trailers the way `git log` does, which
-    # treats a `---` line as ordinary text, so the trailers must go after it.
+    cr=$(printf '\r')
+    # The block git reads as the message's trailers (the push check counts
+    # only that block). --no-divider: a `---` line is ordinary text to it.
+    last=$(git interpret-trailers --parse --no-divider "$_werft_file") || exit 1
+    set --
+    while IFS= read -r line || [ -n "$line" ]; do
+      case $line in
+        *"$cr"*) continue ;;
+        "Co-authored-by: "* | "Agent-Session: "*)
+          printf '%s\n' "$last" | grep -qxF -- "$line" && continue
+          # --if-exists addIfDifferent compares with the last block only. A
+          # hook that appended a paragraph after ours (husky's `Husky-Ran:`)
+          # leaves our line in an earlier one, where the push check does not
+          # count it.
+          WERFT_DROP=$line awk '
+            $0 == ENVIRON["WERFT_DROP"] { removed = 1; next }
+            /^[ \t]*$/ { if (removed && blank) next; blank = 1; print; next }
+            { blank = 0; removed = 0; print }
+          ' "$_werft_file" >"$_werft_file.werft-move" || {
+            rm -f "$_werft_file.werft-move"
+            exit 1
+          }
+          cat "$_werft_file.werft-move" >"$_werft_file" || exit 1
+          rm -f "$_werft_file.werft-move"
+          set -- "$@" --trailer "$line"
+          ;;
+      esac
+    done <"$_werft_trailers"
+    [ $# -gt 0 ] || exit 0
     exec git interpret-trailers --no-divider --if-exists addIfDifferent --in-place "$@" "$_werft_file"
   )
 }
