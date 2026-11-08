@@ -52,16 +52,17 @@ read -rs KIND_DB_PASSWORD
 { printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/BOOTSTRAP_TOKEN"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]' --timeout 10m
 ```
 
-Secret 디렉터리는 생성 뒤 접근 권한을 0700으로 확인하고, 터미널 없이 실행할 때는 DB 비밀번호를 표준 입력으로 전달한다. 실제 운영 자격 증명을 이 시험에 넣지 않는다. 위 Secret 블록과 fixture chart 시험의 성공을 게시 chart 시험 전체의 성공으로 혼동하지 않는다.
+기본 API replica는 2개라서 같은 `BOOTSTRAP_TOKEN`(`openssl rand -hex 32`는 64자라 32–256자 조건을 채운다)을 Secret에 만들고 `secrets.catalogEnv`에 남긴다. 목록을 `[]`로 비우면 replica마다 다른 토큰이 생긴다. 이 시험은 모델 key를 넣지 않으므로 기본 `ANTHROPIC_API_KEY`만 목록에서 뺀다. Secret 디렉터리는 생성 뒤 접근 권한을 0700으로 확인하고, 터미널 없이 실행할 때는 DB 비밀번호를 표준 입력으로 전달한다. 실제 운영 자격 증명을 이 시험에 넣지 않는다. 위 Secret 블록과 fixture chart 시험의 성공을 게시 chart 시험 전체의 성공으로 혼동하지 않는다.
 
 ## 확인
 

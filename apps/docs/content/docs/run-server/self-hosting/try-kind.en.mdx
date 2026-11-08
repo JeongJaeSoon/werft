@@ -57,16 +57,17 @@ read -rs KIND_DB_PASSWORD
 { printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/BOOTSTRAP_TOKEN"
 printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
 unset KIND_DB_PASSWORD
 rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
-  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=[]' --timeout 10m
+  --namespace werft -f deploy/kind/values.yaml --set-json 'secrets.catalogEnv=["BOOTSTRAP_TOKEN"]' --timeout 10m
 ```
 
-Check that the Secret directory has 0700 permissions after creation, and supply the database password on standard input when running without a terminal. Do not put production credentials in this test. Success of the Secret block and fixture chart test does not establish success of the entire published-chart test.
+The default API replica count is 2, so create the same `BOOTSTRAP_TOKEN` in the Secret (`openssl rand -hex 32` gives 64 characters, which meets the 32–256 character requirement) and keep it in `secrets.catalogEnv`. Emptying the list with `[]` gives each replica a different token. This test adds no model key, so only the default `ANTHROPIC_API_KEY` is removed from the list. Check that the Secret directory has 0700 permissions after creation, and supply the database password on standard input when running without a terminal. Do not put production credentials in this test. Success of the Secret block and fixture chart test does not establish success of the entire published-chart test.
 
 <a id="확인" />
 ## Verify
