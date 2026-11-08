@@ -190,19 +190,23 @@ function Toast({
   const box = "pointer-events-auto max-w-sm shadow-pop";
   const body = !shown ? null : error ? (
     <Alert variant="red" className={`${box} bg-popover`}>
-      <AlertDescription>{shown}</AlertDescription>
-      {persistent ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-my-1 -me-2"
-          aria-label={dismissLabel}
-          onClick={dismiss}
-        >
-          <X aria-hidden="true" />
-        </Button>
-      ) : null}
+      {/* The alert's content column stacks its children: the row keeps the
+          dismiss button beside the words. */}
+      <div className="flex items-start gap-2">
+        <AlertDescription className="min-w-0 flex-1">{shown}</AlertDescription>
+        {persistent ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-my-1 -me-2 flex-none"
+            aria-label={dismissLabel}
+            onClick={dismiss}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
     </Alert>
   ) : (
     <Text
