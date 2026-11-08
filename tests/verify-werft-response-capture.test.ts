@@ -502,6 +502,10 @@ describe("createCollector", () => {
     const lines = c.report();
     setTimeout(() => {
       c.onEvent(responded("1", 500));
+      c.onEvent({
+        method: "Network.dataReceived",
+        params: { requestId: "1", dataLength: 8 },
+      });
       c.onEvent(finished("1"));
     }, 100);
     expect(await lines).toEqual([
@@ -626,9 +630,7 @@ describe("maskBody: werft#1327 review", () => {
 
   test("everything inside a secret element: CDATA, nested and repeated tags", () => {
     expect(leaked("<password><![CDATA[syn-pw-12]]></password>")).toEqual([]);
-    expect(leaked("<password><value>syn-pw-12</value></password>")).toEqual(
-      [],
-    );
+    expect(leaked("<password><value>syn-pw-12</value></password>")).toEqual([]);
     expect(
       leaked("<password><password>a</password>syn-pw-12</password>"),
     ).toEqual([]);

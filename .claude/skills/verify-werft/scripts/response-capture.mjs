@@ -36,7 +36,7 @@ const SECRET_KEY = new RegExp(`${SECRET_WORDS}|^sid$`, "i");
 // is the error code ("UNAUTHORIZED"), which a failed-request report is read
 // for; anywhere else it is hidden.
 const CODE_KEY = /^code$|[a-z][_-]?code$/i;
-const ERROR_KEY = /^errors?$|^error[_-]?code$/i;
+const ERROR_KEY = /^errors?$|^error[_-]?code$|^status[_-]?code$/i;
 
 // A parsed JSON body is masked by key at any depth and for any value type
 // (string, array, object); escaped key spellings are decoded by the parse.
@@ -134,10 +134,41 @@ function hideEmbedded(text, pattern) {
 }
 
 // The text of an element named like a secret: <password>…</password>.
-const SECRET_TAG = new RegExp(
-  `(<[^<>]{0,256}?(?:${SECRET_WORDS}|\\bsid\\b|\\bcode\\b)[^<>]{0,256}>)[^<]*`,
-  "gi",
-);
+// Everything up to the matching close tag is hidden (CDATA and nested
+// elements included), or the rest of the text when there is none.
+const TAG_OPEN = /<([A-Za-z_][\w:.-]{0,128})([^<>]{0,512})>/g;
+const SECRET_ATTR = new RegExp(`${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`, "i");
+const secretTag = (name, attrs) =>
+  SECRET_KEY.test(name) ||
+  (CODE_KEY.test(name) && !ERROR_KEY.test(name)) ||
+  SECRET_ATTR.test(attrs);
+function hideTags(text) {
+  let out = "";
+  let last = 0;
+  TAG_OPEN.lastIndex = 0;
+  for (let m = TAG_OPEN.exec(text); m; m = TAG_OPEN.exec(text)) {
+    const [whole, name, attrs] = m;
+    if (attrs.endsWith("/") || !secretTag(name, attrs)) continue;
+    const start = m.index + whole.length;
+    const same = new RegExp(
+      `<(/?)${name.replace(/[.]/g, "\\.")}(?=[\\s/>])`,
+      "gi",
+    );
+    same.lastIndex = start;
+    let end = text.length;
+    for (let depth = 1, t = same.exec(text); t; t = same.exec(text)) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = t.index;
+        break;
+      }
+    }
+    out += `${text.slice(last, start)}(hidden)`;
+    last = end;
+    TAG_OPEN.lastIndex = end;
+  }
+  return out + text.slice(last);
+}
 
 export function maskBody(text) {
   let out = String(text);
@@ -156,8 +187,7 @@ export function maskBody(text) {
     return /[A-Za-z0-9_-]/.test(c) ? c : whole;
   });
   return (
-    hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT)
-      .replace(SECRET_TAG, "$1(hidden)")
+    hideTags(hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT))
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 (hidden)")
       .replace(
         /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|"[^"\r\n]*|[^\r\n"])+/gi,
@@ -264,22 +294,34 @@ export function createCollector({
   };
   // Checked before any body is read, so a large or binary body never leaves
   // the browser.
-  const unreadable = (rec) => {
+  // getResponseBody has no length argument, so the decoded size the browser
+  // reported (dataReceived, or Content-Length of an unencoded body) is the
+  // only bound: a body without one is not read. `final` is set once loading
+  // finished, when no more size can arrive.
+  const unreadable = (rec, final) => {
     if (rec.mimeType && !TEXT_MIME.test(rec.mimeType))
       return `not read (${rec.mimeType})`;
-    if (rec.size > READ_LIMIT)
-      return `not read (${rec.size} bytes, over ${READ_LIMIT})`;
-    if (reserved + Math.min(rec.size || READ_LIMIT, READ_LIMIT) > READ_BUDGET)
+    const size = Math.max(rec.size, rec.wire ?? 0);
+    if (size > READ_LIMIT)
+      return `not read (${size} bytes, over ${READ_LIMIT})`;
+    if (!final) return undefined;
+    if (!rec.sizeKnown) return "not read (size unknown)";
+    if (reserved + rec.size > READ_BUDGET)
       return "not read (capture budget for this command spent)";
     return undefined;
   };
   const read = (id, rec) => {
-    const why = unreadable(rec);
+    const why = unreadable(rec, true);
     if (why) return settle(rec, { bodyError: why });
-    const take = Math.min(rec.size || READ_LIMIT, READ_LIMIT);
+    const take = rec.size;
     reserved += take;
     send("Network.getResponseBody", { requestId: id }).then(
       (r) => {
+        // Settled in bytes actually read, in case the reported size was low.
+        reserved +=
+          (r.base64Encoded
+            ? Math.floor((r.body.length * 3) / 4)
+            : Buffer.byteLength(r.body)) - take;
         // Cut before masking: what lies past READ_LIMIT is never printed,
         // and the masks hide to the end of a value that the cut leaves open.
         const raw = r.base64Encoded
@@ -289,7 +331,6 @@ export function createCollector({
             ).toString("utf8")
           : r.body;
         const body = raw.slice(0, READ_LIMIT);
-        reserved += body.length - take;
         settle(rec, { body, readCut: raw.length > READ_LIMIT });
       },
       (error) =>
@@ -324,7 +365,9 @@ export function createCollector({
   function onEvent(m) {
     const p = m.params;
     if (!m.method?.startsWith("Network.")) return;
-    lastEvent = Date.now();
+    // Data on an open stream is not a request starting or ending; counting
+    // it kept a live SSE from ever letting the network go quiet.
+    if (m.method !== "Network.dataReceived") lastEvent = Date.now();
     if (m.method === "Network.requestWillBeSent") {
       const prev = current.get(p.requestId);
       if (prev && p.redirectResponse) {
@@ -342,21 +385,34 @@ export function createCollector({
       rec.status = p.response.status;
       rec.url = p.response.url;
       rec.mimeType = p.response.mimeType;
-      rec.size = Number(headerValue(p.response.headers, "content-length")) || 0;
+      // Content-Length is the decoded size only when there is no encoding;
+      // a compressed length is still a lower bound for the over-limit check.
+      const length = Number(
+        headerValue(p.response.headers, "content-length") ?? Number.NaN,
+      );
+      if (Number.isFinite(length)) {
+        if (headerValue(p.response.headers, "content-encoding"))
+          rec.wire = length;
+        else {
+          rec.size = length;
+          rec.sizeKnown = true;
+        }
+      }
       if (wanted(rec.status, rec.url, pattern)) track(rec);
-      const why = waiting.has(rec) && unreadable(rec);
+      const why = waiting.has(rec) && unreadable(rec, false);
       if (why) settle(rec, { bodyError: why });
     } else if (m.method === "Network.dataReceived") {
       const rec = current.get(p.requestId);
       if (rec) {
         rec.got = (rec.got ?? 0) + p.dataLength;
         rec.size = Math.max(rec.size, rec.got);
+        rec.sizeKnown = true;
       }
     } else if (m.method === "Network.loadingFinished") {
       const rec = current.get(p.requestId);
       done(p.requestId);
       if (!rec || !waiting.has(rec)) return;
-      rec.size = Math.max(rec.size, p.encodedDataLength ?? 0);
+      rec.wire = Math.max(rec.wire ?? 0, p.encodedDataLength ?? 0);
       read(p.requestId, rec);
     } else if (m.method === "Network.loadingFailed") {
       const rec = current.get(p.requestId);
