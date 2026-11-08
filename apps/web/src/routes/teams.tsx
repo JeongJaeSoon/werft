@@ -333,23 +333,25 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
   const queryClient = useQueryClient();
   const role = useRole();
   const [name, setName] = useState(team.name);
-  const [nameTaken, setNameTaken] = useState(false);
+  // The name that was refused, not a flag: a reply that comes after the box
+  // was edited must not mark the new name.
+  const [taken, setTaken] = useState<string | null>(null);
   const path = { params: { path: { team_id: team.id } } };
 
-  const fail = (error: ApiError) => {
-    if (error.code === "ALREADY_EXISTS") setNameTaken(true);
+  const fail = (error: ApiError, submitted: string) => {
+    if (error.code === "ALREADY_EXISTS") setTaken(submitted);
     else notify(refusalText(t, error, "team.manage", role), { tone: "error" });
   };
 
-  const rename = useMutation<TeamChangeResponse, ApiError>({
-    mutationFn: () =>
+  const rename = useMutation<TeamChangeResponse, ApiError, string>({
+    mutationFn: (submitted) =>
       unwrap(
         client.PATCH("/v1/teams/{team_id}", {
           ...path,
-          body: { name: name.trim() },
+          body: { name: submitted },
         }),
       ),
-    onMutate: () => setNameTaken(false),
+    onMutate: () => setTaken(null),
     onSuccess: async ({ team: renamed }) => {
       notify(t("teams.renamed", { name: renamed.name }));
       await queryClient.invalidateQueries({
@@ -361,7 +363,7 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    rename.mutate();
+    rename.mutate(name.trim());
   };
 
   return (
@@ -369,11 +371,8 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
       <form className={INLINE_FORM} onSubmit={submit}>
         <TeamNameField
           value={name}
-          onChange={(value) => {
-            setNameTaken(false);
-            setName(value);
-          }}
-          error={nameTaken ? t("teams.nameTaken") : undefined}
+          onChange={setName}
+          error={name.trim() === taken ? t("teams.nameTaken") : undefined}
         />
         <Button
           type="submit"

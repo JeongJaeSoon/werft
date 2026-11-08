@@ -43,8 +43,9 @@ export function TeamCreateDialog({
   const role = useRole();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Leaving the list unmounts this button; a request that answers after
-  // that is not news for the next visit.
+  // Leaving the list unmounts this button, and with it the dialog: only
+  // the dialog's own state is skipped then. The toast still says the team
+  // exists.
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;

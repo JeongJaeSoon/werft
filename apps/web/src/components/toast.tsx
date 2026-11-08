@@ -43,27 +43,41 @@ export function useToast(dismissLabel?: string): {
   readonly toast: ReactNode;
 } {
   const [current, setCurrent] = useState<Current | null>(null);
-  const notify = useCallback<Notify>(
-    (text, options = {}) =>
-      setCurrent((previous) => ({
-        id: (previous?.id ?? 0) + 1,
-        text,
-        options,
-      })),
-    [],
-  );
+  // An error to act on has its own place: a later notice must not push it
+  // out before it is dismissed, and it must not hide that notice either.
+  const [held, setHeld] = useState<Current | null>(null);
+  const notify = useCallback<Notify>((text, options = {}) => {
+    const set =
+      options.tone === "error" && options.persistent ? setHeld : setCurrent;
+    set((previous) => ({ id: (previous?.id ?? 0) + 1, text, options }));
+  }, []);
   const dismiss = useCallback(() => setCurrent(null), []);
+  const release = useCallback(() => setHeld(null), []);
   return {
     notify,
-    toast: current ? (
-      <Toast
-        key={current.id}
-        text={current.text}
-        options={current.options}
-        dismissLabel={dismissLabel}
-        onDone={dismiss}
-      />
-    ) : null,
+    toast: (
+      <>
+        {held ? (
+          <Toast
+            key={`held-${held.id}`}
+            text={held.text}
+            options={held.options}
+            dismissLabel={dismissLabel}
+            onDone={release}
+          />
+        ) : null}
+        {current ? (
+          <Toast
+            key={`current-${current.id}`}
+            text={current.text}
+            options={current.options}
+            dismissLabel={dismissLabel}
+            lifted={held !== null}
+            onDone={dismiss}
+          />
+        ) : null}
+      </>
+    ),
   };
 }
 
@@ -99,13 +113,17 @@ function Toast({
   text,
   options,
   dismissLabel,
+  lifted = false,
   onDone,
 }: {
   readonly text: string;
   readonly options: NotifyOptions;
   readonly dismissLabel: string | undefined;
+  /** An error waiting to be dismissed holds the corner; this sits above it. */
+  readonly lifted?: boolean;
   readonly onDone: () => void;
 }) {
+  const place = lifted ? `${PLACE} bottom-24 sm:bottom-28` : PLACE;
   const error = options.tone === "error";
   const persistent = error && options.persistent === true;
   // The region exists empty first: a live region inserted with its text
@@ -147,15 +165,23 @@ function Toast({
   );
   return createPortal(
     options.silent && !error ? (
-      <div aria-hidden="true" data-slot="toast" className={PLACE}>
+      <div aria-hidden="true" data-slot="toast" className={place}>
         {body}
       </div>
     ) : error ? (
-      <div role="alert" data-slot="toast" data-tone="error" className={PLACE}>
+      // aria-live is explicit: a modal dialog opened later hides every
+      // sibling of its content from assistive technology except live regions.
+      <div
+        role="alert"
+        aria-live="assertive"
+        data-slot="toast"
+        data-tone="error"
+        className={place}
+      >
         {body}
       </div>
     ) : (
-      <output aria-live="polite" data-slot="toast" className={PLACE}>
+      <output aria-live="polite" data-slot="toast" className={place}>
         {body}
       </output>
     ),

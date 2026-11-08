@@ -1182,10 +1182,25 @@ describe("팀 화면", () => {
     );
     const said = await toastSaid();
     expect(said).toContain("팀 관리 권한이 있어야");
-    expect(toastRegion()?.getAttribute("role")).toBe("alert");
+    const alert = toastRegion();
+    expect(alert?.getAttribute("role")).toBe("alert");
+    // Explicit, so a modal opened later does not aria-hide it.
+    expect(alert?.getAttribute("aria-live")).toBe("assertive");
+    // Past the 8s an error nobody must act on would last.
+    await new Promise((resolve) => setTimeout(resolve, 8300));
+    expect(alert?.isConnected).toBe(true);
+    // A later notice sits beside it instead of replacing it.
+    const name = screen.getByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-slot=toast]").length).toBe(2),
+    );
+    expect(alert?.isConnected).toBe(true);
     await user.click(screen.getByRole("button", { name: "알림 닫기" }));
-    await waitFor(() => expect(toastRegion() === null).toBe(true));
-  });
+    await waitFor(() => expect(alert?.isConnected).toBe(false));
+  }, 20000);
 
   test("이미 있는 이름으로 바꾸려 하면 이름 칸 옆에서 말하고 토스트는 없다", async () => {
     const server = teamServer();
