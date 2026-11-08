@@ -281,6 +281,50 @@ describe("the tool envelope", () => {
       );
     }
   });
+
+  test("the repository tools speak of attached and not_attached, never of a primary, an available or a default repository", () => {
+    for (const tool of ["list_repositories", "attach_repository"] as const) {
+      expect(GITHUB_MCP_TOOL_DESCRIPTIONS[tool]).not.toMatch(
+        /\b(primary|available|default repository)\b/i,
+      );
+    }
+  });
+
+  // Lead decision 3 (2026-11-09): the one purpose sentence the "fields and
+  // effects" rule allows, pinned here so it is not dropped by accident. The
+  // word list above stays as it was.
+  test("attach_repository says what it is for, what a new attach records and how a transient failure differs from a refusal", () => {
+    const attach = GITHUB_MCP_TOOL_DESCRIPTIONS.attach_repository;
+    expect(attach).toContain(
+      "It is meant for a repository whose code the task reads or changes",
+    );
+    expect(attach).toContain(
+      "A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded.",
+    );
+    expect(attach).toContain(
+      "A failure that comes from the connection (an `upstream connection failed` answer, or HTTP 502 or 503) is transient and says nothing about the repository; `repository_not_allowed` is a refusal by the agent's settings, not a connection failure.",
+    );
+    // It says nothing it cannot know: whether a remote exists, or what a
+    // repeated refusal returns.
+    expect(attach).not.toMatch(/same answer|has been given|exists/i);
+  });
+
+  test("list_repositories names the statuses it answers and the remote it reports", () => {
+    const list = GITHUB_MCP_TOOL_DESCRIPTIONS.list_repositories;
+    for (const word of [
+      "`attached`",
+      "`pending`",
+      "`failed`",
+      "`not_attached`",
+      "`allowed_in_newer_release`",
+      "`remote`",
+      "`origin`",
+    ]) {
+      expect(list).toContain(word);
+    }
+    expect(list).not.toMatch(/not counted|comes first/i);
+    expect(list).not.toMatch(/in the workspace|without the remote/i);
+  });
 });
 
 describe("listedRepositorySchema", () => {
@@ -319,7 +363,7 @@ describe("listedRepositorySchema", () => {
         remote: "origin",
       }),
     ).toEqual({ ...entry, status: "attached", remote: "origin" });
-    // Absent for a repository that is not in the workspace; never an empty name.
+    // Absent unless the repository is attached; never an empty name.
     expect(
       "remote" in
         listedRepositorySchema.parse({ ...entry, status: "attached" }),
