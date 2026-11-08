@@ -360,6 +360,14 @@ describe("paths and entry kinds", () => {
     expect(new TextDecoder().decode(kept?.bytes)).toBe("a");
   });
 
+  test("a folded settings name is denied", () => {
+    expectIssue(
+      [...base(), file("skills/research/ſettings.json", "{}")],
+      "skills/research/ſettings.json",
+      "denied_path",
+    );
+  });
+
   test("Unicode case variants fold for nested SKILL.md and file/directory clashes", () => {
     expectIssue(
       [...base(), file("skills/research/nested/ſKILL.md", "x")],

@@ -375,7 +375,7 @@ function pathPolicy(
     .split("/")
     .find(
       (segment) =>
-        DENIED_SEGMENTS.has(fold(segment)) || SETTINGS_FILE.test(segment),
+        DENIED_SEGMENTS.has(fold(segment)) || SETTINGS_FILE.test(fold(segment)),
     );
   if (denied !== undefined) {
     return {
