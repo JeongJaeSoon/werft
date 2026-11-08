@@ -69,7 +69,6 @@ export const settingsKo = {
   "settings.connections.add": "연결 추가",
   "settings.connections.empty":
     "모델 연결이 없습니다. 연결을 추가한 뒤 프로필을 만드세요.",
-  "settings.connections.locked": "모델 연결은 설치 소유자만 보고 바꿉니다.",
   "settings.connections.kind": "종류",
   "settings.connections.endpoint": "엔드포인트",
   "settings.connections.endpointDefault":
@@ -184,8 +183,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.add": "Add connection",
   "settings.connections.empty":
     "No model connections. Add one, then make a profile.",
-  "settings.connections.locked":
-    "Only the installation owner sees and changes model connections.",
   "settings.connections.kind": "Kind",
   "settings.connections.endpoint": "Endpoint",
   "settings.connections.endpointDefault":
@@ -301,8 +298,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.add": "接続を追加",
   "settings.connections.empty":
     "モデル接続がありません。接続を追加してからプロファイルを作ってください。",
-  "settings.connections.locked":
-    "モデル接続はインストールの所有者だけが見て変更できます。",
   "settings.connections.kind": "種類",
   "settings.connections.endpoint": "エンドポイント",
   "settings.connections.endpointDefault":
