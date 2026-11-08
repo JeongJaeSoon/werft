@@ -7,7 +7,7 @@ description: 권한 요청에 답하고, 메시지를 이어 보내고, 세션�
 
 ## 파일을 쓰는 세션 만들기
 
-이 대본은 Bash로 `hello.txt`를 쓴다. `claude-coding-local` 프로필은 파일을 바꾸는 명령 전에 권한을 묻는다.
+이 대본은 Bash의 `tee`로 `hello.txt`를 쓴다. `claude-coding-local` 프로필은 세션 작업 공간 안의 파일 쓰기·편집과 로컬 git은 묻지 않고, 그 밖의 파일을 바꾸는 명령(`tee`처럼 목록에 없는 것)은 실행 전에 권한을 묻는다. 작업 공간 안으로 리다이렉트하는 `echo alpha > hello.txt`는 묻지 않으므로 이 예제에 쓰지 않는다.
 
 ```ts title="approve-and-close.ts"
 import {
@@ -19,7 +19,7 @@ import {
 import { werft } from "./werft.ts";
 
 const signal = AbortSignal.timeout(5 * 60_000);
-const COMMAND = "echo alpha > hello.txt";
+const COMMAND = "echo alpha | tee hello.txt";
 
 const created = await werft.sessions.create({
   profile_id: "claude-coding-local",
@@ -63,7 +63,7 @@ console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+asked: Bash { command: 'echo alpha | tee hello.txt', description: 'write hello.txt' }
 answered: accepted
 turn 1: completed
 ```
