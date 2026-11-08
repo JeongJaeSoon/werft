@@ -140,7 +140,9 @@ function hideEmbedded(text, pattern) {
 // The hint is broader than SECRET_WORDS (any "key", "mail", "session",
 // "code"): withholding a harmless page is the safe side. Numeric character
 // references are decoded first (pass&#119;ord), with or without ";".
-const MARKUP = /<[A-Za-z!?/]/;
+// Any name start counts, not only ASCII letters (XML allows <비밀 …/>);
+// only "<" before a space, digit, "=" or another bracket is taken as text.
+const MARKUP = /<[^\s\d=<>]/;
 const SECRET_HINT =
   /token|secret|passw|cookie|authoriz|key|csrf|session|sid|mail|code/i;
 function decodeRefs(text) {

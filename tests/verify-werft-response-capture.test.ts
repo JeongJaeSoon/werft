@@ -690,9 +690,9 @@ describe("maskBody: werft#1327 review", () => {
     expect(leaked("<textarea name=pass&#x77ord>syn-pw-12</textarea>")).toEqual(
       [],
     );
-    expect(
-      leaked('<비밀 name="pass&#119;ord" value="syn-pw-12"/>'),
-    ).toEqual([]);
+    expect(leaked('<비밀 name="pass&#119;ord" value="syn-pw-12"/>')).toEqual(
+      [],
+    );
   });
 });
 
