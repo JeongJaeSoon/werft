@@ -588,8 +588,9 @@ describe("Slack management", () => {
     const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
     // The list row carries its tag in the control column, next to the switch.
-    const connected = within(list).getByRole("switch").closest("li");
-    expect(within(connected as HTMLElement).getByText("공개")).toBeDefined();
+    const use = within(list).getByRole("switch");
+    const connected = within(use.closest("li") as HTMLElement);
+    expect(connected.getByText("공개").parentElement).toBe(use.parentElement);
     await user.click(screen.getByRole("button", { name: "채널 추가" }));
     const dialog = screen.getByRole("dialog");
     await within(dialog).findByText("#secret");

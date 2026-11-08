@@ -24,6 +24,11 @@ type Channel = { readonly name: string; readonly visibility: Visibility };
 const CHANNELS: readonly Channel[] = [
   { name: "release-notes", visibility: "public" },
   { name: "incident-room", visibility: "private" },
+  // Slack allows 80 characters and no break point inside a name.
+  {
+    name: "platform-quarterly-review-and-release-planning-for-the-whole-team",
+    visibility: "public",
+  },
 ];
 
 const LABEL: Record<Visibility, string> = {
@@ -39,6 +44,15 @@ function Tag({ visibility }: { readonly visibility: Visibility }) {
   );
 }
 
+// Mirrors channels.tsx: a name with no break point must wrap, not run under the tag.
+function ChannelName({ name }: { readonly name: string }) {
+  return (
+    <Text as="span" className="[overflow-wrap:anywhere]">
+      {`#${name}`}
+    </Text>
+  );
+}
+
 function SlackChannels() {
   return (
     <div className="flex flex-col gap-8 p-4">
@@ -48,7 +62,7 @@ function SlackChannels() {
           {CHANNELS.map((channel) => (
             <SettingRow
               key={channel.name}
-              title={`#${channel.name}`}
+              title={<ChannelName name={channel.name} />}
               actions={
                 <div className="flex items-center gap-2">
                   <Tag visibility={channel.visibility} />
@@ -72,7 +86,7 @@ function SlackChannels() {
           {CHANNELS.map((channel) => (
             <SettingRow
               key={channel.name}
-              title={`#${channel.name}`}
+              title={<ChannelName name={channel.name} />}
               actions={
                 <div className="flex items-center gap-2">
                   <Tag visibility={channel.visibility} />

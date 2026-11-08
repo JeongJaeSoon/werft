@@ -115,6 +115,12 @@ function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
   );
 }
 
+// A Slack channel name has no break point, so a long one must be allowed to
+// break anywhere or it runs under the tag in the right column.
+function ChannelName({ children }: { readonly children: string }) {
+  return <span className="[overflow-wrap:anywhere]">{children}</span>;
+}
+
 function ChannelSkeleton() {
   const { t } = useI18n();
   return (
@@ -357,7 +363,7 @@ export function SlackChannels({
                 return (
                   <SettingRow
                     key={row.id}
-                    title={name}
+                    title={<ChannelName>{name}</ChannelName>}
                     badge={
                       row.home ? (
                         <Badge variant="gray">{t("slack.home")}</Badge>
@@ -452,7 +458,7 @@ export function SlackChannels({
                 {listed.map((channel) => (
                   <SettingRow
                     key={channel.id}
-                    title={`#${channel.name}`}
+                    title={<ChannelName>{`#${channel.name}`}</ChannelName>}
                     description={
                       awaitsInvite(
                         rows.find(
