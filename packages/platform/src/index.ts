@@ -120,6 +120,7 @@ export * from "./sessions/git-attribution.ts";
 export * from "./sessions/github-connection-resolver.ts";
 export * from "./sessions/github-gate.ts";
 export * from "./sessions/github-mcp-server.ts";
+export * from "./sessions/mcp-settings.ts";
 export * from "./sessions/repository-attachment-service.ts";
 export * from "./sessions/github-work-service.ts";
 export * from "./sessions/installation-profiles.ts";

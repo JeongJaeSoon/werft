@@ -1664,6 +1664,7 @@ async function issueCredentials(
     | "repositoryId"
     | "agentReleaseId"
     | "githubPolicySource"
+    | "mcpStart"
   >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);

@@ -28,7 +28,7 @@ const state: McpSessionState = {
   agentId: "agent-1",
   releaseId: "rel-1",
   server: "fake",
-  perTool: { mcp__fake__whoami: "allow", mcp__fake__other: "ask" },
+  tools: ["mcp__fake__whoami"],
   boundRefs: ["mcp/fake"],
   turnId: "turn-1",
   actor: null,

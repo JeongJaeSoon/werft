@@ -7,16 +7,20 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import {
+  type EffectiveMcp,
+  effectiveMcp,
   type GitHubMcpStore,
   type McpEgressStore,
   type McpRefusalRecord,
   type McpSessionState,
+  mcpDenyOf,
   pinnedMcpTools,
   type SessionGitHubMcp,
   type SessionMcp,
 } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
+import { mcpSettingsOfRelease } from "./mcp-settings.ts";
 import { markPushContinuation, runningTurnOf } from "./push-continuations.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -35,6 +39,7 @@ type ReleaseMcp = {
   agentId: string;
   server: string | null;
   perTool: Record<string, string>;
+  deny: string[];
 };
 
 // Read off the stored card and pins without the full schemas: a release is
@@ -48,6 +53,7 @@ async function releaseMcpOf(
       agentId: agentReleases.agentId,
       card: agentVersions.card,
       policyPins: agentReleases.policyPins,
+      snapshot: agentReleases.runtimeConfigSnapshot,
     })
     .from(agentReleases)
     .innerJoin(
@@ -71,21 +77,54 @@ async function releaseMcpOf(
     agentId: release.agentId,
     server: typeof server === "string" ? server : null,
     perTool: pins.tools?.per_tool ?? {},
+    deny: mcpDenyOf(release.snapshot),
   };
 }
 
-/** The MCP server a claimed session's release names, for its claim. */
+/**
+ * The server and tools a session's MCP route holds: its release's, or its
+ * agent's settings when it started with a snapshot of them (`effectiveMcp`).
+ */
+async function sessionEffectiveMcp(
+  executor: Database,
+  session: { agentReleaseId: string; mcpStart: unknown },
+  release: ReleaseMcp,
+): Promise<EffectiveMcp> {
+  return effectiveMcp({
+    start: session.mcpStart,
+    row: await mcpSettingsOfRelease(executor, session.agentReleaseId),
+    release: {
+      server: release.server,
+      tools:
+        release.server === null
+          ? []
+          : pinnedMcpTools(release.server, release.perTool),
+      deny: release.deny,
+    },
+  });
+}
+
+/**
+ * The MCP server a claimed session may reach, for its claim. A session whose
+ * settings name no server gets no route.
+ */
 export async function sessionMcpOf(
   executor: Database,
-  session: { agentReleaseId: string | null },
+  session: { agentReleaseId: string | null; mcpStart: unknown },
 ): Promise<SessionMcp | null> {
   if (session.agentReleaseId === null) return null;
   const release = await releaseMcpOf(executor, session.agentReleaseId);
-  if (release === null || release.server === null) return null;
+  if (release === null) return null;
+  const effective = await sessionEffectiveMcp(
+    executor,
+    { agentReleaseId: session.agentReleaseId, mcpStart: session.mcpStart },
+    release,
+  );
+  if (effective.server === null) return null;
   return {
     releaseId: session.agentReleaseId,
-    server: release.server,
-    tools: pinnedMcpTools(release.server, release.perTool),
+    server: effective.server,
+    tools: effective.tools,
   };
 }
 
@@ -203,6 +242,7 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
           agentReleaseId: sessions.agentReleaseId,
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
+          mcpStart: sessions.mcpStart,
         })
         .from(sessions)
         .leftJoin(workspaces, eq(workspaces.id, sessions.workspaceId))
@@ -211,6 +251,11 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
       if (!session || session.agentReleaseId === null) return null;
       const release = await releaseMcpOf(db, session.agentReleaseId);
       if (release === null) return null;
+      const effective = await sessionEffectiveMcp(
+        db,
+        { agentReleaseId: session.agentReleaseId, mcpStart: session.mcpStart },
+        release,
+      );
       const bound =
         session.workspaceId === null
           ? []
@@ -241,8 +286,8 @@ export function createPostgresMcpEgressStore(db: Database): McpEgressStore {
         workspaceSlug: session.workspaceSlug,
         agentId: release.agentId,
         releaseId: session.agentReleaseId,
-        server: release.server,
-        perTool: release.perTool,
+        server: effective.server,
+        tools: effective.tools,
         boundRefs: bound.map((row) => row.ref),
         turnId: turn === undefined ? null : String(turn.sequence),
         actor: creatorOf(session, release.agentId),
