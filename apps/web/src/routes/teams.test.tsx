@@ -1604,7 +1604,9 @@ describe("에이전트 관리자", () => {
     // Nothing was added, nothing is announced as done.
     expect(screen.queryByText("결제팀")).toBeNull();
     expect(screen.getByText("Mate")).toBeDefined();
-    expect(toastRegion()?.textContent ?? "").toBe("");
+    // A toast region mounts as soon as one is raised and is filled later, so
+    // its absence is the check; reading its text would pass before the fill.
+    expect(toastRegion() === null).toBe(true);
     expect(
       api.calls.filter(
         (c) => c.method === "POST" && c.path.endsWith("/admins"),
@@ -1633,7 +1635,7 @@ describe("에이전트 관리자", () => {
     expect(
       screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
-    expect(toastRegion()?.textContent ?? "").toBe("");
+    expect(toastRegion() === null).toBe(true);
   });
 
   test("에이전트 관리자인 구성원이 자기 자신을 빼면 관리 권한을 잃는다고 경고하고, 취소하면 보내지 않는다", async () => {
