@@ -16,6 +16,7 @@ import {
   USER_ID,
   WORKSPACE_ID,
 } from "./fake-api.ts";
+import { denyFor } from "./profiles.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 export const TEAM_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
@@ -477,7 +478,7 @@ function profile(
     model,
     models: [model],
     tools: ["Read"],
-    deny: ["Bash", "WebFetch"],
+    deny: denyFor(["Read"]),
     permission_mode: "default",
     runtime_kind: "claude_agent_sdk",
     runtime_version: "0.3.270",

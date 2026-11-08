@@ -2018,7 +2018,10 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         ...base.capabilities,
         tools: ["Read", "Grep"],
         forbidden: ["Bash"],
-        tool_policy: { default: "ask", per_tool: { Read: "allow" } },
+        tool_policy: {
+          default: { builtin: "ask", mcp: "ask" },
+          per_tool: { Read: "allow" },
+        },
       },
     };
     const storedSha = cardContentSha256(storedCard as unknown as AgentCard);

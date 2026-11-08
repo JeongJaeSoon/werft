@@ -38,6 +38,7 @@ import {
   USER_ID,
 } from "../test-support/fake-api.ts";
 import { fakeIntersection } from "../test-support/intersection.ts";
+import { denyFor } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, cleanup, render, renderAt, screen, waitFor, within } =
@@ -161,7 +162,7 @@ const catalogProfile = (
   model,
   models: [model],
   tools,
-  deny: ["Bash", "WebFetch"],
+  deny: denyFor(tools),
   permission_mode: "default",
   runtime_kind: "claude_agent_sdk",
   runtime_version: "0.3.270",
@@ -1215,8 +1216,10 @@ describe("새 에이전트", () => {
       PROFILE,
     );
     const blocked = screen.getByRole("group", { name: "프로필이 막은 도구" });
-    expect(within(blocked).getByText("Bash")).toBeDefined();
+    // The profile runs Read, Edit and Bash, so it blocks the rest of the catalog.
+    expect(within(blocked).getByText("Write")).toBeDefined();
     expect(within(blocked).getByText("WebFetch")).toBeDefined();
+    expect(within(blocked).queryByText("Bash")).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "릴리스 만들기" })).toBeNull();
@@ -2874,6 +2877,7 @@ describe("편집 중 다른 곳의 저장", () => {
               model: CARD.model,
               models: [CARD.model],
               tools: ["Read", "Bash"],
+              deny: denyFor(["Read", "Bash"]),
             } as ProfileSummary,
           ],
         });
@@ -2887,11 +2891,12 @@ describe("편집 중 다른 곳의 저장", () => {
     )) as HTMLSelectElement;
     expect(cardProfile.value).toBe(PROFILE);
     await user.selectOptions(cardProfile, "claude-coding-wide");
-    expect(
-      within(
-        await within(card).findByRole("group", { name: "프로필이 막은 도구" }),
-      ).getByText("Bash"),
-    ).toBeDefined();
+    // Edit is run by the first profile and blocked by this one; Bash is the other way.
+    const wide = within(
+      await within(card).findByRole("group", { name: "프로필이 막은 도구" }),
+    );
+    expect(wide.getByText("Edit")).toBeDefined();
+    expect(wide.queryByText("Bash")).toBeNull();
     await user.type(
       screen.getByLabelText("에이전트 지시문"),
       "환불 문의에도 답한다.",
