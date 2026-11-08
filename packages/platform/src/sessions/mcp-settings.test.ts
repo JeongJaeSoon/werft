@@ -121,6 +121,40 @@ describe("effectiveMcp, a session with a snapshot", () => {
   });
 });
 
+// The tools come out in one order whatever order they went in: the claim, the
+// egress state and the list summary compare and hash them as lists.
+describe("effectiveMcp, the order of the tools", () => {
+  const search = "mcp__docs__search";
+  const read = "mcp__docs__read";
+
+  test("a release session's tools are sorted", () => {
+    expect(
+      effectiveMcp({
+        start: null,
+        row: null,
+        release: { server: "docs", tools: [search, read], deny: [] },
+      }).tools,
+    ).toEqual([read, search]);
+    expect(
+      effectiveMcp({
+        start: null,
+        row: row({ allowedTools: [search, read] }),
+        release: { server: "docs", tools: [search, read], deny: [] },
+      }).tools,
+    ).toEqual([read, search]);
+  });
+
+  test("a snapshot session's tools are sorted", () => {
+    expect(
+      effectiveMcp({
+        start: start({ allowed_tools: [search, read] }),
+        row: row({ allowedTools: [search, read] }),
+        release,
+      }).tools,
+    ).toEqual([read, search]);
+  });
+});
+
 describe("effectiveMcp, the release's deny", () => {
   const deny = ["mcp__docs__search"];
   test("is taken out of a release session", () => {
