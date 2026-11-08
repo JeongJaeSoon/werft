@@ -353,6 +353,30 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
     expect(await db.select().from(profileRolloutItems)).toHaveLength(2);
   });
 
+  test("a report path that is already taken does not hold the apply back", async () => {
+    const caller = await owner();
+    const id = await legacyAgent(caller, { tools: ["Read"] });
+    const path = reportPath();
+    const lines: string[] = [];
+    const say = (line: string) => lines.push(line);
+    expect(await runToolUnlock(["--dry-run", "--out", path], deps(), say)).toBe(
+      0,
+    );
+    const dryReport = await readFile(path, "utf8");
+
+    // Same path as the dry-run: the file stays, the run still unlocks.
+    const code = await runToolUnlock(["--apply", "--out", path], deps(), say);
+    expect(code).toBe(0);
+    const summary = JSON.parse(lines.at(-1) ?? "{}");
+    expect(summary).toMatchObject({
+      report: null,
+      report_sha256: null,
+      report_error: expect.stringContaining("EEXIST"),
+    });
+    expect(await readFile(path, "utf8")).toBe(dryReport);
+    expect(await activeToolsOf(id)).toEqual(["Read", "Grep", "Edit", "Write"]);
+  });
+
   test("an agent a person changed after the plan is left as it is", async () => {
     const caller = await owner();
     const id = await legacyAgent(caller, { tools: ["Read"] });

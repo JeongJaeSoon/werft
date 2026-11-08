@@ -95,8 +95,17 @@ async function apply(deps: ToolUnlockDeps, out: string, say: Say) {
   try {
     // The report goes out right before the run and does not hold it back: the
     // run judges every agent again under its own lock.
+    // A file that cannot be written (an earlier dry-run at the same path, a
+    // read-only dir) is named in the output and the run goes on; an existing
+    // report is never overwritten.
     const report = await plan(deps);
-    const sha = await writeReport(out, report);
+    let sha: string | null = null;
+    let reportError: string | null = null;
+    try {
+      sha = await writeReport(out, report);
+    } catch (error) {
+      reportError = error instanceof Error ? error.message : String(error);
+    }
     const service = createAgentService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
@@ -183,8 +192,9 @@ async function apply(deps: ToolUnlockDeps, out: string, say: Say) {
     }
     say({
       dry_run: false,
-      report: out,
+      report: reportError === null ? out : null,
       report_sha256: sha,
+      report_error: reportError,
       ...summaryOf(report),
       unlocked,
       not_unlocked: left,
