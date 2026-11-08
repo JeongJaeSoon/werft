@@ -167,6 +167,18 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // Before the early returns below, which let most unmentioned talk go:
+    // the event itself says the channel is private, so a binding made for a
+    // public one waits for approval now, whoever spoke and whatever was said.
+    if (!dm && event.channel_type === "group") {
+      const bound = await deps.bindings.resolveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      if (bound !== null && bound.channelKind === "public_channel") {
+        await deps.bindings.requireApproval(bound.id);
+      }
+    }
     const mentioned =
       event.type === "app_mention" ||
       new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);

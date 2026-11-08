@@ -948,6 +948,23 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
   });
 
+  test("unmentioned talk in a channel that is private now still sends the public binding to approval, thread reply or not", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await deliver(
+      fixture,
+      message("100.000200", { thread_ts: "100.000100", channel_type: "group" }),
+    );
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({
+      status: "pending_approval",
+      surfaceKind: "private_channel",
+    });
+  });
+
   test("a mention in a channel Slack now reports private waits for approval and answers nothing", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();
