@@ -2182,8 +2182,15 @@ export function createPostgresWorkerUnitOfWork(
       model: string;
     }): Promise<{ recorded: boolean }> {
       return db.transaction(async (tx) => {
-        // The attempt row serializes the exchanges the proxy refuses at
-        // once, so the check below and the insert see each other.
+        // The session first, as every stream write does: a later event id
+        // must not commit before an earlier one a reader already passed.
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, input.sessionId))
+          .for("update");
+        // Then the attempt row, which serializes the exchanges the proxy
+        // refuses at once, so the check below and the insert see each other.
         const [attempt] = await tx
           .select({ id: attempts.id })
           .from(attempts)
@@ -2214,7 +2221,7 @@ export function createPostgresWorkerUnitOfWork(
           type: "error",
           payload: {
             code: MODEL_NOT_ALLOWED_EVENT_CODE,
-            message: `The model ${input.model} is no longer on the profile's allowed list, so its provider access was cut`,
+            message: `The model ${input.model} is no longer on the profile's allowed list, so its model requests were blocked`,
             model: input.model,
           },
           turnRowId: null,

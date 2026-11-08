@@ -568,6 +568,12 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Called when the note on why a model was cut could not be written; the
+  // cut stands either way, and a lost note is not retried by a later regrant.
+  onModelCutError?: (
+    error: unknown,
+    cut: { sessionId: string; attemptId: string },
+  ) => void;
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, no attachment reaches a worker and its reports are dropped.
@@ -1968,7 +1974,12 @@ export function createWorkerGateway(deps: {
                 attemptId: result.attemptId,
                 model: result.model,
               })
-              .catch(() => undefined);
+              .catch((error: unknown) =>
+                deps.onModelCutError?.(error, {
+                  sessionId: result.sessionId,
+                  attemptId: result.attemptId,
+                }),
+              );
           }
           moved("session's profile");
         }

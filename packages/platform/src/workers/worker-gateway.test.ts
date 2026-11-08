@@ -3092,6 +3092,38 @@ describe("authorizeEgress", () => {
     expect(changed.cuts).toEqual([]);
   });
 
+  test("a note that cannot be written is reported and the cut stays a 409", async () => {
+    const reported: Array<{ error: unknown; sessionId: string }> = [];
+    const failure = new Error("db down");
+    const instance = createWorkerGateway({
+      work: work({
+        authorizeEgressAtomic: async () => ({
+          ...granted(profileFingerprint(profile)),
+          model: "retired-model",
+        }),
+        recordModelCutAtomic: async () => {
+          throw failure;
+        },
+      }),
+      catalog: withSeededInstallation({
+        profiles: { p: profile },
+        repositories: { app: repository },
+      }),
+      checkpoints: acceptAllCheckpoints,
+      onModelCutError: (error, cut) =>
+        reported.push({ error, sessionId: cut.sessionId }),
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(reported).toEqual([{ error: failure, sessionId: scope.session_id }]);
+  });
+
   test("a provider token is answered with the endpoint and the key to inject", async () => {
     const { asked, instance } = authorizer(
       granted(profileFingerprint(profile)),
