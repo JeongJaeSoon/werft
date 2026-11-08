@@ -274,13 +274,15 @@ test("e2e and quickstart validate the plan but stop when the workflow is cancell
         }),
       ).not.toBe(0);
     }
-    expect(
-      verdict(name, {
-        PLAN: "success",
-        [variable]: "false",
-        DOCS_ONLY: "false",
-      }),
-    ).not.toBe(0);
+    // Only the guide plan may be off outside a prose PR: a leaf-app change
+    // reaches neither the images nor the guides. e2e never is.
+    const off = verdict(name, {
+      PLAN: "success",
+      [variable]: "false",
+      DOCS_ONLY: "false",
+    });
+    if (name === "quickstart") expect(off).toBe(0);
+    else expect(off).not.toBe(0);
     expect(
       verdict(name, {
         PLAN: "success",
@@ -312,8 +314,8 @@ test("all product and site consumers use the same explicit plan", () => {
     ["demo", "product"],
     ["ui-pack", "product"],
     ["workspace-quota", "product"],
-    ["helm-chart", "product"],
-    ["k8s-smoke", "product"],
+    ["helm-chart", "helm"],
+    ["k8s-smoke", "k8s"],
   ]) {
     if (!name || !flag) throw new Error("missing plan consumer");
     const job = workflow.jobs[name];
@@ -325,11 +327,37 @@ test("all product and site consumers use the same explicit plan", () => {
     workflow.jobs.changes?.steps.find((step) => step.id === "plan")?.env
       ?.BASE_REF,
   ).toBe(`\${{ github.event.pull_request.base.ref }}`);
-  for (const key of ["tests", "product", "site", "quickstart", "docs_only"]) {
+  for (const key of [
+    "tests",
+    "product",
+    "site",
+    "quickstart",
+    "docs_only",
+    "helm",
+    "k8s",
+    "domains",
+  ]) {
     expect(workflow.jobs.changes?.outputs?.[key]).toBe(
       `\${{ steps.plan.outputs.${key} }}`,
     );
   }
+});
+
+test("an integration domain no changed path reaches runs no step but its gate", () => {
+  const steps = workflow.jobs["integration-domain"]?.steps ?? [];
+  expect(steps[0]?.id).toBe("gate");
+  expect(steps[0]?.env?.PLANNED).toBe(
+    "${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}",
+  );
+  expect(steps[0]?.run).toBe('echo "run=$PLANNED" >>"$GITHUB_OUTPUT"');
+  // A step that only runs after another one failed needs no gate of its own.
+  for (const step of steps.slice(1)) {
+    if (step.if?.startsWith("failure()")) continue;
+    expect(step.if).toContain("steps.gate.outputs.run == 'true'");
+  }
+  expect(workflow.jobs["workspace-quota"]?.if).toContain(
+    "contains(fromJSON(needs.changes.outputs.domains), 'docker')",
+  );
 });
 
 test("cancelled workflows fail without unsupported status functions in env", () => {

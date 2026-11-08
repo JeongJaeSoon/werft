@@ -257,6 +257,24 @@ describe("presentTurnEvent", () => {
     expect(() => presentTurnEvent(hostile)).not.toThrow();
   });
 
+  test("a reply keeps its whole Markdown in reply while summary stays clipped", () => {
+    const long = `**bold** ${"x".repeat(300)}\n\n- item`;
+    const presented = presentTurnEvent({
+      event: "assistant",
+      data: { type: "assistant", text: `  ${long}  ` },
+    });
+    expect(presented.reply).toBe(long);
+    expect(presented.summary).toEqual([{ text: `${long.slice(0, 200)}…` }]);
+    for (const quiet of [
+      { type: "assistant", thinking: "Read it first." },
+      { type: "assistant", tool_call: { id: "c1", name: "Bash", input: {} } },
+    ]) {
+      expect(
+        presentTurnEvent({ event: "assistant", data: quiet }).reply,
+      ).toBeUndefined();
+    }
+  });
+
   test("returns keys and event text, never wording of its own", () => {
     expect(
       presentTurnEvent(
