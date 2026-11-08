@@ -189,8 +189,6 @@ export function AgentReadiness({
   const { client } = useWerft();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
-  // The names a run needs are the agent's settings (the active release's
-  // values while none are saved), not the card's.
   const settings = useQuery(mcpSettingsQuery(client, detail.agent.id));
   const active = detail.versions.find(
     (version) => version.id === detail.active_release?.version_id,

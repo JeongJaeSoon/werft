@@ -65,7 +65,6 @@ export function agentServer({
   mcpSettings,
   availableServers = ["docs", "wiki"],
 }: {
-  /** A saved settings row (revision 1); without it the GET reads "release". */
   mcpSettings?: AgentMcpSettings;
   availableServers?: readonly string[];
   repositoryMode?: ProfileSummary["repository_mode"];

@@ -362,7 +362,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
       name,
       deny: ["WebSearch", DOCS, "mcp__docs__a"],
     });
-    // Leaving the names out keeps them; only the lift drops one.
     const kept = await ceilings.create(caller, {
       ...CEILING,
       name,
@@ -383,7 +382,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
       .from(installationProfiles)
       .where(eq(installationProfiles.id, lifted.profile.id));
     expect(row?.deny).toEqual(["WebSearch", "mcp__docs__a"]);
-    // The next version keeps the lift: DOCS stays open.
     const after = await ceilings.create(caller, {
       ...CEILING,
       name,
@@ -392,7 +390,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
     });
     expect(after.profile.mcp_deny).toEqual(["mcp__docs__a"]);
 
-    // What the lift refuses writes nothing.
     const before = (await db.select().from(installationProfiles)).length;
     const refusedLifts: [Partial<CreateInstallationProfileRequest>, string][] =
       [
@@ -415,8 +412,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
     }
     expect((await db.select().from(installationProfiles)).length).toBe(before);
 
-    // A workspace version cannot lift the base's name, and lifts its own
-    // only from the version it read.
     const base = await ceilings.create(caller, {
       ...CEILING,
       name: `wbase-${randomUUID().slice(0, 6)}`,
@@ -456,7 +451,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
       .from(workspaceProfiles)
       .where(eq(workspaceProfiles.id, second.profile.id));
     expect(stored?.deny).toEqual(["WebSearch", DOCS]);
-    // A second editor still holding the first version is told so.
     await expect(
       workspace.create(caller, {
         ...version,

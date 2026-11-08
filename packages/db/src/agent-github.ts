@@ -19,11 +19,6 @@ import {
 } from "./schema.ts";
 import { sessionVisibleTo } from "./session-shares.ts";
 
-/**
- * Receipts naming the agent; a release or activation only when it moved
- * `github`. A save of the agent's MCP settings is listed too: it makes no
- * release, so this list is where the Releases tab finds it.
- */
 const AGENT_OPERATIONS = [
   "set_agent_github",
   "set_agent_mcp",

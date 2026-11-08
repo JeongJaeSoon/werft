@@ -444,8 +444,6 @@ export function createWorkspaceProfileService(deps: {
               : latest,
           undefined,
         );
-      // A lifted name is judged against the version the form read, so a
-      // later one that blocks it again is not lifted unseen.
       if (
         request.unblock_mcp_tools?.length &&
         request.previous_id === undefined

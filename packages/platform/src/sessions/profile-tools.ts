@@ -111,13 +111,6 @@ const badRequest = (message: string, reason_code: string, field: string) =>
     field,
   });
 
-/**
- * The `mcp__` names `unblock_mcp_tools` lifts, checked against what the
- * version follows: each must be held by the previous version, not blocked by
- * the base and not named in the same request. A held name is matched exactly
- * and never re-judged by the name rule or the server list, so one a removed
- * server left behind can still be lifted.
- */
 function liftedMcpNames(input: {
   unblock: readonly string[] | undefined;
   requested: readonly string[];
@@ -180,7 +173,6 @@ export function withKeptMcpDeny<
   baseMcpDeny: readonly string[] | undefined;
   /** The `mcp__` names the request itself blocks (none for an allow list). */
   requested?: readonly string[] | undefined;
-  /** `unblock_mcp_tools`: held names this version no longer blocks. */
   unblock?: readonly string[] | undefined;
 }): D | { deny: string[]; toolCatalogId: string } | undefined {
   const requested = input.requested ?? [];
@@ -199,8 +191,6 @@ export function withKeptMcpDeny<
       "deny",
     );
   }
-  // What the request names and what the previous version held; only
-  // `unblock_mcp_tools` lifts one of the latter.
   const kept = mcpNamesOf([
     ...requested,
     ...(input.previous?.deny ?? []),

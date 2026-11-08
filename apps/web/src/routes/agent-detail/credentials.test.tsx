@@ -12,7 +12,6 @@ const RELEASE_TAB = `/agents/${AGENT_ID}?tab=release`;
 const PROFILE = "claude-coding-local";
 const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
-/** A server whose saved agent settings name these credentials. */
 function serverNaming(...refs: string[]) {
   return agentServer({
     mcpSettings: { server: null, allowed_tools: [], credential_refs: refs },
@@ -176,7 +175,6 @@ describe("자격 연결 단계", () => {
         .getAll()
         .map((m) => m.state.variables)
         .filter((v) => v !== undefined);
-      // The bind sends a name from the agent settings; the unbind, the listed binding.
       expect(variables[0]).toBe("github/app");
       expect(Object.keys(variables[1] as object).sort()).toEqual([
         "agent_id",
@@ -263,7 +261,6 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     );
     await within(section).findByText("slack:bot을(를) 연결했습니다.");
 
-    // The credentials live on the Access tab; the rollback button, on Release.
     await user.click(screen.getByRole("tab", { name: "릴리스" }));
     await rollBackToFirst(user);
     expect(await screen.findByText(/되돌렸습니다/)).toBeDefined();

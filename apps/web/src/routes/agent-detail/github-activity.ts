@@ -29,10 +29,6 @@ const namesOf = (value: unknown): string[] =>
     ? value.filter((name): name is string => typeof name === "string")
     : [];
 
-/**
- * What a `set_agent_mcp` receipt says changed, as the names before and after.
- * The receipt holds names only, and anything else in it is not read.
- */
 export function mcpChange(
   receipt: Receipt,
   t: Translate,

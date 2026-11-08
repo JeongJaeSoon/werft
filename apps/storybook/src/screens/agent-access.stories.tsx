@@ -28,13 +28,6 @@ import { expect } from "storybook/test";
 import { AgentPage, RELEASE, RELEASED } from "./agent-detail-parts.tsx";
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
-/*
- * apps/web routes/agent-detail/access.tsx: GET and PUT
- * /v1/agents/{id}/mcp/settings inside the agent page's Access tab, and the
- * save as the Releases tab lists it (routes/agent-detail/releases.tsx, a
- * `set_agent_mcp` receipt). Words are apps/web's Korean catalog.
- */
-
 const SECTION_BODY = "flex flex-col gap-[var(--werft-space-block)]";
 
 const SAVED: AgentMcpResponse = {
@@ -116,7 +109,6 @@ const summary = (side: {
 }) =>
   `서버 ${side.server ?? "없음"} · 도구 ${names(side.allowed_tools)} · 자격 증명 ${names(side.credential_refs)}`;
 
-/** A field's names, one per row. A plain div holds the name: RowLines is a span. */
 function NameList({
   label,
   hint,
@@ -285,7 +277,6 @@ function AccessSection({ view }: { readonly view: View }) {
   );
 }
 
-/** The `set_agent_mcp` receipts as the Releases tab lists them: names only. */
 function AccessChanges() {
   return (
     <Section title="릴리스">

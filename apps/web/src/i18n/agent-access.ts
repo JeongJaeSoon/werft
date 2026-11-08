@@ -1,5 +1,3 @@
-// The agent detail's Access tab: the MCP server, tools and credential names an
-// agent is set up with. They are agent settings, not part of a release.
 export const agentAccessKo = {
   "agent.tabs.access": "접근",
   "agentAccess.mcp.title": "MCP 서버와 도구",

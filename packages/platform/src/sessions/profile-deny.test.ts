@@ -993,7 +993,6 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
   const DOCS = "mcp__docs__read:all";
   const WIKI = "mcp__wiki__b";
 
-  /** A ceiling whose first version blocks DOCS and WIKI. */
   async function blocking() {
     const made = setup();
     await made.ceilings.create(owner(), {
@@ -1013,7 +1012,6 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
     });
     expect(lifted.profile.mcp_deny).toEqual([WIKI]);
     expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", WIKI]);
-    // The same over an allow list, which still keeps what it does not lift.
     const listed = await made.ceilings.create(owner(), {
       ...CEILING,
       previous_id: "op_coding_v2",
@@ -1021,7 +1019,6 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
       unblock_mcp_tools: [WIKI],
     });
     expect(listed.profile.mcp_deny).toBeUndefined();
-    // Nothing is left to carry, so no deny is stored, as for any allow list.
     expect(made.writes.at(-1)?.deny ?? null).toBeNull();
   });
 
@@ -1102,7 +1099,6 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
       unblock_mcp_tools: ["mcp__wiki__own"],
     });
     expect(lifted.profile.mcp_deny).toEqual([DOCS, WIKI].sort());
-    // Lifting without saying which version was read is refused...
     expect(
       await refused(
         made.workspace.create(owner(), {
@@ -1115,7 +1111,6 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
       reason_code: "mcp_unblock_no_previous",
       field: "previous_id",
     });
-    // ...and so is naming a version that is no longer the latest.
     expect(
       await refused(
         made.workspace.create(owner(), {

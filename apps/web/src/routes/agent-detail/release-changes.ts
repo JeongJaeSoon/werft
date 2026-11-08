@@ -241,9 +241,6 @@ export function releaseChanges(
       before.effective_tools.tools,
       after.effective_tools.tools,
     ),
-    // The MCP server, its tools and the credential names are the agent's
-    // settings, saved apart from a release (the Access tab), so a release
-    // does not list them.
     ...leafChanges(
       "tools",
       "tool_policy.default",

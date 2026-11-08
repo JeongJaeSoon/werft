@@ -52,7 +52,6 @@ export function releasedProfile(detail: AgentDetail): string | undefined {
 
 type Receipt = components["schemas"]["Receipt"];
 
-/** The names an MCP save changed, before and after; never a value. */
 function McpChangeLines({ receipt }: { readonly receipt: Receipt }) {
   const { t } = useI18n();
   const change = mcpChange(receipt, t);

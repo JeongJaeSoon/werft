@@ -197,7 +197,6 @@ describe("the card step keeps what its base has", () => {
       "docs-key",
       "wiki-key",
     ]);
-    // Saved again from what was saved, nothing drifts.
     const again = agentCardStep(saved).parse({
       ...DRAFT,
       model: "claude-opus-5",

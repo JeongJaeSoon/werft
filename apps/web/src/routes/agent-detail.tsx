@@ -323,11 +323,9 @@ function AgentView({
   const { agent } = detail;
   const access = useAgentAccess(agent);
   const manages = access === "manage";
-  // The names the agent's settings list, which a refused activation may report.
   const settingsRefs =
     useQuery({ ...mcpSettingsQuery(client, agent.id), enabled: manages }).data
       ?.settings.credential_refs ?? [];
-  // The heading is in another tab, so it takes focus once that tab is shown.
   const [focusCredentials, setFocusCredentials] = useState(false);
   useEffect(() => {
     if (focusCredentials && tab === "access") {

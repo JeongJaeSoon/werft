@@ -94,8 +94,6 @@ export function createAgentMcpService(deps: {
           agentId,
           settings.credential_refs,
         ),
-        // The catalog is installation-wide, so a server another workspace
-        // alone may use is left out, as `put` refuses it.
         available_servers: Object.entries(catalog.mcp_servers ?? {})
           .filter(
             ([id, entry]) =>

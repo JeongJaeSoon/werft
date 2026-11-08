@@ -2305,7 +2305,6 @@ describe("에이전트 상세", () => {
             server: "docs",
             allowed_tools: ["mcp__docs__read"],
             credential_refs: ["docs-key"],
-            // Not a name: the receipt never holds it, and the list never reads it.
             token: "sk-LEAKED-VALUE",
           },
         }),
@@ -2323,7 +2322,6 @@ describe("에이전트 상세", () => {
     await releasedTwice(server);
     renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
     const table = await screen.findByRole("table");
-    // The activity list is its own read, so it arrives after the table.
     const rows = () =>
       [
         ...screen.getByRole("table").querySelectorAll('[data-kind="access"]'),
@@ -2422,8 +2420,6 @@ describe("에이전트 상세", () => {
     });
     expect(within(repositories).getByText("+ agent-skills")).toBeTruthy();
     const secrets = within(dialog).getByRole("region", { name: "자격 증명" });
-    // Only the snapshot's credential reference: the card's credential names
-    // are agent settings now, so the release does not list them.
     expect(within(secrets).getAllByText("변경됨")).toHaveLength(1);
     for (const value of ["OLD_SECRET_NAME", "NEW_SECRET_NAME", "github-token"])
       expect(dialog.textContent).not.toContain(value);

@@ -232,7 +232,6 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
       settings_revision: null,
       active_release_id: expect.any(String),
       bound_credential_refs: [],
-      // Ids only, and only the servers this workspace may use.
       available_servers: ["docs"],
     });
     await service().put(
@@ -336,7 +335,6 @@ integration("the agent MCP settings writer on PostgreSQL", () => {
         },
       },
     });
-    // Another agent's save is not listed here.
     const other = await setup();
     await service().put(other.owner, other.agentId, request(null));
     const again = await createPostgresAgentGitHubStore(db).activity(

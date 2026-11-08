@@ -49,17 +49,11 @@ import {
   withServer,
 } from "./mcp-settings.ts";
 
-/** A draft remembers the revision it started from, to tell a later save. */
 interface Draft {
   readonly edit: McpEdit;
   readonly revision: number | null;
 }
 
-/**
- * The agent's MCP server, the tools it may call and the credential names it
- * needs (design Z5 §8). They are saved apart from the card: no release is made
- * and nothing here holds a credential value, only names.
- */
 export function McpSettings({
   agentId,
   result,
@@ -104,8 +98,6 @@ export function McpSettings({
               : "agentAccess.saved",
           ),
         });
-        // The save made no release, so only what it changed is read again:
-        // the settings, the access-change list, the bound badges, the rows.
         await Promise.all([
           cache.invalidateQueries({
             queryKey: mcpSettingsKey(client, agentId),
@@ -158,7 +150,6 @@ export function McpSettings({
   const base = editOf(data);
   const edit = draft?.edit ?? base;
   const changed = !sameEdit(edit, base);
-  // Another save landed after the draft was made.
   const stale = draft !== null && draft.revision !== data.settings_revision;
   const firstSave = manages && data.source === "release";
   const busy = save.isPending;
@@ -370,7 +361,6 @@ interface Adder {
   readonly tryAdd: (raw: string) => Added;
 }
 
-/** A field's names, one per row, with the way to add and remove them. */
 function NameList({
   label,
   hint,

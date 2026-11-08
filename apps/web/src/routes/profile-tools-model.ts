@@ -36,19 +36,12 @@ export type ToolChoiceModel = {
   readonly removed: readonly string[];
   /** A next version: its added tools open only once accepted. */
   readonly versioned: boolean;
-  /**
-   * The `mcp__<server>__<tool>` names, which are not the catalog's: the
-   * checklist never lists them and `blockedOf` never counts them.
-   */
   readonly mcp: {
-    /** The base's, which every version keeps: never liftable here. */
+    /** The base's `mcp__` blocks, which every version keeps: never liftable here. */
     readonly fixed: readonly string[];
-    /** What the version followed, or the copy's source, blocked: liftable. */
+    /** What the followed version (or the copy's source) blocked: liftable. */
     readonly start: readonly string[];
-    /**
-     * Whether lifting one is sent. Only a next version has an earlier block
-     * to lift; a copy simply leaves the name out.
-     */
+    /** Only a next version has an earlier block to lift; a copy leaves the name out. */
     readonly lifts: boolean;
   };
 };
@@ -112,10 +105,6 @@ const namesOf = (catalog: ToolCatalogView) =>
 
 const isMcpName = (name: string) => name.startsWith(MCP_TOOL_PREFIX);
 
-/**
- * What a listed version weighed: its tools, and its blocks when a catalog
- * knew them. Its `mcp__` blocks are `mcp_deny`'s, never the catalog's.
- */
 const choiceOf = (profile: ProfileSummary) => ({
   tools: profile.tools,
   deny: profile.deny?.filter((name) => !isMcpName(name)) ?? null,
@@ -155,7 +144,6 @@ export function ceilingTools(
       added: [],
       removed: [],
       versioned: false,
-      // A copy sends no previous, so what it leaves out is simply not blocked.
       mcp:
         template === undefined
           ? NO_MCP
@@ -266,7 +254,6 @@ export function blockedOf(model: ToolChoiceModel, picks: ToolPicks): string[] {
   );
 }
 
-/** The `mcp__` names blocked now, sorted: the base's, the held ones kept, the typed ones. */
 export function mcpBlockedOf(
   model: ToolChoiceModel,
   picks: ToolPicks,
@@ -281,17 +268,11 @@ export function mcpBlockedOf(
   ].sort();
 }
 
-/** Every name the version blocks, for a review line: catalog tools, then `mcp__` ones. */
 export const allBlockedOf = (model: ToolChoiceModel, picks: ToolPicks) => [
   ...blockedOf(model, picks),
   ...mcpBlockedOf(model, picks),
 ];
 
-/**
- * Ticks or clears one `mcp__` name. A held name is lifted and re-blocked
- * through `mcpLifted`; any other is typed in or taken back through `mcpAdded`,
- * so a name is never both blocked and lifted in one request.
- */
 export function setMcpBlock(
   model: ToolChoiceModel,
   picks: ToolPicks,
@@ -316,11 +297,6 @@ export function setMcpBlock(
   };
 }
 
-/**
- * Blocks a name typed in. It must be a whole `mcp__<server>__<tool>` name:
- * a server or pattern is not one. Whether the server exists is the save's
- * to say, as only it reads the installation's list.
- */
 export function addMcpBlock(
   model: ToolChoiceModel,
   picks: ToolPicks,
@@ -364,8 +340,6 @@ export function denyRequest(
   );
   const unaccepted = pending.filter((name) => !accepted.has(name));
   if (unaccepted.length > 0) return { unaccepted };
-  // The request names the base's `mcp__` blocks itself; the server carries
-  // the previous version's, so only a lift is spelled out.
   const deny = [...catalogDeny, ...mcpBlockedOf(model, picks)];
   const lifted = model.mcp.lifts
     ? model.mcp.start.filter((name) => picks.mcpLifted.includes(name))

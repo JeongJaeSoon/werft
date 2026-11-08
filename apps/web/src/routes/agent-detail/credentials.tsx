@@ -95,7 +95,6 @@ export function Credentials({
   const invalidateBindings = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: bindingsKey(client, agentId) }),
-      // The settings answer says which of their names are bound.
       queryClient.invalidateQueries({
         queryKey: mcpSettingsKey(client, agentId),
       }),
@@ -104,8 +103,6 @@ export function Credentials({
   const [revoking, setRevoking] = useState<CredentialBindingView | null>(null);
 
   const bindings = useQuery(credentialBindingsQuery(client, agentId));
-  // The settings are what name a credential; a manager who cannot read them
-  // sees only the bindings.
   const settings = useQuery(mcpSettingsQuery(client, agentId));
   const named = settings.data?.settings.credential_refs ?? [];
 
@@ -317,10 +314,7 @@ export function Credentials({
 
 /**
  * The names a 409 CREDENTIAL_UNBOUND from activation reports, or null for any
- * other error. Only names this agent already holds are kept, those its
- * settings list and those one of its cards still carries: the server checked
- * them against the name pattern when they were saved, and anything else in a
- * malformed answer never reaches the screen or a bind.
+ * other error.
  */
 export function unboundRefs(
   error: ApiError,

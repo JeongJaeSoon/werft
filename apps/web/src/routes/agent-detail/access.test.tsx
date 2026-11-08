@@ -83,14 +83,12 @@ describe("접근 탭", () => {
         },
       },
     ]);
-    // A save is not a release: nothing is activated or re-read as a release.
     expect(
       api.calls.some(
         (c) => c.method === "PATCH" || c.path.endsWith("/activate"),
       ),
     ).toBe(false);
     expect(detailReads()).toBe(before);
-    // The row it made is what the tab reads next, at revision 1.
     await waitFor(() =>
       expect(
         within(mcp).queryByText(/저장된 설정도 활성 릴리스도 없습니다/),

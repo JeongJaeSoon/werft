@@ -9,7 +9,6 @@ import {
 import { queryKeysOf } from "../../api/queries.ts";
 import type { MessageKey } from "../../i18n/i18n.tsx";
 
-/** Under the agent's key, so whatever refreshes the agent refreshes this. */
 export const mcpSettingsKey = (client: ApiClient, agentId: string) =>
   [...queryKeysOf(client).agent(agentId), "mcp-settings"] as const;
 
@@ -26,14 +25,12 @@ export function mcpSettingsQuery(client: ApiClient, agentId: string) {
   });
 }
 
-/** What the form edits: the server, the allowed tool names, the credential names. */
 export interface McpEdit {
   readonly server: string | null;
   readonly tools: readonly string[];
   readonly refs: readonly string[];
 }
 
-/** The most credential names a row holds; the contract's limit. */
 export const CREDENTIAL_REFS_MAX = 32;
 
 export const editOf = (data: AgentMcpResponse): McpEdit => ({
@@ -53,7 +50,6 @@ export function sameEdit(a: McpEdit, b: McpEdit): boolean {
   );
 }
 
-/** Tool names belong to one server, so a different one starts with none. */
 export function withServer(edit: McpEdit, server: string | null): McpEdit {
   return server === edit.server ? edit : { ...edit, server, tools: [] };
 }
@@ -62,7 +58,6 @@ export type Added =
   | { readonly edit: McpEdit }
   | { readonly error: MessageKey; readonly vars?: Record<string, string> };
 
-/** `raw` as a tool name of the chosen server, or why it is not one. */
 export function addTool(edit: McpEdit, raw: string): Added {
   const name = raw.trim();
   if (!isMcpToolName(name)) return { error: "agentAccess.toolInvalid" };
@@ -76,7 +71,6 @@ export function addTool(edit: McpEdit, raw: string): Added {
   return { edit: { ...edit, tools: [...edit.tools, name] } };
 }
 
-/** `raw` as a credential name. Names only: a value pasted here is no name. */
 export function addRef(edit: McpEdit, raw: string): Added {
   const name = raw.trim();
   if (!credentialRefSchema.safeParse(name).success) {
@@ -99,7 +93,6 @@ const REFUSALS = [
   "duplicate",
 ] as const;
 
-/** The sentence for a refused save, from the reason the server gave. */
 export function refusalKey(error: ApiError): MessageKey {
   const reason = (error.details as { reason_code?: unknown } | null)
     ?.reason_code;
@@ -109,7 +102,6 @@ export function refusalKey(error: ApiError): MessageKey {
     : "agentAccess.refused.other";
 }
 
-/** The body of a save: the whole row, names sorted as the server keeps them. */
 export function saveBody(edit: McpEdit, revision: number | null) {
   return {
     expected_revision: revision,

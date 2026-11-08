@@ -62,11 +62,6 @@ export function toolRefusalKey(reason: unknown): MessageKey | undefined {
     : undefined;
 }
 
-/**
- * The form field a refusal's path names: the tools a save works out, the
- * tools it accepts and the `mcp__` names it lifts are all drawn by the
- * checklist.
- */
 export const toolField = (path: string | undefined): string | undefined =>
   path === "tools" ||
   path === "accept_added_tools" ||
@@ -78,11 +73,6 @@ export const reasonOf = (failure: ApiError): unknown =>
   (failure.details as { readonly reason_code?: unknown } | undefined)
     ?.reason_code;
 
-/**
- * The `mcp__<server>__<tool>` names a profile blocks. The built-in catalog
- * does not list them, so they are typed in; a held name stays ticked until
- * the person clears it, and the base's cannot be cleared.
- */
 function McpBlocks({
   model,
   picks,

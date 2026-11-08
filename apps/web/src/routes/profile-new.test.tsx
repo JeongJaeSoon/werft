@@ -1359,7 +1359,6 @@ describe("차단할 MCP 도구", () => {
       previous_id: string;
     };
     expect(sent.previous_id).toBe("op_wl_strict_v1");
-    // The base's block and the new one are named; the lifted one is not.
     expect(sent.deny.filter((name) => name.startsWith("mcp__"))).toEqual([
       "mcp__docs__delete",
       "mcp__docs__read",
@@ -1469,7 +1468,6 @@ describe("차단할 MCP 도구", () => {
     const builtIn = await screen.findByRole("group", {
       name: "차단할 내장 도구",
     });
-    // The guidance names the form; no box is an mcp__ name.
     expect(
       within(builtIn)
         .getAllByRole("checkbox")
