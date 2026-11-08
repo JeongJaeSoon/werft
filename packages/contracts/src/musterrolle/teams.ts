@@ -54,6 +54,8 @@ export const teamMemberViewSchema = z
     role: teamMemberRoleSchema,
     added_by: userIdSchema.nullable(),
     added_at: timestampSchema,
+    /** The person's workspace membership state, as in the members list: null while active. */
+    disabled_at: timestampSchema.nullable(),
   })
   .strict();
 

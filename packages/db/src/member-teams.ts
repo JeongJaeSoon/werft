@@ -505,9 +505,17 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               role: sql<TeamMemberRole>`${memberTeamMembers.role}`,
               addedBy: memberTeamMembers.addedBy,
               addedAt: memberTeamMembers.addedAt,
+              disabledAt: memberships.disabledAt,
             })
             .from(memberTeamMembers)
             .innerJoin(users, eq(users.id, memberTeamMembers.userId))
+            .leftJoin(
+              memberships,
+              and(
+                eq(memberships.workspaceId, workspaceId),
+                eq(memberships.userId, memberTeamMembers.userId),
+              ),
+            )
             .where(
               and(
                 eq(memberTeamMembers.teamId, row.id),

@@ -9281,6 +9281,7 @@ export interface components {
                 added_by: string | null;
                 /** Format: date-time */
                 added_at: string;
+                disabled_at: string | null;
             }[];
         };
         TeamChangeResponse: {
@@ -30710,7 +30711,8 @@ export interface operations {
                      *           "display_name": "Ada Owner",
                      *           "role": "lead",
                      *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "added_at": "2026-10-23T09:00:00Z"
+                     *           "added_at": "2026-10-23T09:00:00Z",
+                     *           "disabled_at": null
                      *         },
                      *         {
                      *           "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
@@ -30718,7 +30720,8 @@ export interface operations {
                      *           "display_name": null,
                      *           "role": "member",
                      *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
-                     *           "added_at": "2026-10-24T09:00:00Z"
+                     *           "added_at": "2026-10-24T09:00:00Z",
+                     *           "disabled_at": "2026-10-25T09:00:00Z"
                      *         }
                      *       ]
                      *     }

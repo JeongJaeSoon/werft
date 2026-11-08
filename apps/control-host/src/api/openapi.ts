@@ -5778,6 +5778,7 @@ export const API_ROUTE_DECLARATIONS = [
             role: "lead",
             added_by: EXAMPLE_USER_ID,
             added_at: "2026-10-23T09:00:00Z",
+            disabled_at: null,
           },
           {
             user_id: EXAMPLE_TEAM_MEMBER_ID,
@@ -5786,6 +5787,7 @@ export const API_ROUTE_DECLARATIONS = [
             role: "member",
             added_by: EXAMPLE_USER_ID,
             added_at: "2026-10-24T09:00:00Z",
+            disabled_at: "2026-10-25T09:00:00Z",
           },
         ],
       },
