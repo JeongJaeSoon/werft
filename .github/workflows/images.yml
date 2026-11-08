@@ -269,6 +269,7 @@ jobs:
         env:
           NO_VERDICT: ${{ contains(fromJSON('["pull_request","push"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && 'warn' || 'fail' }}
           IMAGES_PLAN: ${{ needs.plan.outputs.images }}
+          IMAGES_PLAN_RESULT: ${{ needs.plan.result }}
           IMAGES_BUILD_RESULT: ${{ needs.build.result }}
         run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT"
 

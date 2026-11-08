@@ -40,7 +40,7 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 
 `check (static)`은 typecheck·lint·라이선스 고지 검사를 계속 실행한다. 문서 전용 PR의 `docs-checks`는 `bun test ./tests`로 저장소 정책 검사를 서비스 없이 실행한다. 문서 링크·anchor·문서 내 ticket 링크 금지, 다국어 코드 동등성, 이미지·로컬 실행 문서의 정책 등을 일부 파일 이름으로 고르지 않고 기존 `tests/` 집합에서 검증한다. 서비스와 D2 스택이 필요한 테스트의 skip은 이 경로에서 의도적이다. 제품 변경 PR에서는 기존 전체 unit·integration 경로가 돈다.
 
-Images workflow는 `plan` job이 같은 `ci-plan.sh`로 문서 전용 여부를 판정해, 문서 전용 PR에서만 이미지 `build`(6개)를 건너뛴다. required `supply-chain`은 항상 실행하며 계획 값(`build` 또는 `skip`)을 명시적으로 읽는다. 계획이 비었거나 알 수 없는 값이면 실패하고, `build` 계획인데 build가 success가 아니면 스캔 artifact가 있어도 실패한다. `skip`은 build가 skipped인 pull request에서만 인정하며 npm audit은 그대로 판정한다. main·태그·schedule·수동 실행은 항상 `build`다. 이 경로 계획이 공급망 검사나 배포 검사를 생략하지 않는다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
+Images workflow는 `plan` job이 같은 `ci-plan.sh`로 문서 전용 여부를 판정해, 문서 전용 PR에서만 이미지 `build`(6개)를 건너뛴다. required `supply-chain`은 항상 실행하며 계획 값(`build` 또는 `skip`)을 명시적으로 읽는다. `plan` job 자체가 success가 아니면(출력이 남아 있어도) 실패하고, 계획이 비었거나 알 수 없는 값이어도 실패하며, `build` 계획인데 build가 success가 아니면 스캔 artifact가 있어도 실패한다. `skip`은 build가 skipped인 pull request에서만 인정하며 npm audit은 그대로 판정한다. main·태그·schedule·수동 실행은 항상 `build`다. 이 경로 계획이 공급망 검사나 배포 검사를 생략하지 않는다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
 
 ## required 결과와 실패 처리
 

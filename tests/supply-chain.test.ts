@@ -264,6 +264,7 @@ describe("supply-chain-verdict.sh", () => {
   describe("image build plan", () => {
     const plan = (images: string, result: string, event = "pull_request") => ({
       IMAGES_PLAN: images,
+      IMAGES_PLAN_RESULT: "success",
       IMAGES_BUILD_RESULT: result,
       GITHUB_EVENT_NAME: event,
     });
@@ -304,6 +305,24 @@ describe("supply-chain-verdict.sh", () => {
       const run = await verdict(rest, "warn", "[]", plan("build", "success"));
       expect(run.code).toBe(1);
       expect(run.out).toContain("::error::worker-arm64: no result");
+    });
+
+    test("a planner that did not succeed fails, even with a valid output", async () => {
+      for (const planResult of ["failure", "cancelled", "skipped", ""]) {
+        for (const [images, build] of [
+          ["skip", "skipped"],
+          ["build", "success"],
+        ] as const) {
+          const run = await verdict(
+            images === "skip" ? { npm: "clean" } : all("clean"),
+            "warn",
+            "[]",
+            { ...plan(images, build), IMAGES_PLAN_RESULT: planResult },
+          );
+          expect(run.code).toBe(1);
+          expect(run.out).toContain("image build plan finished");
+        }
+      }
     });
 
     test("an empty, missing or unknown plan fails", async () => {
@@ -394,6 +413,7 @@ describe("images.yml supply-chain", () => {
       step.run?.includes("supply-chain-verdict.sh"),
     );
     expect(verdict?.env?.IMAGES_PLAN).toBe("${{ needs.plan.outputs.images }}");
+    expect(verdict?.env?.IMAGES_PLAN_RESULT).toBe("${{ needs.plan.result }}");
     expect(verdict?.env?.IMAGES_BUILD_RESULT).toBe("${{ needs.build.result }}");
     // The planner decides with the same script CI does.
     expect(JSON.stringify(plan.steps)).toContain("ci-plan.sh");

@@ -41,6 +41,11 @@ fi
 # cannot pass as "nothing to build".
 scans=({control-host,worker,egress-proxy}-{amd64,arm64} npm)
 if [ -n "${IMAGES_PLAN+x}" ]; then
+  # A planner that failed or was cancelled can leave an output behind.
+  if [ "${IMAGES_PLAN_RESULT:-}" != success ]; then
+    echo "::error::the image build plan finished as '${IMAGES_PLAN_RESULT:-}'"
+    exit 1
+  fi
   case "$IMAGES_PLAN" in
     build)
       if [ "${IMAGES_BUILD_RESULT:-}" != success ]; then
