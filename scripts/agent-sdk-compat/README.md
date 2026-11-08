@@ -10,8 +10,8 @@ workspace 밖의 독립 설치 단위다. 자기 `bun.lock`으로 SDK를 고정�
 
 | 항목 | 고정값 | 검증 |
 | --- | --- | --- |
-| Agent SDK | `@anthropic-ai/claude-agent-sdk@0.3.270` | 실제 query 및 callback |
-| 번들 Claude Code | `2.1.270` | 실제 binary `--version` |
+| Agent SDK | `@anthropic-ai/claude-agent-sdk@0.3.319` | 실제 query 및 callback |
+| 번들 Claude Code | `2.1.319` | 실제 binary `--version` |
 | LiteLLM | `1.100.1` | 실제 proxy PID 및 `--version` |
 | 로컬 플랫폼 | macOS arm64 | 실제 process contract |
 | CI 플랫폼 | Linux amd64 | 동일 version probe와 전체 contract suite |
