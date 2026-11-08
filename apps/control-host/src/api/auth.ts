@@ -40,6 +40,10 @@ import type {
 } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import {
+  removeBootstrapTokenFile,
+  writeBootstrapTokenFile,
+} from "./bootstrap-token-file";
 import { type ApiKeyStore, hashApiKey } from "./keys.ts";
 
 // Principal resolution for /v1 (03 §3.2). A bearer key is evaluated alone —
@@ -198,6 +202,23 @@ function generateBootstrapToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** False when the file cannot be written, so the caller prints the token instead. */
+function writeTokenFile(
+  path: string,
+  token: string,
+  logger: StructuredLogger,
+): boolean {
+  try {
+    writeBootstrapTokenFile(path, token);
+    return true;
+  } catch (error) {
+    logger.warn("BOOTSTRAP_TOKEN_FILE could not be written", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+    return false;
+  }
+}
+
 /**
  * Take the operator's token or mint one. A minted token is printed once, and
  * only while the install needs it — no live owner, first install or
@@ -213,6 +234,7 @@ export async function bootstrapGateFromEnv(
   logger: StructuredLogger,
   print: (line: string) => void = (line) => console.error(line),
   retryMs = BOOTSTRAP_RETIRE_RETRY_MS,
+  tokenFile?: string,
 ): Promise<BootstrapGate> {
   if (value !== undefined) {
     // The request schema bounds the token; a configured value outside it
@@ -262,10 +284,20 @@ export async function bootstrapGateFromEnv(
     });
   }
   if (owners === null || owners === 0) {
-    logger.warn(
-      "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
-    );
-    print(`BOOTSTRAP_TOKEN=${token}`);
+    if (tokenFile !== undefined && writeTokenFile(tokenFile, token, logger)) {
+      print(
+        `BOOTSTRAP_TOKEN not set; the value for this process waits in ${tokenFile}. Take it once with the bootstrap-token command`,
+      );
+    } else {
+      logger.warn(
+        "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",
+      );
+      print(`BOOTSTRAP_TOKEN=${token}`);
+    }
+  } else if (tokenFile !== undefined) {
+    // A restart after the first owner exists: the file left by the earlier
+    // process holds a value this process no longer accepts.
+    removeBootstrapTokenFile(tokenFile);
   }
   return createBootstrapGate(token);
 }

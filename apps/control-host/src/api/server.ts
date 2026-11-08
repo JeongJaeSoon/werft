@@ -1210,6 +1210,9 @@ const auth = {
     process.env.BOOTSTRAP_TOKEN,
     identity,
     logger,
+    undefined,
+    undefined,
+    process.env.BOOTSTRAP_TOKEN_FILE || undefined,
   ),
   logger,
 };

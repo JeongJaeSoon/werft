@@ -3104,6 +3104,26 @@ describe("compose layers", () => {
   );
 
   test(
+    "the test-ops API alone is told to leave a minted bootstrap token in a file",
+    () => {
+      const { exitCode, stderr, model } = render(
+        LOCALSTACK_LAYERS,
+        TEST_OPS_REQUIRED,
+      );
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      for (const [name, service] of Object.entries(model?.services ?? {}))
+        expect({
+          name,
+          value: service.environment?.BOOTSTRAP_TOKEN_FILE ?? null,
+        }).toEqual({
+          name,
+          value: name === "api" ? "/tmp/werft-bootstrap-token" : null,
+        });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
     "a command that names no mode imports no settings document",
     () => {
       const { exitCode, stderr, model } = render(["compose.yaml"], {});
