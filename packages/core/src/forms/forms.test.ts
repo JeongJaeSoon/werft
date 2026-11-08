@@ -178,6 +178,34 @@ describe("the card step keeps what its base has", () => {
     expect<unknown>(card.capabilities.mcp).toEqual([{ server: "docs" }]);
   });
 
+  test("the MCP server and the credential names are agent settings: a card edit keeps both as they were", () => {
+    const base: AgentCard = {
+      ...BASE,
+      capabilities: {
+        ...BASE.capabilities,
+        mcp: [{ server: "docs" }],
+        credential_refs: ["docs-key", "wiki-key"],
+      },
+    };
+    const saved = agentCardStep(base).parse({
+      ...DRAFT,
+      model: "claude-opus-5",
+      agentInstructions: "Be brief.",
+    });
+    expect<unknown>(saved.capabilities.mcp).toEqual([{ server: "docs" }]);
+    expect(saved.capabilities.credential_refs).toEqual([
+      "docs-key",
+      "wiki-key",
+    ]);
+    // Saved again from what was saved, nothing drifts.
+    const again = agentCardStep(saved).parse({
+      ...DRAFT,
+      model: "claude-opus-5",
+      agentInstructions: "Be brief.",
+    });
+    expect<unknown>(again).toEqual(saved);
+  });
+
   test("without a base the contract's defaults fill in", () => {
     const card = agentCardStep().parse(DRAFT);
     expect(card.rules).toEqual([]);
