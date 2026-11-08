@@ -80,7 +80,8 @@ if [ -z "$keep" ]; then
   # By the snapshot's names too: an anonymous volume whose container is gone
   # can only be found that way.
   labelled=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || failed=1
-  volumes=$(printf '%s\n%s\n' "$labelled" "$(teardown_volumes_left)" | sed '/^$/d' | sort -u)
+  named=$(teardown_volumes_left) || failed=1
+  volumes=$(printf '%s\n%s\n' "$labelled" "$named" | sed '/^$/d' | sort -u)
 fi
 if [ "$failed" = 1 ]; then
   echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2

@@ -65,6 +65,10 @@ grep -q '^rm -v' "$log"; check "delete: --keep-volumes never uses rm -v" 1 $?
 FAKE_DOCKER_FAIL=ps teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: a failing docker ps is an error" 1 $?
 FAKE_DOCKER_FAIL=network teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: a failing docker network ls is an error" 1 $?
 teardown_snapshot "$p" >/dev/null 2>&1; check "snapshot: all answers empty is fine" 0 $?
+
+TEARDOWN_VOLUMES="vol1"
+FAKE_DOCKER_FAIL=volume teardown_volumes_left >/dev/null 2>&1; check "volumes_left: a failing docker volume ls is an error" 1 $?
+teardown_volumes_left >/dev/null 2>&1; check "volumes_left: absent volume is not an error" 0 $?
 grep -q '^image rm' "$log"; check "delete: --keep-volumes still removes images" 0 $?
 
 # down.sh with a state that names another project: refuses before any docker call.

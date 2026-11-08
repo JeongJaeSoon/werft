@@ -46,7 +46,8 @@ teardown_volumes() {
     else
       # A worker that exited between the list and the inspect is fine; a
       # container that is still there and cannot be read is not.
-      [ -z "$(docker ps -aq --filter "id=$id")" ] || return 1
+      one=$(docker ps -aq --filter "id=$id") || return 1
+      [ -z "$one" ] || return 1
     fi
   done
   # grep exits 1 on no match, which pipefail would turn into a failure.
@@ -106,9 +107,12 @@ teardown_delete() {
 # Snapshot volumes that still exist, by exact name (the label search cannot
 # find an anonymous volume whose container is gone).
 teardown_volumes_left() {
-  local name
+  local name found
   for name in $TEARDOWN_VOLUMES; do
-    docker volume inspect "$name" >/dev/null 2>&1 && echo "$name"
+    # `volume ls` answers an absent volume with an empty list and a Docker
+    # error with a failure, which inspect's exit code cannot tell apart.
+    found=$(docker volume ls -q --filter "name=^${name}\$") || return 1
+    [ "$found" != "$name" ] || echo "$name"
   done
   return 0
 }
