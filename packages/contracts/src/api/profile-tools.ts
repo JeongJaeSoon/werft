@@ -24,8 +24,13 @@ export function isMcpToolName(name: string): boolean {
  * server is asked about, never split out of the name.
  */
 export function mcpToolOfServer(name: string, server: string): boolean {
+  const prefix = `${MCP_TOOL_PREFIX}${server}__`;
+  // Past the prefix there must be a tool of its own: `mcp__docs___` is the
+  // tool `_` of `docs`, and nothing of `docs_`.
   return (
-    name.startsWith(`${MCP_TOOL_PREFIX}${server}__`) && isMcpToolName(name)
+    name.startsWith(prefix) &&
+    name.length > prefix.length &&
+    isMcpToolName(name)
   );
 }
 
@@ -217,7 +222,14 @@ export function parseToolNames(
             },
           };
         }
-        if (mcpToolOfServer(raw, GITHUB_MCP_SERVER)) {
+        // A listed server decides first: with `github_` listed, the name
+        // `mcp__github___read` is its tool `read` as well as the built-in
+        // server's `_read`, and the agent's settings may allow it.
+        const listed = [...mcp.servers].some(
+          (server) =>
+            server !== GITHUB_MCP_SERVER && mcpToolOfServer(raw, server),
+        );
+        if (!listed && mcpToolOfServer(raw, GITHUB_MCP_SERVER)) {
           return {
             refusal: {
               reason_code: "github_server",
@@ -226,7 +238,7 @@ export function parseToolNames(
             },
           };
         }
-        if (![...mcp.servers].some((server) => mcpToolOfServer(raw, server))) {
+        if (!listed) {
           return {
             refusal: {
               reason_code: "unknown_mcp_server",

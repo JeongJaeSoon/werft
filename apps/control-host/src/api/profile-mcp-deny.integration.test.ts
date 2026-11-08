@@ -10,10 +10,13 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentReleases,
+  agents,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
   createPostgresInstallationProfileStore,
+  createPostgresProfileRolloutStore,
   createPostgresWorkspaceProfileStore,
   installationProfiles,
   memberships,
@@ -34,7 +37,10 @@ import {
   createAuthorizationPolicy,
   createInstallationProfileService,
   createProfileRegistry,
+  createProfileRolloutRunner,
   createWorkspaceProfileService,
+  effectiveMcp,
+  mcpDenyOf,
   ProfileFeatureGate,
   profileCatalog,
   resolveReleaseContent,
@@ -134,6 +140,14 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
     });
+    const agentStore = createPostgresAgentStore(db);
+    const agentService = createAgentService({
+      authorization,
+      store: agentStore,
+      catalog: catalog as unknown as SessionCatalog,
+      credentials: createPostgresCredentialBindingStore(db),
+      profileLineage: createPostgresProfileRolloutStore(db),
+    });
     return {
       catalog,
       ceilings: createInstallationProfileService({
@@ -152,12 +166,14 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
         catalog,
         newId: randomUUID,
       }),
-      agents: createAgentService({
-        authorization,
-        store: createPostgresAgentStore(db),
-        catalog: catalog as unknown as SessionCatalog,
-        credentials: createPostgresCredentialBindingStore(db),
-      }),
+      agentService,
+      runner: () =>
+        createProfileRolloutRunner({
+          rollouts: createPostgresProfileRolloutStore(db),
+          agentStore,
+          agents: agentService,
+          logger: { info: () => {}, warn: () => {} },
+        }),
     };
   }
 
@@ -203,7 +219,7 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
     });
 
   test("a deny written through the API is stored, reaches the release as mcp_deny, and queues the agents that follow the profile", async () => {
-    const { catalog, ceilings, agents } = wiring();
+    const { catalog, ceilings, agentService, runner } = wiring();
     const caller = await owner();
     const v1 = await ceilings.create(caller, {
       ...CEILING,
@@ -216,7 +232,7 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
       workspaceId: caller.ownerId,
       name: `team-${teamId.slice(0, 8)}`,
     });
-    const made = await agents.createAgent(caller, {
+    const made = await agentService.createAgent(caller, {
       slug: `agent-${randomUUID().slice(0, 8)}`,
       name: "follower",
       managing_team_id: teamId,
@@ -269,6 +285,28 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
       .from(profileRolloutItems)
       .where(eq(profileRolloutItems.rolloutId, rollout?.id as string));
     expect(items.map((item) => item.agentId)).toEqual([made.agent.id]);
+
+    // Applying the rollout gives the follower a release that carries the
+    // names, and a session of it no longer runs the tool.
+    expect(await runner().runOnce()).toEqual({ claimed: 1, settled: 1 });
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, made.agent.id));
+    const [active] = await db
+      .select()
+      .from(agentReleases)
+      .where(eq(agentReleases.id, agent?.activeReleaseId as string));
+    expect(active?.runtimeProfileId).toBe(v2.profile.id);
+    const deny = mcpDenyOf(active?.runtimeConfigSnapshot);
+    expect(deny).toEqual(["mcp__docs__a", DOCS].sort());
+    expect(
+      effectiveMcp({
+        start: null,
+        row: null,
+        release: { server: "docs", tools: [DOCS], deny },
+      }).tools,
+    ).toEqual([]);
 
     // The next version leaves the names out of its request and keeps them.
     const v3 = await ceilings.create(caller, {

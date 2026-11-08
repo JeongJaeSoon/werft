@@ -260,6 +260,21 @@ describe("the mcp__ name rule", () => {
     );
   });
 
+  test("a name past an id ending in _ must leave a tool of its own", () => {
+    expect(mcpToolOfServer("mcp__docs___", "docs_")).toBe(false);
+    expect(mcpToolOfServer("mcp__docs___", "docs")).toBe(true);
+    expect(reason("mcp__docs___", { servers: new Set(["docs_"]) })).toBe(
+      "unknown_mcp_server",
+    );
+  });
+
+  test("a listed server whose id starts like github keeps its own tools blockable", () => {
+    const scope = { servers: new Set(["github_"]) };
+    expect(reason("mcp__github___read", scope)).toBe("ok");
+    expect(reason("mcp__github__read", scope)).toBe("github_server");
+    expect(reason("mcp__github___read")).toBe("github_server");
+  });
+
   test("a deny names tools of listed servers, sorted, once, matched exactly", () => {
     expect(
       parseToolNames(
