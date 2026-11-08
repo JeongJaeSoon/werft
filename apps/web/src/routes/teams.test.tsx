@@ -1474,6 +1474,15 @@ describe("에이전트 관리자", () => {
     // The request is held: the picker clears its query on select, so an open
     // picker here would swallow a second choice with nothing left to retry.
     await waitFor(() => expect(picker.disabled).toBe(true));
+    // happy-dom keeps focus on a disabled input; a browser drops it to <body>.
+    act(() => {
+      const sink = document.createElement("button");
+      document.body.append(sink);
+      sink.focus();
+      sink.remove();
+    });
+    expect(document.activeElement === picker).toBe(false);
+    expect(document.activeElement === document.body).toBe(true);
     expect(
       api.calls.filter(
         (c) => c.method === "POST" && c.path.endsWith("/admins"),
@@ -1483,6 +1492,9 @@ describe("에이전트 관리자", () => {
     act(() => release());
     expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
     await waitFor(() => expect(picker.disabled).toBe(false));
+    // The lock dropped focus to the page; it comes back so the next admin can
+    // be typed at once.
+    await waitFor(() => expect(document.activeElement === picker).toBe(true));
   });
 
   test("owner는 사람·팀을 지정하고 해제한다", async () => {

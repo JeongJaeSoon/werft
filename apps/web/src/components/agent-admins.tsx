@@ -24,7 +24,7 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentAdminsQuery,
@@ -169,6 +169,19 @@ function AdminList({
         text: refusalText(t, error, "agent.admin.manage", role),
       }),
   });
+
+  // The picker is locked while a change runs, and a disabled input drops focus
+  // to the page. Give it back when the lock lifts, but only if the page still
+  // holds it: someone who moved on keeps their place.
+  const pickerHadFocus = useRef(false);
+  useEffect(() => {
+    if (change.isPending || !pickerHadFocus.current) return;
+    pickerHadFocus.current = false;
+    const picker = document.getElementById(pickerId);
+    if (picker && (document.activeElement ?? document.body) === document.body) {
+      picker.focus();
+    }
+  }, [change.isPending, pickerId]);
 
   if (admins.isPending) return <StatusScreen kind="loading" />;
   if (admins.error) {
@@ -337,8 +350,6 @@ function AdminList({
               maxLength={SEARCH_MAX}
               // Locked while a change is in flight: the picker clears its query on
               // select, so a choice made now would be dropped with nothing to retry.
-              // Locked while a change is in flight: the picker clears its query on
-              // select, so a choice made now would be dropped with nothing to retry.
               disabled={change.isPending || (!listsMembers && !listsTeams)}
               filter="none"
               onQueryChange={setTerm}
@@ -352,6 +363,8 @@ function AdminList({
               // button to leave disabled.
               onValueChange={(value, option) => {
                 const [kind, id] = value.split(":") as [AgentAdminKind, string];
+                pickerHadFocus.current =
+                  document.activeElement === document.getElementById(pickerId);
                 change.mutate({ add: true, kind, id, name: option.label });
               }}
               placeholder={t("agentAdmins.pickPlaceholder")}
