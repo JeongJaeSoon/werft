@@ -303,8 +303,11 @@ export function TeamHeadAction() {
     ...teamQuery(client, teamId ?? ""),
     enabled: manages && teamId !== undefined,
   });
-  if (!manages || !team.data) return null;
-  return <AddMembersDialog team={team.data} />;
+  // A failed read keeps the last data in the cache, but the page below turns
+  // into the failure: the button goes with it. The key ties the dialog's
+  // picks to one team, so going back to another team never carries them over.
+  if (!manages || !team.data || team.isError) return null;
+  return <AddMembersDialog key={team.data.id} team={team.data} />;
 }
 
 function TeamPage({ id }: { readonly id: string }) {

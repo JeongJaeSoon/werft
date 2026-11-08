@@ -396,6 +396,19 @@ describe("팀 화면", () => {
     expect(screen.queryByRole("button", { name: "구성원 초대" })).toBeNull();
   });
 
+  test("팀 상세를 읽지 못하면 헤더에 구성원 추가 버튼도 없다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`GET /v1/teams/${TEAM_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    await screen.findByRole("heading", { level: 2, name: "팀" });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "구성원 추가" })).toBeNull(),
+    );
+  });
+
   test("팀 상세의 뒤로가기는 버튼이 아니라 팀 목록으로 가는 링크다", async () => {
     const server = teamServer();
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);

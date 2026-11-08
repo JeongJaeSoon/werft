@@ -67,9 +67,6 @@ export const teamsKo = {
   "teams.column.teamRole": "팀 역할",
   "teams.role.lead": "팀 관리자",
   "teams.role.member": "구성원",
-  "teams.role.lead.help": "이 팀이 담당 팀인 에이전트를 관리합니다.",
-  "teams.role.member.help":
-    "이 팀이 담당 팀인 에이전트의 설정을 보고 사용합니다. 관리하지는 않습니다.",
   "teams.changeRoleFor": "{name}님의 팀 역할",
   "teams.promoteTitle": "{name}님을 팀 관리자로 바꿀까요?",
   "teams.promoteConsequence":
@@ -155,10 +152,6 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "Team role",
   "teams.role.lead": "Team lead",
   "teams.role.member": "Member",
-  "teams.role.lead.help":
-    "Manages the agents this team is the responsible team of.",
-  "teams.role.member.help":
-    "Sees the settings of the agents this team manages and uses them, without managing them.",
   "teams.changeRoleFor": "{name}'s team role",
   "teams.promoteTitle": "Make {name} a team lead?",
   "teams.promoteConsequence":
@@ -243,9 +236,6 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "チームのロール",
   "teams.role.lead": "チーム管理者",
   "teams.role.member": "メンバー",
-  "teams.role.lead.help": "このチームが担当チームのエージェントを管理します。",
-  "teams.role.member.help":
-    "このチームが担当チームのエージェントの設定を見て利用します。管理はしません。",
   "teams.changeRoleFor": "{name}さんのチームのロール",
   "teams.promoteTitle": "{name}さんをチーム管理者にしますか？",
   "teams.promoteConsequence":
