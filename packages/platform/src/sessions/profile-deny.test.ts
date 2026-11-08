@@ -747,6 +747,27 @@ describe("mcp__ names in a stored deny", () => {
     }
   });
 
+  test("a request over a base that blocks mcp__ names is refused even when the version before it holds them", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    await made.workspace.create(owner(), { ...VERSION, deny: ["WebSearch"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    const first = made.versions[0];
+    if (!row || !first) throw new Error("no rows");
+    row.deny = ["WebSearch", "mcp__a__b"];
+    first.deny = ["WebSearch", "mcp__a__b"];
+    await made.catalog.workspace_profiles.refresh();
+    first.base_fingerprint = profileFingerprint(
+      catalogProfile(made.catalog, "op_coding_v1") as CatalogProfile,
+    );
+    await made.catalog.workspace_profiles.refresh();
+    for (const body of [{ tools: ["Read"] }, { deny: ["WebSearch"] }]) {
+      expect(
+        await refused(made.workspace.create(owner(), { ...VERSION, ...body })),
+      ).toMatchObject({ reason_code: "base_mcp_deny_dropped" });
+    }
+  });
+
   test("the next workspace version keeps what the one before it blocked", async () => {
     const made = setup();
     await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });

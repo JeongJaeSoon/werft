@@ -128,7 +128,10 @@ export function withKeptMcpDeny<
   baseMcpDeny: readonly string[] | undefined;
 }): D | { deny: string[]; toolCatalogId: string } | undefined {
   const kept = mcpNamesOf(input.previous?.deny);
-  if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: kept })) {
+  // The request itself must name the base's `mcp__` blocks, not lean on the
+  // previous version; a write cannot carry `mcp__` names yet, so over such a
+  // base every request is refused until it can.
+  if (mcpDenyDropped({ mcp_deny: input.baseMcpDeny }, { deny: [] })) {
     throw badRequest(
       "The base profile blocks MCP tools this version would leave open: a version keeps the base's blocks",
       "base_mcp_deny_dropped",
