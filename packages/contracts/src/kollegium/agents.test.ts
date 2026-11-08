@@ -225,6 +225,10 @@ describe("AgentCard", () => {
           tool_policy: { per_tool: { mcp__docs__search: "auto" } },
         },
         { ...old.capabilities, tool_policy: "allow" },
+        {
+          ...old.capabilities,
+          tool_policy: { per_tools: { mcp__docs__search: "deny" } },
+        },
         { ...old.capabilities, forbidden: "Bash" },
       ]) {
         expect(

@@ -203,14 +203,6 @@ function withoutRetiredToolFields(capabilities: unknown): unknown {
     tool_policy: policy,
     ...rest
   } = capabilities;
-  const perTool = isRecord(policy) ? policy.per_tool : undefined;
-  const mcpPolicy = Object.fromEntries(
-    Object.entries(isRecord(perTool) ? perTool : {}).filter(([tool]) =>
-      isMcpTool(tool),
-    ),
-  );
-  const oldShape =
-    isRecord(policy) && (perTool === undefined || isRecord(perTool));
   return {
     ...rest,
     ...(forbidden === undefined
@@ -220,14 +212,29 @@ function withoutRetiredToolFields(capabilities: unknown): unknown {
             ? forbidden.filter(isMcpTool)
             : forbidden,
         }),
-    ...(policy === undefined
-      ? {}
-      : !oldShape
-        ? { tool_policy: policy }
-        : Object.keys(mcpPolicy).length > 0
-          ? { tool_policy: { per_tool: mcpPolicy } }
-          : {}),
+    ...(policy === undefined ? {} : withoutRetiredPolicy(policy)),
   };
+}
+
+/**
+ * Only the retired `default` and the built-in `per_tool` names go; any other
+ * key stays, so a misspelled one is still refused by the strict schema.
+ */
+function withoutRetiredPolicy(policy: unknown): { tool_policy?: unknown } {
+  if (!isRecord(policy)) return { tool_policy: policy };
+  const { default: _default, per_tool: perTool, ...others } = policy;
+  const mcp = isRecord(perTool)
+    ? Object.fromEntries(
+        Object.entries(perTool).filter(([tool]) => isMcpTool(tool)),
+      )
+    : perTool;
+  const kept = {
+    ...others,
+    ...(mcp === undefined || (isRecord(mcp) && Object.keys(mcp).length === 0)
+      ? {}
+      : { per_tool: mcp }),
+  };
+  return Object.keys(kept).length === 0 ? {} : { tool_policy: kept };
 }
 
 function withoutRetiredCardFields(card: unknown): unknown {
