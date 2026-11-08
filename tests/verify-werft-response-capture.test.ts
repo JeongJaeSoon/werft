@@ -646,6 +646,91 @@ describe("maskBody: werft#1327 review", () => {
       maskBody('{"statusCode":500,"error":{"code":"UNAUTHORIZED"}}'),
     ).toContain('"statusCode":500');
   });
+
+  test("a close tag inside CDATA, a comment or a quoted attribute does not end the element", () => {
+    expect(
+      leaked("<password><![CDATA[</password>syn-pw-12]]></password>"),
+    ).toEqual([]);
+    expect(
+      leaked("<password><!-- </password> -->syn-pw-12</password>"),
+    ).toEqual([]);
+    expect(
+      leaked('<password><x a="</password>">syn-pw-12</x></password>'),
+    ).toEqual([]);
+  });
+
+  test("a secret tag of any length is recognised", () => {
+    expect(
+      leaked(`<password${" ".repeat(700)}>syn-pw-12</password>`),
+    ).toEqual([]);
+    expect(
+      leaked(
+        `<password${"x".repeat(700)}>syn-pw-12</password${"x".repeat(700)}>`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("createCollector: werft#1327 review round 2", () => {
+  test("a request that fails before any header is listed without CAPTURE_URL", async () => {
+    const c = createCollector({
+      send: async () => ({ body: "", base64Encoded: false }),
+      settleMs: 200,
+    });
+    c.onEvent({
+      method: "Network.requestWillBeSent",
+      params: { requestId: "1", request: { method: "GET", url: "http://h/x" } },
+    });
+    c.onEvent({
+      method: "Network.loadingFailed",
+      params: { requestId: "1", errorText: "net::ERR_CONNECTION_REFUSED" },
+    });
+    c.onEvent({
+      method: "Network.requestWillBeSent",
+      params: { requestId: "2", request: { method: "GET", url: "http://h/y" } },
+    });
+    c.onEvent({
+      method: "Network.loadingFailed",
+      params: { requestId: "2", errorText: "net::ERR_ABORTED", canceled: true },
+    });
+    expect(await c.report()).toEqual([
+      "! failed request: GET /x -> no response | body unavailable: net::ERR_CONNECTION_REFUSED",
+    ]);
+  });
+
+  test("a base64 body is charged its decoded bytes", async () => {
+    let calls = 0;
+    const c = createCollector({
+      send: async () => {
+        calls++;
+        return {
+          body: Buffer.alloc(65_536, 120).toString("base64"),
+          base64Encoded: true,
+        };
+      },
+      settleMs: 200,
+    });
+    for (let i = 0; i < 4; i++) {
+      const id = String(i);
+      c.onEvent({
+        method: "Network.requestWillBeSent",
+        params: { requestId: id, request: { method: "GET", url: "http://h/x" } },
+      });
+      c.onEvent({
+        method: "Network.responseReceived",
+        params: { requestId: id, response: { status: 500, url: "http://h/x" } },
+      });
+      c.onEvent({
+        method: "Network.dataReceived",
+        params: { requestId: id, dataLength: 65_536 },
+      });
+      c.onEvent({ method: "Network.loadingFinished", params: { requestId: id } });
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await c.report();
+    expect(calls).toBe(4);
+  });
 });
 
 describe("shortBody", () => {
