@@ -118,6 +118,27 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "대기 시간이 프로필 한도보다 깁니다 — 프로필 값 이하로 줄이세요.",
   TEAM_MANAGES_AGENTS:
     "이 팀이 담당 팀인 에이전트가 있습니다 — 그 에이전트들의 담당 팀을 먼저 옮기세요.",
+  VARIABLE_NAME_INVALID:
+    "변수 이름은 대문자·숫자·밑줄만 쓰고 대문자로 시작해야 해요 — 64자까지입니다.",
+  VARIABLE_NAME_RESERVED:
+    "플랫폼이 직접 쓰는 이름이라 변수로 등록할 수 없어요 — 다른 이름을 고르세요.",
+  VARIABLE_VALUE_INVALID:
+    "값에 쓸 수 없는 문자가 있어요 — NUL 문자와 잘못된 문자를 빼고 다시 저장하세요.",
+  VARIABLE_VALUE_TOO_LARGE: "값이 너무 커요 — 48 KB 이하로 줄이세요.",
+  VARIABLE_QUOTA_EXCEEDED:
+    "변수를 더 만들 수 없어요 — 쓰지 않는 변수를 지운 뒤 다시 시도하세요.",
+  VARIABLE_UNRESOLVED:
+    "이 에이전트가 쓰는 변수를 지금 받을 수 없어요 — 워크스페이스 관리자에게 문의하세요.",
+  SECRET_ACK_REQUIRED:
+    "엔진에 시크릿을 전달하면 모든 요청자와 도구가 읽을 수 있어요 — 위험 안내를 확인한 뒤 다시 저장하세요.",
+  SECRET_GRANT_ALL_FORBIDDEN:
+    "시크릿은 모든 에이전트에게 줄 수 없어요 — 받을 에이전트를 하나씩 고르세요.",
+  SECRET_ENV_UNSUPPORTED:
+    "아직 시크릿을 엔진에 전달하는 런타임이 없어요 — 일반 변수만 저장할 수 있습니다.",
+  VERSION_MISMATCH:
+    "다른 사람이 먼저 바꿨어요 — 새로 고쳐 최신 내용을 확인한 뒤 다시 저장하세요.",
+  PRECONDITION_REQUIRED:
+    "저장하려면 읽은 버전이 필요해요 — 새로 고친 뒤 다시 시도하세요.",
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
@@ -253,6 +274,28 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "The wait is longer than the profile's limit — lower it to the profile's value or less.",
   TEAM_MANAGES_AGENTS:
     "This team is still the managing team of some agents — move them to another team first.",
+  VARIABLE_NAME_INVALID:
+    "A variable name starts with a capital letter and uses only capitals, digits and underscores — up to 64 characters.",
+  VARIABLE_NAME_RESERVED:
+    "The platform sets this name itself, so it can't be a variable — pick another name.",
+  VARIABLE_VALUE_INVALID:
+    "The value has a character that can't be stored — remove NUL and invalid characters, then save again.",
+  VARIABLE_VALUE_TOO_LARGE:
+    "The value is too large — keep it to 48 KB or less.",
+  VARIABLE_QUOTA_EXCEEDED:
+    "No more variables can be added — delete one you don't use, then try again.",
+  VARIABLE_UNRESOLVED:
+    "A variable this agent uses can't be delivered right now — ask a workspace administrator.",
+  SECRET_ACK_REQUIRED:
+    "A secret sent to the engine can be read by every requester and tool — confirm the warning, then save again.",
+  SECRET_GRANT_ALL_FORBIDDEN:
+    "A secret can't go to every agent — pick the agents one by one.",
+  SECRET_ENV_UNSUPPORTED:
+    "No runtime can carry a secret to the engine yet — only plain variables can be saved.",
+  VERSION_MISMATCH:
+    "Someone changed this first — refresh, check the latest content, then save again.",
+  PRECONDITION_REQUIRED:
+    "Saving needs the version you read — refresh and try again.",
   CONFIG_TOKEN_INVALID:
     "The Slack App Configuration Token can't be used — an owner or admin should paste a new token.",
   SLACK_APP_CREATING: "The Slack app is being created — check again shortly.",
@@ -405,6 +448,27 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "待ち時間がプロファイルの上限より長いです — プロファイルの値以下にしてください。",
   TEAM_MANAGES_AGENTS:
     "このチームが担当チームのエージェントがあります — 先にそのエージェントの担当チームを移してください。",
+  VARIABLE_NAME_INVALID:
+    "変数名は大文字で始め、大文字・数字・アンダースコアだけを使います — 64文字までです。",
+  VARIABLE_NAME_RESERVED:
+    "プラットフォームが使う名前なので変数にできません — 別の名前を選んでください。",
+  VARIABLE_VALUE_INVALID:
+    "保存できない文字が値に含まれています — NUL と不正な文字を取り除いてから保存してください。",
+  VARIABLE_VALUE_TOO_LARGE: "値が大きすぎます — 48 KB 以下にしてください。",
+  VARIABLE_QUOTA_EXCEEDED:
+    "これ以上変数を追加できません — 使っていない変数を削除してからやり直してください。",
+  VARIABLE_UNRESOLVED:
+    "このエージェントが使う変数を今は渡せません — ワークスペースの管理者に連絡してください。",
+  SECRET_ACK_REQUIRED:
+    "エンジンに渡したシークレットは、すべての依頼者とツールが読めます — 注意書きを確認してから保存してください。",
+  SECRET_GRANT_ALL_FORBIDDEN:
+    "シークレットはすべてのエージェントには渡せません — 渡すエージェントを一つずつ選んでください。",
+  SECRET_ENV_UNSUPPORTED:
+    "シークレットをエンジンに渡せるランタイムはまだありません — 保存できるのは通常の変数だけです。",
+  VERSION_MISMATCH:
+    "先に他の人が変更しました — 再読み込みして最新の内容を確認し、もう一度保存してください。",
+  PRECONDITION_REQUIRED:
+    "保存するには読み込んだバージョンが必要です — 再読み込みしてやり直してください。",
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token を使えません — owner・admin が新しい token を貼り付けてください。",
   SLACK_APP_CREATING:
