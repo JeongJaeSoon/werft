@@ -633,6 +633,50 @@ integration("settings console writes", () => {
       );
     });
 
+    test("two twins enabled at once: one is done and the other sees it, so never two live", async () => {
+      const owner = await person("owner");
+      await importExternal({
+        "en-pair-a": external("EN_PAIR_KEY"),
+        "en-pair-b": external("EN_PAIR_KEY"),
+      });
+      await off(owner, "en-pair-a");
+      await off(owner, "en-pair-b");
+      const results = await Promise.all([
+        store().enableConnection("en-pair-a", owner),
+        store().enableConnection("en-pair-b", owner),
+      ]);
+      expect(results.map((one) => one.outcome).sort()).toEqual([
+        "conflict",
+        "done",
+      ]);
+      const live = (await db.select().from(providerConnections)).filter(
+        (one) => one.id.startsWith("en-pair-") && one.disabledAt === null,
+      );
+      expect(live).toHaveLength(1);
+    });
+
+    test("a live connection that once held the same old reference refuses it, though their definitions differ", async () => {
+      const owner = await person("owner");
+      await importExternal({ "en-old-a": external("EN_OLD_KEY") });
+      await store().convertConnection("en-old-a", "old-key-7777", owner);
+      await off(owner, "en-old-a");
+      const first = await rowOf("en-old-a");
+      await db.insert(providerConnections).values({
+        id: "en-old-b",
+        definition: {
+          ...first?.definition,
+          auth: { kind: "api_key", stored: "connection:en-old-b" },
+        },
+        credentialSource: "stored",
+        origin: "console",
+        replacesAuth: first?.replacesAuth ?? null,
+      });
+      expect(await store().enableConnection("en-old-a", owner)).toEqual({
+        outcome: "conflict",
+        reason: "definition_active",
+      });
+    });
+
     test("two enables at once: one is done, one is told it is no longer disabled, one receipt", async () => {
       const owner = await person("owner");
       await store().create(

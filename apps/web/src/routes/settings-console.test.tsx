@@ -655,6 +655,45 @@ describe("모델 연결", () => {
       ]);
     });
 
+    test("the row comes back active and keyboard focus lands on its new button", async () => {
+      let on = false;
+      renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`GET ${CONNECTIONS}`]: () =>
+          json(200, {
+            items: [
+              connection(
+                "off-key",
+                on ? {} : { state: "disabled", disabled_at: AT },
+              ),
+            ],
+            credential_hosts: null,
+            endpoint_defaults: {},
+          }),
+        [`POST ${ENABLE}`]: () => {
+          on = true;
+          return json(200, CHANGE("off-key"));
+        },
+      });
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "다시 켜기",
+        }),
+      );
+      await screen.findByText("off-key를 다시 켰습니다.");
+      const disable = await within(table).findByRole("button", {
+        name: "off-key 사용 중지",
+      });
+      await waitFor(() =>
+        expect(document.activeElement === disable).toBe(true),
+      );
+    });
+
     for (const [reason, words] of [
       [
         "definition_active",

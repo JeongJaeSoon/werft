@@ -31,7 +31,7 @@ import {
   FieldLabel,
   Input,
 } from "@werft-ai/ui";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { queryKeysOf, scopedKey } from "../api/queries.ts";
 import {
   type ManagedPermission,
@@ -592,12 +592,27 @@ export function useRowActions(
     },
   );
 
+  // The "enable again" button leaves with the refetch that brings the row back,
+  // and the dialog's focus return has nothing left to land on.
+  const [refocus, setRefocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (refocus === null) return;
+    const label = t("settings.disableFor", { id: refocus });
+    const next = [...document.querySelectorAll<HTMLElement>("button")].find(
+      (button) => button.getAttribute("aria-label") === label,
+    );
+    if (next === undefined) return;
+    next.focus();
+    setRefocus(null);
+  });
+
   const enable = useSettingsWrite(
     kind,
     (client, id: string) => enableConnection(client, id),
     {
       onDone: (answer) => {
         setEnabling(null);
+        setRefocus(answer.id);
         onOutcome({
           kind: "notice",
           text: t("settings.done.enabled", { id: answer.id }),
