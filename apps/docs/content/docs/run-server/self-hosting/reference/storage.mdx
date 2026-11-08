@@ -72,6 +72,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 - interrupt된 turn은 다르다. 그 turn의 checkpoint가 거절되면 turn은 `outcome_unknown`(`interrupt_checkpoint_unavailable`)으로 끝나고 세션은 `recovery_required`로 간다.
 - 마지막으로 커밋된 checkpoint가 복원 지점으로 남는다. 상한을 넘긴 turn 하나는 checkpoint가 없어서, worker가 바뀐 뒤에는 그 turn의 context를 이어받지 못한다(세션 상세 attention `CONTEXT_GAP`).
 
+<a id="결과물out-색인-상한" />
 ## 성과물(`out/`) 색인 상한
 
 worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을 git 상태와 상관없이 색인해 manifest `outputs`에 넣고, 파일마다 객체를 하나 올린다. 상한은 `apps/worker/src/workspace-outputs.ts`의 `DEFAULT_OUTPUT_LIMITS`다.

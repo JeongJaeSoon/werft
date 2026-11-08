@@ -105,15 +105,19 @@ function Target({
 
 const rowOf = (row: Row) => (row.kind === "request" ? row.request : row.intent);
 
-/** Rows by repository and branch, newest group first, each newest first. */
-function groupsOf(rows: Row[]): Row[][] {
+/**
+ * Rows by repository and branch, newest group first, each newest first. The
+ * key names the branch, not its rows: a poll that adds a push must not
+ * remount the group and fold what the reader opened.
+ */
+function groupsOf(rows: Row[]): [key: string, rows: Row[]][] {
   const groups = new Map<string, Row[]>();
   for (const row of rows) {
     const { repository_id, target_branch } = rowOf(row);
     const key = `${repository_id}\n${target_branch}`;
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
-  return [...groups.values()];
+  return [...groups];
 }
 
 function BranchGroup({ rows }: { readonly rows: Row[] }) {
@@ -241,11 +245,8 @@ export function SessionGitHubWork({
       <Heading id={titleId}>{t("session.github.title")}</Heading>
       <Text variant="sub">{t("session.github.description")}</Text>
       <RowList variant="joined">
-        {groupsOf(rows).map((group) => (
-          <BranchGroup
-            key={group.map((row) => rowOf(row).id).join(",")}
-            rows={group}
-          />
+        {groupsOf(rows).map(([key, group]) => (
+          <BranchGroup key={key} rows={group} />
         ))}
       </RowList>
     </section>
