@@ -123,10 +123,16 @@ export type SnapshotSources<P extends CatalogProfileView> = {
  * unattended switch this process has off, no installed runtime serves it,
  * or it no longer parses to its stored fingerprint.
  */
-export function installationProfileSnapshot<P extends CatalogProfileView>(
-  sources: SnapshotSources<P>,
-  rows: readonly InstallationProfileRecord[],
-): InstallationSnapshot<P> {
+/**
+ * Which connection a provider belongs to: the first connection by id that
+ * holds it, else the one it was before a move to a stored value. The one rule
+ * the snapshot and the disable warning both read, so they never disagree.
+ */
+export function connectionMatcher(
+  sources: Pick<SnapshotSources<CatalogProfileView>, "connection_aliases"> & {
+    connections: Connections;
+  },
+) {
   const connections = new Map<string, string>();
   for (const id of Object.keys(sources.connections).sort()) {
     const key = canonicalJson(sources.connections[id]);
@@ -143,6 +149,14 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     const key = canonicalJson(provider);
     return connections.get(key) ?? former.get(key) ?? null;
   };
+  return { connections, former, connectionOf };
+}
+
+export function installationProfileSnapshot<P extends CatalogProfileView>(
+  sources: SnapshotSources<P>,
+  rows: readonly InstallationProfileRecord[],
+): InstallationSnapshot<P> {
+  const { connections, former, connectionOf } = connectionMatcher(sources);
   // Over a former provider the ceiling still names the old reference; the
   // value is the one the connection holds now.
   const lookupFor = (provider: CatalogProfileConfig["provider"]) => {

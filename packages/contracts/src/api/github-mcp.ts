@@ -239,11 +239,29 @@ export const REPOSITORY_ATTACH_REFUSAL_VALUES = [
 export type RepositoryAttachRefusal =
   (typeof REPOSITORY_ATTACH_REFUSAL_VALUES)[number];
 
+/** The status in plain words, so an answer to a person need not quote it. */
+export const LISTED_REPOSITORY_MEANING = {
+  primary: "the repository this session works in",
+  attached: "attached to this session",
+  pending: "being attached to this session now",
+  failed: "attaching it to this session failed",
+  available: "not attached yet; it can be attached on request",
+  allowed_in_newer_release:
+    "allowed only for new sessions; this session cannot attach it",
+  not_attached: "allowed, but nothing is fetched into this session yet",
+  revoked: "was attached, but is no longer allowed",
+} as const satisfies Record<
+  (typeof LISTED_REPOSITORY_STATUS_VALUES)[number],
+  string
+>;
+
 export const listedRepositorySchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   branch: z.string().nullable(),
   status: z.enum(LISTED_REPOSITORY_STATUS_VALUES),
+  /** Optional so a list from before it was added still parses. */
+  meaning: z.string().optional(),
   /** The git remote it is under in the workspace; absent when it is not there. */
   remote: z.string().min(1).optional(),
 });
@@ -479,7 +497,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).`,
+  list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it). Each repository's \`meaning\` is its status in plain words.`,
   attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing. Commit changes to it on a local branch started from \`<repository_id>/<branch>\` in the workspace (a git worktree or clone elsewhere is not saved), then push that branch with \`request_push\`, naming \`repository_id\` and \`source_ref\`.`,
 };
 

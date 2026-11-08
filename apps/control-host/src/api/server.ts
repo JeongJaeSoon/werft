@@ -784,6 +784,15 @@ const settingsConsole = createSettingsConsoleService({
   secretStoreOn: secretKey !== null,
   credentialHosts: credentialHostsFromEnv(process.env),
   reread: rereadSettings,
+  profiles: {
+    refresh: () => workspaceProfileVersions.refresh(),
+    catalog,
+    settings: () => ({
+      connections: workspaceProfileVersions.connections,
+      connection_aliases:
+        workspaceProfileVersions.settings?.connection_aliases ?? {},
+    }),
+  },
 });
 const agentAdmins = createAgentAdminService({
   authorization,

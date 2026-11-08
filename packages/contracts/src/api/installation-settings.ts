@@ -187,6 +187,28 @@ export const settingsChangeResponseSchema = z
   .object({ id: z.string().min(1), receipt_id: z.string().uuid() })
   .strict();
 
+/**
+ * What disabling one connection would leave without a model, counted by the
+ * server when a person opens the confirmation. Counts only: no name or id of
+ * another workspace's profile or agent is ever in it.
+ */
+export const settingsConnectionImpactResponseSchema = z
+  .object({
+    id: z.string().min(1),
+    /** Current profile versions with no other enabled connection that fits. */
+    profile_count: z.number().int().nonnegative(),
+    /** Active agents whose active release runs one of those profiles. */
+    agent_count: z.number().int().nonnegative(),
+    /** Sessions not yet failed or stopped that run one of them. */
+    session_count: z.number().int().nonnegative(),
+    /** A workspace's achievement judge setting names this connection. */
+    judge_used: z.boolean(),
+  })
+  .strict();
+
+export type SettingsConnectionImpactResponse = z.infer<
+  typeof settingsConnectionImpactResponseSchema
+>;
 export type SettingsEntryOrigin = z.infer<typeof settingsEntryOriginSchema>;
 export type SettingsEntryState = z.infer<typeof settingsEntryStateSchema>;
 export type SettingsCredentialView = z.infer<

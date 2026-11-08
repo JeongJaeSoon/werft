@@ -5,6 +5,7 @@ import {
   GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_OUTPUTS,
   type GitHubMcpTool,
+  LISTED_REPOSITORY_MEANING,
   type PushRequestState,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -1684,18 +1685,26 @@ describe("list_repositories", () => {
         ok: true,
         result: {
           repositories: [
-            { id: "app", name: "acme/app", branch: "main", status: "primary" },
+            {
+              id: "app",
+              name: "acme/app",
+              branch: "main",
+              status: "primary",
+              meaning: LISTED_REPOSITORY_MEANING.primary,
+            },
             {
               id: "docs",
               name: "acme/docs",
               branch: "trunk",
               status: "pending",
+              meaning: LISTED_REPOSITORY_MEANING.pending,
             },
             {
               id: "tools",
               name: "acme/tools",
               branch: "main",
               status: "available",
+              meaning: LISTED_REPOSITORY_MEANING.available,
             },
           ],
           next_cursor: null,

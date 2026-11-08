@@ -52,6 +52,23 @@ export const settingsKo = {
   "settings.disableTitle": "{id}를 사용 중지할까요?",
   "settings.disableConsequence":
     "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
+  "settings.connections.disableConsequence":
+    "이 id는 다시 쓸 수 없습니다. 이 연결로만 모델을 부르는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
+  // Its own key: it stops being true when connections can be turned back on.
+  "settings.connections.disableNoReenable":
+    "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+  "settings.connections.impact.checking": "영향을 확인하는 중…",
+  "settings.connections.impact.failed":
+    "영향 수를 확인하지 못했습니다. 그래도 사용 중지할 수 있습니다.",
+  "settings.connections.impact.warning":
+    "이 연결을 사용 중지하면 아래 대상은 이후 모델 호출이 거절되거나 끊길 수 있습니다.",
+  "settings.connections.impact.profiles":
+    "다른 켜진 연결로 이어지지 않는 프로필: {count}개",
+  "settings.connections.impact.agents":
+    "그 프로필을 쓰는 활성 릴리스의 에이전트: {count}개",
+  "settings.connections.impact.sessions": "끝나지 않은 세션: {count}개",
+  "settings.connections.impact.judge":
+    "성과 판정 설정이 이 연결을 가리키고 있습니다.",
   "settings.done.created": "{id}를 만들었습니다.",
   "settings.done.value": "{id}의 값을 바꿨습니다.",
   "settings.done.disabled": "{id}를 사용 중지했습니다.",
@@ -166,6 +183,22 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.disableTitle": "Disable {id}?",
   "settings.disableConsequence":
     "This cannot be undone. The id is never used again, and the profiles and agents that use this entry stop running.",
+  "settings.connections.disableConsequence":
+    "The id is never used again. Profiles and agents that reach their model only through this connection stop running.",
+  "settings.connections.disableNoReenable":
+    "A disabled connection cannot be turned back on for now.",
+  "settings.connections.impact.checking": "Checking what this affects…",
+  "settings.connections.impact.failed":
+    "Could not check what this affects. You can still disable it.",
+  "settings.connections.impact.warning":
+    "If you disable this connection, model calls from the following can be refused or cut off from then on.",
+  "settings.connections.impact.profiles":
+    "Profiles with no other enabled connection: {count}",
+  "settings.connections.impact.agents":
+    "Agents whose active release uses those profiles: {count}",
+  "settings.connections.impact.sessions": "Sessions not yet ended: {count}",
+  "settings.connections.impact.judge":
+    "A workspace's achievement judge setting points at this connection.",
   "settings.done.created": "{id} was created.",
   "settings.done.value": "The value of {id} was replaced.",
   "settings.done.disabled": "{id} was disabled.",
@@ -281,6 +314,22 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.disableTitle": "{id} を使用停止しますか？",
   "settings.disableConsequence":
     "元に戻せません。この id は再利用できず、この項目を使うプロファイルとエージェントは動かなくなります。",
+  "settings.connections.disableConsequence":
+    "この id は再利用できません。この接続だけでモデルを呼ぶプロファイルとエージェントは動かなくなります。",
+  "settings.connections.disableNoReenable":
+    "使用停止した接続は、今は再び有効にできません。",
+  "settings.connections.impact.checking": "影響を確認しています…",
+  "settings.connections.impact.failed":
+    "影響の数を確認できませんでした。それでも使用停止できます。",
+  "settings.connections.impact.warning":
+    "この接続を使用停止すると、以下の対象は以後のモデル呼び出しが拒否されたり切断されたりすることがあります。",
+  "settings.connections.impact.profiles":
+    "ほかの有効な接続に移れないプロファイル: {count}件",
+  "settings.connections.impact.agents":
+    "そのプロファイルを使う有効なリリースのエージェント: {count}件",
+  "settings.connections.impact.sessions": "終了していないセッション: {count}件",
+  "settings.connections.impact.judge":
+    "成果判定の設定がこの接続を指しています。",
   "settings.done.created": "{id} を作成しました。",
   "settings.done.value": "{id} の値を変えました。",
   "settings.done.disabled": "{id} を使用停止しました。",
