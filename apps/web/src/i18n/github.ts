@@ -229,6 +229,9 @@ export const githubKo = {
   "github.feature.review": "PR 리뷰 승인",
   "github.feature.reviewHint":
     "PR에 코멘트·변경 요청·승인 리뷰를 남깁니다. 리뷰 승인용 App이 있어야 켤 수 있습니다.",
+  "github.feature.merge": "자기 PR 머지",
+  "github.feature.mergeHint":
+    "사용자가 머지하라고 지시하면 에이전트가 자기 세션이 연 PR을 squash로 머지합니다. 필수 check와 리뷰는 GitHub가 판단하고 브랜치 보호는 우회하지 않습니다. 기본값은 꺼짐입니다.",
   "github.ceiling.title": "에이전트가 쓸 수 있는 기능",
   "github.ceiling.hint":
     "워크스페이스 전체의 상한입니다. 에이전트마다 켜는 것은 에이전트의 GitHub 탭에서 합니다. 스위치를 바꾸면 바로 저장되고, 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 따릅니다.",
@@ -245,6 +248,8 @@ export const githubKo = {
   "github.ceiling.lowerTitle": "기능을 끌까요?",
   "github.ceiling.lowerBody":
     "{feature}을(를) 끕니다(활성 릴리스에서 켠 에이전트 {count}개). 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 거절됩니다.",
+  "github.ceiling.lowerBodyNoCount":
+    "{feature}을(를) 끕니다. 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 머지가 거절됩니다.",
   "github.ceiling.lowerConfirm": "끄기",
   "github.permissions.level.read": "읽기",
   "github.permissions.level.write": "쓰기",
@@ -519,6 +524,9 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.feature.review": "Approve pull requests",
   "github.feature.reviewHint":
     "Leave comments, change requests and approvals on pull requests. Needs a reviewer App.",
+  "github.feature.merge": "Merge its own pull requests",
+  "github.feature.mergeHint":
+    "When a person tells it to, an agent squash-merges a pull request its own session opened. GitHub still decides on required checks and reviews, and branch protection is never bypassed. Off by default.",
   "github.ceiling.title": "Features agents may use",
   "github.ceiling.hint":
     "The workspace's ceiling. Each agent turns features on in its own GitHub tab. A switch saves at once, and sessions still on an earlier release follow it from their next GitHub request.",
@@ -537,6 +545,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.ceiling.lowerTitle": "Turn this feature off?",
   "github.ceiling.lowerBody":
     "Turns off {feature} ({count} agents turn it on in their active release). Sessions still on an earlier release are refused from their next GitHub request too.",
+  "github.ceiling.lowerBodyNoCount":
+    "Turns off {feature}. Sessions still on an earlier release are refused a merge from their next GitHub request.",
   "github.ceiling.lowerConfirm": "Turn off",
   "github.permissions.level.read": "read",
   "github.permissions.level.write": "write",
@@ -813,6 +823,9 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.feature.review": "PR のレビュー承認",
   "github.feature.reviewHint":
     "PR にコメント・変更依頼・承認のレビューを残します。レビュー承認用 App があると有効にできます。",
+  "github.feature.merge": "自分の PR のマージ",
+  "github.feature.mergeHint":
+    "人が指示したとき、エージェントは自分のセッションが開いた PR を squash でマージします。必須チェックとレビューは GitHub が判断し、ブランチ保護は回避しません。既定はオフです。",
   "github.ceiling.title": "エージェントが使える機能",
   "github.ceiling.hint":
     "ワークスペース全体の上限です。エージェントごとに有効にするのは、エージェントの GitHub タブで行います。スイッチを変えるとすぐに保存され、以前のリリースで動くセッションも次の GitHub リクエストから従います。",
@@ -831,6 +844,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.ceiling.lowerTitle": "機能を無効にしますか?",
   "github.ceiling.lowerBody":
     "{feature} を無効にします (有効なリリースで有効にしたエージェント {count} 件)。以前のリリースで動いているセッションも、次の GitHub リクエストから拒否されます。",
+  "github.ceiling.lowerBodyNoCount":
+    "{feature} をオフにします。以前のリリースで動いているセッションも、次の GitHub リクエストからマージが拒否されます。",
   "github.ceiling.lowerConfirm": "無効にする",
   "github.permissions.level.read": "読み取り",
   "github.permissions.level.write": "書き込み",

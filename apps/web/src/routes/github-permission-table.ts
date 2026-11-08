@@ -27,8 +27,17 @@ export function githubPermissionsMissing(
     .sort();
 }
 
-/** The ceiling features the console offers; checks and issues have no work yet. */
-export const OFFERED_FEATURES = ["actions", "workflows", "review"] as const;
+/**
+ * The ceiling features the console offers; checks and issues have no work yet.
+ * Only the workspace console reads this, so `merge` never reaches an agent's
+ * GitHub tab.
+ */
+export const OFFERED_FEATURES = [
+  "actions",
+  "workflows",
+  "review",
+  "merge",
+] as const;
 export type OfferedFeature = (typeof OFFERED_FEATURES)[number];
 
 /** `base` is writing a PR, always on for an agent with GitHub. */
@@ -40,6 +49,7 @@ export const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
   actions: { actions: "write" },
   workflows: { workflows: "write" },
   review: { contents: "read", pull_requests: "write" },
+  merge: { contents: "write", pull_requests: "read" },
 };
 
 export const roleOf = (feature: Feature): GitHubAppRole =>
