@@ -35,6 +35,8 @@ describe("pages.yml", () => {
       "packages/**",
       "docs/**",
       "bun.lock",
+      "bunfig.toml",
+      ".gitignore",
       "scripts/pages-site.sh",
       "scripts/storybook-pages.sh",
       ".github/workflows/pages.yml",

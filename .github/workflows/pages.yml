@@ -18,6 +18,9 @@ on:
       - packages/**
       - docs/**
       - bun.lock
+      - bunfig.toml
+      # Tailwind skips what .gitignore ignores when it scans for classes.
+      - .gitignore
       - package.json
       - tsconfig*.json
       - scripts/pages-site.sh
