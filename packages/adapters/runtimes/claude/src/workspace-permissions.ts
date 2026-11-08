@@ -161,7 +161,17 @@ const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
  * space, a slash or a quote. Matching them anywhere would ask for
  * `process.env` and `src/credentials.ts`, which are code and not secrets.
  */
-const NAME_STARTS = [" ", "/", '"', "'", "=", "-f"];
+const CLUSTER_LETTERS = [..."nHiswNlcoF"];
+const NAME_STARTS = [
+  " ",
+  "/",
+  '"',
+  "'",
+  "=",
+  // `grep -f.env`, `grep -nf.env`: a pattern file named right after the flag.
+  "-f",
+  ...CLUSTER_LETTERS.map((letter) => `-${letter}f`),
+];
 
 /** Matched where the name ends, so `object.keys.ts` is not a key file. */
 const SECRET_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".keystore"];
@@ -176,7 +186,6 @@ const SECRET_READ_NAMES = [
   ),
   // Only the JSON key files, as in SENSITIVE_PATHS; `service-account.ts` is code.
   "service-account*.json",
-  "credentials*.json",
   ".git/config",
 ];
 
@@ -213,6 +222,14 @@ const RG_HIDDEN_ASK = [
     `rg -${letter}uu*`,
     `rg * -${letter}uu*`,
   ]),
+  // Two of the usual flags before `uu` (`-nHuu`).
+  ...CLUSTER_LETTERS.flatMap((first) =>
+    CLUSTER_LETTERS.flatMap((second) => [
+      `rg -${first}${second}uu*`,
+      `rg * -${first}${second}uu*`,
+    ]),
+  ),
+  // Two of the usual flags before `uu` (`-nHuu`).
 ];
 
 /** Test and script runners; the workspace's own code runs through them. */

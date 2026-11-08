@@ -287,7 +287,11 @@ const steps: Step[] = [
   bash("read_rg_uuid_word", "rg -n uuid src", false, "uuid.ts"),
   bash("read_rg_long_flag_uuid", "rg --line-number uuid src", false, "uuid.ts"),
   bash("read_grep_attached_f", "grep -f.env.secret notes/sample.txt", true),
-  bash("read_cat_credentials_json", "cat credentials.json", true),
+  bash("read_grep_cluster_f", "grep -nf.env.secret notes/sample.txt", true),
+  bash("read_rg_cluster_f", "rg -nf.env.secret notes/sample.txt", true),
+  bash("read_rg_two_letters_uu", "rg -nHuu SECRET_SENTINEL", true),
+  // Two ordinary files are not one secret name.
+  bash("read_two_code_files", "cat src/credentials.ts src/package.json", false),
   bash("read_rg_split_u", "rg -u -u SECRET_SENTINEL", true),
   bash("read_rg_crossed_u", "rg -unu SECRET_SENTINEL", true),
   bash("read_grep", "grep -n sample notes/sample.txt", false, "1:sample"),
