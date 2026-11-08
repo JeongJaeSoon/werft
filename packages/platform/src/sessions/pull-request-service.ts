@@ -1216,6 +1216,11 @@ export function createPullRequestService(deps: {
       if (before.headSha !== source.gitCommit) {
         return await refuse("head_moved", fields);
       }
+      // GitHub's async merge also merges every open pull request this one is
+      // stacked on, so it only goes to the base it was opened against.
+      if (before.base !== pullRequest.base) {
+        return await refuse("merge_blocked", fields);
+      }
       // Refused before a request that GitHub would queue and then fail. The
       // rules themselves are enforced at merge time, with bypass off.
       if (!MERGEABLE_STATES.has(before.mergeableState ?? "")) {
@@ -1233,6 +1238,19 @@ export function createPullRequestService(deps: {
           return await refuse(
             after.headSha === source.gitCommit ? "merge_blocked" : "head_moved",
             fields,
+          );
+        }
+        if (merged.already === true) {
+          // Merged by someone between the read and the request, by whatever
+          // method: not this call's merge, and only ours if it was our head.
+          const after = (await forge.getPullRequest(pullRequest.number))
+            .pullRequest;
+          if (after.headSha !== source.gitCommit) {
+            return await refuse("head_moved", fields);
+          }
+          return await answer(
+            { sha: merged.sha ?? after.mergeCommitSha, method: null },
+            false,
           );
         }
         return await answer({ sha: merged.sha, method: "squash" }, true);

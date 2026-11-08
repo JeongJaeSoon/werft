@@ -389,12 +389,13 @@ describe("GitHub pull requests", () => {
       }
     });
 
-    test("an already merged pull request answers at once, with no poll", async () => {
+    test("an already merged pull request answers at once, with no poll, as not this call's merge", async () => {
       const github = await scripted([200, merged]);
       try {
         expect(await merge(github.forge)).toEqual({
           merged: true,
           sha: MERGED,
+          already: true,
         });
         expect(github.seen).toHaveLength(1);
       } finally {

@@ -144,14 +144,16 @@ export interface GitHubApi {
     title?: string,
   ): Promise<void>;
   /**
-   * Squash-merges it on `sha`, which GitHub checks against the head. No
-   * admin bypass, no auto-merge, no other method. A 405 (not mergeable now)
-   * or 409 (the head moved) is GitHubCallError with that status.
+   * Squash-merges it on `sha`, which GitHub checks against the head, with
+   * rule bypass off. No auto-merge, no other method. A 400 or 405 (not
+   * mergeable now) is GitHubCallError with that status. `already` is a pull
+   * request GitHub found merged before this call did anything.
    */
-  mergePullRequest(input: {
-    number: number;
-    sha: string;
-  }): Promise<{ merged: boolean; sha: string | null }>;
+  mergePullRequest(input: { number: number; sha: string }): Promise<{
+    merged: boolean;
+    sha: string | null;
+    already?: boolean;
+  }>;
   /** Closes or reopens it; answers the pull request as GitHub left it. */
   setPullRequestState(
     number: number,

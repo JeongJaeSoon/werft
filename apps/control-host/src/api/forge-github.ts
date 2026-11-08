@@ -498,7 +498,12 @@ export function createGitHubConnection(
         const first = mergeAsyncOf(sent.data);
         if (first === null)
           throw new GitHubCallError("pull request merge", null, null);
-        if (first.status !== "pending") return mergedOf(first);
+        // Answered at once, it was merged before this call did anything.
+        if (first.status !== "pending") {
+          return first.status === "merged"
+            ? { ...mergedOf(first), already: true }
+            : mergedOf(first);
+        }
         // Someone else's pending request may carry other options.
         if (!first.ours(sha)) return { merged: false, sha: null };
         const pause = options.retryAfterBaseMs ?? MERGE_POLL_MS;

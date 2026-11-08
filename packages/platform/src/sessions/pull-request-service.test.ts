@@ -219,6 +219,7 @@ function harness(
   let mergeable: string | null = "clean";
   let mergeStatus: number | null = null;
   let declined: { headMoves: boolean } | null = null;
+  let raced: { headMoves: boolean } | null = null;
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -328,6 +329,15 @@ function harness(
       if (declined !== null) {
         if (declined.headMoves) open = { ...open, headSha: "f".repeat(40) };
         return { merged: false, sha: null };
+      }
+      if (raced !== null) {
+        open = {
+          ...open,
+          state: "closed",
+          mergedAt: "2026-11-08T00:00:00Z",
+          ...(raced.headMoves ? { headSha: "f".repeat(40) } : {}),
+        };
+        return { merged: true, sha: "e".repeat(40), already: true };
       }
       open = { ...open, state: "closed", mergedAt: "2026-11-08T00:00:00Z" };
       return { merged: true, sha: "c".repeat(40) };
@@ -453,6 +463,10 @@ function harness(
     },
     failMerge: (status: number) => {
       mergeStatus = status;
+    },
+    /** Someone merged it between our read and our request. */
+    raceMerge: (headMoves: boolean) => {
+      raced = { headMoves };
     },
     /** GitHub answers that nothing merged; the head may have moved by then. */
     declineMerge: (headMoves: boolean) => {
@@ -2360,6 +2374,32 @@ describe("merging the pull request", () => {
     expect((await refusal(merge(moved))).details).toMatchObject({
       refusal: "head_moved",
     });
+  });
+
+  test("a pull request merged by someone between the read and the request is answered unchanged, with no method", async () => {
+    const h = withPullRequest();
+    h.raceMerge(false);
+    expect(await merge(h)).toMatchObject({
+      merged: true,
+      changed: false,
+      method: null,
+      head_sha: "a".repeat(40),
+      merge_commit_sha: "e".repeat(40),
+    });
+    const moved = withPullRequest();
+    moved.raceMerge(true);
+    expect((await refusal(merge(moved))).details).toMatchObject({
+      refusal: "head_moved",
+    });
+  });
+
+  test("a pull request retargeted since it was opened is not sent, since GitHub would merge what it is stacked on", async () => {
+    const h = withPullRequest();
+    h.setOpen({ ...recorded, state: "open", base: "someone-elses-branch" });
+    expect((await refusal(merge(h))).details).toMatchObject({
+      refusal: "merge_blocked",
+    });
+    expect(h.calls).toEqual(["read 7"]);
   });
 
   test("GitHub's 400 and 405 are merge_blocked and its 409 is head_moved", async () => {
