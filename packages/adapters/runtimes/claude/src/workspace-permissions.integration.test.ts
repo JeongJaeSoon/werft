@@ -35,6 +35,8 @@ type Step = {
   id: string;
   input: (root: string, workspace: string) => Record<string, unknown>;
   name: string;
+  /** Text the tool result must hold: a call that was not asked also ran. */
+  output?: string;
   /** The step only means something in this mode. */
   onlyIn?: PermissionMode;
 };
@@ -44,11 +46,17 @@ const fileExists = (path: (root: string, workspace: string) => string) => {
     existsSync(path(root, workspace));
 };
 
-const bash = (id: string, command: string, asks: boolean): Step => ({
+const bash = (
+  id: string,
+  command: string,
+  asks: boolean,
+  output?: string,
+): Step => ({
   asks,
   id,
   input: () => ({ command, description: id }),
   name: "Bash",
+  ...(output === undefined ? {} : { output }),
 });
 
 const steps: Step[] = [
@@ -208,6 +216,119 @@ const steps: Step[] = [
     }),
     name: "Bash",
   },
+  // Read-only inspection: the owner's own command and the shapes around it.
+  bash(
+    "read_owner_command",
+    "git remote -v && git branch -a && ls",
+    false,
+    "origin",
+  ),
+  bash("read_branch_list", "git branch --list 'feature/*'", false, "feature/"),
+  bash("read_branch_contains", "git branch -a --contains HEAD", false, "main"),
+  bash("read_branch_current", "git branch --show-current", false, "feature/"),
+  bash("read_branch_verbose", "git branch -vv", false, "docs: sample"),
+  bash("read_rev_parse", "git rev-parse --show-toplevel", false, "workspace"),
+  bash("read_ls_files", "git ls-files", false, "notes/sample.txt"),
+  bash("read_status_short", "git status -sb --porcelain", false),
+  bash("read_log_options", "git log --oneline -n 3 --stat", false),
+  bash("read_config_get", "git config --get user.name", false),
+  bash(
+    "read_remote_show_offline",
+    "git remote show -n origin",
+    false,
+    "origin",
+  ),
+  bash("read_pwd_ls", "pwd && ls -la notes", false, "sample.txt"),
+  bash("read_cat_file", "cat notes/sample.txt", false, "sample"),
+  bash("read_head_tail_wc", "head -n 1 notes/sample.txt | wc -l", false, "1"),
+  bash("read_grep", "grep -n sample notes/sample.txt", false, "1:sample"),
+  bash("read_find_name", "find . -name '*.txt' -not -path './.git/*'", false),
+  bash(
+    "read_stat_file",
+    "stat notes/sample.txt && file notes/sample.txt",
+    false,
+  ),
+  bash("read_tree", "tree notes", false),
+  bash("read_rg", "rg sample notes", false),
+  // The same inspections aimed at a secret, out of the workspace, or at a
+  // write: each part is judged alone, so one of them asks for the whole line.
+  bash("read_dotenv", "cat .env", true),
+  bash("read_dotenv_in_compound", "git remote -v && cat .env", true),
+  bash("read_dotenv_variant", "head -n 1 config/.env.local", true),
+  bash("read_git_config", "cat .git/config", true),
+  bash("read_ssh_key", "cat ~/.ssh/id_ed25519", true),
+  bash("read_env_variable", "cat $HOME/.netrc", true),
+  bash("read_absolute", "cat /etc/hosts", true),
+  bash("read_parent_ls", "ls ../", true),
+  bash("read_parent_ls_bare", "ls ..", true),
+  bash("read_parent_nested", "ls notes/../..", true),
+  bash("read_grep_outside", "grep -rn token /tmp", true),
+  bash("read_find_delete", "find . -name '*.txt' -delete", true),
+  bash("read_find_exec", "find . -name '*.txt' -exec rm {} ;", true),
+  bash("read_find_write", "find . -fprint found.txt", true),
+  bash("read_rg_pre", "rg --pre ./preprocess.sh sample", true),
+  bash("read_rg_hidden", "rg --hidden sample", true),
+  bash("read_tree_output", "tree -o tree.txt", true),
+  // Spellings that put the path or the option inside one word.
+  bash("read_grep_file_attached", "grep -f/etc/hosts sample", true),
+  bash("read_grep_file_long", "grep --file=/etc/hosts sample", true),
+  bash("read_file_magic_attached", "file -m/etc/magic notes/sample.txt", true),
+  bash("read_file_compile", "file --compile -m local.magic", true),
+  bash("read_file_files_from", "file --files-from=list.txt", true),
+  bash("read_tree_output_attached", "tree -aoresult.txt", true),
+  bash("read_rg_decompress", "rg -z sample notes", true),
+  bash(
+    "read_rev_parse_outside",
+    "git rev-parse --resolve-git-dir /tmp/r",
+    true,
+  ),
+  // A known gap, pinned so a change to it is noticed: the secret is matched by
+  // name, and a glob never spells the name. The Read tool reaches the same file.
+  bash("read_cat_glob_dotenv_known_gap", "cat .e*", false),
+  bash(
+    "read_git_remote_add",
+    "git remote add origin https://example.test/r",
+    true,
+  ),
+  bash(
+    "read_git_remote_set_url",
+    "git remote set-url origin https://x.test",
+    true,
+  ),
+  bash("read_git_remote_show_online", "git remote show origin", true),
+  bash("read_git_remote_remove", "git remote remove origin", true),
+  bash(
+    "read_git_remote_verbose_add",
+    "git remote -v add origin https://x.test",
+    true,
+  ),
+  bash("read_git_branch_delete", "git branch -D feature/sample", true),
+  bash(
+    "read_git_branch_delete_long",
+    "git branch --delete feature/sample",
+    true,
+  ),
+  bash("read_git_branch_bundled_delete", "git branch -vD feature/sample", true),
+  bash("read_git_branch_move", "git branch -m feature/sample renamed", true),
+  bash("read_git_branch_create", "git branch feature/created", true),
+  bash(
+    "read_git_branch_list_delete",
+    "git branch --list -D feature/sample",
+    true,
+  ),
+  bash(
+    "read_git_branch_contains_delete",
+    "git branch --contains HEAD -D feature/sample",
+    true,
+  ),
+  bash("read_git_config_list", "git config --list", true),
+  bash(
+    "read_git_config_token",
+    "git config --get-all http.extraheader.token",
+    true,
+  ),
+  bash("read_git_config_set", "git config user.name evil", true),
+  bash("read_git_config_unset", "git config --unset user.name", true),
   bash("git_push", "git push origin feature/sample", true),
   bash("git_reset_hard", "git reset --hard HEAD~1", true),
   bash("git_force_add", "git add -f .env", true),
@@ -243,6 +364,7 @@ async function run(permissionMode: PermissionMode) {
     ["config", "user.email", "agent@example.test"],
     ["config", "user.name", "agent"],
     ["config", "commit.gpgsign", "false"],
+    ["remote", "add", "origin", "https://example.test/r.git"],
   ]) {
     const proc = Bun.spawn(["git", ...command], {
       cwd: workspace,
@@ -252,11 +374,24 @@ async function run(permissionMode: PermissionMode) {
   }
   await mkdir(dirname(join(workspace, "notes", "x")), { recursive: true });
 
+  const results = new Map<string, string>();
   server = startFakeAnthropicServer((request) => {
     const messages = (request.body.messages ?? []) as Array<{
       content?: unknown;
       role?: string;
     }>;
+    for (const message of messages) {
+      if (message.role !== "user" || !Array.isArray(message.content)) continue;
+      for (const block of message.content as Array<{
+        content?: unknown;
+        tool_use_id?: string;
+        type?: string;
+      }>) {
+        if (block.type === "tool_result" && block.tool_use_id !== undefined) {
+          results.set(block.tool_use_id, JSON.stringify(block.content));
+        }
+      }
+    }
     const done = messages.filter(
       (message) =>
         message.role === "assistant" &&
@@ -308,14 +443,23 @@ async function run(permissionMode: PermissionMode) {
   runtime.send({ message: "go", uuid: crypto.randomUUID() });
   runtime.finishInput();
   await consume;
-  return { asked, root, workspace };
+  return { asked, results, root, workspace };
 }
 
 describe("a session's own workspace", () => {
   for (const mode of ["default", "acceptEdits"] as const) {
     test(`${mode}: in-workspace writes and local git pass, the rest is asked`, async () => {
-      const { asked, root, workspace } = await run(mode);
+      const { asked, results, root, workspace } = await run(mode);
       const active = stepsFor(mode);
+      // Not asked is not the same as ran: read what the call printed.
+      for (const step of active) {
+        if (step.output !== undefined) {
+          expect([step.id, results.get(`toolu_${step.id}`)]).toEqual([
+            step.id,
+            expect.stringContaining(step.output),
+          ]);
+        }
+      }
       const verdicts = active.map((step) => ({
         asked: asked.has(`toolu_${step.id}`),
         id: step.id,

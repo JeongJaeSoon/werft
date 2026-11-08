@@ -85,7 +85,6 @@ const LOCAL_GIT = [
   "git show",
   "git add",
   "git commit",
-  "git branch",
   "git checkout -b",
   "git switch -c",
   "git switch --create",
@@ -118,8 +117,6 @@ const GIT_ASK = [
   "git add * --*",
   "git add -*f*",
   "git add * -*f*",
-  "git branch -*",
-  "git branch * -*",
   "git checkout -b * -*",
   "git switch -c * -*",
   "git switch --create * -*",
@@ -130,6 +127,27 @@ const GIT_ASK = [
     SECRET_NAME_PARTS.map((part) => `${command} *${part}*`),
   ),
 ];
+
+/**
+ * Read-only inspection (`ls`, `cat`, `grep`, `git remote -v`, `git branch -a`,
+ * `find`, ...) is not listed in `allow`: the engine runs those unasked inside
+ * the workspace and itself asks for an outside path, `find -exec|-delete|-fprint`,
+ * `tree -o` and `rg --pre`. What it does not see is that `.env` is a secret, so
+ * the readers of file content ask when a secret's name is on the line. By
+ * name only: `cat .e*`, `grep -r . .` and a symlink named innocently get past
+ * it, as they do past the Read tool, which the engine allows in the workspace.
+ * The container and the egress proxy are what hold the content in.
+ */
+const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
+
+/** The secret names above, minus `credentials`, which also names source files. */
+const SECRET_READ_PARTS = [
+  ...SECRET_NAME_PARTS.filter((part) => part !== "credentials"),
+  ".git/config",
+];
+
+/** `rg` skips hidden files (`.env` among them) unless told not to. */
+const RG_HIDDEN_ASK = ["--hidden", "-uu", "--no-ignore", "--unrestricted"];
 
 /** Test and script runners; the workspace's own code runs through them. */
 const DEV_COMMANDS = [
@@ -204,6 +222,12 @@ export function workspaceRules(
     }
     allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
     ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
+    for (const command of SECRET_READERS) {
+      for (const part of SECRET_READ_PARTS) {
+        ask.push(`Bash(${command} *${part}*)`);
+      }
+    }
+    for (const option of RG_HIDDEN_ASK) ask.push(`Bash(rg *${option}*)`);
     for (const command of DEV_COMMANDS) {
       // `*` stands for the operands before the flag, which may be none.
       for (const flag of DEV_ASK) {
