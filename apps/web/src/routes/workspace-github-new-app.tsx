@@ -414,7 +414,7 @@ export function GitHubNewAppCallback() {
   );
 }
 
-/** The page frame around the body; the body itself carries none. */
+/** Kept apart from the body so a tab layout can host the body without this frame. */
 export function GitHubNewAppRoute() {
   const { t } = useI18n();
   return (

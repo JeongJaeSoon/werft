@@ -38,9 +38,23 @@ describe("연동 화면 본문은 페이지 껍데기를 내보내지 않는다"
     ["workspace-slack.tsx", "WorkspaceSlackScreen"],
     ["workspace-github.tsx", "WorkspaceGitHubScreen"],
     ["workspace-github-new-app.tsx", "GitHubNewAppCallback"],
-  ])("%s %s 본문의 루트는 Fragment다", (file, name) => {
-    expect(ts.isJsxFragment(returnedRoot(file, name))).toBe(true);
-  });
+  ])(
+    "%s %s 본문의 루트는 Fragment고 껍데기를 자식으로 두지 않는다",
+    (file, name) => {
+      const root = returnedRoot(file, name);
+      expect(ts.isJsxFragment(root)).toBe(true);
+      const tags = (root as ts.JsxFragment).children.flatMap((child) =>
+        ts.isJsxElement(child)
+          ? [child.openingElement.tagName.getText()]
+          : ts.isJsxSelfClosingElement(child)
+            ? [child.tagName.getText()]
+            : [],
+      );
+      expect(tags.includes("Page") || tags.includes("WorkspacePage")).toBe(
+        false,
+      );
+    },
+  );
 
   test("새 App 콜백 경로는 껍데기를 한 번만 그리고 제목을 유지한다", async () => {
     renderAt("/settings/workspace/github/new-app", {
