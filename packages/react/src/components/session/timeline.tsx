@@ -22,6 +22,7 @@ import {
 import { type JSX, type ReactNode, useId, useState } from "react";
 
 import { Sparkles } from "../console-icons.ts";
+import { Markdown } from "./markdown.tsx";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
 
 export interface TimelineEntry {
@@ -65,6 +66,16 @@ export interface TimelineMessages {
   readonly waiting?: string | undefined;
   /** Names a question's list of options. */
   readonly options?: string | undefined;
+  /**
+   * Fold a very long reply behind a button that says so and its undo; without
+   * both, a reply is always whole.
+   */
+  readonly more?: string | undefined;
+  readonly less?: string | undefined;
+  /** Names a table inside a reply for screen readers. */
+  readonly table?: string | undefined;
+  /** Appended to a reply link's text: it opens in a new tab. */
+  readonly newTab?: string | undefined;
 }
 
 export function timelineKind(
@@ -654,13 +665,31 @@ function Summary({
   entry,
   formatMessage,
   stamp,
+  messages,
 }: {
   readonly entry: TimelineEntry;
   readonly formatMessage: FormatTurnMessage;
   /** Its own time, for a result drawn in its call's row. */
   readonly stamp?: JSX.Element | undefined;
+  readonly messages?: TimelineMessages | undefined;
 }): JSX.Element {
   const { presentation } = entry;
+  // A reply is the agent's words for the reader: whole, as Markdown.
+  if (presentation.reply !== undefined) {
+    return (
+      <Markdown
+        text={presentation.reply}
+        fold={
+          messages?.more && messages.less
+            ? { more: messages.more, less: messages.less }
+            : undefined
+        }
+        tableLabel={messages?.table}
+        newTabLabel={messages?.newTab}
+        className={cn(presentation.error && "text-destructive")}
+      />
+    );
+  }
   const summary = turnSummaryText(presentation.summary, formatMessage);
   const summaryClass = cn(
     "min-w-0 text-control leading-[1.5] [overflow-wrap:anywhere]",
@@ -752,7 +781,11 @@ function EventItem({
             </span>
           ) : null}
         </div>
-        <Summary entry={row} formatMessage={formatMessage} />
+        <Summary
+          entry={row}
+          formatMessage={formatMessage}
+          messages={messages}
+        />
         {(row.inner ?? []).map((inner) => {
           const stamp = innerStamp(inner);
           return timelineKind(inner.presentation) === "request" ? (
