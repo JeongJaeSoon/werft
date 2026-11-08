@@ -161,7 +161,7 @@ const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
  * space, a slash or a quote. Matching them anywhere would ask for
  * `process.env` and `src/credentials.ts`, which are code and not secrets.
  */
-const NAME_STARTS = [" ", "/", '"', "'", "="];
+const NAME_STARTS = [" ", "/", '"', "'", "=", "-f"];
 
 /** Matched where the name ends, so `object.keys.ts` is not a key file. */
 const SECRET_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".keystore"];
@@ -174,8 +174,9 @@ const SECRET_READ_NAMES = [
       part !== "service-account" &&
       !SECRET_EXTENSIONS.includes(part),
   ),
-  // Only the JSON key file, as in SENSITIVE_PATHS; `service-account.ts` is code.
+  // Only the JSON key files, as in SENSITIVE_PATHS; `service-account.ts` is code.
   "service-account*.json",
+  "credentials*.json",
   ".git/config",
 ];
 
@@ -195,18 +196,23 @@ function secretReadPatterns(command: string): string[] {
 /**
  * `rg` skips hidden files (dotenv files among them) unless told not to, and
  * `-uu` turns that off. It can be spelled `-uu`, `-nuu`, `-u -u` or `-unu`, so
- * any flag that starts with `-u` asks, and so does a bundle with `uu` in it.
- * A `u` in the middle of a cluster with other letters between (`-nunu`) is not
- * caught: telling it from `rg -n user src/utils` takes more than a text rule.
+ * any flag that starts with `-u` asks, and so does one letter then `uu`. `*`
+ * crosses spaces, so a bare `-*uu*` would ask for `rg -n uuid src`. A `u` in the
+ * middle of a longer cluster (`-nunu`, `-ninuu`) is not caught.
  */
+const FLAG_LETTERS = [
+  ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+];
 const RG_HIDDEN_ASK = [
   "rg *--hidden*",
   "rg *--no-ignore*",
   "rg *--unrestricted*",
   "rg -u*",
   "rg * -u*",
-  "rg -*uu*",
-  "rg * -*uu*",
+  ...FLAG_LETTERS.flatMap((letter) => [
+    `rg -${letter}uu*`,
+    `rg * -${letter}uu*`,
+  ]),
 ];
 
 /** Test and script runners; the workspace's own code runs through them. */

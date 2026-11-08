@@ -284,6 +284,10 @@ const steps: Step[] = [
     true,
   ),
   bash("read_rg_user_word", "rg -n token src", false, "process.env.TOKEN"),
+  bash("read_rg_uuid_word", "rg -n uuid src", false, "uuid.ts"),
+  bash("read_rg_long_flag_uuid", "rg --line-number uuid src", false, "uuid.ts"),
+  bash("read_grep_attached_f", "grep -f.env.secret notes/sample.txt", true),
+  bash("read_cat_credentials_json", "cat credentials.json", true),
   bash("read_rg_split_u", "rg -u -u SECRET_SENTINEL", true),
   bash("read_rg_crossed_u", "rg -unu SECRET_SENTINEL", true),
   bash("read_grep", "grep -n sample notes/sample.txt", false, "1:sample"),
@@ -448,7 +452,12 @@ async function run(permissionMode: PermissionMode) {
     join(workspace, "src", "auth.ts"),
     "export const token = process.env.TOKEN; // credentials\n",
   );
-  for (const name of ["keys.ts", "object.keys.ts", "service-account.ts"]) {
+  for (const name of [
+    "keys.ts",
+    "object.keys.ts",
+    "service-account.ts",
+    "uuid.ts",
+  ]) {
     await writeFile(
       join(workspace, "src", name),
       `export const n = "${name}";\n`,
