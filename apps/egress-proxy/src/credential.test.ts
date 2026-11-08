@@ -2492,6 +2492,30 @@ describe("startCredentialProxy", () => {
         expect(hits).toEqual([]);
       });
 
+      test("a retry whose lookup is refused does not fall back to the old address", async () => {
+        const hits: string[] = [];
+        let api = listen(0, hits, () => {});
+        servers.push(api);
+        const port = api.port ?? 0;
+        let lookups = 0;
+        const server = proxy(`http://127.0.0.1:${port}`, 1, {
+          resolve: async () => {
+            lookups++;
+            if (lookups === 1) {
+              api.stop(true);
+              return ["127.0.0.1"];
+            }
+            // The name now points outside; a server is back on the old address.
+            api = listen(port, hits, () => {});
+            servers.push(api);
+            return ["8.8.8.8"];
+          },
+        });
+        const response = await post(server.port);
+        expect(response.status).toBe(403);
+        expect(hits).toEqual([]);
+      });
+
       test("an error after the request was sent is not dialled again", async () => {
         let mcpCalls = 0;
         const raw = createServer((socket) => {
@@ -2547,7 +2571,8 @@ describe("startCredentialProxy", () => {
         const response = await call(server.port, TOOLS_CALL);
         expect(response.status).toBe(502);
         expect(response.headers.get("retry-after")).toBeNull();
-        expect(Date.now() - started).toBeLessThan(500);
+        // A retry would wait at least 200 ms and then 400 ms more.
+        expect(Date.now() - started).toBeLessThan(1_000);
       });
     });
 

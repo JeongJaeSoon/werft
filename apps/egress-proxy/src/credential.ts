@@ -1474,7 +1474,7 @@ export function startCredentialProxy(
         return builtinUnavailable();
       }
       await first.body?.cancel();
-      await Bun.sleep(backoff);
+      await untilEnded(Bun.sleep(backoff), signal);
       first = await dialUpstream();
     }
     if (first instanceof Response) return first;
@@ -1554,10 +1554,14 @@ export function startCredentialProxy(
             });
             return builtinUnavailable();
           }
-          await Bun.sleep(backoff);
+          await untilEnded(Bun.sleep(backoff), signal);
           const again = await dialUpstream();
-          if (again instanceof Response) await again.body?.cancel();
-          else at = again;
+          if (again instanceof Response) {
+            // Only a lookup that came back empty keeps the address judged
+            // before; a refusal (an address that turned public) ends it.
+            if (again.status !== 502) return again;
+            await again.body?.cancel();
+          } else at = again;
         }
       }
     } catch (error) {
