@@ -379,8 +379,9 @@ export function createGitHubMcpServer(deps: {
         const { source_ref, ...body } = parsed.data as z.infer<
           (typeof GITHUB_MCP_TOOL_ARGUMENTS)["request_push"]
         >;
-        // Whatever the setting, and before anything is written.
-        if (source_ref !== undefined) {
+        // Without the intent flow there is one checkpoint to push; before
+        // anything is written.
+        if (source_ref !== undefined && deps.actionFlows?.() !== true) {
           return refused({
             code: "source_ref_unsupported",
             by: "platform",
@@ -409,7 +410,12 @@ export function createGitHubMcpServer(deps: {
           const asked = await services.pushRequests.requestIntent(
             actor,
             sessionId,
-            { attemptId: grant.attemptId, turnId: turnAtCall, body },
+            {
+              attemptId: grant.attemptId,
+              turnId: turnAtCall,
+              body,
+              ...(source_ref === undefined ? {} : { sourceRef: source_ref }),
+            },
           );
           if (asked.status === "github_disabled") {
             return refused({
@@ -418,18 +424,14 @@ export function createGitHubMcpServer(deps: {
               retryable: false,
             });
           }
-          if (asked.status === "turn_target_taken") {
-            // One source per turn in this stage: the turn-end checkpoint is
-            // pushed to one target, and the next target waits for the next
-            // input.
+          if (asked.status === "source_ref_required") {
+            // Two pushes in one request would both mean the workspace as it
+            // ends: each has to name the branch that holds its commit.
             return refused({
-              code: "source_ref_unsupported",
+              code: "source_ref_required",
               by: "platform",
-              retryable: false,
-              details: {
-                reason: "one_target_per_turn",
-                target_branch: asked.target_branch,
-              },
+              retryable: true,
+              details: { target_branch: asked.target_branch },
             });
           }
           if (asked.status === "turn_not_running") {
@@ -442,13 +444,13 @@ export function createGitHubMcpServer(deps: {
           return done({
             status: "deferred",
             push_intent_id: asked.intent.id,
-            waits_for: "turn_end",
+            waits_for: "reply_end",
             repository_id: asked.intent.repository_id,
             target_branch: asked.intent.target_branch,
             pull_request: "none",
             // The model reads this as the end of the job; say that the pull
-            // request is still its call, in this turn, approval or not.
-            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, without waiting for the push, also when the push needs approval.",
+            // request is still its call, now, approval or not.
+            next: "Now call open_pull_request with this push_intent_id, without waiting for the push, also when the push needs approval. When every repository is asked for, tell the user in plain words which repositories were pushed, that a person approves each push, and that each pull request opens after its approval.",
           });
         }
       }

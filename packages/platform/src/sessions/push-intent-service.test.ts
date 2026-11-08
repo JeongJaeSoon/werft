@@ -131,7 +131,7 @@ function harness(
       deferred.push(input);
       if (options.takenTarget !== undefined) {
         return {
-          outcome: "turn_target_taken",
+          outcome: "source_ref_required",
           targetBranch: options.takenTarget,
         };
       }
@@ -177,6 +177,7 @@ const job = (over: Partial<PushIntentJob> = {}): PushIntentJob => ({
     actor_user_id: null,
     agent_id: null,
   },
+  sourceRef: null,
   pushClass: "push.primary",
   pullRequest: null,
   claimToken: "token-1",
@@ -216,7 +217,7 @@ describe("requestIntent", () => {
     expect(refusals).toEqual([]);
   });
 
-  test("a second target of the turn is reported with the first target, not recorded", async () => {
+  test("a second push that lacks a source is reported with the target that lacks one, not recorded", async () => {
     const { push } = harness({ takenTarget: `agent/${SESSION}` });
     expect(
       await push.requestIntent(actor, SESSION, {
@@ -224,9 +225,21 @@ describe("requestIntent", () => {
         body: { branch: "docs" },
       }),
     ).toEqual({
-      status: "turn_target_taken",
+      status: "source_ref_required",
       target_branch: `agent/${SESSION}`,
     });
+  });
+
+  test("the source branch is handed to the store with the intent", async () => {
+    const { push, deferred } = harness();
+    await push.requestIntent(actor, SESSION, {
+      ...ask,
+      body: { repository_id: "docs" },
+      sourceRef: "guard-docs",
+    });
+    expect(deferred).toMatchObject([
+      { repositoryId: "docs", sourceRef: "guard-docs" },
+    ]);
   });
 
   test("a turn that is no longer running is reported, not recorded", async () => {
@@ -345,6 +358,48 @@ describe("createFromIntent", () => {
   });
 });
 
+describe("an intent with a source branch", () => {
+  const SKILLS = "d".repeat(40);
+  const GUARD = "e".repeat(40);
+  const pinned: PushSourceResult = {
+    status: "ready",
+    revision: 3,
+    gitCommit: COMMIT,
+    sources: [
+      { name: "guard-docs", commit: GUARD },
+      { name: "skills-sample", commit: SKILLS },
+    ],
+    // What the worker says about the snapshot must not block a named branch.
+    mismatches: [{ commit: COMMIT, problems: ["author"] }],
+  };
+
+  test("each branch becomes a request on its own commit, not the snapshot's", async () => {
+    const { push, transitions, ended } = harness({ pinned });
+    await push.createFromIntent(
+      job({ repositoryId: "docs", sourceRef: "guard-docs" }),
+    );
+    await push.createFromIntent(job({ sourceRef: "skills-sample" }));
+    expect(ended).toEqual([]);
+    expect(transitions).toMatchObject([
+      { repositoryId: "docs", gitCommit: GUARD, checkpointRevision: 3 },
+      { repositoryId: "sample-app", gitCommit: SKILLS, checkpointRevision: 3 },
+    ]);
+  });
+
+  test("a branch the checkpoint did not keep fails the intent as a missing source", async () => {
+    const { push, ended, transitions } = harness({ pinned });
+    await push.createFromIntent(job({ sourceRef: "never-committed" }));
+    expect(ended).toEqual([["failed", "source_missing"]]);
+    expect(transitions).toEqual([]);
+  });
+
+  test("an intent without a branch still stops on the snapshot's problems", async () => {
+    const { push, ended } = harness({ pinned });
+    await push.createFromIntent(job());
+    expect(ended).toEqual([["failed", "attribution_mismatch"]]);
+  });
+});
+
 describe("approving an intent request", () => {
   const approve = (push: ReturnType<typeof harness>["push"]) =>
     push
@@ -376,6 +431,32 @@ describe("approving an intent request", () => {
       refusal: "pinned_source_invalid",
     });
     expect(decided).toEqual([]);
+  });
+
+  test("a request on a kept branch's commit is approvable, one on a commit the revision never held is not", async () => {
+    const kept = harness({
+      pinned: {
+        status: "ready",
+        revision: 3,
+        gitCommit: "c".repeat(40),
+        sources: [{ name: "guard-docs", commit: COMMIT }],
+      },
+    });
+    await approve(kept.push);
+    expect(kept.decided).toMatchObject([{ decision: "approve" }]);
+    const foreign = harness({
+      pinned: {
+        status: "ready",
+        revision: 3,
+        gitCommit: "c".repeat(40),
+        sources: [{ name: "guard-docs", commit: "f".repeat(40) }],
+      },
+    });
+    const error = await approve(foreign.push);
+    expect((error as SessionServiceError).details).toMatchObject({
+      refusal: "pinned_source_invalid",
+    });
+    expect(foreign.decided).toEqual([]);
   });
 
   test("a verifying pinned revision reaches the store even though the pointer moved on", async () => {

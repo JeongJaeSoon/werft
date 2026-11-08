@@ -39,6 +39,7 @@ import {
   pushRequestIdSchema,
   pushRequestSchema,
   pushRequestStateSchema,
+  sourceRefSchema,
 } from "./push-request.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
@@ -112,11 +113,11 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  // The REST body plus `source_ref`, which only the tool takes. Until the
-  // multi-branch stage it is answered `source_ref_unsupported`.
+  // The REST body plus `source_ref`, which only the tool takes. Without the
+  // intent flow it is answered `source_ref_unsupported`.
   request_push: createPushRequestRequestSchema
     .safeExtend({
-      source_ref: z.string().min(1).max(255).optional(),
+      source_ref: sourceRefSchema.optional(),
       // Accepted only where the PR tool is trusted; elsewhere
       // `pull_request_needs_tool_call` (nothing is created).
       pull_request: openPullRequestRequestSchema.optional(),
@@ -448,7 +449,7 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends, and no later turn starts for the pull request: call `open_pull_request` with that `push_intent_id` in the same turn, also when the push needs approval. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. A push carries the workspace HEAD of the checkpoint it is made from, and the history before it: for an attached repository that is its branch checked out in the workspace (a git worktree or clone elsewhere is not captured), with `repository_id` naming that repository. With the flows on, that checkpoint is the one taken when the turn ends, and every push request of the turn is pinned to it, whichever repository it names; a push request for a repository other than the one checked out does not select that repository's state, and a new target branch whose history shares nothing with the target's default branch is refused as `unrelated_history` (an existing target branch gives `non_fast_forward` instead). The platform does not hold a second repository's request for a later turn. `source_ref` is not supported yet, and with the flows on a turn takes one target per repository: a second `branch` in the same turn is refused with `source_ref_unsupported`, so say what is left and push it in the next turn. `pull_request` is not accepted yet: a call that carries it is refused with `pull_request_needs_tool_call` and nothing is created; open the pull request with `open_pull_request` (in a running turn with the flows on, with the `push_intent_id` this call returns).",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names the repository to push to: an attached repository, or, omitted, the session's own. `source_ref` names the local branch of the workspace (for example `guard-docs`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository: for several repositories, each repository's change sits on its own local branch, started from that repository's `<repository_id>/<branch>`, and each call carries its `repository_id` and `source_ref` (a branch that shares no history with the target's default branch is refused as `unrelated_history`; an existing target branch gives `non_fast_forward` instead). Once two pushes are asked for, every one needs its `source_ref`: a call refused as `source_ref_required` names the target that lacks one in `details.target_branch`, and the same call with a `source_ref` is accepted. With the installation's agent action flows on, the answer is `deferred` with `push_intent_id`: the platform makes the push request when the reply ends, and `open_pull_request` accepts that `push_intent_id` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens after the approval. With the flows off, `source_ref` is refused as `source_ref_unsupported`, the commit the workspace was on when it was last saved is pushed, and the push request is returned, or `deferred` when nothing is saved yet. `pull_request` is not accepted: a call that carries it is refused with `pull_request_needs_tool_call` and nothing is created; the pull request is opened by `open_pull_request` with the `push_intent_id` this tool returns.",
   get_push_request:
     "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
@@ -471,7 +472,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
   list_repositories: `List the repositories the session can work on, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to ${LIST_REPOSITORIES_LIMIT_MAX}); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).`,
-  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing. Changes to it are pushed from a branch of \`<repository_id>/<branch>\` checked out in the workspace; a git worktree or clone elsewhere is not captured, and a push carries the workspace HEAD of its checkpoint (with the flows on, the checkpoint taken when the turn ends, shared by every push request of that turn).`,
+  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing. Commit changes to it on a local branch started from \`<repository_id>/<branch>\` in the workspace (a git worktree or clone elsewhere is not saved), then push that branch with \`request_push\`, naming \`repository_id\` and \`source_ref\`.`,
 };
 
 const requestPushResultSchema = z.union([
@@ -490,7 +491,7 @@ const requestPushResultSchema = z.union([
     .object({
       status: z.literal("deferred"),
       push_intent_id: z.uuid(),
-      waits_for: z.literal("turn_end"),
+      waits_for: z.literal("reply_end"),
       repository_id: z.string(),
       target_branch: z.string(),
       pull_request: z.enum(["scheduled", "none"]),
@@ -581,6 +582,7 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "github_refused",
     "backend_unavailable",
     "source_ref_unsupported",
+    "source_ref_required",
     "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
