@@ -182,6 +182,7 @@ function server(failure: SessionServiceError | null) {
             name: "acme/app",
             branch: "main",
             status: "primary" as const,
+            meaning: "the repository this session works in",
           },
         ],
         next_cursor: null,

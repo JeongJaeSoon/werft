@@ -1592,6 +1592,49 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
+  const TABLE_REPLY = [
+    "저장소는 2개입니다.",
+    "",
+    "| 저장소 | 상태 |",
+    "| --- | --- |",
+    "| acme/web | 기본 저장소 |",
+    "| acme/api | 붙일 수 있음 |",
+  ].join("\n");
+
+  test("a reply with a table posts a table block, the row list as its text", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [
+      [text(TABLE_REPLY)],
+    ]);
+    expect(await outboxPass()).toMatchObject({ sent: 1, failed: 0 });
+    const [message] = posted();
+    expect(message?.text).toContain("*acme/web* — 기본 저장소");
+    expect(message?.text).not.toContain("```");
+    const blocks = JSON.parse(message?.options.blocks ?? "[]") as {
+      type: string;
+    }[];
+    expect(blocks.map((block) => block.type)).toEqual([
+      "section",
+      "table",
+      "section",
+    ]);
+  });
+
+  test("a table block Slack refuses is sent again as the row list", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [
+      [text(TABLE_REPLY)],
+    ]);
+    slack.refusedBlockTypes.add("table");
+    expect(await outboxPass()).toMatchObject({ sent: 1, failed: 0 });
+    const messages = posted();
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.options.blocks).toBeUndefined();
+    expect(messages[0]?.text).toContain("*acme/api* — 붙일 수 있음");
+  });
+
   test("a transient error backs off and fails on the fifth attempt", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

@@ -6,6 +6,10 @@ import { isSafeUrl, mapCodeAndText } from "./slack-presentation.ts";
 const OPEN = "\uE000";
 const CLOSE = "\uE001";
 const TOKEN = /\uE000(\d+)\uE001/g;
+// A table lifted out for a table block leaves this line behind.
+const TABLE_OPEN = "\uE002";
+const TABLE_CLOSE = "\uE003";
+const TABLE_MARK = /\n?\uE002\d+\uE003\n?/;
 
 // Slack formats `*x*` and `~x~` only next to a space or punctuation; a
 // zero-width space in between is enough (checked in 94soon-dev, 2026-11-02).
@@ -214,28 +218,6 @@ const BODY: Inline = { links: "slack", marks: "convert" };
 const HEADING: Inline = { links: "slack", marks: "strip" };
 const CELL: Inline = { links: "plain", marks: "strip" };
 
-/** Columns a monospace font gives the text: wide East Asian characters take two. */
-function width(text: string): number {
-  let columns = 0;
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    if (char === ZWSP) continue;
-    columns +=
-      (code >= 0x1100 && code <= 0x115f) ||
-      (code >= 0x2e80 && code <= 0xa4cf) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe30 && code <= 0xfe4f) ||
-      (code >= 0xff00 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6) ||
-      (code >= 0x1f300 && code <= 0x1faff) ||
-      (code >= 0x20000 && code <= 0x3fffd)
-        ? 2
-        : 1;
-  }
-  return columns;
-}
-
 function splitRow(line: string): string[] {
   const trimmed = line
     .trim()
@@ -263,7 +245,7 @@ function isTableRow(line: string): boolean {
   );
 }
 
-/** A cell goes into a code block, so its code shows without the backticks. */
+/** A table block cell is plain text, so its code shows without the backticks. */
 function cellText(cell: string, kept: Kept): string {
   const text = inline(cell, kept, CELL).replace(/\uE000\d+\uE001/g, (token) => {
     const code = kept.get(token) ?? token;
@@ -271,56 +253,51 @@ function cellText(cell: string, kept: Kept): string {
       ? kept.restore(code).replace(/^(`+) ?([\s\S]*?) ?\1$/, "$2")
       : token;
   });
-  // ``` would close the table's own fence.
+  // A literal ``` would open a code block in the text around it.
   return kept
     .restore(text)
     .trim()
     .replace(/`(?=`)/g, `\`${ZWSP}`);
 }
 
-// A long cell is not padded past this, so one cell cannot widen every row.
-const COLUMN_MAX = 40;
-
-/** Null when padding would grow the table past `limit` characters. */
-function renderTable(rows: string[][], limit: number): string | null {
+/**
+ * One line per row, `*first cell* — second · third`, for a table Slack cannot
+ * show as a table block. The header names are dropped; the cells are read in
+ * their order.
+ */
+function renderRowList(rows: readonly string[][], kept: Kept): string {
   // Cells past the header's count are dropped, as GitHub does.
   const columns = rows[0]?.length ?? 0;
-  // Every row carries every column's separator, so a wide header over many
-  // rows is refused before any cell is visited.
-  if (rows.length * 3 * Math.max(0, columns - 1) > limit) return null;
-  const widths = new Array<number>(columns).fill(0);
-  for (const row of rows) {
-    for (let column = 0; column < Math.min(columns, row.length); column += 1) {
-      widths[column] = Math.min(
-        COLUMN_MAX,
-        Math.max(widths[column] ?? 0, width(row[column] ?? "")),
-      );
-    }
-  }
-  const line = (row: readonly string[]) =>
-    widths
-      .map((columnWidth, column) => {
-        const cell = row[column] ?? "";
-        return cell + " ".repeat(Math.max(0, columnWidth - width(cell)));
-      })
-      .join(" | ")
-      .trimEnd();
-  const output = [
-    "```",
-    line(rows[0] ?? []),
-    widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-"),
-  ];
-  // Counted with the closing "\n```" from the start.
-  let length = output.join("\n").length + 4;
-  if (length > limit) return null;
-  for (const row of rows.slice(1)) {
-    const text = line(row);
-    length += text.length + 1;
-    if (length > limit) return null;
-    output.push(text);
-  }
-  output.push("```");
-  return output.join("\n");
+  const lines = (rows.length > 1 ? rows.slice(1) : rows).map((row) => {
+    const cells = row
+      .slice(0, columns)
+      .map((cell) => inline(cell, kept, CELL).trim())
+      .filter((cell) => cell !== "");
+    const [first, ...rest] = cells;
+    if (first === undefined) return "";
+    return rest.length === 0
+      ? `*${first}*`
+      : `*${first}* — ${rest.join(" · ")}`;
+  });
+  return lines.filter((line) => line !== "").join("\n");
+}
+
+/** What Slack's table block takes in one message (docs.slack.dev, table block). */
+export const SLACK_TABLE_MAX = { rows: 100, columns: 20, characters: 10_000 };
+
+export type SlackTable = { rows: string[][] };
+
+function fitsTableBlock(rows: readonly string[][]): boolean {
+  const columns = rows[0]?.length ?? 0;
+  return (
+    columns >= 1 &&
+    columns <= SLACK_TABLE_MAX.columns &&
+    rows.length <= SLACK_TABLE_MAX.rows &&
+    rows.reduce(
+      (sum, row) => sum + row.reduce((cells, cell) => cells + cell.length, 0),
+      0,
+    ) <= SLACK_TABLE_MAX.characters
+  );
 }
 
 /** Drops a closing `##` run; a scan, since a regex backtracks on long spaces. */
@@ -335,7 +312,11 @@ function headingTitle(rest: string): string {
 
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
 
-function convertLines(text: string, kept: Kept): string {
+function convertLines(
+  text: string,
+  kept: Kept,
+  tables: SlackTable[] | null,
+): string {
   const lines = text.split("\n");
   const output: string[] = [];
   let indents: number[] = [];
@@ -344,26 +325,30 @@ function convertLines(text: string, kept: Kept): string {
     const line = lines[index] ?? "";
 
     if (isTableStart(lines, index)) {
-      const start = index;
       const rows = [splitRow(line)];
       index += 2;
       while (index < lines.length && isTableRow(lines[index] ?? "")) {
         rows.push(splitRow(lines[index] ?? ""));
         index += 1;
       }
-      const source = lines.slice(start, index);
       index -= 1;
-      const table = renderTable(
-        rows.map((row) => row.map((cell) => cellText(cell, kept))),
-        4 * source.join("\n").length + 1_000,
-      );
-      // A sparse table that would balloon stays as the lines it was.
-      output.push(
-        table === null
-          ? source.map((row) => inline(row, kept, BODY)).join("\n")
-          : kept.keep(table),
-      );
       indents = [];
+      // One table block fits a message for certain; later tables are lists.
+      if (tables !== null && tables.length === 0) {
+        const columns = rows[0]?.length ?? 0;
+        const plain = rows.map((row) =>
+          Array.from(
+            { length: columns },
+            (_, column) => cellText(row[column] ?? "", kept) || "—",
+          ),
+        );
+        if (fitsTableBlock(plain)) {
+          tables.push({ rows: plain });
+          output.push(`${TABLE_OPEN}${tables.length - 1}${TABLE_CLOSE}`);
+          continue;
+        }
+      }
+      output.push(renderRowList(rows, kept));
       continue;
     }
 
@@ -406,14 +391,7 @@ function convertLines(text: string, kept: Kept): string {
   return output.join("\n");
 }
 
-/**
- * Rewrites the GitHub-style Markdown a model writes into Slack mrkdwn: bold,
- * strikethrough, headings, links, nested lists and tables. Code spans and
- * blocks keep their text; a fence only loses its language tag, which Slack
- * would show as the first line.
- */
-export function markdownToSlackMrkdwn(markdown: string): string {
-  if (markdown.includes(OPEN) || markdown.includes(CLOSE)) return markdown;
+function convert(markdown: string, tables: SlackTable[] | null): string {
   const kept = keeper();
   const spans = keepDoubleBacktickSpans(markdown, kept);
   const masked = mapCodeAndText(
@@ -422,6 +400,43 @@ export function markdownToSlackMrkdwn(markdown: string): string {
     (code) => kept.keep(code.replace(/^```[\w+#.-]+\n/, "```\n")),
   );
   return guardCodeUrls(
-    kept.restore(convertLines(keepTildeFences(masked, kept), kept)),
+    kept.restore(convertLines(keepTildeFences(masked, kept), kept, tables)),
+  );
+}
+
+function hasReserved(markdown: string): boolean {
+  return [OPEN, CLOSE, TABLE_OPEN, TABLE_CLOSE].some((mark) =>
+    markdown.includes(mark),
+  );
+}
+
+/**
+ * Rewrites the GitHub-style Markdown a model writes into Slack mrkdwn: bold,
+ * strikethrough, headings, links, nested lists and tables. Code spans and
+ * blocks keep their text; a fence only loses its language tag, which Slack
+ * would show as the first line. A table becomes one line per row.
+ */
+export function markdownToSlackMrkdwn(markdown: string): string {
+  return hasReserved(markdown) ? markdown : convert(markdown, null);
+}
+
+export type SlackPart = { text: string } | { table: SlackTable };
+
+/**
+ * The same conversion with the first table that fits a Slack table block
+ * lifted out of the text, so the text around it and the table can be sent as
+ * separate blocks. Null when there is no such table.
+ */
+export function markdownToSlackParts(markdown: string): SlackPart[] | null {
+  if (hasReserved(markdown)) return null;
+  const tables: SlackTable[] = [];
+  const converted = convert(markdown, tables);
+  const [before, after] = converted.split(TABLE_MARK, 2);
+  const table = tables[0];
+  if (table === undefined || before === undefined || after === undefined) {
+    return null;
+  }
+  return [{ text: before }, { table }, { text: after }].filter(
+    (part) => !("text" in part) || part.text.trim() !== "",
   );
 }

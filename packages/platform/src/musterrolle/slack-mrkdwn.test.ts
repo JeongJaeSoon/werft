@@ -73,7 +73,7 @@ describe("markdownToSlackMrkdwn", () => {
     );
   });
 
-  test("a table becomes an aligned code block, wide characters counted twice", () => {
+  test("a table becomes one line per row, never a code block", () => {
     expect(
       markdownToSlackMrkdwn(
         [
@@ -88,12 +88,8 @@ describe("markdownToSlackMrkdwn", () => {
     ).toBe(
       [
         "before",
-        "```",
-        "이름                  | 값",
-        "----------------------+----",
-        "alpha                 | 1|2",
-        "link (https://a.test) | 한",
-        "```",
+        "*alpha* — `1|2`",
+        "*link (https://a.test)* — 한",
         "after",
       ].join("\n"),
     );
@@ -170,11 +166,7 @@ describe("markdownToSlackMrkdwn", () => {
         "    ◦ 하위 항목",
         "• 두 번째 항목",
         "",
-        "```",
-        "이름  | 값",
-        "------+---",
-        "alpha | 1",
-        "```",
+        "*alpha* — 1",
         "",
         "`a**b**c`",
         "",
@@ -223,34 +215,18 @@ describe("markdownToSlackMrkdwn", () => {
     );
   });
 
-  test("a table cannot close its own fence or pad without bound", () => {
-    expect(
-      markdownToSlackMrkdwn("| h |\n| --- |\n| ``a```b`` |\n**after**"),
-    ).toBe(`\`\`\`\nh\n-----\na\`${ZW}\`${ZW}\`b\n\`\`\`\n*after*`);
+  test("a table's row list stays within the size of its source", () => {
     const wide = `| h | b |\n|---|---|\n| ${"x".repeat(10_000)} | b |\n${"| a | b |\n".repeat(8_000)}`;
-    expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(1_000_000);
+    expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(wide.length);
     const ragged = `|h|\n|-|\n${"|".repeat(1_000)}\n${"|x|\n".repeat(24_000)}`;
-    expect(markdownToSlackMrkdwn(ragged).length).toBeLessThan(
-      ragged.length * 2,
-    );
+    expect(markdownToSlackMrkdwn(ragged).length).toBeLessThan(ragged.length);
     const sparse = `|${"h|".repeat(2_000)}\n|${"-|".repeat(2_000)}\n${"|x|\n".repeat(2_000)}`;
-    expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(
-      sparse.length * 5,
-    );
-    const long = [
-      Array(20).fill("h".repeat(40)).join("|"),
-      Array(20).fill("---").join("|"),
-      ...Array(50).fill(`${"x".repeat(200)}|`),
-    ].join("\n");
-    expect(markdownToSlackMrkdwn(long)).toBe(long);
-    expect(markdownToSlackMrkdwn("|h|\n|-|\n|a``````b|")).toBe(
-      `\`\`\`\nh\n--------\na\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`b\n\`\`\``,
-    );
+    expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(sparse.length);
   });
 
-  test("a table keeps backticks inside its code and ends before a quote", () => {
+  test("a table ends before a quote and keeps its code spans", () => {
     expect(markdownToSlackMrkdwn("| x |\n| --- |\n| ``a`b`` |\n> q | z")).toBe(
-      "```\nx\n---\na`b\n```\n> q | z",
+      "*``a`b``*\n> q | z",
     );
   });
 
@@ -259,9 +235,7 @@ describe("markdownToSlackMrkdwn", () => {
       markdownToSlackMrkdwn(
         "| Name |\n| --- |\n| Alice |\n- **Note:** choose A | B\n1. Pick A | B",
       ),
-    ).toBe(
-      "```\nName\n-----\nAlice\n```\n• *Note:* choose A | B\n1. Pick A | B",
-    );
+    ).toBe("*Alice*\n• *Note:* choose A | B\n1. Pick A | B");
   });
 
   test("a blank line inside a list keeps the nesting", () => {
@@ -337,9 +311,9 @@ describe("markdownToSlackMrkdwn", () => {
         `\`https://a.test/x\`${ZW}이고`,
       ],
       [
-        "8: a table cell, drawn inside a code block",
+        "8: a table cell, drawn in a row line",
         "| h |\n| --- |\n| `https://a.test`이고 |",
-        "```\nh\n------------------\nhttps://a.test이고\n```",
+        `*\`https://a.test\`${ZW}이고*`,
       ],
       [
         "9: a closing parenthesis after the span",

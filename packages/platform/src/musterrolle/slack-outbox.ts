@@ -29,7 +29,7 @@ import {
   type SlackSendResponse,
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
-import { markdownToSlackMrkdwn } from "./slack-mrkdwn.ts";
+import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
 import {
   slackDoneCard,
@@ -186,18 +186,83 @@ function isSafeLink(url: string): boolean {
  * What goes to Slack: the body's Markdown as mrkdwn with every control
  * escaped, cut to fit with its link kept whole after it.
  */
-export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
-  const link =
-    body.link_url !== undefined && isSafeLink(body.link_url)
-      ? `\n\n<${body.link_url}|${SLACK_OUTBOX_MESSAGES[body.locale ?? DEFAULT_USER_LOCALE].link}>`
-      : "";
-  const escaped = (value: string) =>
+function outboxLink(body: SlackOutboxEntry["body"]): string {
+  return body.link_url !== undefined && isSafeLink(body.link_url)
+    ? `<${body.link_url}|${SLACK_OUTBOX_MESSAGES[body.locale ?? DEFAULT_USER_LOCALE].link}>`
+    : "";
+}
+
+function outboxEscaper(body: SlackOutboxEntry["body"]) {
+  return (value: string) =>
     escapeSlackControls(value, {
       maskedLinks: "expand",
       ...(body.mention_user_ids === undefined
         ? {}
         : { userIds: body.mention_user_ids }),
     });
+}
+
+// A section's text may not pass 3000 characters, and a message holds 50 blocks.
+const SECTION_TEXT_MAX = 3_000;
+
+/** Whole lines, each piece within the section limit; null when that cannot be. */
+function sectionPieces(text: string): string[] | null {
+  const pieces: string[] = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    if (line.length > SECTION_TEXT_MAX) return null;
+    if (current.length + line.length + 1 > SECTION_TEXT_MAX) {
+      pieces.push(current);
+      current = line;
+    } else current = current === "" ? line : `${current}\n${line}`;
+  }
+  pieces.push(current);
+  // A cut inside a code fence would leave both halves unclosed.
+  return pieces.every((piece) => piece.split("```").length % 2 === 1)
+    ? pieces
+    : null;
+}
+
+/**
+ * The reply as Slack blocks when it holds a table that fits a table block:
+ * the text around it in sections, the table, then the link. Null when the
+ * reply has no such table or a piece cannot fit; the plain text then carries
+ * the table as one line per row.
+ */
+export function slackReplyBlocks(
+  body: SlackOutboxEntry["body"],
+): unknown[] | null {
+  const parts = markdownToSlackParts(body.text);
+  if (parts === null) return null;
+  const escaped = outboxEscaper(body);
+  const blocks: unknown[] = [];
+  for (const part of parts) {
+    if ("table" in part) {
+      blocks.push({
+        type: "table",
+        column_settings: part.table.rows[0]?.map(() => ({ is_wrapped: true })),
+        rows: part.table.rows.map((row) =>
+          row.map((text) => ({ type: "raw_text", text })),
+        ),
+      });
+      continue;
+    }
+    const pieces = sectionPieces(escaped(part.text));
+    if (pieces === null) return null;
+    for (const text of pieces) {
+      blocks.push({ type: "section", text: { type: "mrkdwn", text } });
+    }
+  }
+  const link = outboxLink(body);
+  if (link !== "") {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: link } });
+  }
+  return blocks.length <= 50 ? blocks : null;
+}
+
+export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
+  const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
+  const escaped = outboxEscaper(body);
   // Converted before the cut: the loop below re-escapes pieces of this text.
   const text = escaped(markdownToSlackMrkdwn(body.text));
   const room = SLACK_TEXT_MAX - link.length - 1;
@@ -821,12 +886,28 @@ export async function drainSlackOutbox(deps: {
     };
     const sender = claim.body.sender;
     if (claim.kind !== "instruction" || sender === undefined) {
-      return deps.slack.postMessage(
-        botToken,
-        claim.body.blocks === undefined
-          ? target
-          : { ...target, blocks: claim.body.blocks },
-      );
+      if (claim.body.blocks !== undefined) {
+        return deps.slack.postMessage(botToken, {
+          ...target,
+          blocks: claim.body.blocks,
+        });
+      }
+      const blocks =
+        claim.kind === "reply" ? slackReplyBlocks(claim.body) : null;
+      if (blocks === null) return deps.slack.postMessage(botToken, target);
+      const response = await deps.slack.postMessage(botToken, {
+        ...target,
+        blocks,
+      });
+      // Slack posted nothing when it refused the blocks (an app or workspace
+      // without table support); the same reply goes once more as plain text.
+      const error =
+        typeof response.body === "object" && response.body !== null
+          ? (response.body as { error?: unknown }).error
+          : undefined;
+      return error === "invalid_blocks" || error === "msg_blocks_too_long"
+        ? deps.slack.postMessage(botToken, target)
+        : response;
     }
     const response = await deps.slack.postMessage(botToken, {
       ...target,
