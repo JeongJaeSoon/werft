@@ -669,6 +669,13 @@ describe("maskBody: werft#1327 review", () => {
       ),
     ).toEqual([]);
   });
+
+  test("a slash before > does not make an HTML element empty", () => {
+    expect(leaked("<textarea name=password/>syn-pw-12</textarea>")).toEqual(
+      [],
+    );
+    expect(leaked("<password/>syn-pw-12</password>")).toEqual([]);
+  });
 });
 
 describe("createCollector: werft#1327 review round 2", () => {
@@ -736,6 +743,24 @@ describe("createCollector: werft#1327 review round 2", () => {
     }
     await c.report();
     expect(calls).toBe(4);
+  });
+
+  test("a request blocked with an empty error text names the reason", async () => {
+    const c = createCollector({
+      send: async () => ({ body: "", base64Encoded: false }),
+      settleMs: 200,
+    });
+    c.onEvent({
+      method: "Network.requestWillBeSent",
+      params: { requestId: "1", request: { method: "GET", url: "http://h/x" } },
+    });
+    c.onEvent({
+      method: "Network.loadingFailed",
+      params: { requestId: "1", errorText: "", blockedReason: "csp" },
+    });
+    expect(await c.report()).toEqual([
+      "! failed request: GET /x -> no response | body unavailable: csp",
+    ]);
   });
 });
 
