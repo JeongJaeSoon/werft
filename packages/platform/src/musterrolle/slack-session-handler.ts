@@ -318,9 +318,17 @@ export function createSlackSessionHandler(
       }
       return;
     }
+    // Read again: the binding the decision allowed on may be a newer one
+    // than the one read before it, approved after this message was sent.
+    const allowedOn = dm
+      ? binding
+      : await deps.bindings.resolveSlackChannel(
+          agent.installationId,
+          event.channel,
+        );
     if (
-      binding?.approvedAt != null &&
-      Number(event.ts) * 1000 < binding.approvedAt.getTime()
+      allowedOn?.approvedAt != null &&
+      Number(event.ts) * 1000 < allowedOn.approvedAt.getTime()
     ) {
       deps.logger.info("Slack input predates the channel's approval; ignored", {
         ...ids,

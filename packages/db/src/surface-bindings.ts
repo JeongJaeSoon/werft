@@ -554,6 +554,15 @@ async function resolve(
     if (!after)
       throw new Error(`surface binding ${bindingId} vanished in its tx`);
     const binding = recordOf(after);
+    if (decision === "reject") {
+      await tx.execute(sql`
+        UPDATE slack_outbox
+        SET status = 'failed', error_code = 'not_addressed'
+        WHERE installation_id = ${after.installationId}
+          AND channel_id = ${after.channelId}
+          AND status = 'pending'
+          AND kind <> 'notice'`);
+    }
     const receiptId = await writeReceipt(
       tx,
       input.principal,

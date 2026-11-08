@@ -163,7 +163,7 @@ export function createSlackEventsService(deps: {
   apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
-  bindings: Pick<SurfaceBindingStore, "findPendingApproval">;
+  bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -218,11 +218,20 @@ export function createSlackEventsService(deps: {
         return { status: "dropped", dropReason: "message_subtype" };
       }
       if (typeof event.channel === "string" && event.channel_type !== "im") {
-        const pending = await deps.bindings.findPendingApproval(
+        const bound = await deps.bindings.findLiveSlackChannel(
           resolved.installationId,
           event.channel,
         );
-        if (pending !== null) {
+        // A private channel without an approved, ready binding keeps no
+        // text: waiting, rejected, or flipped from public since it was bound.
+        const unapproved =
+          bound?.status === "pending_approval" ||
+          (event.channel_type === "group" &&
+            !(
+              bound?.status === "ready" &&
+              bound.channelKind === "private_channel"
+            ));
+        if (unapproved) {
           const mentioned =
             event.type === "app_mention" ||
             (typeof event.text === "string" &&

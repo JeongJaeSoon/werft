@@ -133,6 +133,13 @@ const addressed = (db: Database, row: SQL) => sql`(
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
+  AND (${row}.kind = 'notice' OR NOT EXISTS (
+    SELECT 1 FROM surface_bindings b
+    WHERE b.installation_id = ${row}.installation_id
+      AND b.external_surface_id = ${row}.channel_id
+      AND b.status = 'pending_approval'
+      AND b.revoked_at IS NULL
+  ))
   AND (${row}.session_id IS NULL OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.session_id = ${row}.session_id

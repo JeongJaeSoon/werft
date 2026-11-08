@@ -4,6 +4,7 @@ import {
   signSlackRequest,
   slackEventEnvelope,
 } from "@werft-ai/testkit/fake-slack-api";
+import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import {
   createMemoryAgentIdentityStore,
   createMemorySecretStore,
@@ -87,6 +88,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     now: () => clock.getTime(),
   });
   const pendingChannels = new Set<string>();
+  const readyChannels = new Map<string, "public_channel" | "private_channel">();
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
@@ -94,10 +96,18 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     identities: identities.store,
     installs: installs.store,
     bindings: {
-      findPendingApproval: async (_installationId, channelId) =>
-        pendingChannels.has(channelId)
-          ? { id: "binding-1", revision: 2 }
-          : null,
+      findLiveSlackChannel: async (_installationId, channelId) => {
+        const kind = readyChannels.get(channelId);
+        if (pendingChannels.has(channelId)) {
+          return {
+            status: "pending_approval",
+            channelKind: "private_channel",
+          } as SurfaceBindingRecord;
+        }
+        return kind === undefined
+          ? null
+          : ({ status: "ready", channelKind: kind } as SurfaceBindingRecord);
+      },
     },
     now: () => clock,
   });
@@ -174,6 +184,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     secrets,
     lookups,
     pendingChannels,
+    readyChannels,
     install,
     signed,
     event,
@@ -539,6 +550,37 @@ describe("Slack events service", () => {
       ),
     );
     expect(result).toMatchObject({ status: "received" });
+  });
+
+  test("a private channel keeps no text unless a ready private binding holds it: rejected, unbound, or bound as public", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("G0PUBLIC", "public_channel");
+    w.readyChannels.set("G0OK", "private_channel");
+    const outcomes: Record<string, unknown> = {};
+    for (const channel of ["G0REJECTED", "G0PUBLIC", "G0OK"]) {
+      outcomes[channel] = await w.service.receive(
+        w.signed(
+          w.event({
+            type: "message",
+            user: "U0P",
+            text: "the launch code is 1234",
+            channel,
+            channel_type: "group",
+            ts: "1.1",
+          }),
+        ),
+      );
+    }
+    expect(outcomes.G0REJECTED).toMatchObject({
+      status: "dropped",
+      reason: "channel_pending_approval",
+    });
+    expect(outcomes.G0PUBLIC).toMatchObject({
+      status: "dropped",
+      reason: "channel_pending_approval",
+    });
+    expect(outcomes.G0OK).toMatchObject({ status: "received" });
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {

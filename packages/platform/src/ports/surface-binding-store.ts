@@ -116,7 +116,8 @@ export interface SurfaceBindingStore {
   ): Promise<SurfaceBindingRecord | null>;
   /**
    * The live binding of a channel whatever its status, for the membership
-   * record; input never reads this, only `resolveSlackChannel`.
+   * record and the receive-time privacy guard; input is only ever resolved
+   * through `resolveSlackChannel`.
    */
   findLiveSlackChannel(
     installationId: string,
