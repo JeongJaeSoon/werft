@@ -77,7 +77,7 @@ Size means the entire JSONL remaining after compaction. Claude Code CLI resume s
 - Interrupted turns differ: rejected checkpoints make the turn `outcome_unknown` (`interrupt_checkpoint_unavailable`) and the session `recovery_required`.
 - The last committed checkpoint remains the restoration point. The oversized turn lacks a checkpoint, so its context cannot continue after worker replacement (session attention `CONTEXT_GAP`).
 
-<a id="결과물out-색인-상한" />
+<a id="성과물out-색인-상한" />
 ## Output (`out/`) index limits
 
 At each checkpoint, workers index regular files under working-directory `out/` regardless of git status, add manifest `outputs`, and upload one object/file. Limits are `DEFAULT_OUTPUT_LIMITS` in `apps/worker/src/workspace-outputs.ts`.

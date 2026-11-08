@@ -155,7 +155,7 @@ function routes(
 
 async function openCard() {
   await (await setupUser()).click(
-    await screen.findByRole("tab", { name: /^결과물/ }),
+    await screen.findByRole("tab", { name: /^성과물/ }),
   );
   return screen.findByRole("region", { name: /^성과/ });
 }
@@ -173,8 +173,9 @@ describe("session achievements", () => {
     expect(card.textContent).toContain(
       "워크스페이스 성과 규칙으로 판정한 것입니다. PR·리뷰가 근거인 성과는 바로 집계되고, out/ 파일이나 대화가 근거인 성과는 확인해야 집계됩니다.",
     );
-    const [merged, document_, review, line] =
-      within(card).getAllByRole("listitem");
+    const [merged, document_, review] = within(card).getAllByRole("listitem");
+    // The judgment sits under the section head, not in the list.
+    const line = within(card).getByText(/^마지막 판정/);
     expect(merged?.textContent).toContain("집계됨머지된 PRpull_request");
     expect(merged?.textContent).toContain("정의에 맞을 확률 0.99 (문턱 0.9)");
     expect(merged?.textContent).toContain(
@@ -220,10 +221,10 @@ describe("session achievements", () => {
           (button) => button.getAttribute("aria-label") ?? button.textContent,
         ),
     ).toEqual([
+      "다시 판정",
       "머지된 PR 성과 거절",
       "설계 문서 작성 성과 거절",
       "설계 문서 작성 성과 확인",
-      "다시 판정",
     ]);
   });
 
@@ -521,8 +522,8 @@ describe("session achievements", () => {
     );
     // Three achievements, two pull requests and one file.
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물6",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물6",
       ),
     );
   });
@@ -538,7 +539,7 @@ describe("session achievements", () => {
       ),
     );
     await (await setupUser()).click(
-      await screen.findByRole("tab", { name: /^결과물/ }),
+      await screen.findByRole("tab", { name: /^성과물/ }),
     );
     const retry = await screen.findByRole("button", { name: "다시 시도" });
     failing = false;
@@ -559,12 +560,12 @@ describe("session achievements", () => {
       ),
     );
     await (await setupUser()).click(
-      await screen.findByRole("tab", { name: /^결과물/ }),
+      await screen.findByRole("tab", { name: /^성과물/ }),
     );
     await waitFor(() =>
       expect(api.calls.some((call) => call.path === ACHIEVEMENTS)).toBe(true),
     );
-    expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
+    expect(await screen.findByText("아직 성과물이 없습니다.")).toBeTruthy();
     expect(screen.queryByRole("region", { name: /^성과/ }) === null).toBe(true);
   });
 
@@ -575,12 +576,12 @@ describe("session achievements", () => {
     );
     expect(await openCard()).toBeTruthy();
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
-        "결과물1",
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물1",
       ),
     );
     // The empty state needs no further read here; give it a render to appear.
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(screen.queryByText("아직 결과물이 없습니다.") === null).toBe(true);
+    expect(screen.queryByText("아직 성과물이 없습니다.") === null).toBe(true);
   });
 });

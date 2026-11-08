@@ -14,12 +14,13 @@ import {
   Heading,
   Link,
   RelativeTime,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
   Text,
 } from "@werft-ai/ui";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { isMessageKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
@@ -79,15 +80,82 @@ function rowsOf(data: ListPushRequestsResponse): Row[] {
   return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
+/**
+ * A session branch is `agent/<session uuid>`; the full uuid says nothing the
+ * first block does not, so the name is cut there and the whole one is the
+ * hover title.
+ */
+export function shortBranch(branch: string): string {
+  return branch.replace(/^(agent\/[0-9a-f]{8})[0-9a-f-]{20,}$/i, "$1…");
+}
+
+function Target({
+  repositoryId,
+  branch,
+}: {
+  readonly repositoryId: string;
+  readonly branch: string;
+}) {
+  return (
+    <Code className="[overflow-wrap:anywhere]" title={branch}>
+      {repositoryId} ← {shortBranch(branch)}
+    </Code>
+  );
+}
+
+const rowOf = (row: Row) => (row.kind === "request" ? row.request : row.intent);
+
+/** Rows by repository and branch, newest group first, each newest first. */
+function groupsOf(rows: Row[]): Row[][] {
+  const groups = new Map<string, Row[]>();
+  for (const row of rows) {
+    const { repository_id, target_branch } = rowOf(row);
+    const key = `${repository_id}\n${target_branch}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.values()];
+}
+
+function BranchGroup({ rows }: { readonly rows: Row[] }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [latest, ...earlier] = rows;
+  const render = (row: Row) =>
+    row.kind === "request" ? (
+      <RequestRow key={row.request.id} request={row.request} />
+    ) : (
+      <IntentRow key={row.intent.id} intent={row.intent} />
+    );
+  return (
+    <>
+      {latest === undefined ? null : render(latest)}
+      {earlier.length === 0 ? null : (
+        <RowListItem>
+          <RowAction
+            aria-expanded={open}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open
+              ? t("session.github.hideEarlier")
+              : t("session.github.showEarlier", { count: earlier.length })}
+          </RowAction>
+        </RowListItem>
+      )}
+      {open ? earlier.map(render) : null}
+    </>
+  );
+}
+
 function RequestRow({ request }: { readonly request: PushRequest }) {
   const { t, locale } = useI18n();
   return (
     <RowListItem>
       <RowLines>
         <Text as="span" className="flex min-w-0 flex-wrap items-center gap-2">
-          <Code className="[overflow-wrap:anywhere]">
-            {request.repository_id} ← {request.target_branch}
-          </Code>
+          <Target
+            repositoryId={request.repository_id}
+            branch={request.target_branch}
+          />
           <Badge variant={REQUEST_BADGE[request.state]}>
             {t(`session.github.state.${request.state}`)}
           </Badge>
@@ -124,9 +192,10 @@ function IntentRow({ intent }: { readonly intent: PushIntent }) {
     <RowListItem>
       <RowLines>
         <Text as="span" className="flex min-w-0 flex-wrap items-center gap-2">
-          <Code className="[overflow-wrap:anywhere]">
-            {intent.repository_id} ← {intent.target_branch}
-          </Code>
+          <Target
+            repositoryId={intent.repository_id}
+            branch={intent.target_branch}
+          />
           <Badge variant={intent.status === "failed" ? "red" : "gray"}>
             {t(`session.github.intent.${intent.status}`)}
           </Badge>
@@ -172,13 +241,12 @@ export function SessionGitHubWork({
       <Heading id={titleId}>{t("session.github.title")}</Heading>
       <Text variant="sub">{t("session.github.description")}</Text>
       <RowList variant="joined">
-        {rows.map((row) =>
-          row.kind === "request" ? (
-            <RequestRow key={row.request.id} request={row.request} />
-          ) : (
-            <IntentRow key={row.intent.id} intent={row.intent} />
-          ),
-        )}
+        {groupsOf(rows).map((group) => (
+          <BranchGroup
+            key={group.map((row) => rowOf(row).id).join(",")}
+            rows={group}
+          />
+        ))}
       </RowList>
     </section>
   );

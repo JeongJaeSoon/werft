@@ -144,7 +144,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
 1. `manifest_ref`를 **`manifest_version`으로** 내려받아 sha256 = `manifest_sha256`인지 본다. 행의 `versions_held`는 true여야 한다.
-2. manifest 안의 transcript part(root·subagent), untracked 파일, 저장된 결과물(`outputs`), workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조하고 legal hold가 ON인지 본다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다. 크기 제한으로 생략된 output(`omitted`)은 object가 없어 건너뛴다. restore plan의 artifact 목록에는 outputs가 없으므로, API restore plan 검사(아래)도 manifest의 저장된 outputs를 plan의 object와 같은 방식으로 읽고 hold를 확인한다.
+2. manifest 안의 transcript part(root·subagent), untracked 파일, 저장된 성과물(`outputs`), workspace bundle 사슬(`workspace.baseBundles`와 `workspace.bundle`)을 **각자의 `version`으로** 내려받아 sha256과 크기를 대조하고 legal hold가 ON인지 본다. version이 없는 ref는 재고정되지 않은 것이므로 FAIL이다. 크기 제한으로 생략된 output(`omitted`)은 object가 없어 건너뛴다. restore plan의 artifact 목록에는 outputs가 없으므로, API restore plan 검사(아래)도 manifest의 저장된 outputs를 plan의 object와 같은 방식으로 읽고 hold를 확인한다.
 3. 1과 2의 모든 version에 대해 HEAD의 `ObjectLockLegalHoldStatus`가 `ON`인지 본다.
 4. 행마다 빈 bare 저장소를 새로 만들고, bundle 사슬을 `baseBundles`의 오래된 것부터 `workspace.bundle`까지 순서대로 `git bundle verify`한 뒤 fetch해 쌓는다. incremental bundle은 앞 bundle이 가진 커밋을 전제로 하므로 혼자서는 verify되지 않는다. 마지막 bundle의 `refs/checkpoint/worktree`를 커밋까지 벗겨 `workspace.gitCommit`과 같은지 확인한다. 복원이 checkout하는 것이 이 ref다. 앞 checkpoint 뒤 바뀐 것이 없는 capture는 앞 bundle이 가진 커밋 위에 annotated tag만 싣기 때문에, bundle 헤더에는 커밋 대신 tag가 나온다. 순서가 틀리거나 한 고리가 빠지면 FAIL이다(`unbundle_chain`, `scripts/lib/backup-lib.sh`). finalize와 워커 복원이 bundle ref에 적용하는 규칙 전체는 runtime-core의 `checkpointBundleRefs`에 있다. 스크립트는 그 가운데 worktree 부분만 본다.
 
