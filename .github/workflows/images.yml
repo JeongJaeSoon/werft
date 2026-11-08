@@ -69,7 +69,37 @@ env:
   KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
 
 jobs:
+  # Whether to build at all. Only a pull request that changes nothing but
+  # prose skips the images (ci-plan.sh decides, the same way CI does);
+  # every other event, and every other change, builds all six. The value is
+  # `build` or `skip`, and `supply-chain` fails on anything else.
+  plan:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 3
+    outputs:
+      images: ${{ steps.images.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: bash .github/scripts/ci-plan.sh
+      - id: images
+        env:
+          DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
+        run: |
+          case "$DOCS_ONLY" in
+            true) echo "images=skip" >>"$GITHUB_OUTPUT" ;;
+            false) echo "images=build" >>"$GITHUB_OUTPUT" ;;
+            *) echo "::error::ci-plan.sh gave no docs_only value" >&2; exit 1 ;;
+          esac
+
   build:
+    needs: plan
+    if: needs.plan.outputs.images == 'build'
     # Pinned rather than ubuntu-latest for the same reason as ci.yml.
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
@@ -207,7 +237,7 @@ jobs:
   # outage must not stop every merge, and the daily run and a publish
   # still need a verdict.
   supply-chain:
-    needs: build
+    needs: [plan, build]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -238,6 +268,8 @@ jobs:
       - name: Verdict (fails on a fixable high or critical)
         env:
           NO_VERDICT: ${{ contains(fromJSON('["pull_request","push"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && 'warn' || 'fail' }}
+          IMAGES_PLAN: ${{ needs.plan.outputs.images }}
+          IMAGES_BUILD_RESULT: ${{ needs.build.result }}
         run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT"
 
   # Publish path, in stages so a failed verification never leaves a consumable
