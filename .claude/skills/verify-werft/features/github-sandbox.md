@@ -213,7 +213,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -At -c "select result::
 - 끄기(B): 구간 안 영수증은 `append_message`·`answer`·`merge_pull_request` failed뿐이고 `mint_github_token`은 없다. 거부 영수증의 `result`는 `reason_code: "merge_off"`·`purpose`·`agent_id`·`agent_release_id`·`repository_id`·`workspace_ceiling_revision`이고 `connection_id`·`app_id`·`role`은 없다. PR은 OPEN이다.
 - 기본값(C): `ceiling.merge: false`.
 
-2026-11-09 run(main `a6a5e97f`)의 기록: 기본값 `merge: false`(revision 2), 켜기 `revision` 3, 승인 없는 머지는 `merge_blocked`(PR [werft-sandbox#137](https://github.com/JeongJaeSoon/werft-sandbox/pull/137) OPEN 유지), 끄기 `revision` 4에서 PR [werft-sandbox#138](https://github.com/JeongJaeSoon/werft-sandbox/pull/138)이 `merge_off`로 거부, 구간 안 `mint_github_token` 0, 영수증에 `connection_id`·`app_id`·`role` 0, 전후 `behavior_revision` 1과 release 같음. #138은 닫고 브랜치를 지웠다.
+2026-11-09 run(main `a6a5e97f`)의 기록: 기본값 `merge: false`(revision 2), 켜기 `revision` 3, 승인 없는 머지는 `merge_blocked`(PR [werft-sandbox#137](https://github.com/JeongJaeSoon/werft-sandbox/pull/137) OPEN 유지), 끄기 `revision` 4에서 PR [werft-sandbox#138](https://github.com/JeongJaeSoon/werft-sandbox/pull/138)이 `merge_off`로 거부, 구간 안 `mint_github_token` 0, 영수증에 `connection_id`·`app_id`·`role` 0, 전후 `behavior_revision` 1과 release 같음. #138은 닫고 브랜치를 지웠다. 같은 날 새 run(main `86c841f8`)의 켜기(A): 상한 `revision` 3, PR [werft-sandbox#140](https://github.com/JeongJaeSoon/werft-sandbox/pull/140)을 사람이 승인(`reviewDecision: APPROVED`, `CLEAN`)한 뒤 "머지해" → 영수증 `mint_github_token`(`merge`) → `merge_pull_request` succeeded(`method: "squash"`, `head_sha`가 PR head와 같음), `gh pr view` `MERGED`·`mergeCommit` `a9a4e4e2`. 전후 `behavior_revision` 1과 release 같음.
 
 ## Gotchas
 
