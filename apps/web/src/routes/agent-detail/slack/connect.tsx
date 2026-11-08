@@ -26,9 +26,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useProfileDisplay } from "../../../components/profile-options.tsx";
+import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useAppServices } from "../../../services.tsx";
-import type { Notify } from "../toast.tsx";
 import { useSlackState } from "./queries.ts";
 import {
   EVENTS_BADGE,
