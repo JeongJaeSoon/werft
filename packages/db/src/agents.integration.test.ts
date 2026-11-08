@@ -1883,7 +1883,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       workspaceId,
       session?.agentReleaseId ?? "",
     );
-    expect(pinned.policy_pins.tools?.per_tool.Bash).toBe("ask");
+    expect(pinned.policy_pins.tools?.per_tool.mcp__docs__search).toBe("ask");
   });
 
   test("a release stored before tool policies still reads, verifies and activates", async () => {
