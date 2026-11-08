@@ -425,7 +425,7 @@ export async function revertMcpCopyRow(
     // The checks above already are its guard: no open session holds its
     // snapshot, and it equals what the newest card gives. No release carries
     // anything to compare, so none is asked to.
-    const draft = false;
+    const draft = fact.active === null;
     if (!draft) {
       // Every release of the agent must carry what the row says, so a session
       // of any of them keeps its access once the row is gone.
