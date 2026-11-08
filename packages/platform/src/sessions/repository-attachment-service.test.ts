@@ -150,6 +150,35 @@ describe("list", () => {
     ]);
   });
 
+  test("a settled fetch decides the remote: attached carries the id, failed carries none", async () => {
+    const s = service();
+    const docs = await s.attach("docs", "att_1");
+    const tools = await s.attach("tools", "att_1");
+    await s.store.settle(SESSION, [
+      {
+        repository_id: "docs",
+        receipt_id: docs.receipt_id ?? "",
+        status: "attached",
+        commit: COMMIT,
+      },
+      {
+        repository_id: "tools",
+        receipt_id: tools.receipt_id ?? "",
+        status: "failed",
+        failure: "fetch_failed",
+      },
+    ]);
+    const listed = (await s.list()).repositories;
+    expect(
+      listed.map((entry) => [entry.id, entry.status, entry.remote]),
+    ).toEqual([
+      ["app", "attached", "origin"],
+      ["docs", "attached", "docs"],
+      ["tools", "failed", undefined],
+    ]);
+    expect("remote" in (listed[2] ?? {})).toBe(false);
+  });
+
   test("never answers primary or available, whatever the session holds", async () => {
     const contexts = [
       {},
@@ -763,7 +792,8 @@ describe("list in pages", () => {
       ["r0042", 7],
     ] as const) {
       const seen = await walk(withOwn(ownId), limit);
-      // The session's own is not in the allowed list, so it replaces its row.
+      // The allowed list names the session's own id too; it is one row, the
+      // session's own.
       expect(seen.map(({ id }) => id)).toEqual(["app", ...names]);
       expect(seen.find(({ id }) => id === ownId)?.status).toBe("attached");
     }
