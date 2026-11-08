@@ -82,7 +82,7 @@ export function McpSettings({
             params: { path: { id: agentId } },
             body: saveBody(
               current?.edit ?? editOf(data),
-              current?.revision ?? data.settings_revision,
+              current ? current.revision : data.settings_revision,
             ),
           }),
         );
@@ -163,7 +163,7 @@ export function McpSettings({
     }
     setDraft({
       edit: next,
-      revision: draft?.revision ?? data.settings_revision,
+      revision: draft ? draft.revision : data.settings_revision,
     });
   };
 

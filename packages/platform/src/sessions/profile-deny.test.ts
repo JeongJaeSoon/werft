@@ -1125,4 +1125,22 @@ describe("lifting mcp__ names with unblock_mcp_tools", () => {
       reason_code: "stale_previous",
     });
   });
+
+  test("lifting the last block still has the store check that no other version landed meanwhile", async () => {
+    const made = setup();
+    await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
+    const first = await made.workspace.create(owner(), {
+      ...VERSION,
+      deny: ["WebSearch", WIKI],
+    });
+    await made.workspace.create(owner(), {
+      ...VERSION,
+      tools: ["Read"],
+      previous_id: first.profile.id,
+      unblock_mcp_tools: [WIKI],
+    });
+    const write = made.versionWrites.at(-1);
+    expect(write?.deny ?? null).toBeNull();
+    expect(write?.previousVersion).toBe(1);
+  });
 });

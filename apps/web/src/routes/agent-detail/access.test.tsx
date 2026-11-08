@@ -182,6 +182,49 @@ describe("접근 탭", () => {
     ).toBeDefined();
   });
 
+  test("행이 없을 때 시작한 초안은 다른 관리자가 먼저 저장한 뒤에도 null 기준으로 저장해 그 변경을 덮어쓰지 않는다", async () => {
+    const server = agentServer();
+    const { api } = renderAt(ACCESS, { ...meOk, ...server.routes });
+    const user = await setupUser();
+    const mcp = await section();
+    await user.selectOptions(
+      within(mcp).getByRole("combobox", { name: "MCP 서버" }),
+      "docs",
+    );
+    await server.routes[`PUT ${SETTINGS}`](
+      new Request("http://fake.test/", {
+        method: "PUT",
+        body: JSON.stringify({
+          expected_revision: null,
+          settings: {
+            server: "docs",
+            allowed_tools: [],
+            credential_refs: ["wiki-key"],
+          },
+        }),
+      }),
+    );
+    await user.click(within(mcp).getByRole("button", { name: "저장" }));
+    expect(
+      await within(mcp).findByText(/그 사이 다른 곳에서 설정이 바뀌었습니다/),
+    ).toBeDefined();
+
+    await user.type(
+      within(mcp).getByRole("textbox", { name: "자격 증명 이름" }),
+      "docs-key",
+    );
+    await user.click(within(mcp).getByRole("button", { name: "이름 추가" }));
+
+    expect(
+      within(mcp).getByText(/그 사이 다른 곳에서 설정이 바뀌었습니다/),
+    ).toBeDefined();
+    expect(
+      (within(mcp).getByRole("button", { name: "저장" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(puts(api)).toHaveLength(1);
+  });
+
   test.each([
     [
       "mcp_tool_denied",

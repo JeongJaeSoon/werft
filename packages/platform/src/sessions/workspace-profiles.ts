@@ -541,7 +541,7 @@ export function createWorkspaceProfileService(deps: {
         narrowing,
         deny: denied?.deny ?? null,
         toolCatalogId: denied?.toolCatalogId ?? null,
-        ...(denied
+        ...(denied || request.unblock_mcp_tools?.length
           ? {
               previousVersion: previous?.version ?? null,
               ...(previousRead?.drift ? { previousDenyDrift: true } : {}),
