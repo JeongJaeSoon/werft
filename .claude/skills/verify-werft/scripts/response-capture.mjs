@@ -134,9 +134,12 @@ function hideEmbedded(text, pattern) {
 }
 
 // The text of an element named like a secret: <password>…</password>.
-// Everything up to the matching close tag is hidden (CDATA and nested
-// elements included), or the rest of the text when there is none.
-const TAG_OPEN = /<([A-Za-z_][\w:.-]{0,128})([^<>]{0,512})>/g;
+// Everything up to the matching close tag is hidden (nested elements
+// included). The rest of the text is hidden instead when there is no close
+// tag, the open tag is cut off, or the content holds CDATA, a comment or a
+// quote, where a close tag may be text. No length bound on names or
+// attributes: a bound let a long open tag pass unrecognised.
+const TAG_OPEN = /<([A-Za-z_][\w:.-]*)([^<>]*)(>?)/g;
 const SECRET_ATTR = new RegExp(`${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`, "i");
 const secretTag = (name, attrs) =>
   SECRET_KEY.test(name) ||
@@ -147,9 +150,14 @@ function hideTags(text) {
   let last = 0;
   TAG_OPEN.lastIndex = 0;
   for (let m = TAG_OPEN.exec(text); m; m = TAG_OPEN.exec(text)) {
-    const [whole, name, attrs] = m;
+    const [whole, name, attrs, closed] = m;
     if (attrs.endsWith("/") || !secretTag(name, attrs)) continue;
     const start = m.index + whole.length;
+    if (!closed) {
+      out += `${text.slice(last, start)}(hidden)`;
+      last = text.length;
+      break;
+    }
     const same = new RegExp(
       `<(/?)${name.replace(/[.]/g, "\\.")}(?=[\\s/>])`,
       "gi",
@@ -163,6 +171,7 @@ function hideTags(text) {
         break;
       }
     }
+    if (/<!|["']/.test(text.slice(start, end))) end = text.length;
     out += `${text.slice(last, start)}(hidden)`;
     last = end;
     TAG_OPEN.lastIndex = end;
@@ -319,9 +328,7 @@ export function createCollector({
       (r) => {
         // Settled in bytes actually read, in case the reported size was low.
         reserved +=
-          (r.base64Encoded
-            ? Math.floor((r.body.length * 3) / 4)
-            : Buffer.byteLength(r.body)) - take;
+          Buffer.byteLength(r.body, r.base64Encoded ? "base64" : "utf8") - take;
         // Cut before masking: what lies past READ_LIMIT is never printed,
         // and the masks hide to the end of a value that the cut leaves open.
         const raw = r.base64Encoded
@@ -416,6 +423,9 @@ export function createCollector({
       read(p.requestId, rec);
     } else if (m.method === "Network.loadingFailed") {
       const rec = current.get(p.requestId);
+      // A request that never got headers (refused, DNS, TLS) is a failure
+      // too; one the page itself cancelled (navigation, abort()) is not.
+      if (rec && noHeaders.has(p.requestId) && !p.canceled) track(rec);
       done(p.requestId);
       if (rec && waiting.has(rec))
         settle(rec, { bodyError: p.errorText ?? "loading failed" });

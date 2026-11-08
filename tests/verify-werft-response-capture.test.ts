@@ -660,9 +660,9 @@ describe("maskBody: werft#1327 review", () => {
   });
 
   test("a secret tag of any length is recognised", () => {
-    expect(
-      leaked(`<password${" ".repeat(700)}>syn-pw-12</password>`),
-    ).toEqual([]);
+    expect(leaked(`<password${" ".repeat(700)}>syn-pw-12</password>`)).toEqual(
+      [],
+    );
     expect(
       leaked(
         `<password${"x".repeat(700)}>syn-pw-12</password${"x".repeat(700)}>`,
@@ -714,7 +714,10 @@ describe("createCollector: werft#1327 review round 2", () => {
       const id = String(i);
       c.onEvent({
         method: "Network.requestWillBeSent",
-        params: { requestId: id, request: { method: "GET", url: "http://h/x" } },
+        params: {
+          requestId: id,
+          request: { method: "GET", url: "http://h/x" },
+        },
       });
       c.onEvent({
         method: "Network.responseReceived",
@@ -724,7 +727,10 @@ describe("createCollector: werft#1327 review round 2", () => {
         method: "Network.dataReceived",
         params: { requestId: id, dataLength: 65_536 },
       });
-      c.onEvent({ method: "Network.loadingFinished", params: { requestId: id } });
+      c.onEvent({
+        method: "Network.loadingFinished",
+        params: { requestId: id },
+      });
       await Promise.resolve();
       await Promise.resolve();
     }
