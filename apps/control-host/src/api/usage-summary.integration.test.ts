@@ -29,6 +29,7 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
+import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   type Caller,
   callerFor,
@@ -117,9 +118,13 @@ integration("usage summary on PostgreSQL", () => {
         role: who === "owner" ? "owner" : who === "admin" ? "admin" : "member",
       });
     }
-    await db
-      .insert(schema.agents)
-      .values({ id: agentId, workspaceId, slug: "bot", name: "Bot" });
+    await db.insert(schema.agents).values({
+      id: agentId,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "bot",
+      name: "Bot",
+    });
     const versionId = crypto.randomUUID();
     await db.insert(schema.agentVersions).values({
       id: versionId,
@@ -379,9 +384,13 @@ integration("usage summary on PostgreSQL", () => {
     }
     const secondRelease = await release(agentId);
     const otherAgent = crypto.randomUUID();
-    await db
-      .insert(schema.agents)
-      .values({ id: otherAgent, workspaceId, slug: "other", name: "Other" });
+    await db.insert(schema.agents).values({
+      id: otherAgent,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: "other",
+      name: "Other",
+    });
     const otherRelease = await release(otherAgent);
     const elsewhere = crypto.randomUUID();
     const foreignAgent = crypto.randomUUID();
@@ -391,6 +400,7 @@ integration("usage summary on PostgreSQL", () => {
     await db.insert(schema.agents).values({
       id: foreignAgent,
       workspaceId: elsewhere,
+      managingTeamId: await fixtureTeam(db, elsewhere),
       slug: "bot",
       name: "Bot",
     });

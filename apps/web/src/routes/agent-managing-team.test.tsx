@@ -16,7 +16,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { renderAt, screen, waitFor } = await appHarness();
 
 const DETAIL = `/agents/${AGENT_ID}`;
 const ADMINS_TAB = `${DETAIL}?tab=admins`;
@@ -49,60 +49,6 @@ async function managedServer() {
 }
 
 describe("관리자 탭의 담당 팀", () => {
-  test("담당 팀이 없고 관리자 팀이 하나면 그 팀을 추천하고, 누르면 담당 팀으로 정한다", async () => {
-    const server = agentServer();
-    const { api } = renderAt(ADMINS_TAB, {
-      ...meAs(me()),
-      ...server.routes,
-      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
-        json(
-          200,
-          adminsOf({
-            teams: [
-              {
-                team_id: TEAM_ID,
-                name: TEAM.name,
-                created_by: USER_ID,
-                created_at: AT,
-              },
-            ],
-          }),
-        ),
-    });
-    const section = (
-      await screen.findByRole("heading", { name: "담당 팀" })
-    ).closest("section") as HTMLElement;
-    expect(section.textContent).toContain(
-      "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다",
-    );
-    expect(within(section).getByText("담당 팀 미지정")).toBeDefined();
-    expect(section.textContent).toContain(
-      "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정)",
-    );
-    const user = await setupUser();
-    await user.click(
-      await within(section).findByRole("button", {
-        name: "관리자 팀 재무을(를) 담당 팀으로",
-      }),
-    );
-    await waitFor(() =>
-      expect(
-        api.calls.find(
-          (c) =>
-            c.method === "PUT" &&
-            c.path === `/v1/agents/${AGENT_ID}/managing-team`,
-        )?.body,
-      ).toEqual({ team_id: TEAM_ID }),
-    );
-    expect(
-      await screen.findByText("담당 팀을 재무(으)로 정했습니다."),
-    ).toBeDefined();
-    await waitFor(() =>
-      expect(within(section).queryByText("담당 팀 미지정")).toBeNull(),
-    );
-    expect(within(section).getByText("재무")).toBeDefined();
-  });
-
   test("고를 수 없는 팀은 목록에 없고, 지금 담당 팀도 다시 고를 수 없다", async () => {
     const server = await managedServer();
     renderAt(ADMINS_TAB, {
@@ -311,24 +257,6 @@ describe("새 에이전트의 담당 팀", () => {
 
 describe("목록의 담당 팀", () => {
   beforeEach(() => localStorage.clear());
-
-  test("담당 팀 미지정 탭은 서버에 그 에이전트만 묻는다", async () => {
-    const server = agentServer();
-    const { api } = renderAt("/agents", { ...meAs(me()), ...server.routes });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "담당 팀 미지정 1" }),
-    );
-    await waitFor(() =>
-      expect(
-        api.calls.some(
-          (c) =>
-            c.path === "/v1/agents" &&
-            new URLSearchParams(c.search).get("managing_team") === "unassigned",
-        ),
-      ).toBe(true),
-    );
-  });
 
   test("설정을 읽지 못하는 에이전트 카드는 이름·담당 팀만 보이고 따로 읽지 않는다", async () => {
     const server = await managedServer();

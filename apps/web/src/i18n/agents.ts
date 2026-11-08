@@ -427,24 +427,17 @@ export const agentsKo = {
   "managingTeam.title": "담당 팀",
   "managingTeam.intro":
     "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
-  "managingTeam.unassigned": "담당 팀 미지정",
-  "managingTeam.unassignedHint":
-    "이 에이전트는 담당 팀이 없습니다. 담당 팀을 정하면 그 팀의 팀 관리자가 이 에이전트를 관리합니다.",
   "managingTeam.noLead": "이 담당 팀에는 팀 관리자가 없습니다.",
   "managingTeam.pick": "담당 팀으로 정할 팀",
   "managingTeam.pickPlaceholder": "팀 고르기",
   "managingTeam.change": "바꾸기",
-  "managingTeam.assign": "지정",
   "managingTeam.saving": "저장하는 중…",
-  "managingTeam.recommend": "관리자 팀 {name}을(를) 담당 팀으로",
   "managingTeam.audience":
     "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
   "agents.column.team": "담당 팀",
-  "agents.tabs.unassigned": "담당 팀 미지정",
-  "agents.unassignedEmpty": "담당 팀이 없는 에이전트가 없습니다.",
   "agents.cards.infoOnly": "설정은 담당 팀과 관리자만 봅니다.",
   "agent.readOnly":
     "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
@@ -894,24 +887,17 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "managingTeam.title": "Responsible team",
   "managingTeam.intro":
     "This team's leads manage this agent; its members see its settings and use it.",
-  "managingTeam.unassigned": "No responsible team",
-  "managingTeam.unassignedHint":
-    "This agent has no responsible team. Once it has one, that team's leads manage it.",
   "managingTeam.noLead": "This responsible team has no team lead.",
   "managingTeam.pick": "Team to make the responsible team",
   "managingTeam.pickPlaceholder": "Pick a team",
   "managingTeam.change": "Change",
-  "managingTeam.assign": "Assign",
   "managingTeam.saving": "Saving…",
-  "managingTeam.recommend": "Make admin team {name} the responsible team",
   "managingTeam.audience":
     "With a responsible team, people outside it see only their own sessions of this agent and the ones shared with them (workspace setting).",
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
   "agents.column.team": "Responsible team",
-  "agents.tabs.unassigned": "No responsible team",
-  "agents.unassignedEmpty": "Every agent has a responsible team.",
   "agents.cards.infoOnly":
     "Only its responsible team and admins see its settings.",
   "agent.readOnly":
@@ -1366,24 +1352,17 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "managingTeam.title": "担当チーム",
   "managingTeam.intro":
     "このチームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。",
-  "managingTeam.unassigned": "担当チーム未設定",
-  "managingTeam.unassignedHint":
-    "このエージェントには担当チームがありません。担当チームを決めると、そのチームのチーム管理者がこのエージェントを管理します。",
   "managingTeam.noLead": "この担当チームにはチーム管理者がいません。",
   "managingTeam.pick": "担当チームにするチーム",
   "managingTeam.pickPlaceholder": "チームを選ぶ",
   "managingTeam.change": "変更",
-  "managingTeam.assign": "設定",
   "managingTeam.saving": "保存中…",
-  "managingTeam.recommend": "管理者チーム「{name}」を担当チームにする",
   "managingTeam.audience":
     "担当チームを決めると、チーム外の人はこのエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
   "agents.column.team": "担当チーム",
-  "agents.tabs.unassigned": "担当チーム未設定",
-  "agents.unassignedEmpty": "担当チームのないエージェントはありません。",
   "agents.cards.infoOnly": "設定は担当チームと管理者だけが見られます。",
   "agent.readOnly":
     "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",

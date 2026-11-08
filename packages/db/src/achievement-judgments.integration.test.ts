@@ -66,6 +66,7 @@ import {
 } from "./schema.ts";
 import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { advanceCheckpointPointer } from "./worker-unit-of-work.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -2656,6 +2657,7 @@ integration("achievement judgments on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId: ws.workspaceId,
+      managingTeamId: await fixtureTeam(db, ws.workspaceId),
       slug: `agent-${agentId.slice(0, 8)}`,
       name: "Fixer",
     });
@@ -2704,6 +2706,7 @@ integration("achievement judgments on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId: ws.workspaceId,
+      managingTeamId: await fixtureTeam(db, ws.workspaceId),
       slug: `agent-${agentId.slice(0, 8)}`,
       name: "Fixer",
     });

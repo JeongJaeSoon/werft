@@ -37,9 +37,13 @@ await client.exec(`
   INSERT INTO users (id, email, display_name)
   SELECT ('00000000-0000-4000-9000-' || lpad(w::text, 12, '0'))::uuid, 'owner' || w || '@example.invalid', 'Owner ' || w
   FROM generate_series(1, ${workspaces}) w;
-  INSERT INTO agents (id, workspace_id, slug, name, created_by)
+  INSERT INTO member_teams (id, workspace_id, name)
+  SELECT gen_random_uuid(), ('00000000-0000-4000-8000-' || lpad(w::text, 12, '0'))::uuid, 'team ' || w
+  FROM generate_series(1, ${workspaces}) w;
+  INSERT INTO agents (id, workspace_id, slug, name, created_by, managing_team_id)
   SELECT gen_random_uuid(), ws, 'agent-' || g, 'Agent ' || g,
-         ('00000000-0000-4000-9000-' || right(ws::text, 12))::uuid
+         ('00000000-0000-4000-9000-' || right(ws::text, 12))::uuid,
+         (SELECT t.id FROM member_teams t WHERE t.workspace_id = s.ws LIMIT 1)
   FROM (SELECT g, CASE WHEN g <= ${appCount} THEN '${WORKSPACE}'::uuid
                   ELSE ('00000000-0000-4000-8000-' || lpad((2 + g % ${workspaces - 1})::text, 12, '0'))::uuid END AS ws
         FROM generate_series(1, ${appCount + otherApps}) g) s;
