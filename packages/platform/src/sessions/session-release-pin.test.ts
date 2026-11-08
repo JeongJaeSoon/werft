@@ -5,7 +5,7 @@ import {
   type AgentGitHubSettingsRow,
   type AuthorizationRequest,
   type CreateSessionRequest,
-  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
   type RepositoryCeiling,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
@@ -273,7 +273,7 @@ describe("a session pinned to an agent release", () => {
     const github: AgentGitHub = {
       repositories: ["app", "docs", "nested", "elsewhere"],
       push_approval: true,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
       actions_allow: [],
     };
     const identity: AgentPromptIdentity = {
@@ -357,7 +357,7 @@ describe("a session pinned to an agent release", () => {
     const github: AgentGitHub = {
       repositories: ["other"],
       push_approval: true,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
       actions_allow: [],
     };
     const refused = setup({ github });
@@ -414,7 +414,7 @@ describe("a session pinned to an agent release", () => {
     const github: AgentGitHub = {
       repositories: ["app", "docs", "tools", "elsewhere"],
       push_approval: true,
-      features: GITHUB_CEILING_NONE,
+      features: GITHUB_FEATURES_NONE,
       actions_allow: [],
     };
     type Options = Omit<NonNullable<Parameters<typeof setup>[0]>, "github"> & {
@@ -841,7 +841,7 @@ describe("which policy a new session runs on", () => {
   const ROW: AgentGitHubSettingsRow = {
     repositories: ["app"],
     pushApproval: true,
-    features: { ...GITHUB_CEILING_NONE },
+    features: { ...GITHUB_FEATURES_NONE },
     actionsAllow: [],
     startRepositoryId: "app",
     pushAttached: null,
@@ -855,7 +855,7 @@ describe("which policy a new session runs on", () => {
   const PIN: AgentGitHub = {
     repositories: ["app"],
     push_approval: true,
-    features: GITHUB_CEILING_NONE,
+    features: GITHUB_FEATURES_NONE,
     actions_allow: [],
   };
   const start = async (

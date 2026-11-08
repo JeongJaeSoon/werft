@@ -13,6 +13,7 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 - **조직 추가**: App을 조직이나 개인 계정에 설치한다. 설치 표에 계정마다 유형·저장소 범위·App·연결한 사람·상태가 나오고, 행의 ⋯ 메뉴 **GitHub에서 관리**가 그 설치의 설정 화면으로 간다.
 - **저장소 관리**: 에이전트가 고른 저장소를 설치별로 보고, 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 저장소는 에이전트의 GitHub 탭에서 고르면 생기고, 따로 등록하지 않는다.
 - **에이전트가 쓸 수 있는 기능**: 워크스페이스 전체의 상한이다. 스위치를 바꾸면 바로 저장된다. 켠 기능에 App 권한이 모자라면 그 App 행에 필요한 권한과 **GitHub에서 권한 추가**가 나온다. 권한을 더하면 GitHub가 설치한 계정마다 owner에게 승인을 요청하고, 다시 설치하지 않아도 된다.
+- **자기 PR 머지**: 기본이 꺼짐이다. 켜면 사용자가 머지하라고 지시했을 때 에이전트가 자기 세션이 연 PR을 squash로 머지한다. 필수 check와 리뷰는 GitHub가 판단하고, 머지 요청은 ruleset 우회를 끈 채 보낸다. owner와 admin만 워크스페이스 GitHub 설정 API(`PUT /v1/workspaces/{id}/github-settings`의 `ceiling.merge`)로 바꾼다. 켜면 새 릴리스 없이 다음 호출부터 적용된다.
 
 콘솔에서 새 App을 만들려면 API에 `CONSOLE_ORIGIN`(브라우저가 콘솔을 여는 origin. 예: `https://werft.internal.example`)이 있어야 한다. GitHub가 App을 만든 뒤 이 주소로 브라우저를 돌려보내기 때문이다. 없으면 **GitHub App 만들기**를 눌러 나오는 **새 App 만들기** 화면에서 **GitHub에서 만들기** 버튼이 꺼지고 "CONSOLE_ORIGIN이 설정되지 않아 GitHub가 콘솔로 돌아올 주소가 없습니다"라는 안내가 보인다. 이때는 운영자에게 값을 설정해 달라고 하거나 **이미 있는 App 연결**을 쓴다. 단일 서버는 env 파일에 넣고 `upgrade`로 다시 적용한다([단일 서버](/run-server/self-hosting/single-server)). 새 App은 GitHub가 비밀번호 대신 passkey 확인(sudo mode)을 요구하면 그 화면에서 App이 만들어지지 않고 빈 App 폼으로 넘어갈 수 있다. 이때는 확인을 마친 뒤 콘솔로 돌아가 **GitHub에서 만들기**를 다시 누른다.
 
@@ -55,7 +56,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
 </Tab>
 </Tabs>
 
-이 호출에는 `Idempotency-Key`가 없다. 그래서 SDK는 응답을 받지 못한 경우 다시 보내지 않는다([재시도와 Idempotency-Key](/getting-started/client#재시도와-idempotency-key)). head는 `agent/<session-id>`, base는 카탈로그에 적은 브랜치다. 요청 하나에 PR은 하나다. 그 브랜치의 PR이 이미 열려 있으면 새로 열지 않고 그 PR을 돌려준다(`created: false`). 플랫폼은 PR을 승인·머지하지 않고, 리뷰어나 라벨도 정하지 않는다.
+이 호출에는 `Idempotency-Key`가 없다. 그래서 SDK는 응답을 받지 못한 경우 다시 보내지 않는다([재시도와 Idempotency-Key](/getting-started/client#재시도와-idempotency-key)). head는 `agent/<session-id>`, base는 카탈로그에 적은 브랜치다. 요청 하나에 PR은 하나다. 그 브랜치의 PR이 이미 열려 있으면 새로 열지 않고 그 PR을 돌려준다(`created: false`). 이 호출은 PR을 승인·머지하지 않고, 리뷰어나 라벨도 정하지 않는다.
 
 4. 코멘트를 단다. 같은 `marker`(기본 `status`)의 코멘트가 이미 있으면 새로 달지 않고 그 코멘트를 고친다.
 
@@ -88,6 +89,8 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
 PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit, 세션 주소, 에이전트와 release, 누가 어떤 경로로 시작했는지가 들어간다. 그 브랜치에 다시 push하고 PR을 다시 요청하면 꼬리만 새 commit으로 바뀌고, 그 위에 사람이 쓴 본문은 그대로 남는다.
 
 세션 안의 에이전트는 내장 MCP 도구로 같은 일을 한다. `open_pull_request`로 열고, `update_pull_request`로 제목·본문을 고치고, `comment_pull_request`로 코멘트를 단다. `close_pull_request`와 `reopen_pull_request`로 이 세션의 push 요청이 연 PR을 머지하지 않고 닫거나 다시 연다. 사람 승인은 받지 않는다. 다른 세션의 PR이나 허용되지 않은 저장소의 PR은 닫지 못한다. 이미 닫힌 PR을 닫거나 열린 PR을 다시 열면 아무것도 바꾸지 않고 `changed: false`로 답한다. 머지된 PR은 `PULL_REQUEST_MERGED`로 거절한다. 닫아도 `agent/<session-id>` 브랜치는 지우지 않는다. 그래서 다시 열 수 있다.
+
+워크스페이스가 허용하면 `merge_pull_request`로 그 PR을 squash로 머지한다. 허용하지 않았으면 GitHub를 부르기 전에 `GITHUB_REFUSED`(`merge_off`)로 거절한다. 머지는 push 요청이 푸시한 commit에 고정한다. PR의 head가 그 commit이 아니면 `head_moved`로 거절하고, 필수 check 대기·리뷰 필요·대화 미해결·충돌처럼 GitHub가 지금은 머지하지 않는 PR은 `merge_blocked`로 거절한다. 열 때와 다른 base로 옮겨졌거나 base가 다른 열린 PR의 head인 PR(쌓인 PR)도 `merge_blocked`다. GitHub의 비동기 머지는 그 PR이 쌓인 아래 PR까지 함께 머지하기 때문이다. 머지 요청을 GitHub가 받았지만 기다리는 동안 끝나지 않으면 `forge_failed`로 답한다. 머지가 뒤늦게 끝날 수 있으니 PR을 확인하고 다시 부르면 된다. 이미 머지된 같은 commit은 `changed: false`로 답한다. 이미 머지된 PR은 같은 commit이면 `changed: false`로 답한다. 관리자 우회, 자동 머지, 다른 머지 방식은 쓰지 않는다. 권한 확인이 없는 모드(`bypassPermissions`)의 세션은 켜져 있으면 지시 없이도 머지할 수 있다. 머지 요청은 규칙 우회를 끄고(`bypass_rules: false`) GitHub의 비동기 머지 API로 보내므로, 작성용 App이 저장소·조직 ruleset의 우회 대상이어도 그 권한으로 필수 check와 리뷰를 건너뛰지 못한다. 그래도 머지용 App은 우회 대상에 넣지 않는 편이 안전하다. 에이전트의 Actions 허용 목록에 PR을 머지하는 워크플로를 넣으면 이 스위치가 그 머지를 막지 못한다.
 
 ## push가 끝난 뒤 PR이 열리는 방식
 

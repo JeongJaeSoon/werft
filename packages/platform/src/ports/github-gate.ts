@@ -143,6 +143,17 @@ export interface GitHubApi {
     edit: (body: string) => string,
     title?: string,
   ): Promise<void>;
+  /**
+   * Squash-merges it on `sha`, which GitHub checks against the head, with
+   * rule bypass off. No auto-merge, no other method. A 400 or 405 (not
+   * mergeable now) is GitHubCallError with that status. `already` is a pull
+   * request GitHub found merged before this call did anything.
+   */
+  mergePullRequest(input: { number: number; sha: string }): Promise<{
+    merged: boolean;
+    sha: string | null;
+    already?: boolean;
+  }>;
   /** Closes or reopens it; answers the pull request as GitHub left it. */
   setPullRequestState(
     number: number,
@@ -282,7 +293,8 @@ export type GitHubGateReceipt = {
     | "mint_github_token"
     | "dispatch_workflow"
     | "rerun_workflow"
-    | "review_pull_request";
+    | "review_pull_request"
+    | "merge_pull_request";
   status: "succeeded" | "failed";
   result: Record<string, unknown>;
   error: { code: "GITHUB_REFUSED"; message: string } | null;

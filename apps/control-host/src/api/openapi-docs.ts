@@ -238,8 +238,12 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "No pull request was opened from this push request yet; open it first.",
   PULL_REQUEST_MERGED:
     "The pull request was merged; a merged pull request is neither closed nor reopened.",
+  PULL_REQUEST_MERGE_BLOCKED:
+    "GitHub will not merge the pull request now: a required check is pending or failed, a review or conversation is open, it is a draft or it conflicts. Try again once that changes.",
+  PULL_REQUEST_CLOSED:
+    "The pull request was closed without being merged; reopen it before merging.",
   GITHUB_REFUSED:
-    "The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.",
+    "The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.",
   GITHUB_APP_CONFLICT:
     "The App would clash with the workspace's other GitHub App. `error.details.reason_code` says how: `same_app` (the other role already holds this App; GitHub refuses an approval from the App that opened the pull request) or `no_author_app` (a reviewer App needs the author App first).",
   GITHUB_UNAVAILABLE:

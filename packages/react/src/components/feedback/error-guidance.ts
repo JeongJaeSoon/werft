@@ -104,6 +104,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
   PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
   PULL_REQUEST_MERGED: "머지된 PR은 닫거나 다시 열 수 없습니다.",
+  PULL_REQUEST_MERGE_BLOCKED:
+    "GitHub가 지금은 머지하지 않습니다 — 필수 check, 리뷰, 대화 해결을 확인하세요.",
+  PULL_REQUEST_CLOSED: "닫힌 PR은 머지할 수 없습니다 — 먼저 다시 여세요.",
   GITHUB_REFUSED:
     "플랫폼이 이 GitHub 작업을 막았습니다 — 에이전트의 GitHub 설정을 확인하세요.",
   GITHUB_APP_CONFLICT:
@@ -264,6 +267,9 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   PULL_REQUEST_MISSING:
     "No PR was opened from this request — open the PR first.",
   PULL_REQUEST_MERGED: "A merged PR can't be closed or reopened.",
+  PULL_REQUEST_MERGE_BLOCKED:
+    "GitHub won't merge it now — check required checks, reviews and open conversations.",
+  PULL_REQUEST_CLOSED: "A closed PR can't be merged — reopen it first.",
   GITHUB_REFUSED:
     "The platform blocked this GitHub action — check the agent's GitHub settings.",
   GITHUB_APP_CONFLICT:
@@ -438,6 +444,10 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   PULL_REQUEST_MISSING:
     "このリクエストで開いた PR がありません — 先に PR を開いてください。",
   PULL_REQUEST_MERGED: "マージ済みの PR は閉じることも再オープンもできません。",
+  PULL_REQUEST_MERGE_BLOCKED:
+    "GitHub は今はマージしません — 必須チェック、レビュー、未解決の会話を確認してください。",
+  PULL_REQUEST_CLOSED:
+    "クローズ済みの PR はマージできません — 先に再オープンしてください。",
   GITHUB_REFUSED:
     "プラットフォームがこの GitHub 操作をブロックしました — エージェントの GitHub 設定を確認してください。",
   GITHUB_APP_CONFLICT:

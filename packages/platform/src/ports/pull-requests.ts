@@ -56,6 +56,14 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "PULL_REQUEST_MERGED",
     message: "The pull request was merged; it cannot be closed or reopened",
   },
+  merge_blocked: {
+    code: "PULL_REQUEST_MERGE_BLOCKED",
+    message: "GitHub will not merge the pull request now",
+  },
+  pull_request_closed: {
+    code: "PULL_REQUEST_CLOSED",
+    message: "The pull request was closed without being merged",
+  },
   superseded: {
     code: "PUSH_REQUEST_RESOLVED",
     message:
@@ -77,7 +85,8 @@ export type PullRequestOperation =
   | "update_pull_request"
   | "comment_pull_request"
   | "close_pull_request"
-  | "reopen_pull_request";
+  | "reopen_pull_request"
+  | "merge_pull_request";
 
 /** The push request a pull request is opened from, as stored. */
 export type PullRequestSource = {

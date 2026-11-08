@@ -107,6 +107,12 @@ export const ACTION_REFUSAL_CODES = {
   // not adopted. A compare GitHub failed ends here too; a head that only lags
   // behind the push is `forge_failed` instead.
   head_moved: byGitHub,
+  merge_off: byPolicy,
+  // GitHub will not merge it yet (checks, reviews, conversations, conflicts);
+  // call again once that changes.
+  merge_blocked: actionRefusalSpec("github", true),
+  // The pull request was closed without merging; reopen it first.
+  pull_request_closed: actionRefusalSpec("platform"),
   // `request_push.pull_request` needs the PR tool trusted in this session;
   // nothing was created. Call request_push without it, then open_pull_request.
   pull_request_needs_tool_call: actionRefusalSpec("platform"),
