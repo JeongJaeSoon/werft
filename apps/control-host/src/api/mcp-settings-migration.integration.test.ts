@@ -496,4 +496,67 @@ integration("the MCP settings migration CLI on PostgreSQL", () => {
       expect(await rowOf(db, busy.agentId)).toBeDefined();
     });
   });
+
+  test("revert takes back a draft's copy only while the newest card still gives its values", async () => {
+    await withDatabase(async ({ db, run }) => {
+      const workspaceId = await workspaceOf(db);
+      const draftCard = (tools: string[]) =>
+        cardOf("docs", ["docs-key"], {
+          tool_policy: {
+            per_tool: Object.fromEntries(tools.map((tool) => [tool, "allow"])),
+          },
+        });
+      const copy = (agentId: string) =>
+        db.insert(agentMcpSettings).values({
+          agentId,
+          workspaceId,
+          server: "docs",
+          allowedTools: [READ],
+          credentialRefs: ["docs-key"],
+          updatedBy: null,
+        });
+
+      // No active release, and the newest card still gives the copy's values.
+      const same = await agentOf(db, workspaceId);
+      await versionOf(db, same, 1, draftCard([READ]));
+      await copy(same);
+
+      // The draft was edited after the copy.
+      const edited = await agentOf(db, workspaceId);
+      await versionOf(db, edited, 1, draftCard([READ]));
+      await versionOf(db, edited, 2, draftCard([READ, SEARCH]));
+      await copy(edited);
+
+      // A release was activated since, and it does not carry the copy.
+      const activated = await agentOf(db, workspaceId);
+      await versionOf(db, activated, 1, draftCard([READ]));
+      await copy(activated);
+      await activate(
+        db,
+        activated,
+        await releaseOf(db, activated, 2, cardOf(null, []), {}),
+      );
+
+      const { code, out } = await run(["--revert"]);
+      expect(out.reverted_draft).toEqual([same]);
+      expect(
+        Object.fromEntries(
+          out.left.map((l: { agent_id: string; reason: string }) => [
+            l.agent_id,
+            l.reason,
+          ]),
+        ),
+      ).toEqual({ [edited]: "changed", [activated]: "changed" });
+      // A release's copy and a draft's copy are counted apart.
+      expect(out).toMatchObject({
+        reverted_count: 0,
+        reverted_draft_count: 1,
+        left_count: 2,
+      });
+      expect(code).toBe(1);
+      expect(await rowOf(db, same)).toBeUndefined();
+      expect(await rowOf(db, edited)).toBeDefined();
+      expect(await rowOf(db, activated)).toBeDefined();
+    });
+  });
 });

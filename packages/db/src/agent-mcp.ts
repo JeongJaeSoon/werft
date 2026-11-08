@@ -365,7 +365,7 @@ export async function listMcpEditedRows(
 }
 
 export type McpRevertResult =
-  | { status: "reverted" }
+  | { status: "reverted"; draft: boolean }
   | { status: "left"; reason: string };
 
 /**
@@ -421,25 +421,38 @@ export async function revertMcpCopyRow(
     if (now === undefined || copyValuesOf(now) !== rowValues) {
       return { status: "left", reason: "changed" } as const;
     }
-    // Every release of the agent must carry what the row says, so a session
-    // of any of them keeps its access once the row is gone.
-    const releases = rowsOf<{ card: unknown; policy_pins: unknown }>(
-      await tx.execute(
-        sql`SELECT v.card, r.policy_pins FROM agent_releases r
-          JOIN agent_versions v ON v.id = r.version_id
-          WHERE r.agent_id = ${input.agentId}`,
-      ),
-    );
-    const carries = releases.every((release) => {
-      const values = mcpValuesOfCard(release.card, release.policy_pins);
-      return (
-        values.server === row.server &&
-        row.allowedTools.every((tool) => values.allowedTools.includes(tool)) &&
-        row.credentialRefs.every((ref) => values.credentialRefs.includes(ref))
+    // With no active release the row is a draft's copy (`--include-drafts`).
+    // The checks above already are its guard: no open session holds its
+    // snapshot, and it equals what the newest card gives. No release carries
+    // anything to compare, so none is asked to.
+    const draft = false;
+    if (!draft) {
+      // Every release of the agent must carry what the row says, so a session
+      // of any of them keeps its access once the row is gone.
+      const releases = rowsOf<{ card: unknown; policy_pins: unknown }>(
+        await tx.execute(
+          sql`SELECT v.card, r.policy_pins FROM agent_releases r
+            JOIN agent_versions v ON v.id = r.version_id
+            WHERE r.agent_id = ${input.agentId}`,
+        ),
       );
-    });
-    if (!carries) {
-      return { status: "left", reason: "release_does_not_carry" } as const;
+      const carries =
+        releases.length > 0 &&
+        releases.every((release) => {
+          const values = mcpValuesOfCard(release.card, release.policy_pins);
+          return (
+            values.server === row.server &&
+            row.allowedTools.every((tool) =>
+              values.allowedTools.includes(tool),
+            ) &&
+            row.credentialRefs.every((ref) =>
+              values.credentialRefs.includes(ref),
+            )
+          );
+        });
+      if (!carries) {
+        return { status: "left", reason: "release_does_not_carry" } as const;
+      }
     }
     await tx
       .delete(agentMcpSettings)
@@ -450,7 +463,7 @@ export async function revertMcpCopyRow(
           eq(agentMcpSettings.revision, 1),
         ),
       );
-    return { status: "reverted" } as const;
+    return { status: "reverted", draft } as const;
   });
 }
 

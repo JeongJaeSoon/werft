@@ -222,23 +222,28 @@ async function revert(deps: McpSettingsMigrationDeps, say: Say) {
   }
   try {
     const reverted: string[] = [];
+    const revertedDraft: string[] = [];
     const left: { agent_id: string; reason: string }[] = [];
     for (const row of await listMcpCopyCandidates(deps.db)) {
       const result = await revertMcpCopyRow(deps.db, {
         agentId: row.agent_id,
         workspaceId: row.workspace_id,
       });
-      if (result.status === "reverted") reverted.push(row.agent_id);
-      else left.push({ agent_id: row.agent_id, reason: result.reason });
+      if (result.status === "reverted") {
+        (result.draft ? revertedDraft : reverted).push(row.agent_id);
+      } else left.push({ agent_id: row.agent_id, reason: result.reason });
     }
     // A row a person saved is theirs: kept, and named so it is not missed.
     const keptEdited = await listMcpEditedRows(deps.db);
     say({
       reverted,
+      reverted_draft: revertedDraft,
       kept_edited: keptEdited,
       left,
       refused_count: 0,
+      // Two counts that never overlap: copies of a release, copies of a draft.
       reverted_count: reverted.length,
+      reverted_draft_count: revertedDraft.length,
       kept_edited_count: keptEdited.length,
       left_count: left.length,
     });
