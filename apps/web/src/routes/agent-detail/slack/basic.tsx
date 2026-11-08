@@ -5,8 +5,8 @@ import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
+import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackSettings } from "./queries.ts";
 import { dmOn, slackFailure, slackReason } from "./shared.ts";
 

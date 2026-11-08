@@ -7,7 +7,7 @@ Run one session from start to finish. The agent asks for permission to write a f
 
 ## Create a session that writes a file
 
-This script writes `hello.txt` with Bash. The `claude-coding-local` profile asks for permission before a command that changes files.
+This script writes `hello.txt` with Bash `tee`. The `claude-coding-local` profile does not ask for file writes and edits inside the session workspace or for local git. It asks for permission before any other command that changes files, such as `tee`, which is not on that list. A redirect into the workspace (`echo alpha > hello.txt`) does not ask, so this example does not use it.
 
 ```ts title="approve-and-close.ts"
 import {
@@ -19,7 +19,7 @@ import {
 import { werft } from "./werft.ts";
 
 const signal = AbortSignal.timeout(5 * 60_000);
-const COMMAND = "echo alpha > hello.txt";
+const COMMAND = "echo alpha | tee hello.txt";
 
 const created = await werft.sessions.create({
   profile_id: "claude-coding-local",
@@ -63,7 +63,7 @@ console.log(`turn ${first.turn_id}: ${first.status}`);
 ```
 
 ```text
-asked: Bash { command: 'echo alpha > hello.txt', description: 'write hello.txt' }
+asked: Bash { command: 'echo alpha | tee hello.txt', description: 'write hello.txt' }
 answered: accepted
 turn 1: completed
 ```

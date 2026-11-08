@@ -48,7 +48,7 @@ import {
   RowAction,
   Text,
 } from "@werft-ai/ui";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   firstMembersQuery,
   invitesQuery,
@@ -66,16 +66,16 @@ import {
   useRole,
   WORKSPACE_ROLE_VALUES,
 } from "../auth/guard.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import {
   INACTIVE_ROW_CLASS,
   InactiveBadge,
 } from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { ToastProvider, useNotify } from "../components/toast.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -160,6 +160,18 @@ function refusal(
  */
 export function MembersLayout() {
   const { t } = useI18n();
+  // One toast for the three tabs and the team pages under them, so a notice
+  // outlives the screen that raised it.
+  return (
+    <ToastProvider dismissLabel={t("common.dismiss")}>
+      <MembersPage />
+    </ToastProvider>
+  );
+}
+
+function MembersPage() {
+  const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
@@ -178,20 +190,13 @@ export function MembersLayout() {
   });
   const teamReason = usePermissionReason("team.manage", teams);
   const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
-  // The dialog closes on success; the page says what came of it.
-  const [created, setCreated] = useState<string | null>(null);
-  // Fresh on each arrival: a request that answered elsewhere is old news.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on the path change
-  useEffect(() => setCreated(null), [onTeamList]);
 
   // Each tab's one primary action, in the same place (v4 toolbar ②).
   const action = onTeams ? (
     onTeamList && managesTeams && !teamsFailed ? (
       <TeamCreateDialog
         reason={teamReason}
-        onCreated={(name) =>
-          setCreated(name === null ? null : t("teams.created", { name }))
-        }
+        onCreated={(name) => notify(t("teams.created", { name }))}
       />
     ) : undefined
   ) : manages && !failed ? (
@@ -236,7 +241,6 @@ export function MembersLayout() {
             </LinkTab>
           ) : null}
         </LinkTabs>
-        {onTeamList ? <Notice>{created ?? undefined}</Notice> : null}
         <Outlet />
       </div>
     </Page>
@@ -254,7 +258,6 @@ export function MembersScreen() {
   const q = useSearchTerm(query);
   const members = useMemberPages(q, { enabled: manages });
   const search = useRef<HTMLInputElement>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
 
@@ -269,7 +272,6 @@ export function MembersScreen() {
 
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
-      <OutcomeLine outcome={outcome} />
       <ListToolbar
         filter={null}
         search={{
@@ -306,7 +308,7 @@ export function MembersScreen() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <MemberTable items={items} onOutcome={setOutcome} />
+          <MemberTable items={items} />
           <PagedListFooter list={members} />
         </div>
       )}
@@ -319,7 +321,6 @@ export function InvitesScreen() {
   const { client } = useWerft();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
 
   if (!manages) return null;
 
@@ -332,20 +333,14 @@ export function InvitesScreen() {
           onRetry={() => void members.refetch()}
         />
       ) : null}
-      <OutcomeLine outcome={outcome} />
-      <InviteList onOutcome={setOutcome} />
+      <InviteList />
     </div>
   );
 }
 
-function MemberTable({
-  items,
-  onOutcome,
-}: {
-  readonly items: readonly MemberRow[];
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
   const { t } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -367,13 +362,18 @@ function MemberTable({
   const self = useMe()?.user?.id;
 
   const settle = async (text: string) => {
-    onOutcome({ kind: "notice", text });
+    notify(text);
     await queryClient.invalidateQueries({
       queryKey: queryKeysOf(client).members,
     });
   };
   const fail = (error: ApiError, action: MemberAction) => {
-    onOutcome({ kind: "error", text: refusal(t, error, role, action) });
+    // Disabling is confirmed in a dialog that has closed by now: the person
+    // must read why it did not happen, so the error waits to be dismissed.
+    notify(refusal(t, error, role, action), {
+      tone: "error",
+      persistent: action === "disable",
+    });
     // A refusal means the rows' verdicts were stale: read them again.
     if (error.status === 403 || error.status === 409) {
       void queryClient.invalidateQueries({
@@ -394,7 +394,6 @@ function MemberTable({
           body: { role: next },
         }),
       ),
-    onMutate: () => onOutcome(null),
     onSettled: () => setRoleChange(null),
     onSuccess: (updated) =>
       settle(
@@ -422,7 +421,6 @@ function MemberTable({
           : client.POST("/v1/members/{user_id}/disable", params),
       );
     },
-    onMutate: () => onOutcome(null),
     onSuccess: async (result) => {
       setConfirming(null);
       const name = result.member.display_name;
@@ -743,12 +741,9 @@ function MemberEditDialog({
   );
 }
 
-function InviteList({
-  onOutcome,
-}: {
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+function InviteList() {
   const { t, locale } = useI18n();
+  const notify = useNotify();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -762,19 +757,16 @@ function InviteList({
           params: { path: { id: invite.id } },
         }),
       ),
-    onMutate: () => onOutcome(null),
     onSettled: () => setRevoking(null),
     onSuccess: async (_result, invite) => {
-      onOutcome({
-        kind: "notice",
-        text: t("members.invites.revoked", { email: invite.email }),
-      });
+      notify(t("members.invites.revoked", { email: invite.email }));
       await queryClient.invalidateQueries({
         queryKey: queryKeysOf(client).invites,
       });
     },
+    // The confirmation has closed: the person reads why it did not happen.
     onError: (error) =>
-      onOutcome({ kind: "error", text: refusal(t, error, role) }),
+      notify(refusal(t, error, role), { tone: "error", persistent: true }),
   });
 
   const pending =

@@ -236,6 +236,10 @@ export function SessionTimeline({
           running: t("session.events.running"),
           waiting: t("sessions.status.needs_input"),
           options: t("session.events.options"),
+          more: t("session.events.more"),
+          less: t("session.events.less"),
+          table: t("session.events.table"),
+          newTab: t("session.events.newTab"),
         }}
         state={state}
         showDebug={debug}

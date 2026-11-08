@@ -63,7 +63,7 @@ async function turns(): Promise<unknown> {
   // Two turns that each change the workspace, so a replayed input would
   // show in the file as well as in the model calls.
   const created = await api.createSession(
-    scripted("rr1", [bash("echo alpha > hello.txt")], "wrote alpha"),
+    scripted("rr1", [bash("echo alpha | tee hello.txt")], "wrote alpha"),
   );
   if (created.status !== 201) {
     throw new Error(`create answered ${created.status}`);
@@ -72,7 +72,7 @@ async function turns(): Promise<unknown> {
   await completed(sessionId, "1");
   const second = await api.send(
     sessionId,
-    scripted("rr2", [bash("echo beta >> hello.txt")], "wrote beta"),
+    scripted("rr2", [bash("echo beta | tee -a hello.txt")], "wrote beta"),
   );
   await completed(sessionId, second.turn_id);
   return {

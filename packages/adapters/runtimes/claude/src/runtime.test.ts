@@ -817,6 +817,34 @@ describe("Claude SDK adapter options", () => {
     }
   });
 
+  test("workspace pre-approvals reach attended modes only, never plan or auto", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    const withTools = { ...config, tools: ["Write", "Bash"] };
+    for (const permissionMode of ["default", "acceptEdits"] as const) {
+      const permissions = (
+        buildSdkOptions({ ...withTools, permissionMode }, allow).settings as {
+          permissions?: { allow: string[]; ask: string[] };
+        }
+      ).permissions;
+      expect(permissions?.allow).toContain(`Edit(/${config.cwd}/**)`);
+      expect(permissions?.allow).toContain("Bash(git commit *)");
+      expect(permissions?.ask).toContain(`Edit(/${config.cwd}/.git/**)`);
+    }
+    for (const permissionMode of ["plan", "auto"] as const) {
+      expect(
+        buildSdkOptions({ ...withTools, permissionMode }, allow).settings,
+      ).not.toHaveProperty("permissions");
+    }
+    // A tool the profile does not list gets no rule.
+    const readOnly = buildSdkOptions(
+      { ...config, tools: ["Read"], permissionMode: "default" },
+      allow,
+    );
+    expect(readOnly.settings).not.toHaveProperty("permissions");
+  });
+
   test("auto alone hands the engine the platform's auto mode rules", () => {
     const allow = {
       onPermission: async () => ({ behavior: "allow" as const }),
