@@ -23,8 +23,9 @@ export function wanted(status, url, pattern) {
 // Keys whose values are secrets. A substring match, so "access_token" and
 // "bootstrap_token" are covered. `code` is left out on purpose: error.code
 // ("UNAUTHORIZED") is what a failed-request report is read for.
-const SECRET_KEY =
-  /(token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf)/i;
+const SECRET_WORDS =
+  "token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf";
+const SECRET_KEY = new RegExp(`(${SECRET_WORDS})`, "i");
 
 // A parsed JSON body is masked by key at any depth and for any value type
 // (string, array, object); escaped key spellings are decoded by the parse.
@@ -39,15 +40,6 @@ function hideSecrets(value) {
     );
   return value;
 }
-
-// A key as written in text may use \uXXXX escapes; compare the decoded name.
-const jsonText = (literal) => {
-  try {
-    return JSON.parse(literal);
-  } catch {
-    return literal;
-  }
-};
 
 // Where the JSON value that starts at `i` ends. A string, array or object that
 // is cut off (no closing mark) runs to the end of the text: hiding too much of
@@ -84,26 +76,25 @@ function valueEnd(s, i) {
   return i + bare.length;
 }
 
-// JSON that sits inside other text, or a body that is not valid JSON: find
-// each `"key":` and hide the value after a secret key, whatever its shape.
+// JSON that sits inside other text, or a body that is not valid JSON. Quotes
+// are never paired here (a stray, escaped or missing one broke every pairing
+// scheme): look for a secret word, allow a short run of key characters after
+// it (the rest of the name, its closing quote, escapes), then `:` or `=`, and
+// hide the value that follows, whatever its shape. Over-hiding prose such as
+// "token expired: retry" is the safe side.
+const SECRET_AT = new RegExp(
+  `(?:${SECRET_WORDS})[A-Za-z0-9_\\-\\\\"' ]{0,40}?[:=]\\s*`,
+  "gi",
+);
 function hideEmbedded(text) {
-  // A scan, not a regex, and every quote is tried as the start of a key: the
-  // span to the next quote is the candidate, so a stray quote earlier in the
-  // text cannot pair the wrong quotes and skip a key, and the work stays
-  // linear. A key written as \"name\" (JSON inside a string) is found the same way.
-  const colon = /\s*:\s*/y;
   let out = "";
   let last = 0;
-  for (let q = text.indexOf('"'); q !== -1; q = text.indexOf('"', q + 1)) {
-    if (q < last) continue; // inside a value that is already hidden
-    const close = text.indexOf('"', q + 1);
-    if (close === -1) break;
-    colon.lastIndex = close + 1;
-    if (!colon.test(text)) continue;
-    if (!SECRET_KEY.test(jsonText(text.slice(q, close + 1)))) continue;
-    const start = colon.lastIndex;
+  SECRET_AT.lastIndex = 0;
+  for (let m = SECRET_AT.exec(text); m; m = SECRET_AT.exec(text)) {
+    const start = m.index + m[0].length;
     out += `${text.slice(last, start)}"(hidden)"`;
     last = valueEnd(text, start);
+    SECRET_AT.lastIndex = Math.max(last, start);
   }
   return out + text.slice(last);
 }
@@ -115,6 +106,12 @@ export function maskBody(text) {
   } catch {
     // Not JSON (HTML, plain text, a cut body): the patterns below still run.
   }
+  // A key may be spelled with t-style escapes; write the plain letters
+  // back before searching (only [A-Za-z0-9_-], so no quote or bracket moves).
+  out = out.replace(/\\u00([0-7][0-9a-f])/gi, (whole, hex) => {
+    const c = String.fromCharCode(Number.parseInt(hex, 16));
+    return /[A-Za-z0-9_-]/.test(c) ? c : whole;
+  });
   return hideEmbedded(out)
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, "$1 (hidden)")
     .replace(
@@ -123,7 +120,7 @@ export function maskBody(text) {
     )
     .replace(/\/invite\/[^/?#\s"\\]+/g, "/invite/(token)")
     .replace(
-      /((?:code|state|[a-z_]*(?:token|secret|password|passwd|api[_-]?key))(?:=|%3D))(?:(?!%26|%23)[^&#\s"])+/gi,
+      /((?:code|state|[a-z_]{0,40}(?:token|secret|password|passwd|api[_-]?key))(?:=|%3D))(?:(?!%26|%23)[^&#\s"])+/gi,
       "$1(hidden)",
     );
 }
@@ -145,13 +142,25 @@ export function safeUrl(raw) {
     // disable the rest, then look for the invite segment in the decoded path:
     // /in%76ite%2F<token> is the invite path too. Nothing after an invite
     // segment is printed; what comes before goes through the body masks.
-    const decoded = u.pathname.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
-      try {
-        return decodeURIComponent(run);
-      } catch {
-        return run;
-      }
-    });
+    // A run that is not valid UTF-8 still gets its ASCII escapes decoded
+    // (%FF%2F -> %FF/). Control characters stay escaped so a path cannot add
+    // a line to the report.
+    const decoded = u.pathname
+      .replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+        try {
+          return decodeURIComponent(run);
+        } catch {
+          return run.replace(/%[0-7][0-9a-f]/gi, (b) =>
+            String.fromCharCode(Number.parseInt(b.slice(1), 16)),
+          );
+        }
+      })
+      .replace(
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: that is the point
+        /[\u0000-\u001f\u007f]/g,
+        (c) =>
+          `%${c.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase()}`,
+      );
     const segments = decoded.split("/");
     const at = segments.findIndex((s) => s.toLowerCase() === "invite");
     const path =

@@ -103,6 +103,20 @@ describe("maskBody: shapes a first version leaked", () => {
     expect(leaks(body)).toBe(false);
   });
 
+  test("a key with an escaped quote inside, or a doubly nested string", () => {
+    expect(leaks('prefix {"token\\"label":"SENTINEL"}')).toBe(false);
+    const nested = JSON.stringify({
+      a: JSON.stringify({ b: JSON.stringify({ token: "SENTINEL" }) }),
+    });
+    expect(leaks(nested)).toBe(false);
+  });
+
+  test("a very long key name stays fast", () => {
+    const started = performance.now();
+    maskBody(`prefix {"${"token".repeat(8000)}":"x"}`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   test("mismatched brackets hide the rest instead of ending early", () => {
     expect(leaks('prefix {"token":[}SENTINEL]}')).toBe(false);
   });
@@ -150,6 +164,7 @@ describe("maskBody: shapes a first version leaked", () => {
       "/invite/a%22SENTINEL",
       "/in%76ite/SENTINEL%ZZ",
       "/in%76ite%2FSENTINEL",
+      "/%FF%2Finvite%2FSENTINEL",
     ])
       expect(
         formatCapture({
@@ -159,6 +174,16 @@ describe("maskBody: shapes a first version leaked", () => {
           body: "",
         }),
       ).not.toContain("SENTINEL");
+  });
+
+  test("an encoded newline in the path cannot add a report line", () => {
+    const line = formatCapture({
+      method: "GET",
+      url: "http://h/v1%0AFAKE%20ENTRY",
+      status: 404,
+      body: "",
+    });
+    expect(line.includes("\n")).toBe(false);
   });
 
   test("a non-invite path is printed as it is", () => {
