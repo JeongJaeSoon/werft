@@ -105,6 +105,10 @@ describe("variable values", () => {
     ).toBeNull();
   });
 
+  test("a leading byte order mark is text and is kept", () => {
+    expect(envValueProblem("﻿abc", "plain")).toBeNull();
+  });
+
   test("NUL and a lone surrogate are refused", () => {
     expect(envValueProblem("a\0b", "plain")).toBe("invalid_text");
     expect(envValueProblem("a\ud800b", "plain")).toBe("invalid_text");
@@ -189,8 +193,9 @@ describe("runtime_config.env", () => {
   test("a config without it parses to the same object, with no env key", () => {
     const parsed = runtimeConfigSchema.parse(config);
     expect("env" in parsed).toBe(false);
+    // Pinned, so a default or a reordered key added next to `env` shows up.
     expect(JSON.stringify(parsed)).toBe(
-      JSON.stringify(runtimeConfigSchema.parse({ ...config })),
+      '{"model":"claude-sonnet-5","tools":[],"permission_mode":"default","provider":{"kind":"litellm","endpoint":"http://litellm:4000","auth":{"kind":"egress_token","token":"t"}}}',
     );
   });
 
@@ -276,6 +281,49 @@ describe("variable API schemas", () => {
     ]) {
       expect(putEnvVariableRequestSchema.safeParse(body).success).toBe(false);
     }
+  });
+
+  test("a PUT body is judged by its kind: bytes, NUL, and a secret's length", () => {
+    const put = (kind: string, value: string) =>
+      putEnvVariableRequestSchema.safeParse({ kind, value }).success;
+    expect(put("plain", "ok")).toBe(true);
+    expect(put("plain", "a\0b")).toBe(false);
+    expect(put("plain", "a\ud800b")).toBe(false);
+    expect(put("plain", "a".repeat(ENV_VARIABLE_VALUE_MAX_BYTES + 1))).toBe(
+      false,
+    );
+    expect(put("secret", "1")).toBe(false);
+    expect(put("secret", "12345678")).toBe(true);
+  });
+
+  test("no shape that is read back may hold a secret's value", () => {
+    const secret = { ...variable, kind: "secret", value: "example-value" };
+    expect(envVariableListSchema.safeParse({ items: [secret] }).success).toBe(
+      false,
+    );
+    expect(
+      agentEnvVariablesSchema.safeParse({
+        effective: [],
+        items: [],
+        granted_workspace_values: [
+          { name: "TOKEN_X", kind: "secret", value: "example-value" },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      envStartSchema.safeParse({
+        entries: [
+          {
+            name: "TOKEN_X",
+            scope: "agent",
+            kind: "secret",
+            version: 1,
+            value: "example-value",
+          },
+        ],
+        skipped: [],
+      }).success,
+    ).toBe(false);
   });
 
   test("grants replace the whole set, once per agent", () => {

@@ -123,13 +123,16 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       for (const key of this.refusedCapabilities) delete kept[key];
       return { ...request, capabilities: kept as WorkerCapabilities };
     };
-    if (this.refusedCapabilities.size > 0) return send(without());
+    // Keys refused earlier are left out of every request, and a key sent now
+    // that the server refuses is still answered by one more try: an earlier
+    // refusal must not use up the fallback for another key.
+    const first = this.refusedCapabilities.size > 0 ? without() : request;
     try {
-      return await send(request);
+      return await send(first);
     } catch (error) {
       const refused = REFUSABLE_CAPABILITIES.filter(
         (key) =>
-          request.capabilities?.[key] !== undefined &&
+          first.capabilities?.[key] !== undefined &&
           refusesCapability(error, key),
       );
       if (refused.length === 0) throw error;

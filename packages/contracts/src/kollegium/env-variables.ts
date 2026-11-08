@@ -86,7 +86,8 @@ export const ENV_VALUE_PROBLEM_VALUES = [
 ] as const;
 export type EnvValueProblem = (typeof ENV_VALUE_PROBLEM_VALUES)[number];
 
-const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+// ignoreBOM keeps a leading U+FEFF: it is text, and decoding must not drop it.
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /**
  * Why `value` may not be stored, or null. Counts UTF-8 bytes, not characters,
@@ -122,6 +123,13 @@ export const envVariableNameSchema = z
 export const ENV_VARIABLE_KIND_VALUES = ["plain", "secret"] as const;
 export const envVariableKindSchema = z.enum(ENV_VARIABLE_KIND_VALUES);
 export type EnvVariableKind = z.infer<typeof envVariableKindSchema>;
+
+/** A secret is never read back, so no shape that is read may carry its value. */
+const NO_SECRET_VALUE = "a secret variable carries no value";
+const holdsNoSecretValue = (entry: {
+  kind: string;
+  value?: string | undefined;
+}) => entry.kind !== "secret" || entry.value === undefined;
 
 /** Where a name's value came from, narrowest scope first when they overlap. */
 export const ENV_VARIABLE_SCOPE_VALUES = ["workspace", "agent"] as const;
@@ -171,7 +179,8 @@ export const envVariableSchema = z
     updated_by: z.string().min(1).nullable(),
     updated_at: timestampSchema,
   })
-  .strict();
+  .strict()
+  .refine(holdsNoSecretValue, NO_SECRET_VALUE);
 export type EnvVariable = z.infer<typeof envVariableSchema>;
 
 export const envVariableListSchema = z
@@ -189,7 +198,13 @@ export const putEnvVariableRequestSchema = z
     /** Agent-level secrets only; a workspace secret keeps it on the grant. */
     allow_automation: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((body, ctx) => {
+    const problem = envValueProblem(body.value, body.kind);
+    if (problem !== null) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: problem });
+    }
+  });
 export type PutEnvVariableRequest = z.infer<typeof putEnvVariableRequestSchema>;
 
 export const putEnvVariableResponseSchema = z
@@ -251,7 +266,8 @@ export const agentEnvVariablesSchema = z
           kind: envVariableKindSchema,
           value: z.string().optional(),
         })
-        .strict(),
+        .strict()
+        .refine(holdsNoSecretValue, NO_SECRET_VALUE),
     ),
   })
   .strict();
@@ -264,13 +280,15 @@ export const agentEnvVariablesSchema = z
  * entry holds none, only the version that was current. Not strict, so a later
  * field does not make an older image refuse the snapshot.
  */
-export const envStartEntrySchema = z.object({
-  name: envVariableNameSchema,
-  scope: envVariableScopeSchema,
-  kind: envVariableKindSchema,
-  version: z.number().int().positive(),
-  value: z.string().optional(),
-});
+export const envStartEntrySchema = z
+  .object({
+    name: envVariableNameSchema,
+    scope: envVariableScopeSchema,
+    kind: envVariableKindSchema,
+    version: z.number().int().positive(),
+    value: z.string().optional(),
+  })
+  .refine(holdsNoSecretValue, NO_SECRET_VALUE);
 export const envStartSchema = z.object({
   entries: z.array(envStartEntrySchema),
   /** Names left out for a reason the requester must not see. */

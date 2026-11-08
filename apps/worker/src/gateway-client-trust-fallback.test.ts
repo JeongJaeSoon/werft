@@ -233,6 +233,27 @@ describe("claim against a control-host older than user_env", () => {
     expect(lacks(sent[2] as Sent, "user_env")).toBe(true);
   });
 
+  test("a key refused after another was refused earlier is still dropped once", async () => {
+    // Two control-host versions answering behind one address.
+    let calls = 0;
+    const { gateway, sent } = gatewayAgainst((request) => {
+      calls += 1;
+      if (calls === 1) return badRequest(refusing("user_env"));
+      if (calls === 2) return json(200, claimAnswer);
+      return lacks(request, "platform_tool_trust")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("platform_tool_trust"));
+    });
+    await gateway.bootstrapClaim(withUserEnv);
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent.map((entry) => entry.body.capabilities)).toEqual([
+      { approval_remember: true, platform_tool_trust: true, user_env: true },
+      { approval_remember: true, platform_tool_trust: true },
+      { approval_remember: true, platform_tool_trust: true },
+      { approval_remember: true },
+    ]);
+  });
+
   test("a worker that did not announce user_env never loses it to a refusal", async () => {
     const { gateway, sent } = gatewayAgainst(() =>
       badRequest(refusing("user_env")),
