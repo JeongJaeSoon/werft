@@ -224,6 +224,13 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(sparse.length);
     const longHeader = `|a|${"H".repeat(10_000)}|\n|-|-|\n${"|x|y|\n".repeat(1_000)}`;
     expect(markdownToSlackMrkdwn(longHeader).length).toBeLessThan(100_000);
+    // A cut must not land inside a code span kept for later.
+    const codeHeader = `|a|${"x".repeat(38)}\`code\`|\n|-|-|\n${"|x|y|\n".repeat(100)}`;
+    expect(markdownToSlackMrkdwn(codeHeader)).toContain(
+      `*x* — ${"x".repeat(38)}co: y`,
+    );
+    const longCode = `|a|\`${"H".repeat(10_000)}\`|\n|-|-|\n${"|x|y|\n".repeat(100)}`;
+    expect(markdownToSlackMrkdwn(longCode).length).toBeLessThan(100_000);
   });
 
   test("a table ends before a quote and keeps its code spans", () => {

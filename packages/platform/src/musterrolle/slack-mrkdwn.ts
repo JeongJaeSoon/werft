@@ -271,8 +271,9 @@ function renderRowList(rows: readonly string[][], kept: Kept): string {
   // Cells past the header's count are dropped, as GitHub does.
   const columns = rows[0]?.length ?? 0;
   // A long header is cut so it cannot be repeated into every row at full size.
+  // Cut as plain text: a cut inside a kept token would never restore.
   const names = (rows[0] ?? []).map((cell) =>
-    inline(cell.slice(0, NAME_MAX), kept, CELL).trim(),
+    Array.from(cellText(cell, kept)).slice(0, NAME_MAX).join(""),
   );
   const lines = (rows.length > 1 ? rows.slice(1) : rows).map((row) => {
     const cells = row
