@@ -47,6 +47,7 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { noteTurnCoAuthor } from "./attribution-repair.ts";
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
@@ -349,6 +350,7 @@ export class WorkerHost {
   /** The restore in flight or done, settled either way; see `shutdown`. */
   private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
+  private claimValue: BootstrapClaimResponse | undefined;
   private scrubber: SecretScrubber;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -444,6 +446,7 @@ export class WorkerHost {
       };
     }
     const { claim } = claimed;
+    this.claimValue = claim;
     this.workspaceEnforce =
       claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
     this.options.gateway.useCredential(claim.session_credential);
@@ -1308,7 +1311,12 @@ export class WorkerHost {
 
   private async runTurn(
     run: AgentRun,
-    input: { input_id: string; message: string; turn_id: string },
+    input: {
+      input_id: string;
+      message: string;
+      turn_id: string;
+      co_author?: { name: string; email: string } | null | undefined;
+    },
   ): Promise<void> {
     // Delivered while the engine was already gone, or to an attempt whose
     // lease is gone: either way nothing may run it here, so it is left open
@@ -1321,6 +1329,26 @@ export class WorkerHost {
       this.mirrorError !== undefined
     ) {
       return;
+    }
+    const claim = this.claimValue;
+    if (
+      input.co_author !== undefined &&
+      claim?.git !== undefined &&
+      this.options.gitTrailers !== undefined
+    ) {
+      try {
+        await this.options.gitTrailers({
+          ...claim,
+          git: { ...claim.git, co_author: input.co_author },
+        });
+      } catch (error) {
+        this.logger.warn("worker.git_trailers.turn_not_started", {
+          turn_id: input.turn_id,
+          reason: describe(error),
+        });
+        return;
+      }
+      noteTurnCoAuthor(claim, input.co_author);
     }
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what

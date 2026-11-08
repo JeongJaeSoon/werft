@@ -571,6 +571,15 @@ export const nextInputResponseSchema = z.object({
       input_id: z.string().min(1),
       message: z.string().min(1),
       delivery_started_at: timestampSchema,
+      // The co-author this turn's commits name: the turn's requester, not the
+      // session's starter. Absent from a control host that predates it (the
+      // claim's value stands); null when the requester has no linked GitHub
+      // account or there is no requester.
+      co_author: z
+        .object({ name: trailerValueSchema, email: trailerValueSchema })
+        .strict()
+        .nullable()
+        .optional(),
     })
     .nullable(),
   lease_expires_at: timestampSchema,

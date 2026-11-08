@@ -318,6 +318,8 @@ export type DeliveredInput = {
   inputId: string;
   message: string;
   deliveryStartedAt: Date;
+  /** The person whose input this turn is; null for an agent or operator key. */
+  actorId: string | null;
 };
 export type NextInputResult =
   | {

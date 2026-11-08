@@ -151,7 +151,11 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
-import { appBotAuthor, claimGitOf } from "../sessions/git-attribution.ts";
+import {
+  appBotAuthor,
+  claimGitOf,
+  coAuthorOfLink,
+} from "../sessions/git-attribution.ts";
 import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import {
   hashTitleToken,
@@ -590,7 +594,7 @@ export function createWorkerGateway(deps: {
   neutralize?: NeutralizeEvent;
   // Absent, a claim carries no `git` and the worker adds no commit trailer.
   attribution?: {
-    store: SessionAttributionStore;
+    store: Pick<SessionAttributionStore, "attribution" | "githubLinkOf">;
     // Absent, a claim's commit values are not kept and a push is not checked
     // against them.
     ledger?: CommitAttributionLedger;
@@ -716,6 +720,27 @@ export function createWorkerGateway(deps: {
       coAuthor: git.co_author ?? null,
       agentSession: git.session_url ?? sessionId,
     });
+  }
+
+  // The co-author a turn's commits name is the turn's requester, not the
+  // session's starter, read now so a link made since shows from this turn on.
+  // Recorded with the issued values before the worker is told, so a push never
+  // sees a commit of this turn carry a co-author the server did not issue. A
+  // redelivered turn records the same bundle again, which is one row. Undefined
+  // without attribution, which leaves the claim's value in force.
+  async function turnCoAuthor(
+    sessionId: string,
+    actorId: string | null,
+  ): Promise<{ name: string; email: string } | null | undefined> {
+    const attribution = deps.attribution;
+    if (attribution === undefined) return undefined;
+    const link =
+      actorId === null
+        ? null
+        : await attribution.store.githubLinkOf(sessionId, actorId);
+    const coAuthor = coAuthorOfLink(link);
+    await attribution.ledger?.recordTurnCoAuthor(sessionId, coAuthor);
+    return coAuthor;
   }
 
   // A primary repository with no author pin yet gets the one a token issue
@@ -2145,6 +2170,9 @@ export function createWorkerGateway(deps: {
           deps.options.stopWaiting?.aborted === true ||
           now().getTime() >= deadline
         ) {
+          const coAuthor = result.input
+            ? await turnCoAuthor(fence.sessionId, result.input.actorId)
+            : undefined;
           return {
             input: result.input
               ? {
@@ -2153,6 +2181,7 @@ export function createWorkerGateway(deps: {
                   message: result.input.message,
                   delivery_started_at:
                     result.input.deliveryStartedAt.toISOString(),
+                  ...(coAuthor === undefined ? {} : { co_author: coAuthor }),
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),

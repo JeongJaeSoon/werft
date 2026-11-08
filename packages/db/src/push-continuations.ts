@@ -102,7 +102,7 @@ export async function queuePushContinuation(
     .for("update");
   if (mark === undefined) return false;
   const [marked] = await tx
-    .select({ sequence: turns.sequence })
+    .select({ sequence: turns.sequence, actorId: turns.actorId })
     .from(turns)
     .where(eq(turns.id, input.turnRowId));
   const [last] = await tx
@@ -122,7 +122,7 @@ export async function queuePushContinuation(
       message: PUSH_CONTINUATION_MESSAGE,
       status: "queued",
       createdAt: sql`clock_timestamp()`,
-      actorId: null,
+      actorId: marked.actorId,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert the push continuation turn");

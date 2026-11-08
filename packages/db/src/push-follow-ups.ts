@@ -6,6 +6,7 @@ import type { Database } from "./queries.ts";
 import {
   pullRequests,
   pushFollowUps,
+  pushIntents,
   pushRequests,
   sessions,
   turns,
@@ -108,6 +109,12 @@ export async function queuePushFollowUps(
       .select({ sequence: max(turns.sequence) })
       .from(turns)
       .where(eq(turns.sessionId, session.id));
+    const [asked] = await tx
+      .select({ actorId: turns.actorId })
+      .from(pushIntents)
+      .innerJoin(turns, eq(turns.id, pushIntents.turnId))
+      .where(eq(pushIntents.pushRequestId, hold.pushRequestId))
+      .limit(1);
     const [turn] = await tx
       .insert(turns)
       .values({
@@ -116,7 +123,7 @@ export async function queuePushFollowUps(
         message: hold.message,
         status: "queued",
         createdAt: sql`clock_timestamp()`,
-        actorId: null,
+        actorId: asked?.actorId ?? null,
       })
       .returning({ id: turns.id });
     if (!turn) throw new Error("Failed to insert the push follow-up turn");

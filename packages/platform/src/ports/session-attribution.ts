@@ -26,6 +26,33 @@ export type SessionAttributionRecord = {
   authorPinned: boolean;
 };
 
+/** Who asked for a turn: the person, if any, and the surface the input came from. */
+export type TurnRequester = {
+  userId: string | null;
+  channel: "web" | "slack" | "api" | null;
+};
+
 export interface SessionAttributionStore {
   attribution(sessionId: string): Promise<SessionAttributionRecord | null>;
+  /**
+   * Who asked the session's latest turn, with their GitHub link: the
+   * session detail's attribution line goes by it. Null when no turn exists.
+   */
+  lastRequesterOf(sessionId: string): Promise<{
+    userId: string | null;
+    github: { id: string; login: string } | null;
+  } | null>;
+  /** The person's active GitHub link in the session's workspace; else null. */
+  githubLinkOf(
+    sessionId: string,
+    userId: string,
+  ): Promise<{ id: string; login: string } | null>;
+  /**
+   * The requester of the turn whose push intent made this push request; null
+   * when no intent did (a request a person made directly).
+   */
+  requesterOfPushRequest(
+    sessionId: string,
+    pushRequestId: string,
+  ): Promise<TurnRequester | null>;
 }

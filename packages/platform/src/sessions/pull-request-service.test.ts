@@ -27,7 +27,10 @@ import type {
   PullRequestSource,
   PullRequestStore,
 } from "../ports/pull-requests.ts";
-import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
+import type {
+  SessionAttributionRecord,
+  TurnRequester,
+} from "../ports/session-attribution.ts";
 import { fakeRepositoryReads } from "../testing/repository-tree-fake.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
@@ -108,6 +111,10 @@ function harness(
     authorization?: AuthorizationPolicy;
     gateRefusal?: GitHubRefusal;
     attribution?: SessionAttributionRecord | null;
+    requester?: {
+      turn: TurnRequester | null;
+      links?: Record<string, { id: string; login: string }>;
+    };
     failUpdate?: boolean;
     /** Someone opened #9 for the head between the find and the create. */
     raced?: boolean;
@@ -403,7 +410,13 @@ function harness(
     catalog: CATALOG,
     gate,
     redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
-    attribution: { attribution: async () => attribution },
+    attribution: {
+      attribution: async () => attribution,
+      githubLinkOf: async (_sessionId, userId) =>
+        options.requester?.links?.[userId] ?? null,
+      lastRequesterOf: async () => null,
+      requesterOfPushRequest: async () => options.requester?.turn ?? null,
+    },
     settings: {
       get: async (workspaceId) => {
         settingsReads.push(workspaceId);
@@ -837,6 +850,63 @@ describe("opening a pull request", () => {
       "- Started by: GitHub account not linked (App only)",
     );
     expect(body).not.toContain("Co-authored-by");
+  });
+
+  describe("the requester of the turn that asked for the push (94S-1304)", () => {
+    const open = async (options: Parameters<typeof harness>[0]) => {
+      const made = harness(options);
+      await made.service.open(actor, SESSION, PUSH, {
+        readBody: async () => ({}),
+      });
+      return made.created[0]?.body ?? "";
+    };
+
+    test("a requester without a link adds no co-author and no name, though the starter is linked", async () => {
+      const body = await open({
+        requester: { turn: { userId: "user-2", channel: "slack" } },
+      });
+      expect(body).toContain("- Started by: GitHub account linked (octocat)");
+      expect(body).toContain(
+        "- Requested by: a person without a linked GitHub account (Slack)",
+      );
+      expect(body).not.toContain("Co-authored-by");
+    });
+
+    test("a linked requester is the co-author in place of the starter", async () => {
+      const body = await open({
+        requester: {
+          turn: { userId: "user-2", channel: "slack" },
+          links: { "user-2": { id: "42", login: "hubot" } },
+        },
+      });
+      expect(body).toContain("- Requested by: hubot (Slack)");
+      expect(body).toContain(
+        "Co-authored-by: hubot <42+hubot@users.noreply.github.com>",
+      );
+      expect(body).not.toContain("Co-authored-by: octocat");
+      expect(body).not.toContain("@hubot");
+    });
+
+    test("a turn nobody asked names none, and a push no turn asked keeps the starter's tail", async () => {
+      const unasked = await open({
+        requester: { turn: { userId: null, channel: null } },
+      });
+      expect(unasked).toContain("- Requested by: none (App only)");
+      expect(unasked).not.toContain("Co-authored-by");
+      const direct = await open({});
+      expect(direct).not.toContain("Requested by");
+      expect(direct).toContain("Co-authored-by: octocat");
+    });
+
+    test("a platform turn's requester shows the platform as its surface", async () => {
+      const body = await open({
+        requester: {
+          turn: { userId: "user-2", channel: null },
+          links: { "user-2": { id: "42", login: "hubot" } },
+        },
+      });
+      expect(body).toContain("- Requested by: hubot (platform)");
+    });
   });
 
   test("only a pushed request opens one", async () => {

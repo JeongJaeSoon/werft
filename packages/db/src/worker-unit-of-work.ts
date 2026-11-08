@@ -2447,6 +2447,7 @@ export function createPostgresWorkerUnitOfWork(
             inputId: String(message.id),
             message: turn.message,
             deliveryStartedAt,
+            actorId: turn.actorId,
           },
         };
       });

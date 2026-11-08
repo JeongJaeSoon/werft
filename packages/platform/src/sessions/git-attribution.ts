@@ -29,7 +29,12 @@ export function sessionUrlOf(
 export function coAuthorOf(
   record: SessionAttributionRecord | null,
 ): { name: string; email: string } | null {
-  const github = record?.starter?.github;
+  return coAuthorOfLink(record?.starter?.github);
+}
+
+export function coAuthorOfLink(
+  github: { id: string; login: string } | null | undefined,
+): { name: string; email: string } | null {
   if (!github) return null;
   if (!/^[1-9][0-9]{0,19}$/.test(github.id)) return null;
   if (!GITHUB_LOGIN_PATTERN.test(github.login)) return null;
@@ -37,6 +42,35 @@ export function coAuthorOf(
     name: github.login,
     email: githubNoreplyEmail(github.id, github.login),
   };
+}
+
+export type TailRequester =
+  | { kind: "none" }
+  | {
+      kind: "person";
+      github: { id: string; login: string } | null;
+      surface: "Slack" | "web console" | "API key" | "platform";
+    };
+
+export function surfaceOfChannel(
+  channel: "web" | "slack" | "api" | null,
+): "Slack" | "web console" | "API key" | "platform" {
+  return channel === "slack"
+    ? "Slack"
+    : channel === "web"
+      ? "web console"
+      : channel === "api"
+        ? "API key"
+        : "platform";
+}
+
+// No `@` before the login: GitHub would notify the person.
+function requestedByValue(requester: TailRequester): string {
+  if (requester.kind === "none") return "none (App only)";
+  const who =
+    coAuthorOfLink(requester.github)?.name ??
+    "a person without a linked GitHub account";
+  return `${who} (${requester.surface})`;
 }
 
 /**
@@ -71,16 +105,18 @@ export function claimGitOf(
 
 export function attributionView(
   record: SessionAttributionRecord,
+  last?: {
+    userId: string | null;
+    github: { id: string; login: string } | null;
+  } | null,
 ): SessionGitHubAttribution {
-  const coAuthor = coAuthorOf(record);
+  const coAuthor =
+    last == null ? coAuthorOf(record) : coAuthorOfLink(last.github);
+  const person = last == null ? record.starter !== null : last.userId !== null;
   return {
     trigger: record.trigger,
     attribution:
-      coAuthor !== null
-        ? "co_author"
-        : record.starter === null
-          ? "app_only"
-          : "unlinked",
+      coAuthor !== null ? "co_author" : !person ? "app_only" : "unlinked",
     login: coAuthor?.name ?? null,
   };
 }
@@ -88,7 +124,7 @@ export function attributionView(
 /** The session detail's attribution line; whoever may read the session. */
 export function createSessionAttributionService(deps: {
   authorization: AuthorizationPolicy;
-  store: SessionAttributionStore;
+  store: Pick<SessionAttributionStore, "attribution" | "lastRequesterOf">;
 }) {
   return {
     async get(
@@ -104,7 +140,10 @@ export function createSessionAttributionService(deps: {
       if (record === null || record.ownerId !== caller.ownerId) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return attributionView(record);
+      return attributionView(
+        record,
+        await deps.store.lastRequesterOf(sessionId),
+      );
     },
   };
 }
@@ -155,17 +194,28 @@ export function pullRequestTail(input: {
   commit: string;
   pushRequestId: string;
   record: SessionAttributionRecord | null;
-  /** The `Requested by` value, already formatted; no line when absent. */
-  requestedBy?: string | null;
+  /**
+   * The turn that asked for this pull request. Its requester is the tail's
+   * co-author; without it (a request no turn made) the starter is, and no
+   * `Requested by` line is written.
+   */
+  requester?: TailRequester | null;
 }): string {
   const { record } = input;
-  const coAuthor = coAuthorOf(record);
+  const requester = input.requester ?? null;
+  const starterCoAuthor = coAuthorOf(record);
+  const coAuthor =
+    requester === null
+      ? starterCoAuthor
+      : requester.kind === "person"
+        ? coAuthorOfLink(requester.github)
+        : null;
   // No `@` before the login: the tail must not notify the person.
   const starter =
     record === null
       ? "unknown"
-      : coAuthor !== null
-        ? `GitHub account linked (${coAuthor.name})`
+      : starterCoAuthor !== null
+        ? `GitHub account linked (${starterCoAuthor.name})`
         : record.starter === null
           ? "none (App only)"
           : "GitHub account not linked (App only)";
@@ -186,7 +236,9 @@ export function pullRequestTail(input: {
     `- Push request: \`${input.pushRequestId}\``,
     `- Trigger: ${record?.trigger ?? "unknown"}`,
     `- Started by: ${starter}`,
-    ...(input.requestedBy ? [`- Requested by: ${input.requestedBy}`] : []),
+    ...(requester === null
+      ? []
+      : [`- Requested by: ${requestedByValue(requester)}`]),
     "</details>",
     // Kept in the body: a squash merge's default message is the body, and
     // this line is what names the co-author there.
@@ -202,6 +254,7 @@ type TailShape = {
   lines: readonly { line: RegExp; optional?: true }[];
   /** The `Started by` line that names a linked login, captured. */
   linked: RegExp;
+  requested?: RegExp;
 };
 
 // What pullRequestTail writes between the markers, in order, now and before
@@ -234,6 +287,8 @@ const TAIL_SHAPES: readonly TailShape[] = [
       { line: /^<\/details>$/ },
     ],
     linked: /^- Started by: GitHub account linked \(([A-Za-z0-9-]+)\)$/,
+    requested:
+      /^- Requested by: ([A-Za-z0-9-]+) \((?:Slack|web console|API key|platform)\)$/,
   },
   {
     lines: [
@@ -268,15 +323,23 @@ function isTailContent(content: readonly string[]): boolean {
 function fitsShape(lines: readonly string[], shape: TailShape): boolean {
   let at = 0;
   let login: string | undefined;
+  let requestedLogin: string | undefined;
+  let requestedLine = false;
   for (const { line, optional } of shape.lines) {
     const next = lines[at];
     if (next !== undefined && line.test(next)) {
       login ??= shape.linked.exec(next)?.[1];
+      if (next.startsWith("- Requested by: ")) {
+        requestedLine = true;
+        requestedLogin = shape.requested?.exec(next)?.[1];
+      }
       at += 1;
     } else if (!optional) return false;
   }
-  // The platform writes Co-authored-by exactly when the starter is linked, for
-  // that login; any other one is a person's.
+  // The platform writes Co-authored-by exactly when the person it names is
+  // linked, for that login; any other one is a person's. A tail with a
+  // `Requested by` line names the requester; an older one, the starter.
+  if (requestedLine) login = requestedLogin;
   if (login === undefined) return at === lines.length;
   const coAuthor = TAIL_CO_AUTHOR.exec(lines[at + 1] ?? "");
   return (

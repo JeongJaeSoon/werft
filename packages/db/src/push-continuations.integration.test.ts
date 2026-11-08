@@ -25,6 +25,7 @@ import {
   sessions,
   turns,
   unassignedSessions,
+  users,
 } from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -230,6 +231,19 @@ integration("push continuations on PostgreSQL", () => {
 
   test("a marked turn that completes with a checkpoint queues one platform turn the worker then runs", async () => {
     const { sessionId, worker, turnId } = await runningTurn();
+    const [asker] = await db
+      .insert(users)
+      .values({
+        id: crypto.randomUUID(),
+        email: `${crypto.randomUUID()}@example.invalid`,
+        passwordHash: "x",
+        displayName: "asker",
+      })
+      .returning({ id: users.id });
+    await db
+      .update(turns)
+      .set({ actorId: asker?.id ?? null })
+      .where(eq(turns.sessionId, sessionId));
     expect(await mark(sessionId, worker)).toBe(true);
     // A second refusal in the same turn marks nothing new.
     expect(await mark(sessionId, worker)).toBe(true);
@@ -241,14 +255,14 @@ integration("push continuations on PostgreSQL", () => {
         sequence: 1,
         status: "completed",
         message: "make a file and open a pull request",
-        actorId: null,
+        actorId: asker?.id ?? null,
         channel: null,
       },
       {
         sequence: 2,
         status: "queued",
         message: PUSH_CONTINUATION_MESSAGE,
-        actorId: null,
+        actorId: asker?.id ?? null,
         channel: null,
       },
     ]);
