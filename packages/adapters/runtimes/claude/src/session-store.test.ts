@@ -1432,13 +1432,18 @@ describe("Claude session store writing a resumed transcript to disk", () => {
   test("reports the cost the transcript saved last, with its session", async () => {
     const objects = createMemoryCheckpointObjectStore();
     const first = new ClaudeSessionStore({ generation: 1, objects, prefix });
+    const realCostState = {
+      type: "cost-state",
+      sessionId,
+      totalCostUSD: 0,
+      totalAPIDuration: 15,
+      modelUsage: {},
+    };
     await first.append(root, [
       entry("a", "first"),
-      { type: "cost-state", totalCostUSD: 3, sessionId },
+      { ...realCostState, totalCostUSD: 3 },
     ]);
-    await first.append(root, [
-      { type: "cost-state", totalCostUSD: 4.5, sessionId },
-    ]);
+    await first.append(root, [{ ...realCostState, totalCostUSD: 4.5 }]);
     const transcripts = await first.captureTranscripts(sessionId);
     if (transcripts === null) throw new Error("expected transcripts");
     const second = new ClaudeSessionStore({

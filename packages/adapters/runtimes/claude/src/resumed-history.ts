@@ -182,9 +182,18 @@ export function savedCostOfEntry(
   if (typeof usd !== "number" || !Number.isFinite(usd) || usd < 0) {
     return undefined;
   }
-  return typeof entry.sessionId === "string"
-    ? { usd, sessionId: entry.sessionId }
-    : { usd };
+  // The engine drops a `cost-state` entry that does not match its whole
+  // schema, so one without what a real entry carries is not a baseline.
+  // Charging in full is the safe side when unsure.
+  if (
+    typeof entry.sessionId !== "string" ||
+    typeof entry.modelUsage !== "object" ||
+    entry.modelUsage === null ||
+    typeof entry.totalAPIDuration !== "number"
+  ) {
+    return undefined;
+  }
+  return { usd, sessionId: entry.sessionId };
 }
 
 function describe(error: unknown): string {

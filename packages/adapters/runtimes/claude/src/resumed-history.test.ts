@@ -38,6 +38,15 @@ afterEach(async () => {
   scratch = undefined;
 });
 
+/** What the engine writes: the fields beside the total are part of the shape. */
+const REAL_COST_STATE = {
+  type: "cost-state",
+  sessionId: "s1",
+  totalCostUSD: 0,
+  totalAPIDuration: 15,
+  modelUsage: {},
+};
+
 describe("resumed history", () => {
   test("a new session holds nothing", async () => {
     expect(await ResumedHistory.empty().uuids()).toEqual(new Set());
@@ -111,8 +120,10 @@ describe("resumed history", () => {
   test("reads the cost the transcript saved last, and none when it saved none", async () => {
     const withCost: TranscriptEntry[] = [
       { type: "user", uuid: "input-1" },
-      { type: "cost-state", totalCostUSD: 3, sessionId: "s1" },
-      { type: "cost-state", totalCostUSD: 4.5, sessionId: "s1" },
+      { ...REAL_COST_STATE, totalCostUSD: 3 },
+      { ...REAL_COST_STATE, totalCostUSD: 4.5 },
+      // Incomplete, so the engine ignores it and so must we.
+      { type: "cost-state", totalCostUSD: 9, sessionId: "s1" },
     ];
     const watched = ResumedHistory.watching(mirror(async () => withCost));
     await watched.store.load(ROOT);
