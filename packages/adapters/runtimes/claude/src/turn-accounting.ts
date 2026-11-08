@@ -57,10 +57,13 @@ export class TurnAccounting {
    * counts in full too.
    */
   continueFrom(saved: SavedCost | undefined): void {
-    if (saved === undefined || this.lastSessionId !== undefined) return;
+    // Without the session, a `/clear` before the first result would look like
+    // the same session and be charged only what it spent past the saved cost;
+    // such a figure is not a baseline.
+    if (saved?.sessionId === undefined || this.lastSessionId !== undefined) {
+      return;
+    }
     this.lastTotalUsd = saved.usd;
-    // Without it a `/clear` before the first result would look like the same
-    // session and be charged only what it spent past the saved cost.
     this.lastSessionId = saved.sessionId;
   }
 

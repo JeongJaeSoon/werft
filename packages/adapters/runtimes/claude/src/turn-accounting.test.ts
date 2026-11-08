@@ -65,6 +65,13 @@ describe("TurnAccounting", () => {
     expect(accounting.restarted).toBe(true);
   });
 
+  test("a saved cost with no session is not a baseline", () => {
+    const accounting = new TurnAccounting();
+    accounting.continueFrom({ usd: 3 });
+    accounting.observe(result(5, "after-clear"));
+    expect(accounting.settle().costUsd).toBe(5);
+  });
+
   test("a /clear before the first resumed result is a new session, charged in full", () => {
     const accounting = new TurnAccounting();
     accounting.continueFrom({ usd: 3, sessionId: "saved" });
