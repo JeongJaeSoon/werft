@@ -29,6 +29,7 @@ import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import { offerableRules } from "./session-rules.ts";
 import { TurnLedger } from "./turn-ledger.ts";
+import { workspaceRules } from "./workspace-permissions.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
@@ -116,6 +117,7 @@ export function buildSdkOptions(
 ): Options {
   const permittedTools = new Set(config.tools);
   const trustedTools = new Set(config.trustedTools ?? []);
+  const preApproved = workspaceRules(config.cwd, permittedTools);
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
@@ -278,6 +280,10 @@ export function buildSdkOptions(
         }),
     settings: {
       attribution: ENGINE_ATTRIBUTION_OFF,
+      // Plan mode promises no side effects, so nothing is pre-approved there.
+      ...(config.permissionMode === "plan" || preApproved.allow.length === 0
+        ? {}
+        : { permissions: preApproved }),
       ...(config.permissionMode === "auto"
         ? { autoMode: platformAutoMode(trustedTools.size > 0) }
         : {}),
