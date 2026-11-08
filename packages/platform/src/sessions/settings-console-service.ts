@@ -6,6 +6,7 @@ import type {
   ListSettingsMcpServersResponse,
   SettingsChangeResponse,
   SettingsConnection,
+  SettingsConnectionImpactResponse,
   SettingsCredentialView,
   SettingsEntryOrigin,
   SettingsEntryState,
@@ -23,8 +24,12 @@ import {
   billingFitsEndpoint,
   type CatalogMcpServerConfig,
   type CatalogProfileConfig,
+  type CatalogProfileView,
   CONNECTION_ENDPOINT_DEFAULTS,
+  type ProfileLookup,
 } from "./catalog.ts";
+import { connectionImpact } from "./connection-impact.ts";
+import type { Connections } from "./profile-registry.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
@@ -87,6 +92,18 @@ export function createSettingsConsoleService(deps: {
   credentialHosts: readonly string[] | null;
   /** Reads the settings again after a write committed; never throws. */
   reread: () => Promise<void>;
+  /**
+   * The registry the impact count reads. `refresh` rejects when the read
+   * fails, so a stale snapshot is never counted as current.
+   */
+  profiles: {
+    refresh: () => Promise<void>;
+    catalog: ProfileLookup<CatalogProfileView>;
+    settings: () => {
+      connections: Connections;
+      connection_aliases: Connections;
+    };
+  };
 }) {
   const { store } = deps;
 
@@ -279,6 +296,44 @@ export function createSettingsConsoleService(deps: {
         credential_hosts:
           deps.credentialHosts === null ? null : [...deps.credentialHosts],
         endpoint_defaults: { ...CONNECTION_ENDPOINT_DEFAULTS },
+      };
+    },
+
+    async connectionImpact(
+      caller: Caller,
+      id: string,
+    ): Promise<SettingsConnectionImpactResponse> {
+      await writer(caller, "connection");
+      const rows = await store.listRows("connection");
+      if (!rows.some((row) => row.id === id)) {
+        throw new SessionServiceError(
+          "NOT_FOUND",
+          `No settings row ${id} the console manages`,
+        );
+      }
+      try {
+        await deps.profiles.refresh();
+      } catch {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "The profiles could not be read to count what this connection serves",
+        );
+      }
+      const impact = connectionImpact(
+        deps.profiles.catalog,
+        deps.profiles.settings(),
+        id,
+      );
+      const use = await store.connectionUse({
+        profileIds: impact.profile_ids,
+        connectionId: id,
+      });
+      return {
+        id,
+        profile_count: impact.current_profile_count,
+        agent_count: use.agents,
+        session_count: use.sessions,
+        judge_used: use.judgeNamed,
       };
     },
 
