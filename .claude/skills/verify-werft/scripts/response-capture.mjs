@@ -40,6 +40,15 @@ function hideSecrets(value) {
   return value;
 }
 
+// A key as written in text may use \uXXXX escapes; compare the decoded name.
+const jsonText = (literal) => {
+  try {
+    return JSON.parse(literal);
+  } catch {
+    return literal;
+  }
+};
+
 export function maskBody(text) {
   let out = String(text);
   try {
@@ -48,12 +57,14 @@ export function maskBody(text) {
     // Not JSON (HTML, plain text, a cut body): the patterns below still run.
   }
   return out
-    .replace(/("[^"\\]*"\s*:\s*)"(?:[^"\\]|\\.)*"/g, (whole, head) =>
-      SECRET_KEY.test(head) ? `${head}"(hidden)"` : whole,
+    .replace(
+      /("(?:[^"\\]|\\.)*")(\s*:\s*)"(?:[^"\\]|\\.)*"/g,
+      (whole, key, colon) =>
+        SECRET_KEY.test(jsonText(key)) ? `${key}${colon}"(hidden)"` : whole,
     )
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, "$1 (hidden)")
     .replace(
-      /\b((?:set-)?cookie|authorization)\s*[:=]\s*[^\r\n"]+/gi,
+      /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|[^\r\n"])+/gi,
       "$1: (hidden)",
     )
     .replace(/\/invite\/[^/?#\s"\\]+/g, "/invite/(token)")
@@ -83,7 +94,7 @@ export function safeUrl(raw) {
 }
 
 export function formatCapture(c) {
-  const head = `${c.method} ${safeUrl(c.url)} -> ${c.status}`;
+  const head = `${c.method} ${safeUrl(c.url)} -> ${c.status ?? "no response"}`;
   if (c.bodyError) return `${head} | body unavailable: ${c.bodyError}`;
   return `${head} | ${c.body === "" ? "(empty body)" : shortBody(c.body)}`;
 }
@@ -94,63 +105,74 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // still loading (up to settleMs), then returns one line per capture. A request
 // that ends in loadingFailed or never finishes is listed with the reason.
 export function createCollector({ send, pattern, settleMs = 3000 }) {
-  const methods = new Map();
-  const found = new Map();
-  const open = new Set();
-  const done = [];
-  const finish = (id, extra) => {
-    open.delete(id);
-    done.push({ ...found.get(id), ...extra });
+  // One record per hop of a request id, in the order the hops started. A
+  // record is listed once it has a body or a reason (bodyError); `waiting`
+  // holds the ones still loading or being read.
+  const records = [];
+  const current = new Map(); // requestId -> record of the hop in flight
+  const waiting = new Set();
+  const settle = (rec, extra) => {
+    Object.assign(rec, extra);
+    waiting.delete(rec);
+  };
+  // A URL that matches CAPTURE_URL is tracked from the request on, so a
+  // refused connection or a hang before any header is listed too.
+  const begin = (id, method, url) => {
+    const rec = { method, url, listed: false };
+    current.set(id, rec);
+    if (pattern?.test(url)) track(rec);
+  };
+  const track = (rec) => {
+    if (rec.listed) return;
+    rec.listed = true;
+    records.push(rec);
+    waiting.add(rec);
   };
   function onEvent(m) {
     const p = m.params;
-    if (m.method === "Network.requestWillBeSent")
-      methods.set(p.requestId, p.request.method);
-    else if (
-      m.method === "Network.responseReceived" &&
-      wanted(p.response.status, p.response.url, pattern)
-    ) {
-      found.set(p.requestId, {
-        method: methods.get(p.requestId) ?? "GET",
-        url: p.response.url,
-        status: p.response.status,
-      });
-      open.add(p.requestId);
-    } else if (
-      m.method === "Network.loadingFinished" &&
-      open.has(p.requestId)
-    ) {
-      open.delete(p.requestId);
-      const slot = done.push(undefined) - 1;
+    if (m.method === "Network.requestWillBeSent") {
+      const prev = current.get(p.requestId);
+      if (prev && p.redirectResponse) {
+        // The redirect answered the previous hop; it has no body to read.
+        prev.status = p.redirectResponse.status;
+        if (wanted(prev.status, prev.url, pattern)) track(prev);
+        if (prev.listed) settle(prev, { bodyError: "redirect, no body" });
+      }
+      begin(p.requestId, p.request.method, p.request.url);
+    } else if (m.method === "Network.responseReceived") {
+      const rec =
+        current.get(p.requestId) ??
+        (begin(p.requestId, "GET", p.response.url), current.get(p.requestId));
+      rec.status = p.response.status;
+      rec.url = p.response.url;
+      if (wanted(rec.status, rec.url, pattern)) track(rec);
+    } else if (m.method === "Network.loadingFinished") {
+      const rec = current.get(p.requestId);
+      if (!rec?.listed || !waiting.has(rec)) return;
       send("Network.getResponseBody", { requestId: p.requestId }).then(
-        (r) => {
-          done[slot] = {
-            ...found.get(p.requestId),
+        (r) =>
+          settle(rec, {
             body: r.base64Encoded
               ? Buffer.from(r.body, "base64").toString("utf8")
               : r.body,
-          };
-        },
-        (error) => {
-          done[slot] = {
-            ...found.get(p.requestId),
+          }),
+        (error) =>
+          settle(rec, {
             bodyError: error.message.replace(/^Network\.getResponseBody: /, ""),
-          };
-        },
+          }),
       );
-    } else if (m.method === "Network.loadingFailed" && open.has(p.requestId))
-      finish(p.requestId, { bodyError: p.errorText ?? "loading failed" });
+    } else if (m.method === "Network.loadingFailed") {
+      const rec = current.get(p.requestId);
+      if (rec?.listed && waiting.has(rec))
+        settle(rec, { bodyError: p.errorText ?? "loading failed" });
+    }
   }
   async function report() {
-    for (let t = 0; open.size > 0 && t < settleMs; t += 50) await sleep(50);
-    for (const id of [...open])
-      finish(id, { bodyError: "response had not finished loading" });
-    // getResponseBody answers are still in flight when a slot is undefined.
-    for (let t = 0; done.includes(undefined) && t < settleMs; t += 50)
-      await sleep(50);
-    return done
-      .filter(Boolean)
-      .map((c) => `! failed request: ${formatCapture(c)}`);
+    for (let t = 0; waiting.size > 0 && t < settleMs; t += 50) await sleep(50);
+    // Whatever is still open ran out of time: list it with why.
+    for (const rec of [...waiting])
+      settle(rec, { bodyError: "no response body within the wait" });
+    return records.map((c) => `! failed request: ${formatCapture(c)}`);
   }
   return { onEvent, report };
 }

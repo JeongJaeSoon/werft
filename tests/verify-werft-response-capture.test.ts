@@ -79,7 +79,13 @@ describe("maskBody: shapes a first version leaked", () => {
     expect(leaks("?redir=https%3A%2F%2Fh%2Fcb%3Fcode%3DSENTINEL")).toBe(false);
   });
 
-  test("every cookie in a list, not just the first", () => {
+  test("an escaped secret key inside JSON embedded in other text", () => {
+    expect(leaks('request: {"access_\\u0074oken":"SENTINEL"}')).toBe(false);
+  });
+
+  test("every cookie in a list, quoted values included", () => {
+    expect(leaks('Cookie: a="SENTINEL"; session=x')).toBe(false);
+    expect(leaks('Cookie: a="x"; session=SENTINEL')).toBe(false);
     expect(leaks("Cookie: first=x; session=SENTINEL")).toBe(false);
     expect(leaks("set-cookie: a=1, b=SENTINEL")).toBe(false);
   });
@@ -97,22 +103,27 @@ describe("maskBody: shapes a first version leaked", () => {
 
 describe("createCollector", () => {
   const sent: string[] = [];
-  const setup = (answer: () => Promise<unknown>) => {
+  const setup = (
+    answer: () => Promise<unknown>,
+    pattern?: RegExp,
+    settleMs = 500,
+  ) => {
     sent.length = 0;
     return createCollector({
       send: (method: string) => {
         sent.push(method);
         return answer();
       },
-      pattern: undefined,
-      settleMs: 500,
+      pattern,
+      settleMs,
     });
   };
+  const sentEvent = (id: string, url = "http://h/v1/x", extra = {}) => ({
+    method: "Network.requestWillBeSent",
+    params: { requestId: id, request: { method: "POST", url }, ...extra },
+  });
   const request = (id: string, status: number, url = "http://h/v1/x") => [
-    {
-      method: "Network.requestWillBeSent",
-      params: { requestId: id, request: { method: "POST" } },
-    },
+    sentEvent(id, url),
     {
       method: "Network.responseReceived",
       params: { requestId: id, response: { status, url } },
@@ -165,8 +176,77 @@ describe("createCollector", () => {
     const c = setup(async () => ({ body: "", base64Encoded: false }));
     for (const m of request("1", 503)) c.onEvent(m);
     expect((await c.report())[0]).toContain(
-      "response had not finished loading",
+      "POST /v1/x -> 503 | body unavailable: no response body within the wait",
     );
+  });
+
+  test("a body read that never answers keeps the request, status and reason", async () => {
+    const c = setup(() => new Promise(() => {}), undefined, 100);
+    for (const m of [...request("1", 500), finished("1")]) c.onEvent(m);
+    expect(await c.report()).toEqual([
+      "! failed request: POST /v1/x -> 500 | body unavailable: no response body within the wait",
+    ]);
+  });
+
+  test("a pattern match that fails before any header is listed", async () => {
+    const c = setup(
+      async () => ({ body: "", base64Encoded: false }),
+      globToRegExp("*/v1/*"),
+    );
+    c.onEvent(sentEvent("1"));
+    c.onEvent({
+      method: "Network.loadingFailed",
+      params: { requestId: "1", errorText: "net::ERR_CONNECTION_REFUSED" },
+    });
+    expect(await c.report()).toEqual([
+      "! failed request: POST /v1/x -> no response | body unavailable: net::ERR_CONNECTION_REFUSED",
+    ]);
+  });
+
+  test("a pattern-matching redirect hop is listed with its status", async () => {
+    const c = setup(
+      async () => ({ body: "done", base64Encoded: false }),
+      globToRegExp("*/v1/start"),
+    );
+    c.onEvent(sentEvent("4", "http://h/v1/start"));
+    c.onEvent(
+      sentEvent("4", "http://h/end", {
+        redirectResponse: { status: 302, url: "http://h/v1/start" },
+      }),
+    );
+    c.onEvent({
+      method: "Network.responseReceived",
+      params: {
+        requestId: "4",
+        response: { status: 200, url: "http://h/end" },
+      },
+    });
+    c.onEvent(finished("4"));
+    expect(await c.report()).toEqual([
+      "! failed request: POST /v1/start -> 302 | body unavailable: redirect, no body",
+    ]);
+  });
+
+  test("a failure that arrives while another body is being read is also listed", async () => {
+    let release: (v: unknown) => void = () => {};
+    const c = setup(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+      undefined,
+      200,
+    );
+    for (const m of [...request("A", 500), finished("A")]) c.onEvent(m);
+    const lines = c.report();
+    setTimeout(() => {
+      for (const m of request("B", 503)) c.onEvent(m);
+      release({ body: "a-body", base64Encoded: false });
+    }, 20);
+    const out = await lines;
+    expect(out).toHaveLength(2);
+    expect(out[0]).toContain("-> 500 | a-body");
+    expect(out[1]).toContain("-> 503 | body unavailable");
   });
 
   test("a body the browser no longer has is reported as unavailable", async () => {
