@@ -10,6 +10,7 @@
     "./migrate": "./src/migrate.ts",
     "./pool": "./src/pool.ts",
     "./testing/checkpoints": "./src/testing/checkpoints.ts",
+    "./testing/fixture-team": "./src/testing/fixture-team.ts",
     "./testing/launches": "./src/testing/launches.ts"
   },
   "scripts": {

@@ -909,7 +909,7 @@ describe("에이전트 상세 탭", () => {
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     const panel = await screen.findByRole("tabpanel");
-    await within(panel).findByText("담당 팀 미지정");
+    await within(panel).findByText("재무");
     await within(panel).findByText(/에이전트 관리자는/);
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByRole("combobox")).toBeNull();

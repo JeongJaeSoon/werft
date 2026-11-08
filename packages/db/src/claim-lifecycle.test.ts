@@ -27,6 +27,7 @@ import {
   workerLaunches,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
@@ -160,9 +161,13 @@ async function releaseWith(
   const versionId = crypto.randomUUID();
   const id = `rel-${crypto.randomUUID()}`;
   await db.insert(workspaces).values({ id: workspaceId, slug: id, name: id });
-  await db
-    .insert(agents)
-    .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
+  await db.insert(agents).values({
+    id: agentId,
+    workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
+    slug: "bot",
+    name: "bot",
+  });
   await db.insert(agentVersions).values({
     id: versionId,
     agentId,

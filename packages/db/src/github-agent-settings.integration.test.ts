@@ -142,7 +142,7 @@ integration("GitHub agent settings, expand", () => {
       "github_apps_workspace_app_uniq",
     );
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'b', 'b')",
+      "WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, managing_team_id) VALUES ($1, $2, 'b', 'b', (SELECT id FROM t))",
       [randomUUID(), workspaceId],
     );
     expect(

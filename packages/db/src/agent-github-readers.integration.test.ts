@@ -100,7 +100,7 @@ integration("the readers of an agent's GitHub settings", () => {
       [userId, `${userId}@example.invalid`],
     );
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', $4)",
+      "WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, github_enabled, managing_team_id) VALUES ($1, $2, $3, 'a', $4, (SELECT id FROM t))",
       [
         agentId,
         workspaceId,

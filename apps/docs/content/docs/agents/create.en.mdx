@@ -77,7 +77,7 @@ If the same workspace already has the same slug, the response is 409 `ALREADY_EX
 
 The team in `managing_team_id` becomes the responsible team. Leaving it out is 400 `BAD_REQUEST`, with `{"path": "managing_team_id", "message": "managing_team_id is required"}` in `error.details.issues`. An owner or admin who names a team that does not exist gets 404. Anyone else who names a team they are not in gets 403 (`details.reason_code: team_not_allowed`), even when the team does not exist. So a member who is in no team cannot create an agent. The response's `agent.managing_team_name` is that team's name.
 
-An agent created before the responsible team was required may have none. It is still read, edited and run as before; the list and responses show `managing_team_id` and `managing_team_name` as `null`, and `PUT /v1/agents/{id}/managing-team` sets its team.
+Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace. That team is an ordinary team: rename it, or move its agents to another team.
 
 ### Create a release
 
@@ -138,18 +138,18 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":0}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0}}
 ```
 
-The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `runtime_profile_id` you get only agents whose active release runs on that profile; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), how many are drafts, not archived but with no active release yet (`draft`), and how many have no responsible team (`unassigned`). With `managing_team=unassigned` the list returns only agents without a responsible team. Both need the same permission as the list, and API keys are refused.
+The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `runtime_profile_id` you get only agents whose active release runs on that profile; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), and how many are drafts, not archived but with no active release yet (`draft`). Both need the same permission as the list, and API keys are refused.
 
 ## The responsible team in the console
 
 The responsible team is the team an agent belongs to. Its team leads manage the agent; its members see the settings and use it ([Permissions](/agents/permissions#agent-administrators)).
 
 - **New agent**: the first step requires a responsible team. Owners and admins pick from every team, members from the teams they are in. With a single team it is picked for you. A member in no team sees only “You are in no team, so you cannot make an agent. Ask a workspace admin to add you to a team.” and cannot go on.
-- **Agent list**: the table and the cards show the responsible team, and an agent without one is marked `No responsible team`. When there is such an agent, a `No responsible team` tab gathers them. The card of an agent whose settings you cannot read shows only its name, state and responsible team.
-- **Admins tab**: the `Responsible team` group at the top shows the current team. Whoever manages the agent sets or changes it there. With no responsible team and a single admin team, a button to make that team the responsible team comes first. A responsible team with no team lead is pointed out.
+- **Agent list**: the table and the cards show the responsible team. The card of an agent whose settings you cannot read shows only its name, state and responsible team.
+- **Admins tab**: the `Responsible team` group at the top shows the current team. Whoever manages the agent sets or changes it there. A responsible team with no team lead is pointed out.
 - **Responsible team members**: they read every setting on the detail page but get no edit, release or connect buttons, and a notice at the top says they can only read.
 - **Outside members**: opening the detail address shows the name, state and responsible team with “Only the responsible team's members and the agent's admins see its settings.” instead of the settings.
 

@@ -137,7 +137,7 @@ integration("sessions on a repository only the old file knew", () => {
       [userId, `${userId}@example.invalid`],
     );
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', true)",
+      "WITH t AS (INSERT INTO member_teams (id, workspace_id, name) VALUES (gen_random_uuid(), $2, gen_random_uuid()::text) RETURNING id) INSERT INTO agents (id, workspace_id, slug, name, github_enabled, managing_team_id) VALUES ($1, $2, $3, 'a', true, (SELECT id FROM t))",
       [agentId, workspaceId, `a-${agentId.slice(0, 8)}`],
     );
     await pool.query(

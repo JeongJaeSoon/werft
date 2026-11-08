@@ -40,6 +40,7 @@ import {
 } from "./schema.ts";
 import { createPostgresSlackAppStore, slackAppKind } from "./slack-apps.ts";
 import { createPostgresSlackConfigTokenStore } from "./slack-config-tokens.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
@@ -104,6 +105,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
       slug: `a-${agentId.slice(0, 8)}`,
       name: "Release notes",
     });

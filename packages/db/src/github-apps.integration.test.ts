@@ -40,6 +40,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MANAGERS = MANAGEMENT_ROLES["workspace.manage"] ?? [];
@@ -718,6 +719,7 @@ integration("the GitHub App on PostgreSQL", () => {
     await db.insert(agents).values({
       id: agentId,
       workspaceId: ws,
+      managingTeamId: await fixtureTeam(db, ws),
       slug: `a-${agentId.slice(0, 8)}`,
       name: "Agent",
     });
