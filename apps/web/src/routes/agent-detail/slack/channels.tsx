@@ -28,8 +28,8 @@ import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
+import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   type Binding,

@@ -124,6 +124,51 @@ export const TURN_EVENTS: readonly RawEvent[] = [
   ["status", { phase: "idle" }],
 ];
 
+const MARKDOWN_REPLY = [
+  "Two repositories are connected now.",
+  "",
+  "**werft-sandbox:** the sample pull request is open at https://example.com/pull/7.",
+  "",
+  "**agent-guard, agent-skills:** both linked in this turn.",
+  "",
+  "- Branch `feature/sample` was pushed",
+  "- Checks: 3 of 3 passed ([run log](https://example.com/runs/1))",
+  "",
+  "| Repository | Result |",
+  "| --- | --- |",
+  "| werft-sandbox | opened |",
+  "| agent-guard | linked |",
+  "",
+  "```sh",
+  "git push origin feature/sample",
+  "```",
+].join("\n");
+
+/** A reply with bold, list, link, code and a table, drawn as Markdown. */
+export const MARKDOWN_REPLY_EVENTS: readonly RawEvent[] = [
+  ["status", { phase: "running" }],
+  ["assistant", { text: MARKDOWN_REPLY }],
+  turnEnd("success", 900),
+  ["status", { phase: "idle" }],
+];
+
+/** Long enough to fold: shows its first blocks and a "Show more" button. */
+export const LONG_REPLY_EVENTS: readonly RawEvent[] = [
+  ["status", { phase: "running" }],
+  [
+    "assistant",
+    {
+      text: Array.from(
+        { length: 30 },
+        (_, index) =>
+          `Step ${index + 1}: ${"the worker checked this part of the change and found nothing to fix. ".repeat(2)}`,
+      ).join("\n\n"),
+    },
+  ],
+  turnEnd("success", 1200),
+  ["status", { phase: "idle" }],
+];
+
 export const FAILED_EVENTS: readonly RawEvent[] = [
   ["status", { phase: "running" }],
   toolUse("call_2", { command: "bun run build" }),
