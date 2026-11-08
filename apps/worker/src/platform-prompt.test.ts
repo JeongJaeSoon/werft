@@ -190,7 +190,7 @@ describe("platformPromptText (revision 3, action flows on)", () => {
   const two: PlatformPrompt = { ...withRepository, prompt_revision: 2 };
 
   test("is accepted by the claim schema, and revisions 1 and 2 still are", () => {
-    for (const prompt_revision of [1, 2, 3] as const) {
+    for (const prompt_revision of [1, 2, 3, 4] as const) {
       expect(
         runtimeConfigSchema.safeParse({
           ...base,
@@ -232,6 +232,61 @@ describe("platformPromptText (revision 3, action flows on)", () => {
       expect(text).toContain(rule);
     }
     expect(text).not.toBe(platformPromptText(two));
+  });
+});
+
+describe("platformPromptText (revision 4, one reply for every repository)", () => {
+  const four: PlatformPrompt = { ...withRepository, prompt_revision: 4 };
+  const three: PlatformPrompt = { ...withRepository, prompt_revision: 3 };
+
+  test("is accepted by the claim schema", () => {
+    expect(
+      runtimeConfigSchema.safeParse({ ...base, platform_prompt: four }).success,
+    ).toBe(true);
+  });
+
+  test("asks for every named repository in the one reply, each from its own local branch", () => {
+    const text = platformPromptText(four);
+    expect(text).toContain("do all of them in this one reply");
+    expect(text).toContain("never ask the user to send another message");
+    expect(text).toContain("started from <repository_id>/<branch>");
+    expect(text).toContain("source_ref set to that branch");
+    expect(text).toContain("answers source_ref_required");
+    expect(text).toContain("never in a git worktree or a clone");
+  });
+
+  test("no longer limits a push to one repository per turn", () => {
+    const text = platformPromptText(four);
+    expect(text).not.toContain("one repository per turn");
+    expect(text).not.toContain("in a later turn");
+  });
+
+  test("keeps the pull request scheduled right after the push, and the rules that do not depend on the revision", () => {
+    const text = platformPromptText(four);
+    for (const rule of [
+      "call mcp__github__open_pull_request with that push_intent_id right after request_push answers deferred",
+      "even when a person has to approve the push",
+      "a person approves each push, whatever the permission mode",
+      "git push does not reach GitHub, and gh has no login",
+      "Push only to branches named agent/<session-id>",
+    ]) {
+      expect(text).toContain(rule);
+    }
+    expect(text).not.toBe(platformPromptText(three));
+  });
+
+  test("tells the model to keep the platform's internal terms out of its answer, and uses none itself in the push wording", () => {
+    const text = platformPromptText(four);
+    expect(text).toContain(
+      "Do not mention checkpoints, turns, intents or how the platform saves work",
+    );
+    const push = text
+      .slice(
+        text.indexOf("Push with mcp__github__request_push"),
+        text.indexOf("If push approval is on"),
+      )
+      .replace(/Do not mention checkpoints[^.]*\./, "");
+    expect(push).not.toMatch(/\b(turns?|checkpoints?)\b/i);
   });
 });
 
@@ -299,7 +354,7 @@ describe("runtimeProfile with a platform prompt", () => {
 
   // A change in wording moves these, and a session of that revision then
   // cannot resume its checkpoint (INCOMPATIBLE_CHECKPOINT): add a revision.
-  test("a revision 1, 2 and 3 claim each keep their digest, so a session resumes the checkpoint it made", () => {
+  test("a revision 1, 2, 3 and 4 claim each keep their digest, so a session resumes the checkpoint it made", () => {
     const digest = (prompt: PlatformPrompt) =>
       claimFingerprint(config)({
         principal,
@@ -313,6 +368,9 @@ describe("runtimeProfile with a platform prompt", () => {
     );
     expect(digest({ ...withRepository, prompt_revision: 3 })).toBe(
       "cee5226abc6fe9f9a5c34bd9a98ab4a06ba3e30c8f5c1b416f73aa8c7c6830e7",
+    );
+    expect(digest({ ...withRepository, prompt_revision: 4 })).toBe(
+      "c33f31aa3a02da71976dbc2a7a986992ce52d2034cb07a2398d7926d96f54227",
     );
   });
 
@@ -349,7 +407,7 @@ describe("runtimeProfile with a platform prompt", () => {
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
     for (const prompt of [
-      { ...withRepository, prompt_revision: 4 },
+      { ...withRepository, prompt_revision: 5 },
       { ...withRepository, repository: "/workspace" },
       { ...withRepository, repository: "group/sub/repo" },
       { ...withRepository, github: { repositories: ["acme/web"] } },

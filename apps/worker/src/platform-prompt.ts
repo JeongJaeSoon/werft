@@ -64,6 +64,18 @@ const PUSH_THIS_TURN_SCHEDULED_PR = [
   "A push carries the HEAD the workspace has when the turn ends and the history before it, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
 ];
 
+// Revision 4 (AGENT_ACTION_FLOWS on): every repository the user names is pushed
+// in the one reply, each from its own local branch, so nothing asks the user
+// to send another message. The words avoid the platform's internal terms: the
+// model repeats what it is told in its answer to the user.
+const PUSH_EACH_REPOSITORY = [
+  "Push with mcp__github__request_push. It pushes the latest commit of a local branch of the workspace, never uncommitted edits: commit first, then call it.",
+  "It answers deferred, which is not a refusal: the platform makes the push request once your reply ends, and nothing starts after that, so do not call it again for the same push.",
+  "To open a pull request, call mcp__github__open_pull_request with that push_intent_id right after request_push answers deferred, even when a person has to approve the push: it answers scheduled, and the platform opens the pull request once the push is done. Do not end your reply with a promise to open it later.",
+  "When the user asks for several repositories, do all of them in this one reply and never ask the user to send another message. For each repository, create a local branch started from <repository_id>/<branch>, commit that repository's change on it, call request_push with repository_id and source_ref set to that branch, then call open_pull_request with the returned push_intent_id. Work in the workspace itself, never in a git worktree or a clone elsewhere, which a push does not capture. If request_push answers source_ref_required, repeat that call with its source_ref.",
+  "End your reply by telling the user in plain words which repositories were pushed, that a person approves each push, and that each pull request opens once its push is approved. Do not mention checkpoints, turns, intents or how the platform saves work.",
+];
+
 const PUSH_APPROVAL =
   "If push approval is on for this agent, a person approves each push, whatever the permission mode.";
 
@@ -79,13 +91,15 @@ const GITHUB_REST = [
 function githubText({ prompt_revision }: PlatformPrompt): string {
   return [
     GITHUB_INTRO,
-    ...(prompt_revision === 3
-      ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
-      : [
-          ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
-          PUSH_APPROVAL,
-          PULL_REQUEST_AFTER_PUSH,
-        ]),
+    ...(prompt_revision === 4
+      ? [...PUSH_EACH_REPOSITORY, PUSH_APPROVAL]
+      : prompt_revision === 3
+        ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
+        : [
+            ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
+            PUSH_APPROVAL,
+            PULL_REQUEST_AFTER_PUSH,
+          ]),
     ...GITHUB_REST,
   ].join(" ");
 }
