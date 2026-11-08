@@ -143,6 +143,7 @@ export function ModelConnections({
                 onValue={() => rows.openValue(item.id)}
                 onConvert={() => rows.openConvert(item.id)}
                 onDisable={() => rows.openDisable(item.id)}
+                onEnable={() => rows.openEnable(item.id)}
               />
             ))}
           </GridTable>
@@ -168,6 +169,7 @@ function ConnectionRow({
   onValue,
   onConvert,
   onDisable,
+  onEnable,
 }: {
   readonly item: SettingsConnection;
   readonly over: number;
@@ -175,6 +177,7 @@ function ConnectionRow({
   readonly onValue: () => void;
   readonly onConvert: () => void;
   readonly onDisable: () => void;
+  readonly onEnable: () => void;
 }) {
   const { t } = useI18n();
   const actions = entryActions(item);
@@ -242,6 +245,15 @@ function ConnectionRow({
               onClick={onDisable}
             >
               {t("settings.disable")}
+            </RowAction>
+          ) : null}
+          {actions.enable ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.enableFor", { id: item.id })}
+              onClick={onEnable}
+            >
+              {t("settings.enable")}
             </RowAction>
           ) : null}
         </div>

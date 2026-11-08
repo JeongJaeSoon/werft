@@ -146,6 +146,9 @@ const REASONS = [
   "not_external",
   "alias_taken",
   "disabled",
+  "not_disabled",
+  "definition_active",
+  "needs_value",
   "invalid_entry",
 ] as const;
 
@@ -265,6 +268,18 @@ export function disableEntry(
   }
 }
 
+/** Connections only: an MCP server cannot be enabled again. */
+export function enableConnection(
+  client: ApiClient,
+  id: string,
+): Promise<SettingsChangeResponse> {
+  return unwrap(
+    client.POST("/v1/installation/settings/connections/{id}/enable", {
+      params: { path: { id } },
+    }),
+  );
+}
+
 const STATE_BADGE: Record<
   SettingsEntryState,
   "green" | "amber" | "red" | "gray"
@@ -326,14 +341,17 @@ export function entryActions(entry: {
   /** Only a connection can: `useRowActions("connection")` offers it. */
   readonly convert: boolean;
   readonly disable: boolean;
+  /** Only a connection can: `useRowActions("connection")` offers it. */
+  readonly enable: boolean;
 } {
   if (entry.state === "disabled") {
-    return { setValue: false, convert: false, disable: false };
+    return { setValue: false, convert: false, disable: false, enable: true };
   }
   return {
     setValue: entry.credential.source === "stored",
     convert: entry.credential.source === "external",
     disable: true,
+    enable: false,
   };
 }
 
@@ -533,6 +551,7 @@ export function useRowActions(
   // The same dialog moves a deployment's key to a typed one (connections).
   const [converting, setConverting] = useState(false);
   const [disabling, setDisabling] = useState<string | null>(null);
+  const [enabling, setEnabling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const value = useSettingsWrite(
@@ -573,8 +592,40 @@ export function useRowActions(
     },
   );
 
+  const enable = useSettingsWrite(
+    kind,
+    (client, id: string) => enableConnection(client, id),
+    {
+      onDone: (answer) => {
+        setEnabling(null);
+        onOutcome({
+          kind: "notice",
+          text: t("settings.done.enabled", { id: answer.id }),
+        });
+      },
+      onRefused: (text) => {
+        setEnabling(null);
+        onOutcome({ kind: "error", text });
+      },
+    },
+  );
+
   const dialogs = (
     <>
+      <ConfirmDialog
+        open={enabling !== null}
+        onOpenChange={(open) => {
+          if (!open) setEnabling(null);
+        }}
+        title={t("settings.enableTitle", { id: enabling ?? "" })}
+        consequence={t("settings.connections.enableConsequence")}
+        confirmLabel={t("settings.enable")}
+        cancelLabel={t("common.cancel")}
+        busy={enable.isPending}
+        onConfirm={() => {
+          if (enabling !== null) enable.mutate(enabling);
+        }}
+      />
       <FormDialog
         open={valueFor !== null}
         onOpenChange={(open) => {
@@ -615,7 +666,7 @@ export function useRowActions(
         title={t("settings.disableTitle", { id: disabling ?? "" })}
         consequence={
           kind === "connection"
-            ? `${t("settings.connections.disableConsequence")} ${t("settings.connections.disableNoReenable")}`
+            ? `${t("settings.connections.disableConsequence")} ${t("settings.connections.disableReenable")}`
             : t("settings.disableConsequence")
         }
         confirmLabel={t("settings.disable")}
@@ -651,6 +702,10 @@ export function useRowActions(
       onOutcome(null);
       setDisabling(id);
     },
-    busy: value.isPending || disable.isPending,
+    openEnable: (id: string) => {
+      onOutcome(null);
+      setEnabling(id);
+    },
+    busy: value.isPending || disable.isPending || enable.isPending,
   };
 }

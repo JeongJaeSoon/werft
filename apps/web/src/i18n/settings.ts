@@ -54,9 +54,19 @@ export const settingsKo = {
     "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
   "settings.connections.disableConsequence":
     "이 id는 다시 쓸 수 없습니다. 이 연결로만 모델을 부르는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
-  // Its own key: it stops being true when connections can be turned back on.
-  "settings.connections.disableNoReenable":
-    "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+  "settings.connections.disableReenable":
+    "나중에 같은 화면에서 다시 켤 수 있습니다.",
+  "settings.enable": "다시 켜기",
+  "settings.enableFor": "{id} 다시 켜기",
+  "settings.enableTitle": "{id}를 다시 켤까요?",
+  "settings.connections.enableConsequence":
+    "이 연결을 다시 쓸 수 있게 됩니다. 설정을 다시 읽은 뒤, 이 연결로 모델을 부르는 프로필이 다시 이 연결을 찾습니다. 키를 읽지 못하면 목록에 그 상태로 표시됩니다.",
+  "settings.done.enabled": "{id}를 다시 켰습니다.",
+  "settings.error.not_disabled": "이미 사용 중인 연결입니다.",
+  "settings.error.definition_active":
+    "같은 정의의 다른 연결이 사용 중이라 켤 수 없습니다. 그 연결을 먼저 사용 중지하세요.",
+  "settings.error.needs_value":
+    "저장된 키가 없어 다시 켤 수 없습니다. 새 연결을 만드세요.",
   "settings.connections.impact.checking": "영향을 확인하는 중…",
   "settings.connections.impact.failed":
     "영향 수를 확인하지 못했습니다. 그래도 사용 중지할 수 있습니다.",
@@ -185,8 +195,19 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
     "This cannot be undone. The id is never used again, and the profiles and agents that use this entry stop running.",
   "settings.connections.disableConsequence":
     "The id is never used again. Profiles and agents that reach their model only through this connection stop running.",
-  "settings.connections.disableNoReenable":
-    "A disabled connection cannot be turned back on for now.",
+  "settings.connections.disableReenable":
+    "You can turn it back on later from this screen.",
+  "settings.enable": "Enable again",
+  "settings.enableFor": "Enable {id} again",
+  "settings.enableTitle": "Enable {id} again?",
+  "settings.connections.enableConsequence":
+    "This connection can be used again. Once the settings are read again, the profiles that call a model through it find it again. If its key cannot be read, the list shows it in that state.",
+  "settings.done.enabled": "{id} is enabled again.",
+  "settings.error.not_disabled": "This connection is already in use.",
+  "settings.error.definition_active":
+    "Another connection in use is exactly what this one is, so it cannot be enabled. Disable that one first.",
+  "settings.error.needs_value":
+    "Its stored key is gone, so it cannot be enabled again. Make a new connection.",
   "settings.connections.impact.checking": "Checking what this affects…",
   "settings.connections.impact.failed":
     "Could not check what this affects. You can still disable it.",
@@ -316,8 +337,19 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
     "元に戻せません。この id は再利用できず、この項目を使うプロファイルとエージェントは動かなくなります。",
   "settings.connections.disableConsequence":
     "この id は再利用できません。この接続だけでモデルを呼ぶプロファイルとエージェントは動かなくなります。",
-  "settings.connections.disableNoReenable":
-    "使用停止した接続は、今は再び有効にできません。",
+  "settings.connections.disableReenable":
+    "あとからこの画面で再び有効にできます。",
+  "settings.enable": "再び有効にする",
+  "settings.enableFor": "{id} を再び有効にする",
+  "settings.enableTitle": "{id} を再び有効にしますか？",
+  "settings.connections.enableConsequence":
+    "この接続を再び使えるようになります。設定を読み直したあと、この接続でモデルを呼ぶプロファイルがこの接続を見つけ直します。キーを読めない場合は、一覧にその状態で表示されます。",
+  "settings.done.enabled": "{id} を再び有効にしました。",
+  "settings.error.not_disabled": "すでに使用中の接続です。",
+  "settings.error.definition_active":
+    "同じ定義の別の接続が使用中のため、有効にできません。先にその接続を使用停止してください。",
+  "settings.error.needs_value":
+    "保存したキーがないため、再び有効にできません。新しい接続を作成してください。",
   "settings.connections.impact.checking": "影響を確認しています…",
   "settings.connections.impact.failed":
     "影響の数を確認できませんでした。それでも使用停止できます。",

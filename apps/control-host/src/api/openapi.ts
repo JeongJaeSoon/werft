@@ -1081,6 +1081,10 @@ const SETTINGS_CONVERT =
   "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
+const SETTINGS_DISABLE_CONNECTION =
+  "Nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`.";
+const SETTINGS_ENABLE_CONNECTION =
+  "Brings a disabled connection back: ceilings over it match it again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
   id,
   receipt_id: "019a0000-0000-7000-8000-0000000000f3",
@@ -6771,8 +6775,26 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/installation/settings/connections/{id}/disable",
     operationId: "disableSettingsConnection",
     tag: "Agents",
-    summary: "Disable a provider connection for good",
-    description: `${SETTINGS_OWNER} ${SETTINGS_DISABLE} Writes a \`disable_connection\` receipt.`,
+    summary: "Disable a provider connection",
+    description: `${SETTINGS_OWNER} ${SETTINGS_DISABLE_CONNECTION} Writes a \`disable_connection\` receipt.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SettingsChangeResponse",
+      description: "The entry's id and the change's receipt.",
+      example: SETTINGS_CHANGE_EXAMPLE("anthropic-console"),
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/connections/{id}/enable",
+    operationId: "enableSettingsConnection",
+    tag: "Agents",
+    summary: "Enable a disabled provider connection again",
+    description: `${SETTINGS_OWNER} ${SETTINGS_ENABLE_CONNECTION}`,
     auth: "session",
     success: {
       status: 200,
