@@ -38,7 +38,7 @@ function facts(source: string) {
         node.value ?? "",
       )
     )
-      commands.push(node.value ?? "");
+      commands.push((node.value ?? "").replaceAll("<이미지>", "<image>"));
     if (node.type === "code") {
       code.push(node.value ?? "");
       return;
@@ -86,6 +86,19 @@ describe("self-hosting translation facts", () => {
       source.replace("4608", "2048"),
       source.replace("WORKER_MEMORY_MB", "WORKER_CPUS"),
       source.replace("/guide", "/wrong"),
+    ])
+      expect(facts(changed)).not.toEqual(facts(source));
+  });
+
+  test("only the documented image placeholder translation is normalized", () => {
+    const source = "`docker buildx imagetools inspect <이미지>@<digest>`";
+    const translated = "`docker buildx imagetools inspect <image>@<digest>`";
+    expect(facts(translated)).toEqual(facts(source));
+    for (const changed of [
+      translated.replace("inspect", "create"),
+      translated.replace("<image>", "<other>"),
+      translated.replace("<digest>", "<tag>"),
+      translated.replace("inspect ", "inspect --raw "),
     ])
       expect(facts(changed)).not.toEqual(facts(source));
   });

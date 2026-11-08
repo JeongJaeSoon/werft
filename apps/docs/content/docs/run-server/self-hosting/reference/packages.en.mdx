@@ -14,8 +14,8 @@ Pin deployment inputs by digest rather than moving tags. Published images are in
 
 | Package | Location | `main` merge | `v*` tag |
 | --- | --- | --- | --- |
-| Images | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | Tag `main-<12>` | Tag `v<버전>` |
-| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | Version `<Chart.yaml version>-main-<12>` | Version `<버전>` (without `v`) |
+| Images | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | Tag `main-<12>` | Tag `v<version>` |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | Version `<Chart.yaml version>-main-<12>` | Version `<version>` (without `v`) |
 | SDK | npm `@werft-ai/sdk` | Published separately from main images. Check the published version in [SDK installation](/getting-started/install) | Check the SDK release version separately |
 
 Images are indexes containing `linux/amd64` and `linux/arm64`; pin installations by digest. Charts include the three image digests and worker runtime. Packages are downloadable without signing in. `<12>` is the first 12 characters of the commit SHA. Main versions have no meaningful ordering: select the commit of a successful Images workflow run and specify it exactly.
@@ -41,7 +41,7 @@ jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # cha
 helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
 ```
 
-Because the repository is public, you can also download without `gh`: `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`. To compare with the registry, pass a digest to `docker buildx imagetools inspect <이미지>@<digest>`.
+Because the repository is public, you can also download without `gh`: `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`. To compare with the registry, pass a digest to `docker buildx imagetools inspect <image>@<digest>`.
 
 | Field | Value |
 |---|---|

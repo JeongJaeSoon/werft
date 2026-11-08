@@ -78,7 +78,7 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
 | `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and prints it in container logs |
-| `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<터널 포트>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
+| `CONSOLE_ORIGIN` | The browser console origin (`scheme://host[:port]`) required to create a GitHub App through the console. Without it, the Create on GitHub button is disabled. Add this line yourself; it is absent from the example env file. For an SSH tunnel, use `http://127.0.0.1:<tunnel port>`. To apply additions or changes after installation, reapply the current release with `TEST_OPS_OBJECT_STORE=s3 scripts/test-ops.sh upgrade /var/lib/werft/test-ops/current.json`, rather than `start` |
 
 Replace the example LocalStack values with production S3 values. Do not print secrets in command lines or logs.
 
@@ -187,7 +187,7 @@ For a healthy installation, preserve data through [stop and restart](/run-server
 
 [Access](/run-server/self-hosting/access) → [First owner and keys](/run-server/self-hosting/users-and-keys) → [Model connections](/run-server/self-hosting/model-connections). Set up [backup and restoration](/run-server/self-hosting/backup-and-restore) before starting operations.
 
-## 이전 주소 안내
+## Previous URLs [#이전-주소-안내]
 
 <details>
 <summary>Find the current guide for an older section</summary>

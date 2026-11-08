@@ -90,7 +90,7 @@ Deploy API first, then scheduler WORKER_IMAGE: new workers send claim image_runt
 | Variable | Default | Meaning |
 |---|---|---|
 | `WORKER_CPUS` | 1 | CPU share/worker, at least 0.01 |
-| `WORKER_MEMORY_MB` | 4608 | MiB ceiling allowing uncompacted 512MiB resume engine below half. Development .env.example 2048 does not satisfy this; remove it or set 4608 for large restoration tests |
+| `WORKER_MEMORY_MB` | 4608 | The per-worker memory limit (MiB) keeps the engine's peak below half the limit when resuming an uncompacted 512MiB transcript. The development `.env.example` setting `WORKER_MEMORY_MB=2048` does not meet this criterion. For large-transcript restoration tests, remove that `WORKER_MEMORY_MB` line to use the default, or set it to 4608 MiB or more |
 | `WORKER_PIDS_LIMIT` | 512 | PID limit; not forwarded by Compose |
 | `EXECUTION_DOCKER_USER` | `1000:1000` | Numeric uid[:gid], rejecting uid/gid 0. Must match image /workspace ownership |
 | `EXECUTION_DOCKER_HOME_DIR` | `/home/worker` | Absolute tmpfs HOME |

@@ -39,7 +39,7 @@ Next upgrade to the final release with target egress proxy and worker digests. T
 <a id="3-upgrade와-영향-세션" />
 ### 3. Upgrade and affected sessions
 
-Run `upgrade` with step 1's `release-new.json`. A worker image change checks current checkpoints with the new image and refuses with exit 3 if sessions are incompatible. Affected ids are written to `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`. Review them and notify users, then rerun `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` with exactly those ids. Any difference is rejected; accepted approvals are recorded in the state directory. Recovering an incompatible session with `start_fresh` discards its checkpoint context. No approval is needed if none are affected.
+Run `upgrade` with step 1's `release-new.json`. A worker image change checks current checkpoints with the new image and refuses with exit 3 if sessions are incompatible. Affected ids are written to `$TEST_OPS_STATE_DIR/upgrade-<timestamp>.sessions`. Review them and notify users, then rerun `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` with exactly those ids. Any difference is rejected; accepted approvals are recorded in the state directory. Recovering an incompatible session with `start_fresh` discards its checkpoint context. No approval is needed if none are affected.
 
 Take a [backup](/run-server/self-hosting/backup-and-restore) immediately before upgrading. Reverting means running `upgrade` with the previous release file; the same rules apply because the worker image changes again.
 
