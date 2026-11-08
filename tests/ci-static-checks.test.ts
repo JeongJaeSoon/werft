@@ -346,6 +346,10 @@ test("all product and site consumers use the same explicit plan", () => {
 test("an integration domain no changed path reaches runs no step but its gate", () => {
   const steps = workflow.jobs["integration-domain"]?.steps ?? [];
   expect(steps[0]?.id).toBe("gate");
+  expect(steps[0]?.env?.PLANNED).toBe(
+    "${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}",
+  );
+  expect(steps[0]?.run).toBe('echo "run=$PLANNED" >>"$GITHUB_OUTPUT"');
   // A step that only runs after another one failed needs no gate of its own.
   for (const step of steps.slice(1)) {
     if (step.if?.startsWith("failure()")) continue;
