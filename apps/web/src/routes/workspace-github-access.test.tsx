@@ -302,6 +302,79 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
     expect(within(row).getByText(/^werft-review\(으\)로 · /)).toBeDefined();
   });
 
+  test("자기 PR 머지는 꺼진 채로 시작하고, 켜면 merge만 true로 저장한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(
+        () => json(200, settingsOf()),
+        (body) => {
+          const sent = body as GitHubSettingsResponse;
+          return json(200, settingsOf({ ceiling: sent.ceiling, revision: 5 }));
+        },
+      ),
+    );
+    const user = await setupUser();
+    const merge = await featureSwitch("자기 PR 머지");
+    expect(checked(merge)).toBe(false);
+    const row = merge.closest("[data-slot=setting-row]") as HTMLElement;
+    // No release holds merge, so the row counts no agents.
+    expect(within(row).queryByText(/에이전트 \d+개/)).toBeNull();
+    await user.click(merge);
+    await waitFor(() => expect(checked(merge)).toBe(true));
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      ceiling: {
+        workflows: false,
+        actions: false,
+        checks: true,
+        issues: true,
+        review: false,
+        merge: true,
+      },
+      revision: 4,
+    });
+  });
+
+  test("자기 PR 머지를 끄기 전에는 개수 없는 문구로 확인한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(
+        () =>
+          json(
+            200,
+            settingsOf({ ceiling: { ...settingsOf().ceiling, merge: true } }),
+          ),
+        (body) => {
+          const sent = body as GitHubSettingsResponse;
+          return json(200, settingsOf({ ceiling: sent.ceiling, revision: 5 }));
+        },
+      ),
+    );
+    const user = await setupUser();
+    const merge = await featureSwitch("자기 PR 머지");
+    expect(checked(merge)).toBe(true);
+    await user.click(merge);
+    const confirm = await screen.findByRole("dialog", {
+      name: "기능을 끌까요?",
+    });
+    expect(
+      within(confirm).getByText(/자기 PR 머지을\(를\) 끕니다\. .*머지가 거절/),
+    ).toBeDefined();
+    expect(within(confirm).queryByText(/에이전트 \d+개/)).toBeNull();
+    await user.click(within(confirm).getByRole("button", { name: "끄기" }));
+    await waitFor(() => expect(checked(merge)).toBe(false));
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      ceiling: {
+        workflows: false,
+        actions: false,
+        checks: true,
+        issues: true,
+        review: false,
+        merge: false,
+      },
+      revision: 4,
+    });
+  });
+
   test("구성원은 스위치를 바꿀 수 없고 이유를 본다", async () => {
     const { api } = renderAt(
       PATH,
