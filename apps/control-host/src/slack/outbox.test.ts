@@ -1239,11 +1239,32 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
-  test("rejecting a channel fails the replies still waiting for it", async () => {
+  test("a reply claimed before its channel began waiting for approval does not start sending", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
     await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (!claim) throw new Error("nothing claimed");
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    expect(await outbox.beginSend(claim)).toBe(false);
+  });
+
+  test("rejecting a channel fails the replies still waiting for it, claimed or not", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const [claimed] = await createPostgresSlackOutboxStore(db).claim({
+      limit: 10,
+      leaseMs: 30_000,
+    });
+    if (!claimed) throw new Error("nothing claimed");
     await db.update(surfaceBindings).set({
       surfaceKind: "private_channel",
       status: "pending_approval",

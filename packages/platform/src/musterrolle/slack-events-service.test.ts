@@ -552,7 +552,7 @@ describe("Slack events service", () => {
     expect(result).toMatchObject({ status: "received" });
   });
 
-  test("a private channel keeps no text unless a ready private binding holds it: rejected, unbound, or bound as public", async () => {
+  test("a private channel keeps no text unless a ready private binding holds it: rejected and unbound are dropped, bound as public is kept without text", async () => {
     const w = world();
     await w.install();
     w.readyChannels.set("G0PUBLIC", "public_channel");
@@ -576,10 +576,17 @@ describe("Slack events service", () => {
       status: "dropped",
       reason: "channel_pending_approval",
     });
-    expect(outcomes.G0PUBLIC).toMatchObject({
-      status: "dropped",
-      reason: "channel_pending_approval",
-    });
+    // Kept without its text, so the handler can still demote the binding.
+    expect(outcomes.G0PUBLIC).toMatchObject({ status: "received" });
+    const stored = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" &&
+      (row.payload as { event: { channel: string } }).event.channel ===
+        "G0PUBLIC"
+        ? [row.payload]
+        : [],
+    );
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored[0])).not.toContain("1234");
     expect(outcomes.G0OK).toMatchObject({ status: "received" });
   });
 

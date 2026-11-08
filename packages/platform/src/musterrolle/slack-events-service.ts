@@ -123,7 +123,10 @@ export type SlackEventsOutcome =
 
 type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
-  | { status: "received" | "processed"; redact?: { botUserId: string } };
+  | {
+      status: "received" | "processed";
+      redact?: { botUserId: string; mention: boolean };
+    };
 
 const PENDING_EVENT_FIELDS = [
   "type",
@@ -138,12 +141,13 @@ const PENDING_EVENT_FIELDS = [
 function redactedEvent(
   event: SlackEventCallback["event"],
   botUserId: string,
+  mention: boolean,
 ): SlackEventCallback["event"] {
   const kept: Record<string, unknown> = {};
   for (const field of PENDING_EVENT_FIELDS) {
     if (event[field] !== undefined) kept[field] = event[field];
   }
-  kept.text = `<@${botUserId}>`;
+  kept.text = mention ? `<@${botUserId}>` : "";
   return kept as SlackEventCallback["event"];
 }
 
@@ -236,8 +240,19 @@ export function createSlackEventsService(deps: {
             event.type === "app_mention" ||
             (typeof event.text === "string" &&
               event.text.includes(`<@${resolved.botUserId}`));
-          return mentioned
-            ? { status: "received", redact: { botUserId: resolved.botUserId } }
+          if (mentioned) {
+            return {
+              status: "received",
+              redact: { botUserId: resolved.botUserId, mention: true },
+            };
+          }
+          // Bound as public but private now: the handler still has to see
+          // the event to demote the binding, with no text.
+          return bound?.status === "ready"
+            ? {
+                status: "received",
+                redact: { botUserId: resolved.botUserId, mention: false },
+              }
             : { status: "dropped", dropReason: "channel_pending_approval" };
         }
       }
@@ -320,7 +335,11 @@ export function createSlackEventsService(deps: {
         classified.status !== "dropped" && classified.redact !== undefined
           ? {
               ...unredacted,
-              event: redactedEvent(envelope.event, classified.redact.botUserId),
+              event: redactedEvent(
+                envelope.event,
+                classified.redact.botUserId,
+                classified.redact.mention,
+              ),
             }
           : unredacted;
       const row: SlackInboundEventInput =

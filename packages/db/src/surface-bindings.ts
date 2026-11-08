@@ -557,7 +557,8 @@ async function resolve(
     if (decision === "reject") {
       await tx.execute(sql`
         UPDATE slack_outbox
-        SET status = 'failed', error_code = 'not_addressed'
+        SET status = 'failed', error_code = 'not_addressed',
+          claim_token = NULL, lease_expires_at = NULL
         WHERE installation_id = ${after.installationId}
           AND channel_id = ${after.channelId}
           AND status = 'pending'
