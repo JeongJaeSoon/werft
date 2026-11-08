@@ -775,11 +775,40 @@ describe("mcp__ names in a stored deny", () => {
     await made.ceilings.create(owner(), { ...CEILING, deny: ["WebSearch"] });
     await made.workspace.create(owner(), { ...VERSION, deny: ["WebSearch"] });
     const version = made.versions[0];
-    if (!version) throw new Error("no version");
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!version || !row) throw new Error("no version");
     version.deny = ["WebSearch", "mcp__own__x"];
     await made.catalog.workspace_profiles.refresh();
     expect(catalogProfile(made.catalog, version.id)?.mcp_deny).toEqual([
       "mcp__own__x",
     ]);
+    // The base gains a name after the version was made; the version, tied to
+    // the base it saw again, still runs with it.
+    row.deny = ["WebSearch", "mcp__base__x"];
+    await made.catalog.workspace_profiles.refresh();
+    const base = catalogProfile(made.catalog, "op_coding_v1");
+    version.base_fingerprint = profileFingerprint(base as CatalogProfile);
+    await made.catalog.workspace_profiles.refresh();
+    expect(catalogProfile(made.catalog, version.id)?.mcp_deny).toEqual([
+      "mcp__base__x",
+      "mcp__own__x",
+    ]);
+  });
+
+  test("an allow-list save with no tool catalog still keeps the names, under the catalog id the version named", async () => {
+    const made = setup({ catalogs: false });
+    await made.ceilings.create(owner(), { ...CEILING, tools: ["Read"] });
+    const row = made.rows.find((r) => r.id === "op_coding_v1");
+    if (!row) throw new Error("no row");
+    row.deny = ["WebSearch", ...MCP];
+    row.tool_catalog_id = "engine@old";
+    await made.catalog.workspace_profiles.refresh();
+    await made.ceilings.create(owner(), {
+      ...CEILING,
+      previous_id: "op_coding_v1",
+      tools: ["Read", "Edit"],
+    });
+    expect(made.writes.at(-1)?.deny).toEqual(["WebSearch", ...MCP]);
+    expect(made.writes.at(-1)?.toolCatalogId).toBe("engine@old");
   });
 });

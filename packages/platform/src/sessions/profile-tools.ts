@@ -140,11 +140,17 @@ export function withKeptMcpDeny<
     return { ...input.denied, deny: [...input.denied.deny, ...kept] };
   }
   if (!input.catalog) {
-    throw badRequest(
-      "No tool catalog lists this runtime version: name its tools instead of a deny",
-      "no_tool_catalog",
-      "deny",
-    );
+    // Nothing to work the catalog deny out against: the previous version's
+    // stays as it was stored, under the catalog id it named.
+    const toolCatalogId = input.previous?.tool_catalog_id;
+    if (toolCatalogId === null || toolCatalogId === undefined) {
+      throw badRequest(
+        "No tool catalog lists this runtime version: name its tools instead of a deny",
+        "no_tool_catalog",
+        "deny",
+      );
+    }
+    return { deny: [...(input.previous?.deny ?? [])], toolCatalogId };
   }
   return {
     deny: [...denyOf(input.catalog, input.tools), ...kept],

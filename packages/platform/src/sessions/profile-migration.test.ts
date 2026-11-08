@@ -664,6 +664,29 @@ describe("planMigration and mcp__ deny", () => {
       ...overrides,
     });
 
+  // The whole report, hashed: a field, a value or an order that moves for a
+  // profile with no mcp__ name changes this. Pinned from the code before
+  // mcp__ names were read.
+  test("without mcp__ names the whole plan is byte for byte what it was", () => {
+    const records = [
+      version("strict", 1, { deny: ["WebSearch"] }),
+      version("strict", 2),
+      version("loose", 1, { tools: ["Read", "Edit"] }),
+    ];
+    const plan = planMigration(
+      input(catalogWith(records), [
+        agent("a1", "ws_acme_strict_v1"),
+        agent("a2", "ws_acme_loose_v1", { tracking: "follow" }),
+      ]),
+    );
+    const hash = new Bun.CryptoHasher("sha256")
+      .update(JSON.stringify(plan))
+      .digest("hex");
+    expect(hash).toBe(
+      "7513c55a1460bf05321a719056384af269b83778e782c94a180b18b096ef0051",
+    );
+  });
+
   test("without mcp__ names the plan is what it was: the version's deny, no mcp key anywhere", () => {
     const plan = planOf(
       input(catalogWith([version("strict", 1, { deny: ["WebSearch"] })]), [
