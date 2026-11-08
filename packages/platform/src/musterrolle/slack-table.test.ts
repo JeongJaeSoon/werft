@@ -55,6 +55,11 @@ describe("markdownToSlackParts", () => {
     ).not.toBeNull();
   });
 
+  test("a sparse table over the limits is not expanded", () => {
+    const sparse = `|${"h|".repeat(2_000)}\n|${"-|".repeat(2_000)}\n${"|x|\n".repeat(2_000)}`;
+    expect(markdownToSlackParts(sparse)).toBeNull();
+  });
+
   test("leaves a second table to the row list", () => {
     const parts = markdownToSlackParts(`${table(1, 2)}\n\n${table(1, 2, "y")}`);
     expect(parts?.filter((part) => "table" in part)).toHaveLength(1);

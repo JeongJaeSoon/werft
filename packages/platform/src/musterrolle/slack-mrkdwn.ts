@@ -351,8 +351,15 @@ function convertLines(
       index -= 1;
       indents = [];
       // One table block fits a message for certain; later tables are lists.
-      if (tables !== null && tables.length === 0) {
-        const columns = rows[0]?.length ?? 0;
+      // The size is checked before the grid is built, so a sparse table
+      // thousands of cells wide is never expanded.
+      const columns = rows[0]?.length ?? 0;
+      if (
+        tables !== null &&
+        tables.length === 0 &&
+        columns <= SLACK_TABLE_MAX.columns &&
+        rows.length <= SLACK_TABLE_MAX.rows
+      ) {
         const plain = rows.map((row) =>
           Array.from(
             { length: columns },
