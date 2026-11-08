@@ -284,10 +284,19 @@ export async function bootstrapGateFromEnv(
     });
   }
   if (owners === null || owners === 0) {
-    if (tokenFile !== undefined && writeTokenFile(tokenFile, token, logger)) {
-      print(
-        `BOOTSTRAP_TOKEN not set; the value for this process waits in ${tokenFile}. Take it once with the bootstrap-token command`,
-      );
+    if (tokenFile !== undefined) {
+      // Never fall back to the log: the file is the operator's chosen way to
+      // keep the value out of it. A failed write leaves the install to a
+      // configured BOOTSTRAP_TOKEN.
+      if (writeTokenFile(tokenFile, token, logger)) {
+        print(
+          `BOOTSTRAP_TOKEN not set; the value for this process waits in ${tokenFile}. Take it once with the bootstrap-token command`,
+        );
+      } else {
+        print(
+          "BOOTSTRAP_TOKEN not set and its file could not be written; set BOOTSTRAP_TOKEN in the env file and restart",
+        );
+      }
     } else {
       logger.warn(
         "BOOTSTRAP_TOKEN not set; a value for this process was printed to stderr",

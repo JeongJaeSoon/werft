@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -655,6 +656,8 @@ describe("bootstrap", () => {
         const token = readFileSync(t.file, "utf8");
         expect(token).toHaveLength(43);
         expect(statSync(t.file).mode & 0o777).toBe(0o600);
+        // Only the final name is left behind by the write-then-rename.
+        expect(readdirSync(t.dir)).toEqual(["token"]);
         expect(gate.matches(token)).toBe(true);
         expect(t.printed.join("\n")).not.toContain(token);
         expect(JSON.stringify(t.sink.records)).not.toContain(token);
@@ -732,10 +735,10 @@ describe("bootstrap", () => {
       }
     });
 
-    test("a file that cannot be written falls back to printing the token", async () => {
+    test("a file that cannot be written leaves the token out of the output too", async () => {
       const t = setup();
       try {
-        await bootstrapGateFromEnv(
+        const gate = await bootstrapGateFromEnv(
           undefined,
           new MemoryIdentityStore(),
           t.logger,
@@ -744,7 +747,9 @@ describe("bootstrap", () => {
           join(t.dir, "missing-dir", "token"),
         );
         expect(t.printed).toHaveLength(1);
-        expect(t.printed[0]).toMatch(/^BOOTSTRAP_TOKEN=.{43}$/);
+        expect(t.printed[0]).not.toMatch(/[A-Za-z0-9_-]{43}/);
+        expect(gate.matches("x".repeat(43))).toBe(false);
+        expect(readdirSync(t.dir)).toEqual([]);
       } finally {
         rmSync(t.dir, { recursive: true, force: true });
       }

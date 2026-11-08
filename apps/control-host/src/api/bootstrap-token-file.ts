@@ -13,10 +13,18 @@ import {
  * file is the only copy outside the process, and taking it deletes it.
  */
 export function writeBootstrapTokenFile(path: string, token: string): void {
-  rmSync(path, { force: true });
-  // "wx" so a file planted between the rm and the write is an error, not a
-  // token written into someone else's file.
-  writeFileSync(path, token, { flag: "wx", mode: 0o600 });
+  // Written complete under a private name, then renamed into place: a taker
+  // that runs during startup sees either no file or the whole token, never
+  // an empty file it would delete before the write lands. "wx" so a file
+  // planted at the temporary name is an error, not a token written into it.
+  const pending = `${path}.pending-${randomBytes(6).toString("hex")}`;
+  try {
+    writeFileSync(pending, token, { flag: "wx", mode: 0o600 });
+    renameSync(pending, path);
+  } catch (error) {
+    rmSync(pending, { force: true });
+    throw error;
+  }
 }
 
 export function removeBootstrapTokenFile(path: string): void {
