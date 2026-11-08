@@ -1,6 +1,7 @@
 import { flowKo, formsKo, sessionsKo } from "@werft-ai/react";
 import { achievementRulesKo } from "./achievement-rules.ts";
 import { achievementsKo } from "./achievements.ts";
+import { agentAccessKo } from "./agent-access.ts";
 import { agentGitHubKo } from "./agent-github.ts";
 import { agentsKo } from "./agents.ts";
 import { apiKeysKo } from "./api-keys.ts";
@@ -210,6 +211,7 @@ export const ko = {
   ...githubKo,
   ...githubUserLinkKo,
   ...agentGitHubKo,
+  ...agentAccessKo,
   ...usageKo,
   ...achievementsKo,
   ...achievementRulesKo,

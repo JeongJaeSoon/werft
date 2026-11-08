@@ -276,6 +276,10 @@ const toolChoiceFields = {
     description:
       "With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400.",
   }),
+  unblock_mcp_tools: toolNamesSchema.exactOptional().meta({
+    description:
+      "`mcp__<server>__<tool>` names the previous version blocked that this next version no longer blocks: the only way to lift one, as a version otherwise keeps every `mcp__` name of the one before. Each must be held by the previous version (400 `mcp_unblock_unknown`), not named in `deny` too (400 `mcp_unblock_conflict`) and not blocked by the base (400 `base_mcp_deny_dropped`); a version with no previous one cannot lift any (400 `mcp_unblock_no_previous`). A workspace version names its previous version in `previous_id`.",
+  }),
 };
 
 function namesOneToolChoice(request: {
@@ -309,6 +313,10 @@ export const createWorkspaceProfileRequestSchema = z
     models: z.array(z.string().min(1).max(200)).min(1).max(32),
     ...toolChoiceFields,
     permission_mode: permissionModeSchema,
+    // The version this one follows, as the form read it. Required with
+    // `unblock_mcp_tools`; a latest version that is another one is 409
+    // `stale_previous`, so a lifted name is judged against what was seen.
+    previous_id: z.string().min(1).max(200).optional(),
   })
   .strict()
   .refine(namesOneToolChoice, ONE_TOOL_CHOICE);

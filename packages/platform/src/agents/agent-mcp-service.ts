@@ -94,6 +94,14 @@ export function createAgentMcpService(deps: {
           agentId,
           settings.credential_refs,
         ),
+        available_servers: Object.entries(catalog.mcp_servers ?? {})
+          .filter(
+            ([id, entry]) =>
+              id !== GITHUB_MCP_SERVER &&
+              entry.workspaces.includes(agent.workspaceSlug),
+          )
+          .map(([id]) => id)
+          .sort(),
       };
     },
 
