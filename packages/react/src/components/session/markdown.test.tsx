@@ -124,6 +124,32 @@ describe("Markdown", () => {
     expect(paragraphs()).toBe(folded);
   });
 
+  test("링크 정의는 접기 계산에 들지 않고, 보이는 블록이 항상 하나 이상 남는다", () => {
+    const text = `[ref]: https://example.com\n\n${"a".repeat(1600)}\n\n${"b".repeat(1600)}`;
+    const { container } = render(<Markdown text={text} fold={FOLD} />);
+    expect(container.querySelectorAll("p")).toHaveLength(1);
+    expect(container.textContent).toContain("a".repeat(1600));
+    expect(container.querySelector("button")?.textContent).toBe("더 보기");
+  });
+
+  test("순서 목록은 시작 번호와 표시 방식을 지키고, 같은 정의가 둘이면 첫 정의가 이긴다", () => {
+    const { container } = render(
+      <Markdown
+        text={
+          "3. first\n4. second\n\n[click][ref]\n\n[ref]: https://first.example\n[ref]: https://second.example"
+        }
+      />,
+    );
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+    for (const item of container.querySelectorAll("li")) {
+      // A flex item stops being a list item, which hides its number.
+      expect(item.className).not.toMatch(/\bflex\b/);
+    }
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "https://first.example/",
+    );
+  });
+
   test("fold를 넘기지 않으면 아무리 길어도 접지 않는다", () => {
     const text = Array.from({ length: 60 }, () => "가".repeat(100)).join(
       "\n\n",
@@ -141,6 +167,12 @@ describe("markdownPlainText", () => {
     );
     expect(markdownPlainText("## 제목\n\n> 인용 ~~삭제~~ *기울임*")).toBe(
       "제목 인용 삭제 기울임",
+    );
+  });
+
+  test("alt 없는 이미지는 본문과 같이 주소를 보인다", () => {
+    expect(markdownPlainText("![](https://example.com/a)")).toBe(
+      "https://example.com/a",
     );
   });
 

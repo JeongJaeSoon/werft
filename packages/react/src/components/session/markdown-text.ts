@@ -43,7 +43,9 @@ function plain(node: Nodes): string {
     case "code":
     case "html":
       return node.value;
+    // The renderer links an image by its alt text, or its address without one.
     case "image":
+      return node.alt || node.url;
     case "imageReference":
       return node.alt ?? "";
     case "break":
@@ -85,10 +87,17 @@ export function foldedBlocks(
 ): { readonly shown: readonly RootContent[]; readonly hidden: number } {
   if (source.length <= FOLD_AT) return { shown: root.children, hidden: 0 };
   const shown: RootContent[] = [];
+  let visible = 0;
   for (const block of root.children) {
+    // A link definition draws nothing: it neither counts nor ends the fold.
+    const draws = block.type !== "definition";
     const end = block.position?.end.offset ?? 0;
-    if (shown.length > 0 && end > FOLDED_SHOWS) break;
+    if (draws && visible > 0 && end > FOLDED_SHOWS) break;
     shown.push(block);
+    if (draws) visible += 1;
   }
-  return { shown, hidden: root.children.length - shown.length };
+  const hidden = root.children
+    .slice(shown.length)
+    .filter((block) => block.type !== "definition").length;
+  return { shown, hidden };
 }

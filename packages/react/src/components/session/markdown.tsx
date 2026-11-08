@@ -52,7 +52,9 @@ function safeHref(url: string): string | null {
 }
 
 function collectDefinitions(node: Nodes, found: Map<string, Definition>) {
-  if (node.type === "definition") found.set(node.identifier, node);
+  // The first definition of a name wins, as in CommonMark.
+  if (node.type === "definition" && !found.has(node.identifier))
+    found.set(node.identifier, node);
   if ("children" in node) {
     for (const child of node.children as Nodes[])
       collectDefinitions(child, found);
@@ -196,9 +198,16 @@ function render(node: Nodes, ctx: Context, key: number): ReactNode {
     }
     case "listItem":
       return (
-        <li key={key} className="flex flex-col gap-1 pl-0.5">
+        // Not a flex container: that would drop the list marker.
+        <li
+          key={key}
+          className={cn(
+            "pl-0.5 [&>*+*]:mt-1",
+            typeof node.checked === "boolean" && "[&>p:first-of-type]:inline",
+          )}
+        >
           {typeof node.checked === "boolean" ? (
-            <span>
+            <span className="mr-1">
               <span aria-hidden="true">{node.checked ? "☑" : "☐"}</span>
               <span className="sr-only">{node.checked ? "[x]" : "[ ]"}</span>
             </span>
