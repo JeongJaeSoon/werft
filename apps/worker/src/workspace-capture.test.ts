@@ -446,14 +446,42 @@ exec "$REAL_GIT" "$@"`);
   });
 
   test("keeps at most MAX_CHECKPOINT_SOURCES branches, the newest first, rather than refusing", async () => {
+    // `git` above pins the environment, so a committer date needs its own spawn.
+    const dated = async (date: string) => {
+      const child = Bun.spawn(
+        ["git", "commit", "--quiet", "--allow-empty", "-m", date],
+        {
+          cwd: root,
+          env: {
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+            HOME: scratch,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_AUTHOR_NAME: "test",
+            GIT_AUTHOR_EMAIL: "test@example.test",
+            GIT_COMMITTER_NAME: "test",
+            GIT_COMMITTER_EMAIL: "test@example.test",
+            GIT_COMMITTER_DATE: date,
+          },
+        },
+      );
+      expect(await child.exited).toBe(0);
+    };
     await commitFiles({ "a.txt": "a\n" });
-    for (let at = 0; at < MAX_CHECKPOINT_SOURCES + 3; at += 1) {
-      await git(root, "branch", `extra-${at}`);
+    await dated("2000-01-01T00:00:00Z");
+    for (let at = 0; at < 3; at += 1) {
+      await git(root, "branch", `old-${at}`);
+    }
+    await dated("2020-01-01T00:00:00Z");
+    for (let at = 0; at < MAX_CHECKPOINT_SOURCES; at += 1) {
+      await git(root, "branch", `new-${at}`);
     }
 
     const result = await captured();
 
     expect(result.sources).toHaveLength(MAX_CHECKPOINT_SOURCES);
+    expect(
+      result.sources.filter((source) => source.name.startsWith("old-")),
+    ).toEqual([]);
   });
 
   test("pins the caller's instructions commit, from objects kept outside the workspace", async () => {
