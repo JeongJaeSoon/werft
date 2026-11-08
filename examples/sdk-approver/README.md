@@ -29,13 +29,13 @@ bun examples/sdk-approver/src/session-close.ts
 
 ## 실행 결과
 
-첫 turn은 `hello from the SDK`를 반환한다. 다음 turn에서 `Bash`의 정확히 `echo alpha > hello.txt` 명령만 허용하며 다른 권한 요청은 거절한다. 승인자 클라이언트가 SSE를 받으며 요청에 답한다.
+첫 turn은 `hello from the SDK`를 반환한다. 다음 turn에서 `Bash`의 정확히 `echo alpha | tee hello.txt` 명령만 허용하며 다른 권한 요청은 거절한다. 승인자 클라이언트가 SSE를 받으며 요청에 답한다.
 
 ```text
 session …: created, turn 1 queued
   event assistant (turn 1)
 turn 1: completed
-permission …: allow Bash "echo alpha > hello.txt"
+permission …: allow Bash "echo alpha | tee hello.txt"
 answer …: accepted
 turn 2: completed
 close: receipt succeeded

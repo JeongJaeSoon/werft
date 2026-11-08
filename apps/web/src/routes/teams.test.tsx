@@ -50,8 +50,23 @@ const owner: MemberView = {
 
 const people = new Map([owner, mate].map((m) => [m.user_id, m]));
 
-/** Every polite status on screen: the page's notice and the picker's count. */
+/** Every polite status on screen: the picker's count and any toast. */
 const said = () => screen.getAllByRole("status").map((s) => s.textContent);
+
+const toastRegion = () =>
+  document.querySelector<HTMLElement>('[data-slot="toast"]');
+
+// The toast's region mounts empty and is filled a beat later (so a screen
+// reader announces it): wait for the words, not just the region.
+async function toastSaid(): Promise<string> {
+  const region = await waitFor(() => {
+    const found = toastRegion();
+    expect(found === null).toBe(false);
+    return found as HTMLElement;
+  });
+  await waitFor(() => expect(region.textContent).not.toBe(""));
+  return region.textContent ?? "";
+}
 
 const optionTexts = () =>
   screen
@@ -266,9 +281,10 @@ describe("팀 화면", () => {
       ).toBe(true),
     );
     await user.keyboard("지원팀{Enter}");
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "지원팀 팀을 만들었습니다.",
-    );
+    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    // A confirmation is polite: a screen reader waits for a pause to read it.
+    expect(toastRegion()?.tagName).toBe("OUTPUT");
+    expect(toastRegion()?.getAttribute("aria-live")).toBe("polite");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(api.calls.find((c) => c.method === "POST")?.body).toEqual({
       name: "지원팀",
@@ -285,14 +301,11 @@ describe("팀 화면", () => {
     expect((await within(again).findByRole("alert")).textContent).toBe(
       "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
     );
-    // Refused, the dialog stays with the name to fix, and the earlier
-    // notice is gone: it was about another team.
+    // Refused, the dialog stays with the name to fix.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(
       (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
     ).toBe("결제팀");
-    // Behind the modal dialog the page is aria-hidden.
-    expect(screen.getByRole("status", { hidden: true }).textContent).toBe("");
   });
 
   test("팀 목록을 못 불러오면 헤더에 팀 만들기 대신 목록 자리에 다시 시도를 보인다", async () => {
@@ -316,7 +329,7 @@ describe("팀 화면", () => {
     ).toBeDefined();
   });
 
-  test("만드는 중에 다른 탭으로 갔다 돌아오면 늦게 온 성공 알림을 새 방문에 띄우지 않는다", async () => {
+  test("만드는 중에 다른 탭으로 갔다 돌아와도 늦게 온 성공은 토스트로 알린다", async () => {
     const server = teamServer();
     let answer: ((response: Response) => void) | undefined;
     const { api, history } = renderAt("/members/teams", {
@@ -365,7 +378,8 @@ describe("팀 화면", () => {
           .length,
       ).toBeGreaterThan(lists),
     );
-    expect(screen.getByRole("status").textContent).toBe("");
+    // The team exists whichever tab asked: the toast says so.
+    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
   });
 
   test("팀 상세에는 헤더 주 버튼이 없다", async () => {
@@ -445,9 +459,7 @@ describe("팀 화면", () => {
         receipt_id: RECEIPT_ID,
       }),
     );
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "지원팀 팀을 만들었습니다.",
-    );
+    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
     expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -835,9 +847,9 @@ describe("팀 화면", () => {
     for (const name of ["Mate", "Owner"]) await pick(user, picker, name);
     await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
     const alert = await within(dialog).findByRole("alert");
-    expect(alert.textContent).toStartWith(
-      "Mate님을 팀에 추가했습니다. Owner님을 추가하지 못했습니다.",
-    );
+    // Who joined is the toast's to say; the dialog keeps only who was refused.
+    expect(alert.textContent).toStartWith("Owner님을 추가하지 못했습니다.");
+    expect(await toastSaid()).toBe("Mate님을 팀에 추가했습니다.");
     expect(
       within(within(dialog).getByRole("list", { name: "추가할 사람" }))
         .getAllByRole("listitem")
@@ -950,7 +962,9 @@ describe("팀 화면", () => {
     await user.click(
       within(removeDialog).getByRole("button", { name: "빼기" }),
     );
-    await waitFor(() => expect(said()).toContain("Mate님을 팀에서 뺐습니다."));
+    await waitFor(() =>
+      expect(said()).toContain("Mate님을 팀에서 제외했습니다."),
+    );
 
     const name = screen.getByLabelText("팀 이름");
     await user.clear(name);
@@ -983,6 +997,8 @@ describe("팀 화면", () => {
     );
     expect(server.team).toBeNull();
     expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
+    // The page that raised it is gone; the toast stays with the tabs.
+    expect(await toastSaid()).toBe("청구팀 팀을 삭제했습니다.");
   });
 
   const mateMember: TeamDetail["members"][number] = {
@@ -1153,6 +1169,98 @@ describe("팀 화면", () => {
         "이 팀이 담당 팀인 에이전트 1개가 있어 삭제하지 못했습니다. 각 에이전트의 담당 팀을 먼저 바꾸세요.",
       ),
     );
+  });
+
+  test("삭제가 거절되면 닫는 순간까지 남는 경고 토스트로 알린다", async () => {
+    const server = teamServer({
+      deleteRefusal: () => apiError(403, "FORBIDDEN", "Not permitted"),
+    });
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    const danger = await screen.findByRole("region", { name: "위험 구역" });
+    await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "팀 삭제",
+      }),
+    );
+    const said = await toastSaid();
+    expect(said).toContain("팀 관리 권한이 있어야");
+    const alert = toastRegion();
+    expect(alert?.getAttribute("role")).toBe("alert");
+    // Explicit, so a modal opened later does not aria-hide it.
+    expect(alert?.getAttribute("aria-live")).toBe("assertive");
+    // Past the 8s an error nobody must act on would last.
+    await new Promise((resolve) => setTimeout(resolve, 8300));
+    expect(alert?.isConnected).toBe(true);
+    // A later notice sits beside it instead of replacing it.
+    const name = screen.getByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await waitFor(() => {
+      const texts = [...document.querySelectorAll("[data-slot=toast]")].map(
+        (region) => region.textContent,
+      );
+      expect(texts).toHaveLength(2);
+      expect(texts.some((s) => s?.includes("팀 이름을 청구팀"))).toBe(true);
+      expect(texts.some((s) => s?.includes("팀 관리 권한이 있어야"))).toBe(
+        true,
+      );
+    });
+    expect(alert?.isConnected).toBe(true);
+    await user.click(screen.getByRole("button", { name: "알림 닫기" }));
+    await waitFor(() => expect(alert?.isConnected).toBe(false));
+    // The button left with the toast: the keyboard stays on the page.
+    expect(document.activeElement === document.body).toBe(false);
+    expect(document.activeElement?.closest("main") === null).toBe(false);
+  }, 20000);
+
+  test("이미 있는 이름으로 바꾸려 하면 이름 칸 옆에서 말하고 토스트는 없다", async () => {
+    const server = teamServer();
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`PATCH /v1/teams/${TEAM_ID}`]: () =>
+        apiError(409, "ALREADY_EXISTS", "A team by that name exists"),
+    });
+    const user = await setupUser();
+    const name = await screen.findByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
+    expect(screen.getByRole("alert").textContent).toBe(
+      "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
+    );
+    expect(toastRegion() === null).toBe(true);
+    await user.type(name, "2");
+    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBeNull());
+  });
+
+  test("이름이 중복이라는 답이 늦게 와도 그 사이 고친 이름에는 붙지 않는다", async () => {
+    const server = teamServer();
+    let answer: ((response: Response) => void) | undefined;
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      [`PATCH /v1/teams/${TEAM_ID}`]: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const user = await setupUser();
+    const name = await screen.findByLabelText("팀 이름");
+    await user.clear(name);
+    await user.type(name, "청구팀");
+    await user.click(screen.getByRole("button", { name: "이름 바꾸기" }));
+    await user.type(name, "2");
+    answer?.(apiError(409, "ALREADY_EXISTS", "A team by that name exists"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(name.getAttribute("aria-invalid")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Back to the refused name, the refusal is about it again.
+    await user.type(name, "{Backspace}");
+    await waitFor(() => expect(name.getAttribute("aria-invalid")).toBe("true"));
   });
 
   test("내가 속한 팀에 그 팀에서의 내 역할이 보인다", async () => {
