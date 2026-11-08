@@ -725,7 +725,7 @@ integration("profile migration on PostgreSQL (U5)", () => {
   });
 
   test("a workspace whose ceiling cannot be widened moves nothing and names each agent it left", async () => {
-    const { onV1, onV2, catalog } = await world();
+    const { onV1, onV2, onOld, catalog } = await world();
     const report = await dryRun(catalog);
     await db
       .update(catalogRepositories)
@@ -738,8 +738,20 @@ integration("profile migration on PostgreSQL (U5)", () => {
     );
     expect(applied.code).toBe(1);
     const text = JSON.stringify(applied.last);
-    for (const id of [onV1, onV2]) expect(text).toContain(id);
+    const left = applied.last.workspaces as Array<{
+      not_moved: Array<{ agent_id: string; reason: string }>;
+    }>;
+    const reasons = Object.fromEntries(
+      (left[0]?.not_moved ?? []).map((n) => [n.agent_id, n.reason]),
+    );
     expect(text).toContain("ceiling_refused");
+    // Each agent keeps its own reason: the one the plan left on a retired
+    // version is not rewritten as the ceiling's.
+    expect(reasons).toEqual({
+      [onV1]: "ceiling_refused",
+      [onV2]: "ceiling_refused",
+      [onOld]: "retired",
+    });
     expect(await counts()).toEqual(before);
     expect(await copies()).toEqual([]);
   });

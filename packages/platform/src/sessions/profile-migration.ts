@@ -112,6 +112,8 @@ export type ProfileCopyPlan = {
   name: string;
   version: number;
   state: string;
+  /** `apply(base, version)` with the repository key left out; null where the state leaves no value. */
+  effective: Record<string, unknown> | null;
   usage: ProfileUsage;
   created_by: string | null;
   reason: "active" | "latest" | "both" | null;
@@ -174,6 +176,18 @@ export type MigrationSessionAccess = {
   judged_by_ceiling: number;
   unchanged: number;
   widened_repositories: string[];
+  /**
+   * The explicit repository ids a session may use, before and after the
+   * top-up: the workspace ceiling's for a session it judges, else the ids its
+   * profile lists (the same before and after).
+   */
+  by_profile: Array<{
+    profile_id: string | null;
+    judged_by_ceiling: boolean;
+    sessions: number;
+    before: string[];
+    after: string[];
+  }>;
 };
 
 export type WorkspacePlan = {
@@ -353,6 +367,7 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         name: record.name,
         version: record.version,
         state,
+        effective: null,
         usage: {
           agents_on_active: wsAgents.filter(
             (a) => a.activeProfileId === record.id,
@@ -371,6 +386,17 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         target: null,
       };
       profiles.push(plan);
+      // A changed or missing base leaves no effective value (catalog.ts
+      // catalogProfile); every other state reports one, copied or not.
+      const definition =
+        state === "base_changed" || state === "base_missing"
+          ? null
+          : copiedDefinition(catalog, record);
+      plan.effective = definition;
+      if (definition !== null) {
+        plan.usage.equivalent_installation_version =
+          equivalentVersion(definition);
+      }
       if (state !== "usable") {
         plan.skip = state;
         continue;
@@ -379,13 +405,10 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         plan.skip = "not_active_or_latest";
         continue;
       }
-      const definition = copiedDefinition(catalog, record);
       if (definition === null) {
         plan.skip = "base_missing";
         continue;
       }
-      plan.usage.equivalent_installation_version =
-        equivalentVersion(definition);
       const existing = copyBySource.get(record.id);
       const baseFingerprint =
         catalog.installation?.get(record.base_profile_id)?.record
@@ -630,22 +653,68 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         (s.active || Date.parse(s.createdAt) >= recentFrom),
     );
     const widenedIds = additions.map((a) => a.repository_id);
+    const ceilingBefore = sortedUnique(workspace.ceiling?.repository_ids ?? []);
+    const ceilingAfter =
+      after === null ? [] : sortedUnique(after.repository_ids);
+    const ownRepositories = (profileId: string | null) => {
+      if (profileId === null) return [];
+      const baseId =
+        catalog.workspace_profiles?.records.get(profileId)?.base_profile_id ??
+        profileId;
+      return sortedUnique(
+        catalog.installation?.get(baseId)?.repository_ids ?? [],
+      );
+    };
     const access = (
       list: readonly MigrationSessionFact[],
     ): MigrationSessionAccess => {
-      const judged = list.filter((s) =>
-        usesWorkspaceCeiling(
+      const groups = new Map<
+        string,
+        { profile_id: string | null; judged: boolean; sessions: number }
+      >();
+      for (const s of list) {
+        const judged = usesWorkspaceCeiling(
           catalog,
           s.profileId,
           (s.policySource ??
             (s.hasAgent ? "agent" : "release")) as GitHubPolicySource,
-        ),
-      ).length;
+        );
+        const key = `${s.profileId ?? ""}\u0000${judged}`;
+        const group = groups.get(key) ?? {
+          profile_id: s.profileId,
+          judged,
+          sessions: 0,
+        };
+        group.sessions += 1;
+        groups.set(key, group);
+      }
+      const byProfile = [...groups.values()]
+        .sort((a, b) =>
+          (a.profile_id ?? "") < (b.profile_id ?? "")
+            ? -1
+            : (a.profile_id ?? "") > (b.profile_id ?? "")
+              ? 1
+              : Number(a.judged) - Number(b.judged),
+        )
+        .map((g) => {
+          const own = g.judged ? null : ownRepositories(g.profile_id);
+          return {
+            profile_id: g.profile_id,
+            judged_by_ceiling: g.judged,
+            sessions: g.sessions,
+            before: own ?? ceilingBefore,
+            after: own ?? ceilingAfter,
+          };
+        });
+      const judged = byProfile
+        .filter((g) => g.judged_by_ceiling)
+        .reduce((sum, g) => sum + g.sessions, 0);
       return {
         sessions: list.length,
         judged_by_ceiling: judged,
         unchanged: list.length - judged,
         widened_repositories: judged > 0 ? widenedIds : [],
+        by_profile: byProfile,
       };
     };
     const added = new Set(widenedIds);
@@ -666,8 +735,8 @@ export function planMigration(input: MigrationInput): MigrationPlan {
       profiles,
       agents,
       session_access: {
-        ceiling_before: sortedUnique(workspace.ceiling?.repository_ids ?? []),
-        ceiling_after: after === null ? [] : sortedUnique(after.repository_ids),
+        ceiling_before: ceilingBefore,
+        ceiling_after: ceilingAfter,
         agent_sessions: access(inW.filter((s) => s.hasAgent)),
         agents_widened: agentsWidened,
         agentless_on_copied_profiles: access(

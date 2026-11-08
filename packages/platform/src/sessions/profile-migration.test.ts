@@ -506,6 +506,36 @@ describe("planMigration", () => {
     });
   });
 
+  test("a retired version is reported with its effective value and equivalent version too", () => {
+    const plan = planOf(
+      input(
+        catalogWith([
+          version("old", 1, {
+            models: [...(base.models ?? [])],
+            tools: [...base.tools],
+            permission_mode: "acceptEdits",
+            retired_at: new Date("2026-10-30T00:00:00Z"),
+            retired_by: OWNER,
+          }),
+          version("gone-base", 1, { base_profile_id: "missing" }),
+        ]),
+        [],
+      ),
+    );
+    const old = plan.profiles.find((p) => p.source_id === "ws_acme_old_v1");
+    expect(old).toMatchObject({
+      state: "retired",
+      decision: "skip",
+      skip: "retired",
+      usage: { equivalent_installation_version: "coding" },
+    });
+    expect(old?.effective).toMatchObject({ tools: base.tools });
+    const missing = plan.profiles.find(
+      (p) => p.source_id === "ws_acme_gone-base_v1",
+    );
+    expect(missing?.effective).toBeNull();
+  });
+
   test("the report gives the allowed sets before and after, by kind of session", () => {
     const plan = planOf(
       input(
@@ -551,7 +581,7 @@ describe("planMigration", () => {
     expect(access.ceiling_after).toEqual(["held", "private-a"]);
     // Agent sessions are always judged by the ceiling; only the agent whose
     // own settings list the new value gains it.
-    expect(access.agent_sessions).toEqual({
+    expect(access.agent_sessions).toMatchObject({
       sessions: 1,
       judged_by_ceiling: 1,
       unchanged: 0,
@@ -562,13 +592,33 @@ describe("planMigration", () => {
     ]);
     // The copied version's base lists its own repositories, so a release-source
     // session on it is not judged by the ceiling and gains nothing.
-    expect(access.agentless_on_copied_profiles).toEqual({
+    expect(access.agentless_on_copied_profiles).toMatchObject({
       sessions: 1,
       judged_by_ceiling: 0,
       unchanged: 1,
       widened_repositories: [],
     });
     expect(access.other_profile_sessions.sessions).toBe(1);
+    // The sets themselves, by profile: the ceiling's for a session it judges,
+    // the profile's own list (unchanged) for one it does not.
+    expect(access.agent_sessions.by_profile).toEqual([
+      {
+        profile_id: "ws_acme_strict_v1",
+        judged_by_ceiling: true,
+        sessions: 1,
+        before: ["held"],
+        after: ["held", "private-a"],
+      },
+    ]);
+    expect(access.other_profile_sessions.by_profile).toEqual([
+      {
+        profile_id: "coding",
+        judged_by_ceiling: false,
+        sessions: 1,
+        before: ["gone", "held", "private-a", "url-r"],
+        after: ["gone", "held", "private-a", "url-r"],
+      },
+    ]);
   });
 
   test("when the base defers to the workspace ceiling, agentless sessions on a copy are widened with it", () => {

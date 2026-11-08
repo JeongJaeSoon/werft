@@ -209,10 +209,13 @@ async function apply(
         workspace.agents.some((a) => a.decision === "move");
       if (!hasWork) continue;
       const actor = workspace.actor_user_id;
+      // Every agent of the workspace, each with its own reason: the ones the
+      // plan left (retired, no owner, ...) keep theirs.
       const notMoved = (reason: string) =>
-        workspace.agents
-          .filter((a) => a.decision === "move")
-          .map((a) => ({ agent_id: a.agent_id, reason }));
+        workspace.agents.map((a) => ({
+          agent_id: a.agent_id,
+          reason: a.decision === "move" ? reason : (a.stay_reason ?? reason),
+        }));
       if (actor === null) {
         entry.refused = "no live owner";
         entry.not_moved = notMoved("no_live_owner");
