@@ -17,6 +17,34 @@ description: Drive the Werft stack the way a user does — launch it locally wit
 
 기능 map은 [features/README.md](features/README.md), 한 스택에서 순서대로 실행할 절차는 [features/procedures.md](features/procedures.md)에 있다. 이 스킬을 수정할 때는 구현과 대조하고 실행 결과와 구분한다. 증명할 때는 map에 적힌 진입점을 모두 몬다. 실제 GitHub 표면만 fake가 아니다. 그 run은 따로 띄운다(아래 Launch).
 
+## 확인 등급 (T0~T3)
+
+PR마다 등급 하나를 정한다. 검증 sticky comment(`<!-- test-results -->`)의 **첫 줄**에 `등급: Tn — 이유`를 적는다(예: `등급: T0 — 스킬 문서만 바뀜`). 이 문서의 스택 절차(Launch~Cleanup)는 **T3만** 쓴다.
+
+| 등급 | 해당하는 PR | sticky에 기록하는 것 | 스택 |
+|---|---|---|---|
+| T0 | 문서·CI 설정·스킬 문서·주석·번역만 바뀜 | CI 결과(문서 빌드 포함)와 바뀐 파일 목록 | 띄우지 않는다 |
+| T1 | UI만 바뀜(`apps/web`, `packages/ui`, `packages/react`, `packages/core`의 표시 로직. API 계약·서버 변경 없음) | 목 데이터로 바뀐 화면을 채운 캡처(빈 상태·긴 텍스트·비활성 등 바뀐 경우 포함), 돌린 명령과 출력, CI 결과 | 띄우지 않는다 |
+| T2 | 간단한 수정: diff가 작고 동작이 단위·통합 테스트로 덮인다 | 변경 전 실패·변경 후 통과하는 테스트(또는 기존 테스트가 그 경로를 덮는다는 근거), CI 결과 | 띄우지 않는다 |
+| T3 | 그 외: 백엔드 동작, API 계약, 런타임·권한, DB 마이그레이션, Slack·GitHub 실연동, 여러 기능이 이어지는 흐름 | 이 스킬의 스택 절차로 실제 확인한 출력 | 띄운다 |
+
+- 애매하면 한 등급 위로 정한다. 리뷰가 등급에 이의를 내면 그 등급으로 다시 확인하고 sticky 첫 줄을 고친다.
+- 모든 등급이 같다: sticky에 head sha, 확인한 것, 확인하지 않은 것을 적는다. CI green, 독립 리뷰 Act-on 0. 비밀값·개인정보는 가린다.
+
+### T1 절차: 목 데이터로 바뀐 화면 보기
+
+전체 스택 없이 화면만 채운다. 길은 둘이고 Storybook이 먼저다. 아래 명령은 모두 이 저장소에서 실제로 돌려 확인했다.
+
+0. 설치: worktree에서 `bun install --frozen-lockfile`(bun 1.3.14). 다른 checkout의 `node_modules`를 symlink하면 Storybook이 폰트(woff2)를 읽지 못해 캡처가 어긋난다. `bun run build`가 남긴 `apps/*/dist`·`packages/ui/dist`는 `biome check`가 오탐하므로 지우고 돌린다.
+1. **Storybook(기본)**: `apps/storybook`이 `packages/ui`·`packages/react`의 화면 상태를 목 API로 그린다.
+   - 빌드 확인: `bun run --cwd apps/storybook build` → `Storybook build completed successfully`(약 15초). 모든 스토리의 렌더와 접근성은 CI의 `storybook` 잡이 돌린다(`test:stories`).
+   - 띄우기: `bun run --cwd apps/storybook dev -- --port <port>`를 백그라운드로 띄우고 PID(자식 포함)를 적어 둔다. 확인이 끝난 같은 턴에 그 PID로 내린다. 끝나지 않는 작업이므로 무거운 작업 잠금으로 감싸지 않는다.
+   - 스토리 위치: 화면은 `apps/storybook/src/screens/<화면>.stories.tsx`, 컴포넌트는 `primitives/`·`patterns/`·`blocks/`. 화면이 부르는 요청은 `parameters.api`에 `"METHOD /path"` → 응답으로 적는다(`.storybook/fake-client.ts`, 적지 않은 요청은 404). 폭은 `globals: MOBILE`(`screens/screen-kit.tsx`), 다크는 `globals: { theme: "dark" }`. 빈 상태·로딩·오류·긴 텍스트·비활성처럼 바뀐 경우마다 스토리를 둔다. 응답 값은 `@werft-ai/contracts` 타입으로 쓰고 지어내지 않는다.
+   - 캡처: `W=390 node .claude/skills/verify-werft/scripts/story-shot.mjs http://127.0.0.1:<port> <story id> <out.png> [full]`. story id는 `http://127.0.0.1:<port>/index.json`의 키(예: `screens-members-v3--members`)다. `W`·`H`·`THEME=dark`·`LOCALE=ja|en`을 환경에서 받고, `scrollWidth/innerWidth`와 페이지 오류를 출력한다. 두 값이 같으면 가로로 넘치지 않는다. 설치한 Chrome과 저장소의 `playwright-core`를 쓴다.
+2. **web dev 서버의 데모 모드(스토리로 못 보는 라우팅·셸 포함 화면)**: `cd apps/web && bun --bun vite --mode demo --port <port> --host 127.0.0.1`. GET은 `src/demo/fixtures.json`에서 답하고 쓰기는 `DEMO_READ_ONLY`로 거절하며, 기록 없는 GET은 `NOT_FOUND` 화면이 된다. 들어 있는 자리표시자는 `/v1/auth/me`뿐이라 홈은 요청함이 `NOT_FOUND`로 그려진다. 바뀐 화면을 채우려면 그 화면이 부르는 GET만 담은 fixture를 scratch에 만들어 `DEMO_FIXTURES=<json 경로>`로 주고 띄운다(키는 경로 + 이름순 query, 값은 `{status, json}`). 라우트는 해시에 있다. 캡처는 같은 스크립트로 `W=390 node .claude/skills/verify-werft/scripts/story-shot.mjs http://127.0.0.1:<port> '/#/members' <out.png>`.
+3. 캡처 규칙은 [features/web-console.md](features/web-console.md)와 같다. 390px·1280px을 light·dark로, 위 상태마다 찍고 `scrollWidth/innerWidth`를 적는다. 화면을 바꾼 PR은 [화면 구성 원칙](../../../packages/ui/README.md#화면-구성-원칙)으로 점검한다.
+4. sticky에 돌린 명령과 출력, 어떤 상태를 채웠는지, 캡처를 적는다. 목은 응답 모양을 그대로 믿으므로 실제 API 연동·권한·서버 경로, 그리고 fixture가 `contracts`와 맞는지는 확인하지 못한 것으로 적는다. 요청·응답 모양을 바꾸는 PR이면 T1이 아니라 T3다.
+
 ## 원칙
 
 - **자기 스택만.** `up.sh`가 새 compose project(`verify-ap-<run id>`)와 installation id를 만들고, 모든 단계가 그 project에만 compose를 건다. 기본 project `agent-platform`이나 다른 사람의 스택은 몰지도 내리지도 않는다.
