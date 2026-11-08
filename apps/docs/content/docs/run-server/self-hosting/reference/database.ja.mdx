@@ -24,11 +24,11 @@ PostgreSQL 16を使います。接続の飽和、遅いSQL、ロックの調査�
 | scheduler | 4 | pass内のSQLは逐次実行ですが、pass lockが別の接続を保持します |
 | reconciler | 4 | pass内のSQLを逐次実行します |
 | slack | 4 | inboxとoutboxを順番に処理します |
-| checkpoint GC、upgrade check、migrate、運用CLI（`keys`・`grants`など） | 10 | 短時間で終了します。既定値（`DEFAULT_POOL_MAX`）を使います |
+| checkpoint GC、session archive、upgrade check、migrate、運用CLI（`keys`・`grants`など） | 10 | 短時間で終了します。既定値（`DEFAULT_POOL_MAX`）を使います |
 | 運用CLI `profile-backfill` | 2 | 短時間で終了します。コードが既定値の代わりに 2 を定めます |
 | 運用CLI `profile-migration` | 4 | 短時間で終了します。コードが既定値の代わりに 4 を定めます |
 
-Helmの既定値（api 2、slack 1、scheduler・reconciler各1、metrics無効）では、常時開き得る接続はapi 24 + scheduler 4 + reconciler 4 + slack 4 = 36です。`metrics.enabled` を有効にすると10、GC・upgrade check・migrate Jobが重なると最大30が加わります。Composeではapi 12 + scheduler 4 + reconciler 4 + slack 4 = 24です。PostgreSQLの既定 `max_connections` は100で、3はsuperuser用です。apiを増やす場合はreplicaごとに12、slackは4を足し、max_connectionsと比較してください。管理DBはインスタンスによって100未満の場合があるため、実際の値を確認します。
+Helmの既定値（api 2、slack 1、scheduler・reconciler各1、metrics無効）では、常時開き得る接続はapi 24 + scheduler 4 + reconciler 4 + slack 4 = 36です。`metrics.enabled` を有効にすると10が加わります。checkpoint GC（既定は日曜04:00）とsession archive（既定は日曜05:00）はCronJobで `concurrencyPolicy: Forbid` のため、それぞれ同時に1つだけ動きます。upgrade checkとmigrateはHelm hookで、1つが終わってから次が始まるため同時に動くのは1つだけです。この3つが重なると最大30が加わります。既定の日程では、GCが1時間を超えて動くか日程を変えた場合にだけGCとsession archiveが重なります。Composeではapi 12 + scheduler 4 + reconciler 4 + slack 4 = 24です。PostgreSQLの既定 `max_connections` は100で、3はsuperuser用です。apiを増やす場合はreplicaごとに12、slackは4を足し、max_connectionsと比較してください。管理DBはインスタンスによって100未満の場合があるため、実際の値を確認します。
 
 <a id="연결마다-거는-세션-설정" />
 ## 接続ごとのセッション設定
