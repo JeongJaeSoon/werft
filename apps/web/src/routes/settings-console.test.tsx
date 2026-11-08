@@ -356,6 +356,14 @@ describe("모델 연결", () => {
       "나중에 같은 화면에서 다시 켤 수 있습니다.",
     );
     expect(confirm.textContent).not.toContain("다시 켤 수 없습니다");
+    // A disabled id is turned back on, so it stays taken: it is not "gone for
+    // good", and the stop lasts only until it is turned on again.
+    expect(confirm.textContent).toContain(
+      "이 id는 다른 연결에 쓸 수 없습니다.",
+    );
+    expect(confirm.textContent).toContain("다시 켤 때까지 실행되지 않습니다.");
+    expect(confirm.textContent).not.toContain("이 id는 다시 쓸 수 없습니다");
+    expect(confirm.textContent).not.toContain("더 이상 실행되지 않습니다");
     expect(writes(api.calls).length).toBe(1);
     await user.click(
       within(confirm).getByRole("button", { name: "사용 중지" }),

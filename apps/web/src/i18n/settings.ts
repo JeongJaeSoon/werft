@@ -53,7 +53,7 @@ export const settingsKo = {
   "settings.disableConsequence":
     "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
   "settings.connections.disableConsequence":
-    "이 id는 다시 쓸 수 없습니다. 이 연결로만 모델을 부르는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
+    "이 id는 다른 연결에 쓸 수 없습니다. 이 연결로만 모델을 부르는 프로필과 에이전트는 다시 켤 때까지 실행되지 않습니다.",
   "settings.connections.disableReenable":
     "나중에 같은 화면에서 다시 켤 수 있습니다.",
   "settings.enable": "다시 켜기",
@@ -194,7 +194,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.disableConsequence":
     "This cannot be undone. The id is never used again, and the profiles and agents that use this entry stop running.",
   "settings.connections.disableConsequence":
-    "The id is never used again. Profiles and agents that reach their model only through this connection stop running.",
+    "The id stays taken and cannot go to another connection. Profiles and agents that reach their model only through this connection do not run until it is turned back on.",
   "settings.connections.disableReenable":
     "You can turn it back on later from this screen.",
   "settings.enable": "Enable again",
@@ -336,7 +336,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.disableConsequence":
     "元に戻せません。この id は再利用できず、この項目を使うプロファイルとエージェントは動かなくなります。",
   "settings.connections.disableConsequence":
-    "この id は再利用できません。この接続だけでモデルを呼ぶプロファイルとエージェントは動かなくなります。",
+    "この id は別の接続には使えません。この接続だけでモデルを呼ぶプロファイルとエージェントは、再び有効にするまで動きません。",
   "settings.connections.disableReenable":
     "あとからこの画面で再び有効にできます。",
   "settings.enable": "再び有効にする",
