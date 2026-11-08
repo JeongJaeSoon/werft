@@ -16,7 +16,7 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { renderAt, screen, waitFor } = await appHarness();
 
 const DETAIL = `/agents/${AGENT_ID}`;
 const ADMINS_TAB = `${DETAIL}?tab=admins`;
