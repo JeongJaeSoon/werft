@@ -66,6 +66,12 @@ export interface TurnEventPresentation {
   readonly summary: readonly TurnEventPart[];
   /** Longer text shown folded under the summary. */
   readonly detail?: string;
+  /**
+   * What the agent said, whole and trimmed: a surface that can show a reply
+   * in full reads this; `summary` keeps its clipped start for one-line spots.
+   * Markdown as the model wrote it.
+   */
+  readonly reply?: string;
   readonly error?: boolean;
   /**
    * `debug`: SDK bookkeeping, shown only when asked for. `thinking_tick`:
@@ -207,6 +213,7 @@ function assistant(data: Record<string, unknown>): TurnEventPresentation {
     return {
       label: message("session.event.kind.assistant"),
       summary: text(clip(reply)),
+      reply,
     };
   }
   const call = eventToolCall(data);
