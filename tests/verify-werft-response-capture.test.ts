@@ -111,6 +111,14 @@ describe("maskBody: shapes a first version leaked", () => {
     expect(leaks(nested)).toBe(false);
   });
 
+  test("long keys, punctuation in keys and whitespace before the colon", () => {
+    expect(leaks(`prefix {"token${"x".repeat(41)}":"SENTINEL"}`)).toBe(false);
+    expect(leaks(`prefix {"token${"x".repeat(200)}":"SENTINEL"}`)).toBe(false);
+    expect(leaks('prefix {"token.label":"SENTINEL"}')).toBe(false);
+    expect(leaks('prefix {"token"\t:"SENTINEL"}')).toBe(false);
+    expect(leaks('prefix {"token"\n  :\n"SENTINEL"}')).toBe(false);
+  });
+
   test("a very long key name stays fast", () => {
     const started = performance.now();
     maskBody(`prefix {"${"token".repeat(8000)}":"x"}`);

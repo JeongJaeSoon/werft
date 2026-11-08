@@ -78,12 +78,13 @@ function valueEnd(s, i) {
 
 // JSON that sits inside other text, or a body that is not valid JSON. Quotes
 // are never paired here (a stray, escaped or missing one broke every pairing
-// scheme): look for a secret word, allow a short run of key characters after
-// it (the rest of the name, its closing quote, escapes), then `:` or `=`, and
-// hide the value that follows, whatever its shape. Over-hiding prose such as
-// "token expired: retry" is the safe side.
+// scheme): look for a secret word, allow up to 256 characters after it that
+// are not structure (the rest of the name, its closing quote, escapes, a tab
+// before the colon), then `:` or `=`, and hide the value that follows,
+// whatever its shape. Over-hiding prose such as "token expired: retry" is the
+// safe side; the 256 bound keeps the search linear in the text.
 const SECRET_AT = new RegExp(
-  `(?:${SECRET_WORDS})[A-Za-z0-9_\\-\\\\"' ]{0,40}?[:=]\\s*`,
+  `(?:${SECRET_WORDS})[^:=,;{}\\[\\]]{0,256}?[:=]\\s*`,
   "gi",
 );
 function hideEmbedded(text) {
