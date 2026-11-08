@@ -81,6 +81,24 @@ describe("maskBody: shapes a first version leaked", () => {
 
   test("an escaped secret key inside JSON embedded in other text", () => {
     expect(leaks('request: {"access_\\u0074oken":"SENTINEL"}')).toBe(false);
+    expect(leaks('request: {"access_\\u0074oken":["SENTINEL"]}')).toBe(false);
+    expect(leaks('x {"a":{"token":{"v":["SENTINEL"]}},"b":1}')).toBe(false);
+  });
+
+  test("a cut-off body still hides what follows a secret key", () => {
+    expect(leaks('{"ok":1,"token":"SENTINEL')).toBe(false);
+    expect(leaks('{"ok":1,"token":["SENTINEL')).toBe(false);
+    expect(leaks('Cookie: a="SENTINEL')).toBe(false);
+  });
+
+  test("keeps the fields after a hidden one in embedded JSON", () => {
+    expect(maskBody('x {"token":"s","error":"bad request"}')).toContain(
+      '"error":"bad request"',
+    );
+  });
+
+  test("api_key in a query inside a body", () => {
+    expect(leaks("https://h/cb?api_key=SENTINEL&password=x")).toBe(false);
   });
 
   test("every cookie in a list, quoted values included", () => {
@@ -98,6 +116,13 @@ describe("maskBody: shapes a first version leaked", () => {
       body: "missing",
     });
     expect(line).not.toContain("SENTINEL");
+    const encoded = formatCapture({
+      method: "GET",
+      url: "http://h/in%76ite/SENTINEL",
+      status: 404,
+      body: "missing",
+    });
+    expect(encoded).not.toContain("SENTINEL");
   });
 });
 

@@ -49,6 +49,48 @@ const jsonText = (literal) => {
   }
 };
 
+// Where the JSON value that starts at `i` ends. A string, array or object that
+// is cut off (no closing mark) runs to the end of the text: hiding too much of
+// a truncated body is the safe side.
+function valueEnd(s, i) {
+  const open = s[i];
+  if (open === '"') {
+    for (let j = i + 1; j < s.length; j++) {
+      if (s[j] === "\\") j++;
+      else if (s[j] === '"') return j + 1;
+    }
+    return s.length;
+  }
+  if (open === "[" || open === "{") {
+    let depth = 0;
+    for (let j = i; j < s.length; j++) {
+      if (s[j] === '"') j = valueEnd(s, j) - 1;
+      else if (s[j] === "[" || s[j] === "{") depth++;
+      else if ((s[j] === "]" || s[j] === "}") && --depth === 0) return j + 1;
+    }
+    return s.length;
+  }
+  const bare = /^[^\s,}\]]*/.exec(s.slice(i))[0];
+  return i + bare.length;
+}
+
+// JSON that sits inside other text, or a body that is not valid JSON: find
+// each `"key":` and hide the value after a secret key, whatever its shape.
+function hideEmbedded(text) {
+  const keyAt = /("(?:[^"\\]|\\.)*")(\s*:\s*)/g;
+  let out = "";
+  let last = 0;
+  for (let m = keyAt.exec(text); m; m = keyAt.exec(text)) {
+    if (!SECRET_KEY.test(jsonText(m[1]))) continue;
+    const start = m.index + m[0].length;
+    const end = valueEnd(text, start);
+    out += `${text.slice(last, start)}"(hidden)"`;
+    last = end;
+    keyAt.lastIndex = end;
+  }
+  return out + text.slice(last);
+}
+
 export function maskBody(text) {
   let out = String(text);
   try {
@@ -56,20 +98,15 @@ export function maskBody(text) {
   } catch {
     // Not JSON (HTML, plain text, a cut body): the patterns below still run.
   }
-  return out
-    .replace(
-      /("(?:[^"\\]|\\.)*")(\s*:\s*)"(?:[^"\\]|\\.)*"/g,
-      (whole, key, colon) =>
-        SECRET_KEY.test(jsonText(key)) ? `${key}${colon}"(hidden)"` : whole,
-    )
+  return hideEmbedded(out)
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, "$1 (hidden)")
     .replace(
-      /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|[^\r\n"])+/gi,
+      /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|"[^"\r\n]*|[^\r\n"])+/gi,
       "$1: (hidden)",
     )
     .replace(/\/invite\/[^/?#\s"\\]+/g, "/invite/(token)")
     .replace(
-      /((?:code|state|[a-z_]*(?:token|secret|password))(?:=|%3D))(?:(?!%26|%23)[^&#\s"])+/gi,
+      /((?:code|state|[a-z_]*(?:token|secret|password|passwd|api[_-]?key))(?:=|%3D))(?:(?!%26|%23)[^&#\s"])+/gi,
       "$1(hidden)",
     );
 }
@@ -87,7 +124,12 @@ export function shortBody(text, limit = BODY_LIMIT) {
 export function safeUrl(raw) {
   try {
     const u = new URL(raw);
-    return `${maskBody(u.pathname)}${u.search ? "?(query hidden)" : ""}`;
+    // Decode first: /in%76ite/<token> is the same path as /invite/<token>.
+    let path = u.pathname;
+    try {
+      path = decodeURIComponent(path);
+    } catch {}
+    return `${maskBody(path)}${u.search ? "?(query hidden)" : ""}`;
   } catch {
     return "(unparsable url)";
   }
@@ -168,7 +210,9 @@ export function createCollector({ send, pattern, settleMs = 3000 }) {
     }
   }
   async function report() {
-    for (let t = 0; waiting.size > 0 && t < settleMs; t += 50) await sleep(50);
+    const end = Date.now() + settleMs;
+    while (waiting.size > 0 && Date.now() < end)
+      await sleep(Math.min(50, end - Date.now()));
     // Whatever is still open ran out of time: list it with why.
     for (const rec of [...waiting])
       settle(rec, { bodyError: "no response body within the wait" });
