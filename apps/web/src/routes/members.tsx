@@ -532,7 +532,10 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
         <MemberEditDialog
           member={editing}
           busy={changeRole.isPending}
-          onClose={() => setEditingId(null)}
+          // A request still out settles into this dialog, so it stays open.
+          onClose={() => {
+            if (!changeRole.isPending) setEditingId(null);
+          }}
           onSave={(next) => changeRole.mutate({ member: editing, role: next })}
           onClosed={() => {
             if (editOpener.current?.isConnected) editOpener.current.focus();
@@ -675,7 +678,12 @@ function MemberEditDialog({
           </FieldDescription>
         ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={onClose}
+          >
             {t("common.cancel")}
           </Button>
           <Button
@@ -741,9 +749,12 @@ function InviteList() {
   const shown = term
     ? listed.filter((invite) => invite.email.toLowerCase().includes(term))
     : listed;
-  // The box stays while a term is typed, so emptying the list by it never
-  // takes the box away.
-  const searchable = listed.length > INVITE_SEARCH_THRESHOLD || query !== "";
+  // Once shown the box stays: a revoke that brings the list under the
+  // threshold must not remove the field that holds the focus.
+  const [shownBefore, setShownBefore] = useState(false);
+  const searchable =
+    shownBefore || listed.length > INVITE_SEARCH_THRESHOLD || query !== "";
+  if (searchable && !shownBefore) setShownBefore(true);
   // The clear button leaves with the empty state; focus goes back to the box.
   const clear = () => {
     setQuery("");

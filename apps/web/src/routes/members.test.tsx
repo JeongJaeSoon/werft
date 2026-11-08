@@ -770,6 +770,36 @@ describe("되돌리기 어려운 동작의 확인", () => {
     expect(calls).toEqual([]);
   });
 
+  test("저장하는 동안에는 편집을 닫을 수 없고, 응답이 오면 닫힌다", async () => {
+    let release: () => void = () => {};
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      ...noInvites,
+      [`PATCH /v1/members/${OTHER_ID}`]: () =>
+        new Promise((resolve) => {
+          release = () => resolve(json(200, { ...teammate, role: "admin" }));
+        }),
+    });
+    const user = await setupUser();
+    const edit = await pickRole(user, "Mate", "admin");
+    await user.click(within(edit).getByRole("button", { name: "역할 바꾸기" }));
+    const cancel = (await within(edit).findByRole("button", {
+      name: "취소",
+    })) as HTMLButtonElement;
+    try {
+      await waitFor(() => expect(cancel.disabled).toBe(true));
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog") === null).toBe(false);
+    } finally {
+      release();
+    }
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+  });
+
   test("편집을 닫으면 키보드가 그 이름 버튼으로 돌아온다", async () => {
     const calls: string[] = [];
     renderAt("/members", routes(calls));
@@ -1645,6 +1675,31 @@ describe("구성원 · 팀 · 초대 탭", () => {
         expect(screen.queryByText("person0@example.com")).toBeNull(),
       );
       expect(screen.getByText("person10@example.com")).toBeDefined();
+    });
+
+    test("목록이 열 개 아래로 줄어도 한 번 보인 검색 칸은 남고 포커스를 받는다", async () => {
+      let items = many(11);
+      const { services } = renderAt("/members/invites", {
+        "GET /v1/auth/me": () => json(200, me()),
+        "GET /v1/members": () =>
+          json(200, memberPage({ items: [owner], next_cursor: null })),
+        "GET /v1/invites": () => json(200, { items }),
+      });
+      const user = await setupUser();
+      const box = await screen.findByRole("searchbox", {
+        name: "이메일로 찾기",
+      });
+      await user.type(box, "nobody");
+      await screen.findByRole("button", { name: "검색어 지우기" });
+      items = many(10);
+      await act(() => services.queryClient.refetchQueries());
+      await user.click(screen.getByRole("button", { name: "검색어 지우기" }));
+      await waitFor(() =>
+        expect(screen.getByText("person0@example.com")).toBeDefined(),
+      );
+      const still = screen.getByRole("searchbox", { name: "이메일로 찾기" });
+      expect(still === box).toBe(true);
+      expect(document.activeElement === box).toBe(true);
     });
 
     test("맞는 초대가 없으면 안내와 지우기를 보이고, 지우면 검색 칸으로 돌아온다", async () => {
