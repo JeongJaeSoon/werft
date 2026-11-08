@@ -449,4 +449,150 @@ describe("planMigration", () => {
       agent_recent: 1,
     });
   });
+
+  test("each version reports what runs on it today, and whether an installation version already has its form", () => {
+    const plan = planOf(
+      input(
+        catalogWith([
+          version("strict", 1),
+          version("same", 1, {
+            models: [...(base.models ?? [])],
+            tools: [...base.tools],
+            permission_mode: "acceptEdits",
+          }),
+        ]),
+        [
+          agent("a1", "ws_acme_strict_v1"),
+          agent("a2", "ws_acme_strict_v1"),
+          agent("a3", "ws_acme_same_v1"),
+        ],
+        {
+          releaseCounts: new Map([["ws_acme_strict_v1", 4]]),
+          checkpointCounts: new Map([["ws_acme_strict_v1", 7]]),
+          sessions: [
+            {
+              workspaceId: W,
+              profileId: "ws_acme_strict_v1",
+              hasAgent: true,
+              active: true,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+            {
+              workspaceId: W,
+              profileId: "ws_acme_strict_v1",
+              hasAgent: false,
+              active: false,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+          ],
+        },
+      ),
+    );
+    const usage = (id: string) =>
+      plan.profiles.find((p) => p.source_id === id)?.usage;
+    expect(usage("ws_acme_strict_v1")).toEqual({
+      agents_on_active: 2,
+      pinned_releases: 4,
+      running_sessions: 1,
+      checkpoints: 7,
+      equivalent_installation_version: null,
+    });
+    expect(usage("ws_acme_same_v1")).toMatchObject({
+      agents_on_active: 1,
+      pinned_releases: 0,
+      running_sessions: 0,
+      checkpoints: 0,
+      equivalent_installation_version: "coding",
+    });
+  });
+
+  test("the report gives the allowed sets before and after, by kind of session", () => {
+    const plan = planOf(
+      input(
+        catalogWith([version("strict", 1)]),
+        [
+          agent("a1", "ws_acme_strict_v1", {
+            settingsRepositories: ["private-a", "url-r"],
+          }),
+          agent("a2", "ws_acme_strict_v1", { settingsRepositories: ["held"] }),
+        ],
+        {
+          sessions: [
+            {
+              workspaceId: W,
+              profileId: "ws_acme_strict_v1",
+              hasAgent: true,
+              policySource: "agent",
+              active: true,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+            {
+              workspaceId: W,
+              profileId: "ws_acme_strict_v1",
+              hasAgent: false,
+              policySource: "release",
+              active: true,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+            {
+              workspaceId: W,
+              profileId: "coding",
+              hasAgent: false,
+              policySource: "release",
+              active: true,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+          ],
+        },
+      ),
+    );
+    const access = plan.session_access;
+    expect(access.ceiling_before).toEqual(["held"]);
+    expect(access.ceiling_after).toEqual(["held", "private-a"]);
+    // Agent sessions are always judged by the ceiling; only the agent whose
+    // own settings list the new value gains it.
+    expect(access.agent_sessions).toEqual({
+      sessions: 1,
+      judged_by_ceiling: 1,
+      unchanged: 0,
+      widened_repositories: ["private-a"],
+    });
+    expect(access.agents_widened).toEqual([
+      { agent_id: "a1", repositories: ["private-a"] },
+    ]);
+    // The copied version's base lists its own repositories, so a release-source
+    // session on it is not judged by the ceiling and gains nothing.
+    expect(access.agentless_on_copied_profiles).toEqual({
+      sessions: 1,
+      judged_by_ceiling: 0,
+      unchanged: 1,
+      widened_repositories: [],
+    });
+    expect(access.other_profile_sessions.sessions).toBe(1);
+  });
+
+  test("when the base defers to the workspace ceiling, agentless sessions on a copy are widened with it", () => {
+    const plan = planOf(
+      input(
+        catalogWith([version("strict", 1)], ["private-a"], "workspace"),
+        [agent("a1", "ws_acme_strict_v1")],
+        {
+          sessions: [
+            {
+              workspaceId: W,
+              profileId: "ws_acme_strict_v1",
+              hasAgent: false,
+              policySource: "release",
+              active: true,
+              createdAt: "2026-11-07T00:00:00.000Z",
+            },
+          ],
+        },
+      ),
+    );
+    expect(plan.session_access.agentless_on_copied_profiles).toMatchObject({
+      sessions: 1,
+      judged_by_ceiling: 1,
+    });
+  });
 });

@@ -25,6 +25,7 @@ import {
   agentReleases,
   agents,
   catalogRepositories,
+  checkpoints,
   githubWorkspaceSettings,
   installationProfiles,
   memberships,
@@ -125,6 +126,7 @@ export async function readMigrationFacts(
       pins: agentReleases.policyPins,
       tools: agentReleases.effectiveTools,
       settings: agentGitHubSettings.agentId,
+      settingsRepositories: agentGitHubSettings.repositories,
     })
     .from(agents)
     .leftJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
@@ -144,6 +146,9 @@ export async function readMigrationFacts(
       modelSource: row.modelSource === "profile" ? "profile" : "fixed",
       draftVersionId: row.draftVersionId,
       hasSettingsRow: row.settings !== null,
+      settingsRepositories: Array.isArray(row.settingsRepositories)
+        ? row.settingsRepositories.map(String)
+        : [],
       releaseRepositoryId: row.repositoryId ?? null,
       pinnedRepositories: Array.isArray(listed) ? listed.map(String) : [],
       toolsBefore: Array.isArray((row.tools as { tools?: unknown })?.tools)
@@ -171,6 +176,7 @@ export async function readMigrationFacts(
       workspaceId: sessions.workspaceId,
       profileId: sessions.profileId,
       releaseId: sessions.agentReleaseId,
+      policySource: sessions.githubPolicySource,
       status: sessions.status,
       createdAt: sessions.createdAt,
     })
@@ -185,9 +191,36 @@ export async function readMigrationFacts(
     workspaceId: row.workspaceId as string,
     profileId: row.profileId,
     hasAgent: row.releaseId !== null,
+    policySource: row.policySource,
     active: row.status !== "failed" && row.status !== "stopped",
     createdAt: row.createdAt.toISOString(),
   }));
+
+  const releaseCountRows = await db
+    .select({
+      profileId: agentReleases.runtimeProfileId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(agentReleases)
+    .groupBy(agentReleases.runtimeProfileId);
+  const releaseCounts = new Map(
+    releaseCountRows.map((row) => [row.profileId, row.count]),
+  );
+  const checkpointCountRows = await db
+    .select({
+      profileId: checkpoints.profileId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(checkpoints)
+    .where(
+      and(isNotNull(checkpoints.profileId), isNull(checkpoints.collectedAt)),
+    )
+    .groupBy(checkpoints.profileId);
+  const checkpointCounts = new Map(
+    checkpointCountRows.flatMap((row) =>
+      row.profileId === null ? [] : [[row.profileId, row.count] as const],
+    ),
+  );
 
   const profileRows = await db
     .select({
@@ -240,6 +273,8 @@ export async function readMigrationFacts(
     repositories,
     sessions: sessionFacts,
     copies,
+    releaseCounts,
+    checkpointCounts,
     takenNames,
   };
 }

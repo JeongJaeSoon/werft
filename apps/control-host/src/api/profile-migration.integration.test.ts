@@ -13,6 +13,7 @@ import {
   agentGitHubSettings,
   agentReleases,
   agents,
+  catalogRepositories,
   createDatabaseIdentityReader,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
@@ -362,6 +363,10 @@ integration("profile migration on PostgreSQL (U5)", () => {
 
   test("the report names what it would do: states, agents, tools before and after, ceiling", async () => {
     const { ws, v1, v2, old, onV1, onOld, catalog } = await world();
+    await db
+      .update(agentGitHubSettings)
+      .set({ repositories: ["private-a"] })
+      .where(eq(agentGitHubSettings.agentId, onV1));
     const report = await dryRun(catalog);
     const plan = JSON.parse(report.text);
     expect(plan.preconditions).toMatchObject({
@@ -416,6 +421,23 @@ integration("profile migration on PostgreSQL (U5)", () => {
     ).toEqual([
       ["url-r", "app_installed", v1],
       ["url-r", "app_installed", v2],
+    ]);
+    // Design 1.4 step 1: what runs on each version today, read from the database.
+    const usageOf = (id: string) =>
+      w.profiles.find((p: { source_id: string }) => p.source_id === id).usage;
+    expect(usageOf(v1)).toEqual({
+      agents_on_active: 1,
+      pinned_releases: 1,
+      running_sessions: 0,
+      checkpoints: 0,
+      equivalent_installation_version: null,
+    });
+    expect(usageOf(old).agents_on_active).toBe(1);
+    // Seed-ceiling 5: the sets before and after, and who gains what.
+    expect(w.session_access.ceiling_before).toEqual([]);
+    expect(w.session_access.ceiling_after).toEqual(["private-a"]);
+    expect(w.session_access.agents_widened).toEqual([
+      { agent_id: onV1, repositories: ["private-a"] },
     ]);
     expect(plan.migration_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(report.sha).toBe(sha256Of(report.text));
@@ -700,6 +722,26 @@ integration("profile migration on PostgreSQL (U5)", () => {
     );
     expect(finished.code).toBe(0);
     expect(await copies()).toHaveLength(3);
+  });
+
+  test("a workspace whose ceiling cannot be widened moves nothing and names each agent it left", async () => {
+    const { onV1, onV2, catalog } = await world();
+    const report = await dryRun(catalog);
+    await db
+      .update(catalogRepositories)
+      .set({ removedAt: new Date() })
+      .where(eq(catalogRepositories.id, "private-a"));
+    const before = await counts();
+    const applied = await run(
+      ["--apply", "--report", report.out, "--report-sha256", report.sha],
+      await catalogOf(),
+    );
+    expect(applied.code).toBe(1);
+    const text = JSON.stringify(applied.last);
+    for (const id of [onV1, onV2]) expect(text).toContain(id);
+    expect(text).toContain("ceiling_refused");
+    expect(await counts()).toEqual(before);
+    expect(await copies()).toEqual([]);
   });
 
   test("a revert of a migration that wrote nothing refuses", async () => {

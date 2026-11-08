@@ -1,9 +1,11 @@
+import type { GitHubPolicySource } from "@werft-ai/contracts";
 import { installationProfileId } from "@werft-ai/contracts";
 import type { WorkspaceProfileRecord } from "./catalog.ts";
 import {
   type CatalogProfileView,
   derivationPolicyOf,
   type ProfileLookup,
+  usesWorkspaceCeiling,
   workspaceProfileState,
 } from "./catalog.ts";
 import { sameExecutionForm } from "./profile-execution-form.ts";
@@ -24,6 +26,8 @@ export type MigrationAgentFact = {
   hasSettingsRow: boolean;
   releaseRepositoryId: string | null;
   pinnedRepositories: readonly string[];
+  /** The repositories the agent's own settings row lists; empty without a row. */
+  settingsRepositories?: readonly string[];
   toolsBefore: readonly string[];
 };
 
@@ -46,6 +50,8 @@ export type MigrationSessionFact = {
   workspaceId: string;
   profileId: string | null;
   hasAgent: boolean;
+  /** `sessions.github_policy_source`; absent reads as agent or release by `hasAgent`. */
+  policySource?: string | null;
   active: boolean;
   createdAt: string;
 };
@@ -70,6 +76,10 @@ export type MigrationInput = {
   repositories: readonly MigrationRepositoryFact[];
   sessions: readonly MigrationSessionFact[];
   copies: readonly MigrationCopyFact[];
+  /** Release rows per `runtime_profile_id`, whatever their state. */
+  releaseCounts?: ReadonlyMap<string, number>;
+  /** Live checkpoints per `checkpoints.profile_id`. */
+  checkpointCounts?: ReadonlyMap<string, number>;
   takenNames: ReadonlyMap<string, ReadonlySet<string | null>>;
   newId: () => string;
   migrationId: string;
@@ -86,12 +96,23 @@ export type CopySkip =
   | "older_than_copied"
   | "base_differs_in_lineage";
 
+/** Design 1.4 step 1: what runs on a version today, before anything moves. */
+export type ProfileUsage = {
+  agents_on_active: number;
+  pinned_releases: number;
+  running_sessions: number;
+  checkpoints: number;
+  /** An installation version (not a migration copy) with the same execution form. */
+  equivalent_installation_version: string | null;
+};
+
 export type ProfileCopyPlan = {
   source_id: string;
   workspace_id: string;
   name: string;
   version: number;
   state: string;
+  usage: ProfileUsage;
   created_by: string | null;
   reason: "active" | "latest" | "both" | null;
   decision: "copy" | "exists" | "skip";
@@ -144,11 +165,32 @@ export type CeilingNotAdded = {
   source: { kind: "profile" | "agent_pin"; id: string };
 };
 
+/**
+ * Sessions of one kind in the report window. Those judged by the workspace
+ * ceiling gain `widened_repositories`; the rest keep what their profile lists.
+ */
+export type MigrationSessionAccess = {
+  sessions: number;
+  judged_by_ceiling: number;
+  unchanged: number;
+  widened_repositories: string[];
+};
+
 export type WorkspacePlan = {
   workspace_id: string;
   actor_user_id: string | null;
   profiles: ProfileCopyPlan[];
   agents: AgentMovePlan[];
+  /** Design seed-ceiling 5: the allowed sets before and after, by kind of session. */
+  session_access: {
+    ceiling_before: string[];
+    ceiling_after: string[];
+    agent_sessions: MigrationSessionAccess;
+    /** Agents whose own settings list a repository the top-up now lets through. */
+    agents_widened: Array<{ agent_id: string; repositories: string[] }>;
+    agentless_on_copied_profiles: MigrationSessionAccess;
+    other_profile_sessions: MigrationSessionAccess;
+  };
   ceiling: {
     before: MigrationWorkspaceFact["ceiling"];
     additions: CeilingAddition[];
@@ -233,6 +275,24 @@ export function planMigration(input: MigrationInput): MigrationPlan {
   const now = Date.parse(input.now);
   const recentFrom = now - MIGRATION_RECENT_DAYS * 86_400_000;
   const copyBySource = new Map(input.copies.map((c) => [c.migratedFrom, c]));
+  const copyIds = new Set(input.copies.map((c) => c.id));
+  const equivalentVersion = (
+    definition: Record<string, unknown>,
+  ): string | null => {
+    const ids = [...(catalog.installation?.entries() ?? [])]
+      .filter(([id, entry]) => {
+        if (copyIds.has(id)) return false;
+        const form = entry.definition ?? entry.record?.definition;
+        return (
+          typeof form === "object" &&
+          form !== null &&
+          sameExecutionForm(form as Record<string, unknown>, definition)
+        );
+      })
+      .map(([id]) => id)
+      .sort();
+    return ids[0] ?? null;
+  };
 
   const activeIn = (workspaceId: string) =>
     input.agents.filter(
@@ -293,6 +353,17 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         name: record.name,
         version: record.version,
         state,
+        usage: {
+          agents_on_active: wsAgents.filter(
+            (a) => a.activeProfileId === record.id,
+          ).length,
+          pinned_releases: input.releaseCounts?.get(record.id) ?? 0,
+          running_sessions: input.sessions.filter(
+            (s) => s.active && s.profileId === record.id,
+          ).length,
+          checkpoints: input.checkpointCounts?.get(record.id) ?? 0,
+          equivalent_installation_version: null,
+        },
         created_by: record.created_by,
         reason,
         decision: "skip",
@@ -313,6 +384,8 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         plan.skip = "base_missing";
         continue;
       }
+      plan.usage.equivalent_installation_version =
+        equivalentVersion(definition);
       const existing = copyBySource.get(record.id);
       const baseFingerprint =
         catalog.installation?.get(record.base_profile_id)?.record
@@ -556,11 +629,60 @@ export function planMigration(input: MigrationInput): MigrationPlan {
         s.workspaceId === workspace.id &&
         (s.active || Date.parse(s.createdAt) >= recentFrom),
     );
+    const widenedIds = additions.map((a) => a.repository_id);
+    const access = (
+      list: readonly MigrationSessionFact[],
+    ): MigrationSessionAccess => {
+      const judged = list.filter((s) =>
+        usesWorkspaceCeiling(
+          catalog,
+          s.profileId,
+          (s.policySource ??
+            (s.hasAgent ? "agent" : "release")) as GitHubPolicySource,
+        ),
+      ).length;
+      return {
+        sessions: list.length,
+        judged_by_ceiling: judged,
+        unchanged: list.length - judged,
+        widened_repositories: judged > 0 ? widenedIds : [],
+      };
+    };
+    const added = new Set(widenedIds);
+    const wasThere = new Set(workspace.ceiling?.repository_ids ?? []);
+    const agentsWidened = wsAgents
+      .flatMap((agent) => {
+        const gained = sortedUnique(agent.settingsRepositories ?? []).filter(
+          (id) => added.has(id) && !wasThere.has(id),
+        );
+        return gained.length > 0
+          ? [{ agent_id: agent.agentId, repositories: gained }]
+          : [];
+      })
+      .sort((a, b) => (a.agent_id < b.agent_id ? -1 : 1));
     workspaces.push({
       workspace_id: workspace.id,
       actor_user_id: workspace.owners[0] ?? null,
       profiles,
       agents,
+      session_access: {
+        ceiling_before: sortedUnique(workspace.ceiling?.repository_ids ?? []),
+        ceiling_after: after === null ? [] : sortedUnique(after.repository_ids),
+        agent_sessions: access(inW.filter((s) => s.hasAgent)),
+        agents_widened: agentsWidened,
+        agentless_on_copied_profiles: access(
+          inW.filter(
+            (s) =>
+              !s.hasAgent && s.profileId !== null && copied.has(s.profileId),
+          ),
+        ),
+        other_profile_sessions: access(
+          inW.filter(
+            (s) =>
+              !s.hasAgent && !(s.profileId !== null && copied.has(s.profileId)),
+          ),
+        ),
+      },
       ceiling: {
         before: workspace.ceiling,
         additions,

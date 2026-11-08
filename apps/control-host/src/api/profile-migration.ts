@@ -209,8 +209,13 @@ async function apply(
         workspace.agents.some((a) => a.decision === "move");
       if (!hasWork) continue;
       const actor = workspace.actor_user_id;
+      const notMoved = (reason: string) =>
+        workspace.agents
+          .filter((a) => a.decision === "move")
+          .map((a) => ({ agent_id: a.agent_id, reason }));
       if (actor === null) {
         entry.refused = "no live owner";
+        entry.not_moved = notMoved("no_live_owner");
         failed = true;
         continue;
       }
@@ -223,6 +228,7 @@ async function apply(
       });
       entry.ceiling = ceiling;
       if (ceiling.outcome === "refused") {
+        entry.not_moved = notMoved("ceiling_refused");
         failed = true;
         continue;
       }
