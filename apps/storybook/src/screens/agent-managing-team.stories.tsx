@@ -133,8 +133,8 @@ function ManagingTeamSection({
         ) : null}
         {manages ? (
           <Text variant="meta">
-            담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과
-            공유받은 것만 봅니다(워크스페이스 설정).
+            담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은
+            것만 봅니다(워크스페이스 설정).
           </Text>
         ) : null}
       </div>

@@ -77,7 +77,7 @@ If the same workspace already has the same slug, the response is 409 `ALREADY_EX
 
 The team in `managing_team_id` becomes the responsible team. Leaving it out is 400 `BAD_REQUEST`, with `{"path": "managing_team_id", "message": "managing_team_id is required"}` in `error.details.issues`. An owner or admin who names a team that does not exist gets 404. Anyone else who names a team they are not in gets 403 (`details.reason_code: team_not_allowed`), even when the team does not exist. So a member who is in no team cannot create an agent. The response's `agent.managing_team_name` is that team's name.
 
-Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace. That team is an ordinary team: rename it, or move its agents to another team.
+Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace (if a team with that name already exists, an 8-character id follows, as in `Unassigned agents (1a2b3c4d)`). That team is an ordinary team: rename it, or move its agents to another team.
 
 ### Create a release
 

@@ -54,7 +54,7 @@ export const workspaceKo = {
     "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
   "workspace.accessSessions": "워크스페이스 공개 세션",
   "workspace.accessSessionsFoot":
-    "모든 에이전트의 세션에 적용됩니다. 다만 'Unassigned agents' 팀에 아직 남아 있는 에이전트는 예외라, 담당 팀을 정하기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
+    "모든 에이전트의 세션에 적용됩니다. 다만 'Unassigned agents'로 시작하는 보관 팀에 아직 남아 있는 에이전트는 예외라, 실제 담당 팀으로 옮기기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
   "workspace.accessSessions.managing_team": "담당 팀 안에만",
   "workspace.accessSessions.managing_team.help":
     "공유 범위가 워크스페이스인 세션을 소유자·관리자, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
@@ -201,7 +201,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "The agent is not in their agent list, and they cannot start sessions with it.",
   "workspace.accessSessions": "Workspace-shared sessions",
   "workspace.accessSessionsFoot":
-    "Applies to the sessions of every agent, except agents still held by the 'Unassigned agents' team: they stay visible to everyone until given a real responsible team. A change applies to existing sessions at once.",
+    "Applies to the sessions of every agent, except agents still held by the holding team whose name starts with 'Unassigned agents': they stay visible to everyone until given a real responsible team. A change applies to existing sessions at once.",
   "workspace.accessSessions.managing_team": "Responsible team only",
   "workspace.accessSessions.managing_team.help":
     "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its responsible team's members. Members outside the responsible team see their own sessions and those shared with them by name or team.",
@@ -348,7 +348,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "エージェント一覧に表示されず、セッションも開始できません。",
   "workspace.accessSessions": "ワークスペース公開のセッション",
   "workspace.accessSessionsFoot":
-    "すべてのエージェントのセッションに適用されます。ただし「Unassigned agents」チームに残っているエージェントは例外で、担当チームを決めるまで従来どおり全員に見えます。変更すると既存のセッションにもすぐ適用されます。",
+    "すべてのエージェントのセッションに適用されます。ただし「Unassigned agents」で始まる保管チームに残っているエージェントは例外で、実際の担当チームへ移すまで従来どおり全員に見えます。変更すると既存のセッションにもすぐ適用されます。",
   "workspace.accessSessions.managing_team": "担当チーム内のみ",
   "workspace.accessSessions.managing_team.help":
     "共有範囲がワークスペースのセッションは、オーナー・管理者、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",

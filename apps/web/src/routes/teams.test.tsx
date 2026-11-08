@@ -1584,6 +1584,58 @@ describe("에이전트 관리자", () => {
     ).toBeNull();
   });
 
+  test("관리자 추가가 거절되면 목록은 그대로이고, 사유가 남고, 토스트 없이 칸이 풀린다", async () => {
+    const refusal = "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.";
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: () =>
+        apiError(404, "NOT_FOUND", "gone"),
+    });
+    const user = await setupUser();
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    await screen.findByText("Mate");
+    await pick(user, picker, "결제");
+    expect(await screen.findByText(refusal)).toBeDefined();
+    await waitFor(() => expect(picker.disabled).toBe(false));
+    // Nothing was added, nothing is announced as done.
+    expect(screen.queryByText("결제팀")).toBeNull();
+    expect(screen.getByText("Mate")).toBeDefined();
+    expect(toastRegion()?.textContent ?? "").toBe("");
+    expect(
+      api.calls.filter(
+        (c) => c.method === "POST" && c.path.endsWith("/admins"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("관리자 빼기가 거절되면 그 사람은 목록에 남고, 사유가 남고, 토스트가 없다", async () => {
+    const refusal = "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.";
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      [`DELETE /v1/agents/${AGENT_ID}/admins/users/${MATE_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "gone"),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "빼기" }));
+    expect(await screen.findByText(refusal)).toBeDefined();
+    // The dialog is gone and the row stays: the server did not remove them.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    ).toBeDefined();
+    expect(toastRegion()?.textContent ?? "").toBe("");
+  });
+
   test("에이전트 관리자인 구성원이 자기 자신을 빼면 관리 권한을 잃는다고 경고하고, 취소하면 보내지 않는다", async () => {
     const agentsApi = agentServer();
     const agent = agentsApi.detail().agent;

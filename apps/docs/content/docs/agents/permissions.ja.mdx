@@ -107,10 +107,10 @@ owner・admin、エージェント管理者、担当チームのメンバーを�
 | `agent_outsider_access` | `use`(既定値) | 情報を読み、セッションを開始できる |
 | | `view` | 情報だけ読める。セッション開始は `403 FORBIDDEN`(`reason_code: role`) |
 | | `none` | エージェントが一覧になく、読むと `404`。セッション開始は `403` |
-| `agent_outsider_session_visibility` | `managing_team`(既定値) | 担当チームがあるエージェントの `workspace` 共有セッションが、一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
+| `agent_outsider_session_visibility` | `managing_team`(既定値) | エージェントの `workspace` 共有セッションが、担当チーム外のメンバーには一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
 | | `workspace` | そのセッションもすべての member が見る |
 
-- `agent_outsider_access` と `agent_outsider_session_visibility` はすべてのエージェントに適用される。エージェントには常に担当チームがある。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない `Unassigned agents` チームが引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
+- `agent_outsider_access` と `agent_outsider_session_visibility` はすべてのエージェントに適用される。エージェントには常に担当チームがある。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない、`Unassigned agents` で始まる名前の保管チームが引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
 - 外側の member でも、自分が開始したセッションと、自分や自分のチームを指定して共有された(`people`・`team`)セッションは引き続き見える。
 - どちらの設定も次のリクエストから、作成済みのセッションにも適用される。開いているイベントストリームは次の確認で切れる。担当チームを変えたときや、メンバーがチームから外れたときも同じである。
 - 使用量の合計(セッション数・費用・成果数)は変わらず、最近の成果一覧から見られないセッションの行だけが抜ける。
@@ -130,7 +130,7 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 コンソールでは **ワークスペース設定** の **エージェントへのアクセス** で変える。**担当チーム外のメンバーのエージェントへのアクセス** は **表示と実行**(`use`)・**表示のみ**(`view`)・**非表示**(`none`)、**ワークスペース公開のセッション** は **担当チーム内のみ**(`managing_team`)・**すべてのメンバー**(`workspace`)である。変えた値だけを送り、保存すると画面が `GET /v1/auth/me` を読み直す。owner・admin でないメンバーには、選択肢なしで今の値だけが表示される。
 
 <Callout>
-以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、担当チームを決めたエージェントのセッションはすぐに内側だけが見る。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
+以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、エージェントのセッションはすぐに内側だけが見る(保管チームに残っているエージェントは例外である)。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
 </Callout>
 
 [作成](/agents/create)の `AID` と `WEB` を引き続き使う。

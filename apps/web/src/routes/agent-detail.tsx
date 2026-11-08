@@ -255,7 +255,6 @@ function OutsideAgentView({ agent }: { readonly agent: Agent }) {
   );
 }
 
-/** The tab holding each section a result is placed in. */
 /**
  * The admins tab says a done change in one toast shared by both sections,
  * and keeps the page for a refusal. Its own component, so the toast timer
@@ -294,6 +293,7 @@ function AdminsTab({
   );
 }
 
+/** The tab holding each section a result is placed in. */
 const PLACE_TAB = {
   page: undefined,
   card: "card",

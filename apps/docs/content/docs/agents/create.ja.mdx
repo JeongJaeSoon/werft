@@ -77,7 +77,7 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 `managing_team_id` に入れたチームが担当チームになる。省くと 400 `BAD_REQUEST` で、`error.details.issues` に `{"path": "managing_team_id", "message": "managing_team_id is required"}` が入る。owner・admin が存在しないチームを入れると 404 である。それ以外の人が自分の所属しないチームを入れると、存在しないチームでも 403(`details.reason_code: team_not_allowed`)である。そのため、所属するチームのない member はエージェントを作成できない。レスポンスの `agent.managing_team_name` はそのチームの名前である。
 
-すべてのエージェントには担当チームが一つある。担当チームは `PUT /v1/agents/{id}/managing-team` で変えられるだけで、空にはできない。担当チームが必須になる前に作ったエージェントには、マイグレーションが担当チームを入れた。担当チームのなかったエージェントは、すべてワークスペースごとに一つ作った、メンバーのいない `Unassigned agents` チームが担当になった。そのチームは普通のチームと同じで、名前を変えたり、エージェントを別のチームへ移したりできる。
+すべてのエージェントには担当チームが一つある。担当チームは `PUT /v1/agents/{id}/managing-team` で変えられるだけで、空にはできない。担当チームが必須になる前に作ったエージェントには、マイグレーションが担当チームを入れた。担当チームのなかったエージェントは、すべてワークスペースごとに一つ作った、メンバーのいない `Unassigned agents` チームが担当になった(同じ名前のチームがすでにあれば、`Unassigned agents (1a2b3c4d)` のように後ろに 8 文字の識別子が付く)。そのチームは普通のチームと同じで、名前を変えたり、エージェントを別のチームへ移したりできる。
 
 ### リリースの作成
 

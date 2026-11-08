@@ -437,7 +437,7 @@ export const agentsKo = {
     "보관용으로 만들어진 팀이라 담당 팀으로 고를 수 없습니다. 다른 팀을 고르세요.",
   "managingTeam.saving": "저장하는 중…",
   "managingTeam.audience":
-    "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
+    "담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
@@ -901,7 +901,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "This team was made to hold unassigned agents and cannot be picked. Pick another team.",
   "managingTeam.saving": "Saving…",
   "managingTeam.audience":
-    "With a responsible team, people outside it see only their own sessions of this agent and the ones shared with them (workspace setting).",
+    "People outside the responsible team see only their own sessions of this agent and the ones shared with them (workspace setting).",
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
@@ -1370,7 +1370,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "保管用に作られたチームなので、担当チームには選べません。ほかのチームを選んでください。",
   "managingTeam.saving": "保存中…",
   "managingTeam.audience":
-    "担当チームを決めると、チーム外の人はこのエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
+    "担当チーム外の人は、このエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
