@@ -12,6 +12,7 @@ import { Pool } from "pg";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
 import { workspaceRepositoryCeiling } from "./github-settings.ts";
 import * as schema from "./schema.ts";
+import { fixtureTeamSql } from "./testing/fixture-team.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -84,9 +85,10 @@ integration("turning one repository on or off on PostgreSQL", () => {
       "INSERT INTO memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)",
       [workspaceId, userId, options.role ?? "owner"],
     );
+    const teamId = await fixtureTeamSql(pool, workspaceId);
     await pool.query(
-      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', true)",
-      [agentId, workspaceId, `a-${agentId.slice(0, 8)}`],
+      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled, managing_team_id) VALUES ($1, $2, $3, 'a', true, $4)",
+      [agentId, workspaceId, `a-${agentId.slice(0, 8)}`, teamId],
     );
     await catalogRow(sample);
     await catalogRow(other);
