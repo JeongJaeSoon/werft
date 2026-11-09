@@ -119,6 +119,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.manage",
   "agent.manage",
   "binding.manage",
+  "binding.approve",
   "routine.manage",
   "session.read",
   "session.submit",
@@ -159,6 +160,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "workspace.manage": ["workspace"],
   "agent.manage": ["workspace", "agent"],
   "binding.manage": ["workspace", "agent", "surface_binding"],
+  "binding.approve": ["workspace", "agent", "surface_binding"],
   "routine.manage": ["workspace", "agent", "routine"],
   "session.read": ["session", "session_link"],
   "session.submit": ["session", "session_link", "surface_binding"],
@@ -2396,6 +2398,8 @@ export const pushIntents = pgTable(
     attemptId: text("attempt_id").notNull(),
     repositoryId: text("repository_id").notNull(),
     targetBranch: text("target_branch").notNull(),
+    // null is the checkpoint's snapshot (HEAD).
+    sourceRef: text("source_ref"),
     status: text().notNull().default("deferred"),
     pinnedRevision: integer("pinned_revision"),
     pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
@@ -3712,9 +3716,10 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("deny"),
     status: text()
-      .$type<"ready" | "partial" | "failed" | "revoked">()
+      .$type<"ready" | "pending_approval" | "partial" | "failed" | "revoked">()
       .notNull()
       .default("ready"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),
@@ -3792,6 +3797,10 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_ready_check",
       sql`${table.surface} <> 'slack' OR ${table.status} <> 'ready' OR (${table.installationId} IS NOT NULL AND ${table.surfaceKind} IS NOT NULL AND (${table.externalSurfaceId} IS NOT NULL OR ${table.surfaceKind} = 'dm'))`,
+    ),
+    check(
+      "surface_bindings_pending_check",
+      sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
     ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
   ],
@@ -4128,6 +4137,79 @@ export const credentialBindings = pgTable(
     check(
       "credential_bindings_ref_check",
       sql`${table.credentialRef} ~ ${sql.raw(`'${CREDENTIAL_REF_PATTERN}'`)}`,
+    ),
+  ],
+);
+
+// Kept equal to the platform port's lists by extension-bundles.integration.test.ts.
+export const EXTENSION_BUNDLE_REVIEWS = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
+
+// A skill-only extension bundle, registered once per workspace and digest
+// (94S-865). `digest` is the sha256 of the validator's canonical file list;
+// every other column is bookkeeping, so a review or a label never moves it.
+// The files are in the object store at workspaces/<id>/bundles/<digest>.tar.
+// Workspace-owned bundles only; an operator-wide bundle is a later ticket.
+export const extensionBundles = pgTable(
+  "extension_bundles",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    digest: text().notNull(),
+    label: text().notNull(),
+    source: text().notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    manifest: jsonb().notNull(),
+    review: text().notNull().default("pending"),
+    registeredBy: uuid("registered_by")
+      .notNull()
+      .references(() => users.id),
+    registeredAt: timestamp("registered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("extension_bundles_workspace_digest_idx").on(
+      table.workspaceId,
+      table.digest,
+    ),
+    check(
+      "extension_bundles_digest_check",
+      sql`${table.digest} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "extension_bundles_name_check",
+      sql`${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "extension_bundles_label_check",
+      sql`char_length(${table.label}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "extension_bundles_source_check",
+      sql`${table.source} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_SOURCES))})`,
+    ),
+    check(
+      "extension_bundles_review_check",
+      sql`${table.review} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_REVIEWS))})`,
+    ),
+    check(
+      "extension_bundles_review_actor_check",
+      sql`(${table.review} = 'pending') = (${table.reviewedBy} IS NULL AND ${table.reviewedAt} IS NULL)`,
+    ),
+    check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
+    check(
+      "extension_bundles_manifest_check",
+      sql`jsonb_typeof(${table.manifest}) = 'object'`,
     ),
   ],
 );

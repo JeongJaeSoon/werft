@@ -145,6 +145,49 @@ export const putAgentGitHubSettingsResponseSchema = z.object({
   receipt_id: receiptIdSchema.nullable(),
 });
 
+/**
+ * One repository, turned on or off. `ref` names one the response gave;
+ * `installation_id` with `github_repository_id` names one from the App's
+ * installation list that the catalog may not hold yet, and only turns on.
+ */
+export const putAgentGitHubRepositoryAccessRequestSchema = z
+  .object({
+    repository: z.union([
+      z.object({ ref: repositoryRefSchema }).strict(),
+      z
+        .object({
+          installation_id: z.number().int().positive(),
+          github_repository_id: z.number().int().positive(),
+        })
+        .strict(),
+    ]),
+    enabled: z.boolean(),
+    /**
+     * `settings_revision` as read (null: the agent had no row). Left out, the
+     * change is applied to whatever the row holds now, which is what lets
+     * toggles of different repositories follow one another.
+     */
+    expected_revision: z.number().int().nullable().optional(),
+  })
+  .strict()
+  .refine((request) => request.enabled || "ref" in request.repository, {
+    message: "A repository is turned off by its ref",
+    path: ["repository"],
+  });
+
+/** `receipt_id` is null when the repository already was in that state. */
+export const putAgentGitHubRepositoryAccessResponseSchema = z.object({
+  settings_revision: z.number().int(),
+  receipt_id: receiptIdSchema.nullable(),
+  enabled: z.boolean(),
+  repository: z.object({
+    ref: repositoryRefSchema,
+    /** `owner/repo`. */
+    repository: z.string().min(1),
+    private: z.boolean().nullable(),
+  }),
+});
+
 export const putAgentGitHubEnabledRequestSchema = z
   .object({ enabled: z.boolean() })
   .strict();
@@ -191,6 +234,12 @@ export type PutAgentGitHubSettingsRequest = z.infer<
 >;
 export type PutAgentGitHubSettingsResponse = z.infer<
   typeof putAgentGitHubSettingsResponseSchema
+>;
+export type PutAgentGitHubRepositoryAccessRequest = z.infer<
+  typeof putAgentGitHubRepositoryAccessRequestSchema
+>;
+export type PutAgentGitHubRepositoryAccessResponse = z.infer<
+  typeof putAgentGitHubRepositoryAccessResponseSchema
 >;
 export type PutAgentGitHubEnabledRequest = z.infer<
   typeof putAgentGitHubEnabledRequestSchema

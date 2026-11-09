@@ -296,6 +296,8 @@ export const RESOURCE_KIND_VALUES = [
   // Receipt targets only: no action is granted on a key or a team.
   "api_key",
   "team",
+  // Receipt targets only: a stored extension bundle (94S-865).
+  "extension_bundle",
 ] as const;
 export const resourceKindSchema = z.enum(RESOURCE_KIND_VALUES);
 export const resourceRefSchema = z
@@ -342,6 +344,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "agent.admin.manage",
   "credential.bind",
   "binding.manage",
+  "binding.approve",
   "routine.manage",
   "session.read",
   "session.submit",
@@ -417,6 +420,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "agent.admin.manage": new Set(["agent"]),
   "credential.bind": new Set(["agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
+  "binding.approve": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),
   "session.read": new Set(["session", "session_link"]),
   "session.submit": new Set(["session", "session_link", "surface_binding"]),

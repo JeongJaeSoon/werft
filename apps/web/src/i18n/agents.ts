@@ -66,7 +66,7 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
+    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
   "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
@@ -81,11 +81,6 @@ export const agentsKo = {
     "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
-  "agentCard.agentInstructions": "에이전트 지시문",
-  "agentCard.agentInstructionsHint":
-    "이 에이전트의 세션마다 시스템 프롬프트에 붙는 지시입니다. CLAUDE.md나 AGENTS.md에 쓰던 내용을 여기에 적습니다. 저장하면 새 버전이 되고, 그 버전으로 릴리스해 켠 뒤 시작한 세션부터 쓰입니다. 연차나 과장된 수식 없이, 담당 범위를 한 줄로 쓰고 허용할 행동을 구체적인 동사와 이유로 적습니다. 예: 결제 장애 분석을 맡습니다. 로그를 읽고 원인을 요약합니다. 변경은 담당 팀이 검토하므로 코드는 고치지 않습니다.",
-  "agentCard.earlierInstructions": "이전 지시 사항 (적용된 적 없음)",
-  "agentCard.importEarlier": "에이전트 지시문으로 가져오기",
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
@@ -127,7 +122,7 @@ export const agentsKo = {
     "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다.",
   "agent.card.identity": "이름과 설명",
   "agent.card.identityHint":
-    "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
+    "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 저장소의 CLAUDE.md나 AGENTS.md에 적으세요.",
   "agent.card.run": "실행 설정",
   "agent.card.runHint":
     "저장하면 새 버전이 생기고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다. 값이 같으면 릴리스는 만들지 않습니다.",
@@ -249,14 +244,12 @@ export const agentsKo = {
   "agent.releases.area.repositories": "허용 저장소",
   "agent.releases.area.model": "모델",
   "agent.releases.area.tools": "도구·MCP",
-  "agent.releases.area.prompt": "프롬프트",
   "agent.releases.area.settings": "설정 값",
   "agent.releases.area.secrets": "자격 증명",
   "agent.releases.field.repositories": "허용 저장소",
   "agent.releases.field.model": "모델",
   "agent.releases.field.tools": "쓸 수 있는 도구",
   "agent.releases.field.toolPolicy": "도구별 정책",
-  "agent.releases.field.instructions": "에이전트 지시문",
   "agent.releases.field.profile": "프로필",
   "agent.releases.field.profileDigest": "프로필 설정",
   "agent.releases.field.pushApproval": "푸시 승인",
@@ -394,7 +387,7 @@ export const agentsKo = {
 
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "에이전트 관리자는 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
+    "담당 팀과 별개로, 여기에 추가한 사람이나 팀이 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 팀을 추가하면 그 팀 구성원 모두가 관리자가 됩니다.",
   "agentAdmins.empty":
     "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
@@ -411,7 +404,9 @@ export const agentsKo = {
   "agentAdmins.pickLoading": "사람과 팀을 불러오는 중…",
   "agentAdmins.pickEmpty": "맞는 사람이나 팀이 없습니다.",
   "agentAdmins.pickCount": "{count}개가 있습니다.",
-  "agentAdmins.add": "관리자로 추가",
+  "agentAdmins.alsoManaging": "담당 팀",
+  "agentAdmins.alsoManagingNote":
+    "담당 팀이기도 합니다. 팀 관리자만이 아니라 구성원 모두가 관리자입니다",
   "agentAdmins.nothingLeft":
     "추가할 수 있는 사람이나 팀이 없습니다. 활성 구성원과 팀이 모두 이미 관리자입니다.",
   "agentAdmins.since": "{date}부터 관리자",
@@ -425,14 +420,16 @@ export const agentsKo = {
 
   "managingTeam.title": "담당 팀",
   "managingTeam.intro":
-    "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
+    "담당 팀의 팀 관리자가 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 담당 팀은 늘 하나이고 바꿀 수만 있습니다.",
   "managingTeam.noLead": "이 담당 팀에는 팀 관리자가 없습니다.",
   "managingTeam.pick": "담당 팀으로 정할 팀",
   "managingTeam.pickPlaceholder": "팀 고르기",
   "managingTeam.change": "바꾸기",
+  "managingTeam.holding":
+    "보관용으로 만들어진 팀이라 담당 팀으로 고를 수 없습니다. 다른 팀을 고르세요.",
   "managingTeam.saving": "저장하는 중…",
   "managingTeam.audience":
-    "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
+    "담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
@@ -524,7 +521,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
+    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
   "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
@@ -538,11 +535,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
-  "agentCard.agentInstructions": "Agent instructions",
-  "agentCard.agentInstructionsHint":
-    "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated adjectives: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
-  "agentCard.earlierInstructions": "Earlier instructions (never applied)",
-  "agentCard.importEarlier": "Copy into agent instructions",
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
@@ -584,7 +576,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Name and description change as soon as you save. Run settings are saved as a new version, and when the values the agent runs with change, a release is made and applied at once.",
   "agent.card.identity": "Name and description",
   "agent.card.identityHint":
-    "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in Agent instructions.",
+    "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in the repository's CLAUDE.md or AGENTS.md.",
   "agent.card.run": "Run settings",
   "agent.card.runHint":
     "Saving creates a new version, and when the values the agent runs with change, a release is made and applied at once. If they are the same, no release is made.",
@@ -710,14 +702,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.area.repositories": "Allowed repositories",
   "agent.releases.area.model": "Model",
   "agent.releases.area.tools": "Tools and MCP",
-  "agent.releases.area.prompt": "Prompt",
   "agent.releases.area.settings": "Settings",
   "agent.releases.area.secrets": "Credentials",
   "agent.releases.field.repositories": "Allowed repositories",
   "agent.releases.field.model": "Model",
   "agent.releases.field.tools": "Available tools",
   "agent.releases.field.toolPolicy": "Per-tool policy",
-  "agent.releases.field.instructions": "Agent instructions",
   "agent.releases.field.profile": "Profile",
   "agent.releases.field.profileDigest": "Profile settings",
   "agent.releases.field.pushApproval": "Push approval",
@@ -853,7 +843,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
 
   "agentAdmins.title": "Agent admins",
   "agentAdmins.intro":
-    "Agent admins manage this agent's card, releases, linked credentials and agent keys. Add people or teams as admins.",
+    "Apart from the responsible team, the people and teams added here manage this agent's card, releases, linked credentials and agent keys. Adding a team makes all of its members admins.",
   "agentAdmins.empty":
     "No agent admins yet. Workspace owners and admins can manage every agent without being added here.",
   "agentAdmins.person": "Person",
@@ -870,7 +860,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pickLoading": "Loading people and teams…",
   "agentAdmins.pickEmpty": "No person or team matches.",
   "agentAdmins.pickCount": "{count} found.",
-  "agentAdmins.add": "Add as admin",
+  "agentAdmins.alsoManaging": "Responsible team",
+  "agentAdmins.alsoManagingNote":
+    "Also the responsible team: every member is an admin, not only the team leads",
   "agentAdmins.nothingLeft":
     "There is no one left to add. Every active member and team is already an admin.",
   "agentAdmins.since": "Admin since {date}",
@@ -884,14 +876,16 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
 
   "managingTeam.title": "Responsible team",
   "managingTeam.intro":
-    "This team's leads manage this agent; its members see its settings and use it.",
+    "The leads of the responsible team manage this agent; its members see its settings and use it. An agent always has one responsible team, which can be changed but not cleared.",
   "managingTeam.noLead": "This responsible team has no team lead.",
   "managingTeam.pick": "Team to make the responsible team",
   "managingTeam.pickPlaceholder": "Pick a team",
   "managingTeam.change": "Change",
+  "managingTeam.holding":
+    "This team was made to hold unassigned agents and cannot be picked. Pick another team.",
   "managingTeam.saving": "Saving…",
   "managingTeam.audience":
-    "With a responsible team, people outside it see only their own sessions of this agent and the ones shared with them (workspace setting).",
+    "People outside the responsible team see only their own sessions of this agent and the ones shared with them (workspace setting).",
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
@@ -978,7 +972,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
+    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
   "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
@@ -993,11 +987,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
-  "agentCard.agentInstructions": "エージェント指示文",
-  "agentCard.agentInstructionsHint":
-    "このエージェントのセッションごとにシステムプロンプトに付く指示です。CLAUDE.md や AGENTS.md に書いていた内容をここに書きます。保存すると新しいバージョンになり、そのバージョンでリリースして有効にした後に始まったセッションから使われます。経験年数や誇張した修飾は書かず、担当範囲を一行で書き、許可する行動を具体的な動詞と理由で書きます。例: 決済障害の分析を担当します。ログを読んで原因を要約します。変更は担当チームがレビューするので、コードは修正しません。",
-  "agentCard.earlierInstructions": "以前の指示（適用されたことはありません）",
-  "agentCard.importEarlier": "エージェント指示文に取り込む",
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
   "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
@@ -1039,7 +1028,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。",
   "agent.card.identity": "名前と説明",
   "agent.card.identityHint":
-    "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
+    "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はリポジトリの CLAUDE.md や AGENTS.md に書いてください。",
   "agent.card.run": "実行設定",
   "agent.card.runHint":
     "保存すると新しいバージョンが作成され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。値が同じなら、リリースは作成しません。",
@@ -1165,14 +1154,12 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.area.repositories": "許可リポジトリ",
   "agent.releases.area.model": "モデル",
   "agent.releases.area.tools": "ツール・MCP",
-  "agent.releases.area.prompt": "プロンプト",
   "agent.releases.area.settings": "設定値",
   "agent.releases.area.secrets": "認証情報",
   "agent.releases.field.repositories": "許可リポジトリ",
   "agent.releases.field.model": "モデル",
   "agent.releases.field.tools": "使えるツール",
   "agent.releases.field.toolPolicy": "ツールごとのポリシー",
-  "agent.releases.field.instructions": "エージェント指示文",
   "agent.releases.field.profile": "プロファイル",
   "agent.releases.field.profileDigest": "プロファイルの設定",
   "agent.releases.field.pushApproval": "プッシュ承認",
@@ -1308,7 +1295,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
 
   "agentAdmins.title": "エージェント管理者",
   "agentAdmins.intro":
-    "エージェント管理者は、このエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。人またはチームを管理者に追加してください。",
+    "担当チームとは別に、ここに追加した人やチームがこのエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。チームを追加すると、そのチームのメンバー全員が管理者になります。",
   "agentAdmins.empty":
     "エージェント管理者はまだいません。ワークスペースのオーナーと管理者は、ここに追加しなくてもすべてのエージェントを管理できます。",
   "agentAdmins.person": "人",
@@ -1325,7 +1312,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pickLoading": "人とチームを読み込み中…",
   "agentAdmins.pickEmpty": "一致する人やチームはいません。",
   "agentAdmins.pickCount": "{count}件見つかりました。",
-  "agentAdmins.add": "管理者に追加",
+  "agentAdmins.alsoManaging": "担当チーム",
+  "agentAdmins.alsoManagingNote":
+    "担当チームでもあり、チーム管理者だけでなくメンバー全員が管理者です",
   "agentAdmins.nothingLeft":
     "追加できる人やチームがいません。有効なメンバーとチームはすべて管理者です。",
   "agentAdmins.since": "{date}から管理者",
@@ -1348,14 +1337,16 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
 
   "managingTeam.title": "担当チーム",
   "managingTeam.intro":
-    "このチームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。",
+    "担当チームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。担当チームは常に1つで、変更のみできます。",
   "managingTeam.noLead": "この担当チームにはチーム管理者がいません。",
   "managingTeam.pick": "担当チームにするチーム",
   "managingTeam.pickPlaceholder": "チームを選ぶ",
   "managingTeam.change": "変更",
+  "managingTeam.holding":
+    "保管用に作られたチームなので、担当チームには選べません。ほかのチームを選んでください。",
   "managingTeam.saving": "保存中…",
   "managingTeam.audience":
-    "担当チームを決めると、チーム外の人はこのエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
+    "担当チーム外の人は、このエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",

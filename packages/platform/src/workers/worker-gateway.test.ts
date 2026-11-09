@@ -83,6 +83,7 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     claimAtomic: unimplemented,
     resolveCredential: unimplemented,
     authorizeEgressAtomic: unimplemented,
+    recordModelCutAtomic: unimplemented,
     recordProviderUsageAtomic: unimplemented,
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
@@ -2041,41 +2042,14 @@ describe("WorkerGateway", () => {
     const none = await claimWith({ ...binding, releaseTools: [] });
     expect(none.runtime_config.tools).toEqual([github]);
 
-    // The release card's agent instructions ride, as stored, on the config
-    // run and on every restore config, whichever list each has; without
-    // any, no config names the field.
-    const text = "  Answer in Korean.\n";
     const configsOf = (claim: typeof claimed) => [
       claim.runtime_config,
       ...(claim.restore_runtime_configs ?? []),
     ];
-    for (const runReleaseTools of [true, false]) {
-      const instructed = await claimWith(
-        { ...binding, agentInstructions: text },
-        runReleaseTools,
-      );
-      expect(bootstrapClaimResponseSchema.safeParse(instructed).success).toBe(
-        true,
-      );
-      expect(configsOf(instructed).length).toBeGreaterThan(1);
-      expect(
-        configsOf(instructed).map((config) => config.agent_instructions),
-      ).toEqual(configsOf(instructed).map(() => text));
-      // Only the field differs from the claim without it.
-      expect(
-        configsOf(instructed).map(({ agent_instructions: _, ...config }) =>
-          shape(config),
-        ),
-      ).toEqual(
-        configsOf(await claimWith(binding, runReleaseTools)).map(shape),
-      );
-    }
-    for (const without of [{ ...binding, agentInstructions: null }, binding]) {
-      const plain = await claimWith(without);
-      expect(
-        configsOf(plain).some((config) => "agent_instructions" in config),
-      ).toBe(false);
-    }
+    // A card's retired agent_instructions never reaches a config.
+    expect(
+      configsOf(claimed).some((config) => "agent_instructions" in config),
+    ).toBe(false);
 
     // The row's platform prompt rides the same way: on every config, run or
     // restore, so no restore candidate of a revision 1 session lacks it; a
@@ -3024,11 +2998,17 @@ describe("authorizeEgress", () => {
     },
   ) {
     const asked: Array<{ tokenHash: Uint8Array; purpose: string }> = [];
+    const cuts: Array<{ sessionId: string; attemptId: string; model: string }> =
+      [];
     const instance = createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async (input) => {
           asked.push(input);
           return answer;
+        },
+        recordModelCutAtomic: async (input) => {
+          cuts.push(input);
+          return { recorded: true };
         },
       }),
       catalog: withSeededInstallation(catalog),
@@ -3048,8 +3028,74 @@ describe("authorizeEgress", () => {
         leaseTtlMs: 30_000,
       },
     });
-    return { asked, instance };
+    return { asked, cuts, instance };
   }
+
+  test("a model taken off the list is cut with the reason written to the session, other moves are not", async () => {
+    const binding = profileFingerprint(profile);
+    const retired = { ...granted(binding), model: "retired-model" };
+    const cut = authorizer(retired);
+    await expect(
+      cut.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(cut.cuts).toEqual([
+      {
+        sessionId: scope.session_id,
+        attemptId: "att_1",
+        model: "retired-model",
+      },
+    ]);
+    // Still on the list: nothing to say.
+    const kept = authorizer(granted(binding));
+    await kept.instance.authorizeEgress({ token: "tok", purpose: "provider" });
+    expect(kept.cuts).toEqual([]);
+    // The profile itself changed: the catalog's own cut, no model note.
+    const changed = authorizer(granted(binding), {
+      profiles: {
+        p: {
+          ...profile,
+          provider: { ...profile.provider, endpoint: "https://x.invalid" },
+        },
+      },
+      repositories: { app: repository },
+    });
+    await expect(
+      changed.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(changed.cuts).toEqual([]);
+  });
+
+  test("a note that cannot be written is reported and the cut stays a 409", async () => {
+    const reported: Array<{ error: unknown; sessionId: string }> = [];
+    const failure = new Error("db down");
+    const instance = createWorkerGateway({
+      work: work({
+        authorizeEgressAtomic: async () => ({
+          ...granted(profileFingerprint(profile)),
+          model: "retired-model",
+        }),
+        recordModelCutAtomic: async () => {
+          throw failure;
+        },
+      }),
+      catalog: withSeededInstallation({
+        profiles: { p: profile },
+        repositories: { app: repository },
+      }),
+      checkpoints: acceptAllCheckpoints,
+      onModelCutError: (error, cut) =>
+        reported.push({ error, sessionId: cut.sessionId }),
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(reported).toEqual([{ error: failure, sessionId: scope.session_id }]);
+  });
 
   test("a provider token is answered with the endpoint and the key to inject", async () => {
     const { asked, instance } = authorizer(

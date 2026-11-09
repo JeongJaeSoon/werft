@@ -611,7 +611,94 @@ export function createGitHubRepositoryService(deps: {
     return found?.id === installationId ? repository : null;
   }
 
+  /**
+   * GitHub's own answer for a pick: the repository, read by its id, only when
+   * the installation named covers it, with the author App that holds the
+   * installation. The URL and branch to store come from here, never from the
+   * request. Reads GitHub and writes nothing.
+   */
+  async function verifiedPick(
+    workspaceId: string,
+    agentId: string,
+    body: PickAgentGitHubRepositoryRequest,
+  ): Promise<{ repository: GitHubInstallationRepository; app: Credential }> {
+    if ((await installedCeiling(workspaceId, agentId)) !== null) {
+      throw refused(
+        "repository_not_allowed",
+        "The active release's ceiling does not run on the App's repositories",
+      );
+    }
+    const apps = await credentials(workspaceId);
+    if (apps.length === 0) {
+      throw refused(
+        "no_author_app",
+        "Register the author GitHub App before choosing repositories",
+      );
+    }
+    // The installation belongs to one App; the others answer null.
+    let picked: {
+      repository: GitHubInstallationRepository;
+      app: Credential;
+    } | null = null;
+    let failure: unknown = null;
+    for (const app of apps) {
+      try {
+        // A rename between the two reads makes the name miss once.
+        const repository =
+          (await coveredRepository(
+            app,
+            body.installation_id,
+            body.github_repository_id,
+          )) ??
+          (await coveredRepository(
+            app,
+            body.installation_id,
+            body.github_repository_id,
+          ));
+        if (repository !== null) {
+          picked = { repository, app };
+          break;
+        }
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (picked === null && failure !== null) {
+      throw githubFailure(failure, "installation");
+    }
+    if (picked === null) {
+      throw refused(
+        "not_installed",
+        "That installation of the author App does not cover the repository",
+      );
+    }
+    return picked;
+  }
+
   return {
+    /**
+     * What an agent's repository toggle needs of a pick (the same checks
+     * `pick` makes) and the catalog reload after a write that changed it.
+     * The agent's manager only; the caller's right is read again under locks
+     * by the write.
+     */
+    async selection(
+      caller: Caller,
+      agentId: string,
+      body: PickAgentGitHubRepositoryRequest,
+    ) {
+      await manageAgent(caller, agentId);
+      const picked = await verifiedPick(caller.ownerId, agentId, body);
+      return {
+        ...picked,
+        base: repositoryIdBase(picked.repository.name),
+        url: `https://github.com/${picked.repository.owner}/${picked.repository.name}.git`,
+        pinning: deps.pins !== null,
+        reload,
+        newId,
+      };
+    },
+
     async list(
       caller: Caller,
       workspaceId: string,
@@ -734,57 +821,11 @@ export function createGitHubRepositoryService(deps: {
       await manageAgent(caller, agentId);
       const write = writer(caller);
       const body = await readBody();
-      if ((await installedCeiling(write.workspaceId, agentId)) !== null) {
-        throw refused(
-          "repository_not_allowed",
-          "The active release's ceiling does not run on the App's repositories",
-        );
-      }
-      const apps = await credentials(write.workspaceId);
-      if (apps.length === 0) {
-        throw refused(
-          "no_author_app",
-          "Register the author GitHub App before choosing repositories",
-        );
-      }
-      // The installation belongs to one App; the others answer null.
-      let picked: {
-        repository: GitHubInstallationRepository;
-        app: Credential;
-      } | null = null;
-      let failure: unknown = null;
-      for (const app of apps) {
-        try {
-          // A rename between the two reads makes the name miss once.
-          const repository =
-            (await coveredRepository(
-              app,
-              body.installation_id,
-              body.github_repository_id,
-            )) ??
-            (await coveredRepository(
-              app,
-              body.installation_id,
-              body.github_repository_id,
-            ));
-          if (repository !== null) {
-            picked = { repository, app };
-            break;
-          }
-        } catch (error) {
-          failure = error;
-        }
-      }
-      if (picked === null && failure !== null) {
-        throw githubFailure(failure, "installation");
-      }
-      if (picked === null) {
-        throw refused(
-          "not_installed",
-          "That installation of the author App does not cover the repository",
-        );
-      }
-      const { repository, app } = picked;
+      const { repository, app } = await verifiedPick(
+        write.workspaceId,
+        agentId,
+        body,
+      );
       const receiptId = newId();
       // The URL and branch come from GitHub's answer, never from the body.
       const result = await store.resolve({

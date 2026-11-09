@@ -129,29 +129,14 @@ describe("the card step keeps what its base has", () => {
     const card = agentCardStep().parse(DRAFT);
     expect("role" in card).toBe(false);
     expect("instructions" in card).toBe(false);
-    expect("agent_instructions" in card).toBe(false);
   });
 
-  test("agent instructions go as typed; blank leaves them out; a form without the field keeps the base's", () => {
-    const base: AgentCard = { ...BASE, agent_instructions: "Be brief." };
-    const typed = "  Answer in Korean.\n";
-    expect(
-      agentCardStep(base).parse({ ...DRAFT, agentInstructions: typed })
-        .agent_instructions,
-    ).toBe(typed);
-    expect(
-      "agent_instructions" in
-        agentCardStep(base).parse({ ...DRAFT, agentInstructions: " \n " }),
-    ).toBe(false);
-    expect(agentCardStep(base).parse(DRAFT).agent_instructions).toBe(
-      "Be brief.",
-    );
-    expect(
-      agentCardStep().safeParse({
-        ...DRAFT,
-        agentInstructions: "x".repeat(20_001),
-      }).success,
-    ).toBe(false);
+  test("input kept from a form that had an agent instructions field is read without it", () => {
+    const card = agentCardStep().parse({
+      ...DRAFT,
+      agentInstructions: "Be brief.",
+    });
+    expect("agent_instructions" in card).toBe(false);
   });
 
   test("the form's inputs win over the base", () => {
@@ -190,7 +175,6 @@ describe("the card step keeps what its base has", () => {
     const saved = agentCardStep(base).parse({
       ...DRAFT,
       model: "claude-opus-5",
-      agentInstructions: "Be brief.",
     });
     expect<unknown>(saved.capabilities.mcp).toEqual([{ server: "docs" }]);
     expect(saved.capabilities.credential_refs).toEqual([
@@ -200,7 +184,6 @@ describe("the card step keeps what its base has", () => {
     const again = agentCardStep(saved).parse({
       ...DRAFT,
       model: "claude-opus-5",
-      agentInstructions: "Be brief.",
     });
     expect<unknown>(again).toEqual(saved);
   });
@@ -231,7 +214,7 @@ test("the steps join into requests the contract accepts", () => {
     createAgentRequestSchema.safeParse({
       ...identity,
       managing_team_id,
-      card: agentCardStep().parse({ ...DRAFT, agentInstructions: "Be brief." }),
+      card: agentCardStep().parse(DRAFT),
     }).success,
   ).toBe(true);
   const invite = inviteStep.parse({ email: "a@example.com ", role: "admin" });

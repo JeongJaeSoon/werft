@@ -57,7 +57,7 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 | モード | 動作 |
 | --- | --- |
-| `default` | セッションのワークスペース内でのファイルの書き込み・編集、リモートに触れないローカル git (status、diff、log、show、add、commit、branch、switch、stash、`checkout -b`、`restore --staged`)、`bun`・`npm`・`pnpm`・`yarn` の test と run は、尋ねずに実行する。`&&`・`;`・`\|` でつないだコマンドは、すべての部分がこの範囲のときだけ通り、1 つでも外にあればコマンド全体が権限リクエストになる。ワークスペース外への書き込み (symlink と `..` を解決したパスで判定)、秘密値・`.git`・`.claude` のパス、push や fetch などのリモートアクセス、作業内容を元に戻せない形で消すコマンド (`reset --hard`、`checkout -- <パス>`、`restore` による作業ツリーの復元、force オプション) は、実行前に権限リクエストを作成する。読み取りコマンドは尋ねない。ローカルプロファイルのモードである |
+| `default` | セッションのワークスペース内でのファイルの書き込み・編集、リモートに触れないローカル git (status、diff、log、show、add、commit、switch、stash、`checkout -b`、`restore --staged`)、作業スペース内の `mkdir`、`bun`・`npm`・`pnpm`・`yarn` の test と run は、尋ねずに実行する。`&&`・`;`・`\|` でつないだコマンドは、すべての部分がこの範囲のときだけ通り、1 つでも外にあればコマンド全体が権限リクエストになる。ワークスペース外への書き込み (symlink と `..` を解決したパスで判定)、秘密値・`.git`・`.claude` のパス、push や fetch などのリモートアクセス、作業内容を元に戻せない形で消すコマンド (`reset --hard`、`checkout -- <パス>`、`restore` による作業ツリーの復元、force オプション) は、実行前に権限リクエストを作成する。状態を変えない読み取り (`git branch -a`、`git remote -v`、`ls`、`cat`、`grep`、`find` など) は、ワークスペース内ならエンジン自身の規則で尋ねずに実行される。ワークスペース外のパス、`find -exec`・`-delete`、`git branch -D`・`git remote add` のような変更はエンジンが尋ね、秘密値のファイル名 (`.env`、鍵、`.git/config`) が `cat`・`head`・`tail`・`grep`・`rg` の行にあるときはこの一覧が尋ねる。隠しファイルまで探す `rg -u` や `--hidden` も尋ねる。名前だけを見るため、`cat .e*` や `grep -r` は通ってしまう。ローカルプロファイルのモードである |
 | `acceptEdits`, `dontAsk` | Claude Code の同名のモードで動き、`default` と同じワークスペースの事前許可と確認リストが加わる。このリストにある秘密値・`.git`・`.claude` のパスは `acceptEdits` でも尋ねる |
 | `plan` | Claude Code の同名のモードで動く。事前許可はない |
 | `auto` | 人の代わりにモデルの分類器が呼び出しごとに許可・拒否を決める。分類器を使えないときは拒否する。インストール設定なしで使える。例外として、組み込みの GitHub ツールのうち push、PR の書き込み、リポジトリの読み取りは分類器を通らず、サーバーが判定する(push 承認、release のツール一覧、セッションの grant)。レビュー送信と workflow は分類器を通る。プラットフォームは分類器に行動単位のルールを加える。下の許可のうち push・PR・リポジトリ読み取りは、この例外を受けられない古い worker でのみ分類器が見るルールである。許可: セッションの作業領域での commit と、プラットフォームの push フローによるセッション自身のリポジトリのセッション専用の作業ブランチ(`agent/<session-id>`)への push、そのブランチから PR を開くことと、このセッションが開いた PR のタイトル・本文の修正・コメント・クローズ・再オープン、許可されたリポジトリの一覧表示と読み取り用の追加。この許可に入らないもの: 既定・保護ブランチやプラットフォームが作っていないブランチへの push、force push、PR のマージ・承認、レビュー送信、このセッションが開いていない PR の修正・コメント・クローズ、ほかのリポジトリ(セッションに付けたものを含む)への push、秘密値。リポジトリ設定・ブランチ保護・webhook・deploy key・Actions secret の変更、GitHub 上のブランチ・リポジトリの削除、PR のマージはどの経路でも拒否寄りに扱う |
@@ -107,10 +107,10 @@ owner・admin、エージェント管理者、担当チームのメンバーを�
 | `agent_outsider_access` | `use`(既定値) | 情報を読み、セッションを開始できる |
 | | `view` | 情報だけ読める。セッション開始は `403 FORBIDDEN`(`reason_code: role`) |
 | | `none` | エージェントが一覧になく、読むと `404`。セッション開始は `403` |
-| `agent_outsider_session_visibility` | `managing_team`(既定値) | 担当チームがあるエージェントの `workspace` 共有セッションが、一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
+| `agent_outsider_session_visibility` | `managing_team`(既定値) | エージェントの `workspace` 共有セッションが、担当チーム外のメンバーには一覧・件数・詳細・イベント・使用量の最近の一覧に出ない |
 | | `workspace` | そのセッションもすべての member が見る |
 
-- `agent_outsider_access` と `agent_outsider_session_visibility` はすべてのエージェントに適用される。エージェントには常に担当チームがある。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない `Unassigned agents` チームが引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
+- `agent_outsider_access` と `agent_outsider_session_visibility` はすべてのエージェントに適用される。エージェントには常に担当チームがある。担当チームが必須になる前にチームがなかったエージェントは、メンバーのいない保管チーム(名前を変えても、サーバーは保管チームとして認識する)が引き受けた。これらのエージェントの `workspace` セッションは、適切なチームに移すまで以前と同じくすべてのメンバーに見える。
 - 外側の member でも、自分が開始したセッションと、自分や自分のチームを指定して共有された(`people`・`team`)セッションは引き続き見える。
 - どちらの設定も次のリクエストから、作成済みのセッションにも適用される。開いているイベントストリームは次の確認で切れる。担当チームを変えたときや、メンバーがチームから外れたときも同じである。
 - 使用量の合計(セッション数・費用・成果数)は変わらず、最近の成果一覧から見られないセッションの行だけが抜ける。
@@ -130,7 +130,7 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 コンソールでは **ワークスペース設定** の **エージェントへのアクセス** で変える。**担当チーム外のメンバーのエージェントへのアクセス** は **表示と実行**(`use`)・**表示のみ**(`view`)・**非表示**(`none`)、**ワークスペース公開のセッション** は **担当チーム内のみ**(`managing_team`)・**すべてのメンバー**(`workspace`)である。変えた値だけを送り、保存すると画面が `GET /v1/auth/me` を読み直す。owner・admin でないメンバーには、選択肢なしで今の値だけが表示される。
 
 <Callout>
-以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、担当チームを決めたエージェントのセッションはすぐに内側だけが見る。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
+以前は `workspace` 共有セッションをすべての member が見ていた。今は既定値が `managing_team` なので、エージェントのセッションはすぐに内側だけが見る(保管チームに残っているエージェントは例外である)。以前のように見せるには `agent_outsider_session_visibility` を `workspace` に変える。
 </Callout>
 
 [作成](/agents/create)の `AID` と `WEB` を引き続き使う。

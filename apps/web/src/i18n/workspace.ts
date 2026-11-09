@@ -42,7 +42,7 @@ export const workspaceKo = {
   "workspace.accessHint":
     "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 소유자·관리자, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.",
   "workspace.accessAgent": "담당 팀 밖 구성원의 에이전트 접근",
-  "workspace.accessAgentFoot": "담당 팀이 없는 에이전트에도 적용됩니다.",
+  "workspace.accessAgentFoot": "모든 에이전트에 적용됩니다.",
   "workspace.accessAgent.use": "보고 실행",
   "workspace.accessAgent.use.help":
     "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
@@ -54,7 +54,7 @@ export const workspaceKo = {
     "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
   "workspace.accessSessions": "워크스페이스 공개 세션",
   "workspace.accessSessionsFoot":
-    "담당 팀이 있는 에이전트의 세션에만 적용됩니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
+    "모든 에이전트의 세션에 적용됩니다. 다만 담당 팀이 필수가 되기 전에 팀이 없던 에이전트를 맡은 보관 팀에 아직 남아 있는 에이전트는 예외라, 실제 담당 팀으로 옮기기 전에는 이전처럼 모두에게 보입니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
   "workspace.accessSessions.managing_team": "담당 팀 안에만",
   "workspace.accessSessions.managing_team.help":
     "공유 범위가 워크스페이스인 세션을 소유자·관리자, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
@@ -189,8 +189,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "Sets how far members outside an agent's responsible team go with the agent and its sessions. It does not apply to owners, admins, the agent's admins or its responsible team's members.",
   "workspace.accessAgent":
     "Agent access for members outside the responsible team",
-  "workspace.accessAgentFoot":
-    "Applies to agents without a responsible team too.",
+  "workspace.accessAgentFoot": "Applies to every agent.",
   "workspace.accessAgent.use": "View and run",
   "workspace.accessAgent.use.help":
     "They see the agent's details (name, description, responsible team) and start sessions with it. They do not see its settings.",
@@ -202,7 +201,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "The agent is not in their agent list, and they cannot start sessions with it.",
   "workspace.accessSessions": "Workspace-shared sessions",
   "workspace.accessSessionsFoot":
-    "Applies only to sessions of agents with a responsible team. A change applies to existing sessions at once.",
+    "Applies to the sessions of every agent, except agents still held by the holding team that took in agents that had no team before one became required: they stay visible to everyone until given a real responsible team. A change applies to existing sessions at once.",
   "workspace.accessSessions.managing_team": "Responsible team only",
   "workspace.accessSessions.managing_team.help":
     "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its responsible team's members. Members outside the responsible team see their own sessions and those shared with them by name or team.",
@@ -337,7 +336,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.accessHint":
     "担当チーム外のメンバーがエージェントとそのセッションをどこまで扱えるかを決めます。オーナー・管理者、エージェント管理者、担当チームのメンバーには適用されません。",
   "workspace.accessAgent": "担当チーム外のメンバーのエージェントへのアクセス",
-  "workspace.accessAgentFoot": "担当チームのないエージェントにも適用されます。",
+  "workspace.accessAgentFoot": "すべてのエージェントに適用されます。",
   "workspace.accessAgent.use": "表示と実行",
   "workspace.accessAgent.use.help":
     "エージェントの情報(名前・説明・担当チーム)を見て、セッションを開始します。設定は見られません。",
@@ -349,7 +348,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
     "エージェント一覧に表示されず、セッションも開始できません。",
   "workspace.accessSessions": "ワークスペース公開のセッション",
   "workspace.accessSessionsFoot":
-    "担当チームのあるエージェントのセッションにだけ適用されます。変更すると既存のセッションにもすぐ適用されます。",
+    "すべてのエージェントのセッションに適用されます。ただし、担当チームが必須になる前にチームがなかったエージェントを引き受けた保管チームに残っているエージェントは例外で、実際の担当チームへ移すまで従来どおり全員に見えます。変更すると既存のセッションにもすぐ適用されます。",
   "workspace.accessSessions.managing_team": "担当チーム内のみ",
   "workspace.accessSessions.managing_team.help":
     "共有範囲がワークスペースのセッションは、オーナー・管理者、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",

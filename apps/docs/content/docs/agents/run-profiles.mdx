@@ -52,7 +52,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
-  "runtime_version": "0.3.270",
+  "runtime_version": "0.3.319",
   "billing": "metered",
   "repository_mode": "required"
 }
@@ -77,6 +77,8 @@ provider 주소와 자격 증명은 목록에 나오지 않는다. 그 값은 wo
 
 세션을 만들 때 `profile_id`로 고른다. 프로필이 모델을 여럿 허용하면 `model`로 그중 하나를 고르고, 빼면 기본 모델로 돈다.
 
+도는 중인 세션의 모델이 허용 목록에서 빠지면 모델 요청이 곧 끊긴다. 세션 이벤트에 `error` 이벤트(`code: MODEL_NOT_ALLOWED`, `model`)가 한 번 남고, 세션 상세 타임라인에 "…이(가) 프로필의 허용 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다"로 보인다. 허용 목록을 되돌리거나 다른 모델로 새 세션을 연다.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
@@ -94,7 +96,7 @@ console.log((await werft.sessions.get(sessionId)).runtime);
 ```text
 {
   kind: 'claude_agent_sdk',
-  version: '0.3.270',
+  version: '0.3.319',
   profile_id: 'claude-coding-local',
   model: 'claude-sonnet-5',
   permission_mode: 'default'
@@ -118,7 +120,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 ```text
 {
   "kind": "claude_agent_sdk",
-  "version": "0.3.270",
+  "version": "0.3.319",
   "profile_id": "claude-coding-local",
   "model": "claude-sonnet-5",
   "permission_mode": "default"
@@ -164,7 +166,7 @@ curl -sS "$API/v1/installation-profiles/options" "${WEB[@]}" \
 
 ```bash
 next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
-  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.319",
   model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
   repository_ids: ["sample-app"], deny: ["WebSearch"]}')
 curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'

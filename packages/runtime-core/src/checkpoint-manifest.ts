@@ -109,6 +109,16 @@ export type CheckpointWorkspace = {
    */
   readonly baseBundles?: readonly ObjectRef[];
   readonly gitCommit: string;
+  /**
+   * Local branches other than the snapshot, by short name, each with the
+   * commit it was at: what a push request may name as its source. Absent
+   * when the workspace had none, which keeps such a manifest byte for byte
+   * what a build before this field wrote.
+   */
+  readonly sources?: ReadonlyArray<{
+    readonly commit: string;
+    readonly name: string;
+  }>;
   /** Files git does not track, uploaded individually so restore is exact. */
   readonly untracked: readonly WorkspaceArtifact[];
 };

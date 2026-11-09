@@ -216,7 +216,6 @@ describe("에이전트 상세 탭", () => {
       "식별자",
       "릴리스",
       "설명",
-      "에이전트 지시문",
       "자격 증명",
       "MCP",
       "모델",
@@ -229,7 +228,7 @@ describe("에이전트 상세 탭", () => {
     expect(within(summary).getByText("v1")).toBeDefined();
     // Not released yet: the raw card is the latest version's.
     expect(screen.getByText("최신 버전 기준 · 읽기 전용")).toBeDefined();
-    expect(screen.queryByLabelText("에이전트 지시문")).toBeNull();
+    expect(screen.queryByLabelText("답변 언어")).toBeNull();
     const history = screen
       .getByRole("heading", { name: "버전 기록" })
       .closest("details") as HTMLDetailsElement;
@@ -242,14 +241,14 @@ describe("에이전트 상세 탭", () => {
     const title = screen.getByRole("heading", { name: "상세 설정" });
     expect(document.activeElement === title).toBe(true);
     expect(screen.queryByRole("heading", { name: "에이전트 카드" })).toBeNull();
-    await user.type(screen.getByLabelText("에이전트 지시문"), " 버릴 줄.");
+    await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
     await user.click(screen.getByRole("button", { name: "취소" }));
     const back = await screen.findByRole("button", { name: "상세 설정 편집" });
     expect(document.activeElement === back).toBe(true);
     await user.click(back);
     expect(
-      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
-    ).toBe("");
+      (screen.getByLabelText("답변 언어") as HTMLSelectElement).value,
+    ).toBe("ko");
   });
 
   test("다른 탭에 다녀와도 저장하지 않은 카드 입력은 남는다", async () => {
@@ -258,14 +257,12 @@ describe("에이전트 상세 탭", () => {
     await user.click(
       await screen.findByRole("button", { name: "상세 설정 편집" }),
     );
-    const instructions = await screen.findByLabelText("에이전트 지시문");
-    await user.clear(instructions);
-    await user.type(instructions, "아직 저장하지 않은 지시.");
+    await user.selectOptions(await screen.findByLabelText("답변 언어"), "en");
     await user.click(screen.getByRole("tab", { name: "릴리스" }));
     await user.click(screen.getByRole("tab", { name: "상세 설정" }));
     expect(
-      (screen.getByLabelText("에이전트 지시문") as HTMLTextAreaElement).value,
-    ).toBe("아직 저장하지 않은 지시.");
+      (screen.getByLabelText("답변 언어") as HTMLSelectElement).value,
+    ).toBe("en");
   });
 
   test("다른 탭으로 옮긴 뒤 끝난 저장은 카드 탭을 다시 열고 결과로 포커스를 옮긴다", async () => {
@@ -847,10 +844,7 @@ describe("에이전트 상세 탭", () => {
       within(summary).getByText(term, { selector: "dt" }).nextElementSibling
         ?.textContent;
     await waitFor(() => expect(value("설명")).toBe("결제 문의 담당"));
-    expect(value("에이전트 지시문")).toBe("없음");
-    expect(
-      within(summary).queryByText("이전 지시 사항 (적용된 적 없음)"),
-    ).toBeNull();
+    expect(within(summary).queryByText("에이전트 지시문")).toBeNull();
     expect(value("식별자")).toBe("billing");
     expect(value("모델")).toBe("claude-sonnet-5");
     expect(within(summary).queryByText("쓸 수 있는 도구")).toBeNull();
@@ -910,7 +904,7 @@ describe("에이전트 상세 탭", () => {
     });
     const panel = await screen.findByRole("tabpanel");
     await within(panel).findByText("재무");
-    await within(panel).findByText(/에이전트 관리자는/);
+    await within(panel).findByText(/담당 팀과 별개로/);
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByRole("combobox")).toBeNull();
   });
@@ -942,7 +936,7 @@ describe("에이전트 상세 탭", () => {
       id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
       version_no: 2,
       content_sha256: "f".repeat(64),
-      card: { ...first.card, agent_instructions: "환불도 맡는다." },
+      card: { ...first.card, language: "en" },
     });
     await released(server, server.versions[1]?.card);
     renderAt(`${DETAIL}?tab=release`, { ...meOk, ...server.routes });

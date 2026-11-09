@@ -705,9 +705,12 @@ describe("입력 검증(W24 규약)", () => {
     await user.click(
       within(dialog).getByRole("button", { name: "초대 링크 만들기" }),
     );
-    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+    const refusal = await within(dialog).findByRole("alert");
+    expect(refusal.textContent).toBe(
       "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
+    // The same banner as the team dialogs use for a refused submit.
+    expect(refusal.getAttribute("data-slot")).toBe("alert");
   });
 });
 

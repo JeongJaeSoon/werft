@@ -59,8 +59,13 @@ export const bindingModeSchema = z.enum(BINDING_MODE_VALUES);
 export const MEMORY_WRITE_POLICY_VALUES = ["deny", "allow_explicit"] as const;
 export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
 
+/**
+ * `pending_approval`: a private channel nobody with `binding.approve` has
+ * let the agent use yet. Input reads only `ready`, so it takes nothing.
+ */
 export const SURFACE_BINDING_STATUS_VALUES = [
   "ready",
+  "pending_approval",
   "partial",
   "failed",
   "revoked",
@@ -149,6 +154,11 @@ export const surfaceBindingSchema = z
     home: z.boolean(),
     memory_write_policy: memoryWritePolicySchema,
     status: surfaceBindingStatusSchema,
+    /**
+     * When an owner or admin last approved the channel; null for a binding
+     * never held for approval. Input sent before it is not answered.
+     */
+    approved_at: timestampSchema.nullable().optional(),
     /** Absent on a DM binding and on a channel not checked yet. */
     membership: surfaceMembershipSchema.optional(),
     muted: z.boolean(),
@@ -184,7 +194,22 @@ export const surfaceBindingSchema = z
         message: "a dm binding is never home",
       });
     }
-    if (binding.surface !== "slack" || binding.status !== "ready") return;
+    if (
+      binding.status === "pending_approval" &&
+      binding.surface_kind !== "private_channel"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["surface_kind"],
+        message: "only a private channel waits for approval",
+      });
+    }
+    if (
+      binding.surface !== "slack" ||
+      (binding.status !== "ready" && binding.status !== "pending_approval")
+    ) {
+      return;
+    }
     for (const field of [
       "installation_id",
       "external_surface_id",

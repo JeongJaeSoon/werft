@@ -668,6 +668,7 @@ describe("the session's GitHub work", () => {
     status: "deferred" as const,
     refusal_code: null,
     push_request_id: null,
+    source_ref: null,
     created_at: AT,
     ...fields,
   });

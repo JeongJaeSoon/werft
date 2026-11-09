@@ -42,6 +42,7 @@ import {
   slackApps,
   slackOutbox,
   slackThreadStatus,
+  surfaceBindings,
   turns,
   users,
   verifySlackInstallation,
@@ -157,7 +158,7 @@ afterAll(() => {
   slack.stop();
 });
 
-const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
+const ENGINES = testDatabaseUrl() ? ["PostgreSQL"] : ["PGlite"];
 
 function useDatabase(engine: string) {
   let close = async () => {};
@@ -310,7 +311,13 @@ async function agentInSlack() {
     verifiedVia: "slack_oidc",
     verifiedAt: new Date(),
   });
-  return { workspaceId, agentId, slackAppId };
+  return {
+    workspaceId,
+    agentId,
+    slackAppId,
+    owner,
+    bindingId: bound.binding.id,
+  };
 }
 
 let eventCounter = 0;
@@ -1211,6 +1218,160 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       status: "failed",
       errorCode: "not_addressed",
     });
+  });
+
+  test("a reply to a channel that is waiting for approval is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+
+    expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a reply claimed before its channel began waiting for approval does not start sending", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (!claim) throw new Error("nothing claimed");
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    expect(await outbox.beginSend(claim)).toBe(false);
+  });
+
+  test("rejecting a channel fails the replies still waiting for it, claimed or not", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const [claimed] = await createPostgresSlackOutboxStore(db).claim({
+      limit: 10,
+      leaseMs: 30_000,
+    });
+    if (!claimed) throw new Error("nothing claimed");
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const [binding] = await db.select().from(surfaceBindings);
+    const rejected = await createPostgresSurfaceBindingStore(db).reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(rejected.outcome).toBe("resolved");
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+    expect(posted()).toEqual([]);
+  });
+
+  test("a reply made after its channel was rejected is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const [binding] = await db.select().from(surfaceBindings);
+    const rejected = await createPostgresSurfaceBindingStore(db).reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(rejected.outcome).toBe("resolved");
+    const store = createPostgresSurfaceBindingStore(db);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", CHANNEL),
+    ).toBe(true);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", "C0OTHER"),
+    ).toBe(false);
+
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a channel bound again after a rejection is no longer a rejected one", async () => {
+    const fixture = await agentInSlack();
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const store = createPostgresSurfaceBindingStore(db);
+    const [binding] = await db.select().from(surfaceBindings);
+    const installationId = binding?.installationId ?? "";
+    await store.reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(true);
+
+    const rebound = await store.set({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      channelId: CHANNEL,
+      channelKind: "private_channel",
+      mode: "on",
+      home: false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      managerRoles: MANAGERS,
+    });
+    if (rebound.outcome !== "set") throw new Error(rebound.outcome);
+    expect(rebound.binding.status).toBe("pending_approval");
+    // Waiting, then approved, then unbound: the old rejection is history.
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
+    const approved = await store.approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: rebound.binding.id,
+      revision: rebound.binding.revision,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.id, rebound.binding.id));
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
   });
 
   test("each request a turn waits on gets its own card once, with the buttons that settle it", async () => {

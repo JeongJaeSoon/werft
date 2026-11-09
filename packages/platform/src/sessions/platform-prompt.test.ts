@@ -32,8 +32,8 @@ describe("platformPromptOf revision", () => {
       ...(actionFlows === undefined ? {} : { actionFlows }),
     }).prompt_revision;
 
-  test("is 3 only for a session created while the action flows are on", () => {
-    expect(revisionWhen(true)).toBe(3);
+  test("is 6 only for a session created while the action flows are on", () => {
+    expect(revisionWhen(true)).toBe(6);
     expect(revisionWhen(false)).toBe(1);
     expect(revisionWhen(undefined)).toBe(1);
   });
