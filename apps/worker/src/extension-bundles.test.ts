@@ -359,6 +359,17 @@ describe("what an earlier start left in HOME is proven again, not trusted", () =
     expect((await refetched()).fetches).toBe(0);
   });
 
+  test("a directory bigger than the size cap is fetched again without being hashed", async () => {
+    await published();
+    // The files are 2, 7 and 10 bytes: one is over a 9 byte cap, and every
+    // one is under a 15 byte cap that the three together pass.
+    for (const maxBytes of [9, 15]) {
+      const again = options(async () => tar, { maxBytes });
+      await again.run();
+      expect(again.calls.fetch).toBe(1);
+    }
+  });
+
   test("a file changed in place with its write bit still off is fetched again", async () => {
     const placed = await published();
     chmodSync(join(placed, "skills/lint"), 0o755);

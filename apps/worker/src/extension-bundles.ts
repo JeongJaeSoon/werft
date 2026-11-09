@@ -79,7 +79,9 @@ export async function publishExtensionBundles(
     const target = join(root, bundle.digest);
     // Not trusted for existing: the HOME tmpfs outlives a start, and the agent
     // shares our uid, so a restart re-proves what an earlier one left.
-    if (!isIntact(target, bundle.digest)) {
+    if (
+      !isIntact(target, bundle.digest, options.maxBytes ?? MAX_BUNDLE_BYTES)
+    ) {
       discard(target);
       const tar = await download(options, bundle);
       place(options.home, root, target, bundle, tar);
@@ -128,8 +130,11 @@ function lstatOrNull(path: string) {
  * A published directory is the claimed bundle only while it is a real
  * directory tree of regular files, none writable, hashing to the digest.
  */
-function isIntact(target: string, digest: string): boolean {
+function isIntact(target: string, digest: string, maxBytes: number): boolean {
   const files: { path: string; mode: number; sha256: string }[] = [];
+  // Sizes come from lstat, before any read: a bundle never grew past the
+  // download cap, so a directory that did is not one this worker published.
+  let total = 0;
   const walk = (dir: string, prefix: string): boolean => {
     if ((statOf(dir)?.mode ?? 0o222) & 0o222) return false;
     for (const entry of readdirSync(dir)) {
@@ -140,6 +145,8 @@ function isIntact(target: string, digest: string): boolean {
       if (info.isDirectory()) {
         if (!walk(path, relative)) return false;
       } else if (info.isFile()) {
+        total += info.size;
+        if (info.size > maxBytes || total > maxBytes) return false;
         files.push({
           path: relative,
           mode: (info.mode & 0o111) !== 0 ? 0o755 : 0o644,
