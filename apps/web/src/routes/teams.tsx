@@ -45,7 +45,7 @@ import {
   NativeSelect,
   NativeSelectOption,
   RowAction,
-  Section,
+  SettingsSection,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -63,6 +63,7 @@ import {
   refusalText,
   roleLabel,
   useHasPermission,
+  usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
 import {
@@ -81,11 +82,9 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
-// The name and its button share a row; the button drops under the field only
-// when the row is too narrow for both.
-const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
-const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
+const NAME_FIELD = "min-w-0 max-w-xl";
 
 type TeamMember = TeamDetail["members"][number];
 
@@ -147,6 +146,18 @@ export function TeamsScreen() {
   });
   const items = teams.data?.pages.flatMap((page) => page.items) ?? [];
   const search = useRef<HTMLInputElement>(null);
+  const notify = useNotify();
+  const reason = usePermissionReason("team.manage", teams);
+  // A refused or failed first page leaves no list to add a team to; a failed
+  // search says nothing about the list itself.
+  const createFailed =
+    q === undefined && teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  const createButton = createFailed ? null : (
+    <TeamCreateDialog
+      reason={reason}
+      onCreated={(name) => notify(t("teams.created", { name }))}
+    />
+  );
   const clear = () => {
     setQuery("");
     search.current?.focus();
@@ -160,12 +171,19 @@ export function TeamsScreen() {
     );
   }
 
-  // Creating a team is the page head's button (TeamCreateDialog). The intro
-  // is the page's description line here, so the tab opens on the search box
-  // like the 구성원 tab does.
-  return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
-      {isApiError(teams.error, "FORBIDDEN") ? null : (
+  // Creating a team is the section's title-row button (TeamCreateDialog),
+  // also while the list is empty: a button that moved into the empty box
+  // would remount. The intro is the page's description line here, so the tab
+  // opens on the search box like the 구성원 tab does.
+  const listEmpty =
+    !teams.isPending && !teams.error && items.length === 0 && q === undefined;
+  const section = (
+    <SettingsSection
+      title={t("members.tab.teams")}
+      actions={createButton}
+      box={listEmpty}
+    >
+      {isApiError(teams.error, "FORBIDDEN") || listEmpty ? null : (
         <ListToolbar
           filter={null}
           search={{
@@ -202,7 +220,13 @@ export function TeamsScreen() {
           <PagedListFooter list={teams} />
         </div>
       )}
-      {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
+    </SettingsSection>
+  );
+  if (!isApiError(teams.error, "FORBIDDEN")) return section;
+  return (
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      {section}
+      <MyTeams showEmpty />
     </div>
   );
 }
@@ -291,26 +315,6 @@ export function TeamDetailScreen() {
   return <TeamPage key={teamId} id={teamId} />;
 }
 
-/**
- * The page head's one primary action on a team's page: adding members. The
- * head lives in the 구성원 layout above the route, so it reads the team the
- * address names; the page below shares the same cached read.
- */
-export function TeamHeadAction() {
-  const { teamId } = useParams({ strict: false });
-  const { client } = useWerft();
-  const manages = useHasPermission("team.manage");
-  const team = useQuery({
-    ...teamQuery(client, teamId ?? ""),
-    enabled: manages && teamId !== undefined,
-  });
-  // A failed read keeps the last data in the cache, but the page below turns
-  // into the failure: the button goes with it. The key ties the dialog's
-  // picks to one team, so going back to another team never carries them over.
-  if (!manages || !team.data || team.isError) return null;
-  return <AddMembersDialog key={team.data.id} team={team.data} />;
-}
-
 function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -380,13 +384,12 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
   };
 
   return (
-    <Section title={t("teams.settings")} titleAs="h3">
-      <form className={INLINE_FORM} onSubmit={submit}>
-        <TeamNameField
-          value={name}
-          onChange={setName}
-          error={name.trim() === taken ? t("teams.nameTaken") : undefined}
-        />
+    <SettingsSection
+      title={t("teams.settings")}
+      titleAs="h3"
+      box
+      onSubmit={submit}
+      foot={
         <Button
           type="submit"
           variant="outline"
@@ -394,8 +397,14 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
         >
           {t("teams.rename")}
         </Button>
-      </form>
-    </Section>
+      }
+    >
+      <TeamNameField
+        value={name}
+        onChange={setName}
+        error={name.trim() === taken ? t("teams.nameTaken") : undefined}
+      />
+    </SettingsSection>
   );
 }
 
@@ -607,8 +616,15 @@ function TeamMembers({
     search.current?.focus();
   };
 
+  // The key ties the dialog's picks to one team, so going back to another
+  // team never carries them over.
+  const addMembers = manages ? (
+    <AddMembersDialog key={team.id} team={team} />
+  ) : null;
+  const listEmpty = team.members.length === 0;
+
   return (
-    <Section
+    <SettingsSection
       title={t("teams.members")}
       titleAs="h3"
       badge={
@@ -616,8 +632,10 @@ function TeamMembers({
           {t("teams.memberTotal", { count: team.members.length })}
         </Badge>
       }
+      actions={addMembers}
+      box={listEmpty}
     >
-      {team.members.length === 0 ? (
+      {listEmpty ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
@@ -783,7 +801,7 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
-    </Section>
+    </SettingsSection>
   );
 }
 

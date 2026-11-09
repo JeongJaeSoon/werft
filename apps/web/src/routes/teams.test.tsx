@@ -344,6 +344,26 @@ describe("팀 화면", () => {
     expect(screen.queryByRole("button", { name: "팀 만들기" })).toBeNull();
   });
 
+  test("팀 만들기는 팀 구역 제목 줄에 있고, 팀이 없으면 상자에 빈 상태만 둔다", async () => {
+    const server = teamServer();
+    renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/teams": () => json(200, { items: [], next_cursor: null }),
+    });
+    const create = await screen.findByRole("button", { name: "팀 만들기" });
+    expect(create.closest("header") === null).toBe(true);
+    const owned = create.closest("section");
+    if (!owned) throw new Error("the button is not in a section");
+    expect(owned.querySelector("h2")?.textContent).toBe("팀");
+    const empty = await within(owned).findByText(/아직 팀이 없습니다/);
+    expect(empty.closest("[class*='rounded-card']") === null).toBe(false);
+    // No search box over a list that is empty to begin with.
+    expect(within(owned).queryByRole("searchbox")).toBeNull();
+    expect(
+      within(owned).getAllByRole("button", { name: "팀 만들기" }),
+    ).toHaveLength(1);
+  });
+
   test("끝에 / 가 붙은 팀 목록 주소에서도 헤더에 팀 만들기가 있다", async () => {
     const server = teamServer();
     renderAt("/members/teams/", server.routes);
@@ -374,7 +394,9 @@ describe("팀 화면", () => {
     const dialog = await screen.findByRole("dialog", { name: "팀 만들기" });
     await user.type(within(dialog).getByLabelText("팀 이름"), "지원팀{Enter}");
     await within(dialog).findByRole("button", { name: "만드는 중…" });
-    act(() => history.push("/members"));
+    // Settled before polling: the dialog leaves with the teams screen, and
+    // Bun's DOM crashes when the poll runs while it unmounts.
+    await act(async () => history.push("/members"));
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "팀 만들기" })).toBeNull(),
     );
@@ -406,13 +428,18 @@ describe("팀 화면", () => {
     expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
   });
 
-  test("팀 상세의 헤더 주 버튼은 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
+  test("팀 상세의 주 버튼은 구성원 구역 제목 줄의 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
     const server = teamServer();
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     await screen.findByRole("heading", { level: 2, name: "결제팀" });
     const add = await screen.findByRole("button", { name: "구성원 추가" });
-    // The head, not the members section below it.
-    expect(add.closest("header") === null).toBe(false);
+    // On the members section's title row (R1), not in the page head.
+    expect(add.closest("header") === null).toBe(true);
+    const section = add.closest("section");
+    expect(section === null).toBe(false);
+    const title = section?.querySelector("h3");
+    expect(title?.id === section?.getAttribute("aria-labelledby")).toBe(true);
+    expect(title?.nextElementSibling?.textContent).toContain("명");
     expect(screen.getAllByRole("button", { name: "구성원 추가" })).toHaveLength(
       1,
     );
@@ -780,9 +807,10 @@ describe("팀 화면", () => {
       api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search);
     await screen.findByRole("button", { name: "구성원 추가" });
     expect(screen.queryByRole("combobox")).toBeNull();
-    await waitFor(() => expect(memberReads()).toEqual(["?limit=2"]));
+    // The team page asks for no member list until the dialog's picker does.
+    expect(memberReads()).toEqual([]);
     const { dialog, picker } = await openAdd(user);
-    await waitFor(() => expect(memberReads()).toEqual(["?limit=2", ""]));
+    await waitFor(() => expect(memberReads()).toEqual([""]));
     expect(dialog.textContent).toContain(
       "추가하면 수락 없이 바로 구성원이 됩니다.",
     );

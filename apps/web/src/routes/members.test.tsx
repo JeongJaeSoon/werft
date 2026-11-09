@@ -1129,14 +1129,19 @@ describe("구성원 페이지와 서버 검색", () => {
 
   test("구성원을 바꾼 뒤 받은 페이지를 다시 읽는 동안에는 더 보기를 막는다", async () => {
     let hold = false;
-    let release: () => void = () => {};
+    // The invite button reads the first page too, and its request may go out
+    // before the list's: release every held read, not just the last.
+    const releases: Array<() => void> = [];
+    const release = () => {
+      for (const resolve of releases.splice(0)) resolve();
+    };
     const rows = [...crowd];
     renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": pagedMembers(rows, 2, () =>
         hold
           ? new Promise((resolve) => {
-              release = () => resolve(undefined);
+              releases.push(() => resolve(undefined));
             })
           : Promise.resolve(undefined),
       ),
@@ -1870,5 +1875,55 @@ describe("권한", () => {
     await waitFor(() =>
       expect((button as HTMLButtonElement).disabled).toBe(false),
     );
+  });
+});
+
+// R1–R4 of the settings screens: a section title, the section's one action on
+// its title row, the list in a frame or, when there is none, in a box.
+describe("구역 구조", () => {
+  const section = (button: HTMLElement) => {
+    const found = button.closest("section");
+    if (!found) throw new Error("the button is not in a section");
+    return found;
+  };
+
+  test("구성원 탭의 초대 버튼은 구성원 구역 제목 줄에 있고 페이지 머리에는 없다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      ...noInvites,
+    });
+    const invite = await screen.findByRole("button", { name: "구성원 초대" });
+    expect(invite.closest("header") === null).toBe(true);
+    const owned = section(invite);
+    const title = owned.querySelector("h2");
+    expect(title?.id === owned.getAttribute("aria-labelledby")).toBe(true);
+    expect(title?.textContent).toBe("구성원");
+    // The table is the section's body, in its one frame.
+    const table = await within(owned).findByRole("table", {
+      name: "구성원 표",
+    });
+    expect(table === null).toBe(false);
+  });
+
+  test("초대 탭도 같은 자리에 초대 버튼을 두고, 목록이 비면 상자에 빈 상태만 둔다", async () => {
+    renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      ...noInvites,
+    });
+    const invite = await screen.findByRole("button", { name: "구성원 초대" });
+    expect(invite.closest("header") === null).toBe(true);
+    const owned = section(invite);
+    expect(owned.querySelector("h2")?.textContent).toBe("초대");
+    const empty = await within(owned).findByText("남아 있는 초대가 없습니다.");
+    // Empty list: the box holds the words, the button stays on the title row
+    // so a dialog open on its link step survives the list filling in.
+    expect(empty.closest("[class*='rounded-card']") === null).toBe(false);
+    expect(
+      within(owned).getAllByRole("button", { name: "구성원 초대" }),
+    ).toHaveLength(1);
   });
 });
