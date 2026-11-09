@@ -168,13 +168,6 @@ export type ActivationIntent =
       tools: { before: string[]; after: string[] };
     }
   | {
-      /**
-       * A model that left the profile's list replaced by its same-family
-       * successor: the same profile and a card that differs in `model` only.
-       * Judged on the revisions the plan read and on `auto_model_migration`
-       * under the lock; changes neither tracking, the model source nor the
-       * draft. The administrators' notices are written with the swap.
-       */
       kind: "model_migration";
       expected: {
         activeReleaseId: string;
@@ -282,7 +275,6 @@ export interface AgentStore {
       name?: string;
       /** `null` clears it. */
       description?: string | null;
-      /** Row only, like the two above: it applies at once, through no release. */
       autoModelMigration?: boolean;
       card?: { card: AgentCard; contentSha256: string };
       /**
@@ -348,11 +340,6 @@ export interface AgentStore {
   ): Promise<InsertReleaseResult>;
   /** Whether the agent has an `agent_github_settings` row. */
   hasGitHubSettings(agentId: string): Promise<boolean>;
-  /**
-   * One page, by agent id, of the active agents that allow an automatic model
-   * move, with the model their active release runs. The catalog decides which
-   * of them hold a model that left the list.
-   */
   modelMigrationCandidates(input: {
     after: string | null;
     limit: number;
@@ -364,9 +351,7 @@ export interface AgentStore {
       model: string;
     }[]
   >;
-  /** False when the agent switched the automatic model move off. */
   autoModelMigration(workspaceId: string, agentId: string): Promise<boolean>;
-  /** The failed move's notice: written without a swap, once per cause. */
   notifyModelMigrationFailed(input: {
     workspaceId: string;
     agentId: string;

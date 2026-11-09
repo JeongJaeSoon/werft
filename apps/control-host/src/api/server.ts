@@ -1036,9 +1036,6 @@ const profileRolloutRunner = createProfileRolloutRunner({
   logger,
   sweep: true,
 }).start();
-// Moves agents whose model left their profile's list onto the next model of
-// the same series (94S-1475). Every replica runs it; the activation's
-// compare-and-swap and the notice keys make a second one harmless.
 const modelMoveRunner = createModelMoveRunner({
   store: agentStore,
   catalog,

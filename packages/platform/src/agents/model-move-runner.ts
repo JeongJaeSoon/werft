@@ -7,7 +7,6 @@ import {
 
 export const MODEL_MOVE_POLL_INTERVAL_MS = 60_000;
 export const MODEL_MOVE_PAGE = 200;
-// A failed move is tried again after this long, not at every pass.
 export const MODEL_MOVE_RETRY_MS = 15 * 60_000;
 
 export type ModelMoveStep =
@@ -20,14 +19,6 @@ export type ModelMoveRunnerLogger = {
   warn(message: string, fields: Record<string, unknown>): void;
 };
 
-/**
- * Moves each agent whose active release runs a model that left its profile's
- * list onto the same-family successor (94S-1475). The candidates are read from
- * the catalog at every pass, so nothing is queued: a move that lost a race
- * is found again, one that worked is gone from the list. A failed move
- * tells the administrators once per activation revision and waits
- * `retryMs` before it is tried again.
- */
 export function createModelMoveRunner(deps: {
   store: Pick<AgentStore, "modelMigrationCandidates"> &
     Pick<AgentStore, "notifyModelMigrationFailed">;
@@ -47,11 +38,8 @@ export function createModelMoveRunner(deps: {
   const page = deps.page ?? MODEL_MOVE_PAGE;
   const retryMs = deps.retryMs ?? MODEL_MOVE_RETRY_MS;
   const now = deps.now ?? Date.now;
-  // Per replica and in memory: a restart tries a failed move once more, and
-  // the notice's key keeps that from telling anyone twice.
   const retryAt = new Map<string, number>();
 
-  /** One pass over every candidate. Returns how many agents moved. */
   async function runOnce(stopped: () => boolean = () => false) {
     let moved = 0;
     let after: string | null = null;
@@ -60,8 +48,6 @@ export function createModelMoveRunner(deps: {
       for (const row of rows) {
         if (stopped()) return moved;
         const profile = catalogProfile(deps.catalog, row.profileId);
-        // A workspace profile is not in this view until a request reads it;
-        // the service looks it up again and skips what it cannot.
         if (
           profile !== undefined &&
           modelSuccessor(profile, row.model) === null

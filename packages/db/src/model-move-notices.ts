@@ -9,12 +9,6 @@ import { slackRecipientsOf } from "./model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import { agents, slackOutbox } from "./schema.ts";
 
-/**
- * One `model_notice` DM per administrator of the agent, in the caller's
- * transaction so a move and its notices commit together. `revision` is the
- * agent's activation revision the notice is about, which keeps one failure
- * repeated every pass to one notice.
- */
 export async function enqueueModelMoveNotices(
   tx: Database,
   input: {

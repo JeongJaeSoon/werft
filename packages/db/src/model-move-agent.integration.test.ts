@@ -62,7 +62,6 @@ const BASE: CatalogProfile = {
     },
   },
 };
-// The same profile after the old model left its list.
 const CUT: CatalogProfile = { ...BASE, models: ["claude-opus-5-1"] };
 const CUT_NO_FAMILY: CatalogProfile = {
   ...CUT,
@@ -169,7 +168,6 @@ integration("an agent moves to the next model of its series", () => {
     );
   }
 
-  /** An agent released on `model`, made while the old model was still listed. */
   async function agentOn(caller: Caller, model = "claude-opus-5-0") {
     const teamId = randomUUID();
     await db.insert(memberTeams).values({
@@ -230,7 +228,6 @@ integration("an agent moves to the next model of its series", () => {
     expect(after?.activationRevision).toBe(
       (before?.activationRevision as number) + 1,
     );
-    // Not a person's change: behavior, source and draft stay as they were.
     expect(after?.behaviorRevision).toBe(before?.behaviorRevision as number);
     expect(after?.modelSource).toBe("fixed");
     expect(after?.draftVersionId).toBeNull();
@@ -348,8 +345,6 @@ integration("an agent moves to the next model of its series", () => {
     expect(await activeModel(listed)).toBe("claude-opus-5-1");
     expect(await runner.runOnce()).toBe(0);
 
-    // A person who loses their rights blocks the next agent; one failure
-    // tells once however many passes find it inside the wait.
     const blocked = await agentOn(caller);
     await db
       .update(memberships)

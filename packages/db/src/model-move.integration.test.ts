@@ -198,11 +198,9 @@ integration("a model moved at the next turn's claim", () => {
     TIMEOUT_MS,
   );
 
-  /** Links the session to an agent release whose agent has the move on or off. */
   async function ofAgent(sessionId: string, autoModelMigration: boolean) {
     const client = await pool.connect();
     try {
-      // The rows around the agent are not what is under test.
       await client.query("SET session_replication_role = replica");
       const scoped = drizzle(client, { schema });
       const agentId = crypto.randomUUID();

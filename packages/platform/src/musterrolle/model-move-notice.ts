@@ -4,11 +4,6 @@ export type ModelMoveNotice =
   | { kind: "moved"; agent: string; from: string; to: string }
   | { kind: "failed"; agent: string; from: string; to: string };
 
-/**
- * One notice per administrator and move. A failure's key carries the agent's
- * activation revision, so a later move that works still tells them, and one
- * failure repeated every pass tells them once.
- */
 export function modelMoveDedupeKey(
   kind: ModelMoveNotice["kind"],
   agentId: string,
@@ -35,7 +30,6 @@ const COPY: Record<UserLocale, (notice: ModelMoveNotice) => string> = {
       : `Agent ${n.agent}'s model ${n.from} left the allowed list, but it could not move to ${n.to}. The agent stays blocked. Check whether the person who last approved its release lost admin rights, or whether a release can be made.`,
 };
 
-/** The notice's words in the reader's language (Korean when unknown). */
 export function modelMoveNoticeText(
   locale: UserLocale | null | undefined,
   notice: ModelMoveNotice,

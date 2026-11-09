@@ -1006,8 +1006,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
-        // Switched off, or changed by a person, since the plan read it: not
-        // this move's to make.
         if (
           intent?.kind === "model_migration" &&
           agent.activeReleaseId !== input.releaseId &&
@@ -1139,8 +1137,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   model_migration: {
                     from: intent.from,
                     to: intent.to,
-                    // Nobody asked for it: the actor is the release's last
-                    // approver, standing in.
                     automatic: true,
                   },
                 }

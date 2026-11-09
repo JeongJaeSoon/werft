@@ -122,11 +122,6 @@ export async function enqueueModelCutNotices(
   return enqueued;
 }
 
-/**
- * The people who hear of an agent's model: its administrators (`administers`)
- * and `userId` when given, each only if still an enabled member with a Slack
- * account linked in the team the agent's app is installed in.
- */
 export async function slackRecipientsOf(
   tx: Database,
   input: { workspaceId: string; agentId: string; userId: string | null },

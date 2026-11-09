@@ -128,8 +128,6 @@ export async function resolveAgentRelease(
       `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  // An agent that switched the automatic move off is refused like one whose
-  // model has no successor.
   if (
     model !== undefined &&
     !profileModels(profile).includes(model) &&
@@ -1351,14 +1349,6 @@ export function createAgentService(deps: {
     }
   }
 
-  /**
-   * Moves an agent whose active release runs a model that left its profile's
-   * list onto the same-family successor: a card that differs in `model`
-   * only, released and activated under the revisions read here. Nobody asks
-   * for it, so the person who last approved the release stands in for it and
-   * must still be an owner or admin; without one the agent stays blocked and
-   * the caller says so.
-   */
   async function migrateModel(input: {
     workspaceId: string;
     agentId: string;
