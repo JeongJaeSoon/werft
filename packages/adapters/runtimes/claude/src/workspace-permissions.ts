@@ -168,17 +168,29 @@ const policy = policySchema.parse(defaultSettings);
 
 /**
  * The ask patterns for one reader and every spelling of a secret's name.
- * `lean` is for a git verb, matched as `git *<verb>*` so a global option may
- * come first: it drops the `-<letter>f` starts, which only `grep` and `rg`
- * have. The engine gets the whole settings payload as one argument and Linux
- * caps one argument at 128 KiB, so a rule family that multiplies must stay lean.
+ * `git` is for a git verb written as `git *<verb>*`, so a global option may
+ * come first: the name pattern then follows the verb directly instead of
+ * after an operand. It keeps the `-<letter>f` starts only for `clusters`
+ * (`git grep -nf.env`). The engine gets the whole settings payload as one
+ * argument and Linux caps one argument at 128 KiB, so a rule family that
+ * multiplies must stay lean.
  */
-function secretReadPatterns(command: string, lean = false): string[] {
+function secretReadPatterns(
+  command: string,
+  options: { git: boolean; clusters: boolean } = { git: false, clusters: true },
+): string[] {
   const read = policy.secretRead;
   const letters = [...read.clusterLetters];
-  const starts = lean
-    ? read.nameStarts
-    : [...read.nameStarts, ...letters.map((l) => `-${l}f`)];
+  const starts = options.clusters
+    ? [...read.nameStarts, ...letters.map((l) => `-${l}f`)]
+    : read.nameStarts;
+  // `cat <name>` has the name as its first operand; `git *show* <name>` is the
+  // same shape with the verb already inside `command`.
+  const operand = (start: string, name: string) =>
+    options.git
+      ? `${command}${start.startsWith("-") ? "*" : ""}${start}${name}*`
+      : `${command} *${start}${name}*`;
+  const joint = options.git ? "" : " ";
   const names = [
     ...policy.secretNameParts.filter(
       (part) =>
@@ -186,12 +198,14 @@ function secretReadPatterns(command: string, lean = false): string[] {
     ),
     ...read.extraNames,
   ].flatMap((name) => [
-    ...(lean ? [] : [`${command} ${name}*`]),
-    ...starts.map((start) => `${command} *${start}${name}*`),
+    ...(options.git ? [] : [`${command} ${name}*`]),
+    ...starts.map((start) => operand(start, name)),
   ]);
   const extensions = read.extensions.flatMap((extension) => [
-    `${command} *${extension}`,
-    ...read.extensionEnds.map((end) => `${command} *${extension}${end}*`),
+    `${command}${joint}*${extension}`,
+    ...read.extensionEnds.map(
+      (end) => `${command}${joint}*${extension}${end}*`,
+    ),
   ]);
   return [...names, ...extensions];
 }
@@ -305,7 +319,10 @@ export function workspaceRules(
     }
     for (const verb of policy.secretRead.gitReaders) {
       ask.push(
-        ...secretReadPatterns(`git *${verb}*`, true).map((p) => `Bash(${p})`),
+        ...secretReadPatterns(`git *${verb}*`, {
+          clusters: verb === "grep",
+          git: true,
+        }).map((p) => `Bash(${p})`),
       );
     }
     ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));

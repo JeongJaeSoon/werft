@@ -482,6 +482,11 @@ const steps: Step[] = [
   bash("sed_subst_w", "sed 's/a/b/w../sed-outside.txt' notes/sample.txt", true),
   bash("sed_address_e", "sed '1e id' notes/sample.txt", true),
   bash("sed_r_secret", "sed 'r.env.secret' notes/sample.txt", true),
+  // The lean git secret rules must keep what the long form asked for.
+  bash("git_show_secret_operand", "git show .env.secret", true),
+  bash("git_diff_secret_operand", "git diff .env.secret", true),
+  bash("git_log_secret_operand", "git log .env.secret -p", true),
+  bash("git_grep_cluster_f", "git grep -nf.env.secret x", true),
   // Fourth review.
   bash(
     "git_checkout_index_prefix",
