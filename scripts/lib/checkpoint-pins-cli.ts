@@ -657,19 +657,32 @@ const EMPTY_RUNTIME: RuntimeFingerprint = {
 
 /** The image's content id, which is what a deployment pins and the gate binds to. */
 async function imageDigestOf(name: string): Promise<string> {
-  const child = Bun.spawn(
-    ["docker", "image", "inspect", "--format", "{{.Id}}", name],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0 || !stdout.trim()) {
-    throw new Error(`could not inspect image ${name}: ${stderr.trim()}`);
+  const run = async (args: string[]) => {
+    const child = Bun.spawn(["docker", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { out: stdout.trim(), err: stderr.trim(), code };
+  };
+  const inspect = ["image", "inspect", "--format", "{{.Id}}", name];
+  let found = await run(inspect);
+  if (found.code !== 0) {
+    // `docker run` pulls a missing image, and this check used to rely on it.
+    const pulled = await run(["pull", "--quiet", name]);
+    if (pulled.code !== 0) {
+      throw new Error(`could not pull image ${name}: ${pulled.err}`);
+    }
+    found = await run(inspect);
   }
-  return stdout.trim();
+  if (found.code !== 0 || !found.out) {
+    throw new Error(`could not inspect image ${name}: ${found.err}`);
+  }
+  return found.out;
 }
 
 /**
