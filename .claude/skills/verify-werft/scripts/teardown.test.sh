@@ -118,6 +118,9 @@ printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVER
 bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: another project's name refused" 1 $?
 grep -q '^volume rm' "$log"; check "rm-volumes.sh: refusal removed nothing" 1 $?
 
+# The skill never tells the agent to build ids.sh from Bash (Write tool only).
+grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here/.." --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
+
 # janitor: a dry run issues no removing command.
 : >"$log"
 bash "$here/janitor.sh" >/dev/null 2>&1; check "janitor: dry run exits 0" 0 $?

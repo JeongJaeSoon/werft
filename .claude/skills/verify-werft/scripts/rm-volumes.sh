@@ -38,6 +38,8 @@ TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$labelled" "$prior" | sed '/^$/d' | sort -
 
 failed=0
 out=$run/evidence/rm-volumes.txt
+# Names come from a file: no glob expansion in the loop below.
+set -f
 {
   for name in $TEARDOWN_VOLUMES; do
     case "$name" in

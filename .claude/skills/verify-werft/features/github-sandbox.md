@@ -36,13 +36,13 @@ export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${
 orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml
 ```
 
-`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적어 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
+`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 블록이 `NAME=값` 줄로 출력하고, 그 줄을 Write 도구로 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적는다(Bash의 `>>`·heredoc으로 만들지 않는다. Write는 파일 전체를 덮어쓰므로 지금까지의 줄을 모두 적는다). 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
 
 ```sh
 # 2. owner와 App 등록
 U=.claude/skills/verify-werft/scripts/web-user.mjs
 node $U <run id> bootstrap owner; node $U <run id> login owner; ap_as owner
-WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
+WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS"
 node $U <run id> github-app owner "$WS" "$SANDBOX_APP_ID" | tee "$EVIDENCE/gh-app-put.txt"
 ap_web GET "/v1/workspaces/$WS/github-app" | tee "$EVIDENCE/gh-app-get.txt"
 ```
@@ -61,7 +61,7 @@ GH='{"repositories":["sandbox"],"push_approval":true,"features":{"workflows":fal
 REL=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" --argjson g "$GH" '{version_id:$v, runtime_profile_id:"claude-coding-local", repository_id:"sandbox", github:$g}')" | head -1 | jq -r .release.id)
 ap_web POST "/v1/agents/$AID/activate" "$(jq -nc --arg r "$REL" '{release_id:$r, expected_revision:-1}')"
 ap_web GET "/v1/agents/$AID/github" | tee "$EVIDENCE/gh-agent.txt"
-printf 'AID=%s\nREL=%s\n' "$AID" "$REL" >> "$VERIFY_RUN/ids.sh"
+printf 'AID=%s\nREL=%s\n' "$AID" "$REL"
 ```
 
 ```sh
@@ -83,7 +83,7 @@ ap_web GET "/v1/workspaces/$WS/achievement-judge" | head -1 | jq -c '.achievemen
 node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
 SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-werft sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
 SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
-printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
+printf 'SID=%s\n' "$SID"
 for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
 REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')
 ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
@@ -115,7 +115,7 @@ ap_web POST "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$
 for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-werft: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false
-printf 'PRID=%s\n' "$PRID" >> "$VERIFY_RUN/ids.sh"
+printf 'PRID=%s\n' "$PRID"
 ```
 
 기대: push 요청 `201` `state: "requested"`, `target_branch: "agent/<SID>"`, 요청 id는 `.id`다(`push_request_id`가 아니다). 결정 `200`(cookie로. 다른 `git_commit`이면 `409 CHECKPOINT_MOVED`, `details.refusal: "commit_mismatch"`, 요청은 `requested`로 남는다). 상태 `pushed`. PR `201` `created: true`와 `pull_request.url`, 두 번째 `200` `created: false`. `gh pr view <n> -R JeongJaeSoon/werft-sandbox --json author,headRefName,state`는 `app/werft-sandbox-agent`, `agent/<SID>`, `OPEN`.
