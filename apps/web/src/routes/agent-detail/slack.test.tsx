@@ -1422,6 +1422,50 @@ describe("Slack management", () => {
     ).toBeNull();
   });
 
+  test("a failed app read claims neither no app nor a missing token", async () => {
+    let down = true;
+    renderAt(DETAIL, {
+      ...routes(),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET ${PATH}/admins`]: () =>
+        json(200, {
+          users: [
+            {
+              user_id: USER_ID,
+              email: "owner@example.com",
+              display_name: "Owner",
+              created_by: USER_ID,
+              created_at: "2026-10-11T00:00:00.000Z",
+            },
+          ],
+          teams: [],
+        }),
+      [`GET ${PATH}/slack/app`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, appResponse(null)),
+    });
+    const user = await setupUser();
+    const app = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    await within(app).findByText("불러오지 못했습니다");
+    expect(
+      within(app).queryByText("이 에이전트의 Slack 앱이 아직 없습니다."),
+    ).toBeNull();
+    expect(
+      within(app).queryByRole("button", { name: "Slack 앱 만들고 설치" }),
+    ).toBeNull();
+    // The token's state is unknown, so nobody is told to register one.
+    const token = screen.getByRole("region", { name: "Slack 앱 생성" });
+    expect(
+      within(token).queryByText("소유자나 관리자에게 토큰 등록을 요청하세요."),
+    ).toBeNull();
+    down = false;
+    await user.click(within(app).getByRole("button", { name: "새로고침" }));
+    await within(app).findByText("이 에이전트의 Slack 앱이 아직 없습니다.");
+  });
+
   test("does not block installing an app that already exists when the token is unset", async () => {
     renderAt(DETAIL, {
       ...routes(),

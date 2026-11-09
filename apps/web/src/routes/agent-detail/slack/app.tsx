@@ -124,11 +124,13 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
                     {t("slack.tokenManage")}
                   </RouterLink>
                 </RowAction>
-              ) : state === "active" ? null : (
+              ) : state === "unset" || state === "needs_reentry" ? (
+                // Only a known missing or unusable token; an unread or older
+                // answer says nothing about it.
                 <Text as="span" variant="sub">
                   {t("slack.configToken.askAdmin")}
                 </Text>
-              )
+              ) : null
             }
           />
         )
@@ -235,6 +237,22 @@ export function SlackAppSection({
   );
   if (app.isPending || identities.isPending)
     return section(<Skeleton width="50%" />);
+  // A failed read says nothing about whether the app exists; the card above
+  // reports the failure, so this offers only to read again.
+  if (app.data === undefined)
+    return section(
+      <div className="flex flex-col items-start gap-3">
+        <Text variant="sub">{t("status.loadFailed")}</Text>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={refreshing}
+          onClick={() => void slack.refresh()}
+        >
+          {t("slack.refresh")}
+        </Button>
+      </div>,
+    );
   if (!record) {
     // An older API sends no state; leave the create error to say why.
     const configToken = app.data?.config_token;
