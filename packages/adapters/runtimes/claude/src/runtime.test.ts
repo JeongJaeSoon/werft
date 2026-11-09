@@ -500,6 +500,55 @@ describe("Claude SDK adapter options", () => {
     expect(ledger.prepareCheckpoint().status).toBe("ready");
   });
 
+  test("the PreToolUse gate refuses a call the host's precheck refuses, before the ledger admits it", async () => {
+    const ledger = new TurnLedger("s1");
+    const asked: Array<[string, Record<string, unknown>]> = [];
+    const options = buildSdkOptions(
+      config,
+      {
+        onPermission: async () => ({ behavior: "allow" }),
+        precheckTool: async (tool, input) => {
+          asked.push([tool, input]);
+          if (input.source_ref === "orphan") return "unrelated_history";
+          if (input.source_ref === "broken") throw new Error("git failed");
+          return null;
+        },
+      },
+      ledger,
+    );
+    const callback = options.hooks?.PreToolUse?.[0]?.hooks[0];
+    if (callback === undefined) throw new Error("PreToolUse hook is required");
+    const pre = (toolUseId: string, sourceRef: string) =>
+      callback(
+        {
+          hook_event_name: "PreToolUse",
+          tool_name: "Read",
+          tool_input: { source_ref: sourceRef },
+          tool_use_id: toolUseId,
+        } as never,
+        toolUseId,
+        { signal: new AbortController().signal },
+      );
+
+    expect(await pre("toolu_1", "orphan")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "unrelated_history",
+      },
+    });
+    // The refused call never started, so nothing holds a checkpoint back.
+    expect(ledger.prepareCheckpoint().status).toBe("ready");
+    // A precheck that throws refuses nothing.
+    expect(await pre("toolu_2", "broken")).toEqual({});
+    expect(await pre("toolu_3", "main")).toEqual({});
+    expect(asked).toEqual([
+      ["Read", { source_ref: "orphan" }],
+      ["Read", { source_ref: "broken" }],
+      ["Read", { source_ref: "main" }],
+    ]);
+  });
+
   test("the PreToolUse gate admits a call only past the admission guard the host holds", async () => {
     const ledger = new TurnLedger("s1");
     const options = buildSdkOptions(
