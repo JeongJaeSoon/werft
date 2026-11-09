@@ -150,12 +150,12 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, s
 
 기대: 오류는 모두 `error.code: "GITHUB_REFUSED"`와 `details.reason_code`·`details.receipt_id`다. 목록 밖 `403 workflow_not_allowed`, `agent/` ref `403 agent_ref_refused`, 기록 없는 run의 rerun `403 run_ref_unprovable`은 GitHub를 부르지 않고 `dispatch_workflow`·`rerun_workflow` failed receipt를 남긴다. receipt `result`에는 `workflow`·`ref`·`purpose`·`agent_id`·`agent_release_id`·`repository_id`·`reason_code`가 있고 `inputs` 값은 없다. 목록 안 dispatch와 run 조회는 App 권한과 sandbox 워크플로에 달렸다(Gotchas). activity(최근 순)와 DB에 `mint_github_token`(`clone`·`push`·`pull_request`)이 succeeded, `create_agent_release`·`activate_agent`가 있다.
 
-2026-10-30 run `20261030-233922-55128`(main `c1a0a1de` + 이 스킬)에서 1–7을 이 명령대로 확인했다. App 등록 200(`permissions` contents·metadata·pull_requests, `warnings: []`), 상한 `revision` 0 → 1, 세션 `fbc96c51-…` clone → Bash 허용 → commit `948f19c`, 틀린 `git_commit` 결정 `409 CHECKPOINT_MOVED`(`commit_mismatch`) 뒤 바른 결정 200 → `pushed`, PR [werft-sandbox#9](https://github.com/JeongJaeSoon/werft-sandbox/pull/9) 201 → 200 `created: false`(작성자 `app/werft-sandbox-agent`, 닫고 브랜치 삭제). dispatch 목록 안 `409 app_permission_missing`, 목록 밖·`agent/`·rerun은 위의 403, run 조회 `409 app_permission_missing`(`mint_github_token` `actions_read` failed). `down.sh --keep-volumes` 뒤 컨테이너·네트워크 0, volume 3.
+2026-10-30 run `20261030-233922-55128`(main `c1a0a1de` + 이 스킬)에서 1–7을 이 명령대로 확인했다. App 등록 200(`permissions` contents·metadata·pull_requests, `warnings: []`), 상한 `revision` 0 → 1, 세션 `fbc96c51-…` clone → Bash 허용 → commit `948f19c`, 틀린 `git_commit` 결정 `409 CHECKPOINT_MOVED`(`commit_mismatch`) 뒤 바른 결정 200 → `pushed`, PR [werft-sandbox#9](https://github.com/JeongJaeSoon/werft-sandbox/pull/9) 201 → 200 `created: false`(작성자 `app/werft-sandbox-agent`, 닫고 브랜치 삭제). dispatch 목록 안 `409 app_permission_missing`, 목록 밖·`agent/`·rerun은 위의 403, run 조회 `409 app_permission_missing`(`mint_github_token` `actions_read` failed). `down.sh` 뒤 컨테이너·네트워크 0, volume 3.
 
 ```sh
 # 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기
 gh pr close <n> -R JeongJaeSoon/werft-sandbox --delete-branch
-orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id> --keep-volumes
+orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id>
 orch release verify-stack
 ```
 
@@ -173,7 +173,7 @@ orch release verify-stack
 | 6 PR | 통과 | [werft-sandbox#134](https://github.com/JeongJaeSoon/werft-sandbox/pull/134) `201 created: true`, GitHub 작성자 `app/werft-sandbox-agent` |
 | 7 코멘트 | 통과 | `POST …/pull-request/comments` `201`, [코멘트](https://github.com/JeongJaeSoon/werft-sandbox/pull/134#issuecomment-6723821686), 작성자 `werft-sandbox-agent` |
 
-receipt의 actor: `open_pull_request`(1fb91f38)와 `comment_pull_request`(e780458c)는 세션을 만든 개인 key(`principal.kind: api_key`)와 그 소유자(`actor_user_id`)다. `push` receipt(c8b9882f)의 `actor`는 null이고 `result.approved_by`가 승인한 사람이다. `mint_github_token` `push`·`pull_request`·`outcome_refresh`는 같은 run에서 `succeeded`다. 즉 receipt는 플랫폼 쪽 행위자(사람과 key)를 적고, 작성용 App은 GitHub 쪽 결과(브랜치 커밋 작성자, PR 작성자, 코멘트 작성자)에서 확인한다. 두 쪽이 서로 어긋나지 않는다. 시험 PR은 닫고 브랜치를 지웠다. 세션의 `open_pull_request` `failed` receipt 둘은 2·3단계 거절의 기록이고, `resolve_push` `failed` 하나는 3단계의 approve 거절이다. `down.sh --keep-volumes` 뒤 컨테이너·네트워크 0.
+receipt의 actor: `open_pull_request`(1fb91f38)와 `comment_pull_request`(e780458c)는 세션을 만든 개인 key(`principal.kind: api_key`)와 그 소유자(`actor_user_id`)다. `push` receipt(c8b9882f)의 `actor`는 null이고 `result.approved_by`가 승인한 사람이다. `mint_github_token` `push`·`pull_request`·`outcome_refresh`는 같은 run에서 `succeeded`다. 즉 receipt는 플랫폼 쪽 행위자(사람과 key)를 적고, 작성용 App은 GitHub 쪽 결과(브랜치 커밋 작성자, PR 작성자, 코멘트 작성자)에서 확인한다. 두 쪽이 서로 어긋나지 않는다. 시험 PR은 닫고 브랜치를 지웠다. 세션의 `open_pull_request` `failed` receipt 둘은 2·3단계 거절의 기록이고, `resolve_push` `failed` 하나는 3단계의 approve 거절이다. `down.sh` 뒤 컨테이너·네트워크 0.
 
 ## 머지 허용 측정 (`merge_pull_request`)
 

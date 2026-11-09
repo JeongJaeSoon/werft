@@ -4,8 +4,8 @@
 # and the fake-model overlay (without both, app containers, fake-messages and
 # the default network can survive), then the leftover check: no container
 # and no network of the project or its installation.
-# Then the run's own images, volumes (anonymous ones of its workers too) and
-# networks, by exact name (teardown-lib.sh); the targets are printed first.
+# Then the run's own images and networks, by exact name (teardown-lib.sh); the
+# targets, volumes included, are printed first.
 # Volumes are never deleted here (no -v, no docker volume rm): rm-volumes.sh
 # is the separate step that removes them by exact name. Evidence in
 # <run>/evidence stays, and so does ports.yml until rm-volumes.sh runs. Any
@@ -47,19 +47,18 @@ if [ -f "$run/browser/pid" ]; then
 fi
 # Listed before anything goes: once the containers are gone, nothing links
 # their anonymous volumes to this run.
-# A --keep-volumes pass already removed the containers, so the anonymous
-# volumes it recorded come from its own list.
+# A rerun finds the containers already removed, so the anonymous volumes an
+# earlier pass recorded come from its own list.
 targets=$run/evidence/teardown-targets.txt
 prior=
 [ ! -f "$targets" ] || prior=$(sed -n 's/^  volume  \([0-9a-f]\{64\}\)$/\1/p' "$targets")
 if ! teardown_snapshot "$COMPOSE_PROJECT_NAME"; then
-  echo "down.sh: Docker could not list this run's resources; nothing was deleted, rerun down.sh $run${keep:+ $keep}" >&2
+  echo "down.sh: Docker could not list this run's resources; nothing was deleted, rerun down.sh $run" >&2
   exit 1
 fi
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$TEARDOWN_VOLUMES" "$prior" | sed '/^$/d' | sort -u)
 teardown_print "$COMPOSE_PROJECT_NAME" | tee "$targets" >&2
-# shellcheck disable=SC2086 # no argument when volumes go
-"$VERIFY_REPO/scripts/local.sh" down $keep 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
+"$VERIFY_REPO/scripts/local.sh" down "$keep" 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
 docker compose --profile apps --profile fake-model \
   -f compose.yaml -f "$run/ports.yml" -f infra/compose.fake-model.yml \
   down --remove-orphans --rmi local >>"$run/evidence/down.log" 2>&1 || failed=1

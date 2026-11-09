@@ -107,6 +107,11 @@ bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: own proj
 [ "$(grep -c '^volume rm' "$log")" = 1 ] && grep -qx "volume rm ${p}_pgdata" "$log"; check "rm-volumes.sh: removes only the run's own prefixed name" 0 $?
 grep -Eq -- ' -f|prune|--force' "$log"; check "rm-volumes.sh: no force or prune flag" 1 $?
 [ ! -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: ports.yml removed after success" 0 $?
+bash "$here/rm-volumes.sh" >/dev/null 2>&1; check "rm-volumes.sh: no argument is a usage error" 2 $?
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+FAKE_DOCKER_FAIL=volume bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: a failing docker volume command exits 1" 1 $?
+[ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: failure keeps ports.yml" 0 $?
 printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' \
   verify-ap-20261031-094644-90075 verify-ap-20261031-094644-90075 "$scratch" >"$VERIFY_AP_ROOT/$id/state.env"
 : >"$log"

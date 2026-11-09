@@ -861,7 +861,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
-전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh --keep-volumes`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
+전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
 
 ## P-DEMO-SEED — 데모 별도 run
 
