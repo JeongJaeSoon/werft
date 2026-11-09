@@ -217,7 +217,7 @@ function kindMentionAllowed(hit: string): boolean {
   const [path = "", , ...text] = hit.split(":");
   return (
     // The RUNTIME_KIND_VALUES entry, where the value is defined.
-    (path === "packages/contracts/src/api/session.ts" &&
+    (path === "packages/contracts/src/shared/runtime-kind.ts" &&
       text.join(":") === '  "claude_agent_sdk",') ||
     path === "apps/control-host/src/api/openapi.ts" ||
     path === "packages/client/src/schema.gen.ts" ||
@@ -1386,7 +1386,7 @@ describe("architecture", () => {
             'export const fallback = "claude_agent_sdk";\n',
         ],
         [
-          "packages/contracts/src/api/session.ts",
+          "packages/contracts/src/shared/runtime-kind.ts",
           '  "claude_agent_sdk",\nif (kind === "claude_agent_sdk") {}\n',
         ],
       ];
@@ -1417,7 +1417,7 @@ describe("architecture", () => {
           .sort(),
       ).toEqual([
         "packages/b/src/pick.ts:1",
-        "packages/contracts/src/api/session.ts:2",
+        "packages/contracts/src/shared/runtime-kind.ts:2",
         "packages/platform/src/sessions/workspace-profiles.ts:2",
       ]);
     } finally {

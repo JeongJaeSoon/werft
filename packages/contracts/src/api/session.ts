@@ -21,10 +21,16 @@ import {
   workspaceLimitModeSchema,
 } from "../shared/index.ts";
 import {
+  RUNTIME_KIND_VALUES,
+  runtimeKindSchema,
+} from "../shared/runtime-kind.ts";
+import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
   additionalRepositoryIdUsable,
 } from "./push-request.ts";
 import { receiptStatusSchema } from "./receipt.ts";
+
+export { RUNTIME_KIND_VALUES, runtimeKindSchema };
 
 export const SESSION_STATUS_VALUES = [
   "queued",
@@ -78,11 +84,6 @@ export const EXECUTION_STATE_VALUES = [
   "terminated",
   "unknown",
 ] as const;
-export const RUNTIME_KIND_VALUES = [
-  "claude_agent_sdk",
-  "codex_app_server",
-  "pi_coding_agent",
-] as const;
 export const EXECUTION_BACKEND_VALUES = [
   "local_docker",
   "kubernetes",
@@ -112,7 +113,6 @@ export const turnStatusSchema = z.enum(TURN_STATUS_VALUES);
 export const terminalTurnStatusSchema = z.enum(TERMINAL_TURN_STATUS_VALUES);
 export const attemptStateSchema = z.enum(ATTEMPT_STATE_VALUES);
 export const executionStateSchema = z.enum(EXECUTION_STATE_VALUES);
-export const runtimeKindSchema = z.enum(RUNTIME_KIND_VALUES);
 export const executionBackendSchema = z.enum(EXECUTION_BACKEND_VALUES);
 export const permissionModeSchema = z.enum(PERMISSION_MODE_VALUES);
 
