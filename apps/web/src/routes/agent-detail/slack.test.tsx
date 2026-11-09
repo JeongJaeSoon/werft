@@ -2103,6 +2103,23 @@ describe("Slack management", () => {
     expect(document.body.textContent).not.toContain("비밀 저장소");
     expect(document.body.textContent).not.toContain("잠시 뒤 다시 시도");
   });
+  test("tells to start the install again when Slack did not answer the install", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Slack did not answer", false, {
+          reason_code: "slack_no_answer",
+          slack_method: "oauth.v2.access",
+          failure: "timeout",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "Slack이 응답하지 않아 설치를 끝내지 못했습니다. Slack 탭에서 설치를 처음부터 다시 시작하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("코드:");
+  });
   test("keeps the try-again text for a retryable 503 even when it names an unknown reason", async () => {
     renderAt(DETAIL, {
       ...routes(),

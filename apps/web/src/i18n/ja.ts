@@ -30,6 +30,8 @@ export const slackJa = {
     "ワークスペースの Slack アプリ作成設定が必要です。管理者に設定を依頼してください。",
   "slack.error.refused":
     "Slack がリクエストを拒否しました(コード: {code})。コードを管理者に伝えてください。",
+  "slack.error.noAnswer":
+    "Slack から応答がなく、インストールを完了できませんでした。Slack タブからインストールをやり直してください。",
   "slack.error.unknown":
     "リクエストを処理できませんでした。再試行しても変わらない可能性があります(コード: {code})。コードを管理者に伝えてください。",
   "slack.error.consoleOrigin":

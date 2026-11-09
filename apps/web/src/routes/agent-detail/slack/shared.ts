@@ -88,6 +88,7 @@ export function slackReason(error: unknown, t: Translate): string | undefined {
     if (reason === "console_origin_unset")
       return t("slack.error.consoleOrigin");
     if (reason === "events_url_unset") return t("slack.error.eventsUrl");
+    if (reason === "slack_no_answer") return t("slack.error.noAnswer");
     // A cause this screen has no words for: a retry cannot help, so name the
     // code instead of "try again shortly".
     if ((error as { retryable?: unknown }).retryable === false)

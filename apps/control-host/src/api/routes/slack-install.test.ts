@@ -923,20 +923,31 @@ describe("completing an install", () => {
       seen.push(details);
     }
     expect(seen).toEqual([
-      { slack_method: "oauth.v2.access", failure: "timeout" },
-      { slack_method: "oauth.v2.access", failure: "unreachable" },
       {
+        reason_code: "slack_no_answer",
+        slack_method: "oauth.v2.access",
+        failure: "timeout",
+      },
+      {
+        reason_code: "slack_no_answer",
+        slack_method: "oauth.v2.access",
+        failure: "unreachable",
+      },
+      {
+        reason_code: "slack_no_answer",
         slack_method: "oauth.v2.access",
         failure: "http_status",
         http_status: 502,
       },
       {
+        reason_code: "slack_no_answer",
         slack_method: "oauth.v2.access",
         failure: "slack_error",
         http_status: 503,
         slack_error: "internal_error",
       },
       {
+        reason_code: "slack_no_answer",
         slack_method: "oauth.v2.access",
         failure: "unexpected_answer",
         http_status: 200,
@@ -989,6 +1000,7 @@ describe("completing an install", () => {
         agent_id: REJECTED_AGENT,
         status: 503,
         code: "BACKEND_UNAVAILABLE",
+        reason_code: "slack_no_answer",
         slack_method: "oauth.v2.access",
         failure: "http_status",
         http_status: 503,

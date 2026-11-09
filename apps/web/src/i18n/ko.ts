@@ -38,6 +38,8 @@ export const slackKo = {
     "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 관리자에게 설정을 요청하세요.",
   "slack.error.refused":
     "Slack이 요청을 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
+  "slack.error.noAnswer":
+    "Slack이 응답하지 않아 설치를 끝내지 못했습니다. Slack 탭에서 설치를 처음부터 다시 시작하세요.",
   "slack.error.unknown":
     "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
   "slack.error.consoleOrigin":
