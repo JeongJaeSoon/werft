@@ -646,7 +646,7 @@ export const createSessionRequestSchema = z
     }),
     repository_id: z.string().min(1).optional().meta({
       description:
-        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required` unless the agent has GitHub settings, refused when it is `none`, either when it is `optional`; omitted, a session of an agent with GitHub settings starts without a repository and attaches what it needs, a session of an agent with none works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
+        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required` unless the session starts on the agent's GitHub settings or a workspace-scoped profile, refused when it is `none`, either when it is `optional`; omitted, a session of an agent with GitHub settings starts without a repository and attaches what it needs, a session of an agent with none works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
     }),
     attached_repository_ids: z
       .array(
