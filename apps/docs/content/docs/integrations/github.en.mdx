@@ -3,7 +3,7 @@ title: "GitHub"
 description: Run sessions on a GitHub repository, push approved results to a branch, and open a PR from that branch
 ---
 
-Werft does three things with GitHub. It clones the repository when a session starts. It pushes the commits a person approved to the `agent/<session-id>` branch. It opens a PR from that branch and adds comments to it. The worker clones through the API's proxy, while the platform (API) pushes and handles the PR itself. In either case, the repository credentials never reach the worker.
+Werft does three things with GitHub. It clones the repository when a session starts with one, or when the agent attaches it otherwise. It pushes the commits a person approved to the `agent/<session-id>` branch. It opens a PR from that branch and adds comments to it. The worker clones through the API's proxy, while the platform (API) pushes and handles the PR itself. In either case, the repository credentials never reach the worker.
 
 ## What the operator does
 

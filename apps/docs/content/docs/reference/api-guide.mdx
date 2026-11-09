@@ -77,7 +77,7 @@ OpenAPI: [`createSession`](/reference/http-api/sessions/createSession), [`getSes
 
 목록에는 운영자 profile(`source: operator`)과, 워크스페이스 owner·admin이 콘솔에서 좁혀 만든 판(`source: workspace`, id가 `ws_`로 시작)이 함께 나온다. 워크스페이스 판은 `workspace.state`가 `usable`일 때만 새 세션에 쓸 수 있다. 규칙은 [운영자 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)에 있다.
 
-`repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. 에이전트 release로 만든 세션에서 `repository_id`를 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙인다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다. [저장소 없는 세션](/sessions/without-repository)). fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
+`repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 에이전트 release 없이 만드는 세션에서 꼭 보내고(release로 만든 세션은 아래처럼 빼도 된다), `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. 에이전트 release로 만든 세션에서 `repository_id`를 빼면 GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙인다(설정이 없는 옛 에이전트는 release의 저장소로 시작한다. [저장소 없는 세션](/sessions/without-repository)). fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
 
 ```json
 { "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
@@ -107,7 +107,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
   --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
 ```
 
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. `required` profile에 `repository_id`가 없으면 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 profile 또는 repository 선택이 유효하지 않다는 뜻이다. 에이전트 release 없이 만드는 세션에서 `required` profile에 `repository_id`가 없으면 메시지가 `Profile <id> needs a repository: send repository_id`이고, `none` profile에 보내면 `Profile <id> runs without a repository: omit repository_id`다. `repository_id: null`은 생략이 아니라 400이다. `createSession`은 계약상 429 `RATE_LIMITED`를 반환할 수 있으므로 나중에 재시도한다. 입력 queue 상한은 메시지 추가에 적용된다(4절). 저장소 상한은 413 `STORAGE_LIMIT_EXCEEDED`로 나타나며 `/v1/limits`를 본다. 실행 slot이 모자라면 세션은 거절되지 않고 `queued`로 기다린다. 세션 비용·token 상한은 요청을 거절하지 않고, 넘은 뒤 세션 `attention`의 `BUDGET_EXCEEDED`와 `/usage`의 `budget_exceeded: true`로 나타난다(8절). 409 `IDEMPOTENCY_CONFLICT`면 같은 key에 다른 본문을 보냈다.
 
 ## 3. pending-requests의 승인·질문에 답하기
 
@@ -275,7 +275,7 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 이미 돌고 있는 turn은 시작한 프로필로 끝난다. 그 뒤 들어오는 입력은 새 프로필의 worker가 마지막 checkpoint에서 같은 engine 대화를 복원해 처리한다. 어느 turn이 어떤 프로필로 돌았는지는 turn 조회의 `attempts[].profile_id`로 본다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
 
-**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나(저장소 없이 만든 세션이면 새 프로필의 `repository_mode`가 `required`이거나), runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
+**흔한 오류.** 422 `UNSUPPORTED_CAPABILITY`는 새 프로필이 카탈로그에 없거나, 세션의 repository와 짝이 아니거나(에이전트 release 없이 저장소 없이 만든 세션이면 새 프로필의 `repository_mode`가 `required`이거나), runtime 종류·버전이 다르거나(checkpoint를 복원할 수 없다), 과금 방식(`provider.billing`)이 다를 때, 또는 세션의 지금 프로필이 카탈로그에서 빠졌거나 다른 설정으로 바뀌어 runtime을 비교할 수 없을 때다. 409 `RELEASE_PROFILE_MISMATCH`는 agent release로 만든 세션이라 프로필을 release가 정한다는 뜻이다. 409 `REVISION_CONFLICT`면 세션을 다시 읽는다.
 
 ### 세션 끝내기: close·terminate·recovery close
 

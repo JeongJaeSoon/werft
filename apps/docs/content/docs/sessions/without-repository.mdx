@@ -3,7 +3,7 @@ title: "저장소 없는 세션"
 description: 저장소를 clone하지 않고 빈 작업 공간에서 도는 세션
 ---
 
-저장소를 쓰는지는 프로필이 정한다. 프로필의 `repository_mode`가 `required`면 세션마다 `repository_id`를 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. 저장소 없이 만든 세션은 빈 작업 공간에서 시작한다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
+저장소를 쓰는지는 프로필이 정한다. 프로필의 `repository_mode`가 `required`면 에이전트 release 없이 만드는 세션마다 `repository_id`를 보내고(에이전트 release로 만든 세션은 아래 절처럼 빼도 된다), `none`이면 보내지 않으며, `optional`이면 둘 다 된다. 저장소 없이 만든 세션은 빈 작업 공간에서 시작한다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
 
 ## 프로필 확인
 
@@ -87,7 +87,7 @@ curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{re
 
 ## 프로필과 맞지 않을 때
 
-`none` 프로필에 `repository_id`를 보내거나 `required` 프로필에서 빼면 422 `UNSUPPORTED_CAPABILITY`다.
+`none` 프로필에 `repository_id`를 보내거나, 에이전트 release 없이 만드는 세션에서 `required` 프로필에 빼면 422 `UNSUPPORTED_CAPABILITY`다.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

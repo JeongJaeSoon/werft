@@ -3,7 +3,7 @@ title: "GitHub"
 description: GitHub リポジトリでセッションを動かし、承認した結果をブランチへ push し、そのブランチで PR を開く
 ---
 
-GitHub との間でやることは三つある。セッション開始時にリポジトリを clone する。人が承認した commit を `agent/<session-id>` ブランチへ push する。そのブランチで PR を開き、コメントを付ける。clone は worker が API のプロキシ経由で行い、push と PR はプラットフォーム(API)が直接行う。どちらの場合も、リポジトリの認証情報は worker に渡らない。
+GitHub との間でやることは三つある。開始リポジトリがあるセッションは開始時に、ないセッションはエージェントが attach したときにリポジトリを clone する。人が承認した commit を `agent/<session-id>` ブランチへ push する。そのブランチで PR を開き、コメントを付ける。clone は worker が API のプロキシ経由で行い、push と PR はプラットフォーム(API)が直接行う。どちらの場合も、リポジトリの認証情報は worker に渡らない。
 
 ## 運用者がやること
 

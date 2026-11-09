@@ -5,7 +5,7 @@ description: The fields, response, Idempotency-Key, list, share scope, title, an
 
 A session is a conversation that runs against one profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
-In the web console, press "New session with this agent" on the agent's page and send the first message. The session starts on the active release and its repository, through the same `POST /v1/sessions` with the signed-in person's authority. When the page can tell ahead of time (no active release, paused, no permission and so on), the button is off and the page says why. A refusal known only after sending, such as a missing credential binding, shows its reason in the dialog.
+In the web console, press "New session with this agent" on the agent's page and send the first message. The session starts on the active release (an agent with GitHub settings starts without a repository, and an older agent with no settings starts on its release's repository), through the same `POST /v1/sessions` with the signed-in person's authority. When the page can tell ahead of time (no active release, paused, no permission and so on), the button is off and the page says why. A refusal known only after sending, such as a missing credential binding, shows its reason in the dialog.
 
 <Callout>
 The `GATE-SPEC {…}` messages in the examples are scripts for the fake model of the [development server](/run-server/dev-server). The fake model calls tools and answers exactly as the script says, so the output is always the same. A server started with a real model will not make the same tool calls or print the same output; send it ordinary instructions instead.
@@ -68,7 +68,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | Field | Required | Description |
 | --- | --- | --- |
 | `profile_id` | Yes, unless `agent_release_id` is set | The profile id ([Choose a profile](/agents/run-profiles)) |
-| `repository_id` | Depends on the profile | A repository id in the catalog. The worker clones this repository. Optional. Required when the profile's `repository_mode` is `required`; not sent when it is `none`. For a session made from an agent release, omitting it starts an agent with GitHub settings without a repository, and the agent attaches only what it needs (an older agent with no settings starts on its release's repository; [Sessions without a repository](/sessions/without-repository)) |
+| `repository_id` | Depends on the profile | A repository id in the catalog. If sent, the worker clones this repository. It is not sent when the profile's `repository_mode` is `none`, and a `required` profile needs it on a session made without an agent release. On a session made from an agent release, omitting it works even for a `required` profile: an agent with GitHub settings starts without a repository and attaches only what it needs, and an older agent with no settings starts on its release's repository ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |
 | `title` | | The session's name. If omitted, derived from the first `message` ([Title](#title)) |
@@ -294,6 +294,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | 409 `IDEMPOTENCY_CONFLICT` | The same key with a different body |
 | 409 `PROFILE_BLOCKED` | An owner [blocked the operator profile](/agents/run-profiles#block-an-operator-profile). For a workspace profile, its base is blocked (`details.reason_code` is `base_blocked`). Sending it again gets the same answer |
 | 413 | The message exceeds 32,768 bytes. `STORAGE_LIMIT_EXCEEDED` if the storage limit is exceeded |
+| 403 `GITHUB_REFUSED` | The `repository_id` you named is outside the agent's GitHub settings list or the workspace ceiling (`details.reason_code` is `repository_not_allowed`) |
 | 422 `UNSUPPORTED_CAPABILITY` | The profile or repository does not exist, the pair is not allowed, or the profile does not allow the model |
 | 429 `RATE_LIMITED` | Send again after a short wait |
 

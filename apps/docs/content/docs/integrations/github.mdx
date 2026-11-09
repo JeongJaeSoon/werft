@@ -3,7 +3,7 @@ title: "GitHub"
 description: GitHub 저장소에서 세션을 돌리고, 승인한 결과를 브랜치로 push하고, 그 브랜치로 PR을 연다
 ---
 
-GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한다. 사람이 승인한 commit을 `agent/<session-id>` 브랜치로 push한다. 그 브랜치로 PR을 열고 코멘트를 단다. clone은 worker가 API의 프록시를 거쳐 하고, push와 PR은 플랫폼(API)이 직접 한다. 어느 쪽이든 저장소 자격 증명은 worker에 가지 않는다.
+GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작할 때, 없는 세션은 에이전트가 attach할 때 저장소를 clone한다. 사람이 승인한 commit을 `agent/<session-id>` 브랜치로 push한다. 그 브랜치로 PR을 열고 코멘트를 단다. clone은 worker가 API의 프록시를 거쳐 하고, push와 PR은 플랫폼(API)이 직접 한다. 어느 쪽이든 저장소 자격 증명은 worker에 가지 않는다.
 
 ## 운영자가 할 일
 

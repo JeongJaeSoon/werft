@@ -3,7 +3,7 @@ title: "リポジトリなしのセッション"
 description: リポジトリを clone せず、空の作業スペースで動くセッション
 ---
 
-リポジトリを使うかどうかは、プロファイルが決める。プロファイルの `repository_mode` が `required` ならセッションごとに `repository_id` を送り、`none` なら送らず、`optional` ならどちらでもよい。リポジトリなしで作ったセッションは、空の作業スペースから始まる。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+リポジトリを使うかどうかは、プロファイルが決める。プロファイルの `repository_mode` が `required` ならエージェントのリリースなしで作るセッションごとに `repository_id` を送り(エージェントのリリースで作ったセッションは、下の節のとおり省いてよい)、`none` なら送らず、`optional` ならどちらでもよい。リポジトリなしで作ったセッションは、空の作業スペースから始まる。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
 
 ## プロファイルを確認する
 
@@ -87,7 +87,7 @@ curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{re
 
 ## プロファイルと合わないとき
 
-`none` のプロファイルに `repository_id` を送る、または `required` のプロファイルで省くと、422 `UNSUPPORTED_CAPABILITY` になる。
+`none` のプロファイルに `repository_id` を送る、またはエージェントのリリースなしで作るセッションで `required` のプロファイルに省くと、422 `UNSUPPORTED_CAPABILITY` になる。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -136,7 +136,7 @@ curl -sS "$API/v1/sessions" \
 
 ## エージェントのセッションはリポジトリなしで始まる
 
-[エージェント](/agents/create)のリリースで作ったセッションで `repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まる。例外ではなく、エージェントのセッションの既定の動きである。エージェントは許可されたリポジトリを `list_repositories` で見て、タスクが読むか変更するリポジトリだけを `attach_repository` で付ける([セッションの途中でリポジトリを付ける](/integrations/github#セッションの途中でリポジトリを付ける))。付けたリポジトリは作業スペースに git リモートとして入り、そこへの書き込みはリポジトリごとに push 要求 1 回ずつの[承認](/approvals/request)を通る。
+[エージェント](/agents/create#セッションに紐付ける)のリリースで作ったセッションで `repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まる。例外ではなく、エージェントのセッションの既定の動きである。エージェントは許可されたリポジトリを `list_repositories` で見て、タスクが読むか変更するリポジトリだけを `attach_repository` で付ける([セッションの途中でリポジトリを付ける](/integrations/github#セッションの途中でリポジトリを付ける))。付けたリポジトリは作業スペースに git リモートとして入り、そこへの書き込みはリポジトリごとに push 要求 1 回ずつの[承認](/approvals/request)を通る。
 
 リポジトリのないセッションで、成果物として集めたいファイルは作業スペースのルートの `out/` に置く。checkpoint がその下のファイルを成果物として集める。`repository_id` を送ればそのリポジトリで始まり、GitHub 設定がまだない古いエージェントはリリースのリポジトリで始まる。
 

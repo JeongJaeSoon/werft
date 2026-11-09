@@ -3,7 +3,7 @@ title: "Sessions without a repository"
 description: A session that runs in an empty workspace without cloning a repository
 ---
 
-The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id`; if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session made without an agent release sends `repository_id` (a session made from an agent release may leave it out, as the section below says); if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
 ## Check the profile
 
@@ -87,7 +87,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 
 ## When it does not match the profile
 
-Sending `repository_id` to a `none` profile, or leaving it out of a `required` profile, is 422 `UNSUPPORTED_CAPABILITY`.
+Sending `repository_id` to a `none` profile, or leaving it out of a `required` profile on a session made without an agent release, is 422 `UNSUPPORTED_CAPABILITY`.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
