@@ -159,6 +159,70 @@ describe("runtime profiles", () => {
     expect(environment.HOST_PRIVATE_VALUE).toBeUndefined();
   });
 
+  describe("user variables", () => {
+    const host = { PATH: "/bin", LANG: "C.UTF-8" };
+
+    test("an ordinary name reaches the engine next to the platform's keys", () => {
+      const withUser = runtimeEnvironment(
+        {
+          ...baseConfig,
+          userEnvironment: { REGION: "eu", TEAM_TOKEN_NAME: "x" },
+        },
+        host,
+      );
+      expect(withUser).toEqual({
+        ...runtimeEnvironment(baseConfig, host),
+        REGION: "eu",
+        TEAM_TOKEN_NAME: "x",
+      });
+    });
+
+    test("without variables the environment is what it was", () => {
+      expect(
+        runtimeEnvironment({ ...baseConfig, userEnvironment: {} }, host),
+      ).toEqual(runtimeEnvironment(baseConfig, host));
+    });
+
+    // The adapter sets some of these only when its config says so, so a
+    // user value would survive for them if the list did not refuse it.
+    test.each([
+      "PATH",
+      "HOME",
+      "CLAUDE_CONFIG_DIR",
+      "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
+      "CLAUDE_CODE_MAX_RETRIES",
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_AUTH_TOKEN",
+      "NODE_EXTRA_CA_CERTS",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "GIT_AUTHOR_NAME",
+    ])(
+      "%s is refused before the engine starts, without echoing a value",
+      (name) => {
+        let message = "";
+        try {
+          runtimeEnvironment(
+            { ...baseConfig, userEnvironment: { [name]: "never-print-this" } },
+            host,
+          );
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message).toContain(name);
+        expect(message).not.toContain("never-print-this");
+      },
+    );
+
+    test("the engine's key descriptor stays 3 whatever the user sends", () => {
+      const environment = runtimeEnvironment(
+        { ...baseConfig, userEnvironment: { REGION: "eu" } },
+        host,
+      );
+      expect(environment.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR).toBe("3");
+    });
+  });
+
   test("forwards the host's egress proxy variables and nothing else", () => {
     // On the worker network the proxy is the only route to the Messages
     // endpoint; the engine only learns it through these.

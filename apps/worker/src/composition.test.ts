@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { runtimeConfigSchema } from "@werft-ai/contracts";
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
-
+import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import {
   claimFingerprint,
   createWorkerHost,
   instructionParts,
   OUT_DIRECTORY_PROMPT,
   runtimeProfile,
+  runtimeStart,
   workerRuntimeRegistry,
 } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
@@ -410,5 +411,56 @@ describe("claimFingerprint", () => {
       "trusted",
     );
     expect(claude.fingerprint(marked)).toEqual(claude.fingerprint(plain));
+  });
+});
+
+describe("user variables from the claim", () => {
+  const runtimeConfig = runtimeConfigSchema.parse({
+    model: "claude-sonnet-5",
+    tools: ["Read"],
+    permission_mode: "default",
+    provider: {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "egress_token", token: "[REDACTED]" },
+    },
+  });
+  const principal = { owner_scope: "owner-a" };
+  const launch = (env?: Record<string, string>) => ({
+    mode: "new" as const,
+    committedInstructions: () => null,
+    correlationId: "corr-1",
+    principal,
+    runtimeConfig:
+      env === undefined ? runtimeConfig : { ...runtimeConfig, env },
+  });
+
+  test("the worker announces user_env now that runtimeStart passes them on", () => {
+    expect(WORKER_CAPABILITIES.user_env).toBe(true);
+  });
+
+  test("runtimeStart hands the claim's variables to the engine side, and only then", () => {
+    expect(
+      runtimeStart(config, claude, launch({ REGION: "eu" })).config
+        .userEnvironment,
+    ).toEqual({ REGION: "eu" });
+    expect(
+      "userEnvironment" in runtimeStart(config, claude, launch()).config,
+    ).toBe(false);
+  });
+
+  test("a variable's value never moves the fingerprint a checkpoint is stamped with", () => {
+    const fingerprint = claimFingerprint(config);
+    const plain = fingerprint({ principal, runtime_config: runtimeConfig });
+    const withEnv = fingerprint({
+      principal,
+      runtime_config: { ...runtimeConfig, env: { REGION: "eu" } },
+    });
+    const other = fingerprint({
+      principal,
+      runtime_config: { ...runtimeConfig, env: { REGION: "us", EXTRA: "1" } },
+    });
+    expect(withEnv).toEqual(plain);
+    expect(other).toEqual(plain);
   });
 });

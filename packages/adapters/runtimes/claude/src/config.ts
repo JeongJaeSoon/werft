@@ -2,7 +2,11 @@ import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
-import type { GitEnvironment, TranscriptMirror } from "@werft-ai/runtime-core";
+import type {
+  GitEnvironment,
+  TranscriptMirror,
+  UserEnvironment,
+} from "@werft-ai/runtime-core";
 
 import type { DriverConfig } from "./driver.ts";
 
@@ -76,6 +80,12 @@ export type ClaudeRuntimeConfig = DriverConfig & {
   claudeConfigDir: string;
   /** Put into the engine's environment as it is; never into its arguments. */
   gitEnvironment?: GitEnvironment;
+  /**
+   * The session's user variables. Merged into the engine's environment
+   * before the adapter's own keys, so a platform key always wins. Never in
+   * the fingerprint: they are read from the claim at every start.
+   */
+  userEnvironment?: UserEnvironment;
   /**
    * Required for every plugin and for every MCP server that is not plain
    * data; a run missing one is refused before it starts, because no

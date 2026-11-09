@@ -259,6 +259,11 @@ export function runtimeStart(
       ...(launch.gitEnvironment === undefined
         ? {}
         : { gitEnvironment: launch.gitEnvironment }),
+      // Not in runtimeProfile: the fingerprint must not move with a
+      // variable's value, and a resumed run reads them from its claim again.
+      ...(launch.runtimeConfig.env === undefined
+        ? {}
+        : { userEnvironment: launch.runtimeConfig.env }),
     },
     bindings: {
       ...profile.bindings,
