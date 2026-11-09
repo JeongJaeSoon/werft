@@ -1953,9 +1953,6 @@ export function createWorkerGateway(deps: {
         tar = await bundles.archive(state.ownerScope, request.digest);
       } catch (error) {
         if (error instanceof BundleIntegrityError) {
-          // Not a 5xx: the stored object stays damaged however often it is
-          // asked for, and a worker retries every 5xx for its whole startup
-          // budget. No key or path in the text; the worker names the digest.
           throw new WorkerGatewayError(
             409,
             "UNSUPPORTED_CAPABILITY",

@@ -1,7 +1,6 @@
 import type { BundleManifest } from "./bundle-validator.ts";
 
 export const EXTENSION_MODES = ["required", "optional", "forbidden"] as const;
-/** The engine's built-in tool a bundle's skills are used through. */
 const SKILL_TOOL = "Skill";
 
 export type ExtensionMode = (typeof EXTENSION_MODES)[number];
@@ -94,11 +93,6 @@ export function resolveExtensions(input: {
   session?: SessionSelection;
   permissionMode: string;
   runtimeOffersSkills: boolean;
-  /**
-   * The built-in tools the session runs. A bundle's skills reach the model
-   * only through the engine's `Skill` tool, which a profile has to name: the
-   * platform does not add it behind the profile's back.
-   */
   tools: readonly string[];
   includeOptional?: boolean;
 }): ExtensionResolution {

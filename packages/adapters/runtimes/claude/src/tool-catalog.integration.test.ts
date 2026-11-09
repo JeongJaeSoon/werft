@@ -42,7 +42,6 @@ const SUBAGENT_MARKER = "HARNESS_SUBAGENT";
 const MAIN_MARKER = "HARNESS_MAIN";
 const AGENT_CALL = "toolu_main_spawn_Agent";
 const OUTSIDE_ALLOWLIST = "Tool is outside the server allowlist";
-// The plugin every scenario loads, so the Skill probe has a skill to call.
 const PLUGIN_NAME = "harness";
 const SKILL_NAME = "probe";
 const SKILL_BODY = "HARNESS_SKILL_BODY";
@@ -59,7 +58,6 @@ const RUNS_UNASKED = new Set([
   "Edit",
   "Write",
   "NotebookEdit",
-  // It only loads the skill's text into the conversation.
   "Skill",
   // The probe redirects into the workspace, which the Edit rule covers.
   "Bash",

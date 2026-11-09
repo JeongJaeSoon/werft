@@ -330,8 +330,6 @@ describe("the extension bundle route", () => {
         digest: LINT.digest,
       }),
     );
-    // A damaged object stays damaged: a 5xx would be retried for the whole
-    // startup budget.
     expect(failed.status).toBe(409);
     expect(failed.code).toBe("UNSUPPORTED_CAPABILITY");
     expect(failed.retryable).toBe(false);

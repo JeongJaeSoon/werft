@@ -76,7 +76,6 @@ export async function resolveSessionExtensions(
     };
     permissionMode: string;
     runtimeKind: RuntimeKind;
-    /** The built-in tools the session runs. */
     tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {
@@ -119,7 +118,6 @@ export async function checkPinnedExtensions(
     extensions: readonly { bundle_id: string }[] | null;
     permissionMode: string;
     runtimeKind: RuntimeKind;
-    /** The built-in tools the session runs. */
     tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {
@@ -153,7 +151,6 @@ export async function checkAgentExtensions(
     agentId: string;
     permissionMode: string;
     runtimeKind: RuntimeKind;
-    /** The built-in tools the session runs. */
     tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {

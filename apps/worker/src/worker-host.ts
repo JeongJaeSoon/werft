@@ -667,10 +667,6 @@ export class WorkerHost {
   ): Promise<void> {
     const bundles = claim.runtime_config.extensions;
     if (bundles === undefined) return;
-    // The claim's tools are what the engine runs (the release's snapshot or
-    // the profile's list). Skills reach the model only through the Skill
-    // tool, so a bundle without it would start silently unusable. Checked
-    // before any download, whatever the platform judged at creation.
     if (bundles.length > 0 && !claim.runtime_config.tools.includes("Skill")) {
       throw new Error(
         `This session pins extension bundles (${bundles.map((bundle) => bundle.name).join(", ")}), whose skills the model uses only through the "Skill" tool, and the tools it runs with do not list it. Add "Skill" to the runtime profile's tools list.`,

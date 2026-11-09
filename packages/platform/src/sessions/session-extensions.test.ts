@@ -123,7 +123,6 @@ function setup(options: {
   accept?: "accepted" | "replayed";
   session?: SessionDetailRecord;
   changeProfile?: (input: { profile: unknown }) => unknown;
-  /** The release's tool snapshot; by default the profile's own tools. */
   releaseTools?: string[];
 }) {
   const accepted: AcceptSessionInput[] = [];
@@ -615,7 +614,6 @@ describe("a profile change judges the bundles the session is pinned to", () => {
     const { service, caller } = setup({
       extensions: extensionDeps([]),
       session: pinnedTo([lint]),
-      // With no profile to move to, the store answers as it does in production.
       changeProfile: (input) =>
         input.profile === null ? { outcome: "unsupported" } : { outcome: "ok" },
     });

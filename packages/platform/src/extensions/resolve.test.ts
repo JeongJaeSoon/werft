@@ -234,7 +234,6 @@ describe("resolveExtensions: what the profile can run", () => {
     expect(refusalOf(refused).code).toBe("skill_tool_not_allowed");
     expect(refusalOf(refused).name).toBe("lint");
     expect(resolveExtensions({ ...base, scopes }).ok).toBe(true);
-    // Nothing to judge when no bundle applies.
     expect(resolveExtensions({ ...base, tools: [], scopes: {} })).toEqual({
       ok: true,
       extensions: [],

@@ -186,8 +186,6 @@ export function createAgentService(deps: {
     workspaceId: string,
     agentId: string,
     profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind" | "tools">,
-    // The release the session will run, whose tool snapshot a claim may prefer
-    // to the profile's; absent for a release being made from the profile.
     releaseSnapshot: unknown | null = null,
   ): Promise<ExtensionRefusal | null> {
     if (!deps.extensions) return null;

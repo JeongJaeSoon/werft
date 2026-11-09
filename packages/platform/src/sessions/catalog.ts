@@ -908,11 +908,6 @@ export function releaseSnapshotTools(snapshot: unknown): string[] {
     : [];
 }
 
-/**
- * The built-in tools the engine of a session will actually run: what a claim
- * hands over (claimToolLists), for a session of the release whose snapshot is
- * given, or of no release (`null`).
- */
 export function runningTools(
   profile: Pick<CatalogProfile, "tools">,
   releaseSnapshot: unknown | null,

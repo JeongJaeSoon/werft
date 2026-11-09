@@ -1021,7 +1021,6 @@ describe("activation and the agent's extension bundles", () => {
     },
     offersSkills: () => true,
   };
-  // Skills reach the model through the Skill tool, which the profile names.
   const WITH_SKILL: CatalogProfile = {
     ...PROFILE,
     tools: [...PROFILE.tools, "Skill"],
@@ -1088,7 +1087,6 @@ describe("activation and the agent's extension bundles", () => {
       memory.store,
       WITH_SKILL,
     ).createRelease(owner, AGENT, release);
-    // The snapshot a claim would run instead of the profile's list.
     const narrowed: AgentRelease = {
       ...made,
       runtime_config_snapshot: {
