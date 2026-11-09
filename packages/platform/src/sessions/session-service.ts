@@ -72,6 +72,7 @@ import {
   isUnmetered,
   type ProfilePin,
   profileFingerprint,
+  profileGone,
   profileModels,
   profileWithModel,
   refreshWorkspaceProfilesFor,
@@ -530,7 +531,12 @@ export function createSessionService(deps: {
     ) {
       return `Model ${record.model} was taken off the allowed list of profile ${record.profile_id}; messages will not run until an operator adds it back, or you start a new session on another model`;
     }
-    if (!listed && record.profile_id && record.model !== null) {
+    if (
+      !listed &&
+      record.profile_id &&
+      record.model !== null &&
+      profileGone(catalog, record.profile_id)
+    ) {
       return `Profile ${record.profile_id}, which served model ${record.model}, is no longer in this host's catalog; messages will not run until an operator restores it, or you start a new session on another profile`;
     }
     return "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it";

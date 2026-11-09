@@ -130,6 +130,7 @@ import {
   type ProfilePin,
   profileAllowsRepository,
   profileFingerprint,
+  profileGone,
   profileModels,
   profilePins,
   providerUpstreamOf,
@@ -1958,8 +1959,12 @@ export function createWorkerGateway(deps: {
           // (its connection) gone, so the model it ran is no longer
           // reachable. The profile merely changing stays the catalog's own
           // cut, with nothing to name.
+          // A stored profile that no longer runs (its base changed) is not
+          // gone: that stays the general cut.
           const cause: ModelCutCause | null = !listed
-            ? "profile_removed"
+            ? result.profileId && profileGone(catalog, result.profileId)
+              ? "profile_removed"
+              : null
             : result.model !== null &&
                 !profileModels(listed).includes(result.model)
               ? "model_removed"

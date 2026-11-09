@@ -3082,6 +3082,25 @@ describe("authorizeEgress", () => {
       changed.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
     ).rejects.toMatchObject({ status: 409 });
     expect(changed.cuts).toEqual([]);
+    // A workspace version still stored whose base profile moved on does not
+    // run, but nothing was deleted: no "profile removed" note either.
+    const baseMoved = authorizer(retired, {
+      profiles: {},
+      repositories: { app: repository },
+      workspace_profiles: {
+        records: new Map([
+          ["p", { id: "p", base_profile_id: "coding" } as never],
+        ]),
+        refresh: async () => {},
+      },
+    });
+    await expect(
+      baseMoved.instance.authorizeEgress({
+        token: "tok",
+        purpose: "provider",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(baseMoved.cuts).toEqual([]);
   });
 
   test("a note that cannot be written is reported and the cut stays a 409", async () => {
