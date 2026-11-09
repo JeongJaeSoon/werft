@@ -625,19 +625,6 @@ async function observeJoin(
     if (at !== null && noted.lastEventUs > at) return false;
     const isNew =
       at === null || noted.lastJoinUs === null || at > noted.lastJoinUs;
-    // A join with no time is still a join seen: it is noted as the earliest
-    // possible one, so any leave or later join is ordered after it.
-    if (at === null && noted.lastJoinUs === null) {
-      await tx
-        .update(slackChannelLifecycle)
-        .set({ lastJoinUs: 1 })
-        .where(
-          and(
-            eq(slackChannelLifecycle.installationId, installation),
-            eq(slackChannelLifecycle.channelId, channelId),
-          ),
-        );
-    }
     if (at !== null) {
       await tx
         .update(slackChannelLifecycle)
@@ -659,7 +646,7 @@ async function observeJoin(
     if (
       current?.status === "ready" &&
       current.channelKind === "private_channel" &&
-      (inByEvents || current.membership?.state === "joined")
+      (at === null || inByEvents || current.membership?.state === "joined")
     ) {
       await sendBackToApproval(tx, current.id, "rejoined_channel");
     }

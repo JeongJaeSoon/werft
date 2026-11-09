@@ -1040,7 +1040,7 @@ integration("surface bindings on PostgreSQL", () => {
       ).toBeNull();
     });
 
-    test("a join with no time is still a join seen: the next join voids", async () => {
+    test("a join with no time cannot be told from a retry or a rejoin, so it asks for approval again, whatever the membership reads", async () => {
       const { installationId, binding } = await approved();
       await store().setMembership(binding.id, {
         state: "awaiting_invite",
@@ -1048,12 +1048,6 @@ integration("surface bindings on PostgreSQL", () => {
       });
       expect(
         await store().observeLifecycle(installationId, "G0SECRET", null),
-      ).toBe(true);
-      expect(
-        await store().resolveSlackChannel(installationId, "G0SECRET"),
-      ).not.toBeNull();
-      expect(
-        await store().observeLifecycle(installationId, "G0SECRET", at(8)),
       ).toBe(true);
       expect(
         await store().resolveSlackChannel(installationId, "G0SECRET"),
