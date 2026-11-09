@@ -1,16 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
-import { isApiError } from "@werft-ai/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   ListPushRequestsResponse,
   PushIntent,
   PushRequest,
   SessionDetail,
 } from "@werft-ai/contracts";
-import { sessionGithubWorkQuery } from "@werft-ai/core";
+import { queryKeysOf, sessionGithubWorkQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { sessionRepositoriesOf } from "@werft-ai/react/components";
 import {
   Badge,
+  Button,
   Code,
   Heading,
   Link,
@@ -23,7 +24,12 @@ import {
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { isMessageKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
+import {
+  errorKey,
+  isMessageKey,
+  type MessageKey,
+  useI18n,
+} from "../i18n/i18n.tsx";
 
 const REQUEST_BADGE = {
   requested: "blue",
@@ -128,16 +134,23 @@ function groupsOf(rows: Row[]): [key: string, rows: Row[]][] {
 function BranchGroup({
   rows,
   names,
+  sessionId,
 }: {
   readonly rows: Row[];
   readonly names: Names;
+  readonly sessionId: string;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [latest, ...earlier] = rows;
   const render = (row: Row) =>
     row.kind === "request" ? (
-      <RequestRow key={row.request.id} request={row.request} names={names} />
+      <RequestRow
+        key={row.request.id}
+        request={row.request}
+        names={names}
+        sessionId={sessionId}
+      />
     ) : (
       <IntentRow key={row.intent.id} intent={row.intent} names={names} />
     );
@@ -161,12 +174,76 @@ function BranchGroup({
   );
 }
 
+/**
+ * Approves or rejects a waiting push on the session. The approval names the
+ * commit the reader saw, so a request that moved since is refused by the
+ * server instead of pushing something else.
+ */
+function Decision({
+  request,
+  sessionId,
+}: {
+  readonly request: PushRequest;
+  readonly sessionId: string;
+}) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  const decide = useMutation<PushRequest, ApiError, "approve" | "reject">({
+    mutationFn: (action) =>
+      unwrap(
+        client.POST(
+          action === "approve"
+            ? "/v1/sessions/{id}/push-requests/{push_request_id}/approve"
+            : "/v1/sessions/{id}/push-requests/{push_request_id}/reject",
+          {
+            params: {
+              path: { id: sessionId, push_request_id: request.id },
+              header: { "Idempotency-Key": crypto.randomUUID() },
+            },
+            body: { git_commit: request.git_commit },
+          },
+        ),
+      ),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: queryKeysOf(client).sessionGithubWork(sessionId),
+      }),
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        size="sm"
+        disabled={decide.isPending}
+        onClick={() => decide.mutate("approve")}
+      >
+        {t("session.github.approve")}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={decide.isPending}
+        onClick={() => decide.mutate("reject")}
+      >
+        {t("session.github.reject")}
+      </Button>
+      {decide.error ? (
+        <Text as="span" variant="meta" role="alert">
+          {t(errorKey(decide.error.code))}
+        </Text>
+      ) : null}
+    </div>
+  );
+}
+
 function RequestRow({
   request,
   names,
+  sessionId,
 }: {
   readonly request: PushRequest;
   readonly names: Names;
+  readonly sessionId: string;
 }) {
   const { t, locale } = useI18n();
   return (
@@ -197,12 +274,20 @@ function RequestRow({
             </Link>
           ) : null}
         </Text>
+        {request.state === "failed" ? (
+          <Text as="span" variant="meta" role="alert">
+            {t("session.github.pushFailed")}
+          </Text>
+        ) : null}
         <Text as="span" variant="meta">
           {prErrorKey(request.pr_error) === null
             ? null
             : `${t(prErrorKey(request.pr_error) as MessageKey)} · `}
           <RelativeTime value={request.requested_at} locale={locale} />
         </Text>
+        {request.state === "requested" ? (
+          <Decision request={request} sessionId={sessionId} />
+        ) : null}
       </RowLines>
     </RowListItem>
   );
@@ -278,7 +363,12 @@ export function SessionGitHubWork({
       <Text variant="sub">{t("session.github.description")}</Text>
       <RowList variant="joined">
         {groupsOf(rows).map(([key, group]) => (
-          <BranchGroup key={key} rows={group} names={names} />
+          <BranchGroup
+            key={key}
+            rows={group}
+            names={names}
+            sessionId={session.id}
+          />
         ))}
       </RowList>
     </section>

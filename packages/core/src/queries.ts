@@ -790,9 +790,11 @@ export function sessionTurnsQuery(client: ApiClient, id: string) {
 }
 
 // Something is moving (waiting for approval, a turn to end, a pull request to
-// open): look often; otherwise at the pace GitHub outcomes are read.
+// open): look often. A push is asked for after its turn ended, with no event
+// to announce it, so even an idle list is read every 15 s: it is what shows a
+// new approval request while the page is open.
 const GITHUB_WORK_ACTIVE_MS = 10_000;
-const GITHUB_WORK_IDLE_MS = 60_000;
+const GITHUB_WORK_IDLE_MS = 15_000;
 const OPEN_PUSH_STATES = new Set(["requested", "approved", "pushing"]);
 const OPEN_PR_STAGES = new Set(["due", "opening"]);
 const WAITING_INTENTS = new Set(["deferred", "pinned"]);

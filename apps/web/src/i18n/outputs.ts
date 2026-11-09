@@ -85,6 +85,10 @@ export const outputsKo = {
   "session.github.state.pushing": "push 중",
   "session.github.state.pushed": "push됨",
   "session.github.state.failed": "push 실패",
+  "session.github.approve": "push 승인",
+  "session.github.reject": "거절",
+  "session.github.pushFailed":
+    "원격 저장소가 push를 받지 않았습니다. 저장소가 보관(archived) 상태이거나 쓰기 권한이 없는지 확인하세요.",
   "session.github.showEarlier": "같은 브랜치의 이전 push {count}건 보기",
   "session.github.hideEarlier": "이전 push 접기",
   "session.github.intent.deferred": "작업이 끝나기를 기다리는 중",
@@ -244,6 +248,10 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.github.state.pushing": "push 中",
   "session.github.state.pushed": "push 済み",
   "session.github.state.failed": "push 失敗",
+  "session.github.approve": "push を承認",
+  "session.github.reject": "却下",
+  "session.github.pushFailed":
+    "リモートリポジトリが push を受け付けませんでした。リポジトリがアーカイブ済みか、書き込み権限がないか確認してください。",
   "session.github.showEarlier": "同じブランチの以前の push を {count} 件表示",
   "session.github.hideEarlier": "以前の push を閉じる",
   "session.github.intent.deferred": "作業の終了を待っています",
@@ -406,6 +414,10 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.github.state.pushing": "Pushing",
   "session.github.state.pushed": "Pushed",
   "session.github.state.failed": "Push failed",
+  "session.github.approve": "Approve push",
+  "session.github.reject": "Reject",
+  "session.github.pushFailed":
+    "The remote repository did not accept the push. Check whether the repository is archived or the app lacks write access.",
   "session.github.showEarlier": "Show {count} earlier pushes to this branch",
   "session.github.hideEarlier": "Hide earlier pushes",
   "session.github.intent.deferred": "Waiting for the work to end",
