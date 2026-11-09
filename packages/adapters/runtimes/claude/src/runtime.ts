@@ -15,6 +15,7 @@ import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { modeSettings } from "./engine-settings.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
+import { expectedPluginSkills } from "./plugin-skills.ts";
 import {
   ENGINE_API_KEY_DESCRIPTOR,
   engineApiKey,
@@ -46,10 +47,15 @@ export class ClaudeSdkRuntime {
   constructor(
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
+    private readonly launch: typeof query = query,
   ) {}
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
     validateRuntimeConfig(config, this.policy);
+    const expectedSkills =
+      config.plugins === undefined || config.plugins.length === 0
+        ? undefined
+        : expectedPluginSkills(config.plugins);
     const mirror =
       config.sessionStore === undefined ? undefined : new MirrorProgress();
     const { history, launched } = resumedHistory(
@@ -60,7 +66,7 @@ export class ClaudeSdkRuntime {
     const input = new InputStream();
     const abortController = new AbortController();
     const ledger = new TurnLedger(config.resume);
-    const sdkQuery = query({
+    const sdkQuery = this.launch({
       prompt: input,
       options: buildSdkOptions(
         launched,
@@ -79,6 +85,7 @@ export class ClaudeSdkRuntime {
       ledger,
       () => relayedToolDescriptions(launched.mcpServers),
       mirror,
+      expectedSkills,
     );
   }
 }
@@ -263,7 +270,14 @@ export function buildSdkOptions(
     pathToClaudeCodeExecutable: resolvePinnedClaudeExecutable(),
     permissionMode: config.permissionMode ?? "default",
     ...(bypass ? { allowDangerouslySkipPermissions: true } : {}),
-    ...(config.plugins === undefined ? {} : { plugins: config.plugins }),
+    ...(config.plugins === undefined || config.plugins.length === 0
+      ? {}
+      : {
+          plugins: config.plugins.map((plugin) => ({
+            ...plugin,
+            skipMcpDiscovery: true,
+          })),
+        }),
     pluginDelivery: "initialize",
     ...(config.mode === "resume" ? { resume: config.resume } : {}),
     // "eager" so a batch is durable within a frame of the local write: a

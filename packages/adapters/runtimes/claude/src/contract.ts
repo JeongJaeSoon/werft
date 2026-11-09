@@ -82,6 +82,7 @@ export type ClaudeProfileConfig = Pick<
   | "mcpServers"
   | "model"
   | "permissionMode"
+  | "plugins"
   | "profile"
   | "repositoryClaudeMd"
   | "settingSources"
@@ -114,7 +115,23 @@ export function claudeProfileConfig(
       : { repositoryClaudeMd: { contents: bundle.repoInstructions.text } }),
     settingSources: [],
     tools: [...config.tools],
-    ...mcpConfig(bundle.mcpServers),
+    ...componentConfig(bundle),
+  };
+}
+
+function componentConfig(
+  bundle: RuntimeStart["bundle"],
+): Pick<ClaudeProfileConfig, "identities" | "mcpServers" | "plugins"> {
+  const mcp = mcpConfig(bundle.mcpServers);
+  const bundles = bundle.extensions ?? [];
+  if (bundles.length === 0) return mcp;
+  return {
+    ...mcp,
+    identities: {
+      ...mcp.identities,
+      plugins: Object.fromEntries(bundles.map((b) => [b.path, b.digest])),
+    },
+    plugins: bundles.map((b) => ({ path: b.path, type: "local" as const })),
   };
 }
 

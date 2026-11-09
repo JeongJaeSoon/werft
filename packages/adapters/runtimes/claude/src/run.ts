@@ -19,6 +19,7 @@ import type {
 import type { AgentFrame, DriverRun, NativeSdkMessage } from "./driver.ts";
 import { frameFromNativeMessage, isEngineInit } from "./mapper.ts";
 import type { MirrorProgress } from "./mirror-progress.ts";
+import { missingSkills } from "./plugin-skills.ts";
 import type { ResumedHistory } from "./resumed-history.ts";
 import type { TurnLedger } from "./turn-ledger.ts";
 
@@ -153,6 +154,7 @@ export class ClaudeSdkRun implements DriverRun {
     private readonly toolDescriptions: () => ReadonlyMap<string, string> = () =>
       new Map(),
     private readonly mirror?: MirrorProgress,
+    private readonly expectedSkills?: readonly string[],
   ) {}
 
   get approvalCheckpoints(): boolean {
@@ -179,7 +181,24 @@ export class ClaudeSdkRun implements DriverRun {
 
   async ready(): Promise<void> {
     await this.history.uuids();
-    await this.sdkQuery.initializationResult();
+    const initialized = await this.sdkQuery.initializationResult();
+    if (this.expectedSkills === undefined) return;
+    if (initialized.plugins_applied !== true) {
+      throw new Error(
+        "The engine did not load the session's extension bundles",
+      );
+    }
+    if (!Array.isArray(initialized.commands)) {
+      throw new Error(
+        "The engine's initialization reply did not list its commands, so the extension skills cannot be confirmed",
+      );
+    }
+    const missing = missingSkills(this.expectedSkills, initialized.commands);
+    if (missing.length > 0) {
+      throw new Error(
+        `The engine did not report these extension skills: ${missing.join(", ")}`,
+      );
+    }
   }
 
   savedCost(): Promise<SavedCost | undefined> {

@@ -34,6 +34,7 @@ const entry = (mode: ExtensionMode, r: ExtensionRef): ScopeEntry => ({
 const base = {
   permissionMode: "default",
   runtimeOffersSkills: true,
+  tools: ["Read", "Skill"],
 } as const;
 
 function refusalOf(result: ReturnType<typeof resolveExtensions>) {
@@ -226,6 +227,18 @@ describe("resolveExtensions: what the profile can run", () => {
   const scripted = {
     agent: [entry("required", ref("tools", "a", { scripts: true }))],
   };
+
+  test("a bundle with skills is refused where the profile's tools do not list Skill", () => {
+    const scopes = { agent: [entry("required", ref("lint", "a"))] };
+    const refused = resolveExtensions({ ...base, tools: ["Read"], scopes });
+    expect(refusalOf(refused).code).toBe("skill_tool_not_allowed");
+    expect(refusalOf(refused).name).toBe("lint");
+    expect(resolveExtensions({ ...base, scopes }).ok).toBe(true);
+    expect(resolveExtensions({ ...base, tools: [], scopes: {} })).toEqual({
+      ok: true,
+      extensions: [],
+    });
+  });
 
   test("a bundle with skills is refused where the runtime offers none", () => {
     const result = resolveExtensions({

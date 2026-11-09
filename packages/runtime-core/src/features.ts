@@ -11,10 +11,11 @@ export type RuntimeRequirements = { features: readonly FeatureKey[] };
 
 export function runtimeRequirementsOf(
   runtimeConfig: Pick<RuntimeConfig, "permission_mode"> &
-    Partial<Pick<RuntimeConfig, "mcp_servers">>,
+    Partial<Pick<RuntimeConfig, "extensions" | "mcp_servers">>,
 ): RuntimeRequirements {
   const features: FeatureKey[] = [];
   if ((runtimeConfig.mcp_servers ?? []).length > 0) features.push("mcp");
+  if ((runtimeConfig.extensions ?? []).length > 0) features.push("skills");
   if (runtimeConfig.permission_mode === "auto") {
     features.push("classifier_review");
   }

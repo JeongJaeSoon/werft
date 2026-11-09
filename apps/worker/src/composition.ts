@@ -23,7 +23,10 @@ import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
-import { publishExtensionBundles } from "./extension-bundles.ts";
+import {
+  publishExtensionBundles,
+  publishedBundlePath,
+} from "./extension-bundles.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import {
   gitEnvironmentFor,
@@ -320,6 +323,15 @@ export function runtimeProfile(
           ? { files: instructionFiles, text: committedInstructions() }
           : null,
       mcpServers: mcpServersOf(runtimeConfig, config.egressCredentialUrl),
+      ...((runtimeConfig.extensions ?? []).length === 0
+        ? {}
+        : {
+            extensions: (runtimeConfig.extensions ?? []).map((bundle) => ({
+              name: bundle.name,
+              digest: bundle.digest,
+              path: publishedBundlePath(config.runtime.home, bundle.digest),
+            })),
+          }),
     },
   };
 }

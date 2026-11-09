@@ -1,6 +1,8 @@
 import type { BundleManifest } from "./bundle-validator.ts";
 
 export const EXTENSION_MODES = ["required", "optional", "forbidden"] as const;
+const SKILL_TOOL = "Skill";
+
 export type ExtensionMode = (typeof EXTENSION_MODES)[number];
 
 /** Outermost first: a later scope can only narrow what an earlier one set. */
@@ -45,6 +47,7 @@ export type ExtensionRefusalCode =
   | "bundle_not_approved"
   | "skill_name_collision"
   | "feature_unsupported"
+  | "skill_tool_not_allowed"
   | "scripts_need_default_mode";
 
 export type ExtensionRefusal = {
@@ -90,6 +93,7 @@ export function resolveExtensions(input: {
   session?: SessionSelection;
   permissionMode: string;
   runtimeOffersSkills: boolean;
+  tools: readonly string[];
   includeOptional?: boolean;
 }): ExtensionResolution {
   const states = new Map<string, State>();
@@ -215,6 +219,13 @@ export function resolveExtensions(input: {
         "feature_unsupported",
         state.ref.name,
         `"${state.ref.name}" carries skills, which this profile's runtime does not offer`,
+      );
+    }
+    if (skills.length > 0 && !input.tools.includes(SKILL_TOOL)) {
+      return refuse(
+        "skill_tool_not_allowed",
+        state.ref.name,
+        `"${state.ref.name}" carries skills, which the model uses only through the "${SKILL_TOOL}" tool, and this runtime profile's tools do not list it. Add "${SKILL_TOOL}" to the profile's \`tools\` list.`,
       );
     }
     if (

@@ -76,6 +76,7 @@ export async function resolveSessionExtensions(
     };
     permissionMode: string;
     runtimeKind: RuntimeKind;
+    tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {
   const scopes = await scopesOf(deps, input.workspaceId, input.agentId);
@@ -106,6 +107,7 @@ export async function resolveSessionExtensions(
     session: { enable: enable.found, disable: disable.found },
     permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+    tools: input.tools,
   });
 }
 
@@ -116,6 +118,7 @@ export async function checkPinnedExtensions(
     extensions: readonly { bundle_id: string }[] | null;
     permissionMode: string;
     runtimeKind: RuntimeKind;
+    tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {
   const workspace: ScopeEntry[] = [];
@@ -137,6 +140,7 @@ export async function checkPinnedExtensions(
     scopes: { workspace },
     permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+    tools: input.tools,
   });
 }
 
@@ -147,6 +151,7 @@ export async function checkAgentExtensions(
     agentId: string;
     permissionMode: string;
     runtimeKind: RuntimeKind;
+    tools: readonly string[];
   },
 ): Promise<ExtensionResolution> {
   const scopes = await scopesOf(deps, input.workspaceId, input.agentId);
@@ -155,6 +160,7 @@ export async function checkAgentExtensions(
     scopes,
     permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+    tools: input.tools,
     includeOptional: true,
   });
 }

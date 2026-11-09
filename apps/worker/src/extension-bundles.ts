@@ -38,6 +38,10 @@ export class ExtensionBundleError extends Error {
 
 export type ExtensionBundleRef = { name: string; digest: string };
 
+export function publishedBundlePath(home: string, digest: string): string {
+  return join(home, ".ext", digest);
+}
+
 export type PublishExtensionBundlesOptions = {
   /** The image's HOME (a tmpfs): bundles land under `<home>/.ext/<digest>/`. */
   home: string;
@@ -76,7 +80,7 @@ export async function publishExtensionBundles(
   prepareRoot(options.home, root);
   const published: string[] = [];
   for (const bundle of options.bundles) {
-    const target = join(root, bundle.digest);
+    const target = publishedBundlePath(options.home, bundle.digest);
     if (
       !isIntact(target, bundle.digest, options.maxBytes ?? MAX_BUNDLE_BYTES)
     ) {

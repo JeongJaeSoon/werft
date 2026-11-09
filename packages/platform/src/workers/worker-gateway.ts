@@ -1971,9 +1971,9 @@ export function createWorkerGateway(deps: {
       } catch (error) {
         if (error instanceof BundleIntegrityError) {
           throw new WorkerGatewayError(
-            503,
-            "BACKEND_UNAVAILABLE",
-            "The stored bundle failed its integrity check",
+            409,
+            "UNSUPPORTED_CAPABILITY",
+            "The stored bundle failed its integrity check and cannot be served",
           );
         }
         throw error;

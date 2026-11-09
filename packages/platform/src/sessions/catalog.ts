@@ -875,7 +875,7 @@ export type ToolList = "profile" | "release";
  * are what every checkpoint from before release lists ran with.
  */
 export function claimToolLists(
-  profile: CatalogProfile,
+  profile: Pick<CatalogProfile, "tools">,
   releaseTools: readonly string[] | null,
   runRelease: boolean = CLAIM_RUNS_RELEASE_TOOLS,
 ): {
@@ -894,6 +894,31 @@ export function claimToolLists(
     release: narrower,
     runs: runRelease && narrower !== null ? "release" : "profile",
   };
+}
+
+/**
+ * A release's tool list as the worker binding reads it from the release's
+ * `runtime_config_snapshot`: a snapshot this image cannot read allows no tool
+ * rather than guessing (db worker-unit-of-work `releaseRunOf`).
+ */
+export function releaseSnapshotTools(snapshot: unknown): string[] {
+  const tools = (snapshot as { tools?: unknown } | null | undefined)?.tools;
+  return Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
+    ? tools
+    : [];
+}
+
+export function runningTools(
+  profile: Pick<CatalogProfile, "tools">,
+  releaseSnapshot: unknown | null,
+): readonly string[] {
+  const lists = claimToolLists(
+    profile,
+    releaseSnapshot === null ? null : releaseSnapshotTools(releaseSnapshot),
+  );
+  return lists.runs === "release" && lists.release !== null
+    ? lists.release
+    : lists.profile;
 }
 
 /**

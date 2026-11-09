@@ -71,6 +71,7 @@ import {
   profilePinned,
   refreshWorkspaceProfilesFor,
   repositoryModeOf,
+  runningTools,
   type SessionCatalog,
   type SessionCatalogView,
   workspaceProfileRefusal,
@@ -225,7 +226,8 @@ export function createAgentService(deps: {
   async function extensionRefusal(
     workspaceId: string,
     agentId: string,
-    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind">,
+    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind" | "tools">,
+    releaseSnapshot: unknown | null = null,
   ): Promise<ExtensionRefusal | null> {
     if (!deps.extensions) return null;
     const checked = await checkAgentExtensions(deps.extensions, {
@@ -233,6 +235,7 @@ export function createAgentService(deps: {
       agentId,
       permissionMode: profile.permission_mode,
       runtimeKind: profile.runtime_kind,
+      tools: runningTools(profile, releaseSnapshot),
     });
     return checked.ok ? null : checked.refusal;
   }
@@ -1360,7 +1363,12 @@ export function createAgentService(deps: {
         : undefined;
       if (
         previousProfile &&
-        (await extensionRefusal(workspaceId, agentId, previousProfile)) !== null
+        (await extensionRefusal(
+          workspaceId,
+          agentId,
+          previousProfile,
+          previous?.runtime_config_snapshot ?? null,
+        )) !== null
       ) {
         return { status: "failed", reason: "release_refused" };
       }
@@ -1806,6 +1814,7 @@ export function createAgentService(deps: {
             caller.ownerId,
             release.agent_id,
             releaseProfile,
+            release.runtime_config_snapshot,
           )
         : null;
       if (extensions !== null) {

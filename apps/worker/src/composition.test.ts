@@ -294,6 +294,41 @@ describe("claimFingerprint", () => {
     );
   });
 
+  test("a claim's extensions reach the engine's profile as the paths the worker published, and move the digest", () => {
+    const bundle = {
+      name: "lint",
+      digest: "ab".repeat(32),
+      scope: "agent",
+    } as const;
+    const runtimeConfig = {
+      ...shipped["claude-coding-real"],
+      extensions: [bundle],
+    };
+    const launch = {
+      principal,
+      runtimeConfig,
+      workspace: { repository: null },
+    };
+    const profile = runtimeProfile(config, claude, launch, () => null);
+    expect(profile.bundle.extensions).toEqual([
+      {
+        name: "lint",
+        digest: bundle.digest,
+        path: `/home/worker/.ext/${bundle.digest}`,
+      },
+    ]);
+    const without = runtimeProfile(
+      config,
+      claude,
+      { ...launch, runtimeConfig: shipped["claude-coding-real"] },
+      () => null,
+    );
+    expect(without.bundle).not.toHaveProperty("extensions");
+    expect(claude.fingerprint(profile).profileSha256).not.toBe(
+      claude.fingerprint(without).profileSha256,
+    );
+  });
+
   test("the engine's instructions and the workspace's AGENTS.md come from one list", () => {
     const runtimeConfig = shipped["claude-coding-real"];
     const parts = instructionParts(runtimeConfig, {

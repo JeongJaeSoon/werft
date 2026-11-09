@@ -667,6 +667,11 @@ export class WorkerHost {
   ): Promise<void> {
     const bundles = claim.runtime_config.extensions;
     if (bundles === undefined) return;
+    if (bundles.length > 0 && !claim.runtime_config.tools.includes("Skill")) {
+      throw new Error(
+        `This session pins extension bundles (${bundles.map((bundle) => bundle.name).join(", ")}), whose skills the model uses only through the "Skill" tool, and the tools it runs with do not list it. Add "Skill" to the runtime profile's tools list.`,
+      );
+    }
     const publish = this.options.extensionBundles;
     if (publish === undefined) {
       throw new Error("This worker cannot publish extension bundles");

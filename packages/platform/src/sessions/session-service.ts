@@ -87,6 +87,7 @@ import {
   refreshWorkspaceProfilesFor,
   repositoryInCeiling,
   repositoryModeOf,
+  runningTools,
   runsOnCurrentImage,
   type SessionCatalogView,
   sessionProfile,
@@ -905,6 +906,10 @@ export function createSessionService(deps: {
           ...(selection === undefined ? {} : { selection }),
           permissionMode: profile.permission_mode,
           runtimeKind: profile.runtime_kind,
+          tools: runningTools(
+            profile,
+            release?.runtime_config_snapshot ?? null,
+          ),
         });
         if (resolved.ok) {
           extensions = resolved.extensions.map((e) => ({
@@ -1307,7 +1312,7 @@ export function createSessionService(deps: {
                 current.runtime_version !== pair.profile.runtime_version
               ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
               : null;
-      let pinnedRefusal: string | null = null;
+      let pinnedRefusal: ExtensionRefusal | null = null;
       if (
         profileRefusal === null &&
         pair !== null &&
@@ -1321,10 +1326,11 @@ export function createSessionService(deps: {
           extensions: record.extensions,
           permissionMode: pair.profile.permission_mode,
           runtimeKind: pair.profile.runtime_kind,
+          tools: pair.profile.tools,
         });
-        if (!checked.ok) pinnedRefusal = checked.refusal.message;
+        if (!checked.ok) pinnedRefusal = checked.refusal;
       }
-      const refusal = profileRefusal ?? pinnedRefusal;
+      const refusal = profileRefusal ?? pinnedRefusal?.message ?? null;
       const result = await controls.changeProfileAtomic({
         principal: actor,
         sessionId,
@@ -1375,6 +1381,10 @@ export function createSessionService(deps: {
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
             refusal ?? `Profile ${wanted} cannot run this session`,
+            undefined,
+            profileRefusal === null && pinnedRefusal !== null
+              ? { reason_code: pinnedRefusal.code, bundle: pinnedRefusal.name }
+              : undefined,
           );
         default:
           return result.response;

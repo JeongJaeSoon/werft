@@ -45,6 +45,20 @@ describe("runtimeRequirementsOf", () => {
       }),
     ).toEqual({ features: ["mcp", "classifier_review"] });
   });
+
+  test("asks for skills when the claim names an extension bundle, and only then", () => {
+    const bundle = { name: "lint", digest: "ab".repeat(32), scope: "agent" };
+    const one = runtimeRequirementsOf({
+      permission_mode: "default",
+      extensions: [bundle],
+    } as never);
+    expect(one).toEqual({ features: ["skills"] });
+    expect(
+      runtimeRequirementsOf({ permission_mode: "default", extensions: [] }),
+    ).toEqual({ features: [] });
+    expect(unmetFeatures(table, {}, one)).toEqual(["skills"]);
+    expect(unmetFeatures({ ...table, skills: "native" }, {}, one)).toEqual([]);
+  });
 });
 
 describe("featureSupport", () => {
