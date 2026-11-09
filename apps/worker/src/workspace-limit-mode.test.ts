@@ -178,3 +178,45 @@ test("mountinfo finds the most specific mount on a path boundary and decodes oct
     )?.filesystem,
   ).toBe("xfs");
 });
+
+test.each(["yes", "true", 1])(
+  "a non-boolean storage declaration %j never establishes enforcement",
+  (declaration) => {
+    // Evidence can arrive from JSON or env-shaped sources; only the boolean counts.
+    expect(
+      workspaceLimitMode({
+        ...evidence,
+        enforcedByStorage: declaration as unknown as boolean,
+      }),
+    ).toEqual({
+      bytes: "unknown",
+      inodes: "unknown",
+      reason: "storage_enforcement_unverified",
+    });
+  },
+);
+
+test.each([
+  [999, "unknown"],
+  [1000, "hard"],
+  [1001, "hard"],
+  [4000, "hard"],
+] as const)(
+  "PVC capacity %i against a 1000-byte request is %s with a declaration",
+  (pvcCapacityBytes, bytes) => {
+    expect(
+      workspaceLimitMode({
+        ...evidence,
+        pvcCapacityBytes,
+        enforcedByStorage: true,
+      }),
+    ).toEqual({
+      bytes,
+      inodes: "unknown",
+      reason:
+        bytes === "hard"
+          ? "storage_declaration_and_capacity"
+          : "storage_enforcement_unverified",
+    });
+  },
+);

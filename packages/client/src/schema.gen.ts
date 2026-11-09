@@ -1739,7 +1739,7 @@ export interface paths {
         put?: never;
         /**
          * Finish the session: drain, checkpoint, close for good
-         * @description Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. `docs/api-guide.md` compares the three.
+         * @description Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. [The API guide](https://jeongjaesoon.github.io/werft/en/reference/api-guide/#ending-a-session-close-terminate-and-recovery-close) compares the three.
          *
          *     - **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).
          *     - **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.
@@ -10999,7 +10999,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The member's user id. */
                 userId: string;
             };
             cookie?: never;
@@ -11153,6 +11155,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11290,6 +11293,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11427,6 +11431,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11573,6 +11578,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11682,6 +11688,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11862,6 +11869,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -11967,6 +11975,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -12092,6 +12101,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -12270,6 +12280,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -12375,7 +12386,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description A GitHub App role, or the id of one connection of a role. */
                 role: ("author" | "reviewer") | string;
             };
             cookie?: never;
@@ -12529,7 +12542,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description A GitHub App role, or the id of one connection of a role. */
                 role: ("author" | "reviewer") | string;
             };
             cookie?: never;
@@ -12716,7 +12731,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description A GitHub App role, or the id of one connection of a role. */
                 role: ("author" | "reviewer") | string;
             };
             cookie?: never;
@@ -12840,6 +12857,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -12979,6 +12997,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -13136,7 +13155,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The GitHub App connection's id. */
                 connectionId: string;
             };
             cookie?: never;
@@ -13246,6 +13267,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -13393,6 +13415,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -13486,6 +13509,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -13671,12 +13695,16 @@ export interface operations {
     listGitHubRepositories: {
         parameters: {
             query?: {
+                /** @description The GitHub App installation to list. Required while the role has several connections. */
                 installation_id?: number;
+                /** @description The page of GitHub's listing, from 1. */
                 page?: number;
+                /** @description How many repositories GitHub puts on a page. */
                 per_page?: number;
             };
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -13841,7 +13869,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The repository's id in the workspace's repository catalog. */
                 repositoryId: string;
             };
             cookie?: never;
@@ -13997,7 +14027,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The repository's id in the workspace's repository catalog. */
                 repositoryId: string;
             };
             cookie?: never;
@@ -14088,8 +14120,11 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The repository's id in the workspace's repository catalog. */
                 repositoryId: string;
+                /** @description The GitHub App role the pin is for. */
                 role: "author" | "reviewer";
             };
             cookie?: never;
@@ -14252,6 +14287,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -14432,6 +14468,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -14684,6 +14721,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -14856,6 +14894,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -14990,6 +15029,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15161,6 +15201,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15311,6 +15352,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15424,6 +15466,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15584,6 +15627,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15702,6 +15746,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -15875,7 +15920,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The Slack app's id. */
                 app_id: string;
             };
             cookie?: never;
@@ -16033,8 +16080,11 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
+                /** @description The Slack app's id. */
                 app_id: string;
+                /** @description Which of the Slack app's secrets. */
                 purpose: "slack_signing_secret" | "slack_client_secret" | "slack_bot_token";
             };
             cookie?: never;
@@ -16535,7 +16585,9 @@ export interface operations {
     listSessions: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
                 status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
                 agent_id?: string;
@@ -16986,6 +17038,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17133,6 +17186,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17331,6 +17385,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17419,6 +17474,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17571,6 +17627,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17778,6 +17835,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -17955,6 +18013,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -18129,6 +18188,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -18237,6 +18297,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -18357,7 +18418,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The `path` the outputs list gives, percent-encoded as one segment (`out/report.md` is `out%2Freport.md`). */
                 path: string;
             };
             cookie?: never;
@@ -18467,6 +18530,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -18656,11 +18720,14 @@ export interface operations {
     listSessionTurns: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
             };
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -18802,7 +18869,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The turn's id. */
                 turn_id: string;
             };
             cookie?: never;
@@ -18930,6 +18999,7 @@ export interface operations {
                 "Last-Event-ID"?: string;
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -19077,6 +19147,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -19190,6 +19261,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -19370,6 +19442,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -19491,6 +19564,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -19679,7 +19753,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The push request's id. */
                 push_request_id: string;
             };
             cookie?: never;
@@ -19797,7 +19873,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The push request's id. */
                 push_request_id: string;
             };
             cookie?: never;
@@ -19995,7 +20073,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The push request's id. */
                 push_request_id: string;
             };
             cookie?: never;
@@ -20186,6 +20266,7 @@ export interface operations {
     openPullRequest: {
         parameters: {
             query?: {
+                /** @description `true` holds the call until a push that is not finished yet is pushed, instead of refusing it. */
                 schedule?: "true";
             };
             header?: {
@@ -20193,7 +20274,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The push request's id. */
                 push_request_id: string;
             };
             cookie?: never;
@@ -20389,7 +20472,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The push request's id. */
                 push_request_id: string;
             };
             cookie?: never;
@@ -20577,6 +20662,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -20747,7 +20833,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The GitHub Actions workflow run's id. */
                 run_id: number;
             };
             cookie?: never;
@@ -20864,7 +20952,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The GitHub Actions workflow run's id. */
                 run_id: number;
             };
             cookie?: never;
@@ -21027,6 +21117,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -21119,6 +21210,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -21217,6 +21309,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -21353,6 +21446,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -21493,6 +21587,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -21602,6 +21697,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The achievement's id. */
                 id: string;
             };
             cookie?: never;
@@ -21794,7 +21890,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
+                /** @description The pull request's number on its repository. */
                 number: number;
             };
             cookie?: never;
@@ -21967,6 +22065,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -22150,6 +22249,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -22341,6 +22441,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -22532,6 +22633,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -22722,6 +22824,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -22913,6 +23016,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -23104,6 +23208,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -23486,6 +23591,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The invite's id. */
                 id: string;
             };
             cookie?: never;
@@ -23763,7 +23869,9 @@ export interface operations {
     listMembers: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
                 q?: string;
                 user_ids?: string;
@@ -23856,6 +23964,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The member's user id. */
                 user_id: string;
             };
             cookie?: never;
@@ -24016,6 +24125,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The member's user id. */
                 user_id: string;
             };
             cookie?: never;
@@ -24172,6 +24282,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The member's user id. */
                 user_id: string;
             };
             cookie?: never;
@@ -24328,6 +24439,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The user's id. */
                 user_id: string;
             };
             cookie?: never;
@@ -24469,6 +24581,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The user's id. */
                 user_id: string;
             };
             cookie?: never;
@@ -24677,6 +24790,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The session's id. */
                 id: string;
             };
             cookie?: never;
@@ -25413,6 +25527,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The linked account's id. */
                 id: string;
             };
             cookie?: never;
@@ -25511,8 +25626,11 @@ export interface operations {
     listAgents: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
+                /** @description `summary` adds to each agent what its card shows. */
                 include?: "summary";
                 q?: string;
                 ids?: string;
@@ -25854,6 +25972,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -25942,6 +26061,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -26094,6 +26214,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -26264,6 +26385,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -26418,6 +26540,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -26506,6 +26629,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -26658,7 +26782,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The credential binding's id. */
                 binding_id: string;
             };
             cookie?: never;
@@ -26854,6 +26980,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The variable's name. */
                 name: string;
             };
             cookie?: never;
@@ -27043,6 +27170,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The variable's name. */
                 name: string;
             };
             cookie?: never;
@@ -27199,6 +27327,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The variable's name. */
                 name: string;
             };
             cookie?: never;
@@ -27382,6 +27511,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -27495,7 +27625,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The variable's name. */
                 name: string;
             };
             cookie?: never;
@@ -27700,7 +27832,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The variable's name. */
                 name: string;
             };
             cookie?: never;
@@ -27852,6 +27986,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -27940,6 +28075,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -28097,7 +28233,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The agent identity's id. */
                 identity_id: string;
             };
             cookie?: never;
@@ -28198,6 +28336,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -28286,6 +28425,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -28441,7 +28581,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The Slack binding's id. */
                 binding_id: string;
             };
             cookie?: never;
@@ -28594,7 +28736,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description The Slack binding's id. */
                 binding_id: string;
             };
             cookie?: never;
@@ -28742,10 +28886,12 @@ export interface operations {
     lookupSlackChannels: {
         parameters: {
             query: {
+                /** @description The Slack channel ids to look up, comma-separated, at most 50. */
                 ids: string;
             };
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -28871,11 +29017,14 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
             };
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29015,6 +29164,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29105,6 +29255,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29200,6 +29351,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29344,6 +29496,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29493,12 +29646,16 @@ export interface operations {
     listAgentGitHubRepositories: {
         parameters: {
             query?: {
+                /** @description The GitHub App installation to list. Required while the role has several connections. */
                 installation_id?: number;
+                /** @description The page of GitHub's listing, from 1. */
                 page?: number;
+                /** @description How many repositories GitHub puts on a page. */
                 per_page?: number;
             };
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29648,6 +29805,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29812,6 +29970,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -29995,6 +30154,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30179,6 +30339,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30290,6 +30451,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30459,6 +30621,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30557,6 +30720,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30730,6 +30894,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30875,6 +31040,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -30965,6 +31131,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -31097,6 +31264,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -31297,6 +31465,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -31459,6 +31628,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -31810,6 +31980,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent whose Slack app sends the events. */
                 agent_id: string;
             };
             cookie?: never;
@@ -31952,6 +32123,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent whose Slack app sends the interactions. */
                 agent_id: string;
             };
             cookie?: never;
@@ -32080,7 +32252,9 @@ export interface operations {
     listApiKeys: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
             };
             header?: never;
@@ -32309,6 +32483,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The API key's id. */
                 id: string;
             };
             cookie?: never;
@@ -32407,7 +32582,9 @@ export interface operations {
     listTeams: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
                 q?: string;
             };
@@ -32664,7 +32841,9 @@ export interface operations {
     listMyTeams: {
         parameters: {
             query?: {
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
+                /** @description How many items a page holds at most. */
                 limit?: number;
             };
             header?: never;
@@ -32764,6 +32943,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The team's id. */
                 team_id: string;
             };
             cookie?: never;
@@ -32883,6 +33063,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The team's id. */
                 team_id: string;
             };
             cookie?: never;
@@ -33006,6 +33187,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The team's id. */
                 team_id: string;
             };
             cookie?: never;
@@ -33177,6 +33359,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The team's id. */
                 team_id: string;
             };
             cookie?: never;
@@ -33333,7 +33516,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The team's id. */
                 team_id: string;
+                /** @description The member's user id. */
                 user_id: string;
             };
             cookie?: never;
@@ -33466,7 +33651,9 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The team's id. */
                 team_id: string;
+                /** @description The member's user id. */
                 user_id: string;
             };
             cookie?: never;
@@ -33635,6 +33822,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -33744,6 +33932,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -33910,8 +34099,11 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
+                /** @description `users` for an admin who is a member, `teams` for one that is a team. */
                 kind: "users" | "teams";
+                /** @description The member's user id or the team's id, by `kind`. */
                 subject_id: string;
             };
             cookie?: never;
@@ -34032,6 +34224,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The agent's id. */
                 id: string;
             };
             cookie?: never;
@@ -34614,6 +34807,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace profile's id. */
                 profile_id: string;
             };
             cookie?: never;
@@ -34987,6 +35181,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The achievement category's id. */
                 id: string;
             };
             cookie?: never;
@@ -35159,6 +35354,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The achievement category's id. */
                 id: string;
             };
             cookie?: never;
@@ -35537,6 +35733,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The achievement type's id. */
                 id: string;
             };
             cookie?: never;
@@ -35695,6 +35892,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The achievement type's id. */
                 id: string;
             };
             cookie?: never;
@@ -36084,6 +36282,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The rule family's id: every version of one rule shares it. */
                 family_id: string;
             };
             cookie?: never;
@@ -36266,6 +36465,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The rule family's id: every version of one rule shares it. */
                 family_id: string;
             };
             cookie?: never;
@@ -36390,6 +36590,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The rule family's id: every version of one rule shares it. */
                 family_id: string;
             };
             cookie?: never;
@@ -36541,6 +36742,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -36643,6 +36845,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The workspace's id. */
                 id: string;
             };
             cookie?: never;
@@ -37140,6 +37343,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The installation profile's id. */
                 profile_id: string;
             };
             cookie?: never;
@@ -37291,6 +37495,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The installation profile's id. */
                 profile_id: string;
             };
             cookie?: never;
@@ -37442,6 +37647,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The installation profile's id. */
                 profile_id: string;
             };
             cookie?: never;
@@ -37593,6 +37799,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The installation profile's id. */
                 profile_id: string;
             };
             cookie?: never;
@@ -37810,6 +38017,7 @@ export interface operations {
     importInstallationSettings: {
         parameters: {
             query?: {
+                /** @description `true` checks the document and answers as an import would, writing nothing. */
                 dry_run?: "true" | "false";
             };
             header?: {
@@ -38233,6 +38441,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The model connection's id. */
                 id: string;
             };
             cookie?: never;
@@ -38330,6 +38539,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The model connection's id. */
                 id: string;
             };
             cookie?: never;
@@ -38478,6 +38688,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The model connection's id. */
                 id: string;
             };
             cookie?: never;
@@ -38626,6 +38837,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The model connection's id. */
                 id: string;
             };
             cookie?: never;
@@ -38750,6 +38962,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The model connection's id. */
                 id: string;
             };
             cookie?: never;
@@ -39101,6 +39314,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The MCP server's id. */
                 id: string;
             };
             cookie?: never;
@@ -39252,6 +39466,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The MCP server's id. */
                 id: string;
             };
             cookie?: never;
@@ -39400,6 +39615,7 @@ export interface operations {
                 "X-Requested-With"?: "werft-web";
             };
             path: {
+                /** @description The MCP server's id. */
                 id: string;
             };
             cookie?: never;
@@ -39519,6 +39735,7 @@ export interface operations {
     getInstallationLimits: {
         parameters: {
             query?: {
+                /** @description `installation` (the default) for the limits and the installation-wide usage, `me` for the per-session limits alone. */
                 scope?: "installation" | "me";
             };
             header?: never;
@@ -39639,10 +39856,15 @@ export interface operations {
     getUsageSummary: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me" | "agent";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description With `scope=agent`, the agent whose sessions to count; refused with any other scope. */
                 agent_id?: string;
+                /** @description Adds `groups`: the same sessions under their agent, the user holding them or their current profile. */
                 group_by?: "agent" | "user" | "profile";
             };
             header?: never;
@@ -39763,10 +39985,15 @@ export interface operations {
     getUsageOutcomes: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me" | "agent";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description With `scope=agent`, the agent whose sessions to count; refused with any other scope. */
                 agent_id?: string;
+                /** @description `agent` adds `groups`, the same figures per agent. */
                 group_by?: "agent";
             };
             header?: never;
@@ -39888,11 +40115,17 @@ export interface operations {
     getUsageAchievements: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me" | "agent";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description Counts only the sessions of this agent, any of its releases. */
                 agent_id?: string;
+                /** @description Counts only the achievements of this achievement type. */
                 type_id?: string;
+                /** @description Counts only the achievements of this category. */
                 category_id?: string;
             };
             header?: never;
@@ -40070,9 +40303,13 @@ export interface operations {
     getUsageSeries: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description The size of one bucket; `day` is the only one. */
                 bucket?: "day";
             };
             header?: never;
@@ -40193,9 +40430,13 @@ export interface operations {
     getUsageBreakdown: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description Groups by the model the metered calls named, or by agent. */
                 by: "model" | "agent";
             };
             header?: never;
@@ -40318,9 +40559,13 @@ export interface operations {
     getUsageTools: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description Counts only the sessions of this agent, any of its releases. */
                 agent_id?: string;
             };
             header?: never;
@@ -40444,16 +40689,24 @@ export interface operations {
     getUsageToolCalls: {
         parameters: {
             query: {
+                /** @description Whose sessions to count. The description says who may read each scope. */
                 scope: "installation" | "me";
+                /** @description Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC. */
                 since: string;
+                /** @description End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read. */
                 until?: string;
+                /** @description Counts only the sessions of this agent, any of its releases. */
                 agent_id?: string;
+                /** @description `recent` lists the latest call first, `slowest` the longest first. */
                 sort?: "recent" | "slowest";
+                /** @description How many items a page holds at most. */
                 limit?: number;
+                /** @description The `next_cursor` of the page before; omit it for the first page. */
                 cursor?: string;
             };
             header?: never;
             path: {
+                /** @description The tool's name as its `tool_use` event recorded it. */
                 name: string;
             };
             cookie?: never;
@@ -40572,6 +40825,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description The receipt's id. */
                 id: string;
             };
             cookie?: never;

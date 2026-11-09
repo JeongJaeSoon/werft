@@ -105,7 +105,7 @@ Reference: [`GET …/push-requests/{push_request_id}`](/reference/http-api/push-
 
 The local stack's `sample-app` is registered with a GitHub App on the stack's own Git server, so the request becomes `pushed`. The receipt's `result` records `remote_ref` (`refs/heads/agent/<session-id>`) and `previous_commit`. A repository with no GitHub App credential that can write to it ends with `no_push_credential`.
 
-The platform sends only that one commit to that branch. It does not force push. It does not send to the default branch.
+The platform makes the approved commit the new tip of that branch (`git push <commit>:<branch>`). Any of its ancestors the branch does not have yet, that is commits the session made earlier and has not pushed, go up with it. When you approve, review every change from the remote branch (or the default branch when there is none) to that commit, not only the pinned commit. It does not force push. It does not send to the default branch.
 
 | `refusal` | Meaning |
 | --- | --- |

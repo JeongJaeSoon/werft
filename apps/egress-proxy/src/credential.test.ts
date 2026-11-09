@@ -1554,8 +1554,15 @@ describe("startCredentialProxy", () => {
         ["x-api-key", PROVIDER_KEY],
       ]),
     );
+    // Each exchange's deadline fires only when the test says so: a wall-clock
+    // deadline also cut the healthy exchange short on a loaded runner.
+    const deadlines: AbortController[] = [];
     const server = proxy(auth.url, up.port, {
-      exchangeTimeoutMs: 300,
+      exchangeDeadline: () => {
+        const deadline = new AbortController();
+        deadlines.push(deadline);
+        return deadline.signal;
+      },
       maxExchangesPerClient: 1,
     });
     // Promises 100 bytes, sends 2, then goes quiet.
@@ -1567,15 +1574,22 @@ describe("startCredentialProxy", () => {
     socket.write(
       `POST /provider/v1/messages HTTP/1.1\r\nhost: proxy\r\nx-api-key: ${WORKER_TOKEN}\r\ncontent-length: 100\r\n\r\n{}`,
     );
-    const started = performance.now();
+    // The trickled exchange is admitted once its deadline starts.
+    while (deadlines.length === 0) await Bun.sleep(5);
+    const held = await messages(server.port);
+    expect(held.status).toBe(503);
+    await held.text();
+    deadlines[0]?.abort(new DOMException("deadline", "TimeoutError"));
+    // The slot frees as the aborted exchange unwinds; nothing here waits on
+    // the clock, only on that event.
     let next = await messages(server.port);
-    while (next.status === 503 && performance.now() - started < 5_000) {
+    while (next.status === 503) {
       await next.text();
-      await Bun.sleep(50);
+      await Bun.sleep(5);
       next = await messages(server.port);
     }
     expect(next.status).toBe(200);
-    expect(performance.now() - started).toBeLessThan(5_000);
+    await next.text();
     // The trickled request never reached the upstream.
     expect(up.seen).toHaveLength(1);
     socket.end();

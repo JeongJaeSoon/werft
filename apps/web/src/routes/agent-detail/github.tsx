@@ -12,9 +12,24 @@ import {
   Button,
   Code,
   ConfirmDialog,
+  cn,
+  DangerZone,
+  DangerZoneRow,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Field,
   FieldError,
   FieldLabel,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  Heading,
+  IconTile,
   Input,
   Link,
   NativeSelect,
@@ -22,9 +37,8 @@ import {
   RelativeTime,
   RowAction,
   RowList,
-  RowListItem,
-  Section,
   SettingRow,
+  SettingsSection,
   SideNav,
   SideNavGroup,
   SideNavLayout,
@@ -34,10 +48,17 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
-import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { GitHubMark } from "../../components/brand-marks.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
-import { SECTION_BODY } from "../../components/section-body.ts";
 import { type Notify, useToast } from "../../components/toast.tsx";
 import {
   errorKey,
@@ -45,6 +66,7 @@ import {
   type Translate,
   useI18n,
 } from "../../i18n/i18n.tsx";
+import { SECTIONS, SETTINGS_CARD } from "../workspace-settings.tsx";
 import {
   githubKey,
   receiptTitle,
@@ -80,20 +102,31 @@ type Draft = {
   };
 };
 
+// The workspace's Integrations > GitHub order (GitHub with the repositories
+// under it, features, pull requests), then what only an agent has: push
+// approval, its receipts and the danger zone.
 const SECTION = {
-  use: "github-use",
+  github: "github-overview",
   repositories: "github-repositories",
+  features: "github-features",
   pullRequest: PULL_REQUEST_SECTION,
-  details: "github-details",
-  activity: "github-activity",
-} as const;
-// Inside the collapsed details; not in the side nav.
-const DETAIL_ID = {
-  permissions: "github-permissions",
-  allowlist: "github-allowlist",
   push: "github-push",
+  activity: "github-activity",
+  danger: "github-danger",
 } as const;
+// Under the features section; not in the side nav.
+const ALLOWLIST_ID = "github-allowlist";
 type SectionKey = keyof typeof SECTION;
+const MANAGE_KEYS: readonly SectionKey[] = ["activity", "danger"];
+// Workflow | ref pattern | remove; narrow, the ref moves under the workflow.
+const ALLOW_COLUMNS = "minmax(0,1fr) minmax(0,1fr) 88px";
+const ALLOW_COLUMNS_READ = "minmax(0,1fr) minmax(0,1fr)";
+const ALLOW_NARROW = "minmax(0,1fr) 88px";
+const ALLOW_NARROW_READ = "minmax(0,1fr)";
+const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
+// Receipt (what, with its detail line under it) | when.
+const ACTIVITY_COLUMNS = "minmax(0,1fr) 112px";
+const FOCUS_TARGET = "scroll-mt-4 outline-none";
 // The order the mockup lists them in: what most agents turn on first.
 // checks and issues stay in the contract but have no work behind them yet
 // (github-agent.md LATER), so they are not offered.
@@ -187,59 +220,58 @@ function ReceiptRow({
       ? t("agentGitHub.activity.byAdmin")
       : null,
   ].filter((part): part is string => part !== null);
-  // Every row keeps one detail line, so the session link joins it instead
-  // of adding a second one.
+  const detailLine =
+    parts.length > 0 || result.session_id ? (
+      <Text as="span" variant="sub" className="[overflow-wrap:anywhere]">
+        {parts.join(" · ")}
+        {result.session_id ? (
+          <>
+            {parts.length > 0 ? " · " : null}
+            <Link asChild>
+              <RouterLink to="/sessions/$id" params={{ id: result.session_id }}>
+                {t("agentGitHub.activity.session")}{" "}
+                <Code>{result.session_id.slice(0, 8)}</Code>
+              </RouterLink>
+            </Link>
+          </>
+        ) : null}
+      </Text>
+    ) : null;
   return (
-    <SettingRow
-      title={receiptTitle(receipt, t)}
-      badge={
-        receipt.status === "failed" ? (
-          <Badge variant="red">{t("agentGitHub.refused")}</Badge>
-        ) : undefined
-      }
-      description={
-        <>
-          {parts.join(" · ")}
-          {result.session_id ? (
-            <>
-              {parts.length > 0 ? " · " : null}
-              <Link asChild>
-                <RouterLink
-                  to="/sessions/$id"
-                  params={{ id: result.session_id }}
-                >
-                  {t("agentGitHub.activity.session")}{" "}
-                  <Code>{result.session_id.slice(0, 8)}</Code>
-                </RouterLink>
-              </Link>
-            </>
-          ) : null}
-        </>
-      }
-      status={
+    <GridTableRow>
+      <GridTableCell>
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Text as="span" weight="medium">
+              {receiptTitle(receipt, t)}
+            </Text>
+            {receipt.status === "failed" ? (
+              <Badge variant="red">{t("agentGitHub.refused")}</Badge>
+            ) : null}
+          </div>
+          {detailLine}
+        </div>
+      </GridTableCell>
+      <GridTableCell align="end">
         <RelativeTime
           value={receipt.created_at}
           locale={locale}
           className="text-caption text-muted-foreground"
         />
-      }
-    />
+      </GridTableCell>
+    </GridTableRow>
   );
 }
-
-type Fold = {
-  readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
-};
 
 function Activity({
   agentId,
   detail,
-  open,
-  onOpenChange,
-}: { readonly agentId: string; readonly detail: AgentDetail } & Fold) {
+}: {
+  readonly agentId: string;
+  readonly detail: AgentDetail;
+}) {
   const { t } = useI18n();
-  const activity = useAgentGitHubActivity(agentId, open);
+  const activity = useAgentGitHubActivity(agentId);
   const repositories = new Map(
     (activity.data?.receipt_repositories ?? []).map((held) => [
       held.receipt_id,
@@ -247,20 +279,11 @@ function Activity({
     ]),
   );
   return (
-    <details
-      id={SECTION.activity}
-      tabIndex={-1}
-      className="group scroll-mt-4 outline-none"
-      open={open}
-      onToggle={(event) => onOpenChange(event.currentTarget.open)}
-    >
-      <summary className="cursor-pointer text-control font-medium">
-        {t("agentGitHub.section.activity")}
-        <Text as="span" variant="meta" className="ml-2">
-          {t("agentGitHub.activityHint")}
-        </Text>
-      </summary>
-      <div className={`${SECTION_BODY} mt-4`}>
+    <div id={SECTION.activity} tabIndex={-1} className={FOCUS_TARGET}>
+      <SettingsSection
+        title={t("agentGitHub.section.activity")}
+        description={t("agentGitHub.activityHint")}
+      >
         {activity.error ? (
           <LoadFailure
             error={activity.error}
@@ -273,15 +296,25 @@ function Activity({
             <Skeleton className="h-32 w-full" />
           )
         ) : activity.data.items.length === 0 ? (
-          <Text as="span" variant="sub">
-            {t("agentGitHub.activityEmpty")}
-          </Text>
+          <div className="rounded-card border bg-card p-4">
+            <Text as="span" variant="sub">
+              {t("agentGitHub.activityEmpty")}
+            </Text>
+          </div>
         ) : (
-          <RowList
-            variant="joined"
-            framed={false}
+          <GridTable
             aria-label={t("agentGitHub.section.activity")}
+            columns={ACTIVITY_COLUMNS}
+            framed
           >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("agentGitHub.table.receipt")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader align="end">
+                {t("agentGitHub.table.at")}
+              </GridTableColumnHeader>
+            </GridTableHeader>
             {activity.data.items.map((receipt) => (
               <ReceiptRow
                 key={receipt.id}
@@ -290,26 +323,18 @@ function Activity({
                 repository={repositories.get(receipt.id)}
               />
             ))}
-          </RowList>
+          </GridTable>
         )}
-      </div>
-    </details>
+      </SettingsSection>
+    </div>
   );
 }
 
-function EnabledRow({
-  agentId,
-  enabled,
-  notify,
-}: {
-  readonly agentId: string;
-  readonly enabled: boolean;
-  readonly notify: Notify;
-}) {
+/** Turning GitHub on or off for the agent: on in the header, off in the danger zone. */
+function useEnabled(agentId: string, notify: Notify) {
   const { t } = useI18n();
   const { client } = useWerft();
   const cache = useQueryClient();
-  const manages = useManagesAgent();
   const [confirming, setConfirming] = useState(false);
   const update = useMutation({
     mutationFn: (next: boolean) =>
@@ -327,71 +352,38 @@ function EnabledRow({
       await cache.invalidateQueries({ queryKey: githubKey(client, agentId) });
     },
   });
+  return { update, confirming, setConfirming };
+}
+
+function TileMark({ className }: { readonly className?: string }) {
   return (
-    <>
-      <RowList variant="joined" framed={false}>
-        <SettingRow
-          title={t("agentGitHub.enabled")}
-          badge={<Badge variant="gray">{t("agentGitHub.badge.now")}</Badge>}
-          description={t("agentGitHub.enabledHint")}
-          meta={
-            update.error && !confirming ? (
-              <FieldError>{failure(update.error, t)}</FieldError>
-            ) : undefined
-          }
-          status={
-            <Text as="span" variant="sub">
-              {t(enabled ? "agentGitHub.on" : "agentGitHub.off")}
-            </Text>
-          }
-          control={
-            manages ? (
-              <Switch
-                aria-label={t("agentGitHub.enabled")}
-                checked={enabled}
-                aria-disabled={update.isPending}
-                onCheckedChange={(checked) => {
-                  if (update.isPending) return;
-                  if (checked) update.mutate(true);
-                  else setConfirming(true);
-                }}
-              />
-            ) : undefined
-          }
-        />
-      </RowList>
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={t("agentGitHub.disableTitle")}
-        consequence={t("agentGitHub.disableBody")}
-        confirmLabel={t("agentGitHub.disableConfirm")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={update.isPending}
-        onConfirm={() => update.mutate(false)}
-      >
-        {update.error ? (
-          <FieldError>{failure(update.error, t)}</FieldError>
-        ) : null}
-      </ConfirmDialog>
-    </>
+    <GitHubMark
+      className={cn(className, "text-(--werft-color-tile-foreground)")}
+    />
   );
 }
 
-function AllowAdd({
+function AllowAddDialog({
+  open,
+  onOpenChange,
   entries,
-  disabled,
   onAdd,
 }: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
   readonly entries: readonly AllowEntry[];
-  readonly disabled: boolean;
   readonly onAdd: (entry: AllowEntry) => void;
 }) {
   const { t } = useI18n();
+  const ids = { workflow: useId(), ref: useId(), refHint: useId() };
   const [workflow, setWorkflow] = useState("");
   const [ref, setRef] = useState("");
   const [error, setError] = useState<MessageKey | null>(null);
+  const reset = () => {
+    setWorkflow("");
+    setRef("");
+    setError(null);
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const entry: AllowEntry = {
@@ -412,46 +404,68 @@ function AllowAdd({
     setError(refused);
     if (refused) return;
     onAdd(entry);
-    setWorkflow("");
-    setRef("");
+    reset();
+    onOpenChange(false);
   };
   return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-3 rounded-lg border p-4"
-      noValidate
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) reset();
+        onOpenChange(next);
+      }}
     >
-      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-        <Field>
-          <FieldLabel>{t("agentGitHub.workflow")}</FieldLabel>
-          <Input
-            value={workflow}
-            placeholder="release.yml"
-            className="font-mono"
-            disabled={disabled}
-            onChange={(event) => setWorkflow(event.target.value)}
-          />
-        </Field>
-        <Field>
-          <FieldLabel>{t("agentGitHub.ref")}</FieldLabel>
-          <Input
-            value={ref}
-            placeholder="release/*"
-            className="font-mono"
-            disabled={disabled}
-            onChange={(event) => setRef(event.target.value)}
-          />
-        </Field>
-        <Button type="submit" variant="outline" disabled={disabled}>
-          <Plus aria-hidden="true" strokeWidth={1.5} />
-          {t("agentGitHub.add")}
-        </Button>
-      </div>
-      <Text as="span" variant="meta">
-        {t("agentGitHub.refHint")}
-      </Text>
-      {error ? <FieldError>{t(error)}</FieldError> : null}
-    </form>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("agentGitHub.add")}</DialogTitle>
+          <DialogDescription>
+            {t("agentGitHub.allowlistHint")}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field>
+            <FieldLabel htmlFor={ids.workflow}>
+              {t("agentGitHub.workflow")}
+            </FieldLabel>
+            <Input
+              id={ids.workflow}
+              value={workflow}
+              placeholder="release.yml"
+              className="font-mono"
+              onChange={(event) => setWorkflow(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={ids.ref}>{t("agentGitHub.ref")}</FieldLabel>
+            <Input
+              id={ids.ref}
+              value={ref}
+              placeholder="release/*"
+              className="font-mono"
+              aria-describedby={ids.refHint}
+              onChange={(event) => setRef(event.target.value)}
+            />
+            <Text as="span" variant="meta" id={ids.refHint}>
+              {t("agentGitHub.refHint")}
+            </Text>
+          </Field>
+          {error ? <FieldError>{t(error)}</FieldError> : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                reset();
+                onOpenChange(false);
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit">{t("agentGitHub.addSubmit")}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -461,14 +475,12 @@ function GitHubSettings({
   data,
   notify,
   sectionKeys,
-  folds,
 }: {
   readonly agentId: string;
   readonly detail: AgentDetail;
   readonly data: GitHubTabData;
   readonly notify: Notify;
   readonly sectionKeys: (keys: readonly SectionKey[]) => void;
-  readonly folds: Readonly<Record<"details" | "activity", Fold>>;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -575,9 +587,12 @@ function GitHubSettings({
     : t("agentGitHub.pending.title", { count: pending });
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
-    "use",
-    ...(settings ? (["repositories", "pullRequest", "details"] as const) : []),
+    "github",
+    ...(settings ? (["repositories", "features"] as const) : []),
+    "pullRequest",
+    ...(settings ? (["push"] as const) : []),
     "activity",
+    ...(manages && data.enabled ? (["danger"] as const) : []),
   ];
   // Joined, so a new array with the same sections does not report again.
   const joined = keys.join();
@@ -585,139 +600,167 @@ function GitHubSettings({
     () => sectionKeys(joined.split(",") as SectionKey[]),
     [sectionKeys, joined],
   );
+  const enabled = useEnabled(agentId, notify);
+  const [adding, setAdding] = useState(false);
+  const titleId = useId();
+  const settingsLink = (
+    <Link asChild>
+      <RouterLink to="/settings/workspace/integrations/github">
+        {t("agentGitHub.settingsLink")}
+      </RouterLink>
+    </Link>
+  );
+  const onOff = (on: boolean) => (
+    <Text as="span" variant="sub">
+      {t(on ? "agentGitHub.on" : "agentGitHub.off")}
+    </Text>
+  );
+  // Turning on fails under the header; turning off, in the danger zone.
+  const enableError =
+    enabled.update.error && !enabled.confirming && !data.enabled ? (
+      <FieldError>{failure(enabled.update.error, t)}</FieldError>
+    ) : null;
 
   return (
     <>
+      {/* The workspace's GitHub card: the connection, then the repositories. */}
       <section
-        className="flex flex-col gap-[var(--werft-space-block)]"
-        aria-label={t("agentGitHub.status")}
+        id={SECTION.github}
+        tabIndex={-1}
+        aria-labelledby={titleId}
+        className={cn(SECTIONS, FOCUS_TARGET)}
       >
-        <RowList variant="joined" framed={false}>
-          <RowListItem className="flex flex-wrap items-center gap-x-4 gap-y-2 text-control">
-            <Badge variant={data.enabled ? "green" : "gray"}>
-              {t(
-                data.enabled ? "agentGitHub.state.on" : "agentGitHub.state.off",
-              )}
-            </Badge>
-            <span>
-              {base === null || data.github === null
-                ? t("agentGitHub.status.repositoriesLegacy")
-                : t("agentGitHub.status.repositories", {
-                    count: data.github.repositories.length,
-                  })}
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="text-muted-foreground">
-                {t("agentGitHub.status.pushApproval")}
-              </span>
-              <span>
-                {base
-                  ? t(
-                      // A release without settings still asks a person,
-                      // whatever a first save would start from.
-                      data.github === null || base.push_approval
-                        ? "agentGitHub.on"
-                        : "agentGitHub.off",
-                    )
-                  : "—"}
-              </span>
-            </span>
-          </RowListItem>
-        </RowList>
-      </section>
-      {manages && (pending > 0 || firstSave || saveFailure) ? (
-        <Alert
-          ref={pendingRegion}
-          tabIndex={-1}
-          variant={saveFailure ? "red" : "blue"}
-          role="region"
-          aria-label={pendingTitle}
-          className="outline-none"
-        >
-          <AlertTitle>{pendingTitle}</AlertTitle>
-          <AlertDescription>
-            {t("agentGitHub.pending.body")}
-            {saveFailure ? (
-              <div ref={saveError} tabIndex={-1} className="mt-2 outline-none">
-                <FieldError>{saveFailure}</FieldError>
+        <div className={SETTINGS_CARD}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+            <IconTile icon={TileMark} hue="slate" size="two-line" />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex flex-wrap items-center gap-2">
+                <Heading id={titleId} level={2}>
+                  GitHub
+                </Heading>
+                <Badge variant={data.enabled ? "green" : "gray"}>
+                  {t(
+                    data.enabled
+                      ? "agentGitHub.state.on"
+                      : "agentGitHub.state.off",
+                  )}
+                </Badge>
               </div>
-            ) : null}
-          </AlertDescription>
-          <AlertActions>
-            <Button
-              type="button"
-              size="sm"
-              disabled={
-                (pending === 0 && !firstSave) ||
-                stale ||
-                save.isPending ||
-                toggles.pending
-              }
-              onClick={() => save.mutate()}
-            >
-              {save.isPending
-                ? t("agentGitHub.pending.saving")
-                : t("agentGitHub.pending.save")}
-            </Button>
-            {draft !== null || saveFailure ? (
+              <Text variant="sub">
+                {[
+                  base === null || data.github === null
+                    ? t("agentGitHub.status.repositoriesLegacy")
+                    : t("agentGitHub.status.repositories", {
+                        count: data.github.repositories.length,
+                      }),
+                  `${t("agentGitHub.status.pushApproval")} ${
+                    base
+                      ? t(
+                          // A release without settings still asks a person,
+                          // whatever a first save would start from.
+                          data.github === null || base.push_approval
+                            ? "agentGitHub.on"
+                            : "agentGitHub.off",
+                        )
+                      : "—"
+                  }`,
+                ].join(" · ")}
+              </Text>
+            </div>
+            {manages && !data.enabled ? (
               <Button
                 type="button"
                 size="sm"
-                variant="ghost"
-                disabled={save.isPending}
+                aria-disabled={enabled.update.isPending || undefined}
                 onClick={() => {
-                  setDraft(null);
-                  save.reset();
-                  // The region stays for a first save but this button goes.
-                  if (firstSave) pendingRegion.current?.focus();
+                  if (!enabled.update.isPending) enabled.update.mutate(true);
                 }}
               >
-                {t(
-                  stale || save.error?.code === "REVISION_CONFLICT"
-                    ? "agentGitHub.pending.reload"
-                    : "agentGitHub.pending.revert",
-                )}
+                {t("agentGitHub.turnOn")}
               </Button>
             ) : null}
-          </AlertActions>
-        </Alert>
-      ) : null}
-      {data.github === null && base ? (
-        <Alert>
-          <AlertDescription>{t("agentGitHub.legacy")}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      <Section
-        id={SECTION.use}
-        tabIndex={-1}
-        className="scroll-mt-4 outline-none"
-        title={t("agentGitHub.section.use")}
-      >
-        <div className={SECTION_BODY}>
-          <EnabledRow
-            agentId={agentId}
-            enabled={data.enabled}
-            notify={notify}
-          />
+          </div>
+          <Text variant="sub">{t("agentGitHub.overviewHint")}</Text>
+          {enableError}
           {data.enabled ? null : (
             <Text as="span" variant="sub">
               {t("agentGitHub.offNote")}
             </Text>
           )}
         </div>
-      </Section>
-
-      {settings ? (
-        <div className="flex flex-col gap-8">
-          <Section
-            id={SECTION.repositories}
+        {manages && (pending > 0 || firstSave || saveFailure) ? (
+          <Alert
+            ref={pendingRegion}
             tabIndex={-1}
-            className="scroll-mt-4 outline-none"
-            title={t("agentGitHub.section.repositories")}
-            description={t("agentGitHub.repositoriesHint")}
+            variant={saveFailure ? "red" : "blue"}
+            role="region"
+            aria-label={pendingTitle}
+            className="outline-none"
           >
-            <div className={SECTION_BODY}>
+            <AlertTitle>{pendingTitle}</AlertTitle>
+            <AlertDescription>
+              {t("agentGitHub.pending.body")}
+              {saveFailure ? (
+                <div
+                  ref={saveError}
+                  tabIndex={-1}
+                  className="mt-2 outline-none"
+                >
+                  <FieldError>{saveFailure}</FieldError>
+                </div>
+              ) : null}
+            </AlertDescription>
+            <AlertActions>
+              <Button
+                type="button"
+                size="sm"
+                disabled={
+                  (pending === 0 && !firstSave) ||
+                  stale ||
+                  save.isPending ||
+                  toggles.pending
+                }
+                onClick={() => save.mutate()}
+              >
+                {save.isPending
+                  ? t("agentGitHub.pending.saving")
+                  : t("agentGitHub.pending.save")}
+              </Button>
+              {draft !== null || saveFailure ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    setDraft(null);
+                    save.reset();
+                    // The region stays for a first save but this button goes.
+                    if (firstSave) pendingRegion.current?.focus();
+                  }}
+                >
+                  {t(
+                    stale || save.error?.code === "REVISION_CONFLICT"
+                      ? "agentGitHub.pending.reload"
+                      : "agentGitHub.pending.revert",
+                  )}
+                </Button>
+              ) : null}
+            </AlertActions>
+          </Alert>
+        ) : null}
+        {data.github === null && base ? (
+          <Alert>
+            <AlertDescription>{t("agentGitHub.legacy")}</AlertDescription>
+          </Alert>
+        ) : null}
+        {settings ? (
+          <div id={SECTION.repositories} tabIndex={-1} className={FOCUS_TARGET}>
+            <SettingsSection
+              titleAs="h3"
+              title={t("github.repos.title")}
+              description={t("agentGitHub.repositoriesHint")}
+            >
               {data.options.repository_ceiling_unset ? (
                 <Text as="span" variant="sub">
                   {t("agentGitHub.ceilingUnset")}
@@ -736,203 +779,207 @@ function GitHubSettings({
               <Text as="span" variant="meta">
                 {t("agentGitHub.repositoriesFoot")}
               </Text>
-            </div>
-          </Section>
+            </SettingsSection>
+          </div>
+        ) : null}
+      </section>
 
-          <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
-
-          <details
-            id={SECTION.details}
-            tabIndex={-1}
-            className="group scroll-mt-4 outline-none"
-            open={folds.details.open}
-            onToggle={(event) =>
-              folds.details.onOpenChange(event.currentTarget.open)
-            }
+      {settings ? (
+        <div id={SECTION.features} tabIndex={-1} className={FOCUS_TARGET}>
+          <SettingsSection
+            title={t("github.ceiling.title")}
+            description={t("agentGitHub.permissionsHint")}
           >
-            <summary className="cursor-pointer text-control font-medium">
-              {t("agentGitHub.section.details")}
-              <Text as="span" variant="meta" className="ml-2">
-                {t("agentGitHub.detailsHint")}
-              </Text>
-            </summary>
-            <div className="mt-4 flex flex-col gap-8">
-              <Section
-                id={DETAIL_ID.permissions}
-                tabIndex={-1}
-                className="scroll-mt-4 outline-none"
-                title={t("agentGitHub.section.permissions")}
-                description={t("agentGitHub.permissionsHint")}
-              >
-                <div className={SECTION_BODY}>
-                  <RowList variant="joined" framed={false}>
-                    <SettingRow
-                      title={t("agentGitHub.base")}
-                      badge={
-                        <Badge variant="gray">
-                          {t("agentGitHub.badge.default")}
-                        </Badge>
-                      }
-                      description={t("agentGitHub.baseHint")}
-                      status={
-                        <Text as="span" variant="sub">
-                          {t("agentGitHub.baseState")}
-                        </Text>
-                      }
-                    />
-                    {FEATURES.map((feature) => {
-                      const option = data.options.features[feature];
-                      const on = settings.features[feature];
-                      // GitHub refuses a review where the reviewer App is not installed.
-                      const uninstalled =
-                        feature === "review" && option.available
-                          ? data.options.repositories
-                              .filter(
-                                (repository) =>
-                                  settings.repositories.includes(
-                                    repository.id,
-                                  ) && repository.installed.reviewer === false,
-                              )
-                              .map(
-                                (repository) =>
-                                  repository.repository ?? repository.url,
-                              )
-                          : [];
-                      return (
-                        <SettingRow
-                          key={feature}
-                          title={t(`agentGitHub.feature.${feature}`)}
-                          badge={
-                            uninstalled.length > 0 ? (
-                              <Badge variant="amber">
-                                {t("agentGitHub.appNotInstalled")}
-                              </Badge>
-                            ) : undefined
-                          }
-                          // A locked feature shows why in place of its hint, so
-                          // every row keeps one detail line.
-                          description={
-                            option.reason ? (
-                              <>
-                                {t(
-                                  `agentGitHub.featureReason.${option.reason}`,
-                                )}{" "}
-                                {option.reason ===
-                                "github_host_unsupported" ? null : (
-                                  <Link asChild>
-                                    <RouterLink to="/settings/workspace/integrations/github">
-                                      {t("agentGitHub.settingsLink")}
-                                    </RouterLink>
-                                  </Link>
-                                )}
-                              </>
-                            ) : uninstalled.length > 0 ? (
-                              <>
-                                {t("agentGitHub.reviewerNotInstalled", {
-                                  repositories: uninstalled.join(", "),
-                                })}{" "}
-                                <Link asChild>
-                                  <RouterLink to="/settings/workspace/integrations/github">
-                                    {t("agentGitHub.settingsLink")}
-                                  </RouterLink>
-                                </Link>
-                              </>
-                            ) : (
-                              t(`agentGitHub.feature.${feature}Hint`)
-                            )
-                          }
-                          status={
-                            <Text as="span" variant="sub">
-                              {t(on ? "agentGitHub.on" : "agentGitHub.off")}
-                            </Text>
-                          }
-                          control={
-                            <Switch
-                              aria-label={t(`agentGitHub.feature.${feature}`)}
-                              checked={on}
-                              disabled={readOnly || (!option.available && !on)}
-                              onCheckedChange={(checked) =>
-                                edit((current) => ({
-                                  ...current,
-                                  features: {
-                                    ...current.features,
-                                    [feature]: checked,
-                                  },
-                                  // The release refuses a list with Actions off.
-                                  ...(feature === "actions" && !checked
-                                    ? { actions_allow: [] }
-                                    : {}),
-                                }))
-                              }
-                            />
-                          }
-                        />
-                      );
-                    })}
-                  </RowList>
-                  {settings.features.workflows && settings.features.actions ? (
-                    <Alert variant="amber">
-                      <AlertDescription>
-                        {t("agentGitHub.workflowsActions")}
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-                  <Text as="span" variant="meta">
-                    {t("agentGitHub.ceilingNote")}{" "}
-                    <Link asChild>
-                      <RouterLink to="/settings/workspace/integrations/github">
-                        {t("agentGitHub.settingsLink")}
-                      </RouterLink>
-                    </Link>
+            <RowList variant="joined">
+              <SettingRow
+                title={t("agentGitHub.base")}
+                badge={
+                  <Badge variant="gray">{t("agentGitHub.badge.default")}</Badge>
+                }
+                description={t("agentGitHub.baseHint")}
+                actions={
+                  <Text as="div" variant="meta">
+                    {t("agentGitHub.baseState")}
                   </Text>
-                </div>
-              </Section>
-
-              {actionsOn ? (
-                <Section
-                  id={DETAIL_ID.allowlist}
-                  tabIndex={-1}
-                  className="scroll-mt-4 outline-none"
+                }
+              />
+              {FEATURES.map((feature) => {
+                const option = data.options.features[feature];
+                const on = settings.features[feature];
+                // GitHub refuses a review where the reviewer App is not installed.
+                const uninstalled =
+                  feature === "review" && option.available
+                    ? data.options.repositories
+                        .filter(
+                          (repository) =>
+                            settings.repositories.includes(repository.id) &&
+                            repository.installed.reviewer === false,
+                        )
+                        .map(
+                          (repository) =>
+                            repository.repository ?? repository.url,
+                        )
+                    : [];
+                return (
+                  <SettingRow
+                    key={feature}
+                    title={t(`agentGitHub.feature.${feature}`)}
+                    badge={
+                      uninstalled.length > 0 ? (
+                        <Badge variant="amber">
+                          {t("agentGitHub.appNotInstalled")}
+                        </Badge>
+                      ) : undefined
+                    }
+                    // A locked feature shows why in place of its hint, so
+                    // every row keeps one detail line.
+                    description={
+                      option.reason ? (
+                        <>
+                          {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
+                          {option.reason === "github_host_unsupported"
+                            ? null
+                            : settingsLink}
+                        </>
+                      ) : uninstalled.length > 0 ? (
+                        <>
+                          {t("agentGitHub.reviewerNotInstalled", {
+                            repositories: uninstalled.join(", "),
+                          })}{" "}
+                          {settingsLink}
+                        </>
+                      ) : (
+                        t(`agentGitHub.feature.${feature}Hint`)
+                      )
+                    }
+                    status={onOff(on)}
+                    control={
+                      <Switch
+                        aria-label={t(`agentGitHub.feature.${feature}`)}
+                        checked={on}
+                        disabled={readOnly || (!option.available && !on)}
+                        onCheckedChange={(checked) =>
+                          edit((current) => ({
+                            ...current,
+                            features: {
+                              ...current.features,
+                              [feature]: checked,
+                            },
+                            // The release refuses a list with Actions off.
+                            ...(feature === "actions" && !checked
+                              ? { actions_allow: [] }
+                              : {}),
+                          }))
+                        }
+                      />
+                    }
+                  />
+                );
+              })}
+            </RowList>
+            {settings.features.workflows && settings.features.actions ? (
+              <Alert variant="amber">
+                <AlertDescription>
+                  {t("agentGitHub.workflowsActions")}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <Text as="span" variant="meta">
+              {t("agentGitHub.ceilingNote")} {settingsLink}
+            </Text>
+            {actionsOn ? (
+              <div id={ALLOWLIST_ID} tabIndex={-1} className={FOCUS_TARGET}>
+                <SettingsSection
+                  titleAs="h3"
                   title={t("agentGitHub.section.allowlist")}
                   description={t("agentGitHub.allowlistHint")}
+                  actions={
+                    manages ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        aria-haspopup="dialog"
+                        disabled={readOnly}
+                        onClick={() => setAdding(true)}
+                      >
+                        <Plus aria-hidden="true" strokeWidth={1.5} />
+                        {t("agentGitHub.add")}
+                      </Button>
+                    ) : null
+                  }
                 >
-                  <div className={SECTION_BODY}>
-                    {settings.actions_allow.length === 0 ? (
+                  {settings.actions_allow.length === 0 ? (
+                    <div className="rounded-card border bg-card p-4">
                       <Text as="span" variant="sub">
                         {t("agentGitHub.allowlistEmpty")}
                       </Text>
-                    ) : (
-                      <RowList
-                        variant="joined"
-                        framed={false}
-                        aria-label={t("agentGitHub.section.allowlist")}
-                      >
-                        {settings.actions_allow.map((entry) => (
-                          <SettingRow
+                    </div>
+                  ) : (
+                    <GridTable
+                      aria-label={t("agentGitHub.section.allowlist")}
+                      columns={manages ? ALLOW_COLUMNS : ALLOW_COLUMNS_READ}
+                      narrowAt={480}
+                      narrowColumns={manages ? ALLOW_NARROW : ALLOW_NARROW_READ}
+                      framed
+                    >
+                      <GridTableHeader>
+                        <GridTableColumnHeader>
+                          {t("agentGitHub.table.workflow")}
+                        </GridTableColumnHeader>
+                        <GridTableColumnHeader hideNarrow>
+                          {t("agentGitHub.table.ref")}
+                        </GridTableColumnHeader>
+                        {manages ? (
+                          <GridTableColumnHeader action>
+                            <span className="sr-only">
+                              {t("agentGitHub.table.remove")}
+                            </span>
+                          </GridTableColumnHeader>
+                        ) : null}
+                      </GridTableHeader>
+                      {settings.actions_allow.map((entry) => {
+                        const refText =
+                          entry.ref === undefined
+                            ? t("agentGitHub.refDefault")
+                            : t("agentGitHub.refPattern", { ref: entry.ref });
+                        return (
+                          <GridTableRow
                             key={`${entry.workflow}@${entry.ref ?? ""}`}
-                            title={
-                              <Code className="font-medium text-control">
-                                {entry.workflow}
-                              </Code>
-                            }
-                            badge={
-                              base?.actions_allow.some((held) =>
-                                sameEntry(held, entry),
-                              ) ? undefined : (
-                                <Badge variant="blue">
-                                  {t("agentGitHub.badge.unsaved")}
-                                </Badge>
-                              )
-                            }
-                            description={
-                              entry.ref === undefined
-                                ? t("agentGitHub.refDefault")
-                                : t("agentGitHub.refPattern", {
-                                    ref: entry.ref,
-                                  })
-                            }
-                            actions={
-                              manages ? (
+                          >
+                            <GridTableCell>
+                              <div className="flex min-w-0 flex-col gap-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  <Code className="font-medium text-control [overflow-wrap:anywhere]">
+                                    {entry.workflow}
+                                  </Code>
+                                  {base?.actions_allow.some((held) =>
+                                    sameEntry(held, entry),
+                                  ) ? null : (
+                                    <Badge variant="blue">
+                                      {t("agentGitHub.badge.unsaved")}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <Text
+                                  as="span"
+                                  variant="meta"
+                                  className={WIDE_ONLY_480}
+                                >
+                                  {refText}
+                                </Text>
+                              </div>
+                            </GridTableCell>
+                            <GridTableCell hideNarrow>
+                              <Text
+                                as="span"
+                                variant="sub"
+                                className="[overflow-wrap:anywhere]"
+                              >
+                                {refText}
+                              </Text>
+                            </GridTableCell>
+                            {manages ? (
+                              <GridTableCell align="end">
                                 <RowAction
                                   disabled={readOnly}
                                   aria-label={t("agentGitHub.removeLabel", {
@@ -950,129 +997,171 @@ function GitHubSettings({
                                 >
                                   {t("agentGitHub.remove")}
                                 </RowAction>
-                              ) : undefined
-                            }
-                          />
-                        ))}
-                      </RowList>
-                    )}
-                    {manages ? (
-                      <AllowAdd
-                        entries={settings.actions_allow}
-                        disabled={readOnly}
-                        onAdd={(entry) =>
-                          edit((current) => ({
-                            ...current,
-                            actions_allow: [...current.actions_allow, entry],
-                          }))
-                        }
-                      />
-                    ) : null}
-                    <Alert>
-                      <AlertDescription>
-                        {t("agentGitHub.allowlistNote")}
-                      </AlertDescription>
-                    </Alert>
-                  </div>
-                </Section>
-              ) : null}
-
-              <Section
-                id={DETAIL_ID.push}
-                tabIndex={-1}
-                className="scroll-mt-4 outline-none"
-                title={t("agentGitHub.section.push")}
-              >
-                <div className={SECTION_BODY}>
-                  <RowList variant="joined" framed={false}>
-                    <SettingRow
-                      title={t("agentGitHub.pushApproval")}
-                      description={t("agentGitHub.pushApprovalHint")}
-                      status={
-                        <Text as="span" variant="sub">
-                          {t(
-                            settings.push_approval
-                              ? "agentGitHub.on"
-                              : "agentGitHub.off",
-                          )}
-                        </Text>
-                      }
-                      control={
-                        <Switch
-                          aria-label={t("agentGitHub.pushApproval")}
-                          checked={settings.push_approval}
-                          disabled={readOnly}
-                          onCheckedChange={(checked) =>
-                            edit((current) => ({
-                              ...current,
-                              push_approval: checked,
-                            }))
-                          }
-                        />
-                      }
-                    />
-                  </RowList>
-                  {settings.push_approval ? null : (
-                    <Alert variant="amber">
-                      <AlertDescription>
-                        {t("agentGitHub.pushApprovalOff")}
-                      </AlertDescription>
-                    </Alert>
+                              </GridTableCell>
+                            ) : null}
+                          </GridTableRow>
+                        );
+                      })}
+                    </GridTable>
                   )}
-                  <Field>
-                    <FieldLabel>{t("agentGitHub.pushAttached")}</FieldLabel>
-                    <NativeSelect
-                      value={pushAttached}
-                      disabled={readOnly}
-                      aria-label={t("agentGitHub.pushAttached")}
-                      onChange={(event) =>
-                        edit(
-                          (current) => current,
-                          event.target.value as PushAttached,
-                        )
-                      }
-                    >
-                      {PUSH_ATTACHED.map((value) => (
-                        <NativeSelectOption key={value} value={value}>
-                          {t(`agentGitHub.pushAttached.${value}`)}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                    <Text as="span" variant="meta">
-                      {t("agentGitHub.pushAttachedHint")}
-                    </Text>
-                  </Field>
-                  {pushAttached === "allow" ? (
-                    <Alert variant="amber">
-                      <AlertDescription>
-                        {t("agentGitHub.pushAttachedAllowNote")}
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-                </div>
-              </Section>
-            </div>
-          </details>
+                  <Alert>
+                    <AlertDescription>
+                      {t("agentGitHub.allowlistNote")}
+                    </AlertDescription>
+                  </Alert>
+                </SettingsSection>
+                <AllowAddDialog
+                  open={adding}
+                  onOpenChange={setAdding}
+                  entries={settings.actions_allow}
+                  onAdd={(entry) =>
+                    edit((current) => ({
+                      ...current,
+                      actions_allow: [...current.actions_allow, entry],
+                    }))
+                  }
+                />
+              </div>
+            ) : null}
+          </SettingsSection>
         </div>
-      ) : (
-        <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
-      )}
-      <Activity
-        agentId={agentId}
-        detail={detail}
-        open={folds.activity.open}
-        onOpenChange={folds.activity.onOpenChange}
-      />
+      ) : null}
+
+      <AgentPullRequestSettingsCard agentId={agentId} notify={notify} />
+
+      {settings ? (
+        <div id={SECTION.push} tabIndex={-1} className={FOCUS_TARGET}>
+          <SettingsSection
+            title={t("agentGitHub.section.push")}
+            description={t("agentGitHub.pushHint")}
+          >
+            <RowList variant="joined">
+              <SettingRow
+                title={t("agentGitHub.pushApproval")}
+                description={t("agentGitHub.pushApprovalHint")}
+                status={onOff(settings.push_approval)}
+                control={
+                  <Switch
+                    aria-label={t("agentGitHub.pushApproval")}
+                    checked={settings.push_approval}
+                    disabled={readOnly}
+                    onCheckedChange={(checked) =>
+                      edit((current) => ({
+                        ...current,
+                        push_approval: checked,
+                      }))
+                    }
+                  />
+                }
+              />
+              <PushAttachedRow
+                value={pushAttached}
+                disabled={readOnly}
+                onChange={(next) => edit((current) => current, next)}
+              />
+            </RowList>
+            {settings.push_approval ? null : (
+              <Alert variant="amber">
+                <AlertDescription>
+                  {t("agentGitHub.pushApprovalOff")}
+                </AlertDescription>
+              </Alert>
+            )}
+            {pushAttached === "allow" ? (
+              <Alert variant="amber">
+                <AlertDescription>
+                  {t("agentGitHub.pushAttachedAllowNote")}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </SettingsSection>
+        </div>
+      ) : null}
+
+      <Activity agentId={agentId} detail={detail} />
+
+      {manages && data.enabled ? (
+        <DangerZone
+          id={SECTION.danger}
+          tabIndex={-1}
+          className={FOCUS_TARGET}
+          title={t("agentGitHub.danger")}
+        >
+          <DangerZoneRow
+            title={t("agentGitHub.disableRow")}
+            description={t("agentGitHub.enabledHint")}
+            actionLabel={t("agentGitHub.disableConfirm")}
+            actionName={t("agentGitHub.disableRow")}
+            disabled={enabled.update.isPending}
+            onAction={() => enabled.setConfirming(true)}
+          />
+        </DangerZone>
+      ) : null}
+      {enabled.update.error && !enabled.confirming && data.enabled ? (
+        <FieldError>{failure(enabled.update.error, t)}</FieldError>
+      ) : null}
+      <ConfirmDialog
+        open={enabled.confirming}
+        onOpenChange={enabled.setConfirming}
+        title={t("agentGitHub.disableTitle")}
+        consequence={t("agentGitHub.disableBody")}
+        confirmLabel={t("agentGitHub.disableConfirm")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        busy={enabled.update.isPending}
+        onConfirm={() => enabled.update.mutate(false)}
+      >
+        {enabled.update.error ? (
+          <FieldError>{failure(enabled.update.error, t)}</FieldError>
+        ) : null}
+      </ConfirmDialog>
     </>
   );
 }
 
+function PushAttachedRow({
+  value,
+  disabled,
+  onChange,
+}: {
+  readonly value: PushAttached;
+  readonly disabled: boolean;
+  readonly onChange: (next: PushAttached) => void;
+}): ReactNode {
+  const { t } = useI18n();
+  const hintId = useId();
+  return (
+    <SettingRow
+      title={t("agentGitHub.pushAttached")}
+      description={<span id={hintId}>{t("agentGitHub.pushAttachedHint")}</span>}
+      control={
+        <NativeSelect
+          size="sm"
+          value={value}
+          disabled={disabled}
+          aria-label={t("agentGitHub.pushAttached")}
+          aria-describedby={hintId}
+          onChange={(event) => onChange(event.target.value as PushAttached)}
+        >
+          {PUSH_ATTACHED.map((option) => (
+            <NativeSelectOption key={option} value={option}>
+              {t(`agentGitHub.pushAttached.${option}`)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      }
+    />
+  );
+}
+
 const SECTION_LABEL = {
-  use: "agentGitHub.section.use",
-  repositories: "agentGitHub.section.repositories",
-  pullRequest: "agentPullRequest.title",
-  details: "agentGitHub.section.details",
+  github: "agentGitHub.section.github",
+  repositories: "github.repos.title",
+  features: "github.ceiling.title",
+  pullRequest: "github.pullRequest.title",
+  push: "agentGitHub.section.push",
   activity: "agentGitHub.section.activity",
+  danger: "agentGitHub.danger",
 } as const satisfies Record<SectionKey, MessageKey>;
 
 export default function GitHubTab({
@@ -1094,8 +1183,11 @@ export default function GitHubTab({
       ),
     retry: false,
   });
-  const [keys, setKeys] = useState<readonly SectionKey[]>(["use", "activity"]);
-  const [opened, setOpened] = useState({ details: false, activity: false });
+  const [keys, setKeys] = useState<readonly SectionKey[]>([
+    "github",
+    "pullRequest",
+    "activity",
+  ]);
   const [current, setCurrent] = useCurrentSection(keys.map((k) => SECTION[k]));
   const jumped = useRef<string>(undefined);
   const [fits, watchPage] = usePageFits();
@@ -1125,9 +1217,6 @@ export default function GitHubTab({
       onClick={(event) => {
         // Stay off the URL hash: the router owns the location.
         event.preventDefault();
-        if (key === "details" || key === "activity") {
-          setOpened((held) => ({ ...held, [key]: true }));
-        }
         const target = document.getElementById(SECTION[key]);
         target?.scrollIntoView({
           block: "start",
@@ -1159,15 +1248,15 @@ export default function GitHubTab({
             }
           >
             <SideNavGroup>
-              {keys.filter((k) => k !== "activity").map(link)}
+              {keys.filter((k) => !MANAGE_KEYS.includes(k)).map(link)}
             </SideNavGroup>
             <SideNavGroup label={t("agentGitHub.manage")}>
-              {keys.filter((k) => k === "activity").map(link)}
+              {keys.filter((k) => MANAGE_KEYS.includes(k)).map(link)}
             </SideNavGroup>
           </SideNav>
         }
       >
-        <div ref={watchPage} className="flex flex-col gap-8">
+        <div ref={watchPage} className={SECTIONS}>
           {github.error ? (
             <LoadFailure
               error={github.error}
@@ -1181,18 +1270,6 @@ export default function GitHubTab({
             data={github.data}
             notify={notify}
             sectionKeys={sectionKeys}
-            folds={{
-              details: {
-                open: opened.details,
-                onOpenChange: (open) =>
-                  setOpened((held) => ({ ...held, details: open })),
-              },
-              activity: {
-                open: opened.activity,
-                onOpenChange: (open) =>
-                  setOpened((held) => ({ ...held, activity: open })),
-              },
-            }}
           />
         </div>
       </SideNavLayout>

@@ -123,7 +123,17 @@ class FakeEventStream {
 let stream: FakeEventStream;
 beforeEach(() => {
   stream = new FakeEventStream();
+  // The timeline view is remembered; each test starts in focus.
+  globalThis.localStorage?.clear();
 });
+
+/** Switches the timeline from focus to every event. */
+async function showAllEvents() {
+  const view = await screen.findByRole("group", { name: "타임라인 보기" });
+  await (await setupUser()).click(
+    within(view).getByRole("button", { name: "전체" }),
+  );
+}
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
 /** Opens the relation chip and picks one by its label. */
@@ -1373,7 +1383,11 @@ describe("session detail", () => {
     });
     expect(await screen.findByText("Listing files")).toBeTruthy();
     expect(screen.getAllByText("Listing files")).toHaveLength(1);
-    expect(screen.getByText("도구 호출")).toBeTruthy();
+    // Focus folds the call under what it did; the reply stays open.
+    expect(screen.queryByText("도구 호출")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^실행한 명령 1개/ }),
+    ).toBeTruthy();
     expect(screen.queryByText("tool_use")).toBeNull();
     // Only the latest status is announced; the list itself is not live.
     const list = screen.getByText("Listing files").closest("ol");
@@ -1392,9 +1406,9 @@ describe("session detail", () => {
       }),
     );
     expect(screen.queryByText("command_lifecycle")).toBeNull();
-    const user = await setupUser();
-    await user.click(screen.getByLabelText("내부 이벤트도 보기"));
+    await showAllEvents();
     expect(await screen.findByText("command_lifecycle")).toBeTruthy();
+    expect(screen.getByText("도구 호출")).toBeTruthy();
 
     // The session reporting an error is an event, not a lost connection.
     act(() =>
@@ -1444,6 +1458,7 @@ describe("session detail", () => {
         stream.emit(`ev_s${i}`, "status", { phase: "running" });
       }
     });
+    await showAllEvents();
     expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
     expect(screen.queryByText("Bash: make")).toBeNull();
   });
@@ -1458,6 +1473,12 @@ describe("session detail", () => {
         tool_call: { id: "tu_1", name: "Bash", input: { command: "make" } },
       }),
     );
+    // Focus folds the call, and its line says it still runs.
+    const fold = await screen.findByRole("button", {
+      name: "실행한 명령 1개 · 실행 중",
+    });
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    await (await setupUser()).click(fold);
     const call = (await screen.findByText("Bash: make")).closest("li");
     expect(call?.textContent).toContain("실행 중");
     act(() =>
@@ -1466,23 +1487,35 @@ describe("session detail", () => {
       }),
     );
     expect(await screen.findByText("Bash 결과 · 성공 · built")).toBeTruthy();
+    expect(fold.textContent).toBe("실행한 명령 1개");
     const list = screen.getByRole("list", { name: "이벤트" });
-    expect(list.querySelectorAll("li")).toHaveLength(1);
+    // The fold's line and the call it opened, the result in the call's row.
+    expect(list.querySelectorAll("li")).toHaveLength(2);
     expect(list.textContent).not.toContain("실행 중");
   });
 
-  test("a run of status lines folds into one button that opens it", async () => {
+  test("focus folds earlier status lines into one button and keeps the latest open", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     await act(async () => stream.open());
     act(() => {
       stream.emit("ev_s1", "status", { phase: "running" });
-      stream.emit("ev_s2", "status", { phase: "idle" });
+      stream.emit("ev_s2", "status", { phase: "needs_input" });
+      stream.emit("ev_s3", "status", { phase: "idle" });
     });
-    const toggle = await screen.findByRole("button", { name: /^이벤트 2개/ });
+    const toggle = await screen.findByRole("button", { name: "이벤트 2개" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const list = screen.getByRole("list", { name: "이벤트" });
+    expect(list.querySelectorAll("li")).toHaveLength(2);
     await (await setupUser()).click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(list.querySelectorAll("li")).toHaveLength(4);
+    // The view is remembered for the next session screen.
+    await showAllEvents();
+    expect(screen.queryByRole("button", { name: "이벤트 2개" })).toBeNull();
+    expect(globalThis.localStorage.getItem("werft.session.timeline.view")).toBe(
+      "all",
+    );
   });
 
   test("each turn opens with the message it was asked, read again as turns start", async () => {
@@ -1606,6 +1639,7 @@ describe("session detail", () => {
       );
       stream.emit("ev_empty", "assistant", { type: "assistant" });
     });
+    await showAllEvents();
     expect(await screen.findByText("생각 중 (3)")).toBeTruthy();
     expect(screen.getByText("생각 중 (1)")).toBeTruthy();
     const list = screen.getByRole("list", { name: "이벤트" });
@@ -2656,7 +2690,7 @@ async function setupInfo() {
 }
 
 describe("세션 상세 레이아웃", () => {
-  test("Radix 탭은 화살표로 선택하고 디버그 토글은 진행 탭에만 보인다", async () => {
+  test("Radix 탭은 화살표로 선택하고 보기 전환은 진행 탭에만 보인다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const user = await setupUser();
     const list = await screen.findByRole("tablist", { name: "세션 상세" });
@@ -2675,14 +2709,16 @@ describe("세션 상세 레이아웃", () => {
         screen.getByRole("tab", { name: "정보" }).getAttribute("aria-selected"),
       ).toBe("true"),
     );
-    expect(screen.queryByLabelText("내부 이벤트도 보기")).toBeNull();
+    const viewGroup = () =>
+      screen.queryByRole("group", { name: "타임라인 보기" });
+    expect(viewGroup()).toBeNull();
     await user.keyboard("{ArrowRight}");
-    await waitFor(() =>
-      expect(screen.getByLabelText("내부 이벤트도 보기")).toBeTruthy(),
-    );
-    expect(list.contains(screen.getByLabelText("내부 이벤트도 보기"))).toBe(
-      false,
-    );
+    await waitFor(() => expect(viewGroup()).toBeTruthy());
+    expect(list.contains(viewGroup())).toBe(false);
+    const focus = within(viewGroup() as HTMLElement).getByRole("button", {
+      name: "집중",
+    });
+    expect(focus.getAttribute("aria-pressed")).toBe("true");
   });
 
   test.each(["error", "loading"] as const)(

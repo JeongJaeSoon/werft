@@ -20,6 +20,12 @@ export const githubKo = {
     "PR에 리뷰를 남깁니다. GitHub는 PR을 연 App의 승인을 받지 않으므로 작성용과 다른 App이어야 합니다.",
   "github.apps.title": "GitHub App",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "에이전트가 GitHub에 접근할 때 쓰는 App입니다. 여기서 연결한 App만 에이전트가 쓸 수 있습니다.",
+  "github.apps.label": "워크스페이스에 연결한 GitHub App",
+  "github.apps.removeRow": "{name} 연결 해제",
+  "github.apps.removeRowHint":
+    "이 워크스페이스에서 App을 뗍니다. GitHub의 App과 설치는 그대로 남습니다.",
   "github.apps.keyLine": "App ID {id} · 키 {at} {by} 저장",
   "github.apps.keyLineAt": "App ID {id} · 키 {at} 저장",
   "github.apps.state.ok": "연결됨",
@@ -140,6 +146,8 @@ export const githubKo = {
     "설치는 GitHub에 있지만 연결한 사람을 기록하지 못했습니다.",
   "github.table.title": "설치",
   "github.table.label": "GitHub App을 설치한 조직과 개인 계정",
+  "github.table.hint":
+    "연결한 App을 설치한 조직과 개인 계정입니다. 계정을 더하면 그 계정의 저장소를 에이전트가 쓸 수 있습니다.",
   "github.table.name": "이름",
   "github.table.type": "유형",
   "github.table.repositories": "저장소",
@@ -165,6 +173,8 @@ export const githubKo = {
   "github.table.empty": "아직 GitHub App을 설치한 계정이 없습니다.",
   "github.table.readAt": "GitHub에서 읽음",
   "github.repos.title": "에이전트가 쓰는 저장소",
+  "github.repos.hint":
+    "설치마다 GitHub가 허용한 저장소와, 브랜치와 저장소를 맡을 App을 정합니다.",
   "github.repos.counts": "에이전트가 고른 저장소 {count}개",
   "github.repos.countsOutside":
     "에이전트가 고른 저장소 {count}개 · 설치 밖 {outside}개",
@@ -313,6 +323,12 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Reviews pull requests. GitHub refuses an approval from the App that opened the pull request, so it must be another App.",
   "github.apps.title": "GitHub Apps",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "The Apps agents reach GitHub with. Agents can use only the Apps connected here.",
+  "github.apps.label": "GitHub Apps connected to the workspace",
+  "github.apps.removeRow": "Disconnect {name}",
+  "github.apps.removeRowHint":
+    "Removes the App from this workspace. The App and its installations stay on GitHub.",
   "github.apps.keyLine": "App ID {id} · key saved {at} by {by}",
   "github.apps.keyLineAt": "App ID {id} · key saved {at}",
   "github.apps.state.ok": "Connected",
@@ -435,6 +451,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.table.title": "Installations",
   "github.table.label":
     "Organizations and personal accounts the GitHub Apps are installed on",
+  "github.table.hint":
+    "The organizations and personal accounts the connected Apps are installed on. Adding an account lets agents use its repositories.",
   "github.table.name": "Name",
   "github.table.type": "Type",
   "github.table.repositories": "Repositories",
@@ -460,6 +478,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.table.empty": "No account has installed a GitHub App yet.",
   "github.table.readAt": "Read from GitHub",
   "github.repos.title": "Repositories agents use",
+  "github.repos.hint":
+    "The repositories GitHub allows on each installation, and which App handles their branches.",
   "github.repos.counts": "{count} repositories picked by agents",
   "github.repos.countsOutside":
     "{count} repositories picked by agents · {outside} outside installations",
@@ -611,6 +631,12 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "PR にレビューを残します。GitHub は PR を開いた App の承認を受け付けないため、作成用とは別の App にしてください。",
   "github.apps.title": "GitHub App",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "エージェントが GitHub にアクセスするときに使う App です。ここで接続した App だけをエージェントが使えます。",
+  "github.apps.label": "ワークスペースに接続した GitHub App",
+  "github.apps.removeRow": "{name} の接続を解除",
+  "github.apps.removeRowHint":
+    "このワークスペースから App を外します。GitHub の App とインストールはそのまま残ります。",
   "github.apps.keyLine": "App ID {id} · 鍵 {at} {by} が保存",
   "github.apps.keyLineAt": "App ID {id} · 鍵 {at} 保存",
   "github.apps.state.ok": "接続済み",
@@ -732,6 +758,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "インストールは GitHub にありますが、接続した人を記録できませんでした。",
   "github.table.title": "インストール",
   "github.table.label": "GitHub App をインストールした組織と個人アカウント",
+  "github.table.hint":
+    "接続した App をインストールした組織と個人アカウントです。アカウントを追加すると、そのアカウントのリポジトリをエージェントが使えます。",
   "github.table.name": "名前",
   "github.table.type": "種類",
   "github.table.repositories": "リポジトリ",
@@ -758,6 +786,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "GitHub App をインストールしたアカウントはまだありません。",
   "github.table.readAt": "GitHub から読み取り",
   "github.repos.title": "エージェントが使うリポジトリ",
+  "github.repos.hint":
+    "インストールごとに GitHub が許可したリポジトリと、ブランチとリポジトリを担当する App を決めます。",
   "github.repos.counts": "エージェントが選んだリポジトリ {count} 件",
   "github.repos.countsOutside":
     "エージェントが選んだリポジトリ {count} 件 · インストール外 {outside} 件",

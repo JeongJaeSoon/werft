@@ -26,6 +26,34 @@ describe("DangerZone", () => {
     expect(list?.children[0]?.getAttribute("data-slot")).toBe("setting-row");
   });
 
+  test("행 패딩을 0으로 둔 페이지에서도 빨간 상자 안 행은 패딩을 되찾고, 테두리 없이 두면 그대로 둔다", () => {
+    const { getAllByRole } = render(
+      <>
+        <DangerZone title="위험 구역">
+          <DangerZoneRow
+            title="삭제"
+            description="설명"
+            actionLabel="삭제"
+            onAction={() => {}}
+          />
+        </DangerZone>
+        <DangerZone title="테두리 없음" framed={false}>
+          <DangerZoneRow
+            title="삭제"
+            description="설명"
+            actionLabel="삭제"
+            onAction={() => {}}
+          />
+        </DangerZone>
+      </>,
+    );
+    const [framed, bare] = getAllByRole("region");
+    expect(framed?.className).toContain(
+      "[--werft-row-padding-x:var(--werft-space-4)]",
+    );
+    expect(bare?.className).not.toContain("--werft-row-padding-x");
+  });
+
   test("행의 버튼은 빨간 외곽선이고 누르면 행이 아니라 호출한 쪽이 확인을 연다", async () => {
     const user = await setupUser();
     let opened = 0;
