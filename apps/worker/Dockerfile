@@ -76,7 +76,7 @@ ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587
 # hash for this pin (94S-1396). Bun carries its own roots; fetch-pinned.ts
 # retries a wrong body like a failed request and writes only the pinned bytes.
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
-  FETCH_PINNED_ATTEMPTS=8 bun /tmp/fetch-pinned.ts \
+  FETCH_PINNED_ATTEMPTS=10 bun /tmp/fetch-pinned.ts \
   "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-v${GIT_LFS_VERSION}.tar.gz" \
   1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
   /tmp/git-lfs-src.tar.gz \
@@ -116,7 +116,7 @@ RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts
     arm64) GH_SHA256=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;; \
     *) echo "no gh pinned for $TARGETARCH" >&2; exit 1 ;; \
   esac \
-  && FETCH_PINNED_ATTEMPTS=8 bun /tmp/fetch-pinned.ts \
+  && FETCH_PINNED_ATTEMPTS=10 bun /tmp/fetch-pinned.ts \
     "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
     "$GH_SHA256" \
     /tmp/gh.tar.gz \
