@@ -1163,6 +1163,13 @@
       "when": 1794252317449,
       "tag": "0256_checkpoint_restore_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1794255096607,
+      "tag": "0257_sessions_spec_pin",
+      "breakpoints": true
     }
   ]
 }

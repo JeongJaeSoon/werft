@@ -1,6 +1,6 @@
 {
-  "id": "c52f2414-3de9-42c9-bc57-db896a428a41",
-  "prevId": "f179e2de-28ad-412c-a2fe-021fa3d324a5",
+  "id": "edfe4f98-9484-4457-ae1f-7991884ba0d2",
+  "prevId": "65dbc989-6cf1-4ded-bbe8-3c33a7169b16",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3511,6 +3511,134 @@
         "checkpoint_outputs_bytes_nonneg": {
           "name": "checkpoint_outputs_bytes_nonneg",
           "value": "\"checkpoint_outputs\".\"bytes\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.checkpoint_restore_check": {
+      "name": "checkpoint_restore_check",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "checkpoint_restore_check_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "manifest_sha256": {
+          "name": "manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidates_digest": {
+          "name": "candidates_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "image_digest": {
+          "name": "image_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "image_runtime": {
+          "name": "image_runtime",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "checkpoint_restore_check_latest_idx": {
+          "name": "checkpoint_restore_check_latest_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revision",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "checked_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "checkpoint_restore_check_checkpoint_fk": {
+          "name": "checkpoint_restore_check_checkpoint_fk",
+          "tableFrom": "checkpoint_restore_check",
+          "tableTo": "checkpoints",
+          "columnsFrom": ["session_id", "revision"],
+          "columnsTo": ["session_id", "revision"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "checkpoint_restore_check_outcome_check": {
+          "name": "checkpoint_restore_check_outcome_check",
+          "value": "\"checkpoint_restore_check\".\"outcome\" IN ('ok', 'mismatch', 'error')"
         }
       },
       "isRLSEnabled": false
@@ -11689,6 +11817,12 @@
         },
         "extensions": {
           "name": "extensions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legacy_runtime_configs": {
+          "name": "legacy_runtime_configs",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
