@@ -2396,6 +2396,8 @@ export const pushIntents = pgTable(
     attemptId: text("attempt_id").notNull(),
     repositoryId: text("repository_id").notNull(),
     targetBranch: text("target_branch").notNull(),
+    // null is the checkpoint's snapshot (HEAD).
+    sourceRef: text("source_ref"),
     status: text().notNull().default("deferred"),
     pinnedRevision: integer("pinned_revision"),
     pushRequestId: uuid("push_request_id").references(() => pushRequests.id),

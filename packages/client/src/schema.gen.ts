@@ -6238,6 +6238,8 @@ export interface components {
                 status: "deferred" | "pinned" | "requested" | "failed" | "cancelled";
                 refusal_code: ("turn_ended_without_checkpoint" | "turn_finalized_without_pin" | "superseded_by_turn" | "session_closed" | "rejected_before" | "request_open" | "github_disabled" | "over_workspace_ceiling" | "repository_not_allowed" | "checkpoint_unavailable" | "source_missing" | "attribution_mismatch" | "uncommitted_changes" | "pinned_source_invalid") | null;
                 push_request_id: string | null;
+                /** @default null */
+                source_ref: string | null;
                 /** Format: date-time */
                 created_at: string;
             }[];

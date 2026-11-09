@@ -154,6 +154,7 @@ export type SessionCheckpointsOptions = {
     instructions?: InstructionsPin;
     base?: BundleBase;
     markNewFiles?: boolean;
+    keepBranches?: boolean;
   }) => Promise<WorkspaceCaptureResult>;
   limits?: WorkspaceCaptureLimits;
   /** `DEFAULT_OUTPUT_LIMITS` unless a test sets smaller ones. */
@@ -1107,6 +1108,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...(bound.claim.workspace.repository === null
             ? { markNewFiles: true }
             : {}),
+          ...(bound.claim.runtime_config.platform_prompt?.prompt_revision === 6
+            ? { keepBranches: true }
+            : {}),
           ...(previous === undefined
             ? {}
             : {
@@ -1331,6 +1335,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ...(bases.length === 0 ? {} : { baseBundles: bases }),
         bundle: versioned(bundle),
         gitCommit: capture.gitCommit,
+        ...(capture.sources.length === 0
+          ? {}
+          : { sources: capture.sources.map((s) => ({ ...s })) }),
         untracked: untracked.map(versioned),
       },
     });

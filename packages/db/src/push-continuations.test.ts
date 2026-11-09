@@ -2,10 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { PUSH_CONTINUATION_MESSAGE } from "./push-continuations.ts";
 
 describe("PUSH_CONTINUATION_MESSAGE", () => {
-  test("a push waiting for a person is not called again in the turn", () => {
+  test("a push waiting for a person is not called again now", () => {
     expect(PUSH_CONTINUATION_MESSAGE).toContain(
-      "If the push request it answers is in state requested, a person has to approve the push before it runs: do not wait for it or call open_pull_request again in this turn; end your turn and ask a person to approve the push.",
+      "If the push request it answers is in state requested, a person has to approve the push before it runs: do not wait for it or call open_pull_request again now; finish your reply and tell the user, in plain words, that the push needs their approval.",
     );
+  });
+
+  test("shows the user no internal words", () => {
+    expect(PUSH_CONTINUATION_MESSAGE).not.toMatch(/\b(turn|checkpoint)s?\b/i);
   });
 
   test("calling again in a few seconds is only for an approved or pushing push", () => {

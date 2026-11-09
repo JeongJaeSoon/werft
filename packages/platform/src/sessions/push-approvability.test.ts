@@ -139,5 +139,25 @@ describe("pushApprovability", () => {
         approvable: true,
       });
     });
+
+    test("is approvable on a kept branch's commit that is not the snapshot, and not on a commit no branch holds", async () => {
+      const pinned = (gitCommit: string, kept: string[]) =>
+        source(async () => ({
+          status: "ready",
+          revision: 3,
+          gitCommit,
+          sources: kept.map((commit, at) => ({ name: `b${at}`, commit })),
+        }));
+      expect(
+        await pushApprovability(
+          session(9),
+          intent,
+          pinned(OTHER, [OTHER, COMMIT]),
+        ),
+      ).toEqual({ approvable: true });
+      expect(
+        await pushApprovability(session(9), intent, pinned(OTHER, [OTHER])),
+      ).toEqual({ approvable: false, reason: "pinned_source_invalid" });
+    });
   });
 });

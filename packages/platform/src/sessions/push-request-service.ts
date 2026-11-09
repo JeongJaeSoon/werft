@@ -28,6 +28,7 @@ import {
 } from "../ports/push-requests.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+import { pinnedCarries } from "./push-approvability.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -216,6 +217,8 @@ export function createPushRequestService(deps: {
         attemptId: string;
         turnId: number;
         body: CreatePushRequestRequest;
+        /** The local branch to push; absent is the turn-end snapshot. */
+        sourceRef?: string;
         pullRequest?: unknown;
       },
     ) {
@@ -261,6 +264,9 @@ export function createPushRequestService(deps: {
         actor: pushReceiptActor(actor),
         pushClass: judged.attachedPush ? "push.attached" : "push.primary",
         policySource: judged.session.policySource,
+        ...(input.sourceRef === undefined
+          ? {}
+          : { sourceRef: input.sourceRef }),
         ...(input.pullRequest === undefined
           ? {}
           : { pullRequest: input.pullRequest }),
@@ -268,9 +274,9 @@ export function createPushRequestService(deps: {
       if (written.outcome === "turn_not_running") {
         return { status: "turn_not_running" as const };
       }
-      if (written.outcome === "turn_target_taken") {
+      if (written.outcome === "source_ref_required") {
         return {
-          status: "turn_target_taken" as const,
+          status: "source_ref_required" as const,
           target_branch: written.targetBranch,
         };
       }
@@ -320,14 +326,23 @@ export function createPushRequestService(deps: {
       if (pinned.status === "unavailable") {
         return end("failed", "checkpoint_unavailable");
       }
-      if (
-        pinned.mismatches !== undefined &&
-        namesWorkingTreeSnapshot(pinned.mismatches, pinned.gitCommit)
-      ) {
-        return end("failed", "uncommitted_changes");
-      }
-      if (pinned.mismatches !== undefined && pinned.mismatches.length > 0) {
-        return end("failed", "attribution_mismatch");
+      let gitCommit = pinned.gitCommit;
+      if (job.sourceRef === null) {
+        if (
+          pinned.mismatches !== undefined &&
+          namesWorkingTreeSnapshot(pinned.mismatches, pinned.gitCommit)
+        ) {
+          return end("failed", "uncommitted_changes");
+        }
+        if (pinned.mismatches !== undefined && pinned.mismatches.length > 0) {
+          return end("failed", "attribution_mismatch");
+        }
+      } else {
+        const named = (pinned.sources ?? []).find(
+          (candidate) => candidate.name === job.sourceRef,
+        );
+        if (named === undefined) return end("failed", "source_missing");
+        gitCommit = named.commit;
       }
       const { session, attachedPush, entry } = judged;
       const result = await intents.transition(job, {
@@ -339,7 +354,7 @@ export function createPushRequestService(deps: {
         repositoryBinding: repositoryBinding(judged.repositoryId, entry),
         targetBranch: job.targetBranch,
         checkpointRevision: pinned.revision,
-        gitCommit: pinned.gitCommit,
+        gitCommit,
         flow: "actions",
         ...(job.pullRequest === null || job.pullRequest === undefined
           ? {}
@@ -555,7 +570,7 @@ export function createPushRequestService(deps: {
           );
           if (
             pinned.status !== "ready" ||
-            pinned.gitCommit !== request.git_commit
+            !pinnedCarries(pinned, request.git_commit)
           ) {
             await refuseDecision("pinned_source_invalid");
           }
