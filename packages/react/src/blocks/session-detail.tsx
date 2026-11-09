@@ -1,5 +1,6 @@
 import { isApiError } from "@werft-ai/client";
 import type {
+  PushIntent,
   PushRequest,
   SessionDetail as SessionDetailData,
   SessionUsageResponse,
@@ -483,7 +484,10 @@ function SessionMeta({
           messages={{
             none: t("session.repository.none"),
             unknown: t("session.repositories.unknown"),
-            more: (count) => t("session.repositories.more", { count }),
+            more: (count) =>
+              count === 1
+                ? t("session.repositories.more.one")
+                : t("session.repositories.more", { count }),
           }}
         />
       </MetaItem>
@@ -724,6 +728,18 @@ function latestRequests(items: readonly PushRequest[]) {
   return latest;
 }
 
+/** The newest intent of each repository, for one that has no request yet. */
+function latestIntents(items: readonly PushIntent[]) {
+  const latest = new Map<string, PushIntent>();
+  for (const item of items) {
+    const seen = latest.get(item.repository_id);
+    if (!seen || item.created_at > seen.created_at) {
+      latest.set(item.repository_id, item);
+    }
+  }
+  return latest;
+}
+
 /**
  * Every repository the session works on, one list in id order, each with
  * where its push and pull request stand. History stays on the outputs tab.
@@ -733,9 +749,13 @@ function Repositories({ session }: { readonly session: SessionDetailData }) {
   return (
     <TitledBlock
       titleAs="h2"
-      title={t("session.repositories.title", {
-        count: sessionRepositoriesOf(session).length,
-      })}
+      title={
+        sessionRepositoriesOf(session).length === 1
+          ? t("session.repositories.title.one")
+          : t("session.repositories.title", {
+              count: sessionRepositoriesOf(session).length,
+            })
+      }
     >
       <RepositoryList session={session} />
     </TitledBlock>
@@ -748,6 +768,7 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
   const repositories = sessionRepositoriesOf(session);
   const work = useSessionGithubWork(session.id, repositories.length > 0);
   const latest = latestRequests(work.data?.items ?? []);
+  const intents = latestIntents(work.data?.intents ?? []);
   return (
     <>
       {repositories.length === 0 ? (
@@ -759,6 +780,9 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
           {repositories.map((repository, index) => {
             const request = repository.id
               ? latest.get(repository.id)
+              : undefined;
+            const intent = repository.id
+              ? intents.get(repository.id)
               : undefined;
             const prLink =
               request?.pr_state === "opened" &&
@@ -812,6 +836,13 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
                         </Badge>
                       ) : null}
                     </>
+                  ) : intent && intent.status !== "requested" ? (
+                    // Asked for in a turn, no request made (yet).
+                    <Badge
+                      variant={intent.status === "failed" ? "red" : "gray"}
+                    >
+                      {t(`session.repositories.intent.${intent.status}`)}
+                    </Badge>
                   ) : work.data ? (
                     <span>{t("session.repositories.noPush")}</span>
                   ) : null}

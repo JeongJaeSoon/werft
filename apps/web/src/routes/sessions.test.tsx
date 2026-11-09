@@ -2891,6 +2891,40 @@ describe("세션 상세 레이아웃", () => {
       expect(within(tab).queryAllByRole("link")).toHaveLength(0);
     });
 
+    test.each([
+      ["deferred", "작업이 끝나기를 기다리는 중"],
+      ["failed", "push 요청을 만들지 못함"],
+    ])(
+      "요청 없이 intent만 %s이면 '아직 push 요청 없음' 대신 그 상태를 보인다",
+      async (status, label) => {
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...attachedOnly([]),
+          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+            json(200, {
+              items: [],
+              intents: [
+                {
+                  id: "019a0000-0000-7000-8000-0000000000c1",
+                  session_id: SESSION_ID,
+                  repository_id: "web",
+                  target_branch: "feature/x",
+                  status,
+                  refusal_code: null,
+                  push_request_id: null,
+                  created_at: AT,
+                },
+              ],
+            }),
+        });
+        await screen.findByRole("button", { name: "일시 정지" });
+        await setupInfo();
+        const tab = screen.getByRole("tabpanel", { name: "정보" });
+        expect(await within(tab).findByText(label)).toBeTruthy();
+        // The repository without an intent still says no request yet.
+        expect(within(tab).getAllByText("아직 push 요청 없음")).toHaveLength(1);
+      },
+    );
+
     test("push 요청을 읽지 못하면 이름은 두고 실패를 알리며 다시 불러올 수 있다", async () => {
       const user = await setupUser();
       let fail = true;
