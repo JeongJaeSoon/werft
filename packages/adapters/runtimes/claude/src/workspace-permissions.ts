@@ -244,8 +244,12 @@ export function workspaceRules(
     ask.push(
       ...[
         ...policy.git.ask,
+        // `git --no-pager add .env` puts a global option before the verb.
         ...policy.git.askWhenSecretNamed.flatMap((command) =>
-          policy.secretNameParts.map((part) => `${command} *${part}*`),
+          policy.secretNameParts.flatMap((part) => [
+            `${command} *${part}*`,
+            `git * ${command.slice("git ".length)} *${part}*`,
+          ]),
         ),
       ].map((pattern) => `Bash(${pattern})`),
     );
