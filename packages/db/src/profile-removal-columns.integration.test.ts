@@ -92,15 +92,16 @@ integration("columns the profile removal reads before it writes", () => {
     }
   });
 
-  test("the checks are added NOT VALID, so the migration never scans the tables", async () => {
+  // A constraint left NOT VALID would also differ from schema.ts in the drift test.
+  test("both checks end up validated", async () => {
     const { rows } = await pool.query(
       `SELECT conname, convalidated FROM pg_constraint
        WHERE conname IN ('agent_releases_spec_check', 'provider_connections_auto_mode_check')
        ORDER BY conname`,
     );
     expect(rows).toEqual([
-      { conname: "agent_releases_spec_check", convalidated: false },
-      { conname: "provider_connections_auto_mode_check", convalidated: false },
+      { conname: "agent_releases_spec_check", convalidated: true },
+      { conname: "provider_connections_auto_mode_check", convalidated: true },
     ]);
   });
 });
