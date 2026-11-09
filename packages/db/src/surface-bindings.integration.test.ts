@@ -959,9 +959,10 @@ integration("surface bindings on PostgreSQL", () => {
     test("a rejoin of an approved private channel the bot is already in means a leave was missed: back to approval, no answer meanwhile", async () => {
       const { installationId, binding } = await approved();
       await store().setMembership(binding.id, { state: "joined", error: null });
+      // Voided by the join's first look, before Slack is asked anything.
       expect(
-        await store().recordJoin(installationId, "G0SECRET", binding.id, at(6)),
-      ).toBe("approval_voided");
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
       expect(
         await store().resolveSlackChannel(installationId, "G0SECRET"),
       ).toBeNull();
@@ -978,6 +979,45 @@ integration("surface bindings on PostgreSQL", () => {
       });
     });
 
+    test("a retried first join does not read as a rejoin; a newer join, or one with no time, does", async () => {
+      const { installationId, binding } = await approved();
+      // The bot was out when approved; the join that brings it in is not a rejoin.
+      await store().setMembership(binding.id, {
+        state: "awaiting_invite",
+        error: null,
+      });
+      const ready = () =>
+        store().resolveSlackChannel(installationId, "G0SECRET");
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
+      expect(
+        await store().recordJoin(installationId, "G0SECRET", binding.id, at(6)),
+      ).toBe(true);
+      // The same event again, as after a crash before it was marked processed.
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
+      expect(await ready()).toMatchObject({ id: binding.id, status: "ready" });
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(7)),
+      ).toBe(true);
+      expect(await ready()).toBeNull();
+
+      // Back in approval's hands, a timeless join of a ready one voids too.
+      const again = await approved();
+      await store().setMembership(again.binding.id, {
+        state: "joined",
+        error: null,
+      });
+      expect(
+        await store().observeLifecycle(again.installationId, "G0SECRET", null),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(again.installationId, "G0SECRET"),
+      ).toBeNull();
+    });
+
     test("a leave older than a noted re-invite still voids an approval given before it, and leaves the membership alone", async () => {
       const { installationId, binding } = await approved();
       // The bot was out when the re-invite (later) was handled first.
@@ -986,8 +1026,11 @@ integration("surface bindings on PostgreSQL", () => {
         error: null,
       });
       expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
+      expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(6)),
-      ).toBe("recorded");
+      ).toBe(true);
       expect(await store().botLeft(installationId, "G0SECRET", at(5))).toBe(
         false,
       );
@@ -1040,7 +1083,7 @@ integration("surface bindings on PostgreSQL", () => {
       );
       expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(1)),
-      ).toBe("overtaken");
+      ).toBe(false);
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toMatchObject({
@@ -1049,7 +1092,7 @@ integration("surface bindings on PostgreSQL", () => {
       });
       expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(3)),
-      ).toBe("recorded");
+      ).toBe(true);
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toMatchObject({

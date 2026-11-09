@@ -158,7 +158,7 @@ export function createSlackMemberJoinedHandler(deps: {
       binding.id,
       at,
     );
-    if (recorded !== "recorded") return;
+    if (!recorded) return;
     if (binding.home && binding.status === "ready") {
       await deps.welcome.welcome(binding.workspaceId, binding.agentId, {
         ask: false,

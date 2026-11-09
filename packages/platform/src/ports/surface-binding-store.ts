@@ -151,6 +151,11 @@ export interface SurfaceBindingStore {
    * nothing. An equal time passes, since a retried event runs its effect
    * again. A null `at` (no time in the event) cannot be ordered and passes
    * without being noted.
+   * Also, before any Slack call: a join newer than anything noted (or with no
+   * time) of an approved private channel recorded as `joined` means a leave was
+   * missed (Slack sends no join to a member), so the binding waits for approval
+   * again at once, as after a leave; mentions are not served until the late
+   * leave arrives.
    */
   observeLifecycle(
     installationId: string,
@@ -160,17 +165,15 @@ export interface SurfaceBindingStore {
   /**
    * The join's last write: the binding's membership becomes `joined`, in one
    * transaction with the order check of `observeLifecycle`, so a leave noted
-   * after the join was first seen is not overwritten. `overtaken`: nothing
-   * written. `approval_voided`: the binding was an approved private channel
-   * the bot was already in, so this join means a leave was missed (Slack
-   * sends no join to a member); it waits for approval again, as after a leave.
+   * after the join was first seen is not overwritten. False, and nothing
+   * written, when the join has been overtaken.
    */
   recordJoin(
     installationId: string,
     channelId: string,
     bindingId: string,
     at: number | null,
-  ): Promise<"overtaken" | "recorded" | "approval_voided">;
+  ): Promise<boolean>;
   /**
    * The bot left a channel, or was removed from it, at `at`. A private
    * channel's binding goes back to `pending_approval` (no longer home, its

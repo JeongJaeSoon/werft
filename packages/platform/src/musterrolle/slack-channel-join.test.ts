@@ -190,7 +190,7 @@ describe("the bot's invite", () => {
     },
     botToken: string | null = "xoxb-test",
     fresh = true,
-    joinResult: "overtaken" | "recorded" | "approval_voided" = "recorded",
+    overtakenAfterCheck = false,
   ) {
     const lifecycle: [string, number | null][] = [];
     const asked: string[] = [];
@@ -236,10 +236,10 @@ describe("the bot's invite", () => {
         },
         recordJoin: async (_installation, channelId, id, at) => {
           lifecycle.push([channelId, at]);
-          if (joinResult === "recorded") {
+          if (!overtakenAfterCheck) {
             recorded.push([id, { state: "joined", error: null }]);
           }
-          return joinResult;
+          return !overtakenAfterCheck;
         },
         observeLifecycle: async (_installation, channelId, at) => {
           lifecycle.push([channelId, at]);
@@ -374,6 +374,9 @@ describe("the bot's invite", () => {
     ).rejects.toThrow("no bot token");
     expect([...unread.invited, ...tokenless.invited]).toEqual([]);
     expect([...unread.recorded, ...tokenless.recorded]).toEqual([]);
+    // The join was noted (and a missed leave acted on) before Slack failed.
+    expect(unread.lifecycle).toEqual([["G2", null]]);
+    expect(tokenless.lifecycle).toEqual([["G2", null]]);
   });
 
   test("someone else joining binds nothing; a message goes on", async () => {
@@ -444,27 +447,12 @@ describe("the bot's invite", () => {
       undefined,
       undefined,
       true,
-      "overtaken",
+      true,
     );
     await h.handle(
       claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
     );
     expect(h.invited).toEqual([["G1", "private_channel"]]);
-    expect(h.recorded).toEqual([]);
-    expect(h.welcomed).toEqual([]);
-  });
-
-  test("a rejoin of an approved private channel sends it back to approval: no welcome", async () => {
-    const h = handler(
-      { home: true, status: "ready", channelKind: "private_channel" },
-      undefined,
-      undefined,
-      true,
-      "approval_voided",
-    );
-    await h.handle(
-      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
-    );
     expect(h.recorded).toEqual([]);
     expect(h.welcomed).toEqual([]);
   });

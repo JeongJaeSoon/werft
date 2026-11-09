@@ -412,9 +412,7 @@ export function createPostgresSurfaceBindingStore(
     },
     requireApproval: (bindingId) => requireApproval(db, bindingId),
     observeLifecycle: (installationId, channelId, at) =>
-      db.transaction((tx) =>
-        advanceLifecycle(tx, installationId, channelId, at),
-      ),
+      observeJoin(db, installationId, channelId, at),
     botLeft: (installationId, channelId, at) =>
       botLeft(db, installationId, channelId, at),
     recordJoin: (installationId, channelId, bindingId, at) =>
@@ -590,41 +588,77 @@ async function sendBackToApproval(
   });
 }
 
+// The join's first look, before Slack is asked anything: false when a later
+// event of the channel was already noted. A join of an approved private
+// channel the bot is recorded as being in, and newer than anything noted,
+// can only follow a leave this role has not seen (Slack sends no join to a
+// member), so that approval is void at once; waiting for the late leave would
+// serve mentions meanwhile. An equal time is a retry of a join already noted,
+// not a new one. A join with no time cannot be told from a retry, so it
+// voids too: the approval is asked for again rather than trusted.
+async function observeJoin(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  at: number | null,
+): Promise<boolean> {
+  if (!UUID.test(installationId)) return false;
+  const installation = installationId.toLowerCase();
+  return db.transaction(async (tx) => {
+    let isNew = true;
+    if (at !== null) {
+      const [noted] = await tx
+        .select({ us: slackChannelLifecycle.lastEventUs })
+        .from(slackChannelLifecycle)
+        .where(
+          and(
+            eq(slackChannelLifecycle.installationId, installation),
+            eq(slackChannelLifecycle.channelId, channelId),
+          ),
+        )
+        .for("update");
+      if (noted && noted.us >= at) isNew = noted.us < at;
+      if (!(await advanceLifecycle(tx, installation, channelId, at))) {
+        return false;
+      }
+    }
+    if (!isNew) return true;
+    const current = await lockBinding(tx, channelOf(installation, channelId));
+    if (
+      current?.status === "ready" &&
+      current.channelKind === "private_channel" &&
+      current.membership?.state === "joined"
+    ) {
+      await sendBackToApproval(tx, current.id, "rejoined_channel");
+    }
+    return true;
+  });
+}
+
 // The join's last write, after Slack was asked and the binding made: the
-// membership is recorded only if no later leave was noted meanwhile. A join
-// of an approved private channel the bot was already in can only follow a
-// leave this role has not seen (Slack sends none to a member), so that
-// approval is void too.
+// membership is recorded only if no later leave was noted meanwhile.
 async function recordJoin(
   db: Database,
   installationId: string,
   channelId: string,
   bindingId: string,
   at: number | null,
-): Promise<"overtaken" | "recorded" | "approval_voided"> {
-  if (!UUID.test(installationId) || !UUID.test(bindingId)) return "overtaken";
+): Promise<boolean> {
+  if (!UUID.test(installationId) || !UUID.test(bindingId)) return false;
   return db.transaction(async (tx) => {
     if (!(await advanceLifecycle(tx, installationId, channelId, at))) {
-      return "overtaken";
+      return false;
     }
-    const id = bindingId.toLowerCase();
-    const current = await lockBinding(
-      tx,
-      and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
-    );
-    if (!current) return "overtaken";
-    const voided =
-      at !== null &&
-      current.status === "ready" &&
-      current.channelKind === "private_channel" &&
-      current.membership?.state === "joined" &&
-      at > (current.approvedLifecycleUs ?? 0);
-    if (voided) await sendBackToApproval(tx, id, "rejoined_channel");
     await tx
       .update(surfaceBindings)
       .set({ membership: "joined", membershipError: null, updatedAt: DB_NOW })
-      .where(eq(surfaceBindings.id, id));
-    return voided ? "approval_voided" : "recorded";
+      .where(
+        and(
+          eq(surfaceBindings.id, bindingId.toLowerCase()),
+          isNull(surfaceBindings.revokedAt),
+        ),
+      );
+    return true;
   });
 }
 
