@@ -90,6 +90,9 @@ export function createSurfaceBindingService(deps: {
   async function joined(
     binding: SurfaceBindingRecord,
   ): Promise<SurfaceBindingRecord> {
+    // A channel the bot left holds no bot; asking Slack would only race the
+    // leave (the store ignores the answer), so the record stays as it is.
+    if (binding.status === "left") return binding;
     let membership = binding.membership;
     try {
       membership = (await deps.join?.(binding)) ?? membership;

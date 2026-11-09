@@ -47,6 +47,7 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { noteTurnCoAuthor } from "./attribution-repair.ts";
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
@@ -349,6 +350,8 @@ export class WorkerHost {
   /** The restore in flight or done, settled either way; see `shutdown`. */
   private restoring: Promise<void> | undefined;
   private scopeValue: WorkerScope | undefined;
+  private claimValue: BootstrapClaimResponse | undefined;
+  private turnCoAuthorWritten = false;
   private scrubber: SecretScrubber;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -444,6 +447,7 @@ export class WorkerHost {
       };
     }
     const { claim } = claimed;
+    this.claimValue = claim;
     this.workspaceEnforce =
       claim.workspace_enforce ?? DEFAULT_WORKSPACE_ENFORCE;
     this.options.gateway.useCredential(claim.session_credential);
@@ -1308,7 +1312,12 @@ export class WorkerHost {
 
   private async runTurn(
     run: AgentRun,
-    input: { input_id: string; message: string; turn_id: string },
+    input: {
+      input_id: string;
+      message: string;
+      turn_id: string;
+      co_author?: { name: string; email: string } | null | undefined;
+    },
   ): Promise<void> {
     // Delivered while the engine was already gone, or to an attempt whose
     // lease is gone: either way nothing may run it here, so it is left open
@@ -1321,6 +1330,37 @@ export class WorkerHost {
       this.mirrorError !== undefined
     ) {
       return;
+    }
+    const claim = this.claimValue;
+    if (
+      claim?.git !== undefined &&
+      this.options.gitTrailers !== undefined &&
+      (input.co_author !== undefined || this.turnCoAuthorWritten)
+    ) {
+      // An input without the field goes back to the claim's own value, so a
+      // turn from an older control host never inherits the previous turn's.
+      const coAuthor =
+        input.co_author === undefined ? claim.git.co_author : input.co_author;
+      try {
+        await this.options.gitTrailers({
+          ...claim,
+          git: { ...claim.git, co_author: coAuthor },
+        });
+      } catch (error) {
+        const reason = describe(error);
+        this.logger.warn("worker.git_trailers.turn_not_started", {
+          turn_id: input.turn_id,
+          reason,
+        });
+        // Left open, and this attempt stops: the same input would otherwise
+        // be handed back on every poll while the lease is kept.
+        this.fail(`The trailer files could not be written: ${reason}`);
+        return;
+      }
+      this.turnCoAuthorWritten = input.co_author !== undefined;
+      if (input.co_author !== undefined) {
+        noteTurnCoAuthor(claim, input.co_author);
+      }
     }
     this.scope.turn_id = input.turn_id;
     // The same input must carry the same uuid on every delivery: that is what

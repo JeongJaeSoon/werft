@@ -18,6 +18,7 @@ import {
   readStoredEvent,
   receiptSchema,
   SESSION_STATUS_VALUES,
+  type SessionExtension,
   type SessionStatus,
   type SlackMessageRef,
   SSE_SCHEMA_VERSION,
@@ -256,7 +257,9 @@ export function createPostgresSessionUnitOfWork(
           return unbound(input.agentReleaseId);
         }
 
-        if (input.repository === null) return { outcome: "unsupported" };
+        if (input.repository === null || input.extensionsRefused) {
+          return { outcome: "unsupported" };
+        }
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -362,6 +365,7 @@ export function createPostgresSessionUnitOfWork(
           ownerId: scope.principal,
           ...repository,
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
+          extensions: input.extensions ?? null,
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
           mcpStart,
@@ -418,6 +422,9 @@ export function createPostgresSessionUnitOfWork(
           receipt_id: receiptId,
           receipt_status: "accepted",
           status: "queued",
+          ...(input.extensions && input.extensions.length > 0
+            ? { extensions: input.extensions }
+            : {}),
         };
         await recordAcceptance(tx, scope, input.payloadHash, {
           id: receiptId,
@@ -1021,6 +1028,7 @@ export function createPostgresSessionReader(
         repository_id: row.repositoryId,
         repository: sessionRepositoryOf(row),
         attached_repository_ids: row.attachedRepositoryIds,
+        extensions: row.extensions as SessionExtension[] | null,
         current_turn_id: current ? String(current.sequence) : null,
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,

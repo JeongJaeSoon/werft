@@ -306,6 +306,14 @@ export const platformPromptSchema = z
   })
   .strict();
 
+export const runtimeExtensionSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    scope: z.enum(["profile", "workspace", "agent", "session"]),
+  })
+  .strict();
+
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
@@ -336,6 +344,17 @@ export const runtimeConfigSchema = z
     // so a session without variables claims exactly as before. Not part of
     // any fingerprint: changing a value must not break a running session.
     env: runtimeEnvSchema.optional(),
+    // In the strict claim config, so a worker that does not know the field
+    // refuses the claim instead of running without a required bundle.
+    extensions: z
+      .array(runtimeExtensionSchema)
+      .min(1)
+      .refine(
+        (bundles) =>
+          new Set(bundles.map((b) => b.name)).size === bundles.length,
+        { message: "must not repeat a bundle name" },
+      )
+      .optional(),
   })
   .strict();
 
@@ -511,6 +530,21 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // session's commits (ENGINE_COAUTHOR_EMAILS). Sent with `git`; top-level for
   // the reason `git_author` is.
   git_strip: claimGitStripSchema.optional(),
+  // Every bundle the server's ledger holds for the session, so a restarted
+  // worker judges commits by what the push check accepts and not by what it
+  // remembers. Top-level for the reason `git_author` is.
+  git_issued: z
+    .array(
+      z
+        .object({
+          author: claimGitAuthorSchema,
+          co_author: claimGitAuthorSchema.nullable(),
+          agent_session: trailerValueSchema.nullable(),
+        })
+        .strict(),
+    )
+    .max(5000)
+    .optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
   // it (session-repository-attachment.md decision 3). Top-level so an older
@@ -563,6 +597,15 @@ export const nextInputResponseSchema = z.object({
       input_id: z.string().min(1),
       message: z.string().min(1),
       delivery_started_at: timestampSchema,
+      // The co-author this turn's commits name: the turn's requester, not the
+      // session's starter. Absent from a control host that predates it (the
+      // claim's value stands); null when the requester has no linked GitHub
+      // account or there is no requester.
+      co_author: z
+        .object({ name: trailerValueSchema, email: trailerValueSchema })
+        .strict()
+        .nullable()
+        .optional(),
     })
     .nullable(),
   lease_expires_at: timestampSchema,
@@ -1171,6 +1214,7 @@ export type AdditionalWorkspaceRepository = z.infer<
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+export type RuntimeExtension = z.infer<typeof runtimeExtensionSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
 export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;

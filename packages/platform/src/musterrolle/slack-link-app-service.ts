@@ -63,7 +63,7 @@ const FORBIDDEN_WEB_ONLY = () =>
 const NOT_CONFIGURED = (reason: "store_off" | "no_console" | "config_token") =>
   new SessionServiceError(
     "SLACK_LINK_NOT_CONFIGURED",
-    "Slack account linking is not set up for this workspace; ask an owner or admin to set up the Slack connection",
+    "Slack account linking is not set up for this workspace; ask an owner or admin to set up Slack in Integrations",
     undefined,
     { reason_code: reason },
   );

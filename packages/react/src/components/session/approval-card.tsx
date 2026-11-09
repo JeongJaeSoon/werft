@@ -164,35 +164,33 @@ export function ApprovalCard({
           </Text>
         </span>
       </div>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <details className="min-w-0 flex-1 basis-40">
-          {/* As tall as the buttons beside it, so the two read as one line. */}
-          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--werft-control-height)]">
-            {messages.input}
-          </summary>
-          <CodeBlock className="mt-2 max-h-60 overflow-y-auto">
-            {inputText(request.input)}
-          </CodeBlock>
-        </details>
-        {expired || denying ? null : (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" disabled={blocked} onClick={onAllow}>
-              <Busy shown={pending} />
-              {messages.allow}
-            </Button>
-            <Button
-              ref={denyRef}
-              type="button"
-              variant="outline"
-              disabled={blocked}
-              onClick={() => setDenying(true)}
-            >
-              {messages.deny}
-            </Button>
-          </div>
-        )}
-      </div>
+      {/* Full width on its own line, so an opened input never shares a row with the buttons. */}
+      <details className="min-w-0">
+        <summary className="cursor-pointer rounded-control py-1 text-muted-foreground text-caption">
+          {messages.input}
+        </summary>
+        <CodeBlock className="mt-2 max-h-60 overflow-y-auto">
+          {inputText(request.input)}
+        </CodeBlock>
+      </details>
       <FieldError>{error}</FieldError>
+      {expired || denying ? null : (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" disabled={blocked} onClick={onAllow}>
+            <Busy shown={pending} />
+            {messages.allow}
+          </Button>
+          <Button
+            ref={denyRef}
+            type="button"
+            variant="outline"
+            disabled={blocked}
+            onClick={() => setDenying(true)}
+          >
+            {messages.deny}
+          </Button>
+        </div>
+      )}
       {expired || !denying ? null : (
         <form className="flex flex-col gap-3" onSubmit={submitDenial}>
           <Field>

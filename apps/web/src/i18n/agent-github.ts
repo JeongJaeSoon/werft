@@ -85,19 +85,19 @@ export const agentGitHubKo = {
   "agentGitHub.featureReason.app_permission_missing":
     "App에 이 권한이 없습니다. GitHub App 설정에서 더한 뒤 설치를 다시 승인하세요.",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "워크스페이스 상한 밖입니다. 소유자·관리자가 GitHub 연결 설정에서 켭니다.",
+    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 › GitHub에서 켭니다.",
   "agentGitHub.featureReason.no_reviewer_app":
     "워크스페이스에 리뷰용 App이 없습니다. PR을 만드는 App은 자기 PR을 승인할 수 없습니다.",
   "agentGitHub.featureReason.github_host_unsupported":
     "고른 저장소가 모두 GitHub Enterprise에 있어 기본 작업만 할 수 있습니다.",
-  "agentGitHub.settingsLink": "GitHub 연결 설정",
+  "agentGitHub.settingsLink": "연동 › GitHub",
   "agentGitHub.appNotInstalled": "App 미설치",
   "agentGitHub.reviewerNotInstalled":
     "리뷰용 App이 설치되지 않은 저장소: {repositories}. 그 저장소의 리뷰는 GitHub가 거절합니다.",
   "agentGitHub.workflowsActions":
     "워크플로 파일 수정과 Actions 실행을 같이 켜면, 에이전트가 허용 목록의 워크플로 파일을 자기 브랜치에서 고칠 수 있습니다. 사람이 그 브랜치를 머지하면 고친 파일이 실행 대상이 됩니다.",
   "agentGitHub.ceilingNote":
-    "워크스페이스 상한은 소유자·관리자가 GitHub 연결 설정에서 정합니다.",
+    "워크스페이스 상한은 소유자·관리자가 연동 › GitHub에서 정합니다.",
   "agentGitHub.allowlistHint":
     "Actions 실행이 켜져 있을 때 이 목록의 워크플로만 실행하거나 다시 실행합니다. 목록 밖의 workflow_dispatch와 다시 실행은 거절합니다.",
   "agentGitHub.allowlistEmpty": "목록에 없는 워크플로는 실행하지 않습니다.",
@@ -182,9 +182,9 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.pinned_app_removed": "고정된 App 삭제됨",
   "agentGitHub.refusal.merge_off": "워크스페이스가 머지를 허용하지 않음",
   "agentGitHub.refusalNext.ambiguous_app":
-    "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
+    "설정 › 연동 › GitHub › 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
   "agentGitHub.refusalNext.pinned_app_removed":
-    "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 다른 App을 고르세요",
+    "설정 › 연동 › GitHub › 저장소 관리에서 이 저장소를 맡을 다른 App을 고르세요",
   "agentGitHub.saveRefused": "저장하지 못했습니다: {reason}",
   "agentGitHub.refused": "거절",
   "agentPullRequest.title": "Pull request 서식",
@@ -297,19 +297,19 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.app_permission_missing":
     "The App lacks this permission. Add it in the GitHub App's settings, then approve the installation again.",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "Over the workspace ceiling. Owners and admins turn it on in the GitHub connection settings.",
+    "Over the workspace ceiling. Owners and admins turn it on in Settings › Integrations › GitHub.",
   "agentGitHub.featureReason.no_reviewer_app":
     "The workspace has no reviewer App. The App that writes pull requests cannot approve its own.",
   "agentGitHub.featureReason.github_host_unsupported":
     "Every chosen repository is on GitHub Enterprise, which takes the default work only.",
-  "agentGitHub.settingsLink": "GitHub connection settings",
+  "agentGitHub.settingsLink": "Integrations › GitHub",
   "agentGitHub.appNotInstalled": "App not installed",
   "agentGitHub.reviewerNotInstalled":
     "The reviewer App is not installed on: {repositories}. GitHub refuses reviews there.",
   "agentGitHub.workflowsActions":
     "With workflow edits and Actions both on, the agent can change an allowed workflow file on its own branch. Once a person merges that branch, the changed file is what runs.",
   "agentGitHub.ceilingNote":
-    "Owners and admins set the workspace ceiling in the GitHub connection settings.",
+    "Owners and admins set the workspace ceiling in Settings › Integrations › GitHub.",
   "agentGitHub.allowlistHint":
     "With Run Actions on, only workflows on this list run or rerun. Any other workflow_dispatch or rerun is refused.",
   "agentGitHub.allowlistEmpty": "No workflow outside the list runs.",
@@ -397,9 +397,9 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.pinned_app_removed": "Pinned App removed",
   "agentGitHub.refusal.merge_off": "The workspace does not allow merging",
   "agentGitHub.refusalNext.ambiguous_app":
-    "Choose the App that handles this repository under Workspace settings › GitHub connection › Manage repositories",
+    "Choose the App that handles this repository under Settings › Integrations › GitHub › Manage repositories",
   "agentGitHub.refusalNext.pinned_app_removed":
-    "Choose another App to handle this repository under Workspace settings › GitHub connection › Manage repositories",
+    "Choose another App to handle this repository under Settings › Integrations › GitHub › Manage repositories",
   "agentGitHub.saveRefused": "Not saved: {reason}",
   "agentGitHub.refused": "Refused",
   "agentPullRequest.title": "Pull request layout",
@@ -512,19 +512,19 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.app_permission_missing":
     "App にこの権限がありません。GitHub App の設定で加えてから、インストールを承認し直してください。",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "ワークスペースの上限の外です。オーナー・管理者が GitHub 連携の設定でオンにします。",
+    "ワークスペースの上限の外です。オーナー・管理者が 連携 › GitHub でオンにします。",
   "agentGitHub.featureReason.no_reviewer_app":
     "ワークスペースにレビュー用 App がありません。PR を作る App は自分の PR を承認できません。",
   "agentGitHub.featureReason.github_host_unsupported":
     "選んだリポジトリがすべて GitHub Enterprise にあるため、基本の作業だけができます。",
-  "agentGitHub.settingsLink": "GitHub 連携の設定",
+  "agentGitHub.settingsLink": "連携 › GitHub",
   "agentGitHub.appNotInstalled": "App 未インストール",
   "agentGitHub.reviewerNotInstalled":
     "レビュー用 App がインストールされていないリポジトリ: {repositories}。そこでのレビューは GitHub が拒否します。",
   "agentGitHub.workflowsActions":
     "ワークフローファイルの変更と Actions の実行を両方オンにすると、エージェントが許可リストのワークフローファイルを自分のブランチで変えられます。人がそのブランチをマージすると、変えたファイルが実行対象になります。",
   "agentGitHub.ceilingNote":
-    "ワークスペースの上限はオーナー・管理者が GitHub 連携の設定で決めます。",
+    "ワークスペースの上限はオーナー・管理者が 連携 › GitHub で決めます。",
   "agentGitHub.allowlistHint":
     "Actions の実行がオンのとき、このリストのワークフローだけを実行・再実行します。リスト外の workflow_dispatch と再実行は拒否します。",
   "agentGitHub.allowlistEmpty": "リストにないワークフローは実行しません。",
@@ -611,9 +611,9 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.pinned_app_removed": "固定した App は削除済み",
   "agentGitHub.refusal.merge_off": "ワークスペースがマージを許可していない",
   "agentGitHub.refusalNext.ambiguous_app":
-    "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する App を選んでください",
+    "設定 › 連携 › GitHub › リポジトリを管理 で、このリポジトリを担当する App を選んでください",
   "agentGitHub.refusalNext.pinned_app_removed":
-    "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する別の App を選んでください",
+    "設定 › 連携 › GitHub › リポジトリを管理 で、このリポジトリを担当する別の App を選んでください",
   "agentGitHub.saveRefused": "保存できませんでした: {reason}",
   "agentGitHub.refused": "拒否",
   "agentPullRequest.title": "Pull request の書式",

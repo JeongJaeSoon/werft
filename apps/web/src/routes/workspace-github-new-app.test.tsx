@@ -13,7 +13,7 @@ import { appHarness } from "../test-support/render-app.tsx";
 const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
 const { githubNavigation } = await import("./workspace-github-new-app.tsx");
 
-const PATH = "/settings/workspace/github";
+const PATH = "/settings/workspace/integrations/github";
 const APPS = `/v1/workspaces/${WORKSPACE_ID}/github-apps`;
 const APP = `${APPS}/author`;
 const START = `${APP}/manifest`;
@@ -203,7 +203,7 @@ describe("새 GitHub App 만들기", () => {
 });
 
 describe("GitHub에서 돌아온 화면", () => {
-  const CALLBACK = "/settings/workspace/github/new-app";
+  const CALLBACK = "/settings/workspace/integrations/github/new-app";
   const INSTALL_START = `${APPS}/${CONN_NEW}/installations/start`;
 
   test("code와 state를 한 번 보내고, 주소에서 지운 뒤 연결한 사람을 남기는 설치 화면으로 보낸다", async () => {
@@ -292,9 +292,7 @@ describe("GitHub에서 돌아온 화면", () => {
       await screen.findByText(/만료되었거나 이미 쓰였습니다/),
     ).toBeDefined();
     expect(api.calls.some((call) => call.method === "POST")).toBe(false);
-    expect(
-      screen.getByRole("link", { name: "GitHub 연결 설정으로" }),
-    ).toBeDefined();
+    expect(screen.getByRole("link", { name: "연동 › GitHub로" })).toBeDefined();
   });
 
   test("서버가 state를 거절하면 다시 시작하라고 알리고, 바뀐 App이면 GitHub의 App 링크를 준다", async () => {

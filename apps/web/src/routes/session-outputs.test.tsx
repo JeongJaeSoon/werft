@@ -215,7 +215,7 @@ describe("session GitHub attribution", () => {
     };
   }
 
-  test("names the linked starter as the commits' co-author", async () => {
+  test("names the linked requester as the commits' co-author", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({
@@ -230,7 +230,7 @@ describe("session GitHub attribution", () => {
     ).toBeDefined();
   });
 
-  test("an unlinked starter is pointed at linked accounts", async () => {
+  test("an unlinked requester is pointed at linked accounts", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({ trigger: "slack", attribution: "unlinked", login: null }),
@@ -244,7 +244,7 @@ describe("session GitHub attribution", () => {
     ).toBe("/settings/linked-accounts");
   });
 
-  test("a session no person started says the App alone signs", async () => {
+  test("a request from no person says the App alone signs", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({
@@ -256,7 +256,7 @@ describe("session GitHub attribution", () => {
     await openOutputs();
     expect(
       await screen.findByText(
-        "시작한 사람이 없는 세션이라 commit은 App 이름으로만 남습니다.",
+        "마지막 요청에 사람이 없어 commit은 App 이름으로만 남습니다.",
       ),
     ).toBeDefined();
   });
@@ -725,7 +725,6 @@ describe("the session's GitHub work", () => {
         ],
       }),
     );
-    await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     // Same branch: the newest row shows and the rest sit behind one toggle.
     expect(within(area).getAllByRole("listitem")).toHaveLength(2);
@@ -780,7 +779,6 @@ describe("the session's GitHub work", () => {
         intents: [],
       }),
     );
-    await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     await (await setupUser()).click(
       within(area).getByRole("button", {
@@ -817,7 +815,6 @@ describe("the session's GitHub work", () => {
         intents: [],
       }),
     );
-    await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     expect(within(area).getAllByRole("listitem")).toHaveLength(2);
     expect(within(area).queryByRole("button")).toBeNull();
@@ -841,12 +838,143 @@ describe("the session's GitHub work", () => {
           attached_repositories: [{ id: "shop", full_name: "acme/shop" }],
         }),
     });
-    await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     expect(within(area).getByText("acme/shop ← agent/0f8b6a52…")).toBeDefined();
     expect(api.calls.some((call) => call.path.endsWith("/push-requests"))).toBe(
       true,
     );
+  });
+
+  test("a push waiting for approval can be approved or rejected from the timeline, naming the commit the reader saw", async () => {
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
+        () => json(200, { ...waiting, state: "approved" }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/reject`]:
+        () => json(200, { ...waiting, state: "rejected" }),
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getByText("승인 대기")).toBeDefined();
+    const user = await setupUser();
+    await user.click(within(area).getByRole("button", { name: "push 승인" }));
+    await waitFor(() =>
+      expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+        git_commit: waiting.git_commit,
+      }),
+    );
+    expect(
+      api.calls
+        .find((call) => call.method === "POST")
+        ?.path.endsWith("/approve"),
+    ).toBe(true);
+    await user.click(within(area).getByRole("button", { name: "거절" }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter(
+          (call) => call.method === "POST" && call.path.endsWith("/reject"),
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  test("a decision the server refuses says so in words next to the buttons", async () => {
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+    };
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
+        () => apiError(409, "CHECKPOINT_MOVED", "A newer checkpoint was saved"),
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    await (await setupUser()).click(
+      within(area).getByRole("button", { name: "push 승인" }),
+    );
+    // Waiting does not heal a moved checkpoint, so the sentence says to reject
+    // and ask again instead of the generic "try again later".
+    expect((await within(area).findByRole("alert")).textContent).toContain(
+      "거절하고 새 push를 요청하세요",
+    );
+    // The buttons stay: the request is still open.
+    expect(
+      within(area).getByRole("button", { name: "push 승인" }),
+    ).toBeDefined();
+  });
+
+  test("an approved push leaves the waiting row once the list is read again, and the decision is sent once", async () => {
+    let state: "requested" | "approved" = "requested";
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+        json(200, { items: [{ ...waiting, state }], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
+        () => {
+          state = "approved";
+          return json(200, { ...waiting, state });
+        },
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const approve = within(area).getByRole("button", { name: "push 승인" });
+    expect(
+      within(area).getByText(waiting.git_commit.slice(0, 7)),
+    ).toBeDefined();
+    await (await setupUser()).click(approve);
+    await waitFor(() =>
+      expect(
+        within(area).queryByRole("button", { name: "push 승인" }),
+      ).toBeNull(),
+    );
+    expect(within(area).getByText("승인됨")).toBeDefined();
+    expect(
+      api.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/approve"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a push that failed says in plain words what to check, and a pushed one has no approve button", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      working({
+        items: [
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000b2",
+            state: "failed",
+            pr_state: null,
+          },
+          {
+            ...request,
+            id: "019a0000-0000-7000-8000-0000000000b3",
+            target_branch: "feature/ok",
+          },
+        ],
+        intents: [],
+      }),
+    );
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    expect(within(area).getByText("push 실패")).toBeDefined();
+    expect(
+      within(area).getByText(/원격 저장소가 push를 받지 않았습니다/),
+    ).toBeDefined();
+    expect(
+      within(area).queryByRole("button", { name: "push 승인" }),
+    ).toBeNull();
   });
 
   test("an older server's answer, with no intents and no pr_state, still lists the request without a stage", async () => {
@@ -860,7 +988,6 @@ describe("the session's GitHub work", () => {
       `/sessions/${SESSION_ID}`,
       working({ items: [older] } as unknown as ListPushRequestsResponse),
     );
-    await openOutputs();
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     expect(within(area).getAllByRole("listitem")).toHaveLength(1);
     expect(within(area).getByText("push됨")).toBeDefined();
@@ -875,7 +1002,9 @@ describe("the session's GitHub work", () => {
     });
     await openOutputs();
     await screen.findByRole("region", { name: /^out\/ 파일/ });
-    expect(screen.queryByRole("region", { name: "GitHub 작업" })).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "GitHub 작업", hidden: true }),
+    ).toBeNull();
     expect(api.calls.some((call) => call.path.endsWith("/push-requests"))).toBe(
       false,
     );

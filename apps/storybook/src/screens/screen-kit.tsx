@@ -252,7 +252,6 @@ function UserBar({ role }: { readonly role: Role }) {
 export type SettingsKey =
   | "general"
   | "slack"
-  | "github"
   | "workspaceApiKeys"
   | "linkedAccounts"
   | "apiKeys"
@@ -260,8 +259,7 @@ export type SettingsKey =
 
 const SETTINGS_LABEL: Record<SettingsKey, string> = {
   general: "일반",
-  slack: "Slack 연결 설정",
-  github: "GitHub 연결 설정",
+  slack: "연동",
   workspaceApiKeys: "조직 관리 키",
   linkedAccounts: "연동 계정",
   apiKeys: "API 키",
@@ -270,7 +268,6 @@ const SETTINGS_LABEL: Record<SettingsKey, string> = {
 const WORKSPACE_SETTINGS: readonly SettingsKey[] = [
   "general",
   "slack",
-  "github",
   "workspaceApiKeys",
 ];
 const PERSONAL_SETTINGS: readonly SettingsKey[] = [

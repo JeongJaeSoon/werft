@@ -179,6 +179,7 @@ describe("supply-chain-verdict.sh", () => {
     noVerdict: string,
     exceptions = "[]",
     env: Record<string, string> = {},
+    scope = "all",
   ) => {
     const directory = await mkdtemp(join(tmpdir(), "supply-chain-"));
     const script = join(directory, ".github/scripts/supply-chain-verdict.sh");
@@ -193,7 +194,7 @@ describe("supply-chain-verdict.sh", () => {
     );
     for (const [scan, result] of Object.entries(results))
       await writeFile(join(directory, `${scan}.txt`), `${result}\n`);
-    const run = Bun.spawnSync(["bash", script, directory, noVerdict], {
+    const run = Bun.spawnSync(["bash", script, directory, noVerdict, scope], {
       env: { PATH: process.env.PATH ?? "", ...env },
     });
     return { code: run.exitCode, out: run.stdout.toString() };
@@ -206,6 +207,25 @@ describe("supply-chain-verdict.sh", () => {
     "egress-proxy-amd64": result,
     "egress-proxy-arm64": result,
     npm: result,
+  });
+
+  test("PR scans require all amd64 images and dependencies, but not arm64", async () => {
+    const scans = Object.fromEntries(
+      Object.entries(all("clean")).filter(([name]) => !name.endsWith("arm64")),
+    );
+    expect((await verdict(scans, "fail", "[]", {}, "amd64")).code).toBe(0);
+    delete scans["worker-amd64"];
+    expect((await verdict(scans, "warn", "[]", {}, "amd64")).code).toBe(1);
+  });
+
+  test("a dependency-only scope requires its audit and rejects unknown scopes", async () => {
+    expect(
+      (await verdict({ npm: "clean" }, "fail", "[]", {}, "dependencies")).code,
+    ).toBe(0);
+    expect((await verdict({}, "warn", "[]", {}, "dependencies")).code).toBe(1);
+    expect(
+      (await verdict(all("clean"), "fail", "[]", {}, "unexpected")).code,
+    ).toBe(2);
   });
 
   test("passes when every scan is clean", async () => {
@@ -352,6 +372,32 @@ describe("supply-chain-verdict.sh", () => {
       const missing = await verdict({}, "warn", "[]", plan("skip", "skipped"));
       expect(missing.code).toBe(1);
       expect(missing.out).toContain("::error::npm: no result");
+    });
+
+    test("a planned build cannot pass with dependency scans alone", async () => {
+      const run = await verdict(
+        npmOnly,
+        "fail",
+        "[]",
+        plan("build", "success"),
+        "dependencies",
+      );
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("requires image scans");
+    });
+
+    test("a main prose push may skip, but a tag or another branch may not", async () => {
+      const input = {
+        ...plan("skip", "skipped", "push"),
+        GITHUB_REF: "refs/heads/main",
+      };
+      expect((await verdict(npmOnly, "fail", "[]", input)).code).toBe(0);
+      for (const ref of ["refs/tags/v1.2.3", "refs/heads/feature", ""]) {
+        expect(
+          (await verdict(npmOnly, "fail", "[]", { ...input, GITHUB_REF: ref }))
+            .code,
+        ).toBe(1);
+      }
     });
 
     test("skipping is for pull requests whose build really was skipped", async () => {

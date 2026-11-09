@@ -18,6 +18,7 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresEnvVariableStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -87,6 +88,7 @@ import {
   createAuthorizationPolicy,
   createCredentialBindingService,
   createDecisionsClient,
+  createEnvVariableService,
   createGitHubAppService,
   createGitHubConnectionResolver,
   createGitHubGate,
@@ -189,6 +191,7 @@ import {
   checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
+  extensionBundleSource,
 } from "./checkpoints.ts";
 import {
   createEgressAuthorizer,
@@ -196,6 +199,7 @@ import {
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
+import { extensionDepsFor } from "./extension-deps.ts";
 import {
   connectionsOf,
   createAppBotUsers,
@@ -230,6 +234,7 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
@@ -510,6 +515,7 @@ const slackWelcome =
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
+const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -520,6 +526,7 @@ const agents = createAgentService({
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
   profileLineage: profileRollouts,
+  extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -536,6 +543,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
+  extensions: extensionDeps,
   credentials: credentialBindings,
   limits,
 });
@@ -728,6 +736,10 @@ const slackLinkApps = createSlackLinkAppService({
 const credentialBindingService = createCredentialBindingService({
   authorization,
   store: credentialBindings,
+});
+const envVariableService = createEnvVariableService({
+  authorization,
+  store: createPostgresEnvVariableStore(db),
 });
 const apiKeys = createApiKeyService({
   authorization,
@@ -1084,10 +1096,12 @@ if (titleEgressUrl === null) {
 const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
+const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
   neutralize,
+  ...(extensionBundles === undefined ? {} : { extensions: extensionBundles }),
   // The storage-backed verifier: a checkpoint is promoted only after its
   // manifest, objects and workspace bundle were read back from S3 (checked by
   // git), and the pointer itself advances inside the turn's own transaction.
@@ -1359,6 +1373,7 @@ const app = createApiApp({
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);
+    registerEnvVariableRoutes(router, envVariableService);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

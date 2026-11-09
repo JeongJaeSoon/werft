@@ -166,7 +166,11 @@ export interface SurfaceBindingStore {
    * The join's last write: the binding's membership becomes `joined`, in one
    * transaction with the order check of `observeLifecycle`, so a leave noted
    * after the join was first seen is not overwritten. False, and nothing
-   * written, when the join has been overtaken.
+   * written, when the join has been overtaken. A `left` binding goes to
+   * `pending_approval` here (reason `rejoined_channel`) only for a join
+   * stamped strictly after the last noted leave; a tie, or a join with no
+   * time, cannot be ordered against that leave, so the binding stays `left`
+   * and the call is false.
    */
   recordJoin(
     installationId: string,
@@ -175,15 +179,17 @@ export interface SurfaceBindingStore {
     at: number | null,
   ): Promise<boolean>;
   /**
-   * The bot left a channel, or was removed from it, at `at`. A private
-   * channel's binding goes back to `pending_approval` (no longer home, its
-   * approval cleared, a `request_surface_binding` receipt for the
-   * installation) and keeps its mode and ceiling, so an invite after this
-   * needs a new approval. The approval voids unless it already knew of this
-   * leave, that is, unless `at` is not after the newest join/leave noted when
-   * it was given; this holds for a leave older than a noted re-invite too.
-   * Membership becomes `awaiting_invite` only when the leave is the newest
-   * noted event. A public channel's binding is left alone. False when the
+   * The bot left a channel, or was removed from it, at `at`. When this is
+   * the newest event noted for the channel, a private channel's `ready` or
+   * `pending_approval` binding becomes `left`: inactive (no input, nothing
+   * sent), no longer home, its approval cleared, membership
+   * `awaiting_invite`, a `set_surface_binding` receipt (reason
+   * `bot_left_channel`) for the installation; its mode and ceiling stay. A
+   * binding already `left` is not written again. A leave older than a noted
+   * join means the bot is back in: the binding is not `left`, and a `ready`
+   * one waits for approval (`request_surface_binding`) unless its approval
+   * already knew of this leave (`at` not after the newest event noted when
+   * it was given). A public channel's binding is left alone. False when the
    * leave is older than a noted event.
    */
   botLeft(

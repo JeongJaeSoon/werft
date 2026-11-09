@@ -26,6 +26,11 @@ import {
   type SaveRelease,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import type { ExtensionRefusal } from "../extensions/resolve.ts";
+import {
+  checkAgentExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -60,6 +65,7 @@ import {
   allowedRun,
   type CatalogProfile,
   catalogProfile,
+  modelSuccessor,
   profileModels,
   profilePinned,
   refreshWorkspaceProfilesFor,
@@ -121,7 +127,11 @@ export async function resolveAgentRelease(
       `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  if (model !== undefined && !profileModels(profile).includes(model)) {
+  if (
+    model !== undefined &&
+    !profileModels(profile).includes(model) &&
+    modelSuccessor(profile, model) === null
+  ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
       `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,
@@ -167,9 +177,24 @@ export function createAgentService(deps: {
   outsideAgents?: OutsideAgentAccessSetting;
   /** Where a profile's newest version is read; absent: no agent is pinned. */
   profileLineage?: Pick<ProfileRolloutStore, "inspect">;
+  extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
   const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
+  async function extensionRefusal(
+    workspaceId: string,
+    agentId: string,
+    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind">,
+  ): Promise<ExtensionRefusal | null> {
+    if (!deps.extensions) return null;
+    const checked = await checkAgentExtensions(deps.extensions, {
+      workspaceId,
+      agentId,
+      permissionMode: profile.permission_mode,
+      runtimeKind: profile.runtime_kind,
+    });
+    return checked.ok ? null : checked.refusal;
+  }
   const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
@@ -427,6 +452,11 @@ export function createAgentService(deps: {
       const reason = refusalCode(error);
       if (reason === null) throw error;
       return failed(reason);
+    }
+    if (
+      (await extensionRefusal(caller.ownerId, input.agentId, profile)) !== null
+    ) {
+      return failed("release_refused");
     }
     // An agent with a settings row has the row decide, and its release has
     // no GitHub pin or repository. One without keeps the active release's,
@@ -1263,6 +1293,19 @@ export function createAgentService(deps: {
       if (missing.length > 0) {
         return { status: "failed", reason: "credential_unbound" };
       }
+      const previous = await store.findRelease(
+        workspaceId,
+        input.previousReleaseId,
+      );
+      const previousProfile = previous
+        ? catalogProfile(catalog, previous.runtime_profile_id)
+        : undefined;
+      if (
+        previousProfile &&
+        (await extensionRefusal(workspaceId, agentId, previousProfile)) !== null
+      ) {
+        return { status: "failed", reason: "release_refused" };
+      }
       const result = await store.activate({
         principal,
         workspaceId,
@@ -1579,6 +1622,25 @@ export function createAgentService(deps: {
           `Release ${release.id} uses credentials not bound to this agent: ${missing.join(", ")}`,
           undefined,
           details,
+        );
+      }
+      const releaseProfile = catalogProfile(
+        catalog,
+        release.runtime_profile_id,
+      );
+      const extensions = releaseProfile
+        ? await extensionRefusal(
+            caller.ownerId,
+            release.agent_id,
+            releaseProfile,
+          )
+        : null;
+      if (extensions !== null) {
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          extensions.message,
+          undefined,
+          { reason_code: extensions.code, bundle: extensions.name },
         );
       }
       const result = await store.activate({

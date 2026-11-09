@@ -197,4 +197,26 @@ export function registerWorkerRoutes(
     releaseResponseSchema,
     (principal, body) => gateway.release(principal, body),
   );
+
+  router.get(
+    `${WORKER_ROUTE_PREFIX}/attempts/:attempt_id/extensions/:digest`,
+    async (context) => {
+      const token = bearerToken(context.req.header("Authorization"));
+      const principal = await mapped(() => gateway.authenticate(token));
+      const served = await mapped(() =>
+        gateway.extensionBundle(principal, {
+          attemptId: context.req.param("attempt_id"),
+          digest: context.req.param("digest"),
+        }),
+      );
+      return new Response(new Uint8Array(served.tar), {
+        headers: {
+          "content-type": "application/x-tar",
+          "content-length": String(served.tar.byteLength),
+          "x-bundle-digest": served.digest,
+          "cache-control": "no-store",
+        },
+      });
+    },
+  );
 }

@@ -62,8 +62,7 @@ type NavPath =
   | "/members"
   | "/settings/workspace"
   | "/settings/workspace/achievement-rules"
-  | "/settings/workspace/slack"
-  | "/settings/workspace/github"
+  | "/settings/workspace/integrations/slack"
   | "/settings/workspace/api-keys"
   | "/settings/workspace/connections"
   | "/settings/workspace/mcp-servers"
@@ -217,13 +216,9 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
   });
   if (workspaceManage) {
     workspace.push({
-      to: "/settings/workspace/slack",
-      label: "workspace.slack",
-      icon: SettingsIcon,
-    });
-    workspace.push({
-      to: "/settings/workspace/github",
-      label: "github.nav",
+      to: "/settings/workspace/integrations/slack",
+      match: "/settings/workspace/integrations",
+      label: "integrations.nav",
       icon: SettingsIcon,
     });
   }
@@ -269,7 +264,7 @@ export function navItemFor(
   groups: readonly NavGroup[],
   pathname: string,
 ): { group: NavGroup; item: NavItem } | undefined {
-  // The deepest item wins: /settings/workspace/slack over /settings.
+  // The deepest item wins: /settings/workspace/integrations over /settings.
   let found: { group: NavGroup; item: NavItem; base: string } | undefined;
   for (const group of groups) {
     for (const item of group.items) {
