@@ -287,6 +287,10 @@ export type ClaimResult =
   // in the same transaction: the session is `failed` with CATALOG_MISMATCH
   // and the launch is asked to go.
   | { outcome: "catalog_mismatch" }
+  // The session's variable snapshot is refused under the names the platform
+  // reserves now. The session is `failed` and its launch given up in the same
+  // transaction, one `reject_session_env` receipt written; nothing was bound.
+  | { outcome: "variables_refused" }
   // The worker runs another combination than its launch was reserved under:
   // the image's configured runtime is wrong. Nothing was bound and the
   // session is untouched; the launch was asked to go and the image refused

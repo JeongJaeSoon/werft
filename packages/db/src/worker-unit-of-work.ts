@@ -3,6 +3,7 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  type EnvRefusal,
   MODEL_NOT_ALLOWED_EVENT_CODE,
   type ModelCutCause,
   type PendingRememberRule,
@@ -115,13 +116,18 @@ import {
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
+import { envStartRefusal, recordEnvRefusal } from "./env-variables.ts";
 import {
   type AttemptRow,
   acquireFence,
   leaseHeld,
   type SessionRow,
 } from "./fence.ts";
-import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
+import {
+  catalogMismatchCause,
+  quarantineLaunch,
+  variablesRefusedCause,
+} from "./launch-quarantine.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
 import { writeModelCut } from "./model-cut-notices.ts";
 import {
@@ -1336,19 +1342,7 @@ async function giveUpOnCatalogMismatch(
       : runnable.some((pair) => allowsPair(pair, session))
         ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
         : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
-  // As `recordLaunchFailure` gives a launch up: counted, the credential
-  // revoked, nothing left to rebuild.
-  await tx
-    .update(workerLaunches)
-    .set({
-      launchFailureCount: sql`${workerLaunches.launchFailureCount} + 1`,
-      launchAttempts: sql`${workerLaunches.launchAttempts} + 1`,
-      lastLaunchError: detail,
-      launchRetryAt: null,
-      nonceHash: null,
-      replacementReason: null,
-    })
-    .where(eq(workerLaunches.executionId, launch.executionId));
+  await countLaunchGiveUp(tx, launch.executionId, detail);
   // The stream and the DMs say which model left, as they do for an attempt
   // cut while running; the session's own lock is held.
   if (removed !== null) {
@@ -1361,6 +1355,56 @@ async function giveUpOnCatalogMismatch(
   }
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
   return "catalog_mismatch";
+}
+
+/**
+ * Fails a session whose variable snapshot the claim refuses, in the claim's
+ * transaction: one receipt that names the cause, the launch counted as given
+ * up, the session failed and its execution asked to go.
+ */
+async function refuseSessionVariables(
+  tx: Database,
+  launch: { executionId: string; generation: number },
+  session: { id: string; ownerId: string },
+  reason: EnvRefusal,
+): Promise<void> {
+  const cause = variablesRefusedCause(reason);
+  await recordEnvRefusal(tx, {
+    ownerId: session.ownerId,
+    actor: null,
+    requestId: null,
+    reason,
+    target: { sessionId: session.id },
+  });
+  await countLaunchGiveUp(tx, launch.executionId, cause.detail);
+  await quarantineLaunch(
+    tx,
+    { executionId: launch.executionId, generation: launch.generation },
+    session.id,
+    cause,
+  );
+}
+
+/**
+ * As `recordLaunchFailure` gives a launch up: counted, the credential
+ * revoked, nothing left to rebuild.
+ */
+async function countLaunchGiveUp(
+  tx: Database,
+  executionId: string,
+  detail: string,
+): Promise<void> {
+  await tx
+    .update(workerLaunches)
+    .set({
+      launchFailureCount: sql`${workerLaunches.launchFailureCount} + 1`,
+      launchAttempts: sql`${workerLaunches.launchAttempts} + 1`,
+      lastLaunchError: detail,
+      launchRetryAt: null,
+      nonceHash: null,
+      replacementReason: null,
+    })
+    .where(eq(workerLaunches.executionId, executionId));
 }
 
 /**
@@ -1872,6 +1916,42 @@ export function createPostgresWorkerUnitOfWork(
           if (!replayableBinding(bound.session, bound.attempt, launch)) {
             return { outcome: "invalid_credential" };
           }
+          // The retry is judged like a new claim: a replica whose reserved
+          // names grew since the first answer was lost must not hand the same
+          // binding back.
+          const replayRefusal = envStartRefusal(
+            bound.session.envStart,
+            await dbNow(tx),
+          );
+          if (replayRefusal !== null) {
+            // The first answer may have reached a worker: its token, fence
+            // and epoch die with the refusal, like a release. pod/execution
+            // stay until the backend confirms the execution gone.
+            await tx
+              .update(attempts)
+              .set({
+                state: "exited",
+                endedAt: input.now,
+                endReason: "variables_refused",
+              })
+              .where(eq(attempts.id, bound.attempt.id));
+            await revokeCredentials(tx, bound.attempt.id, input.now);
+            await tx
+              .update(sessions)
+              .set({
+                leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+                authRevision: sql`${sessions.authRevision} + 1`,
+                updatedAt: input.now,
+              })
+              .where(eq(sessions.id, bound.session.id));
+            await refuseSessionVariables(
+              tx,
+              launch,
+              bound.session,
+              replayRefusal,
+            );
+            return { outcome: "variables_refused" };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -2021,6 +2101,16 @@ export function createPostgresWorkerUnitOfWork(
             .set({ desiredState: "terminated" })
             .where(eq(executions.id, launch.executionId));
           return { outcome: "context_gap" };
+        }
+
+        // The snapshot the session took at accept is judged again under the
+        // names the platform reserves now. A refusal fails the session here, in
+        // this transaction, as a catalog give-up does; the next input signals it
+        // again and meets the same refusal until the variables are fixed.
+        const envRefusal = envStartRefusal(locked.envStart, await dbNow(tx));
+        if (envRefusal !== null) {
+          await refuseSessionVariables(tx, launch, locked, envRefusal);
+          return { outcome: "variables_refused" };
         }
 
         // Read once: the binding hands the worker exactly the restore the

@@ -32,6 +32,7 @@ import {
   type IdentityStore,
   type IdentityWorkspace,
   MANAGEMENT_ROLES,
+  passwordResetIssueDenial,
 } from "@werft-ai/platform";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -649,17 +650,18 @@ export function registerAuthRoutes(router: ApiRouter, deps: AuthRouteDeps) {
     if (principal.workspace_id !== params.id) {
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }
-    if (principal.role !== "owner") {
+    const denial = passwordResetIssueDenial(
+      { userId: principal.id, role: principal.role },
+      params.userId,
+    );
+    if (denial === "owner_required") {
       throw new ApiHttpError(
         403,
         "FORBIDDEN",
         "Only an owner can issue a password reset link",
       );
     }
-    // A link for oneself would let a stolen session set the password and
-    // end the victim's other sessions; an owner who knows their password
-    // has no use for one.
-    if (params.userId === principal.id) {
+    if (denial === "self_protected") {
       throw new ApiHttpError(
         403,
         "FORBIDDEN",

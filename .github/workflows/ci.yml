@@ -104,10 +104,8 @@ jobs:
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # A hang ceiling, not a runtime target: slow runners pushed the longest
-    # part past 6m without a failing test, so this sits well above that.
-    # "other apps, tests" ran 7m24s to 8m41s on main and hit 9m with no
-    # failing test (run 42546931446), so the ceiling is 12.
+    # A hang ceiling, not a runtime target: split normal runs below 6m
+    # instead of letting them approach this ceiling on slow runners.
     timeout-minutes: 12
     strategy:
       # Each part's failures are its own; a cancelled part would hide them
@@ -124,7 +122,10 @@ jobs:
           # tests/: as one part they ran about 5m of the then-6m ceiling.
           - part: "unit: worker, web"
             unit: worker-web
-          # The complement of the parts above: the other apps, tests/, and any
+          # Recent runs spent about 4m22s in Slack and 4m01s in the complement.
+          - part: "unit: control Slack"
+            unit: control-slack
+          # The complement of the parts above: other app tests, tests/, and any
           # other directory the `test` script's filters pick up.
           - part: "unit: other apps, tests"
             unit: rest
@@ -330,6 +331,7 @@ jobs:
               - tests/ci-services.
               - tests/ci-plan.
               - tests/ci-static-checks.
+              - tests/install-rehearsal.
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-i18n-code.

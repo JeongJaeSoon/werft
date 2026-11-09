@@ -41,6 +41,16 @@ export function assignableRoles(actorRole: WorkspaceRole): WorkspaceRole[] {
 
 export type MemberActor = { userId: string; role: WorkspaceRole };
 
+export function passwordResetIssueDenial(
+  actor: MemberActor,
+  targetUserId: string,
+): "owner_required" | "self_protected" | null {
+  if (actor.role !== "owner") return "owner_required";
+  // A stolen session must not issue a link that replaces its own password.
+  if (actor.userId === targetUserId) return "self_protected";
+  return null;
+}
+
 export type MemberTarget = {
   userId: string;
   role: WorkspaceRole;

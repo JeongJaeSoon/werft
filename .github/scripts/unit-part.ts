@@ -3,18 +3,24 @@
 //
 // `check` runs the suite without services in parts named after the repo
 // layout: `packages-db` is packages/db/, `packages` is the rest of packages/, `worker-web`
-// every one under apps/worker/ and apps/web/, and `rest` every other one —
-// the other apps, tests/ and examples/ today. `rest` is the complement by construction,
+// every one under apps/worker/ and apps/web/, `control-slack` the slow Slack fixtures,
+// and `rest` every other one. `rest` is the complement by construction,
 // so a file cannot fall between the parts, and a new directory the `test`
 // filters pick up lands in `rest` rather than nowhere.
 //
-// usage: unit-part.ts <packages|packages-db|worker-web|rest>
+// usage: unit-part.ts <packages|packages-db|worker-web|control-slack|rest>
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { discover, testFilters } from "./test-files.ts";
 
-export const PARTS = ["packages", "packages-db", "worker-web", "rest"] as const;
+export const PARTS = [
+  "packages",
+  "packages-db",
+  "worker-web",
+  "control-slack",
+  "rest",
+] as const;
 export type Part = (typeof PARTS)[number];
 
 export function partOf(path: string): Part {
@@ -23,6 +29,7 @@ export function partOf(path: string): Part {
   if (path.startsWith("apps/worker/") || path.startsWith("apps/web/")) {
     return "worker-web";
   }
+  if (path.startsWith("apps/control-host/src/slack/")) return "control-slack";
   return "rest";
 }
 

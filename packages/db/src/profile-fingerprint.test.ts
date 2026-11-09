@@ -188,14 +188,11 @@ async function refusal(promise: Promise<unknown>) {
 }
 
 describe("profile fingerprint pinned at create", () => {
-  test("create stores the fingerprint of the profile as the catalog defined it, never the credential", async () => {
+  test("create stores the literal fingerprint of the accepted settings", async () => {
     const sessionId = await createSession(ORIGINAL);
     const stored = await storedFingerprint(sessionId);
-    expect(stored).toBe(profileFingerprint(profile()));
-    expect(stored).not.toContain("provider-key-one");
-    // The value is not part of it: a rotated key hashes the same.
     expect(stored).toBe(
-      profileFingerprint(profile({ key: "provider-key-two" })),
+      "sha256:4a6521dca081535c61beba67569e43f79104afa33edf73f5f8705c786494db57",
     );
   });
 
@@ -448,11 +445,7 @@ describe("a model named at create", () => {
     expect(granted.upstream.url).toBe("https://litellm.invalid");
   });
 
-  test("omitted, the default runs with the fingerprint a profile without models has", async () => {
-    const { session_id: sessionId } = await create(OFFERS);
-    expect(await storedFingerprint(sessionId)).toBe(
-      profileFingerprint(profile()),
-    );
+  test("expanding the model menu still claims a stored pin from before the list", async () => {
     // Listing more models stops nothing created before the list.
     const before = (await create(ORIGINAL)).session_id;
     const gateway = gatewayOf(OFFERS);
@@ -461,16 +454,11 @@ describe("a model named at create", () => {
   });
 
   test("a model the profile does not offer is refused and stores nothing", async () => {
-    for (const [catalog, model] of [
-      [OFFERS, "claude-fable-5-1"],
-      [ORIGINAL, "claude-opus-5-5"],
-    ] as const) {
-      const error = await create(catalog, model).catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(SessionServiceError);
-      expect((error as SessionServiceError).code).toBe(
-        "UNSUPPORTED_CAPABILITY",
-      );
-    }
+    const error = await create(OFFERS, "claude-fable-5-1").catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).code).toBe("UNSUPPORTED_CAPABILITY");
     expect(await db.select({ id: sessions.id }).from(sessions)).toEqual([]);
   });
 

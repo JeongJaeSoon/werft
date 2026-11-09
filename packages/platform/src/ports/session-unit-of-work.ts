@@ -3,6 +3,7 @@ import type {
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
+  EnvRefusal,
   GitHubPolicySource,
   ListSessionsQuery,
   ListTurnsQuery,
@@ -81,6 +82,11 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
+  // The variable names the release's card declares. The accept resolves them
+  // against the agent's and the workspace's variables and keeps the values
+  // with the session. Left out or empty, the session takes none and nothing
+  // about its acceptance changes.
+  envNames?: readonly string[];
   // A Slack DM's session starts seen by its creator alone (design 4.6);
   // left out, by the whole workspace.
   shareScope?: "private";
@@ -98,6 +104,8 @@ export type AcceptSessionResult =
   /** Outside the agent while axis A is not `use`, judged in the write. */
   | { outcome: "agent_use_refused" }
   | { outcome: "credential_unbound"; receiptId: string }
+  /** A declared name has no value for this agent; no session was created. */
+  | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {

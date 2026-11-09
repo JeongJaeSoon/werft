@@ -166,6 +166,19 @@ describe("구성원 화면", () => {
       expect(memberViewSchema.safeParse(view).success).toBe(true);
   });
 
+  test("구성원 표의 이름은 두 줄까지 접히고 말줄임이 나도 전체 이름이 title에 남는다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, teammate], next_cursor: null })),
+      ...noInvites,
+    });
+    const name = await screen.findByText("Mate");
+    expect(name.getAttribute("title")).toBe("Mate");
+    expect(name.className.split(" ")).toContain("line-clamp-2");
+    expect(name.className.split(" ")).not.toContain("truncate");
+  });
+
   test("행에 actions가 없는 이전 API에서도 화면이 오류로 떨어지지 않고 동작을 연다", async () => {
     renderAt(
       "/members",

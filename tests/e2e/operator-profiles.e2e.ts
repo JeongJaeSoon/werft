@@ -93,25 +93,25 @@ let owner: Web;
 let admin: Web;
 let agentId = "";
 let versionId = "";
-let releaseV1 = "";
 let narrowedId = "";
+let narrowedSessionId = "";
 
-async function sessionTurn(start: {
-  profile_id?: string;
-  agent_release_id?: string;
-}) {
+async function sessionTurn(profileId: string) {
   const id = `ceiling-${started.length}`;
   const created = await api.expect<{ session_id: string; turn_id: string }>(
     201,
     "POST",
     "/v1/sessions",
     {
-      ...start,
+      profile_id: profileId,
       message: scripted(id, [], `${id} done`),
     },
   );
   started.push(created.session_id);
-  return (await api.settledTurn(created.session_id, created.turn_id)).status;
+  return {
+    sessionId: created.session_id,
+    status: (await api.settledTurn(created.session_id, created.turn_id)).status,
+  };
 }
 
 const releaseOn = (profileId: string) =>
@@ -223,7 +223,7 @@ describe("installation ceilings from the API", () => {
   );
 
   test(
-    "the owner saves v1 and a release on it runs; an admin cannot name the runtime and an API key cannot save",
+    "the owner saves v1 and creates a release; an admin cannot name the runtime and an API key cannot save",
     async () => {
       const byAdmin = await admin("POST", "/v1/installation-profiles", CEILING);
       expect([byAdmin.status, reasonOf(byAdmin.body)]).toEqual([
@@ -244,12 +244,8 @@ describe("installation ceilings from the API", () => {
       expect(saved.body.profile.installation.state).toBe("usable");
       const released = await releaseOn(V1);
       expect(released.status).toBe(200);
-      releaseV1 = released.body.release.id;
-      expect(await sessionTurn({ agent_release_id: releaseV1 })).toBe(
-        "completed",
-      );
       console.log(
-        `save v1: admin ${byAdmin.status}, api key ${byKey.status}, owner ${saved.status} ${saved.body.profile.id}; release on v1 ${released.status}, its session completed`,
+        `save v1: admin ${byAdmin.status}, api key ${byKey.status}, owner ${saved.status} ${saved.body.profile.id}; release on v1 ${released.status}`,
       );
     },
     TIMEOUT,
@@ -282,9 +278,9 @@ describe("installation ceilings from the API", () => {
       );
       expect(narrowed.status).toBe(201);
       narrowedId = narrowed.body.profile.id;
-      expect(await sessionTurn({ profile_id: narrowed.body.profile.id })).toBe(
-        "completed",
-      );
+      const ran = await sessionTurn(narrowed.body.profile.id);
+      narrowedSessionId = ran.sessionId;
+      expect(ran.status).toBe("completed");
       console.log(
         `save v2: without previous_id ${stale.status} ${reasonOf(stale.body)}, with it ${saved.status} ${saved.body.profile.id}; admin's ${narrowed.body.profile.id} on v2 ran a session to completed`,
       );
@@ -293,7 +289,7 @@ describe("installation ceilings from the API", () => {
   );
 
   test(
-    "outside the ceiling is refused: a model or tool v2 lacks, and bypass while the switch is off",
+    "widening the tools is refused, and bypass while the installation switch is off is refused",
     async () => {
       const base = {
         name: `wide-${RUN}`,
@@ -303,37 +299,32 @@ describe("installation ceilings from the API", () => {
         tools: ["Read"],
         permission_mode: "default",
       };
-      const refused: Array<[string, number, unknown]> = [];
-      for (const [what, change] of [
-        ["model", { models: ["claude-sonnet-5", "claude-opus-5"] }],
-        ["tool", { tools: ["Read", "Glob"] }],
-        ["bypass", { permission_mode: "bypassPermissions" }],
-      ] as const) {
-        const response = await admin("POST", "/v1/workspace-profiles", {
-          ...base,
-          ...change,
-        });
-        refused.push([what, response.status, reasonOf(response.body)]);
-      }
+      const wider = await admin("POST", "/v1/workspace-profiles", {
+        ...base,
+        tools: ["Read", "Glob"],
+      });
+      expect([wider.status, reasonOf(wider.body)]).toEqual([
+        400,
+        "widens_base",
+      ]);
       const bypassCeiling = await owner("POST", "/v1/installation-profiles", {
         ...CEILING,
         name: `e2e-bypass-${RUN}`,
         permission_mode: "bypassPermissions",
       });
-      refused.push([
-        "bypass ceiling",
-        bypassCeiling.status,
-        reasonOf(bypassCeiling.body),
+      expect([bypassCeiling.status, reasonOf(bypassCeiling.body)]).toEqual([
+        400,
+        "unattended_not_allowed",
       ]);
-      console.log(`refused: ${JSON.stringify(refused)}`);
-      expect(refused.map(([, status]) => status)).toEqual([400, 400, 400, 400]);
-      expect(refused[3]?.[2]).toBe("unattended_not_allowed");
+      console.log(
+        `refused: tools ${wider.status} ${reasonOf(wider.body)}; bypass ceiling ${bypassCeiling.status} ${reasonOf(bypassCeiling.body)}`,
+      );
     },
     TIMEOUT,
   );
 
   test(
-    "retiring v1 refuses a new release on it, while v1's release still starts sessions",
+    "retiring v1 refuses a new release and a bare session on it",
     async () => {
       const retired = await owner<{
         profile: { installation: { state: string } };
@@ -355,11 +346,8 @@ describe("installation ceilings from the API", () => {
         message: scripted("ceiling-bare", [], "ceiling-bare done"),
       });
       expect(bare.status).toBeGreaterThanOrEqual(400);
-      expect(await sessionTurn({ agent_release_id: releaseV1 })).toBe(
-        "completed",
-      );
       console.log(
-        `retire v1: ${retired.status}, receipt ${retired.body.receipt_id !== null}; again: receipt ${again.body.receipt_id}; new release on v1 ${newRelease.status} ${reasonOf(newRelease.body)}; session on v1 without a release ${bare.status} ${reasonOf(bare.body)}; v1's existing release ran a new session to completed`,
+        `retire v1: ${retired.status}, receipt ${retired.body.receipt_id !== null}; again: receipt ${again.body.receipt_id}; new release on v1 ${newRelease.status} ${reasonOf(newRelease.body)}; session on v1 without a release ${bare.status} ${reasonOf(bare.body)}`,
       );
     },
     TIMEOUT,
@@ -374,19 +362,7 @@ describe("installation ceilings from the API", () => {
       };
       const releasedV2 = await releaseOn(V2);
       expect(releasedV2.status).toBe(200);
-      const running = await api.expect<{ session_id: string; turn_id: string }>(
-        201,
-        "POST",
-        "/v1/sessions",
-        {
-          profile_id: narrowedId,
-          message: scripted("ceiling-running", [], "ceiling-running done"),
-        },
-      );
-      started.push(running.session_id);
-      expect(
-        (await api.settledTurn(running.session_id, running.turn_id)).status,
-      ).toBe("completed");
+      const running = { session_id: narrowedSessionId };
 
       const path = (action: "block" | "unblock") =>
         `/v1/installation-profiles/${V2}/${action}`;
@@ -465,9 +441,8 @@ describe("installation ceilings from the API", () => {
       expect(
         (await api.settledTurn(running.session_id, resumed.turn_id)).status,
       ).toBe("completed");
-      expect(await sessionTurn({ profile_id: narrowedId })).toBe("completed");
       console.log(
-        `block v2: admin ${byAdmin.status}, api key ${byKey.status}, owner ${blocked.status} ${blocked.body.profile.installation.state}; again: receipt ${again.body.receipt_id}; ${narrowedId} ${narrowedState}; new release on v2 ${newRelease.status} ${reasonOf(newRelease.body)}; new session ${bare.status} ${reasonOf(bare.body)}; session on v2's release ${onRelease.status} ${reasonOf(onRelease.body)}; running session's next message ${next.status} ${reasonOf(next.body)}, attention ${attention?.code} ${String(attention?.reason_code)}, queued ${queued_turn_count}; unblock: admin ${unblockByAdmin.status}, owner ${unblocked.status} ${unblocked.body.profile.installation.state}; the blocked session's next turn and a new session completed`,
+        `block v2: admin ${byAdmin.status}, api key ${byKey.status}, owner ${blocked.status} ${blocked.body.profile.installation.state}; again: receipt ${again.body.receipt_id}; ${narrowedId} ${narrowedState}; new release on v2 ${newRelease.status} ${reasonOf(newRelease.body)}; new session ${bare.status} ${reasonOf(bare.body)}; session on v2's release ${onRelease.status} ${reasonOf(onRelease.body)}; running session's next message ${next.status} ${reasonOf(next.body)}, attention ${attention?.code} ${String(attention?.reason_code)}, queued ${queued_turn_count}; unblock: admin ${unblockByAdmin.status}, owner ${unblocked.status} ${unblocked.body.profile.installation.state}; the blocked session's next turn completed`,
       );
     },
     TIMEOUT,

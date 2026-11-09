@@ -427,8 +427,8 @@ export type SlackOutboxDrain = {
   cards: number;
 };
 
-function settleFor(
-  claim: SlackOutboxClaim,
+export function slackOutboxSettleFor(
+  attempts: number,
   response: SlackSendResponse,
 ): SlackOutboxSettle {
   // A 2xx or 5xx whose answer could not be read: Slack may hold the
@@ -445,7 +445,7 @@ function settleFor(
     httpStatus: response.httpStatus,
     retryAfterHeader: response.retryAfterHeader,
     body: response.body,
-    attempts: claim.attempts,
+    attempts,
   });
   switch (outcome.kind) {
     case "sent":
@@ -453,7 +453,7 @@ function settleFor(
     case "failed":
       return { status: "failed", errorCode: outcome.code };
     case "retry_after":
-      return claim.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
+      return attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
         ? { status: "failed", errorCode: "ratelimited" }
         : {
             status: "pending",
@@ -464,9 +464,42 @@ function settleFor(
       return {
         status: "pending",
         errorCode: outcome.code,
-        retryInMs: slackInboundBackoffMs(claim.attempts),
+        retryInMs: slackInboundBackoffMs(attempts),
       };
   }
+}
+
+export function slackOutboxPresentation(
+  claim: Pick<SlackOutboxClaim, "kind" | "body">,
+):
+  | {
+      kind: "instruction";
+      sender: NonNullable<SlackOutboxEntry["body"]["sender"]>;
+    }
+  | { kind: "blocks"; blocks: unknown[]; fallback: boolean }
+  | { kind: "text" } {
+  const sender = claim.body.sender;
+  if (claim.kind === "instruction" && sender !== undefined) {
+    return { kind: "instruction", sender };
+  }
+  if (claim.body.blocks !== undefined) {
+    return { kind: "blocks", blocks: claim.body.blocks, fallback: false };
+  }
+  const blocks = claim.kind === "reply" ? slackReplyBlocks(claim.body) : null;
+  return blocks === null
+    ? { kind: "text" }
+    : { kind: "blocks", blocks, fallback: true };
+}
+
+export function slackInstructionFallbackText(
+  body: SlackOutboxEntry["body"],
+  text: string,
+  username: string,
+): string {
+  const named = `${username}\n`;
+  return body.text.startsWith(named)
+    ? text
+    : slackOutboxText({ ...body, text: named + body.text });
 }
 
 /** Design slack-approval-ui §4: lease 60s, takeover grace 30s, W 5 min. */
@@ -884,21 +917,16 @@ export async function drainSlackOutbox(deps: {
       threadTs: claim.threadTs,
       text,
     };
-    const sender = claim.body.sender;
-    if (claim.kind !== "instruction" || sender === undefined) {
-      if (claim.body.blocks !== undefined) {
-        return deps.slack.postMessage(botToken, {
-          ...target,
-          blocks: claim.body.blocks,
-        });
+    const presentation = slackOutboxPresentation(claim);
+    if (presentation.kind !== "instruction") {
+      if (presentation.kind === "text") {
+        return deps.slack.postMessage(botToken, target);
       }
-      const blocks =
-        claim.kind === "reply" ? slackReplyBlocks(claim.body) : null;
-      if (blocks === null) return deps.slack.postMessage(botToken, target);
       const response = await deps.slack.postMessage(botToken, {
         ...target,
-        blocks,
+        blocks: presentation.blocks,
       });
+      if (!presentation.fallback) return response;
       // Slack posted nothing when it refused the blocks (an app or workspace
       // without table support); the same reply goes once more as plain text.
       const error =
@@ -909,6 +937,7 @@ export async function drainSlackOutbox(deps: {
         ? deps.slack.postMessage(botToken, target)
         : response;
     }
+    const { sender } = presentation;
     const response = await deps.slack.postMessage(botToken, {
       ...target,
       username: sender.username,
@@ -921,12 +950,9 @@ export async function drainSlackOutbox(deps: {
     if (!refused) return response;
     // Posted as the app, the sender's name moves into the text; a row queued
     // before the name left the text has it there already.
-    const named = `${sender.username}\n`;
     return deps.slack.postMessage(botToken, {
       ...target,
-      text: claim.body.text.startsWith(named)
-        ? text
-        : slackOutboxText({ ...claim.body, text: named + claim.body.text }),
+      text: slackInstructionFallbackText(claim.body, text, sender.username),
     });
   };
   for (const lost of await deps.outbox.expireSending()) {
@@ -1114,7 +1140,7 @@ export async function drainSlackOutbox(deps: {
                 text,
               })
             : await postMessage(botToken, claim, text, iconUrl);
-        outcome = settleFor(claim, response);
+        outcome = slackOutboxSettleFor(claim.attempts, response);
       } catch (error) {
         // No answer came: the request may have reached Slack.
         outcome = {

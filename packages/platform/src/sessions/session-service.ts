@@ -922,6 +922,12 @@ export function createSessionService(deps: {
             release.agent_id,
             result.receiptId,
           );
+        // Names no variable: the requester is not the administrator who can fix it.
+        case "variables_refused":
+          throw new SessionServiceError(
+            "VARIABLE_UNRESOLVED",
+            "A variable this agent's card declares has no value for it; ask the agent's administrator",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

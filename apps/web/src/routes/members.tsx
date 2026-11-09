@@ -488,7 +488,12 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
                 {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
                 <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
-                  <Text as="span" weight="medium" truncate>
+                  <Text
+                    as="span"
+                    weight="medium"
+                    title={member.display_name}
+                    className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
+                  >
                     {member.display_name}
                   </Text>
                   {disabled ? (

@@ -94,6 +94,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "github_policy_start",
     // 0242
     "mcp_start",
+    // 0249
+    "env_start",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",
