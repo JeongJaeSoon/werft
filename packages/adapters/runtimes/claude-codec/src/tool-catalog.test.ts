@@ -4,6 +4,7 @@ import {
   type BuiltinToolCatalog,
   CLAUDE_TOOL_CATALOGS,
   canonicalToolName,
+  equivalentToolCatalogVersions,
   legacyToolNames,
   pinnedClaudeToolCatalog,
   toolCatalogFor,
@@ -30,6 +31,77 @@ describe("the pinned engine build", () => {
         toolCatalogFor(CLAUDE_TOOL_CATALOGS, "claude_agent_sdk", version),
       ).toBe(pinned);
     }
+  });
+});
+
+describe("equivalent builds", () => {
+  const base: BuiltinToolCatalog = {
+    id: "a",
+    runtimeKind: "claude_agent_sdk",
+    sdkVersion: "1.0.0",
+    engineVersion: "2.0.0",
+    aliases: { Task: "Agent" },
+    tools: [{ name: "Read", boundary: "local" }],
+  };
+  const other = (patch: Partial<BuiltinToolCatalog>): BuiltinToolCatalog => ({
+    ...base,
+    id: "b",
+    sdkVersion: "1.1.0",
+    engineVersion: "2.1.0",
+    ...patch,
+  });
+  const versionsOf = (catalogs: readonly BuiltinToolCatalog[]) =>
+    equivalentToolCatalogVersions(catalogs, "claude_agent_sdk", "1.0.0");
+
+  test("name both spellings of a catalog with the same tools and aliases", () => {
+    expect(versionsOf([base, other({})])).toEqual(["1.1.0", "2.1.0"]);
+  });
+
+  test("do not depend on the order of tools, aliases or a tool's keys", () => {
+    const two: BuiltinToolCatalog = {
+      ...base,
+      aliases: { Task: "Agent", KillShell: "TaskStop" },
+      tools: [
+        { name: "Read", boundary: "local" },
+        { name: "Bash", boundary: "local" },
+      ],
+    };
+    const shuffled = other({
+      aliases: { KillShell: "TaskStop", Task: "Agent" },
+      tools: [
+        { boundary: "local", name: "Bash" },
+        { boundary: "local", name: "Read" },
+      ],
+    });
+    expect(versionsOf([two, shuffled])).toEqual(["1.1.0", "2.1.0"]);
+  });
+
+  test("leave out a catalog whose tool, boundary or alias differs", () => {
+    const widened = other({
+      tools: [...base.tools, { name: "Write", boundary: "local" }],
+    });
+    const moved = other({ tools: [{ name: "Read", boundary: "egress" }] });
+    const renamed = other({ aliases: { Task: "Subagent" } });
+    expect(versionsOf([base, widened, moved, renamed])).toEqual([]);
+  });
+
+  test("leave out another runtime kind, and answer nothing for an unknown version", () => {
+    expect(
+      versionsOf([base, other({ runtimeKind: "codex_app_server" })]),
+    ).toEqual([]);
+    expect(
+      equivalentToolCatalogVersions([base, other({})], "claude_agent_sdk", "9"),
+    ).toEqual([]);
+  });
+
+  test("today the shipped catalogs make 0.3.270 equivalent to the pinned build", () => {
+    expect(
+      equivalentToolCatalogVersions(
+        CLAUDE_TOOL_CATALOGS,
+        "claude_agent_sdk",
+        CLAUDE_AGENT_SDK_VERSION,
+      ),
+    ).toContain("0.3.270");
   });
 });
 

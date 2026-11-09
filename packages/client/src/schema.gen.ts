@@ -32261,7 +32261,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "acceptEdits",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required"
                      *         },
@@ -32283,7 +32283,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "acceptEdits",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required",
                      *           "repository_ids": [
@@ -32322,7 +32322,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "default",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required",
                      *           "workspace": {
@@ -32446,7 +32446,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "default",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "workspace": {
@@ -32612,7 +32612,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "default",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "workspace": {
@@ -34813,9 +34813,9 @@ export interface operations {
                      *       ],
                      *       "tool_catalogs": [
                      *         {
-                     *           "id": "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+                     *           "id": "claude_agent_sdk@0.3.319+claude-code@2.1.319",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "tools": [
                      *             {
                      *               "name": "Read",
@@ -34908,7 +34908,7 @@ export interface operations {
                  *       "name": "coding",
                  *       "connection_id": "anthropic-main",
                  *       "runtime_kind": "claude_agent_sdk",
-                 *       "runtime_version": "0.3.270",
+                 *       "runtime_version": "0.3.319",
                  *       "model": "claude-sonnet-5",
                  *       "models": [
                  *         "claude-sonnet-5",
@@ -34961,7 +34961,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35142,7 +35142,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35293,7 +35293,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35444,7 +35444,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [

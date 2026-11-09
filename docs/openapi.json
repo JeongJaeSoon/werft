@@ -76120,7 +76120,7 @@
                       ],
                       "permission_mode": "acceptEdits",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required"
                     },
@@ -76142,7 +76142,7 @@
                       ],
                       "permission_mode": "acceptEdits",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required",
                       "repository_ids": [
@@ -76181,7 +76181,7 @@
                       ],
                       "permission_mode": "default",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required",
                       "workspace": {
@@ -76393,7 +76393,7 @@
                     ],
                     "permission_mode": "default",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "workspace": {
@@ -76731,7 +76731,7 @@
                     ],
                     "permission_mode": "default",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "workspace": {
@@ -81249,9 +81249,9 @@
                   ],
                   "tool_catalogs": [
                     {
-                      "id": "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+                      "id": "claude_agent_sdk@0.3.319+claude-code@2.1.319",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "tools": [
                         {
                           "name": "Read",
@@ -81429,7 +81429,7 @@
                 "name": "coding",
                 "connection_id": "anthropic-main",
                 "runtime_kind": "claude_agent_sdk",
-                "runtime_version": "0.3.270",
+                "runtime_version": "0.3.319",
                 "model": "claude-sonnet-5",
                 "models": [
                   "claude-sonnet-5",
@@ -81485,7 +81485,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -81838,7 +81838,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -82121,7 +82121,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -82404,7 +82404,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
