@@ -132,7 +132,8 @@ export const outputsKo = {
   "session.github.reason.superseded_by_turn":
     "답변을 기다리는 사이 다른 턴이 실행됐거나 실행을 기다리고 있어 push를 취소했습니다. 그 턴의 변경이 섞이지 않게 하려는 것입니다. push가 필요하면 다시 요청하세요.",
   "session.github.reason.session_closed": "세션이 닫혔습니다.",
-  "session.github.reason.rejected_before": "같은 커밋을 이미 거절했습니다.",
+  "session.github.reason.rejected_before":
+    "이 커밋을 같은 브랜치로 보내는 push는 이미 거절돼 다시 요청하지 않았습니다. 다른 브랜치로 요청하거나 커밋을 바꿔 다시 요청하세요.",
   "session.github.reason.request_open":
     "같은 대상의 앞선 요청이 아직 열려 있습니다.",
   "session.github.reason.github_disabled":
@@ -301,7 +302,7 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "回答待ちの間に別のターンが実行された、または実行を待っているため、push を取り消しました。そのターンの変更が混ざらないようにするためです。push が必要ならもう一度依頼してください。",
   "session.github.reason.session_closed": "セッションが閉じられました。",
   "session.github.reason.rejected_before":
-    "同じコミットをすでに却下しています。",
+    "このコミットを同じブランチへ送る push はすでに却下されているため、再依頼しませんでした。別のブランチで依頼するか、コミットを変えて依頼し直してください。",
   "session.github.reason.request_open":
     "同じ対象の前のリクエストがまだ開いています。",
   "session.github.reason.github_disabled":
@@ -470,7 +471,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.github.reason.superseded_by_turn":
     "Another turn ran or was queued while the answer was pending, so the push was cancelled to keep that turn's changes out of it. Ask again to push.",
   "session.github.reason.session_closed": "The session was closed.",
-  "session.github.reason.rejected_before": "This commit was already rejected.",
+  "session.github.reason.rejected_before":
+    "A push of this commit to this branch was already rejected, so it was not asked again. Ask for another branch, or change the commit and ask again.",
   "session.github.reason.request_open":
     "An earlier request for the same target is still open.",
   "session.github.reason.github_disabled": "The agent's GitHub setting is off.",

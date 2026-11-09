@@ -12,7 +12,7 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
-import { pushRequests, sessions } from "./schema.ts";
+import { pushRequests, sessions, slackOutbox } from "./schema.ts";
 
 // Parenthesized as a whole: it sits inside `and(...)`, where a bare top-level
 // OR binds looser than its neighbours and lets its other branch ignore them.
@@ -317,6 +317,26 @@ async function write(
       recorded: { number: recorded.number, url: recorded.url },
     };
   }
+  // The thread already heard of this pull request (an earlier push's notice
+  // that links it went out): this push updated it. A thread that was never
+  // told, say its installation was revoked then, hears it opened.
+  const [told] = await tx
+    .select({ id: slackOutbox.id })
+    .from(slackOutbox)
+    .where(
+      and(
+        eq(slackOutbox.sessionId, job.sessionId),
+        eq(slackOutbox.kind, "action_notice"),
+        sql`${slackOutbox.body} ->> 'link_url' = ${opened.url}`,
+        // Only a notice Slack took counts. `uncertain` may be a send that
+        // died before it reached Slack; one still pending may wait in
+        // backoff while this one overtakes it, or be given up on later. The
+        // thread hears "opened" again then, which is true, rather than
+        // "updated" first or alone.
+        eq(slackOutbox.status, "sent"),
+      ),
+    )
+    .limit(1);
   await savePullRequestIn(tx, {
     ownerId: job.ownerId,
     sessionId: job.sessionId,
@@ -343,6 +363,9 @@ async function write(
       ...cleared,
     })
     .where(fence);
-  await tell("opened", { number: opened.number, url: opened.url });
+  await tell(told === undefined ? "opened" : "pr_updated", {
+    number: opened.number,
+    url: opened.url,
+  });
   return { result: "settled" };
 }

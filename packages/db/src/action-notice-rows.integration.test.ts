@@ -161,7 +161,11 @@ integration("action_notice rows on PostgreSQL", () => {
   }
 
   /** A push request that carries a pull request intent, pushed by `finish`. */
-  async function pushedWithIntent(sessionId: string, repositoryId = "app") {
+  async function pushedWithIntent(
+    sessionId: string,
+    repositoryId = "app",
+    commit = COMMIT,
+  ) {
     const created = await pushes.create({
       ownerId: OWNER,
       sessionId,
@@ -171,7 +175,7 @@ integration("action_notice rows on PostgreSQL", () => {
       repositoryId,
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
-      gitCommit: COMMIT,
+      gitCommit: commit,
       policyApproval: null,
       policyFields: {},
     });
@@ -187,7 +191,7 @@ integration("action_notice rows on PostgreSQL", () => {
       pushRequestId: id,
       actor: HUMAN,
       decision: "approve",
-      gitCommit: COMMIT,
+      gitCommit: commit,
       reason: null,
       idempotencyKey: `d-${id}`,
       payloadHash: "h",
@@ -275,6 +279,142 @@ integration("action_notice rows on PostgreSQL", () => {
         link_url: "https://github.com/acme/app/pull/7",
         locale,
       });
+    });
+  }
+
+  for (const [locale, text] of [
+    ["ko", "열려 있던 PR #7에 새 push(ddddddd)를 반영했어요: app"],
+    ["en", "Updated the open PR #7 in app with the new push (ddddddd)"],
+  ] as const) {
+    test(`${locale}: a later push whose branch already has the pull request says it updated it, not opened it`, async () => {
+      const sessionId = await threadedSession(locale);
+      const open = async (id: string, commit: string, created: boolean) => {
+        const job = await drain.claimNextDue(60_000);
+        if (job?.id !== id) throw new Error("claimed another request");
+        await drain.settle(job, {
+          kind: "opened",
+          pullRequest: {
+            number: 7,
+            url: "https://github.com/acme/app/pull/7",
+            head: `agent/${sessionId}`,
+            base: "main",
+            headSha: commit,
+            title: "Add the thing",
+            created,
+          },
+        });
+      };
+      const first = await pushedWithIntent(sessionId);
+      await open(first, COMMIT, true);
+      // Slack took the opening notice.
+      await db
+        .update(slackOutbox)
+        .set({ status: "sent", slackTs: "1730000000.000200" })
+        .where(eq(slackOutbox.dedupeKey, `action:${first}:opened`));
+      const second = await pushedWithIntent(sessionId, "app", "d".repeat(40));
+      // GitHub answers with the pull request the branch already has.
+      await open(second, "d".repeat(40), false);
+
+      const rows = await notices(sessionId);
+      expect(rows.map((n) => n.dedupeKey).sort()).toEqual(
+        [
+          `action:${first}:opened`,
+          `action:${first}:pushed`,
+          `action:${second}:pr_updated`,
+          `action:${second}:pushed`,
+        ].sort(),
+      );
+      const updated = rows.find(
+        (n) => n.dedupeKey === `action:${second}:pr_updated`,
+      );
+      expect(updated?.body).toMatchObject({
+        text,
+        link_url: "https://github.com/acme/app/pull/7",
+      });
+    });
+  }
+
+  test("a thread that never heard the pull request opened hears it opened, not updated", async () => {
+    const sessionId = await threadedSession("en");
+    const [before] = await db
+      .select({ status: slackInstallations.status })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.teamId, "T1"));
+    const installations = () =>
+      db
+        .update(slackInstallations)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(slackInstallations.teamId, "T1"));
+    const open = async (id: string, commit: string, created: boolean) => {
+      const job = await drain.claimNextDue(60_000);
+      if (job?.id !== id) throw new Error("claimed another request");
+      await drain.settle(job, {
+        kind: "opened",
+        pullRequest: {
+          number: 7,
+          url: "https://github.com/acme/app/pull/7",
+          head: `agent/${sessionId}`,
+          base: "main",
+          headSha: commit,
+          title: "Add the thing",
+          created,
+        },
+      });
+    };
+    // The installation is revoked while the first push opens the PR.
+    await installations();
+    const first = await pushedWithIntent(sessionId);
+    await open(first, COMMIT, true);
+    expect(await notices(sessionId)).toEqual([]);
+    // Installed again: the same row is live once more.
+    await db
+      .update(slackInstallations)
+      .set({ status: before?.status ?? "pending", revokedAt: null })
+      .where(eq(slackInstallations.teamId, "T1"));
+    const second = await pushedWithIntent(sessionId, "app", "d".repeat(40));
+    await open(second, "d".repeat(40), false);
+    expect((await notices(sessionId)).map((n) => n.dedupeKey).sort()).toEqual(
+      [`action:${second}:opened`, `action:${second}:pushed`].sort(),
+    );
+  });
+
+  for (const [state, change] of [
+    // Closed unsent (the installation went away meanwhile).
+    ["given up on", { status: "failed", errorCode: "not_addressed" }],
+    // Waiting in backoff: the update could overtake it.
+    ["still waiting to be sent", { status: "pending" }],
+    // A send that may have died before Slack got it.
+    ["whose send is uncertain", { status: "uncertain" }],
+  ] as const) {
+    test(`an opening notice ${state} does not count as told`, async () => {
+      const sessionId = await threadedSession("en");
+      const open = async (id: string, commit: string, created: boolean) => {
+        const job = await drain.claimNextDue(60_000);
+        if (job?.id !== id) throw new Error("claimed another request");
+        await drain.settle(job, {
+          kind: "opened",
+          pullRequest: {
+            number: 7,
+            url: "https://github.com/acme/app/pull/7",
+            head: `agent/${sessionId}`,
+            base: "main",
+            headSha: commit,
+            title: "Add the thing",
+            created,
+          },
+        });
+      };
+      const first = await pushedWithIntent(sessionId);
+      await open(first, COMMIT, true);
+      await db
+        .update(slackOutbox)
+        .set(change)
+        .where(eq(slackOutbox.dedupeKey, `action:${first}:opened`));
+      const second = await pushedWithIntent(sessionId, "app", "d".repeat(40));
+      await open(second, "d".repeat(40), false);
+      const keys = (await notices(sessionId)).map((n) => n.dedupeKey);
+      expect(keys).toContain(`action:${second}:opened`);
+      expect(keys).not.toContain(`action:${second}:pr_updated`);
     });
   }
 
