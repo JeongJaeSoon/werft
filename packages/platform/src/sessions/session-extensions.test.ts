@@ -506,16 +506,21 @@ describe("a profile change judges the bundles the session is pinned to", () => {
         idempotencyKey: "k",
         body: { profile_id: profile, expected_revision: 1 },
       })
-      .catch(() => undefined);
-    return sent as { profile: unknown } | null;
+      .catch((error: unknown) => {
+        if (!(error instanceof Error) || error.message !== "captured") {
+          throw error;
+        }
+      });
+    if (sent === null) throw new Error("changeProfileAtomic was not reached");
+    return (sent as { profile: { id: string } | null }).profile;
   }
 
   test("a scripted bundle accepted on default does not move to an unattended profile", async () => {
-    expect((await change([tools], "unattended-v1"))?.profile).toBeNull();
+    expect(await change([tools], "unattended-v1")).toBeNull();
   });
 
   test("the same session may change to a profile that still allows its bundles", async () => {
-    expect((await change([lint], "unattended-v1"))?.profile).not.toBeNull();
-    expect((await change([], "unattended-v1"))?.profile).not.toBeNull();
+    expect((await change([lint], "unattended-v1"))?.id).toBe("unattended-v1");
+    expect((await change([], "unattended-v1"))?.id).toBe("unattended-v1");
   });
 });
