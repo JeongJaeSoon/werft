@@ -18,13 +18,12 @@ const plan = z.object({}).strict().parse(planSettings);
 export function modeSettings(input: {
   cwd: string;
   permissionMode: string | undefined;
-  tools: ReadonlySet<string>;
   trusted: boolean;
 }) {
   if (input.permissionMode === "plan") return plan;
   if (input.permissionMode === "auto") {
     return { autoMode: platformAutoMode(input.trusted) };
   }
-  const rules = workspaceRules(input.cwd, input.tools);
+  const rules = workspaceRules(input.cwd);
   return rules.allow.length === 0 ? {} : { permissions: rules };
 }

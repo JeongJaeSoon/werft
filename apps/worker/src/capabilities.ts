@@ -8,4 +8,5 @@ import type { WorkerCapabilities } from "@werft-ai/contracts";
 export const WORKER_CAPABILITIES: WorkerCapabilities = {
   approval_remember: true,
   platform_tool_trust: true,
+  permission_rules: true,
 };

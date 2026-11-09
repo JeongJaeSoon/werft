@@ -202,6 +202,9 @@ export function claudeStartConfig(
       ? {}
       : { gitEnvironment: config.gitEnvironment }),
     ...trustedToolsOf(start.bundle.mcpServers),
+    ...(config.disallowedTools === undefined
+      ? {}
+      : { disallowedTools: config.disallowedTools }),
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),

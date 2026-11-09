@@ -258,6 +258,9 @@ export function runtimeStart(
       ...profile.config,
       ...mode,
       correlationId,
+      ...(launch.runtimeConfig.disallowed_tools === undefined
+        ? {}
+        : { disallowedTools: launch.runtimeConfig.disallowed_tools }),
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
       ...(launch.gitEnvironment === undefined
         ? {}
