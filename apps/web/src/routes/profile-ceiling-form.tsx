@@ -152,7 +152,9 @@ function draftOf(
     title_model: template?.installation?.title_model ?? "",
     tools: NO_PICKS,
     permission_mode: mode,
-    claude_md: template?.installation?.project_settings.claude_md ?? false,
+    // Repository CLAUDE.md/AGENTS.md is the only way left to steer an agent,
+    // so a blank form starts with it on; a template keeps its own value.
+    claude_md: template?.installation?.project_settings.claude_md ?? true,
   };
 }
 

@@ -544,7 +544,8 @@ describe("프로필 만들기 (설치 프로필)", () => {
         // The provider-side tool a first version starts blocked, and Bash.
         deny: ["Bash", "WebSearch"],
         permission_mode: "auto",
-        project_settings: { claude_md: false },
+        // A blank form starts with repository CLAUDE.md/AGENTS.md on.
+        project_settings: { claude_md: true },
       },
     ]);
   });

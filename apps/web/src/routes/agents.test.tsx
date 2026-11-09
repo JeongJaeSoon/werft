@@ -2062,7 +2062,7 @@ describe("에이전트 상세", () => {
     );
   });
 
-  test("저장 결과는 보낸 카드 전체(정규화, rules 포함)로 찾는다", async () => {
+  test("저장 결과는 보낸 카드 전체(rules 포함)로 찾는다", async () => {
     const server = agentServer();
     const rule = (id: string) => ({
       id,
