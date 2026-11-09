@@ -80,12 +80,23 @@ describe("parsePermissionRule", () => {
   test("a rule the engine would split or read as another rule is refused", () => {
     // Round 1 (Codex): the engine's list splitter turns this into two rules.
     expect(refusedAs("Bash(echo (x) hello)")).toBe("rule_syntax");
-    expect(refusedAs("Read(./a(b))")).toBe("rule_syntax");
+    expect(refusedAs("Bash(echo (x))")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a)b)")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a(b)")).toBe("rule_syntax");
+    // Round 2: a balanced pair in a path stays one rule in the engine.
+    expect(refusedAs("Read(./a(b))")).toBe("accepted");
     // An empty prefix is read as the literal `:*`, which matches nothing.
     expect(refusedAs("Bash(:*)")).toBe("rule_syntax");
-    // `:*` is the Bash prefix form; on a path it is not a rule.
+    // `:*` is the Bash prefix form; on a path it is not a rule, wherever it is.
     expect(refusedAs("Read(./secret:*)")).toBe("rule_syntax");
     expect(refusedAs("Edit(./secret:*)")).toBe("rule_syntax");
+    expect(refusedAs("Read(./secret:*suffix)")).toBe("rule_syntax");
+    expect(refusedAs("Edit(./secret:*/x)")).toBe("rule_syntax");
+    // Bash: `:*` closes the prefix, with no space before it and nothing after.
+    expect(refusedAs("Bash(git push :*)")).toBe("rule_syntax");
+    expect(refusedAs("Bash(git push:* )")).toBe("rule_syntax");
+    expect(refusedAs("Bash(git:*push)")).toBe("rule_syntax");
+    expect(refusedAs("Bash( git push)")).toBe("rule_syntax");
     // A glob before `:*` makes the engine take the argument literally.
     expect(refusedAs("Bash(git *:*)")).toBe("rule_syntax");
     expect(refusedAs("Bash(git *)")).toBe("accepted");

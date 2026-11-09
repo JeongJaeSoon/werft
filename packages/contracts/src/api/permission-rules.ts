@@ -70,6 +70,16 @@ function isPlainHost(host: string): boolean {
   );
 }
 
+/** Every `)` closes an earlier `(` and none is left open. */
+function balanced(text: string): boolean {
+  let depth = 0;
+  for (const char of text) {
+    if (char === "(") depth += 1;
+    else if (char === ")" && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+
 function refuse(
   reason_code: PermissionRuleRefusalCode,
   rule: string,
@@ -152,32 +162,43 @@ export function parsePermissionRule(
       `${rule} blocks the whole tool: write ${tool} without an argument`,
     );
   }
-  // The engine splits a rule list on commas outside parentheses and reads a
-  // nested pair as the end of the rule, so a rule holding one is stored as two
-  // other rules and the original deny is lost.
-  if (/[()]/.test(argument)) {
+  if (argument !== bare) {
     return refuse(
       "rule_syntax",
       rule,
-      `${rule} holds a parenthesis, which the engine reads as the end of the rule`,
+      `${rule} has a space inside the parentheses at its edge, which the engine keeps as part of the match`,
+    );
+  }
+  // The engine's list splitter ends a rule at an unbalanced parenthesis, so
+  // `Bash(echo (x) hello)` is stored as two other rules and the deny is lost.
+  // A shell prefix has no use for one; a path may hold a balanced pair.
+  if (tool === "Bash" ? /[()]/.test(argument) : !balanced(argument)) {
+    return refuse(
+      "rule_syntax",
+      rule,
+      `${rule} holds a parenthesis the engine would read as the end of the rule`,
     );
   }
   if (tool === "Bash") {
-    // `:*` ends a prefix rule; a `*` before it makes the engine take the whole
-    // argument as a literal.
-    if (bare.endsWith(":*") && bare.slice(0, -2).includes("*")) {
+    // `:*` ends a prefix rule and takes no space before it. Anywhere else, or
+    // beside a `*` glob, the engine reads it as literal text.
+    const at = argument.indexOf(":*");
+    if (
+      at !== -1 &&
+      (at !== argument.length - 2 || /\s$|\*/.test(argument.slice(0, at)))
+    ) {
       return refuse(
         "rule_syntax",
         rule,
-        `${rule} mixes a * glob with the :* prefix form; use one of them`,
+        `${rule} uses :* anywhere but as the end of a prefix with no space and no * before it`,
       );
     }
   } else if (tool === "Read" || tool === "Edit") {
-    if (bare.endsWith(":*")) {
+    if (argument.includes(":*")) {
       return refuse(
         "rule_syntax",
         rule,
-        `${tool}(path:*) is not a path rule; the :* prefix form is for Bash only`,
+        `${tool}(path) takes no :* ; the :* prefix form is for Bash only`,
       );
     }
   }
