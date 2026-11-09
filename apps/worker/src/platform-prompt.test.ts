@@ -399,7 +399,7 @@ describe("platformPromptText (revisions 4 and 5, a session that starts without a
         { principal, runtimeConfig: base, workspace: { repository: null } },
         () => null,
       ).bundle.instructions,
-    ).toEqual([{ scope: "platform", text: OUT_DIRECTORY_PROMPT }]);
+    ).toEqual([{ text: OUT_DIRECTORY_PROMPT }]);
   });
 });
 
@@ -410,10 +410,9 @@ describe("runtimeProfile with a platform prompt", () => {
     branch: "main",
   };
 
-  test("the paragraph comes first, ahead of out/ and the administrators' instructions", () => {
+  test("the paragraph comes first, ahead of out/", () => {
     const runtimeConfig = {
       ...base,
-      agent_instructions: "Answer briefly.",
       platform_prompt: withRepository,
     };
     expect(
@@ -424,9 +423,8 @@ describe("runtimeProfile with a platform prompt", () => {
         () => null,
       ).bundle.instructions,
     ).toEqual([
-      { scope: "platform", text: platformPromptText(withRepository) },
-      { scope: "platform", text: OUT_DIRECTORY_PROMPT },
-      { scope: "agent", text: "Answer briefly." },
+      { text: platformPromptText(withRepository) },
+      { text: OUT_DIRECTORY_PROMPT },
     ]);
   });
 

@@ -2042,41 +2042,14 @@ describe("WorkerGateway", () => {
     const none = await claimWith({ ...binding, releaseTools: [] });
     expect(none.runtime_config.tools).toEqual([github]);
 
-    // The release card's agent instructions ride, as stored, on the config
-    // run and on every restore config, whichever list each has; without
-    // any, no config names the field.
-    const text = "  Answer in Korean.\n";
     const configsOf = (claim: typeof claimed) => [
       claim.runtime_config,
       ...(claim.restore_runtime_configs ?? []),
     ];
-    for (const runReleaseTools of [true, false]) {
-      const instructed = await claimWith(
-        { ...binding, agentInstructions: text },
-        runReleaseTools,
-      );
-      expect(bootstrapClaimResponseSchema.safeParse(instructed).success).toBe(
-        true,
-      );
-      expect(configsOf(instructed).length).toBeGreaterThan(1);
-      expect(
-        configsOf(instructed).map((config) => config.agent_instructions),
-      ).toEqual(configsOf(instructed).map(() => text));
-      // Only the field differs from the claim without it.
-      expect(
-        configsOf(instructed).map(({ agent_instructions: _, ...config }) =>
-          shape(config),
-        ),
-      ).toEqual(
-        configsOf(await claimWith(binding, runReleaseTools)).map(shape),
-      );
-    }
-    for (const without of [{ ...binding, agentInstructions: null }, binding]) {
-      const plain = await claimWith(without);
-      expect(
-        configsOf(plain).some((config) => "agent_instructions" in config),
-      ).toBe(false);
-    }
+    // A card's retired agent_instructions never reaches a config.
+    expect(
+      configsOf(claimed).some((config) => "agent_instructions" in config),
+    ).toBe(false);
 
     // The row's platform prompt rides the same way: on every config, run or
     // restore, so no restore candidate of a revision 1 session lacks it; a

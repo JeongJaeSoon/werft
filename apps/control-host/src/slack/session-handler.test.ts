@@ -169,7 +169,7 @@ afterAll(() => {
 
 let db: Database;
 
-const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
+const ENGINES = testDatabaseUrl() ? ["PostgreSQL"] : ["PGlite"];
 
 function useDatabase(engine: string) {
   let close = async () => {};

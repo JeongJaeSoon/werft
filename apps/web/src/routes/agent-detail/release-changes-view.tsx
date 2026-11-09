@@ -31,7 +31,6 @@ const AREA: Record<ReleaseArea, MessageKey> = {
   repositories: "agent.releases.area.repositories",
   model: "agent.releases.area.model",
   tools: "agent.releases.area.tools",
-  prompt: "agent.releases.area.prompt",
   settings: "agent.releases.area.settings",
   secrets: "agent.releases.area.secrets",
 };
@@ -42,7 +41,6 @@ const FIELD: Record<string, MessageKey> = {
   model: "agent.releases.field.model",
   tools: "agent.releases.field.tools",
   toolPolicy: "agent.releases.field.toolPolicy",
-  instructions: "agent.releases.field.instructions",
   profile: "agent.releases.field.profile",
   profileDigest: "agent.releases.field.profileDigest",
   pushApproval: "agent.releases.field.pushApproval",

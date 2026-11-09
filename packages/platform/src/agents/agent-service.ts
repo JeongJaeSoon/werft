@@ -577,7 +577,6 @@ export function createAgentService(deps: {
 
   function behaviorValues(
     profileId: string,
-    card: AgentCard,
     model: string,
     modelSource: ModelSource,
   ): BehaviorValues {
@@ -586,7 +585,6 @@ export function createAgentService(deps: {
       model,
       model_source: modelSource,
       title_model: catalogProfile(catalog, profileId)?.title_model ?? null,
-      agent_instructions: card.agent_instructions ?? null,
     };
   }
 
@@ -604,7 +602,6 @@ export function createAgentService(deps: {
           active && activeCard
             ? behaviorValues(
                 active.runtime_profile_id,
-                activeCard,
                 releaseModel(active) ?? activeCard.model,
                 record.model_source,
               )
@@ -613,7 +610,6 @@ export function createAgentService(deps: {
           draft && draftCard
             ? behaviorValues(
                 draft.runtime_profile_id,
-                draftCard,
                 draftCard.model,
                 draft.model_source,
               )

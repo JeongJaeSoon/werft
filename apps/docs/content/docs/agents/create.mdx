@@ -3,10 +3,10 @@ title: "만들기"
 description: 에이전트를 정의하고, release를 만들어 활성화하고, 세션에 묶는다
 ---
 
-에이전트는 워크스페이스 안의 이름 붙은 정의다. 이름과 설명은 사람이 보는 값이고, 실행에 쓰이는 정의는 카드(에이전트 지시문, 모델, 도구)다. 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 프로필과 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션을 만들 때 release를 넣으면 그 세션은 그 에이전트의 것이 된다.
+에이전트는 워크스페이스 안의 이름 붙은 정의다. 이름과 설명은 사람이 보는 값이고, 실행에 쓰이는 정의는 카드(모델, 도구)다. 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 프로필과 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션을 만들 때 release를 넣으면 그 세션은 그 에이전트의 것이 된다.
 
 <Callout type="warn">
-세션은 `profile_id`의 프로필로 돌고, release로 만든 세션은 그 release에 고정된 도구만 쓴다. release 카드의 에이전트 지시문은 그 세션의 시스템 프롬프트에 붙고, 이름과 설명은 모델에 전달되지 않는다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
+세션은 `profile_id`의 프로필로 돌고, release로 만든 세션은 그 release에 고정된 도구만 쓴다. 이름과 설명은 모델에 전달되지 않고, 에이전트가 일하는 방식은 저장소의 `AGENTS.md`나 `CLAUDE.md`로 알려 준다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
 </Callout>
 
 ## 웹 콘솔에서
@@ -16,7 +16,7 @@ description: 에이전트를 정의하고, release를 만들어 활성화하고,
 1. 처음 한 번은 `/bootstrap`에서 첫 owner와 워크스페이스를 만든다. bootstrap token은 API가 처음 뜰 때 로그에 한 번 찍는다: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
 2. 로그인한 뒤 왼쪽 사이드바의 "에이전트"를 열고 오른쪽 위의 "새 에이전트"를 누른다. "새 에이전트" 화면이 다섯 단계(이름 → 하는 일 → 릴리스 → 켜기 → 채널 연결)로 열린다.
 3. "이름" 단계에서 이름을 넣는다. 식별자(slug)는 이름에서 채워지고 고칠 수 있다. 필요하면 "설명 (선택)"에 사람이 읽을 소개를 적는다. "다음"을 누른다.
-4. "하는 일" 단계에서 모델을 고르고, "쓸 수 있는 도구"에서 프로필 도구를 체크로 고른 뒤([지시문과 설명](/agents/instructions-and-roles#웹-콘솔에서-도구-고르기)) 답변 언어를 정하고 "초안 저장하고 다음"을 누른다. 에이전트가 초안으로 저장되고 버전 1이 생긴다. 동작 지시는 만든 뒤 에이전트 상세의 "상세 설정"에서 에이전트 지시문으로 적는다.
+4. "하는 일" 단계에서 모델을 고르고, "쓸 수 있는 도구"에서 프로필 도구를 체크로 고른 뒤([지시문과 설명](/agents/instructions-and-roles#웹-콘솔에서-도구-고르기)) 답변 언어를 정하고 "초안 저장하고 다음"을 누른다. 에이전트가 초안으로 저장되고 버전 1이 생긴다. 동작 지시는 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다.
 5. "릴리스" 단계에서 프로필을 골라 "릴리스 만들기"를 누른다. 카드의 모델이 프로필이 실행할 수 있는 모델 중 하나여야 릴리스를 만들 수 있다.
 6. "켜기" 단계에서 "에이전트 켜기"를 누른다. 이제 새 세션은 이 release로 시작한다. "나중에 하기"를 누르면 에이전트는 초안으로 남고 상세 화면으로 간다.
 
@@ -55,7 +55,6 @@ agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "description": "저장소를 읽고 질문에 답한다",
   "managing_team_id": "'"$TEAM"'",
   "card": {
-    "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
   }
@@ -208,6 +207,6 @@ curl -sS "$API/v1/sessions" \
 
 ## 다음 단계
 
-- [지시문과 설명](/agents/instructions-and-roles): 이름·설명과 에이전트 지시문, 카드의 필드와 version
+- [지시문과 설명](/agents/instructions-and-roles): 이름·설명과 저장소의 `AGENTS.md`·`CLAUDE.md`, 카드의 필드와 version
 - [프로필 고르기](/agents/run-profiles): 프로필과 모델
 - [권한](/agents/permissions): 도구 권한과 에이전트 관리자

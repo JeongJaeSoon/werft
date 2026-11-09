@@ -153,6 +153,7 @@ describe("database schema", () => {
       "credential_bindings",
       "events",
       "executions",
+      "extension_bundles",
       "github_app_manifest_states",
       "github_apps",
       "github_installation_links",

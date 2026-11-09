@@ -3,10 +3,10 @@ title: "Create"
 description: Define an agent, create and activate a release, and bind it to a session
 ---
 
-An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (agent instructions, model, tools). Every edit to the card adds a new version. A release binds one version to a profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
+An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (model, tools). Every edit to the card adds a new version. A release binds one version to a profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
 
 <Callout type="warn">
-Sessions run with the profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. The agent instructions on the release's card are added to that session's system prompt; name and description are not passed to the model. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+Sessions run with the profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
 </Callout>
 
 ## In the web console
@@ -16,7 +16,7 @@ The web console of the local stack is at `http://127.0.0.1:3000/`.
 1. The first time only, create the first owner and workspace at `/bootstrap`. The API logs the bootstrap token once when it first starts: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
 2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with five steps: Name → What it does → Release → Turn on → Connect channels.
 3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". Click "Next".
-4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in "Agent instructions" under "Settings" on the agent's page after you create it.
+4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
 5. In the "Release" step, choose a profile and click "Create release". The card's model must be one the profile can run.
 6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
 
@@ -55,7 +55,6 @@ agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "description": "Reads the repository and answers questions",
   "managing_team_id": "'"$TEAM"'",
   "card": {
-    "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
   }
@@ -208,6 +207,6 @@ Sending with a key that is not in the workspace (for example `scripts/local.sh k
 
 ## Next steps
 
-- [Instructions and description](/agents/instructions-and-roles): name, description and agent instructions; card fields and versions
+- [Instructions and description](/agents/instructions-and-roles): name, description and the repository's `AGENTS.md` and `CLAUDE.md`; card fields and versions
 - [Choose a profile](/agents/run-profiles): profiles and models
 - [Permissions](/agents/permissions): tool permissions and agent administrators

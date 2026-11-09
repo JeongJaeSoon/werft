@@ -64,6 +64,7 @@ export * from "./ports/checkpoint-collection.ts";
 export * from "./ports/checkpoint-store.ts";
 export * from "./ports/checkpoint-verifier.ts";
 export * from "./ports/credential-binding-store.ts";
+export * from "./ports/extension-bundle-store.ts";
 export * from "./ports/decision-log.ts";
 export * from "./ports/execution-backend.ts";
 export * from "./ports/forge.ts";
@@ -161,6 +162,8 @@ export * from "./workers/github-packages.ts";
 export * from "./workers/github-packages-egress.ts";
 export * from "./workers/package-registries.ts";
 export * from "./workers/worker-gateway.ts";
+export * from "./extensions/bundle-archive.ts";
+export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
