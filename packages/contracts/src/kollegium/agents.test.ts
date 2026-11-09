@@ -893,6 +893,7 @@ describe("agent list summary", () => {
     },
     runtime_profile_id: null,
     release_label: null,
+    release_model: null,
     bound_credential_refs: [],
     admins: ["Kim"],
     needs_input_count: 1,

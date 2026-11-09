@@ -817,6 +817,7 @@ describe("a release with push_approval off", () => {
       authorization: createAuthorizationPolicy(),
       store: {
         replayCreate: async () => null,
+        recordRefusal: async () => "receipt-1",
         findSession: async () => ({
           repositoryId: "sample-app",
           policyApproval:
@@ -907,5 +908,22 @@ describe("a release with push_approval off", () => {
     const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
     expect(created[0]?.policyApproval).toBeNull();
     expect(request.state).toBe("requested");
+  });
+
+  test("an omitted checkpoint_revision pins the latest one; a named one is read at that revision", async () => {
+    const { push, actor, created } = creating(null);
+    await push.create(actor, SESSION, { idempotencyKey: "latest", body: {} });
+    expect(created).toMatchObject([{ checkpointRevision: 3 }]);
+    // The stub's readPushSourceAt has no checkpoint, so only a named
+    // revision reaches it.
+    const named = await push
+      .create(actor, SESSION, {
+        idempotencyKey: "named",
+        body: { checkpoint_revision: 2 },
+      })
+      .catch((caught: unknown) => caught);
+    expect(named).toBeInstanceOf(SessionServiceError);
+    expect((named as SessionServiceError).code).toBe("PUSH_SOURCE_MISSING");
+    expect(created).toHaveLength(1);
   });
 });

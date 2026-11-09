@@ -21,7 +21,6 @@ import {
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 import { mcpSettingsOfRelease } from "./mcp-settings.ts";
-import { markPushContinuation, runningTurnOf } from "./push-continuations.ts";
 import type { Database } from "./queries.ts";
 import {
   agentGitHubSettings,
@@ -221,12 +220,19 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
       };
     },
 
-    runningTurn(input) {
-      return runningTurnOf(db, input);
-    },
-
-    markPushContinuation(input) {
-      return markPushContinuation(db, input);
+    async runningTurn(input) {
+      const [turn] = await db
+        .select({ id: turns.id })
+        .from(turns)
+        .where(
+          and(
+            eq(turns.sessionId, input.sessionId),
+            eq(turns.attemptId, input.attemptId),
+            eq(turns.status, "running"),
+          ),
+        )
+        .limit(1);
+      return turn?.id ?? null;
     },
   };
 }

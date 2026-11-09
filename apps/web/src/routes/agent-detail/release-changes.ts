@@ -221,12 +221,6 @@ export function releaseChanges(
       githubB?.repositories ?? null,
     ),
     ...valueChange(
-      "repositories",
-      { key: "defaultRepository" },
-      before.repository_id,
-      after.repository_id,
-    ),
-    ...valueChange(
       "model",
       { key: "model" },
       modelA ?? cardA?.model,

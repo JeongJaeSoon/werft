@@ -149,7 +149,6 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   NO_JUDGE_CONNECTIONS,
-  platformPromptRevisionFromEnv,
   profileCatalog,
   releaseStartable,
   resolveAgentRelease,
@@ -199,6 +198,7 @@ import {
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
+import { extensionDepsFor } from "./extension-deps.ts";
 import {
   connectionsOf,
   createAppBotUsers,
@@ -514,6 +514,7 @@ const slackWelcome =
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
+const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -524,6 +525,7 @@ const agents = createAgentService({
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
   profileLineage: profileRollouts,
+  extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -540,8 +542,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
-  promptRevision: platformPromptRevisionFromEnv(process.env),
-  actionFlows: () => settings.actionFlows,
+  extensions: extensionDeps,
   credentials: credentialBindings,
   limits,
 });
@@ -971,7 +972,6 @@ const repositoryAttachments = createRepositoryAttachmentService({
 });
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
-  actionFlows: () => settings.actionFlows,
   // The same fields the egress authorizer logs for a failed call: no message,
   // which can carry a connection string or GitHub's text.
   onInternalError: (error, { tool, sessionId, requestId }) =>
@@ -1018,10 +1018,8 @@ const pushExecutor = createPushExecutor({
   attributions: commitAttributions,
   logger,
 }).start();
-// The control-host action-broker's intent runner starts whatever
-// AGENT_ACTION_FLOWS says: intents made while it was on are finished after it
-// is turned off. It makes push requests as the stored actor and approves
-// nothing.
+// The control-host action-broker's intent runner. It makes push requests as
+// the stored actor and approves nothing.
 const pushIntentRunner = createPushIntentRunner({
   store: pushIntentStore,
   createFromIntent: (job) => pushRequests.createFromIntent(job),
@@ -1037,9 +1035,8 @@ const profileRolloutRunner = createProfileRolloutRunner({
   logger,
   sweep: true,
 }).start();
-// The pull request drain of the control-host's action-broker starts whether
-// or not AGENT_ACTION_FLOWS is on: a stage left from before a restart with
-// the setting off is still finished.
+// The pull request drain of the control-host's action-broker: a stage left
+// from before a restart is still finished.
 const pullRequestDrain = createPullRequestDrain({
   store: createPostgresPullRequestDrain(db),
   opener: pullRequests,

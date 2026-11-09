@@ -298,6 +298,8 @@ describe("the tool envelope", () => {
     expect(attach).toContain(
       "It is meant for a repository whose code the task reads or changes",
     );
+    // A purpose, not a rule about which repositories to leave alone.
+    expect(attach).not.toContain("stay unattached");
     expect(attach).toContain(
       "A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded.",
     );

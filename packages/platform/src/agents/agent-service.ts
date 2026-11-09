@@ -27,6 +27,11 @@ import {
   type SaveRelease,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import type { ExtensionRefusal } from "../extensions/resolve.ts";
+import {
+  checkAgentExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -69,7 +74,6 @@ import {
   type SessionCatalogView,
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
-import type { AgentPromptIdentity } from "../sessions/platform-prompt.ts";
 import { sameExecutionForm } from "../sessions/profile-execution-form.ts";
 import {
   profileBlockedError,
@@ -114,22 +118,27 @@ export async function resolveAgentRelease(
   );
   const blocked = profileBlockedError(profileId, refusal);
   if (blocked) throw blocked;
+  const model = releaseModel(release);
   const profile =
     refusal === null ? catalogProfile(deps.catalog, profileId) : undefined;
   if (!profile) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+      `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  const model = releaseModel(release);
+  if (model !== undefined && !profileModels(profile).includes(model)) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,
+    );
+  }
   if (
     !profilePinned(
       profile,
       release.profile_digest,
       acceptedRuntimeVersions(deps.catalog),
-    ) ||
-    (model !== undefined && !profileModels(profile).includes(model))
+    )
   ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
@@ -149,7 +158,6 @@ function sameRuntime(a: unknown, b: unknown): boolean {
   return form(a) === form(b);
 }
 
-/** The agent a session of this release introduces itself as, read now. */
 /** The variable names a card declares (`capabilities.env`), none for a card without. */
 export function declaredEnvNames(card: AgentCard): string[] {
   return (card.capabilities?.env ?? []).map((entry) => entry.name);
@@ -188,25 +196,6 @@ export async function agentEnvNames(
   return version ? declaredEnvNames(version.card) : [];
 }
 
-export async function agentPromptIdentity(
-  store: Pick<AgentStore, "findRelease" | "get" | "findVersion">,
-  workspaceId: string,
-  releaseId: string,
-): Promise<AgentPromptIdentity | null> {
-  const release = await store.findRelease(workspaceId, releaseId);
-  if (!release) return null;
-  const [detail, version] = await Promise.all([
-    store.get(workspaceId, release.agent_id),
-    store.findVersion(workspaceId, release.agent_id, release.version_id),
-  ]);
-  if (!detail || !version) return null;
-  return {
-    name: detail.agent.name,
-    description: detail.agent.description,
-    language: version.card.language,
-  };
-}
-
 export function createAgentService(deps: {
   authorization: AuthorizationPolicy;
   store: AgentStore;
@@ -222,9 +211,24 @@ export function createAgentService(deps: {
   outsideAgents?: OutsideAgentAccessSetting;
   /** Where a profile's newest version is read; absent: no agent is pinned. */
   profileLineage?: Pick<ProfileRolloutStore, "inspect">;
+  extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
   const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
+  async function extensionRefusal(
+    workspaceId: string,
+    agentId: string,
+    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind">,
+  ): Promise<ExtensionRefusal | null> {
+    if (!deps.extensions) return null;
+    const checked = await checkAgentExtensions(deps.extensions, {
+      workspaceId,
+      agentId,
+      permissionMode: profile.permission_mode,
+      runtimeKind: profile.runtime_kind,
+    });
+    return checked.ok ? null : checked.refusal;
+  }
   const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
@@ -491,6 +495,11 @@ export function createAgentService(deps: {
       const reason = refusalCode(error);
       if (reason === null) throw error;
       return failed(reason);
+    }
+    if (
+      (await extensionRefusal(caller.ownerId, input.agentId, profile)) !== null
+    ) {
+      return failed("release_refused");
     }
     // An agent with a settings row has the row decide, and its release has
     // no GitHub pin or repository. One without keeps the active release's,
@@ -1331,6 +1340,19 @@ export function createAgentService(deps: {
       if (missing.length > 0) {
         return { status: "failed", reason: "credential_unbound" };
       }
+      const previous = await store.findRelease(
+        workspaceId,
+        input.previousReleaseId,
+      );
+      const previousProfile = previous
+        ? catalogProfile(catalog, previous.runtime_profile_id)
+        : undefined;
+      if (
+        previousProfile &&
+        (await extensionRefusal(workspaceId, agentId, previousProfile)) !== null
+      ) {
+        return { status: "failed", reason: "release_refused" };
+      }
       const result = await store.activate({
         principal,
         workspaceId,
@@ -1374,8 +1396,6 @@ export function createAgentService(deps: {
     migrateAgent,
     unlockTools,
     revertMigration,
-    promptIdentity: (workspaceId: string, releaseId: string) =>
-      agentPromptIdentity(store, workspaceId, releaseId),
     envNames: (workspaceId: string, releaseId: string) =>
       agentEnvNames(store, workspaceId, releaseId),
 
@@ -1659,6 +1679,25 @@ export function createAgentService(deps: {
           `Release ${release.id} uses credentials not bound to this agent: ${missing.join(", ")}`,
           undefined,
           details,
+        );
+      }
+      const releaseProfile = catalogProfile(
+        catalog,
+        release.runtime_profile_id,
+      );
+      const extensions = releaseProfile
+        ? await extensionRefusal(
+            caller.ownerId,
+            release.agent_id,
+            releaseProfile,
+          )
+        : null;
+      if (extensions !== null) {
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          extensions.message,
+          undefined,
+          { reason_code: extensions.code, bundle: extensions.name },
         );
       }
       const result = await store.activate({

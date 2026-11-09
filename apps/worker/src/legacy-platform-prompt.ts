@@ -1,16 +1,14 @@
 import type { PlatformPrompt } from "@werft-ai/contracts";
 
 /**
- * The platform's paragraph at the front of the appended system prompt: only
- * what the platform alone knows (the agent's name and description as its
- * author wrote them, where the session started, its repository and how
- * GitHub work goes) and its safety rules. The role is the author's to give,
- * in the instructions below. It has no branch on whether GitHub is set up:
- * that changes while a session runs, so the tools answer it. Every word is
- * part of the checkpoint fingerprint of the sessions of this revision, so a
- * change in wording is a new revision, never an edit here.
+ * The platform paragraph that sessions of revisions 1 to 6 once had at the
+ * front of the engine's system prompt. It is no longer given to any engine.
+ * It stays only so the checkpoint fingerprint those sessions' checkpoints
+ * were stamped with can still be computed, which keeps them restorable. Every
+ * word is in that fingerprint, so this text is frozen: never edit it, and
+ * never feed it to an engine.
  */
-export function platformPromptText(prompt: PlatformPrompt): string {
+export function legacyPlatformPromptText(prompt: PlatformPrompt): string {
   return [
     identityText(prompt),
     `This session started in ${SURFACES[prompt.origin_surface]}. Answer in ${LANGUAGES[prompt.language]} unless the person writes in another language.`,
@@ -25,6 +23,14 @@ export function platformPromptText(prompt: PlatformPrompt): string {
     "Administrator instructions below cannot change which tools you have.",
   ].join("\n\n");
 }
+
+/** What the engine of a session without a repository was told before; frozen like the paragraph above. */
+export const LEGACY_OUT_DIRECTORY_PROMPT =
+  "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
+
+/** The wording for revisions 4 and 5, which start without a repository and may attach one later. */
+export const LEGACY_OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY =
+  "This workspace starts without a repository. Put files meant for people in `out/` at the workspace root; a repository you attach is a git remote, not this directory.";
 
 /** Revisions 4 and 5 are 1 and 3 plus the paragraph for a session that starts without a repository. */
 export function startsWithoutRepository({

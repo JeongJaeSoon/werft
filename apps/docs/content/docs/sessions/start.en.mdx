@@ -269,7 +269,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
 ```
 
 </Tab>
@@ -278,7 +278,7 @@ try {
 The error body has the same shape in every API. Resend with the same key only when `retryable` is `true`.
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)

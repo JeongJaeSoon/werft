@@ -893,6 +893,26 @@ export function createFakeSlackWebApi(
         if (!listed.members.includes(appId)) listed.members.push(appId);
         return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
       }
+      // For curl on the local stack: `/remove` of `app_id`'s bot from a
+      // channel. The member_left_channel event is sent with /fake/events.
+      if (url.pathname === "/fake/removals" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          app_id?: unknown;
+          channel_id?: unknown;
+        } | null;
+        const appId = input?.app_id;
+        const listed = conversations.find(
+          (candidate) => candidate.id === input?.channel_id,
+        );
+        if (typeof appId !== "string" || !apps.has(appId) || !listed) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        listed.members = listed.members.filter((member) => member !== appId);
+        return Response.json({ ok: true, bot_user_id: `U${appId}BOT` });
+      }
       if (url.pathname === "/fake/statuses" && request.method === "GET") {
         return Response.json({ ok: true, statuses });
       }

@@ -1313,7 +1313,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for the session's latest checkpoint to be pushed
-         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.
+         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `checkpoint_revision` (default: the latest committed one) may name the revision you looked at; it is refused as `checkpoint_moved` once a newer one has been saved. Work the session did after that revision may not be in it. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.
          *
          *     A session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
          *
@@ -4360,6 +4360,11 @@ export interface components {
             repository_id?: string;
             /** @description Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (`github.repositories`), allowed for the profile, and other than the session's repository; otherwise 403 `GITHUB_REFUSED` with `repository_not_allowed`, as is any list sent for a session without an agent release or on a profile whose `repository_mode` is `none`. A session started without a repository on an `optional` profile works on these alone, and names one in each push request. Omitted, the same as `[]`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool `attach_repository` when it needs them. */
             attached_repository_ids?: string[];
+            /** @description Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`, `scripts_need_default_mode`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`. */
+            extensions?: {
+                enable?: string[];
+                disable?: string[];
+            };
             /** @description At most 32768 bytes of UTF-8 */
             message: string;
             agent_release_id?: string;
@@ -4648,6 +4653,7 @@ export interface components {
         CreatePushRequestRequest: {
             repository_id?: string;
             branch?: string;
+            checkpoint_revision?: number;
         };
         ResolvePushRequestRequest: {
             git_commit: string;
@@ -5277,6 +5283,19 @@ export interface components {
             receipt_status: "accepted" | "succeeded" | "failed" | "unknown";
             /** @enum {string} */
             status: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+            /** @description The extension bundles the new session runs with. Absent when the session runs with none. */
+            extensions?: {
+                /** Format: uuid */
+                bundle_id: string;
+                /** @description The bundle's plugin slug. Its skills reach the session as `<name>:<skill>`. */
+                name: string;
+                digest: string;
+                /**
+                 * @description The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on.
+                 * @enum {string}
+                 */
+                scope: "profile" | "workspace" | "agent" | "session";
+            }[];
         };
         ListSessionsResponse: {
             items: components["schemas"]["SessionSummary"][];
@@ -5378,6 +5397,19 @@ export interface components {
                 /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
                 full_name: string | null;
             }[];
+            /** @description The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field. */
+            extensions?: {
+                /** Format: uuid */
+                bundle_id: string;
+                /** @description The bundle's plugin slug. Its skills reach the session as `<name>:<skill>`. */
+                name: string;
+                digest: string;
+                /**
+                 * @description The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on.
+                 * @enum {string}
+                 */
+                scope: "profile" | "workspace" | "agent" | "session";
+            }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -5548,6 +5580,19 @@ export interface components {
                 /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
                 full_name: string | null;
             }[];
+            /** @description The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field. */
+            extensions?: {
+                /** Format: uuid */
+                bundle_id: string;
+                /** @description The bundle's plugin slug. Its skills reach the session as `<name>:<skill>`. */
+                name: string;
+                digest: string;
+                /**
+                 * @description The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on.
+                 * @enum {string}
+                 */
+                scope: "profile" | "workspace" | "agent" | "session";
+            }[] | null;
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -8417,6 +8462,7 @@ export interface components {
                     };
                     runtime_profile_id: string | null;
                     release_label: string | null;
+                    release_model: string | null;
                     bound_credential_refs: string[];
                     admins: string[];
                     needs_input_count: number;

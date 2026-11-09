@@ -37,7 +37,6 @@ const AREA: Record<ReleaseArea, MessageKey> = {
 
 const FIELD: Record<string, MessageKey> = {
   repositories: "agent.releases.field.repositories",
-  defaultRepository: "agent.releases.field.defaultRepository",
   model: "agent.releases.field.model",
   tools: "agent.releases.field.tools",
   toolPolicy: "agent.releases.field.toolPolicy",
@@ -53,7 +52,6 @@ const FIELD: Record<string, MessageKey> = {
 // What a missing value means differs by field: no pin is the profile's range.
 const ABSENT: Record<string, MessageKey> = {
   repositories: "agent.releases.absent.profileRepositories",
-  defaultRepository: "agent.releases.repositoryNone",
 };
 
 // A badge keeps to one line by default; a long repository name must wrap.

@@ -18,6 +18,7 @@ import type {
   HeartbeatResponse,
   InvalidateApprovalCheckpointRequest,
   InvalidateApprovalCheckpointResponse,
+  ModelCutCause,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -129,6 +130,7 @@ import {
   type ProfilePin,
   profileAllowsRepository,
   profileFingerprint,
+  profileGone,
   profileModels,
   profilePins,
   providerUpstreamOf,
@@ -1977,13 +1979,21 @@ export function createWorkerGateway(deps: {
             acceptedRuntimeVersions(catalog),
           )
         ) {
-          // Only a model left off the list is told to the session; the
-          // profile changing or going away stays the catalog's own cut.
-          if (
-            listed &&
-            result.model !== null &&
-            !profileModels(listed).includes(result.model)
-          ) {
+          // Told to the session: a model left off the list, or a profile
+          // (its connection) gone, so the model it ran is no longer
+          // reachable. The profile merely changing stays the catalog's own
+          // cut, with nothing to name.
+          // A stored profile that no longer runs (its base changed) is not
+          // gone: that stays the general cut.
+          const cause: ModelCutCause | null = !listed
+            ? result.profileId && profileGone(catalog, result.profileId)
+              ? "profile_removed"
+              : null
+            : result.model !== null &&
+                !profileModels(listed).includes(result.model)
+              ? "model_removed"
+              : null;
+          if (cause !== null && result.model !== null) {
             // The cut happens either way; a failed note must not turn it
             // into a 500 the proxy would read as an outage.
             await work
@@ -1991,6 +2001,7 @@ export function createWorkerGateway(deps: {
                 sessionId: result.sessionId,
                 attemptId: result.attemptId,
                 model: result.model,
+                cause,
               })
               .catch((error: unknown) =>
                 deps.onModelCutError?.(error, {

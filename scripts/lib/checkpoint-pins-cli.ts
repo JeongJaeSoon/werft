@@ -398,7 +398,14 @@ async function plans(image: { name: string } | undefined): Promise<number> {
     const alternates =
       imageRuntime === undefined
         ? []
-        : alternateDigests(imageRuntime, earlierKeys.get(pointer.id) ?? []);
+        : [
+            ...new Set(
+              alternateDigests(imageRuntime, [
+                pointer.id,
+                ...(earlierKeys.get(pointer.id) ?? []),
+              ]).filter((digest) => digest !== runtime.profileSha256),
+            ),
+          ];
     const result = await service.getRestorePlan({
       runtime,
       ...(alternates.length === 0

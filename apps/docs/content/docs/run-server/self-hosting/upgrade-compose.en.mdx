@@ -86,23 +86,23 @@ Compare target changelog actions with your deployed version. Meet every applicab
 | --- | --- | --- |
 | Provider usage `inference_geo` | Replace API including migration, verify ready, then replace egress proxy | Old API rejects new proxy reports with 400, losing cost metering |
 | `billing: none` | Update all API replicas and all schedulers' WORKER_IMAGE before creating none sessions | No rollback to old API/workers while unmetered sessions remain |
-| `SESSION_PROMPT_REVISION=1` | Migration 0229 → all claim-serving APIs and all current/previous worker images → enable 1 | 0 affects only new sessions. Rollback to old APIs/workers after activation is unsupported |
+| Local branches in checkpoints (`workspace.sources`, `refs/checkpoint/source/*`) | All APIs, verifiers, GC and session-archive CronJobs → workers | Old APIs and verifiers reject the field and the refs. Out of order, only pushes are blocked while the new workers' checkpoints are rejected; no data is lost |
 | Transcript limits/reasons | Migration → all APIs → workers; align API finalize and worker capture/restore limits in the same release | No rollback to builds unaware of transcript reasons |
 | Manifest `outputs` | All APIs → workers | Both api and workers must remain on outputs-aware builds |
-| `AGENT_ACTION_FLOWS` | Update all components, including GC/session archive CronJobs, before activation | Pending intents continue processing after disabling |
 | Model-blocked Slack DM (migration 0248) | Update every API that includes the migration, then the slack role | Rolling the image back after 0248 is safe: an old slack role finds no thread for a `model_notice` row, closes it as `not_addressed`, and sends no DM. To roll the schema below 0248, delete the `model_notice` rows first and restore the previous `slack_outbox_kind_check` list |
 | Required managing team (migration 0243) | Update every API that includes the migration | Rolling back after 0243 to the previous image, which already required a team, still creates agents but hides the holding team's agents' sessions again. Older images that insert without a team cannot create agents (`NOT NULL` violation). Going lower means stopping writes and dropping `NOT NULL`, and neither the backfill nor the earlier visibility is restored |
+| Slack private-channel removal handling (migration 0250) | Update every API that includes the migration → the slack role → send the manifest again for each existing agent app (events recheck) | An older image ignores the new `slack_channel_lifecycle` table, so rolling back keeps the data. An image that does not handle `member_left_channel` lets the old approval live again when the bot leaves a private channel and is invited back |
+| Extension bundle attachments and session resolution (migration 0251) | Update every API that includes the migration | Rolling the image back after 0251 is safe: an old image does not read the `extension_attachments` table or the `sessions.extensions` column, so it ignores the bundle list a session was created with. To roll the schema below 0251, drop the `extension_attachments` table and the `sessions.extensions` column; the bundle lists already fixed on sessions are not restored |
 
 Test new control-host with the previous worker before deployment: complete session turn 1 → remove worker → complete turn 2 from checkpoint, with no 400 BAD_REQUEST in API worker requests. Empty-installation ready 200 does not substitute.
 
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### First applying changes after v0.1.0
 
-- Apply every migration from `v0.1.0` through the target version (currently through `0248`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
+- Apply every migration from `v0.1.0` through the target version (currently through `0251`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
 - Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. Sources from `a486f20d2` onward accept it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
 - Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
-- Before enabling `AGENT_ACTION_FLOWS`, update API, Compose maintenance, Kubernetes checkpointGc/sessionArchive CronJobs, and workers, and **confirm Jobs started from old images have finished**. Old GC can delete pinned revisions.
-- Prompt revision 2 received by new sessions after activation is unreadable by old workers. Check pre-activation replacement and post-activation rollback floors separately. A `v0.1.1` changelog heading does not prove publication.
+- Update API, Compose maintenance, and Kubernetes checkpointGc/sessionArchive CronJobs first, **confirm Jobs started from old images have finished**, then update workers. Old GC can delete pinned revisions, and old APIs and verifiers reject the local branches workers now always carry. `AGENT_ACTION_FLOWS` and `SESSION_PROMPT_REVISION` no longer exist and their values are ignored. A `v0.1.1` changelog heading does not prove publication.
 
 Apply the conditions below after checking whether your installation already includes them. Before rollback, count affected sessions through read-only SQL. Prefer roll-forward without approving data loss where possible.
 

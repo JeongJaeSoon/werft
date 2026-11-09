@@ -4,6 +4,7 @@ import type {
   CheckpointBlockReason,
   CheckpointRef,
   FinalizeRequest,
+  ModelCutCause,
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
@@ -595,6 +596,7 @@ export interface WorkerUnitOfWork {
     sessionId: string;
     attemptId: string;
     model: string;
+    cause: ModelCutCause;
   }): Promise<{ recorded: boolean }>;
   // Adds a metered call's cost to its session, once per exchange id.
   recordProviderUsageAtomic(

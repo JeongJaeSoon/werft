@@ -100,10 +100,6 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     /** What the push request row holds as the decider's words. */
     resolutionReason: string | null;
     runningTurn: number | null;
-    marks: Array<{ sessionId: string; turnId: number }>;
-    marked: boolean;
-    /** AGENT_ACTION_FLOWS as the server reads it per call. */
-    actionFlows: boolean;
     /** What a `request_push` made as an intent asked the service for. */
     intents: Array<{
       sessionId: string;
@@ -130,9 +126,6 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     notPushed: null,
     resolutionReason: null,
     runningTurn: 7,
-    marks: [],
-    marked: true,
-    actionFlows: false,
     intents: [],
     intentStatus: "deferred",
   };
@@ -232,19 +225,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     policies.push(authorization);
     return {
       pushRequests: {
-        create: async (actor, sessionId) => {
-          pushes.push({ actor, sessionId });
-          if (control.pushRefusal !== null) {
-            // The turn ends and the next one starts while the refusal is
-            // on its way back.
-            if (control.runningTurn !== null) control.runningTurn += 1;
-            const { code, message } = PUSH_REFUSAL_ERRORS[control.pushRefusal];
-            throw new SessionServiceError(code, message, undefined, {
-              refusal: control.pushRefusal,
-              receipt_id: "receipt-push",
-            });
-          }
-          return { id: "push-1", status: "requested" } as never;
+        create: async () => {
+          throw new Error("request_push is an intent; it creates no request");
         },
         get: async () =>
           ({ resolution_reason: control.resolutionReason }) as never,
@@ -264,7 +246,18 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
             pull_request: null,
           };
         },
-        requestIntent: async (_actor, sessionId, input) => {
+        requestIntent: async (actor, sessionId, input) => {
+          pushes.push({ actor, sessionId });
+          if (control.pushRefusal !== null) {
+            // The turn ends and the next one starts while the refusal is
+            // on its way back.
+            if (control.runningTurn !== null) control.runningTurn += 1;
+            const { code, message } = PUSH_REFUSAL_ERRORS[control.pushRefusal];
+            throw new SessionServiceError(code, message, undefined, {
+              refusal: control.pushRefusal,
+              receipt_id: "receipt-push",
+            });
+          }
           control.intents.push({
             sessionId,
             turnId: input.turnId,
@@ -373,13 +366,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         };
       },
       runningTurn: async () => control.runningTurn,
-      markPushContinuation: async (input) => {
-        control.marks.push(input);
-        return control.marked;
-      },
     },
     services,
-    actionFlows: () => control.actionFlows,
   });
   const call = (name: string, args: unknown) =>
     handle(
@@ -829,23 +817,17 @@ describe("tools/call", () => {
       expect(neither.body.refusal).toMatchObject({ code: "validation_error" });
     });
 
-    test("request_push with pull_request is refused before anything is created", async () => {
+    test("request_push takes no pull_request: the argument is a validation error and nothing is created", async () => {
       const h = harness();
-      const answer = payload(
-        await h.call("request_push", { pull_request: { title: "Fix" } }),
-      );
-      expect(answer.body.ok).toBe(false);
-      expect(answer.body.refusal).toMatchObject({
-        code: "pull_request_needs_tool_call",
-        by: "platform",
-        retryable: false,
-      });
-      // Not even the empty content slips through.
-      const empty = payload(await h.call("request_push", { pull_request: {} }));
-      expect(empty.body.refusal).toMatchObject({
-        code: "pull_request_needs_tool_call",
-      });
+      for (const pull_request of [{ title: "Fix" }, {}]) {
+        const answer = payload(await h.call("request_push", { pull_request }));
+        expect(answer.body.ok).toBe(false);
+        expect(answer.body.refusal).toMatchObject({
+          code: "validation_error",
+        });
+      }
       expect(h.pushes).toEqual([]);
+      expect(h.control.intents).toEqual([]);
     });
 
     test("a scheduled call on a request a person rejected carries their words", async () => {
@@ -891,9 +873,8 @@ describe("tools/call", () => {
   });
 
   describe("request_push as a push intent", () => {
-    test("inside a running turn with the flow on, it records an intent and answers deferred", async () => {
+    test("inside a running turn it records an intent and answers deferred, with facts only", async () => {
       const h = harness();
-      h.control.actionFlows = true;
       const answer = payload(await h.call("request_push", { branch: "docs" }));
       expect(answer).toEqual({
         body: {
@@ -905,41 +886,16 @@ describe("tools/call", () => {
             repository_id: "sample-app",
             target_branch: `agent/${SESSION}`,
             pull_request: "none",
-            next: "Now call open_pull_request with this push_intent_id, without waiting for the push, also when the push needs approval. When every repository is asked for, tell the user in plain words which repositories a push was requested for, that each push waits for a person's approval where approval is required, and that each pull request opens once its push succeeds.",
           },
         },
       });
       expect(h.control.intents).toEqual([
         { sessionId: SESSION, turnId: 7, branch: "docs" },
       ]);
-      // No push request was made now, and no continuation was marked.
-      expect(h.pushes).toEqual([]);
-      expect(h.control.marks).toEqual([]);
     });
 
-    test("with the flow on, pull_request is still refused before an intent is stored", async () => {
+    test("outside a running turn it is no_running_turn, whatever checkpoint was saved last", async () => {
       const h = harness();
-      h.control.actionFlows = true;
-      for (const pull_request of [{ title: "Fix" }, {}]) {
-        const answer = payload(await h.call("request_push", { pull_request }));
-        expect(answer.body.refusal).toMatchObject({
-          code: "pull_request_needs_tool_call",
-        });
-      }
-      expect(h.control.intents).toEqual([]);
-      expect(h.pushes).toEqual([]);
-    });
-
-    test("with the flow off it takes the legacy path and writes no intent", async () => {
-      const h = harness();
-      await h.call("request_push", {});
-      expect(h.control.intents).toEqual([]);
-      expect(h.pushes.map((push) => push.sessionId)).toEqual([SESSION]);
-    });
-
-    test("outside a running turn with the flow on, it is no_running_turn", async () => {
-      const h = harness();
-      h.control.actionFlows = true;
       h.control.runningTurn = null;
       expect(payload(await h.call("request_push", {}))).toEqual({
         body: {
@@ -956,35 +912,14 @@ describe("tools/call", () => {
 
     test("a turn that ended while the call was in flight is no_running_turn", async () => {
       const h = harness();
-      h.control.actionFlows = true;
       h.control.intentStatus = "turn_not_running";
       expect(payload(await h.call("request_push", {}))).toMatchObject({
         body: { ok: false, refusal: { code: "no_running_turn" } },
       });
     });
 
-    test("source_ref is source_ref_unsupported without the intent flow, and creates nothing", async () => {
+    test("source_ref reaches the intent", async () => {
       const h = harness();
-      h.control.actionFlows = false;
-      expect(
-        payload(await h.call("request_push", { source_ref: "feature" })),
-      ).toEqual({
-        body: {
-          ok: false,
-          refusal: {
-            code: "source_ref_unsupported",
-            by: "platform",
-            retryable: false,
-          },
-        },
-      });
-      expect(h.control.intents).toEqual([]);
-      expect(h.pushes).toEqual([]);
-    });
-
-    test("with the intent flow, source_ref reaches the intent", async () => {
-      const h = harness();
-      h.control.actionFlows = true;
       const answer = payload(
         await h.call("request_push", {
           repository_id: "sample-app",
@@ -1001,7 +936,6 @@ describe("tools/call", () => {
       "source_ref %p is a validation error, and creates nothing",
       async (source_ref) => {
         const h = harness();
-        h.control.actionFlows = true;
         expect(
           payload(await h.call("request_push", { source_ref })),
         ).toMatchObject({
@@ -1013,7 +947,6 @@ describe("tools/call", () => {
 
     test("a second push without a source_ref is refused with the target that lacks one named, so the model can repeat it", async () => {
       const h = harness();
-      h.control.actionFlows = true;
       h.control.intentStatus = "source_ref_required";
       expect(
         payload(await h.call("request_push", { branch: "docs-overview" })),
@@ -1032,7 +965,6 @@ describe("tools/call", () => {
 
     test("a release with GitHub switched off is github_disabled by policy", async () => {
       const h = harness();
-      h.control.actionFlows = true;
       h.control.intentStatus = "github_disabled";
       expect(payload(await h.call("request_push", {}))).toEqual({
         body: {
@@ -1111,7 +1043,6 @@ describe("tools/call", () => {
           actor: creator,
         }),
         runningTurn: async () => 7,
-        markPushContinuation: async () => false,
       },
       services: () => ({
         ...({} as GitHubMcpServices),
@@ -1159,7 +1090,7 @@ describe("tools/call", () => {
     expect(JSON.stringify(answer)).not.toContain("secret detail");
   });
 
-  test("a fault in the continuation mark, or in the logger, is still an internal_error answer", async () => {
+  test("a fault in the intent store, or in the logger, is still an internal_error answer", async () => {
     const handle = createGitHubMcpServer({
       store: {
         sessionState: async () => ({
@@ -1172,18 +1103,12 @@ describe("tools/call", () => {
           actor: creator,
         }),
         runningTurn: async () => 7,
-        markPushContinuation: async () => {
-          throw new Error("database unavailable");
-        },
       },
       services: () => ({
         ...({} as GitHubMcpServices),
         pushRequests: {
           create: async () => {
-            const { code, message } = PUSH_REFUSAL_ERRORS.no_checkpoint;
-            throw new SessionServiceError(code, message, undefined, {
-              refusal: "no_checkpoint",
-            });
+            throw new Error("not used");
           },
           get: async () => {
             throw new Error("not used");
@@ -1192,7 +1117,7 @@ describe("tools/call", () => {
             throw new Error("not used");
           },
           requestIntent: async () => {
-            throw new Error("not used");
+            throw new Error("database unavailable");
           },
         },
       }),
@@ -1223,7 +1148,6 @@ describe("tools/call", () => {
           throw new Error("database unavailable");
         },
         runningTurn: async () => null,
-        markPushContinuation: async () => false,
       },
       services: () => ({}) as GitHubMcpServices,
     });
@@ -1282,32 +1206,20 @@ describe("tools/call", () => {
 });
 
 describe("request_push before the session's first checkpoint", () => {
-  test("marks the turn the request started in and answers deferred, not refused", async () => {
+  test("is an intent like any other, and the answer matches the tool's output schema", async () => {
     const h = harness();
-    h.control.pushRefusal = "no_checkpoint";
     const answer = payload(await h.call("request_push", {}));
-    expect(h.control.marks).toEqual([
-      { sessionId: grant.sessionId, turnId: 7 },
-    ]);
-    // A deferral, not an error: read as one, the model told the user the
-    // push was rejected.
-    expect(answer).toEqual({
-      body: {
-        ok: true,
-        result: { status: "deferred", continuation: "after_turn" },
-      },
-    });
+    expect(answer.body.ok).toBe(true);
+    expect(h.control.intents).toHaveLength(1);
     expect(
       GITHUB_MCP_TOOL_OUTPUTS.request_push.safeParse(answer.body).success,
     ).toBe(true);
   });
 
-  test("an unmarked turn, or any other refusal, says nothing of a follow-up", async () => {
+  test("a refusal the service gives is a plain refusal with its code, and no deferral", async () => {
     const h = harness();
     h.control.pushRefusal = "no_checkpoint";
-    h.control.marked = false;
-    const unmarked = payload(await h.call("request_push", {}));
-    expect(unmarked).toEqual({
+    expect(payload(await h.call("request_push", {}))).toEqual({
       body: {
         ok: false,
         refusal: {
@@ -1325,16 +1237,6 @@ describe("request_push before the session's first checkpoint", () => {
       by: "platform",
       retryable: true,
     });
-    expect(h.control.marks).toHaveLength(1);
-  });
-
-  test("a request that started in no running turn marks nothing", async () => {
-    const h = harness();
-    h.control.pushRefusal = "no_checkpoint";
-    h.control.runningTurn = null;
-    const answer = payload(await h.call("request_push", {}));
-    expect(answer.body.ok).toBe(false);
-    expect(h.control.marks).toEqual([]);
   });
 });
 

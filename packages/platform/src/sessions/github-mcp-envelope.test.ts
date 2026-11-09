@@ -114,8 +114,22 @@ function server(failure: SessionServiceError | null) {
         pull_request_error: null,
         pull_request: null,
       }),
-      requestIntent: async () => {
-        throw new Error("not used");
+      requestIntent: async (_actor, sessionId, input) => {
+        if (failure !== null) throw failure;
+        return {
+          status: "deferred" as const,
+          intent: {
+            id: "99999999-9999-4999-8999-999999999999",
+            session_id: sessionId,
+            repository_id: "app",
+            target_branch: `agent/${sessionId}`,
+            status: "deferred" as const,
+            refusal_code: null,
+            push_request_id: null,
+            source_ref: input.sourceRef ?? null,
+            created_at: "2026-11-05T00:00:00.000Z",
+          },
+        };
       },
     },
     pullRequests: {
@@ -210,8 +224,7 @@ function server(failure: SessionServiceError | null) {
         enabled: true,
         actor: creator,
       }),
-      runningTurn: async () => null,
-      markPushContinuation: async () => false,
+      runningTurn: async () => 7,
     },
     services,
   });

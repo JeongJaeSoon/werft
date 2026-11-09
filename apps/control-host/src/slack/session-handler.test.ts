@@ -383,6 +383,10 @@ async function deliver(
   });
 }
 
+/** A join/leave event_ts that many seconds after now, so after any approval. */
+const lifecycleTs = (seconds: number) =>
+  `${Math.floor(Date.now() / 1000) + seconds}.000100`;
+
 const mention = (ts: string, extra: Record<string, unknown> = {}) => ({
   type: "app_mention",
   channel: CHANNEL,
@@ -1044,6 +1048,214 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await deliver(fixture, mention(fresh));
     await drain(handle);
     expect(await sessionsOf(fixture)).toHaveLength(1);
+  });
+
+  test("the bot removed from an approved private channel and invited again waits for a new approval before it answers", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle, notices } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    const store = createPostgresSurfaceBindingStore(db);
+    const approveAt = (revision: number) =>
+      store.approve({
+        principal: fixture.owner,
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        bindingId: fixture.bindingId,
+        revision,
+        approverRoles: ["owner", "admin"],
+      });
+    expect((await approveAt(1)).outcome).toBe("resolved");
+    const stateOf = async () => {
+      const [row] = await db.select().from(surfaceBindings);
+      return row;
+    };
+    expect(await stateOf()).toMatchObject({ status: "ready", revision: 2 });
+
+    await deliver(
+      fixture,
+      {
+        type: "member_left_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        channel_type: "G",
+        event_ts: lifecycleTs(60),
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    expect(await stateOf()).toMatchObject({
+      status: "pending_approval",
+      membership: "awaiting_invite",
+      approvedAt: null,
+      revision: 3,
+    });
+
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        channel_type: "G",
+        event_ts: lifecycleTs(120),
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    expect(await stateOf()).toMatchObject({
+      status: "pending_approval",
+      membership: "joined",
+      revision: 3,
+    });
+
+    await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices.map((notice) => notice.reason)).toEqual([
+      "pending_approval",
+    ]);
+
+    expect((await approveAt(3)).outcome).toBe("resolved");
+    await deliver(
+      fixture,
+      mention(`${Math.floor(Date.now() / 1000) + 60}.000100`),
+    );
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+  });
+
+  test("a re-invite handled before the older leave still ends in a new approval, with no answer meanwhile", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    const approved = await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    await createPostgresSurfaceBindingStore(db).setMembership(
+      fixture.bindingId,
+      { state: "joined", error: null },
+    );
+    // The bot was in the channel when the approval was given; the re-invite
+    // is handled before the leave that preceded it.
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        event_ts: lifecycleTs(120),
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const [rejoined] = await db.select().from(surfaceBindings);
+    expect(rejoined).toMatchObject({
+      status: "pending_approval",
+      approvedAt: null,
+    });
+    // A mention before the late leave arrives is not answered either.
+    await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    await deliver(
+      fixture,
+      {
+        type: "member_left_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        event_ts: lifecycleTs(60),
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({
+      status: "pending_approval",
+      membership: "joined",
+      approvedAt: null,
+    });
+    expect(await inboxStatuses()).toEqual([
+      "processed",
+      "processed",
+      "processed",
+    ]);
+    expect(await sessionsOf(fixture)).toEqual([]);
+  });
+
+  test("a leave the approval already knew of, arriving late, leaves the approval standing", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    // The invite the owner approved was noted at 1700000200 before approving.
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        event_ts: "1700000200.000100",
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const approved = await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    await deliver(
+      fixture,
+      {
+        type: "member_left_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        event_ts: "1700000100.000100",
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({ status: "ready" });
+  });
+
+  test("another member leaving a private channel changes nothing", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle } = handler();
+    const approved = await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    await deliver(
+      fixture,
+      { type: "member_left_channel", user: PERSON, channel: CHANNEL },
+      { thread: false },
+    );
+    await drain(handle);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({ status: "ready", revision: 2 });
   });
 
   test("a bot invited to an unbound private channel binds it waiting for approval, whatever channel_type says", async () => {

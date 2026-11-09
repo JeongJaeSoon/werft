@@ -8,11 +8,10 @@ export const agentGitHubKo = {
   "agentGitHub.section.repositories": "저장소",
   "agentGitHub.section.details": "세부 설정",
   "agentGitHub.detailsHint":
-    "기능 권한, Actions 허용 목록, push 승인, 시작 저장소입니다. 대부분은 기본값으로 충분합니다.",
+    "기능 권한, Actions 허용 목록, push 승인입니다. 대부분은 기본값으로 충분합니다.",
   "agentGitHub.section.permissions": "권한",
   "agentGitHub.section.allowlist": "Actions 허용 목록",
   "agentGitHub.section.push": "push 승인",
-  "agentGitHub.section.start": "시작 저장소",
   "agentGitHub.section.activity": "최근 기록",
   "agentGitHub.status": "상태",
   "agentGitHub.state.on": "사용 중",
@@ -23,7 +22,6 @@ export const agentGitHubKo = {
   "agentGitHub.on": "켜짐",
   "agentGitHub.off": "꺼짐",
   "agentGitHub.badge.now": "즉시 반영",
-  "agentGitHub.badge.next": "다음 세션부터",
   "agentGitHub.badge.default": "기본",
   "agentGitHub.badge.unsaved": "저장 전",
   "agentGitHub.enabled": "GitHub 사용",
@@ -40,7 +38,7 @@ export const agentGitHubKo = {
   "agentGitHub.pending.title": "저장하지 않은 변경 {count}건",
   "agentGitHub.pending.firstTitle": "GitHub 설정을 아직 저장하지 않았습니다",
   "agentGitHub.pending.body":
-    "저장하면 다음에 시작하는 세션부터 적용됩니다. 저장소를 빼거나 권한을 줄이는 변경은 진행 중인 세션에도 바로 적용됩니다. 새 릴리스는 만들지 않습니다.",
+    "저장하면 다음에 시작하는 세션부터 적용됩니다. 권한을 줄이는 변경은 진행 중인 세션에도 바로 적용됩니다. 새 릴리스는 만들지 않습니다.",
   "agentGitHub.pending.save": "저장",
   "agentGitHub.pending.saving": "저장하는 중…",
   "agentGitHub.pending.revert": "되돌리기",
@@ -54,27 +52,21 @@ export const agentGitHubKo = {
   "agentGitHub.legacy":
     "이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성 릴리스의 설정(없으면 프로필이 허용하는 저장소 전체)으로 동작하고, 저장하면 이후 세션부터 아래 설정을 씁니다.",
   "agentGitHub.repositoriesHint":
-    "워크스페이스가 허용한 GitHub App 저장소 가운데 고릅니다. 토큰은 고른 저장소 하나로만 좁혀 발급합니다.",
+    "이 에이전트가 쓸 GitHub 저장소를 켭니다. 켜고 끄는 즉시 저장됩니다. 켠 저장소는 새로 시작하는 세션부터 쓰고, 끈 저장소는 진행 중인 세션에서도 바로 쓸 수 없습니다. 토큰은 켠 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
-    "카탈로그에 GitHub 저장소가 없습니다. 운영자가 카탈로그에 추가합니다.",
+    "이 App이 닿는 저장소가 없습니다. 워크스페이스 GitHub 설정에서 App 설치를 확인하세요.",
   "agentGitHub.ceilingUnset":
     "이 워크스페이스에는 아직 저장소 범위가 정해지지 않았습니다. 저장하면 기본 허용 목록(GitHub App이 닿는 저장소)이 적용됩니다.",
-  "agentGitHub.repositoryUse": "사용",
-  "agentGitHub.repositoryUnused": "안 씀",
+  "agentGitHub.repositoryToggle": "{name} 사용",
+  "agentGitHub.repositoryOpen": "GitHub에서 {name} 열기",
+  "agentGitHub.private": "비공개",
+  "agentGitHub.repositoryRefused": "저장소를 바꾸지 못했습니다: {reason}",
   "agentGitHub.repositoryReason.repository_not_allowed":
     "워크스페이스가 허용한 저장소 범위 밖입니다.",
   "agentGitHub.repositoryReason.app_required":
     "PAT로 연결된 저장소라 권한을 좁힐 수 없습니다. GitHub App으로 옮겨야 고를 수 있습니다.",
   "agentGitHub.repositoriesFoot":
-    "목록에 없는 저장소는 GitHub에서 App 설치에 더한 뒤 운영자가 카탈로그에 추가합니다.",
-  "agentGitHub.pickTitle": "App이 설치된 저장소에서 고르기",
-  "agentGitHub.pickHint":
-    "워크스페이스가 App 저장소 전체를 허용합니다. 고른 저장소는 위 목록에 켜진 채로 더해지고, 저장하면 반영됩니다.",
-  "agentGitHub.pickOne": "고르기",
-  "agentGitHub.pickName": "{name} 고르기",
-  "agentGitHub.picked": "{name}을(를) 더했습니다. 저장하면 반영됩니다.",
-  "agentGitHub.pickInList": "목록에 있음",
-  "agentGitHub.pickRefused": "저장소를 고르지 못했습니다: {reason}",
+    "목록에 없는 저장소는 GitHub에서 App 설치에 더하면 나타납니다.",
   "agentGitHub.permissionsHint":
     "기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. merge 권한은 없습니다.",
   "agentGitHub.base": "PR 작성·수정",
@@ -142,10 +134,6 @@ export const agentGitHubKo = {
   "agentGitHub.pushAttached.deny": "허용하지 않음",
   "agentGitHub.pushAttachedAllowNote":
     "첨부 저장소는 사람 승인 없이 붙으므로, 허용하면 붙이기와 push가 사람 없이 이어집니다. 대상은 agent/<세션> 브랜치뿐이고 force push는 하지 않습니다.",
-  "agentGitHub.startHint":
-    "저장소를 지정하지 않고 시작한 세션이 처음 쓰는 저장소입니다. 고른 저장소 안에서만 정할 수 있습니다.",
-  "agentGitHub.startNone": "지정 안 함",
-  "agentGitHub.startLabel": "시작 저장소",
   "agentGitHub.activityHint":
     "토큰 발급과 거절, 설정 변경, 워크플로 실행은 감사 기록(receipt)에 남습니다. 볼 수 있는 세션의 기록만 보입니다.",
   "agentGitHub.activityEmpty": "아직 GitHub 기록이 없습니다.",
@@ -199,7 +187,7 @@ export const agentGitHubKo = {
   "agentGitHub.refused": "거절",
   "agentPullRequest.title": "Pull request 서식",
   "agentPullRequest.hint":
-    "이 에이전트가 여는 Pull request의 본문을 워크스페이스 설정 위에 덮어씁니다. 위의 GitHub 설정과 따로 저장하며, 릴리스를 만들지 않습니다. 이후에 여는·갱신하는 PR부터 적용됩니다.",
+    "이 에이전트가 여는 Pull request의 본문을 워크스페이스 설정 위에 덮어씁니다. GitHub 세부 설정과 따로 저장하며, 릴리스를 만들지 않습니다. 이후에 여는·갱신하는 PR부터 적용됩니다.",
   "agentPullRequest.formatting": "서식",
   "agentPullRequest.formatting.inherit": "워크스페이스 설정을 따름",
   "agentPullRequest.formatting.on": "템플릿 사용",
@@ -231,8 +219,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.section.repositories": "Repositories",
   "agentGitHub.section.details": "Advanced settings",
   "agentGitHub.detailsHint":
-    "Optional permissions, the Actions allow-list, push approval and the starting repository. The defaults suit most agents.",
-  "agentGitHub.section.start": "Starting repository",
+    "Optional permissions, the Actions allow-list and push approval. The defaults suit most agents.",
   "agentGitHub.section.permissions": "Permissions",
   "agentGitHub.section.allowlist": "Actions allow list",
   "agentGitHub.section.push": "Push approval",
@@ -246,7 +233,6 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.on": "On",
   "agentGitHub.off": "Off",
   "agentGitHub.badge.now": "Applies now",
-  "agentGitHub.badge.next": "From the next session",
   "agentGitHub.badge.default": "Default",
   "agentGitHub.badge.unsaved": "Unsaved",
   "agentGitHub.enabled": "Use GitHub",
@@ -262,7 +248,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pending.title": "{count} unsaved changes",
   "agentGitHub.pending.firstTitle": "GitHub settings are not saved yet",
   "agentGitHub.pending.body":
-    "Saving applies from the next session that starts. A change that removes a repository or narrows a permission also applies to running sessions. No new release is made.",
+    "Saving applies from the next session that starts. A change that narrows a permission also applies to running sessions. No new release is made.",
   "agentGitHub.pending.save": "Save",
   "agentGitHub.pending.saving": "Saving…",
   "agentGitHub.pending.revert": "Revert",
@@ -275,27 +261,22 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.legacy":
     "This agent has no saved GitHub settings yet. It runs on the active release's settings (every repository its profile allows, if none). Saving makes later sessions use the settings below.",
   "agentGitHub.repositoriesHint":
-    "Pick from the catalog's repositories that use a GitHub App. Each token is narrowed to the one repository.",
+    "Turn on the GitHub repositories this agent may use. A switch saves as soon as you flip it. A repository you turn on is used from the next session that starts; one you turn off is refused in running sessions too. Each token is narrowed to a single enabled repository.",
   "agentGitHub.repositoriesNone":
-    "The catalog has no GitHub repository. The operator adds them.",
+    "The App reaches no repositories. Check its installation in the workspace GitHub settings.",
   "agentGitHub.ceilingUnset":
     "This workspace has no repository scope yet. Saving applies the default allow list (the repositories the GitHub App reaches).",
-  "agentGitHub.repositoryUse": "Used",
-  "agentGitHub.repositoryUnused": "Not used",
+  "agentGitHub.repositoryToggle": "Use {name}",
+  "agentGitHub.repositoryOpen": "Open {name} on GitHub",
+  "agentGitHub.private": "Private",
+  "agentGitHub.repositoryRefused":
+    "The repository could not be changed: {reason}",
   "agentGitHub.repositoryReason.repository_not_allowed":
     "Outside the repositories the workspace allows.",
   "agentGitHub.repositoryReason.app_required":
     "It connects with a PAT, which cannot be narrowed. Move it to a GitHub App to pick it.",
   "agentGitHub.repositoriesFoot":
-    "To add a repository, add it to the App's installation on GitHub; the operator then adds it to the catalog.",
-  "agentGitHub.pickTitle": "Pick from repositories the App is installed on",
-  "agentGitHub.pickHint":
-    "The workspace allows every App repository. A picked repository joins the list above, turned on, and takes effect when you save.",
-  "agentGitHub.pickOne": "Pick",
-  "agentGitHub.pickName": "Pick {name}",
-  "agentGitHub.picked": "Added {name}. Save to apply it.",
-  "agentGitHub.pickInList": "In the list",
-  "agentGitHub.pickRefused": "The repository could not be picked: {reason}",
+    "A repository missing here appears once you add it to the App's installation on GitHub.",
   "agentGitHub.permissionsHint":
     "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. There is no merge permission.",
   "agentGitHub.base": "Write pull requests",
@@ -363,10 +344,6 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushAttached.deny": "Do not allow",
   "agentGitHub.pushAttachedAllowNote":
     "A repository is attached without a person's approval, so allowing this lets attaching and pushing run with no person involved. It reaches only agent/<session> branches and never force-pushes.",
-  "agentGitHub.startHint":
-    "The repository a session uses first when it starts without naming one. It can only be one of the chosen repositories.",
-  "agentGitHub.startNone": "Not set",
-  "agentGitHub.startLabel": "Starting repository",
   "agentGitHub.activityHint":
     "Tokens issued or refused, setting changes and workflow runs are kept as receipts. Only sessions you can see are shown.",
   "agentGitHub.activityEmpty": "No GitHub activity yet.",
@@ -423,7 +400,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refused": "Refused",
   "agentPullRequest.title": "Pull request layout",
   "agentPullRequest.hint":
-    "Overrides the workspace's settings for the pull request bodies this agent opens. Saved apart from the GitHub settings above and makes no release. It applies to pull requests opened or updated afterwards.",
+    "Overrides the workspace's settings for the pull request bodies this agent opens. Saved apart from the GitHub details and makes no release. It applies to pull requests opened or updated afterwards.",
   "agentPullRequest.formatting": "Layout",
   "agentPullRequest.formatting.inherit": "Follow the workspace",
   "agentPullRequest.formatting.on": "Use templates",
@@ -455,8 +432,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.section.repositories": "リポジトリ",
   "agentGitHub.section.details": "詳細設定",
   "agentGitHub.detailsHint":
-    "任意の権限、Actions 許可リスト、push の承認、開始リポジトリ。多くのエージェントでは既定のままで十分です。",
-  "agentGitHub.section.start": "開始リポジトリ",
+    "任意の権限、Actions 許可リスト、push の承認。多くのエージェントでは既定のままで十分です。",
   "agentGitHub.section.permissions": "権限",
   "agentGitHub.section.allowlist": "Actions 許可リスト",
   "agentGitHub.section.push": "push の承認",
@@ -470,7 +446,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.on": "オン",
   "agentGitHub.off": "オフ",
   "agentGitHub.badge.now": "すぐ反映",
-  "agentGitHub.badge.next": "次のセッションから",
   "agentGitHub.badge.default": "既定",
   "agentGitHub.badge.unsaved": "未保存",
   "agentGitHub.enabled": "GitHub を使う",
@@ -486,7 +461,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pending.title": "未保存の変更 {count} 件",
   "agentGitHub.pending.firstTitle": "GitHub 設定はまだ保存されていません",
   "agentGitHub.pending.body":
-    "保存すると、次に始まるセッションから適用されます。リポジトリを外す変更や権限を絞る変更は、実行中のセッションにも適用されます。新しいリリースは作りません。",
+    "保存すると、次に始まるセッションから適用されます。権限を絞る変更は、実行中のセッションにも適用されます。新しいリリースは作りません。",
   "agentGitHub.pending.save": "保存",
   "agentGitHub.pending.saving": "保存しています…",
   "agentGitHub.pending.revert": "元に戻す",
@@ -500,27 +475,21 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.legacy":
     "このエージェントにはまだ保存された GitHub の設定がありません。有効なリリースの設定(なければプロファイルが許可するすべてのリポジトリ)で動きます。保存すると、以降のセッションは以下の設定を使います。",
   "agentGitHub.repositoriesHint":
-    "GitHub App を使うカタログのリポジトリから選びます。トークンは選んだリポジトリ 1 つに絞って発行します。",
+    "このエージェントが使う GitHub リポジトリをオンにします。スイッチは切り替えるとすぐ保存されます。オンにしたリポジトリは次に始まるセッションから使われ、オフにしたリポジトリは実行中のセッションでもすぐ使えなくなります。トークンはオンのリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":
-    "カタログに GitHub のリポジトリがありません。運用者が追加します。",
+    "この App が届くリポジトリがありません。ワークスペースの GitHub 設定で App のインストールを確認してください。",
   "agentGitHub.ceilingUnset":
     "このワークスペースにはリポジトリの範囲がまだありません。保存すると既定の許可リスト（GitHub App が届くリポジトリ）が適用されます。",
-  "agentGitHub.repositoryUse": "使う",
-  "agentGitHub.repositoryUnused": "使わない",
+  "agentGitHub.repositoryToggle": "{name} を使う",
+  "agentGitHub.repositoryOpen": "GitHub で {name} を開く",
+  "agentGitHub.private": "非公開",
+  "agentGitHub.repositoryRefused": "リポジトリを変更できませんでした: {reason}",
   "agentGitHub.repositoryReason.repository_not_allowed":
     "ワークスペースが許可するリポジトリの範囲外です。",
   "agentGitHub.repositoryReason.app_required":
     "PAT で接続されたリポジトリのため権限を絞れません。GitHub App に移すと選べます。",
   "agentGitHub.repositoriesFoot":
-    "一覧にないリポジトリは、GitHub で App のインストールに加えたあと運用者がカタログに追加します。",
-  "agentGitHub.pickTitle": "App がインストールされたリポジトリから選ぶ",
-  "agentGitHub.pickHint":
-    "ワークスペースが App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると反映されます。",
-  "agentGitHub.pickOne": "選ぶ",
-  "agentGitHub.pickName": "{name} を選ぶ",
-  "agentGitHub.picked": "{name} を加えました。保存すると反映されます。",
-  "agentGitHub.pickInList": "一覧にあります",
-  "agentGitHub.pickRefused": "リポジトリを選べませんでした: {reason}",
+    "一覧にないリポジトリは、GitHub で App のインストールに加えると表示されます。",
   "agentGitHub.permissionsHint":
     "既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。merge の権限はありません。",
   "agentGitHub.base": "PR の作成・修正",
@@ -588,10 +557,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushAttached.deny": "許可しない",
   "agentGitHub.pushAttachedAllowNote":
     "追加リポジトリは人の承認なしで追加されるため、許可すると追加と push が人を介さず続きます。対象は agent/<セッション> ブランチだけで、force push は行いません。",
-  "agentGitHub.startHint":
-    "リポジトリを指定せずに始めたセッションが最初に使うリポジトリです。選んだリポジトリの中からだけ指定できます。",
-  "agentGitHub.startNone": "指定しない",
-  "agentGitHub.startLabel": "開始リポジトリ",
   "agentGitHub.activityHint":
     "トークンの発行と拒否、設定の変更、ワークフローの実行は監査記録(receipt)に残ります。見られるセッションの記録だけを表示します。",
   "agentGitHub.activityEmpty": "まだ GitHub の記録がありません。",
@@ -647,7 +612,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refused": "拒否",
   "agentPullRequest.title": "Pull request の書式",
   "agentPullRequest.hint":
-    "このエージェントが開く Pull request の本文について、ワークスペースの設定を上書きします。上の GitHub 設定とは別に保存され、リリースは作りません。以降に開く・更新する PR から適用されます。",
+    "このエージェントが開く Pull request の本文について、ワークスペースの設定を上書きします。GitHub の詳細設定とは別に保存され、リリースは作りません。以降に開く・更新する PR から適用されます。",
   "agentPullRequest.formatting": "書式",
   "agentPullRequest.formatting.inherit": "ワークスペースの設定に従う",
   "agentPullRequest.formatting.on": "テンプレートを使う",

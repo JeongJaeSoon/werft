@@ -201,7 +201,6 @@ function asPerson(caller: Caller): Caller {
 type Routed = Omit<
   AgentService,
   | "resolveRelease"
-  | "promptIdentity"
   | "envNames"
   | "rolloutRelease"
   | "migrateAgent"

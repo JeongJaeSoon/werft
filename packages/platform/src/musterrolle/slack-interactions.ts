@@ -73,8 +73,8 @@ export function slackPushFollowUp(
   push: { id: string; repositoryId: string; targetBranch: string },
 ): string {
   return decision === "approve"
-    ? `Platform note: a person approved push request ${push.id} (repository ${push.repositoryId}, branch ${push.targetBranch}) in Slack. The push runs in the background: call open_pull_request now, and if it answers not_pushed with push_request_state approved or pushing, wait a few seconds and call it again. In any other state, calling it again will not change the answer: say what it answered instead. Then finish what you were asked to do.`
-    : `Platform note: a person rejected push request ${push.id} (repository ${push.repositoryId}, branch ${push.targetBranch}) in Slack, so nothing was pushed. Do not ask to push it again unless you are asked to. Say in one short reply that the push was rejected.`;
+    ? `A person approved push request ${push.id} (repository ${push.repositoryId}, branch ${push.targetBranch}). The push runs in the background.`
+    : `A person rejected push request ${push.id} (repository ${push.repositoryId}, branch ${push.targetBranch}). Nothing was pushed.`;
 }
 
 export type SlackInteractionOutcome =

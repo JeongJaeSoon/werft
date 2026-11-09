@@ -137,7 +137,6 @@ export * from "./sessions/interrupt-service.ts";
 export * from "./sessions/outcome-refresher.ts";
 export * from "./sessions/output-service.ts";
 export * from "./sessions/pending-service.ts";
-export * from "./sessions/platform-prompt.ts";
 export * from "./sessions/profile-execution-form.ts";
 export * from "./sessions/profile-migration.ts";
 export * from "./sessions/profile-registry.ts";
@@ -167,6 +166,8 @@ export * from "./workers/worker-gateway.ts";
 export * from "./extensions/bundle-archive.ts";
 export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
+export * from "./extensions/resolve.ts";
+export * from "./extensions/session-extensions.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
 export * from "./sessions/achievements/achievement-judgment-store.ts";

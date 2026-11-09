@@ -32,10 +32,6 @@ import {
   workspaceProfileRefusal,
   workspaceProfileState,
 } from "./catalog.ts";
-import type {
-  AgentPromptIdentity,
-  PlatformPromptRevision,
-} from "./platform-prompt.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
@@ -106,10 +102,6 @@ function setup(
     /** The agent's own settings row. */
     agentSettings?: AgentGitHubSettingsRow;
     repositoryCeiling?: RepositoryCeiling;
-    promptRevision?: PlatformPromptRevision;
-    actionFlows?: boolean;
-    /** Who promptIdentity finds; absent, the dep is left out. */
-    identity?: AgentPromptIdentity | null;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -151,21 +143,7 @@ function setup(
                 ? (options.envNames ?? [])
                 : [],
           }),
-      ...(options.identity === undefined
-        ? {}
-        : {
-            promptIdentity: async (workspaceId: string, releaseId: string) =>
-              workspaceId === WORKSPACE && releaseId === "rel-1"
-                ? (options.identity ?? null)
-                : null,
-          }),
     },
-    ...(options.promptRevision === undefined
-      ? {}
-      : { promptRevision: options.promptRevision }),
-    ...(options.actionFlows === undefined
-      ? {}
-      : { actionFlows: () => options.actionFlows === true }),
     inputs: {
       async acceptInputAtomic(input) {
         accepted.push(input);
@@ -272,127 +250,6 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
-  });
-
-  describe("platform prompt", () => {
-    const named = withSeededInstallation({
-      profiles: { "coding-v1": profile },
-      repositories: {
-        app: {
-          url: "https://github.com/acme/app.git",
-          branch: "main",
-          profiles: ["coding-v1"],
-          auth: { kind: "github_app", registered: true } as const,
-        },
-        docs: {
-          url: "https://github.com/acme/docs",
-          branch: "main",
-          profiles: ["coding-v1"],
-          auth: { kind: "github_app", registered: true } as const,
-        },
-        nested: {
-          url: "https://gitlab.invalid/group/sub/repo.git",
-          branch: "main",
-          profiles: ["coding-v1"],
-          auth: { kind: "github_app", registered: true } as const,
-        },
-      },
-    });
-    const github: AgentGitHub = {
-      repositories: ["app", "docs", "nested", "elsewhere"],
-      push_approval: true,
-      features: GITHUB_FEATURES_NONE,
-      actions_allow: [],
-    };
-    const identity: AgentPromptIdentity = {
-      name: "code-review",
-      description: "Reviews pull requests",
-      language: "ko",
-    };
-    const create = async (options: Parameters<typeof setup>[0]) => {
-      const run = setup({ catalog: named, ...options });
-      await run.service.createSession(run.caller, {
-        idempotencyKey: "k",
-        body: { ...body, agent_release_id: "rel-1" },
-      });
-      return run.accepted[0]?.platformPrompt;
-    };
-
-    test("revision 1 snapshots the agent, the surface and the session's repository by GitHub name", async () => {
-      expect(await create({ promptRevision: 1, identity, github })).toEqual({
-        prompt_revision: 1,
-        agent_identity: {
-          name: "code-review",
-          description: "Reviews pull requests",
-        },
-        origin_surface: "console",
-        language: "ko",
-        repository: "acme/app",
-      });
-    });
-
-    test("a session created while the action flows are on is snapshotted at revision 6, and with them off or the prompt off it is not", async () => {
-      expect(
-        (await create({ promptRevision: 1, identity, actionFlows: true }))
-          ?.prompt_revision,
-      ).toBe(6);
-      expect(
-        (await create({ promptRevision: 1, identity, actionFlows: false }))
-          ?.prompt_revision,
-      ).toBe(1);
-      expect(
-        await create({ promptRevision: 0, identity, actionFlows: true }),
-      ).toBeUndefined();
-    });
-
-    test("setting 2 is read and gives what 1 gives, and no setting gives revision 4 or 5", async () => {
-      for (const actionFlows of [false, true]) {
-        expect(
-          await create({ promptRevision: 2, identity, actionFlows }),
-        ).toEqual(await create({ promptRevision: 1, identity, actionFlows }));
-        expect(
-          (await create({ promptRevision: 2, identity, actionFlows }))
-            ?.prompt_revision,
-        ).toBe(actionFlows ? 6 : 1);
-      }
-      expect(await create({ promptRevision: 0, identity })).toBeUndefined();
-      expect(await create({ identity })).toBeUndefined();
-    });
-
-    test("GitHub settings change nothing in it, and a blank description is none", async () => {
-      expect(await create({ promptRevision: 1, identity })).toEqual(
-        await create({ promptRevision: 1, identity, github }),
-      );
-      expect(
-        await create({
-          promptRevision: 1,
-          identity: { ...identity, description: " \n", language: "en" },
-        }),
-      ).toEqual({
-        prompt_revision: 1,
-        agent_identity: { name: "code-review", description: null },
-        origin_surface: "console",
-        language: "en",
-        repository: "acme/app",
-      });
-    });
-
-    test("revision 0, no identity reader, or an agent that is gone leaves the session at revision 0", async () => {
-      expect(await create({ identity, github })).toBeUndefined();
-      expect(
-        await create({ promptRevision: 0, identity, github }),
-      ).toBeUndefined();
-      expect(await create({ promptRevision: 1, github })).toBeUndefined();
-      expect(
-        await create({ promptRevision: 1, identity: null, github }),
-      ).toBeUndefined();
-      const unpinned = setup({ catalog: named, promptRevision: 1, identity });
-      await unpinned.service.createSession(unpinned.caller, {
-        idempotencyKey: "k",
-        body,
-      });
-      expect(unpinned.accepted[0]?.platformPrompt).toBeUndefined();
-    });
   });
 
   test("a repository outside the release's GitHub repositories is refused as repository_not_allowed before acceptance", async () => {
@@ -635,6 +492,37 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[3]).toMatchObject({ repository: null });
     expect(accepted[3]?.model).toBeUndefined();
     expect(accepted[3]?.profileFingerprint).toBeUndefined();
+  });
+
+  test("a new session says which model left the list, whether the request or the release named it", async () => {
+    // The profile no longer offers claude-opus-5-5, the release's model.
+    const narrowed: SessionCatalog = {
+      ...catalog,
+      profiles: {
+        ...catalog.profiles,
+        "coding-v1": { ...profile, models: ["claude-haiku-5-5"] },
+      },
+    };
+    const refused = async (extra: object) => {
+      const { service, caller } = setup({
+        accept: "unsupported",
+        catalog: narrowed,
+      });
+      return service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: { ...body, agent_release_id: "rel-1", ...extra },
+        })
+        .catch((error: unknown) => error);
+    };
+    expect(await refused({})).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining("claude-opus-5-5"),
+    });
+    expect(await refused({ model: "claude-fable-5-1" })).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining("claude-fable-5-1"),
+    });
   });
 
   test("a profile naming a runtime the current worker image does not ship takes no new session", async () => {

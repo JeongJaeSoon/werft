@@ -144,6 +144,53 @@ export interface SurfaceBindingStore {
    * the binding is no longer ready.
    */
   requireApproval(bindingId: string): Promise<SurfaceBindingRecord | null>;
+  /**
+   * Notes that Slack reported a join of the bot to a channel at `at`
+   * (microseconds since the epoch). False when a later join or leave of that
+   * channel was already noted, so the join is old news and must change
+   * nothing. An equal time passes, since a retried event runs its effect
+   * again. A null `at` (no time in the event) cannot be ordered and passes
+   * without being noted.
+   * Also, before any Slack call: a join newer than anything noted (or with no
+   * time) of an approved private channel recorded as `joined` means a leave was
+   * missed (Slack sends no join to a member), so the binding waits for approval
+   * again at once, as after a leave; mentions are not served until the late
+   * leave arrives.
+   */
+  observeLifecycle(
+    installationId: string,
+    channelId: string,
+    at: number | null,
+  ): Promise<boolean>;
+  /**
+   * The join's last write: the binding's membership becomes `joined`, in one
+   * transaction with the order check of `observeLifecycle`, so a leave noted
+   * after the join was first seen is not overwritten. False, and nothing
+   * written, when the join has been overtaken.
+   */
+  recordJoin(
+    installationId: string,
+    channelId: string,
+    bindingId: string,
+    at: number | null,
+  ): Promise<boolean>;
+  /**
+   * The bot left a channel, or was removed from it, at `at`. A private
+   * channel's binding goes back to `pending_approval` (no longer home, its
+   * approval cleared, a `request_surface_binding` receipt for the
+   * installation) and keeps its mode and ceiling, so an invite after this
+   * needs a new approval. The approval voids unless it already knew of this
+   * leave, that is, unless `at` is not after the newest join/leave noted when
+   * it was given; this holds for a leave older than a noted re-invite too.
+   * Membership becomes `awaiting_invite` only when the leave is the newest
+   * noted event. A public channel's binding is left alone. False when the
+   * leave is older than a noted event.
+   */
+  botLeft(
+    installationId: string,
+    channelId: string,
+    at: number | null,
+  ): Promise<boolean>;
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;
