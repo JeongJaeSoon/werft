@@ -1,15 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   chmodSync,
-  existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   BundleArchiveError,
   bundleDigest,
@@ -71,19 +73,94 @@ export async function publishExtensionBundles(
   options: PublishExtensionBundlesOptions,
 ): Promise<string[]> {
   const root = join(options.home, ".ext");
+  prepareRoot(options.home, root);
   const published: string[] = [];
   for (const bundle of options.bundles) {
     const target = join(root, bundle.digest);
-    // Only a verified rename creates this path, so a restart can reuse it.
-    if (!existsSync(target)) {
+    // Not trusted for existing: the HOME tmpfs outlives a start, and the agent
+    // shares our uid, so a restart re-proves what an earlier one left.
+    if (!isIntact(target, bundle.digest)) {
+      discard(target);
       const tar = await download(options, bundle);
-      mkdirSync(root, { recursive: true, mode: 0o700 });
-      place(root, target, bundle, tar);
+      place(options.home, root, target, bundle, tar);
     }
     published.push(target);
   }
   return published;
 }
+
+/**
+ * `<home>/.ext` must be a real directory of ours: a symlink there could carry
+ * every bundle into the workspace, and so into the next checkpoint. Staging
+ * directories a killed start left behind are swept.
+ */
+function prepareRoot(home: string, root: string): void {
+  let info = lstatOrNull(root);
+  if (info === null) {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    info = lstatSync(root);
+  }
+  const uid = process.getuid?.();
+  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+    throw new ExtensionBundleError(
+      `${root} is not a directory of this worker; extension bundles are not published through it`,
+    );
+  }
+  const inside = realpathSync(root).startsWith(`${realpathSync(home)}${sep}`);
+  if (!inside) {
+    throw new ExtensionBundleError(`${root} resolves outside ${home}`);
+  }
+  for (const name of readdirSync(root)) {
+    if (name.startsWith(".tmp-")) discard(join(root, name));
+  }
+}
+
+function lstatOrNull(path: string) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/**
+ * A published directory is the claimed bundle only while it is a real
+ * directory tree of regular files, none writable, hashing to the digest.
+ */
+function isIntact(target: string, digest: string): boolean {
+  const files: { path: string; mode: number; sha256: string }[] = [];
+  const walk = (dir: string, prefix: string): boolean => {
+    if ((statOf(dir)?.mode ?? 0o222) & 0o222) return false;
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      const info = statOf(path);
+      if (info === null || (info.mode & 0o222) !== 0) return false;
+      const relative = prefix === "" ? entry : `${prefix}/${entry}`;
+      if (info.isDirectory()) {
+        if (!walk(path, relative)) return false;
+      } else if (info.isFile()) {
+        files.push({
+          path: relative,
+          mode: (info.mode & 0o111) !== 0 ? 0o755 : 0o644,
+          sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
+        });
+      } else {
+        return false;
+      }
+    }
+    return true;
+  };
+  try {
+    const top = lstatOrNull(target);
+    if (top === null || !top.isDirectory()) return false;
+    return walk(target, "") && bundleDigest(files) === digest;
+  } catch {
+    return false;
+  }
+}
+
+const statOf = (path: string) => lstatOrNull(path);
 
 async function download(
   options: PublishExtensionBundlesOptions,
@@ -133,6 +210,7 @@ function safePath(path: string): boolean {
 }
 
 function place(
+  home: string,
   root: string,
   target: string,
   bundle: ExtensionBundleRef,
@@ -197,6 +275,10 @@ function place(
       chmodSync(dir, 0o555);
     }
     renameSync(staged, target);
+    staged = target;
+    if (!realpathSync(target).startsWith(`${realpathSync(home)}${sep}`)) {
+      throw new ExtensionBundleError(`${label}: published outside ${home}`);
+    }
     staged = undefined;
   } catch (error) {
     if (staged !== undefined) discard(staged);
@@ -206,6 +288,11 @@ function place(
 }
 
 function discard(path: string): void {
+  // A symlink or file is removed as itself; chmod would follow the link.
+  if (!lstatOrNull(path)?.isDirectory()) {
+    rmSync(path, { force: true });
+    return;
+  }
   const open = (dir: string) => {
     try {
       chmodSync(dir, 0o700);

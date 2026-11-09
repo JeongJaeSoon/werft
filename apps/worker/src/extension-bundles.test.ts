@@ -8,6 +8,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -181,7 +182,7 @@ describe("a transient failure is retried, inside the budget", () => {
     );
     await expect(run()).rejects.toThrow(/startup budget ran out/);
     expect(calls.fetch).toBe(3);
-    expect(readdirSync(home).filter((n) => n === ".ext")).toEqual([]);
+    expect(readdirSync(join(home, ".ext"))).toEqual([]);
   });
 });
 
@@ -335,5 +336,164 @@ describe("the gateway client's bundle request", () => {
       }
     }
     expect(flags).toEqual([true, true, false, false]);
+  });
+});
+
+describe("what an earlier start left in HOME is proven again, not trusted", () => {
+  const tar = packBundleTar(GOOD);
+  const skill = (placed: string) => join(placed, "skills/lint/SKILL.md");
+
+  async function published() {
+    const [placed] = await options(async () => tar).run();
+    return placed ?? "";
+  }
+
+  async function refetched(): Promise<{ fetches: number; placed: string }> {
+    const again = options(async () => tar);
+    const [placed] = await again.run();
+    return { fetches: again.calls.fetch, placed: placed ?? "" };
+  }
+
+  test("an intact directory is reused", async () => {
+    await published();
+    expect((await refetched()).fetches).toBe(0);
+  });
+
+  test("a file changed in place with its write bit still off is fetched again", async () => {
+    const placed = await published();
+    chmodSync(join(placed, "skills/lint"), 0o755);
+    chmodSync(skill(placed), 0o644);
+    writeFileSync(skill(placed), "tampered");
+    chmodSync(skill(placed), 0o444);
+    chmodSync(join(placed, "skills/lint"), 0o555);
+    const { fetches, placed: again } = await refetched();
+    expect(fetches).toBe(1);
+    expect(readFileSync(skill(again), "utf8")).toBe("lint it");
+  });
+
+  test("a directory that was made writable is fetched again", async () => {
+    const placed = await published();
+    chmodSync(skill(placed), 0o644);
+    expect((await refetched()).fetches).toBe(1);
+  });
+
+  test("a file added to it is fetched again", async () => {
+    const placed = await published();
+    chmodSync(placed, 0o755);
+    writeFileSync(join(placed, "extra"), "x", { mode: 0o444 });
+    chmodSync(placed, 0o555);
+    const { fetches, placed: again } = await refetched();
+    expect(fetches).toBe(1);
+    expect(readdirSync(again).sort()).toEqual([".claude-plugin", "skills"]);
+  });
+
+  test("a symlink or a regular file in its place is replaced, never followed", async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "ext-elsewhere-"));
+    try {
+      writeFileSync(join(elsewhere, "keep"), "mine");
+      const target = join(home, ".ext", digestOf(GOOD));
+      mkdirSync(join(home, ".ext"));
+      symlinkSync(elsewhere, target);
+      const link = await refetched();
+      expect(link.fetches).toBe(1);
+      expect(statSync(link.placed).isDirectory()).toBe(true);
+      expect(readdirSync(elsewhere)).toEqual(["keep"]);
+      reopen(home);
+      rmSync(target, { recursive: true, force: true });
+      writeFileSync(target, "a file");
+      expect((await refetched()).fetches).toBe(1);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("$HOME/.ext is ours or nothing is published", () => {
+  test("a symlink to the workspace is refused and the workspace gets nothing", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "ext-workspace-"));
+    try {
+      symlinkSync(workspace, join(home, ".ext"));
+      const { run, calls } = options(async () => packBundleTar(GOOD));
+      await expect(run()).rejects.toThrow(/not a directory of this worker/);
+      expect(calls.fetch).toBe(0);
+      expect(readdirSync(workspace)).toEqual([]);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a regular file called .ext is refused too", async () => {
+    writeFileSync(join(home, ".ext"), "x");
+    const { run, calls } = options(async () => packBundleTar(GOOD));
+    await expect(run()).rejects.toBeInstanceOf(ExtensionBundleError);
+    expect(calls.fetch).toBe(0);
+  });
+
+  test("staging directories a killed start left behind are removed", async () => {
+    const stale = join(home, ".ext", ".tmp-dead-1");
+    mkdirSync(join(stale, "skills"), { recursive: true });
+    writeFileSync(join(stale, "skills/f"), "x");
+    chmodSync(join(stale, "skills"), 0o555);
+    chmodSync(stale, 0o555);
+    await options(async () => packBundleTar(GOOD)).run();
+    expect(readdirSync(join(home, ".ext"))).toEqual([digestOf(GOOD)]);
+  });
+});
+
+describe("the bundle route's failures are retried by status, not by the body's flag", () => {
+  const apiError = (status: number, retryable: boolean) =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: status === 404 ? "NOT_FOUND" : "BACKEND_UNAVAILABLE",
+          message: "from the gateway",
+          retryable,
+          request_id: "req_1",
+          details: null,
+        },
+      }),
+      { status, headers: { "Content-Type": "application/json" } },
+    );
+
+  function publishVia(answers: (() => Response)[]) {
+    const waits: number[] = [];
+    let requests = 0;
+    const gateway = new HttpWorkerGatewayClient({
+      baseUrl: "http://gateway.internal",
+      credential: "cred",
+      requestTimeoutMs: 1_000,
+      fetch: async () => {
+        requests += 1;
+        return (answers.shift() ?? (() => new Response("", { status: 500 })))();
+      },
+    });
+    return {
+      requests: () => requests,
+      run: () =>
+        publishExtensionBundles({
+          home,
+          attemptId: "att_1",
+          bundles: [{ name: "lint", digest: digestOf(GOOD) }],
+          gateway,
+          signal: new AbortController().signal,
+          sleep: async (ms) => void waits.push(ms),
+        }),
+    };
+  }
+
+  test("a 503 that says retryable:false is retried and the next answer is used", async () => {
+    const tar = packBundleTar(GOOD);
+    const { run, requests } = publishVia([
+      () => apiError(503, false),
+      () => new Response(tar),
+    ]);
+    await run();
+    expect(requests()).toBe(2);
+  });
+
+  test("a 404 that says retryable:true is not retried", async () => {
+    const { run, requests } = publishVia([() => apiError(404, true)]);
+    await expect(run()).rejects.toBeInstanceOf(ExtensionBundleError);
+    expect(requests()).toBe(1);
   });
 });
