@@ -843,7 +843,13 @@ export function newSessionGitHubPolicy(
     : policy;
 }
 
-/** The repository a session starts on: asked, else what its policy names. */
+/**
+ * The repository a session starts on: the one the caller named, else none.
+ * An agent with a settings row starts without a repository and attaches what
+ * the task needs; `start_repository_id` stays on the row but no longer starts
+ * anything. An agent with no row keeps its release's repository, because a
+ * profile that requires one cannot start without it.
+ */
 export function startRepositoryOf(
   requested: string | null | undefined,
   policy: EffectiveGitHubPolicy,
@@ -851,9 +857,7 @@ export function startRepositoryOf(
 ): string | null {
   return (
     requested ??
-    (policy.source === "agent"
-      ? policy.startRepositoryId
-      : releaseRepositoryId) ??
+    (policy.source === "release" ? releaseRepositoryId : null) ??
     null
   );
 }

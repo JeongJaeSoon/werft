@@ -316,6 +316,18 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 
 **이전 이미지로 롤백해도 안전하다(fail-closed).** 이전 이미지의 `effectiveGitHubPolicy`(`packages/contracts/src/kollegium/agents.ts`)는 시작 스냅샷과 지금 저장된 설정을 `meetGitHubSettings`로 교차해서, 시작 뒤에 켠 저장소를 여전히 거절한다. 새로 켠 저장소가 열린 채 남는 일이 없다. 달라지는 것은 이전 이미지의 `list_repositories`가 `revoked`를 아예 내지 않는다는 것(이 상태는 이번에 처음 나온다)과, 시작 뒤에 켠 저장소를 붙일 수 없다는 것뿐이다. 혼합 구간에서도 새 replica가 연 저장소를 구 replica가 거절할 뿐 구 replica가 더 열어 주는 일은 없으므로, 위 "교체 절차"처럼 replica를 먼저 멈출 필요가 없다.
 
+### 새 세션의 시작 저장소: 저장소 없이 시작하고 필요한 것만 붙인다
+
+`POST /v1/sessions`가 `repository_id` 없이 만드는 세션은 설정 행이 있는 에이전트(`github_policy_source = 'agent'`)에서 저장소 없이 시작한다. 에이전트는 `list_repositories`로 허용된 저장소를 보고 작업에 필요한 것만 `attach_repository`로 붙인다. 이 동작을 켜고 끄는 설치 설정은 없다.
+
+- `repository_id`를 보낸 요청은 그 저장소로 시작한다. 허용 목록·워크스페이스 상한 검사는 그대로다.
+- 설정 행이 없는 에이전트(`github_policy_source = 'release'`)는 릴리스의 저장소로 시작한다. 저장소를 요구하는 profile이 저장소 없이 뜨지 못하기 때문이다. GitHub 탭을 한 번 저장하면 행이 생겨 이 경로에서 벗어난다.
+- 에이전트 설정의 `start_repository_id`는 열과 API 필드로 남지만 시작에 쓰이지 않는다. 열 삭제는 별도 변경이다.
+- 이미 시작한 세션은 바뀌지 않는다. 시작 저장소는 세션을 만들 때 한 번 정해 `sessions.repository_id`에 남고, claim과 복원은 그 행을 읽는다.
+- Slack 멘션·DM과 Slack 앱 연결 때의 경고(`releaseStartable`)도 같은 규칙을 쓴다. 이 판정이 거짓이 되는 경우는 설정 행이 있는 에이전트의 설정을 읽을 수 없을 때, 그리고 설정 행이 없는 에이전트의 릴리스가 저장소를 쓸 수 없을 때다.
+- **배포 영향:** 새 이미지로 올린 순간부터 `start_repository_id`가 켜진 에이전트의 새 세션이 저장소 없이 시작한다. 세려면 읽기 전용으로 `SELECT count(*) FROM agent_github_settings WHERE start_repository_id IS NOT NULL`을 쓴다.
+- **롤백:** 이전 이미지로 교체하면 그 에이전트들의 새 세션이 다시 시작 저장소로 시작한다. 데이터 이행이 없고 설정으로 되돌리는 길도 없다. 이전 이미지가 만든 세션과 새 이미지가 만든 세션은 모두 행의 값으로 돌아가므로 교체 중에 갈리는 것은 새 세션의 시작 저장소뿐이고, 어느 쪽이든 허용 범위 안이다.
+
 ### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
 
 API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다른 값이나 빈 값이면 API가 시작하지 않는다. Compose에서는 같은 이름의 변수로, Helm에서는 `api.workspaceEnforce`로 설정한다.

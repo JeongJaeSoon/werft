@@ -19,7 +19,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
   repositoryRequired:
-    "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없어 시작하지 못했어요(저장소를 고르지 않았거나 카탈로그에서 빠졌어요). 에이전트 관리자가 웹 콘솔에서 저장소를 골라 새 릴리스를 만들고 활성화해야 해요",
+    "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나 카탈로그에서 빠졌어요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   profileUnavailable:
     "이 에이전트의 릴리스가 쓰는 프로필이 지금 카탈로그에 없거나, 바뀌었거나, 운영자가 차단해 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
@@ -49,7 +49,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     failed:
       "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
     repositoryRequired:
-      "このエージェントのリリースで使えるリポジトリがないため、開始できませんでした(リポジトリが選ばれていないか、カタログから外れています)。エージェントの管理者がWebコンソールでリポジトリを選び、新しいリリースを作成して有効化する必要があります",
+      "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていないか、カタログから外れています)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     profileUnavailable:
       "このエージェントのリリースが使うプロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
     noActiveRelease:
@@ -69,7 +69,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The connection settings changed, so the agent couldn't start. Contact the agent's admin",
     failed: "We couldn't process the request right now. Try again shortly",
     repositoryRequired:
-      "The agent couldn't start because its release has no repository it can use (none was chosen, or it was removed from the catalog). An agent admin needs to choose a repository in the web console, then create and activate a new release",
+      "The agent couldn't start because its release has no repository it can use (none was chosen, or it was removed from the catalog) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     profileUnavailable:
       "The agent couldn't start because its release's profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
     noActiveRelease:
