@@ -21,7 +21,7 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 | 4 | 관리자 | GitHub에서 이름을 확인하고 Create를 누른다 |
 | 5 | GitHub → 브라우저 | `redirect_url`(콘솔 화면 `/settings/workspace/integrations/github/new-app`)로 `code`와 `state`를 붙여 보낸다 |
 | 6 | 콘솔 → API | `POST /v1/workspaces/{id}/github-apps/author/manifest/complete` `{ code, state }`. 서버가 state를 검사하고 소모한 뒤 `POST /app-manifests/{code}/conversions`를 부르고, 결과를 한 트랜잭션에 저장한다 |
-| 7 | 콘솔 | 응답의 설치 주소(`{html_url}/installations/new`)로 보낸다. 설치를 마치면 GitHub가 `setup_url`(설정 › 연동 › GitHub)로 돌려보낸다 |
+| 7 | 콘솔 | 응답의 설치 주소(`{html_url}/installations/new`)로 보낸다. 설치를 마치면 GitHub가 `setup_url`(설정 > 워크스페이스 > 연동 > GitHub)로 돌려보낸다 |
 
 - 시작 요청 본문: `owner`(`{ kind: "organization", login }` 또는 `{ kind: "user" }`), `public`(기본 false), `actions`(기본 false), `replace`(기본 false). 응답: `action_url`(state를 붙인 GitHub 주소), `manifest`(form에 넣을 JSON 문자열), `expires_at`.
 - 완료 응답: `github_app`(GET과 같은 모양), `install_url`, `receipt_id`.

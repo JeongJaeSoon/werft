@@ -177,11 +177,15 @@ export function json(status: number, body: unknown): Response {
   });
 }
 
+/** The `details` the server puts on a "secret store is off" answer. */
+export const STORE_OFF = { reason_code: "secret_store_off" };
+
 export function apiError(
   status: number,
   code: string,
   message: string,
   retryable = false,
+  details: unknown = null,
 ) {
   return json(status, {
     error: {
@@ -189,7 +193,7 @@ export function apiError(
       message,
       retryable,
       request_id: "req-1",
-      details: null,
+      details,
     },
   });
 }

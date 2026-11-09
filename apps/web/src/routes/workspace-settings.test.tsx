@@ -6,6 +6,7 @@ import {
   me,
   memberMe,
   RECEIPT_ID,
+  STORE_OFF,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -836,7 +837,13 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         fail
-          ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
+          ? apiError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "The secret store is off",
+              false,
+              STORE_OFF,
+            )
           : json(200, REGISTERED_TOKEN),
     });
     await screen.findByRole("button", TOKEN_MENU);
@@ -986,7 +993,13 @@ describe("워크스페이스 설정", () => {
     renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`PUT ${TOKEN}`]: () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The secret store is off",
+          false,
+          STORE_OFF,
+        ),
     });
     const user = await setupUser();
     await tokenMenu(user, "토큰 교체");
@@ -1022,7 +1035,13 @@ describe("워크스페이스 설정", () => {
     const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The secret store is off",
+          false,
+          STORE_OFF,
+        ),
     });
     expect(
       await screen.findByText(
@@ -1043,7 +1062,13 @@ describe("워크스페이스 설정", () => {
       [`GET ${TOKEN}`]: () =>
         json(200, { ...UNSET_TOKEN, configured: true, state: "active" }),
       [`DELETE ${TOKEN}`]: () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "The secret store is off",
+          false,
+          STORE_OFF,
+        ),
     });
     const user = await setupUser();
     await tokenMenu(user, "App Configuration Token 삭제");
@@ -1275,7 +1300,13 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         fail
-          ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
+          ? apiError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "The secret store is off",
+              false,
+              STORE_OFF,
+            )
           : json(200, UNSET_TOKEN),
     });
     await screen.findByText(START);

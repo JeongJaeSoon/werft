@@ -17,7 +17,7 @@ outcome: "入力形式、範囲、反映時点を調べます"
 <a id="설치-상한" />
 ## 設置上限
 
-API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの値がない、またはいずれかの形式が不正な場合、問題を一行にすべて記録し起動しません。`SESSION_TOKEN_LIMIT` は未設定なら 0（上限なし）です。両プロセスは同じ parser（`packages/platform/src/limits/installation-limits.ts`）を使います。`SESSION_TOKEN_LIMIT` の 0 以外にコードの既定値はなく、compose の `x-installation-limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
+API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの値がない、またはいずれかの形式が不正な場合、問題を一行にすべて記録し起動しません。`SESSION_TOKEN_LIMIT` は未設定なら 0（上限なし）です。両プロセスは同じ parser を使います。`SESSION_TOKEN_LIMIT` の 0 以外にコードの既定値はなく、compose の `x-installation-limits` がローカル既定値を渡します。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
 
 | 変数 | 意味 | 超過時 |
 |---|---|---|
@@ -32,7 +32,7 @@ API と scheduler は、下記のうち `SESSION_TOKEN_LIMIT` を除く六つの
 <a id="api-설정" />
 ## API 設定
 
-API は設置上限以外に次の値を起動時に一つの parser（`apps/control-host/src/api/api-settings.ts`）で読みます。未設定なら既定値を使います。設定した値が不正なら（空文字を含む）、既定値には戻りません。数値設定は API・scheduler・reconciler・worker と設置上限がすべてこの規則に従います（`packages/contracts/src/shared/settings.ts`）。既定値のない値は未設定なら `X is required`、不正なら `X must be a positive integer` のように期待する範囲を示して拒否します。受け取った値自体は書きません。ログに残り、別の変数へ誤入力した秘密かもしれないためです。`Refusing to start: API settings are invalid` の一行に全問題を記録して起動しません。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
+API は設置上限以外に次の値を起動時に一つの parser で読みます。未設定なら既定値を使います。設定した値が不正なら（空文字を含む）、既定値には戻りません。数値設定は API・scheduler・reconciler・worker と設置上限がすべてこの規則に従います。既定値のない値は未設定なら `X is required`、不正なら `X must be a positive integer` のように期待する範囲を示して拒否します。受け取った値自体は書きません。ログに残り、別の変数へ誤入力した秘密かもしれないためです。`Refusing to start: API settings are invalid` の一行に全問題を記録して起動しません。起動済み API の `/readyz` も同じ検証を `config` チェックで再実行します。
 
 | 変数 | 既定値 | 許可範囲 |
 |---|---|---|
@@ -118,7 +118,7 @@ egress-proxy と API の authorizer listener は次の値を読みます。一�
 | `EGRESS_AUTHORIZER_URL` | proxy コード：なし。Compose：`http://api:3100`、chart：API authorizer Service | 自動生成 | http/https URL。proxy では token と両方設定するか両方省略。API listener ポートとの一致が必要です |
 | `EGRESS_AUTHORIZER_TOKEN` | 運用既定値なし | Secret の同名 key | API・proxy で共有する最小 32 文字の秘密。API では PORT、proxy では URL と対で必須。運用では環境ごとに生成し、ローカル試験値は使いません |
 
-compose の三つのポートと二つの内部 URL は、`infra/compose.core.yml` 冒頭の `x-egress-ports` 一箇所で定めます。proxy の `EGRESS_PROXY_PORT`・`EGRESS_CREDENTIAL_PORT`・`EGRESS_AUTHORIZER_URL`、api の `EGRESS_AUTHORIZER_PORT`、scheduler の `EXECUTION_EGRESS_PROXY_URL`・`EXECUTION_EGRESS_CREDENTIAL_PORT` はすべてその anchor を使います。ポート変更時は同じ block の listener と URL の対を同時に変更します。`tests/images.test.ts` が `docker compose config` の結果で二つの URL のポートと三つの listener が一致することを確認します。
+compose の三つのポートと二つの内部 URL は、`infra/compose.core.yml` 冒頭の `x-egress-ports` 一箇所で定めます。proxy の `EGRESS_PROXY_PORT`・`EGRESS_CREDENTIAL_PORT`・`EGRESS_AUTHORIZER_URL`、api の `EGRESS_AUTHORIZER_PORT`、scheduler の `EXECUTION_EGRESS_PROXY_URL`・`EXECUTION_EGRESS_CREDENTIAL_PORT` はすべてその anchor を使います。ポート変更時は同じ block の listener と URL の対を同時に変更します。テストが `docker compose config` の結果で二つの URL のポートと三つの listener が一致することを確認します。
 
 API コンテナのメモリは checkpoint bundle 検証によって決まります。検証は同時に二つまで動き、各検証では git fetch と index-pack がそれぞれ `CHECKPOINT_GIT_MEMORY_MB` のアドレス空間上限の下で同時に動きます。両値は一緒に変更します。上限だけを上げると OOM killer が終了対象を決めることになります。計算は `infra/compose.core.yml` の api サービスのコメントにあります。
 
@@ -179,7 +179,7 @@ kubernetes モードだけで読む設定は次のとおりです。
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | 任意。JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | worker コンテナの ephemeral-storage requests・limits（MiB）。既定 1024。超過すると kubelet が Pod を evict します |
 
-失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。保存先と保持期間は、リポジトリの `packages/adapters/execution/kubernetes/README.md`（終了理由とログ tail 節）にあります。
+失敗した worker の終了理由とログ tail（最後の 8 KiB）は、scheduler ログの `Execution resource failed; log tail kept` 行に残ります。保存先と保持期間は、リポジトリの Kubernetes 実行アダプターの README（終了理由とログ tail 節）にあります。
 
 <a id="chart가-넣는-값" />
 ## chart が設定する値
@@ -271,7 +271,7 @@ Helm chart（`deploy/helm/werft`、設置手順は [Kubernetes 設置（Helm cha
   - engine の呼び出しも、ツールが engine の token で直接呼び出したものも同じように数えます。
   - 報告には proxy が交換ごとに作る id が付きます。authorizer が応答できなければ 1・5・15 秒後に再送し、同じ id は一度だけ数えます。最後まで報告できなければ proxy が `Provider usage went unreported` エラーログを残し、その交換は計測されません。
 - turn 終了時に SDK が返す `total_cost_usd` の増分は turn 結果（`cost_usd`）だけに残し、セッション費用には加算しません。engine の turn 別 `maxBudgetUsd` は引き続き SDK 値で判定します。proxy 計測導入前のセッションは、それまで SDK 値を加算した費用を引き継ぎます。
-- 価格表はプラットフォームコード（`packages/platform/src/limits/model-prices.ts`）が管理します。model id 別に input、output、cache write（5 分は 1.25 倍、1 時間は 2 倍）、cache read の単価を設定します。モデル追加や価格変更時はリリースと一緒に修正します。
+- 価格表はプラットフォームコードが管理します。model id 別に input、output、cache write（5 分は 1.25 倍、1 時間は 2 倍）、cache read の単価を設定します。モデル追加や価格変更時はリリースと一緒に修正します。
   - fast mode は別の fast 価格表で数えます。現在は Opus 5.5（$8/$40）と Opus 5・Opus 4.8（$10/$50）だけです。cache 倍率は fast 単価にそのまま掛けます。speed は応答の `usage.speed`、なければ要求の `speed` に従い、両方なければ `standard` です。
   - 表にないモデル、fast 単価のないモデルの fast 応答、定義名以外の speed 値は、項目ごとに両表を通じた最高単価で数えます。authorizer が `Provider usage priced at the fallback rate` 警告を記録し、ledger には `priced_by=fallback` と記します。
   - 応答の `usage.server_tool_use` の web search 一回ごとに $0.01（1,000 回 $10）を加算します。web fetch は token 以外の料金がありません。code execution は加算しません。web search・web fetch と併用すれば無料で、それ以外では呼び出し数でなくコンテナ時間で課金され、組織の無料時間もあるためです。三つの回数と speed は ledger（`provider_usage`）に記録します。

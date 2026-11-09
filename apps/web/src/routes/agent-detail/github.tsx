@@ -102,7 +102,7 @@ type Draft = {
   };
 };
 
-// The workspace's Integrations › GitHub order (GitHub with the repositories
+// The workspace's Integrations > GitHub order (GitHub with the repositories
 // under it, features, pull requests), then what only an agent has: push
 // approval, its receipts and the danger zone.
 const SECTION = {

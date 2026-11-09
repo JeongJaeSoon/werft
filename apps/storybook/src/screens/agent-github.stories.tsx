@@ -52,7 +52,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 /*
  * apps/web routes/agent-detail/github.tsx (with github-repositories.tsx,
  * github-pull-request.tsx and installed-repositories.tsx) inside the agent
- * page, laid out like the workspace's Integrations › GitHub: GET
+ * page, laid out like the workspace's Integrations > GitHub: GET
  * /v1/agents/{id}/github, its activity, and the App repositories to pick.
  */
 
@@ -84,7 +84,7 @@ const FEATURE_REASON: Record<FeatureReason, string> = {
   app_permission_missing:
     "App에 이 권한이 없습니다. GitHub App 설정에서 더한 뒤 설치를 다시 승인하세요.",
   over_workspace_ceiling:
-    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 › GitHub에서 켭니다.",
+    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 > GitHub에서 켭니다.",
   no_reviewer_app:
     "워크스페이스에 리뷰용 App이 없습니다. PR을 만드는 App은 자기 PR을 승인할 수 없습니다.",
   github_host_unsupported:
@@ -126,7 +126,7 @@ const REFUSAL: Record<string, string> = {
   pinned_app_removed: "고정된 App 삭제됨",
 };
 
-// github.tsx SECTION: the workspace's Integrations › GitHub names and order,
+// github.tsx SECTION: the workspace's Integrations > GitHub names and order,
 // then what only an agent has.
 const SECTION_LABEL = {
   overview: "GitHub",
@@ -298,7 +298,7 @@ function On({ on }: { readonly on: boolean }) {
 }
 
 function SettingsLink() {
-  return <Link href="#settings-workspace-github">연동 › GitHub</Link>;
+  return <Link href="#settings-workspace-github">연동 &gt; GitHub</Link>;
 }
 
 function TileMark({ className }: { readonly className?: string }) {
@@ -537,9 +537,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             )}
           </div>
           <Text variant="sub">
-            이 에이전트가 GitHub에서 쓰는 저장소와 기능입니다. 워크스페이스가
-            정한 상한 안에서 고릅니다. App과 설치는 워크스페이스의 연동 ›
-            GitHub에서 관리합니다.
+            {
+              "이 에이전트가 GitHub에서 쓰는 저장소와 기능입니다. 워크스페이스가 정한 상한 안에서 고릅니다. App과 설치는 워크스페이스의 연동 > GitHub에서 관리합니다."
+            }
           </Text>
           {data.enabled ? null : (
             <Text as="span" variant="sub">
@@ -644,7 +644,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
         <div id={sectionId("features")} tabIndex={-1} className={FOCUS_TARGET}>
           <SettingsSection
             title="에이전트가 쓸 수 있는 기능"
-            description="이 에이전트가 쓰는 기능입니다. 기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 › GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다."
+            description="이 에이전트가 쓰는 기능입니다. 기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 > GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다."
           >
             <RowList variant="joined">
               <SettingRow
@@ -719,7 +719,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
               </Alert>
             ) : null}
             <Text as="span" variant="meta">
-              워크스페이스 상한은 소유자·관리자가 연동 › GitHub에서 정합니다.{" "}
+              워크스페이스 상한은 소유자·관리자가 연동 &gt; GitHub에서 정합니다.{" "}
               <SettingsLink />
             </Text>
             {settings.features.actions ? (

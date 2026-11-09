@@ -552,12 +552,12 @@ describe("에이전트 GitHub 탭", () => {
     // A ceiling reason links to where it is lifted; the host one does not.
     expect(
       within(rowOf("워크플로 파일 수정"))
-        .getByRole("link", { name: "연동 › GitHub" })
+        .getByRole("link", { name: "연동 > GitHub" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     expect(
       within(rowOf("Actions 실행")).queryByRole("link", {
-        name: "연동 › GitHub",
+        name: "연동 > GitHub",
       }),
     ).toBeNull();
   });
@@ -597,7 +597,7 @@ describe("에이전트 GitHub 탭", () => {
     ).toBeTruthy();
     expect(
       within(review)
-        .getByRole("link", { name: "연동 › GitHub" })
+        .getByRole("link", { name: "연동 > GitHub" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     // A warning, not a lock: GitHub decides per repository.
@@ -613,7 +613,7 @@ describe("에이전트 GitHub 탭", () => {
 
     const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
     if (!nav) throw new Error("no section nav");
-    // The workspace's Integrations › GitHub names and order, then what only
+    // The workspace's Integrations > GitHub names and order, then what only
     // an agent has; the danger zone sits under "manage" with the receipts.
     const sections = [
       ["GitHub", "github-overview"],

@@ -1,3 +1,4 @@
+import type { Locale } from "@werft-ai/react";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { fakeApi as FakeApi } from "./fake-api.ts";
 
@@ -24,7 +25,7 @@ export async function appHarness() {
   function renderAt(
     path: string,
     routes: Routes,
-    locale: "ko" | "en" | null = "ko",
+    locale: Locale | null = "ko",
     validate: "strict" | "warn" = "strict",
   ) {
     const api = fakeApi({ ...nothingWaiting, ...routes });

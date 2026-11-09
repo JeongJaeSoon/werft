@@ -196,7 +196,10 @@ describe("a start with no link app", () => {
     expect(await refusal(service.clientForStart(user("member")))).toMatchObject(
       {
         code: "BACKEND_UNAVAILABLE",
-        details: { slack_error: "invalid_manifest" },
+        details: {
+          reason_code: "slack_refused",
+          slack_error: "invalid_manifest",
+        },
       },
     );
     await service.clientForStart(user("member"));

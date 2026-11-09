@@ -49,7 +49,7 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   agentSummariesQuery,
@@ -317,27 +317,15 @@ function TeamPage({ id }: { readonly id: string }) {
   const team = useQuery(teamQuery(client, id));
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
-  // A plain link, not a button: the way back is an address.
-  const back = (
-    <TextLink asChild className="inline-flex w-fit items-center gap-1">
-      <Link to="/members/teams">
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        {t("teams.back")}
-      </Link>
-    </TextLink>
-  );
-
   if (team.isPending) return <StatusScreen kind="loading" />;
-  // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
-  // heads the tab with the way back beside it.
+  // Inside the 팀 tab (v3 M-03): the page head stays 구성원 and the team's
+  // name heads the tab. The way back is the 팀 tab above, which stays current
+  // on a team's address, or the browser's back.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex flex-col gap-2">
-        {back}
-        <Heading className="min-w-0 [overflow-wrap:anywhere]">
-          {team.error ? t("teams.title") : team.data.name}
-        </Heading>
-      </div>
+      <Heading className="min-w-0 [overflow-wrap:anywhere]">
+        {team.error ? t("teams.title") : team.data.name}
+      </Heading>
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
@@ -743,7 +731,9 @@ function TeamMembers({
                       </GridTableCell>
                     )}
                     <GridTableCell>
-                      {manages ? (
+                      {/* The server refuses a role change or a removal on a
+                          disabled member; the row reads, it does not edit. */}
+                      {manages && !inactive ? (
                         <TeamRoleSelect team={team} member={member} />
                       ) : (
                         <TeamRoleBadge role={member.role} />
@@ -757,13 +747,15 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell raised={true} align="end">
-                        <RowAction
-                          disabled={remove.isPending}
-                          aria-label={t("teams.removeMemberFor", { name })}
-                          onClick={() => setRemoving(member)}
-                        >
-                          {t("teams.removeMember")}
-                        </RowAction>
+                        {inactive ? null : (
+                          <RowAction
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </RowAction>
+                        )}
                       </GridTableCell>
                     )}
                   </GridTableRow>

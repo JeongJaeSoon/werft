@@ -148,9 +148,9 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SLACK_APP_GONE:
     "Slack에 이 앱이 없어요 — Slack 탭에서 앱을 삭제하고 다시 설치하세요.",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 › Slack 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 › GitHub의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 연동 > GitHub의 사용자 연결 설정을 요청하세요.",
   AGENT_NOT_ACTIVE:
     "활성 release가 없는 에이전트예요 — release를 활성화한 뒤 다시 시도하세요.",
   SLACK_INSTALL_STATE_INVALID:
@@ -310,7 +310,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   SLACK_LINK_NOT_CONFIGURED:
     "Slack account linking isn't available yet — ask a workspace administrator to set up Slack in Integrations.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub account linking isn't available yet — ask a workspace administrator to set up user linking in Integrations › GitHub.",
+    "GitHub account linking isn't available yet — ask a workspace administrator to set up user linking in Integrations > GitHub.",
   AGENT_NOT_ACTIVE:
     "This agent has no active release — activate a release, then try again.",
   SLACK_INSTALL_STATE_INVALID:
@@ -486,9 +486,9 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   SLACK_APP_GONE:
     "Slack にこのアプリがありません — Slack タブでアプリを削除し、もう一度インストールしてください。",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 › Slack の設定を依頼してください。",
+    "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 > Slack の設定を依頼してください。",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 › GitHub のユーザー連携の設定を依頼してください。",
+    "GitHub アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 > GitHub のユーザー連携の設定を依頼してください。",
   AGENT_NOT_ACTIVE:
     "有効な release がないエージェントです — release を有効化してからもう一度お試しください。",
   SLACK_INSTALL_STATE_INVALID:

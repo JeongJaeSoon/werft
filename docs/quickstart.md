@@ -97,7 +97,7 @@ scripts/local.sh status
 
 **로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL도 자기 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
-fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 `agent/sample-app`은 App JWT를 확인하고 발급한 설치 토큰으로만 clone한다. 키는 스택 안에서 생성해 별도 Secrets Manager에 저장하며 worker에는 전달하지 않는다. 익명 URL 저장소와 basic/bearer 등록은 지원하지 않는다. 실제 저장소는 설정 › 연동 › GitHub에서 App 연동으로 등록한다. 기존 URL 저장소 행은 삭제하지 않으며, 지원하지 않는 설정으로 거부·보고한다.
+fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 `agent/sample-app`은 App JWT를 확인하고 발급한 설치 토큰으로만 clone한다. 키는 스택 안에서 생성해 별도 Secrets Manager에 저장하며 worker에는 전달하지 않는다. 익명 URL 저장소와 basic/bearer 등록은 지원하지 않는다. 실제 저장소는 설정 > 워크스페이스 > 연동 > GitHub에서 App 연동으로 등록한다. 기존 URL 저장소 행은 삭제하지 않으며, 지원하지 않는 설정으로 거부·보고한다.
 
 ## 2. curl 준비
 
