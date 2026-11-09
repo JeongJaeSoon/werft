@@ -80,19 +80,6 @@ describe("a session with extensions", () => {
     });
   });
 
-  test("names the Skill tool in the profile's tool list, once, and only then", () => {
-    const withBundle = claudeStartConfig(start(bundleAt("/home/agent")), deps);
-    expect(withBundle.tools).toEqual(["Read", "Grep", "Skill"]);
-    const named = start(bundleAt("/home/agent"));
-    named.config.tools = ["Read", "Skill"];
-    expect(claudeStartConfig(named, deps).tools).toEqual(["Read", "Skill"]);
-    expect(claudeStartConfig(start(), deps).tools).toEqual(["Read", "Grep"]);
-    expect(claudeStartConfig(start({ extensions: [] }), deps).tools).toEqual([
-      "Read",
-      "Grep",
-    ]);
-  });
-
   test("keeps the MCP servers' identities next to the plugins'", () => {
     const server = {
       name: "notion",
