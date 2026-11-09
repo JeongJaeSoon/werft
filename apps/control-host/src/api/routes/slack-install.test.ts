@@ -909,6 +909,9 @@ describe("completing an install", () => {
         code: grant,
       });
       expect(response.status).toBe(503);
+      // The install state is spent before Slack is asked, so the same request
+      // cannot succeed later: the console must not be told to retry it.
+      expect(code(response.json).retryable).toBe(false);
       const { details } = code(response.json);
       const logged = logs.records
         .slice(before)
