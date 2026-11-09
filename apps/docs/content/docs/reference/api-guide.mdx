@@ -423,11 +423,13 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 
 **목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
 
-**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
+**순서.** 세션 조회의 `checkpoint_revision`을 읽어 요청 body에 `{checkpoint_revision}`으로 넣는다. 이 route는 그 revision 뒤에 세션이 한 일이 저장됐는지 알지 못하므로 revision 없이 보낸 요청은 `checkpoint_revision_required`로 거절하고 최신 확정 revision을 알려 준다. 플랫폼이 그 revision과 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
 
 ```bash
+REV=$(curl -sS "$API/v1/sessions/$SID" "${AUTH[@]}" | jq -e .checkpoint_revision)
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson rev "$REV" '{checkpoint_revision:$rev}')")
 echo "$push_request" | jq -e --arg branch "agent/$SID" \
   '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
 PUSH_ID=$(echo "$push_request" | jq -r .id)
@@ -449,7 +451,8 @@ curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.rec
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
 
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
-  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson rev "$REV" '{checkpoint_revision:$rev}')")
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
