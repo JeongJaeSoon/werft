@@ -92,6 +92,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | `AGENT_ACTION_FLOWS` | GC・セッション保管 CronJob まで全コンポーネントを更新してから有効化 | 進行中 intent は無効化後も処理します |
 | モデルブロックの Slack DM（migration 0248） | migration を含む API をすべて更新し、その後 slack ロール | 0248 の後にイメージを戻しても安全です。古い slack ロールは `model_notice` 行を送るスレッドがないため `not_addressed` で閉じ、DM は送りません。スキーマを 0248 より下げるには、先に `model_notice` 行を削除し、`slack_outbox_kind_check` を以前の一覧に戻します |
 | 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
+| Slack 非公開チャンネルの退出処理（migration 0248） | migration を含む API をすべて更新 → slack ロールを更新 → 作成済みのエージェントアプリごとに events の再確認で manifest を再送 | 古いイメージは新しい `slack_channel_lifecycle` テーブルを無視するので、戻してもデータは残る。ただし `member_left_channel` を処理しないイメージへ戻すと、bot が非公開チャンネルから出て再招待されたときに古い承認がそのまま復活する |
 
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
 
