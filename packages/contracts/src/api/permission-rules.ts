@@ -70,9 +70,29 @@ function isPlainHost(host: string): boolean {
   );
 }
 
-/** A `*` the engine reads as a glob: one that is not escaped with a backslash. */
-function hasGlobStar(argument: string): boolean {
-  return /(^|[^\\])\*/.test(argument);
+/**
+ * The argument as the engine reads it: a backslash escapes the next character
+ * (so `\\*` is an escaped backslash and then a real star), and what is left
+ * is counted by kind.
+ */
+function scanArgument(argument: string): {
+  globStar: boolean;
+  escapedParens: number;
+  bareOpen: number;
+  bareClose: number;
+} {
+  const seen = { globStar: false, escapedParens: 0, bareOpen: 0, bareClose: 0 };
+  for (let i = 0; i < argument.length; i++) {
+    const char = argument[i];
+    if (char === "\\") {
+      const next = argument[i + 1];
+      if (next === "(" || next === ")") seen.escapedParens += 1;
+      i += 1;
+    } else if (char === "*") seen.globStar = true;
+    else if (char === "(") seen.bareOpen += 1;
+    else if (char === ")") seen.bareClose += 1;
+  }
+  return seen;
 }
 
 /**
@@ -176,7 +196,8 @@ export function parsePermissionRule(
   // Edge space is compared literally by the engine, so an exact, prefix or path
   // rule never matches what it was written for. Only a Bash glob is matched
   // loosely.
-  if (argument !== bare && !(tool === "Bash" && hasGlobStar(argument))) {
+  const scanned = scanArgument(argument);
+  if (argument !== bare && !(tool === "Bash" && scanned.globStar)) {
     return refuse(
       "rule_syntax",
       rule,
@@ -185,12 +206,13 @@ export function parsePermissionRule(
   }
   // `Bash(echo (x) hello)` or `Read(./a(b) c)` is stored by the engine as two
   // other rules, and the deny is lost.
-  // The engine's validator refuses `\(` or `\)` beside a bare parenthesis.
-  if (/\\[()]/.test(argument) && /(^|[^\\])[()]/.test(argument)) {
+  // The engine's validator refuses an escaped `\(` or `\)` when the bare
+  // parentheses around it do not pair up as many opens as closes.
+  if (scanned.escapedParens > 0 && scanned.bareOpen !== scanned.bareClose) {
     return refuse(
       "rule_syntax",
       rule,
-      `${rule} mixes an escaped and a bare parenthesis, which the engine refuses as ambiguous`,
+      `${rule} mixes an escaped parenthesis with unpaired bare ones, which the engine refuses as ambiguous`,
     );
   }
   if (splitsInTwo(`${tool}(${argument})`)) {

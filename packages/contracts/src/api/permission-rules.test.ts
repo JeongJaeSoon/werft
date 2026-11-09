@@ -98,8 +98,19 @@ describe("parsePermissionRule", () => {
     expect(refusedAs("Bash(echo (x))")).toBe("accepted");
     // Round 5: an escaped parenthesis beside a bare one is ambiguous to the
     // engine's validator; escaped alone is fine. An escaped star is no glob.
+    // The engine's condition: an escaped paren exists and the bare ones do not
+    // pair up, with a backslash escaping the character after it (`\\(` is an
+    // escaped backslash and then a bare paren).
     expect(refusedAs("Bash(a\\(b))")).toBe("rule_syntax");
+    expect(refusedAs("Bash(a(b\\))")).toBe("rule_syntax");
+    expect(refusedAs("Bash(a\\(b\\\\))")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a\\(b))")).toBe("rule_syntax");
     expect(refusedAs("Bash(a\\(b\\))")).toBe("accepted");
+    expect(refusedAs("Bash(\\(a\\)(b))")).toBe("accepted");
+    expect(refusedAs("Bash(a\\\\(b))")).toBe("accepted");
+    expect(refusedAs("Read(./a\\(b\\))")).toBe("accepted");
+    // `\\*` is an escaped backslash and then a real star, so a glob.
+    expect(refusedAs("Bash( echo \\\\*)")).toBe("accepted");
     expect(refusedAs("Bash( echo \\*)")).toBe("rule_syntax");
     // A space inside the pair is not a cut point.
     expect(refusedAs("Read(./a(b c))")).toBe("accepted");
