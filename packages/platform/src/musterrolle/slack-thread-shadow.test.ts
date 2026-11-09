@@ -142,6 +142,11 @@ describe("the shadow record in the session handler", () => {
     expect(reachedBotToken).toBe(1);
   });
 
+  test("a thread_broadcast reply is recorded like any reply", async () => {
+    const { records } = await run({ subtype: "thread_broadcast" }, link());
+    expect(records).toHaveLength(1);
+  });
+
   test("a skip judgment changes nothing: the reply still goes on", async () => {
     const { records, reachedBotToken } = await run(
       { text: "<@U2> please look" },
@@ -162,6 +167,9 @@ describe("the shadow record in the session handler", () => {
     ["an app mention", { type: "app_mention" }, link()],
     ["a text mention of the bot", { text: `<@${BOT}> hi` }, link()],
     ["a DM", { channel_type: "im", thread_ts: undefined }, link()],
+    // The root of a linked thread, seen again after a retry, is not a reply.
+    ["a retried thread root", { thread_ts: undefined }, link()],
+    ["a root carrying its own ts as thread_ts", { thread_ts: "2.0" }, link()],
     ["a reply in a thread with no link", {}, null],
     ["a reply in a thread whose link was revoked", {}, link(new Date())],
   ];

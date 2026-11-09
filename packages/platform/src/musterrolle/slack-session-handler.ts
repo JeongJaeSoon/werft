@@ -190,7 +190,9 @@ export function createSlackSessionHandler(
     // Observe only: the reply goes on as a turn whatever the judgment says.
     // The text is not logged; `event_id` joins the case to its inbox row. A
     // retried event logs again.
-    if (found !== null && !mentioned && !dm) {
+    const isReply =
+      event.thread_ts !== undefined && event.thread_ts !== event.ts;
+    if (found !== null && isReply && !mentioned && !dm) {
       deps.logger.info("Slack thread reply judged without a mention", {
         ...ids,
         channel: event.channel,
