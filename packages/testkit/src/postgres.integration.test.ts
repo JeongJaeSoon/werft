@@ -80,3 +80,33 @@ integrationTest(
   },
   30_000,
 );
+
+integrationTest(
+  "copies a template database without migrating it again",
+  async () => {
+    const template = await createTempDatabase({ prefix: "testkit_tpl" });
+    try {
+      await queryOne(template.url, "CREATE TABLE marker (id int)");
+      const copy = await createTempDatabase({
+        prefix: "testkit_copy",
+        template: template.name,
+      });
+      try {
+        const tables = await queryOne<{
+          sessions: string | null;
+          marker: string | null;
+        }>(
+          copy.url,
+          `SELECT to_regclass('public.sessions')::text AS sessions,
+                  to_regclass('public.marker')::text AS marker`,
+        );
+        expect(tables).toEqual({ sessions: "sessions", marker: "marker" });
+      } finally {
+        await copy.drop();
+      }
+    } finally {
+      await template.drop();
+    }
+  },
+  30_000,
+);
