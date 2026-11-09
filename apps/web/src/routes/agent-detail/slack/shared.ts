@@ -20,16 +20,23 @@ export const dmOn = (dm: Binding | undefined) =>
 export const SECTION = {
   channels: "slack-channels",
   basic: "slack-basic",
-  advanced: "slack-advanced",
+  token: "slack-token",
+  addresses: "slack-addresses",
+  app: "slack-app",
   danger: "slack-danger",
+  /** The new-agent flow's one section. */
+  advanced: "slack-advanced",
 } as const;
-export type SectionKey = keyof typeof SECTION;
+/** The tab's sections, in the side list's words. */
 export const SECTION_LABEL = {
   channels: "slack.channels",
   basic: "slack.basic",
-  advanced: "slack.advanced",
+  token: "workspace.tokenSection",
+  addresses: "workspace.addressesTitle",
+  app: "workspace.slackApps",
   danger: "slack.danger",
-} as const;
+} as const satisfies Record<string, MessageKey>;
+export type SectionKey = keyof typeof SECTION_LABEL;
 export const SLACK_WARNING_KEY = {
   config_token_issuer_changed: {
     title: "slack.issuerChanged.title",
@@ -53,6 +60,8 @@ export const SLACK_WARNING_KEY = {
 >;
 export const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none";
+/** A section the side list jumps to, clear of the sticky header. */
+export const SECTION_TARGET = "scroll-mt-4 outline-none";
 export const RECHECK_ID = "slack-events-recheck";
 export const UNVERIFIED_POLL_MS = 10_000;
 export const EVENTS_BADGE = {

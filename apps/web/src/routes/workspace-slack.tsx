@@ -141,7 +141,7 @@ const focusFirst = (...refs: RefObject<HTMLElement | null>[]) =>
     ?.focus();
 
 /** Slack's mark in the tile's one colour, as GitHub's is on its card. */
-function TileMark({ className }: { readonly className?: string }) {
+export function TileMark({ className }: { readonly className?: string }) {
   return (
     <SlackMark
       className={cn(

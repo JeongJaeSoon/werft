@@ -115,6 +115,12 @@ function routes(app: typeof APP | null = null, installed = false) {
   };
 }
 
+/** Refresh sits behind the app row's ⋯ menu. */
+async function refreshSlack(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.click(screen.getByRole("button", { name: "Slack 앱 메뉴" }));
+  await user.click(await screen.findByRole("menuitem", { name: "새로고침" }));
+}
+
 describe("Slack management", () => {
   test("a failed read asks again for that query only and saves nothing", async () => {
     let down = true;
@@ -126,7 +132,7 @@ describe("Slack management", () => {
           : json(200, { items: [BINDING] }),
     });
     const user = await setupUser();
-    const state = await screen.findByRole("region", { name: "상태" });
+    const state = await screen.findByRole("region", { name: "Slack" });
     const alert = await within(state).findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(alert.textContent).toContain("INTERNAL_ERROR");
@@ -192,7 +198,7 @@ describe("Slack management", () => {
     await waitFor(() =>
       expect(document.querySelector("main [role=alert]") !== null).toBe(true),
     );
-    const state = screen.getByRole("region", { name: "상태" });
+    const state = screen.getByRole("region", { name: "Slack" });
     // Home and DM both read as unknown.
     await waitFor(() =>
       expect(within(state).getAllByText("—")).toHaveLength(2),
@@ -222,11 +228,13 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByRole("navigation", { name: "Slack 구역" });
     await screen.findByRole("heading", { name: "홈 채널 지정" });
-    // Channels and basic settings wait for the home; advanced stays.
+    // Channels and basic settings wait for the home; the app sections stay.
     expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
     expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
     expect(screen.queryByText("연결된 채널이 없습니다")).toBeNull();
-    expect(screen.getByRole("region", { name: "고급" })).toBeDefined();
+    expect(
+      screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeDefined();
     expect(screen.getByRole("region", { name: "위험 구역" })).toBeDefined();
     expect(screen.queryByRole("link", { name: "기본" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "홈 채널 고르기" }));
@@ -268,7 +276,7 @@ describe("Slack management", () => {
         return json(200, { items: [] });
       },
     });
-    await screen.findByRole("region", { name: "고급" });
+    await screen.findByRole("region", { name: "자동으로 만든 Slack 앱" });
     expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
     expect(screen.queryByRole("button", { name: "홈 지정" })).toBeNull();
     release();
@@ -311,7 +319,7 @@ describe("Slack management", () => {
       },
     });
     try {
-      const status = await screen.findByRole("region", { name: "상태" });
+      const status = await screen.findByRole("region", { name: "Slack" });
       await waitFor(() =>
         expect(within(status).queryByText("꺼짐") !== null).toBe(true),
       );
@@ -366,7 +374,7 @@ describe("Slack management", () => {
           truncated: false,
         }),
     });
-    const status = await screen.findByRole("region", { name: "상태" });
+    const status = await screen.findByRole("region", { name: "Slack" });
     await waitFor(() => expect(status.textContent).toContain("#general"));
     expect(
       api.calls.filter((call) => call.path === `${PATH}/slack/channels`),
@@ -393,7 +401,7 @@ describe("Slack management", () => {
         }),
     });
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     expect(await within(list).findByText("채널 ID: C123")).toBeDefined();
     await waitFor(() =>
       expect(
@@ -422,7 +430,7 @@ describe("Slack management", () => {
         }),
     });
     const user = await setupUser();
-    const status = await screen.findByRole("region", { name: "상태" });
+    const status = await screen.findByRole("region", { name: "Slack" });
     await waitFor(() => expect(status.textContent).toContain("C123"));
     expect(within(status).getByText("꺼짐")).toBeDefined();
     const nav = screen.getByRole("navigation", { name: "Slack 구역" });
@@ -430,7 +438,14 @@ describe("Slack management", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["채널", "기본", "고급", "위험 구역"]);
+    ).toEqual([
+      "채널",
+      "기본",
+      "Slack 앱 생성",
+      "Slack 앱에 넣을 주소",
+      "자동으로 만든 Slack 앱",
+      "위험 구역",
+    ]);
     expect(within(nav).getByRole("group", { name: "관리" })).toBeDefined();
     const danger = within(nav).getByRole("link", { name: "위험 구역" });
     expect(danger.getAttribute("href")).toBe("#slack-danger");
@@ -533,11 +548,14 @@ describe("Slack management", () => {
     const toggle = within(nav).getByRole("button", { name: /^Slack 구역/ });
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    await user.click(within(nav).getByRole("link", { name: "고급" }));
+    await user.click(
+      within(nav).getByRole("link", { name: "자동으로 만든 Slack 앱" }),
+    );
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.textContent).toContain("고급");
+    expect(toggle.textContent).toContain("자동으로 만든 Slack 앱");
     expect(
-      document.activeElement === screen.getByRole("region", { name: "고급" }),
+      document.activeElement ===
+        screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBe(true);
   });
 
@@ -552,7 +570,7 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     const use = await within(list).findByRole("switch", {
       name: "채널 ID: C123에서 사용",
     });
@@ -586,12 +604,13 @@ describe("Slack management", () => {
         }),
     });
     const user = await setupUser();
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     const use = within(list).getByRole("switch");
-    const connected = within(use.closest("li") as HTMLElement);
+    const connected = within(use.closest("[role=row]") as HTMLElement);
     const tag = connected.getByText("공개");
     expect(use.parentElement?.contains(tag)).toBe(false);
-    expect(tag.closest("span.row-start-1")?.textContent).toContain("C123");
+    // On the name's line, in the channel cell.
+    expect(tag.parentElement?.textContent).toContain("C123");
     expect(connected.queryByText("이 채널에서 사용")).toBeNull();
     await user.click(screen.getByRole("button", { name: "채널 추가" }));
     const dialog = screen.getByRole("dialog");
@@ -820,14 +839,15 @@ describe("Slack management", () => {
         }),
     });
     const user = await setupUser();
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await within(list).findByText("#priv-waiting");
     const hinted = (scope: HTMLElement) =>
       within(scope)
         .queryAllByText("/invite 필요")
         .map(
           (badge) =>
-            badge.closest("[data-slot=setting-row], li")?.textContent ?? "",
+            badge.closest("[data-slot=setting-row], li, [role=row]")
+              ?.textContent ?? "",
         );
     expect(hinted(list).map((text) => text.match(/#[a-z-]+/)?.[0])).toEqual([
       "#priv-waiting",
@@ -917,7 +937,7 @@ describe("Slack management", () => {
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
     );
     // Refresh refetches every Slack query, the setting included.
-    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await refreshSlack(user);
     await waitFor(() => expect(reads).toBe(2));
     await user.click(toggle);
     await screen.findByText("@멘션했을 때만 반응합니다.");
@@ -961,7 +981,7 @@ describe("Slack management", () => {
     );
     await user.click(toggle);
     // The refresh reads the old value while the save is still open.
-    await user.click(screen.getByRole("button", { name: "새로고침" }));
+    await refreshSlack(user);
     await waitFor(() => expect(reads).toBe(2));
     saved();
     await screen.findByText("@멘션했을 때만 반응합니다.");
@@ -1128,7 +1148,7 @@ describe("Slack management", () => {
       });
       try {
         await screen.findByRole("navigation", { name: "Slack 구역" });
-        const list = await screen.findByRole("list", { name: "연결된 채널" });
+        const list = await screen.findByRole("table", { name: "연결된 채널" });
         await user.click(
           await within(list).findByRole("button", {
             name: "/invite 명령 복사",
@@ -1164,31 +1184,61 @@ describe("Slack management", () => {
     });
   }
 
-  test("keeps reinstall in the app card with its own title and description", async () => {
+  test("lists the agent's app as Integrations › Slack does, with reinstall on its row", async () => {
     renderAt(DETAIL, routes(APP, true));
     await screen.findByRole("navigation", { name: "Slack 구역" });
-    const title = await screen.findByText("Slack 앱 다시 설치");
-    const card = title.closest("[data-slot=row-list]") as HTMLElement;
-    expect(within(card).getByText("앱 ID")).toBeDefined();
+    const section = await screen.findByRole("region", {
+      name: "자동으로 만든 Slack 앱",
+    });
+    const table = within(section).getByRole("table", { name: "앱 목록" });
     expect(
-      within(card).getByText(
-        "권한이나 이벤트 설정이 바뀌었을 때 다시 설치합니다. Slack 동의 화면으로 이동합니다.",
-      ),
-    ).toBeDefined();
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["앱", "상태", "갱신", "Slack 앱 메뉴"]);
+    const [row] = within(table).getAllByRole("row").slice(1);
+    const cells = within(row as HTMLElement);
+    expect(cells.getByText("A123")).toBeDefined();
+    expect(cells.getAllByText("연결됨").length).toBeGreaterThan(0);
+    const reinstall = cells.getByRole("button", { name: "다시 설치" });
     expect(
-      within(card).getByRole("button", { name: "다시 설치" }),
-    ).toBeDefined();
-    // The status strip alone carries the bot ID and connection state.
-    const advanced = screen.getByRole("region", { name: "고급" });
-    const status = screen.getByRole("region", { name: "상태" });
-    for (const text of ["봇 ID", "연결됨"]) {
-      expect(advanced.textContent?.includes(text)).toBe(false);
-      expect(status.textContent?.includes(text)).toBe(true);
-    }
+      document.getElementById(reinstall.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(
+      "권한이나 이벤트 설정이 바뀌었을 때 다시 설치합니다. Slack 동의 화면으로 이동합니다.",
+    );
+    // The bot ID is the card's; the table keeps to the workspace's columns.
+    expect(section.textContent?.includes("봇 ID")).toBe(false);
+    expect(screen.getByRole("region", { name: "Slack" }).textContent).toContain(
+      "봇 ID",
+    );
+  });
+
+  test("names the shared sections as Integrations › Slack does, in its order", async () => {
+    renderAt(DETAIL, routes(APP, true));
+    await screen.findByRole("region", { name: "자동으로 만든 Slack 앱" });
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      "연결된 채널",
+      "기본",
+      "Slack 앱 생성",
+      "Slack 앱에 넣을 주소",
+      "자동으로 만든 Slack 앱",
+      "위험 구역",
+    ]);
+    const token = screen.getByRole("region", { name: "Slack 앱 생성" });
+    expect(within(token).getByText("토큰 확인됨")).toBeDefined();
+    expect(
+      within(token)
+        .getByRole("link", { name: "연동 › Slack에서 관리" })
+        .getAttribute("href"),
+    ).toBe("/settings/workspace/integrations/slack");
   });
 
   for (const refused of [false, true]) {
-    test(`copies the /invite line from Advanced and keeps the app ID as a link${refused ? ", selecting it when the clipboard refuses" : ""}`, async () => {
+    test(`copies the /invite line from the channels and keeps the app ID as a link${refused ? ", selecting it when the clipboard refuses" : ""}`, async () => {
       renderAt(DETAIL, routes(APP, true));
       const user = await setupUser();
       const copied: string[] = [];
@@ -1203,7 +1253,9 @@ describe("Slack management", () => {
         },
       });
       try {
-        const advanced = await screen.findByRole("region", { name: "고급" });
+        const advanced = await screen.findByRole("region", {
+          name: "연결된 채널",
+        });
         const button = within(advanced).getByRole("button", {
           name: "/invite 명령 복사",
         });
@@ -1230,7 +1282,8 @@ describe("Slack management", () => {
             field.value.length,
           ]);
         } else expect(document.activeElement === button).toBe(true);
-        const open = within(advanced).getByRole("link", {
+        await user.click(screen.getByRole("button", { name: "Slack 앱 메뉴" }));
+        const open = await screen.findByRole("menuitem", {
           name: "Slack에서 열기 (새 탭에서 열림)",
         });
         expect(open.getAttribute("href")).toBe(
@@ -1377,7 +1430,8 @@ describe("Slack management", () => {
       name: "Slack 앱 설치",
     });
     expect((install as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.queryByText(/App Configuration Token/)).toBeNull();
+    // The token section says the token is missing; nothing says the app is blocked.
+    expect(screen.queryByText(/앱을 만들 수 없습니다/)).toBeNull();
   });
 
   const subscribed = (
@@ -1396,7 +1450,7 @@ describe("Slack management", () => {
       DETAIL,
       subscribed({ state: "pending", checked_at: AT, url: SENT }),
     );
-    const status = await screen.findByRole("region", { name: "상태" });
+    const status = await screen.findByRole("region", { name: "Slack" });
     await within(status).findByText(
       "Slack이 Request URL을 아직 확인하지 않았습니다",
     );
@@ -1432,9 +1486,9 @@ describe("Slack management", () => {
   ] as const) {
     test(`shows no Verify request ${name}`, async () => {
       renderAt(DETAIL, subscribed(events, eventUrl));
-      const status = await screen.findByRole("region", { name: "상태" });
-      // The app card reads the same query, so the status has it too.
-      await screen.findByText("앱 ID");
+      const status = await screen.findByRole("region", { name: "Slack" });
+      // The app table reads the same query, so the status has it too.
+      await screen.findByRole("table", { name: "앱 목록" });
       expect(status.textContent).not.toContain("Event Subscriptions");
     });
   }
@@ -1444,12 +1498,14 @@ describe("Slack management", () => {
       DETAIL,
       subscribed({ state: "verified", checked_at: AT, url: null }, undefined),
     );
-    const advanced = await screen.findByRole("region", { name: "고급" });
-    await within(advanced).findByText("Slack 확인됨");
-    expect(within(advanced).queryByText("아직 보내지 않음")).toBeNull();
+    const addresses = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    await within(addresses).findByText("Slack 확인됨");
+    expect(within(addresses).queryByText("아직 보내지 않음")).toBeNull();
   });
 
-  test("sends the Request URL again from the advanced section", async () => {
+  test("sends the Request URL again from the address section", async () => {
     let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
       state: "pending",
       checked_at: AT,
@@ -1471,13 +1527,18 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    const advanced = await screen.findByRole("region", { name: "고급" });
-    await within(advanced).findByText("Slack 확인 대기");
+    const addresses = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    // The agent's own URL, under the workspace screen's row name.
+    expect(within(addresses).getByText("이벤트 요청 URL")).toBeDefined();
+    expect(within(addresses).getByText(SENT)).toBeDefined();
+    await within(addresses).findByText("Slack 확인 대기");
     await user.click(
-      within(advanced).getByRole("button", { name: "다시 확인" }),
+      within(addresses).getByRole("button", { name: "다시 확인" }),
     );
     await screen.findByText("Slack이 Request URL을 확인했습니다.");
-    await within(advanced).findByText("Slack 확인됨");
+    await within(addresses).findByText("Slack 확인됨");
     expect(posts).toEqual(["recheck"]);
     await waitFor(() =>
       expect(screen.queryByText("Event Subscriptions 열기")).toBeNull(),
@@ -1508,24 +1569,25 @@ describe("Slack management", () => {
     const channels = await screen.findByRole("region", {
       name: "홈 채널 지정",
     });
-    const pick = await within(channels).findByText("홈 채널 고르기");
-    await waitFor(() => expect(pick.closest("[inert]")).not.toBeNull());
-    const lock = within(channels).getByRole("group", {
+    const lock = await within(channels).findByRole("group", {
       name: "Request URL 확인 전에는 채널을 고를 수 없습니다",
     });
+    // Nothing to pick with until Slack checks.
+    expect(within(channels).queryByText("홈 채널 고르기")).toBeNull();
     expect(lock.closest("[inert]")).toBeNull();
     // The way out stays reachable: the lock leads to it.
     await user.click(
       within(lock).getByRole("button", { name: "다시 확인으로 이동" }),
     );
     const recheck = within(
-      screen.getByRole("region", { name: "고급" }),
+      screen.getByRole("region", { name: "Slack 앱에 넣을 주소" }),
     ).getByRole("button", { name: "다시 확인" });
     expect(document.activeElement === recheck).toBe(true);
     await user.click(recheck);
     await waitFor(() =>
       expect(within(channels).queryByRole("group")).toBeNull(),
     );
+    const pick = await within(channels).findByText("홈 채널 고르기");
     expect(pick.closest("[inert]")).toBeNull();
   });
 
@@ -1542,14 +1604,14 @@ describe("Slack management", () => {
     });
     await waitFor(() => expect(toggle.closest("[inert]")).not.toBeNull());
     expect(
-      within(channels)
-        .getByRole("button", { name: "채널 추가" })
-        .closest("[inert]"),
-    ).not.toBeNull();
+      within(channels).queryByRole("button", { name: "채널 추가" }),
+    ).toBeNull();
     // The way out is never locked.
-    const advanced = screen.getByRole("region", { name: "고급" });
+    const addresses = screen.getByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
     expect(
-      within(advanced)
+      within(addresses)
         .getByRole("button", { name: "다시 확인" })
         .closest("[inert]"),
     ).toBeNull();
@@ -1563,7 +1625,7 @@ describe("Slack management", () => {
     const channels = await screen.findByRole("region", {
       name: "연결된 채널",
     });
-    await screen.findByText("앱 ID");
+    await screen.findByRole("table", { name: "앱 목록" });
     const add = await within(channels).findByRole("button", {
       name: "채널 추가",
     });
@@ -1601,7 +1663,7 @@ describe("Slack management", () => {
 
   test("shows no repository warning when the profile needs none", async () => {
     renderAt(DETAIL, routes(APP, true));
-    await screen.findByText("앱 ID");
+    await screen.findByRole("table", { name: "앱 목록" });
     expect(document.body.textContent).not.toContain(
       "Slack에서는 세션을 시작할 수 없습니다",
     );
@@ -1631,11 +1693,13 @@ describe("Slack management", () => {
     );
     const result = await screen.findByText("Slack 연결을 해제했습니다.");
     await waitFor(() => expect(document.activeElement === result).toBe(true));
-    // The side list's Advanced link still lands on a section of that name.
+    // The side list's app link still lands on a section of that name.
     const nav = screen.getByRole("navigation", { name: "Slack 구역" });
-    const link = within(nav).getByRole("link", { name: "고급" });
+    const link = within(nav).getByRole("link", {
+      name: "자동으로 만든 Slack 앱",
+    });
     expect(
-      screen.getByRole("region", { name: "고급" }).id ===
+      screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }).id ===
         link.getAttribute("href")?.slice(1),
     ).toBe(true);
     expect(
@@ -1683,7 +1747,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack 연결을 해제했습니다.");
       await waitFor(() =>
         expect(
-          screen.getByRole("region", { name: "상태" }).textContent,
+          screen.getByRole("region", { name: "Slack" }).textContent,
         ).toContain(label),
       );
     });
@@ -1720,7 +1784,7 @@ describe("Slack management", () => {
     expect(
       await screen.findByText("DM 받기 설정을 저장했습니다."),
     ).toBeDefined();
-    const status = screen.getByRole("region", { name: "상태" });
+    const status = screen.getByRole("region", { name: "Slack" });
     await waitFor(() =>
       expect(within(status).queryByText("켜짐")).not.toBeNull(),
     );
@@ -1760,7 +1824,7 @@ describe("Slack management", () => {
       expect(toggle.getAttribute("aria-disabled")).toBe("false"),
     );
     expect(toggle.getAttribute("aria-checked")).toBe("true");
-    const status = screen.getByRole("region", { name: "상태" });
+    const status = screen.getByRole("region", { name: "Slack" });
     expect(within(status).queryByText("켜짐")).not.toBeNull();
     expect(screen.queryByText("설정 안 됨") === null).toBe(true);
     await user.click(toggle);
@@ -2138,9 +2202,9 @@ describe("Slack management", () => {
     );
     expect(await screen.findByText("Slack 앱을 삭제했습니다.")).toBeDefined();
     expect(
-      await within(screen.getByRole("region", { name: "Slack 앱" })).findByText(
-        "만들기 전",
-      ),
+      await within(
+        screen.getByRole("region", { name: "자동으로 만든 Slack 앱" }),
+      ).findByText("이 에이전트의 Slack 앱이 아직 없습니다."),
     ).toBeDefined();
   });
 
@@ -2250,7 +2314,7 @@ describe("Slack private channel states", () => {
       },
     });
     const user = await setupUser();
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await within(list).findByText("승인 대기");
     expect(
       within(list).getByText(
@@ -2277,7 +2341,7 @@ describe("Slack private channel states", () => {
       [`GET ${PATH}/slack-bindings`]: () =>
         json(200, { items: [BINDING, pending] }),
     });
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await within(list).findByText("승인 대기");
     expect(
       within(list).queryByRole("button", { name: /^채널 승인/ }),
@@ -2297,7 +2361,7 @@ describe("Slack private channel states", () => {
       },
     });
     const user = await setupUser();
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await user.click(
       await within(list).findByRole("button", { name: /^채널 승인/ }),
     );
@@ -2332,7 +2396,7 @@ describe("Slack private channel states", () => {
         }),
     });
     const user = await setupUser();
-    await screen.findByRole("list", { name: "연결된 채널" });
+    await screen.findByRole("table", { name: "연결된 채널" });
     await user.click(screen.getByRole("button", { name: "홈 지정" }));
     const dialog = await screen.findByRole("dialog");
     const secret = await within(dialog).findByRole("button", {
@@ -2352,7 +2416,7 @@ describe("Slack private channel states", () => {
       [`GET ${PATH}/slack-bindings`]: () =>
         json(200, { items: [BINDING, left] }),
     });
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await within(list).findByText("나감");
     expect(within(list).getByText("비활성")).toBeDefined();
     expect(
@@ -2374,7 +2438,7 @@ describe("Slack private channel states", () => {
       [`GET ${PATH}/slack-bindings`]: () =>
         json(200, { items: [BINDING, { ...pending, status: "ready" }] }),
     });
-    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
     await within(list).findAllByRole("switch");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(within(list).queryByText("나감")).toBeNull();

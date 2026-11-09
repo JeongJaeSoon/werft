@@ -134,6 +134,23 @@ export const slackJa = {
   "slack.addChannelHint":
     "「チャンネルを追加」から、このエージェントが応答するチャンネルを選んでください。",
   "slack.addChannel": "チャンネルを追加",
+  "slack.cardHint":
+    "このエージェントが Slack で使うアプリ、アドレス、チャンネルです。アプリを作るトークンはワークスペースの連携 › Slack で登録します。",
+  "slack.tokenHint":
+    "このエージェントの Slack アプリを作るときに使うワークスペースのトークンです。登録と差し替えは連携 › Slack で行います。",
+  "slack.tokenManage": "連携 › Slack で管理",
+  "slack.addressesHint":
+    "このエージェントのアプリが使うイベントリクエスト URL です。コンソールがアプリを作るときに自動で設定し、Slack がこのアドレスを確認するとチャンネルの投稿を受け取れます。",
+  "slack.addressesNone":
+    "アプリを作ると、このエージェントのアドレスが決まります。",
+  "slack.appsHint":
+    "このコンソールがこのエージェントのために作った Slack アプリです。インストールと再インストールはここで、接続解除と削除は危険な操作で行います。",
+  "slack.appsEmpty": "このエージェントの Slack アプリはまだありません。",
+  "slack.appName": "{name} アプリ",
+  "slack.appMenu": "Slack アプリのメニュー",
+  "slack.basicHint": "このエージェントが DM とメンションにどう反応するかです。",
+  "slack.channelColumn": "チャンネル",
+  "slack.useColumn": "使用",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
   "slack.connection": "接続",
