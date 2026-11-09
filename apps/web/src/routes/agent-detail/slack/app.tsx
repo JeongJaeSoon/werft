@@ -29,7 +29,7 @@ import {
   RowMenuLink,
 } from "../../../components/row-menu.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import type { SlackApp } from "./actions.ts";
+import type { SlackActionSite, SlackApp } from "./actions.ts";
 import {
   EVENTS_BADGE,
   RECHECK_ID,
@@ -46,28 +46,34 @@ import {
  * connection; here, what this agent uses.
  */
 
-/** The outcome of the last action, said where it was taken. */
-function Outcome({ slack }: { readonly slack: SlackApp }) {
+/** The outcome of the last action, said in the section of its button. */
+function Outcome({
+  slack,
+  at,
+}: {
+  readonly slack: SlackApp;
+  readonly at: SlackActionSite;
+}) {
   const ref = useRef<HTMLOutputElement>(null);
+  const notice = slack.noticeAt(at);
   useEffect(() => {
-    if (slack.notice) ref.current?.focus();
-  }, [slack.notice]);
+    if (notice) ref.current?.focus();
+  }, [notice]);
   return (
     <output
       ref={ref}
       tabIndex={-1}
       aria-live="polite"
-      className={slack.notice ? "text-control outline-none" : "sr-only"}
+      className={notice ? "text-control outline-none" : "sr-only"}
     >
-      {slack.notice}
+      {notice}
     </output>
   );
 }
 
-function SaveError({ slack }: { readonly slack: SlackApp }) {
+/** A failed action, beside its button; the confirm dialogs say their own. */
+function SaveError({ error }: { readonly error: unknown }) {
   const { t } = useI18n();
-  // The confirm dialogs report their own failure.
-  const error = slack.connect.error ?? slack.recheck.error;
   return error ? (
     <div>
       <FieldError>{slackFailure(error, t)}</FieldError>
@@ -146,6 +152,14 @@ export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
       title={t("workspace.addressesTitle")}
       description={t("slack.addressesHint")}
       box={!url}
+      foot={
+        url ? (
+          <div className="flex flex-col gap-2">
+            <SaveError error={recheck.error} />
+            <Outcome slack={slack} at="address" />
+          </div>
+        ) : undefined
+      }
       rows={
         url && events ? (
           <SettingRow
@@ -270,8 +284,8 @@ export function SlackAppSection({
             )}
           </p>
         ) : null}
-        <SaveError slack={slack} />
-        <Outcome slack={slack} />
+        <SaveError error={connect.error} />
+        <Outcome slack={slack} at="app" />
       </div>,
     );
   }
@@ -386,8 +400,8 @@ export function SlackAppSection({
           <Text id={`${SECTION.app}-install-hint`} variant="meta">
             {t(identity ? "slack.reinstallHint" : "slack.installHint")}
           </Text>
-          <SaveError slack={slack} />
-          <Outcome slack={slack} />
+          <SaveError error={connect.error} />
+          <Outcome slack={slack} at="app" />
         </div>
       ),
     },

@@ -1545,6 +1545,45 @@ describe("Slack management", () => {
     );
   });
 
+  test("says a recheck's outcome and failure in the address section, beside its button", async () => {
+    let fail = true;
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(200, {
+          ...appResponse(APP),
+          event_url: SENT,
+          events: { state: "pending", checked_at: AT, url: SENT },
+        }),
+      [`POST ${PATH}/slack/app/events/recheck`]: () =>
+        fail
+          ? apiError(409, "SLACK_APP_CREATING", "busy")
+          : json(200, {
+              ...appResponse(APP),
+              event_url: SENT,
+              events: { state: "pending", checked_at: AT, url: SENT },
+            }),
+    });
+    const user = await setupUser();
+    const addresses = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    const app = screen.getByRole("region", { name: "자동으로 만든 Slack 앱" });
+    const recheck = within(addresses).getByRole("button", {
+      name: "다시 확인",
+    });
+    await user.click(recheck);
+    expect(await within(addresses).findByRole("alert")).toBeDefined();
+    expect(within(app).queryByRole("alert")).toBeNull();
+    fail = false;
+    await user.click(recheck);
+    const sent = await within(addresses).findByText(
+      "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
+    );
+    await waitFor(() => expect(document.activeElement === sent).toBe(true));
+    expect(app.textContent).not.toContain("다시 보냈습니다");
+  });
+
   test("locks picking the home until Slack checks the Request URL", async () => {
     let read: components["schemas"]["GetSlackAppResponse"]["events"] = {
       state: "pending",

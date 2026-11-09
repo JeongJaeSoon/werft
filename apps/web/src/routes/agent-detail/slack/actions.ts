@@ -19,8 +19,14 @@ export function useSlackApp(agentId: string) {
   const me = useMe();
   const { leave } = useAppServices();
   const { app, identities, key } = useSlackState(agentId);
-  // The last action's outcome, read out where the action was taken.
-  const [notice, setNotice] = useState("");
+  // The last action's outcome, read out in the section of its button: the
+  // Request URL's recheck in the address section, the rest with the app.
+  const [outcome, setOutcome] = useState<{
+    readonly text: string;
+    readonly at: SlackActionSite;
+  } | null>(null);
+  const setNotice = (text: string, at: SlackActionSite = "app") =>
+    setOutcome(text ? { text, at } : null);
   const identity = identities.data?.items.find(
     (item) => item.provider === "slack_bot" && item.status === "active",
   );
@@ -91,6 +97,7 @@ export function useSlackApp(agentId: string) {
             ? "slack.eventsUrl.done"
             : "slack.eventsUrl.sent",
         ),
+        "address",
       );
       await refresh();
     },
@@ -111,7 +118,11 @@ export function useSlackApp(agentId: string) {
     revoke,
     recheck,
     busy,
-    notice,
+    /** The outcome for the wizard's one section, wherever it came from. */
+    notice: outcome?.text ?? "",
+    /** The outcome to read out in a section of the tab, if it is that one's. */
+    noticeAt: (site: SlackActionSite) =>
+      outcome?.at === site ? outcome.text : "",
     /** A record in flight cannot be installed or re-checked. */
     pending: record?.state === "creating" || record?.state === "deleting",
     readError: app.error ?? identities.error,
@@ -120,3 +131,5 @@ export function useSlackApp(agentId: string) {
 }
 
 export type SlackApp = ReturnType<typeof useSlackApp>;
+/** The tab section whose button an action is. */
+export type SlackActionSite = "address" | "app";
