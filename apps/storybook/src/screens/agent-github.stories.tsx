@@ -835,7 +835,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           box
           foot={
             <Button type="button" size="sm" disabled>
-              저장
+              서식 저장
             </Button>
           }
         >
