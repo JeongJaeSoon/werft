@@ -2998,8 +2998,12 @@ describe("authorizeEgress", () => {
     },
   ) {
     const asked: Array<{ tokenHash: Uint8Array; purpose: string }> = [];
-    const cuts: Array<{ sessionId: string; attemptId: string; model: string }> =
-      [];
+    const cuts: Array<{
+      sessionId: string;
+      attemptId: string;
+      model: string;
+      cause: string;
+    }> = [];
     const instance = createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async (input) => {
@@ -3043,6 +3047,21 @@ describe("authorizeEgress", () => {
         sessionId: scope.session_id,
         attemptId: "att_1",
         model: "retired-model",
+        cause: "model_removed",
+      },
+    ]);
+    // The profile (or its connection) is gone: the same note, naming the
+    // model the session was running, with its own cause.
+    const gone = authorizer(retired, { profiles: {}, repositories: {} });
+    await expect(
+      gone.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(gone.cuts).toEqual([
+      {
+        sessionId: scope.session_id,
+        attemptId: "att_1",
+        model: "retired-model",
+        cause: "profile_removed",
       },
     ]);
     // Still on the list: nothing to say.

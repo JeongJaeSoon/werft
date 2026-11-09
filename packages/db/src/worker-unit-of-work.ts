@@ -4,6 +4,7 @@ import {
   type CheckpointRef,
   checkpointBlockReasonSchema,
   MODEL_NOT_ALLOWED_EVENT_CODE,
+  type ModelCutCause,
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
@@ -122,7 +123,7 @@ import {
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
-import { enqueueModelCutNotices } from "./model-cut-notices.ts";
+import { writeModelCut } from "./model-cut-notices.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -1016,6 +1017,27 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   );
 }
 
+/**
+ * The session's model when its profile is still offered under the settings
+ * the session was created with, but no longer with that model; null when
+ * anything else moved (a changed profile, a dropped pair, a row without a pin).
+ */
+function removedModelOf(
+  session: RunnableFields,
+  runnable: readonly RunnablePair[],
+): string | null {
+  const { model, profileFingerprint } = session;
+  if (model === null || profileFingerprint === null) return null;
+  const offered = runnable.filter(
+    (pair) =>
+      allowsPair(pair, session) && pair.profileFingerprint === profileFingerprint,
+  );
+  return offered.length > 0 &&
+    offered.every((pair) => pair.model !== null && pair.model !== model)
+    ? model
+    : null;
+}
+
 // A row from before has no fingerprint; it runs on whatever the
 // pair's profile is now, and the claim that binds it pins that.
 export function runnablePairOf(
@@ -1306,10 +1328,14 @@ async function giveUpOnCatalogMismatch(
       .where(eq(executions.id, launch.executionId));
     return "context_gap";
   }
+  const removed = removedModelOf(session, runnable);
   // Names ids only: the stored URL may embed a credential.
-  const detail = runnable.some((pair) => allowsPair(pair, session))
-    ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
-    : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  const detail =
+    removed !== null
+      ? `model ${removed} was taken off the allowed list of profile ${session.profileId}`
+      : runnable.some((pair) => allowsPair(pair, session))
+        ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
+        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
   // As `recordLaunchFailure` gives a launch up: counted, the credential
   // revoked, nothing left to rebuild.
   await tx
@@ -1323,6 +1349,16 @@ async function giveUpOnCatalogMismatch(
       replacementReason: null,
     })
     .where(eq(workerLaunches.executionId, launch.executionId));
+  // The stream and the DMs say which model left, as they do for an attempt
+  // cut while running; the session's own lock is held.
+  if (removed !== null) {
+    await writeModelCut(tx, {
+      sessionId: session.id,
+      attemptId: null,
+      model: removed,
+      cause: "model_removed",
+    });
+  }
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
   return "catalog_mismatch";
 }
@@ -2170,6 +2206,7 @@ export function createPostgresWorkerUnitOfWork(
       sessionId: string;
       attemptId: string;
       model: string;
+      cause: ModelCutCause;
     }): Promise<{ recorded: boolean }> {
       return db.transaction(async (tx) => {
         // The session first, as every stream write does: a later event id
@@ -2206,22 +2243,7 @@ export function createPostgresWorkerUnitOfWork(
           )
           .limit(1);
         if (seen) return { recorded: false };
-        await recordEvent(tx, {
-          sessionId: input.sessionId,
-          type: "error",
-          payload: {
-            code: MODEL_NOT_ALLOWED_EVENT_CODE,
-            message: `The model ${input.model} is no longer on the profile's allowed list, so its model requests were blocked`,
-            model: input.model,
-          },
-          turnRowId: null,
-          attemptId: input.attemptId,
-          now: await dbNow(tx),
-        });
-        await enqueueModelCutNotices(tx, {
-          sessionId: input.sessionId,
-          model: input.model,
-        });
+        await writeModelCut(tx, input);
         return { recorded: true };
       });
     },

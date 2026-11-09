@@ -347,6 +347,7 @@ describe("enqueueModelCutNotices", () => {
         sessionId: w.sessionId,
         attemptId,
         model: "claude-opus-5-5",
+        cause: "model_removed",
       });
     expect(await cut("att-1")).toEqual({ recorded: true });
     // The proxy refuses every exchange of the attempt; only the first writes.
@@ -372,9 +373,45 @@ describe("enqueueModelCutNotices", () => {
         sessionId: w.sessionId,
         attemptId: "no-such-attempt",
         model: "claude-opus-5-5",
+        cause: "model_removed",
       }),
     ).toEqual({ recorded: false });
     expect(await w.outbox()).toEqual([]);
+  });
+
+  test("a profile that is gone says so in the event and the DM, still naming the model", async () => {
+    const w = await world();
+    const creator = await w.person("creator", { locale: "en" });
+    await w.startSession(creator);
+    await db.insert(attempts).values({
+      id: "att-1",
+      sessionId: w.sessionId,
+      executionId: "exec-att-1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 1,
+      state: "running",
+      leaseExpiresAt: new Date("2030-01-01T00:00:00Z"),
+    });
+    await createPostgresWorkerUnitOfWork(db).recordModelCutAtomic({
+      sessionId: w.sessionId,
+      attemptId: "att-1",
+      model: "claude-opus-5-5",
+      cause: "profile_removed",
+    });
+    const [event] = await db
+      .select({ payload: events.payload })
+      .from(events)
+      .where(eq(events.type, "error"));
+    expect(event?.payload).toMatchObject({
+      code: "MODEL_NOT_ALLOWED",
+      model: "claude-opus-5-5",
+      cause: "profile_removed",
+    });
+    const [dm] = await w.outbox();
+    expect(dm?.body).toMatchObject({
+      text: expect.stringMatching(/claude-opus-5-5.* is gone/),
+    });
   });
 
   test("a session from before workspaces and releases has nobody to tell", async () => {

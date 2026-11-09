@@ -24,6 +24,16 @@ export const SESSION_EVENT_NAMES = [
 export const SSE_SCHEMA_VERSION = 1;
 /** The `error` event code for an attempt cut because its model left the list. */
 export const MODEL_NOT_ALLOWED_EVENT_CODE = "MODEL_NOT_ALLOWED";
+/**
+ * Why the session's model stopped being allowed, as `data.cause` of that
+ * event: the profile's list no longer has it, or the profile (its connection)
+ * is gone altogether. Events written before the field are `model_removed`.
+ */
+export const MODEL_CUT_CAUSE_VALUES = [
+  "model_removed",
+  "profile_removed",
+] as const;
+export type ModelCutCause = (typeof MODEL_CUT_CAUSE_VALUES)[number];
 // A status event reports the session's projected status, or a control step
 // that no stored status names: an interrupt the worker has taken and is
 // waiting on the engine's terminal for (`interrupting`), and the engine

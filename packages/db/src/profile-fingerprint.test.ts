@@ -476,13 +476,76 @@ describe("a model named at create", () => {
 
   test("taking the session's model off the list stops it, as editing the profile would", async () => {
     const { session_id: sessionId } = await create(OFFERS, "claude-opus-5-5");
-    expect(
-      (await serviceOf(ORIGINAL).getSession(OWNER, sessionId)).attention?.code,
-    ).toBe("CATALOG_MISMATCH");
+    const attention = (await serviceOf(ORIGINAL).getSession(OWNER, sessionId))
+      .attention;
+    expect(attention?.code).toBe("CATALOG_MISMATCH");
+    // The reader is told which model left, not only that the catalog moved.
+    expect(attention).toMatchObject({
+      reason: expect.stringContaining("claude-opus-5-5"),
+    });
     const narrowed = gatewayOf(ORIGINAL);
     expect(
       await refusal(claim(narrowed, await launch(sessionId, true))),
     ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
+    // The next-turn claim says it on every surface the failure reaches: the
+    // launch's error, the stream's typed event and the failed status.
+    const [given] = await db
+      .select({ error: workerLaunches.lastLaunchError })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.sessionId, sessionId));
+    expect(given?.error).toContain("claude-opus-5-5");
+    const stream = (
+      await db
+        .select({ type: events.type, payload: events.payload })
+        .from(events)
+        .where(eq(events.sessionId, sessionId))
+    ).map((row) => row.payload);
+    expect(stream).toContainEqual(
+      expect.objectContaining({
+        code: "MODEL_NOT_ALLOWED",
+        model: "claude-opus-5-5",
+        cause: "model_removed",
+      }),
+    );
+    expect(stream).toContainEqual(
+      expect.objectContaining({
+        phase: "failed",
+        message: expect.stringContaining("claude-opus-5-5"),
+      }),
+    );
+  });
+
+  test("a profile that left the catalog cuts a running attempt with the model it ran named", async () => {
+    const { session_id } = await create(OFFERS, "claude-opus-5-5");
+    const gateway = gatewayOf(OFFERS);
+    const claimed = await claim(gateway, await launch(session_id, false));
+    const auth = claimed.runtime_config.provider.auth;
+    if (auth.kind !== "egress_token") throw new Error(auth.kind);
+    const gone = gatewayOf(
+      withSeededInstallation({
+        settings_generation: 0,
+        profiles: {},
+        repositories: {},
+      }),
+    );
+    expect(
+      await refusal(
+        gone.authorizeEgress({ token: auth.token, purpose: "provider" }),
+      ),
+    ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
+    const [cut] = (
+      await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(
+          and(eq(events.sessionId, session_id), eq(events.type, "error")),
+        )
+    ).map((row) => row.payload);
+    expect(cut).toMatchObject({
+      code: "MODEL_NOT_ALLOWED",
+      model: "claude-opus-5-5",
+      cause: "profile_removed",
+    });
   });
 
   test("taking a running attempt's model off the list cuts its next provider grant, and only its", async () => {
