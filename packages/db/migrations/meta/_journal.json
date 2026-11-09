@@ -1177,6 +1177,13 @@
       "when": 1794263437594,
       "tag": "0258_session_pin_cutover",
       "breakpoints": true
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1794265052794,
+      "tag": "0259_sessions_pin_required",
+      "breakpoints": true
     }
   ]
 }
