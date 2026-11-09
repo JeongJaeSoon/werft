@@ -63,9 +63,6 @@ ARG GIT_LFS_COMPRESS=1.20.2
 ARG GIT_LFS_GO=1.27.3
 ARG BUILDARCH
 ARG TARGETARCH
-ADD --checksum=sha256:1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
-  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-v${GIT_LFS_VERSION}.tar.gz \
-  /tmp/git-lfs-src.tar.gz
 ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
   https://dl.google.com/go/go${GIT_LFS_GO}.linux-amd64.tar.gz \
   /tmp/go-amd64.tar.gz
@@ -79,7 +76,11 @@ ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587
 # hash for this pin (94S-1396). Bun carries its own roots; fetch-pinned.ts
 # retries a wrong body like a failed request and writes only the pinned bytes.
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
-  bun /tmp/fetch-pinned.ts \
+  FETCH_PINNED_ATTEMPTS=8 bun /tmp/fetch-pinned.ts \
+  "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-v${GIT_LFS_VERSION}.tar.gz" \
+  1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
+  /tmp/git-lfs-src.tar.gz \
+  && bun /tmp/fetch-pinned.ts \
   https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
   ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
   /tmp/ca-certificates.deb \
@@ -106,15 +107,21 @@ RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
 FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS gh
 ARG GH_VERSION=2.103.3
 ARG TARGETARCH
-ADD --checksum=sha256:4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d \
-  https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
-  /tmp/gh-amd64.tar.gz
-ADD --checksum=sha256:ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 \
-  https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.tar.gz \
-  /tmp/gh-arm64.tar.gz
-RUN mkdir /tmp/gh \
-  && tar -xzf "/tmp/gh-${TARGETARCH}.tar.gz" -C /tmp/gh --strip-components=1 \
-    --no-same-owner
+# Not an ADD: that has no retry, and github.com's release host has answered
+# with minutes of 504s whose body ADD hashed and reported as a digest mismatch.
+# fetch-pinned.ts retries and writes only the pinned bytes.
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  case "$TARGETARCH" in \
+    amd64) GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d ;; \
+    arm64) GH_SHA256=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;; \
+    *) echo "no gh pinned for $TARGETARCH" >&2; exit 1 ;; \
+  esac \
+  && FETCH_PINNED_ATTEMPTS=8 bun /tmp/fetch-pinned.ts \
+    "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    "$GH_SHA256" \
+    /tmp/gh.tar.gz \
+  && mkdir /tmp/gh \
+  && tar -xzf /tmp/gh.tar.gz -C /tmp/gh --strip-components=1 --no-same-owner
 
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.

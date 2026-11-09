@@ -262,9 +262,12 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(`ARG GIT_LFS_X_NET=${GIT_LFS_X_NET}\n`);
     expect(source).toContain(`ARG GIT_LFS_COMPRESS=${GIT_LFS_COMPRESS}\n`);
     expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
+    // github.com release hosts answer with minutes of 504s: ADD has no retry
+    // and reports the error body as a digest mismatch, so no ADD may fetch one.
     expect(source).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
+      /bun \/tmp\/fetch-pinned\.ts \\\n {2}"https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz" \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/git-lfs-src\.tar\.gz \\$/m,
     );
+    expect(source).not.toMatch(/^ADD [^\n]*\\\n\s+https:\/\/github\.com\//m);
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
         new RegExp(
@@ -288,7 +291,7 @@ describe("app Dockerfiles", () => {
     const stage = source.slice(start, end);
     expect(stage).not.toContain("apt-get");
     expect(stage).toMatch(
-      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n {2}bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
+      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n(?:.*\n)*? {2}&& bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
     );
     expect(stage).not.toMatch(/ADD [^\n]*\n[^\n]*snapshot\.debian\.org/);
     expect(stage).toContain(
@@ -313,14 +316,16 @@ describe("app Dockerfiles", () => {
   test("the worker carries gh from the pinned release", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GH_VERSION=${GH_VERSION}\n`);
+    // Fetched with scripts/fetch-pinned.ts (retries a 504 body), never ADD.
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
-        new RegExp(
-          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/cli/cli/releases/download/v\\$\\{GH_VERSION\\}/gh_\\$\\{GH_VERSION\\}_linux_${arch}\\.tar\\.gz \\\\$`,
-          "m",
-        ),
+        new RegExp(`^ {4}${arch}\\) GH_SHA256=[0-9a-f]{64} ;; \\\\$`, "m"),
       );
     }
+    expect(source).toMatch(
+      /bun \/tmp\/fetch-pinned\.ts \\\n {4}"https:\/\/github\.com\/cli\/cli\/releases\/download\/v\$\{GH_VERSION\}\/gh_\$\{GH_VERSION\}_linux_\$\{TARGETARCH\}\.tar\.gz" \\\n {4}"\$GH_SHA256" \\$/m,
+    );
+    expect(source).not.toMatch(/^ADD [^\n]*\\\n\s+https:\/\/github\.com\//m);
     expect(source.match(/^COPY --from=gh .*$/gm)).toEqual([
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
