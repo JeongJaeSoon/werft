@@ -1,0 +1,262 @@
+# Installs the newest published release the way an outside operator does:
+# no registry login, no token, only what the release publishes (the three
+# images by digest, the chart as an OCI package). /readyz answering 200 is
+# the pass. A package that cannot be pulled fails the job at the pull step.
+#
+#   release  read the release's manifest from GitHub, anonymously
+#   compose  docs/operator/test-ops.md on a host with an xfs prjquota Docker
+#            root: manifest, preflight, deploy at the release's source commit
+#   kind     helm pull of the published chart, installed on kind
+#
+# The jobs use no image and no chart built from this checkout. The compose
+# job runs the release's own checkout (infra/, scripts/); the kind job runs
+# this checkout's deploy/kind harness over the pulled chart package.
+#
+# The failure check: dispatch with control_host_digest set to a digest no
+# registry has. The compose job must fail at "Pull the release images".
+#
+# Not a required check. The pull request trigger covers only this file and
+# its scripts.
+name: Install rehearsal
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/install-rehearsal.yml
+      - .github/scripts/rehearsal-release.sh
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to install (empty: the latest release)'
+        type: string
+        required: false
+        default: ''
+      control_host_digest:
+        description: 'Failure check: replace the control-host digest with this one (sha256:...), which must make the pull fail'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-rehearsal-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  HELM_VERSION: v4.3.0
+  HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  KUBECTL_VERSION: v1.37.0
+  KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.read.outputs.tag }}
+      commit: ${{ steps.read.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: read
+        env:
+          TAG: ${{ github.event.inputs.release_tag || 'latest' }}
+          OVERRIDE: ${{ github.event.inputs.control_host_digest }}
+          REHEARSAL_REPOSITORY: ${{ github.repository }}
+        run: |
+          .github/scripts/rehearsal-release.sh "$TAG" "$RUNNER_TEMP/manifest" "$OVERRIDE" | tee -a "$GITHUB_OUTPUT"
+          jq . "$RUNNER_TEMP/manifest/release-manifest.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rehearsal-release-manifest
+          path: ${{ runner.temp }}/manifest/release-manifest.json
+          if-no-files-found: error
+
+  compose:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      TEST_OPS_ENV_FILE: ${{ github.workspace }}/../rehearsal/test-ops.env
+      TEST_OPS_STATE_DIR: ${{ github.workspace }}/../rehearsal/state
+    steps:
+      # The release's own source: the commit its manifest names, which is
+      # what docs/operator/test-ops.md tells an operator to check out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.commit }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rehearsal-release-manifest
+          path: ${{ runner.temp }}/manifest
+      # docs/operator/test-ops.md § 디스크: the scheduler's quota probe needs
+      # an xfs Docker root with prjquota, which a runner's ext4 does not have.
+      - name: Docker root on xfs with prjquota
+        run: |
+          command -v mkfs.xfs >/dev/null || { sudo apt-get update && sudo apt-get install -y xfsprogs; }
+          sudo systemctl stop docker docker.socket
+          sudo mv /var/lib/docker /var/lib/docker.old
+          sudo truncate -s 24G /var/lib/docker.xfs.img
+          sudo mkfs.xfs -q /var/lib/docker.xfs.img
+          sudo mkdir -p /var/lib/docker
+          sudo mount -o loop,prjquota /var/lib/docker.xfs.img /var/lib/docker
+          mount | grep 'on /var/lib/docker .*prjquota'
+          sudo systemctl start docker
+          docker version --format 'Docker Engine {{.Server.Version}}'
+          P="quota-probe-$(date +%s)"
+          docker volume create --driver local --opt size=64m "$P"
+          docker volume rm "$P"
+      # An empty Docker config: whatever the runner holds cannot log in.
+      - name: Pull the release images without a login
+        env:
+          MANIFEST: ${{ runner.temp }}/manifest/release-manifest.json
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/no-login"
+          mkdir -p "$DOCKER_CONFIG"
+          for app in control-host worker egress-proxy; do
+            ref="$(jq -r --arg a "$app" '.images[$a] | "\(.image)@\(.digest)"' "$MANIFEST")"
+            echo "pull ${ref}"
+            docker pull "$ref"
+          done
+      - name: Settings for the installation
+        env:
+          MANIFEST: ${{ runner.temp }}/manifest/release-manifest.json
+        run: |
+          umask 077
+          mkdir -p "$(dirname "$TEST_OPS_ENV_FILE")" "$TEST_OPS_STATE_DIR"
+          chmod 700 "$TEST_OPS_STATE_DIR"
+          sed -e '/^POSTGRES_PASSWORD=/d' -e '/^EGRESS_AUTHORIZER_TOKEN=/d' -e '/^PLATFORM_SECRET_KEY=/d' \
+            -e '/^ANTHROPIC_API_KEY=/d' -e '/^PLATFORM_SETTINGS_DOCUMENT=/d' \
+            infra/test-ops.env.example >"$TEST_OPS_ENV_FILE"
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "EGRESS_AUTHORIZER_TOKEN=$(openssl rand -hex 24)"
+            echo "PLATFORM_SECRET_KEY=$(openssl rand -hex 32)"
+            echo "ANTHROPIC_API_KEY=rehearsal-not-a-key"
+            echo "PLATFORM_SETTINGS_DOCUMENT=$(dirname "$TEST_OPS_ENV_FILE")/settings.json"
+          } >>"$TEST_OPS_ENV_FILE"
+          cat >"$(dirname "$TEST_OPS_ENV_FILE")/settings.json" <<'JSON'
+          {
+            "version": 1,
+            "connections": {
+              "anthropic": {
+                "kind": "anthropic",
+                "endpoint": "https://api.anthropic.com",
+                "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+              }
+            },
+            "repositories": {
+              "sample-app": {
+                "url": "https://github.com/JeongJaeSoon/werft.git",
+                "branch": "main",
+                "auth": { "kind": "github_app" },
+                "profiles": ["claude-coding"]
+              }
+            },
+            "mcp_servers": {},
+            "profiles": {
+              "claude-coding": {
+                "runtime_kind": "claude_agent_sdk",
+                "runtime_version": "0.3.270",
+                "model": "claude-sonnet-5",
+                "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+                "permission_mode": "default",
+                "provider": {
+                  "kind": "anthropic",
+                  "endpoint": "https://api.anthropic.com",
+                  "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+                },
+                "project_settings": { "claude_md": true }
+              }
+            }
+          }
+          JSON
+          chmod 644 "$(dirname "$TEST_OPS_ENV_FILE")/settings.json"
+          scripts/test-ops.sh manifest "$MANIFEST" "$(dirname "$TEST_OPS_ENV_FILE")/settings.json" >"$RUNNER_TEMP/release.json"
+          jq 'del(.settings_digest)' "$RUNNER_TEMP/release.json"
+      - name: Preflight and deploy
+        run: |
+          scripts/test-ops.sh preflight "$RUNNER_TEMP/release.json"
+          scripts/test-ops.sh deploy "$RUNNER_TEMP/release.json"
+      - name: readyz answers 200
+        run: |
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/readyz)"
+          echo "GET /readyz -> ${code}"
+          [ "$code" = 200 ]
+      - if: failure()
+        name: Why the install stopped
+        run: |
+          docker ps -a || true
+          scripts/test-ops.sh status || true
+      - if: '!cancelled()'
+        name: No registry login was used
+        run: |
+          ! test -s "$HOME/.docker/config.json" || ! jq -e '.auths // {} | length > 0' "$HOME/.docker/config.json"
+
+  kind:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # The deploy/kind harness and its dev stand-ins. The chart and the
+      # images are the published ones: nothing is built or packaged here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rehearsal-release-manifest
+          path: ${{ runner.temp }}/manifest
+      - name: helm, kind and kubectl
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
+          curl -fsSLo bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  bin/kind" | sha256sum -c -
+          curl -fsSLo bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  bin/kubectl" | sha256sum -c -
+          chmod +x bin/kind bin/kubectl
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      # Helm falls back to Docker's credentials, so both configs are empty.
+      - name: Pull the published chart without a login
+        env:
+          MANIFEST: ${{ runner.temp }}/manifest/release-manifest.json
+        run: |
+          export HELM_REGISTRY_CONFIG="$RUNNER_TEMP/no-login/helm.json" DOCKER_CONFIG="$RUNNER_TEMP/no-login"
+          mkdir -p "$DOCKER_CONFIG"
+          helm pull "$(jq -r .chart.ref "$MANIFEST")" --version "$(jq -r .chart.version "$MANIFEST")" --destination "$RUNNER_TEMP/chart"
+          ls -l "$RUNNER_TEMP/chart"
+      - name: Install the published chart on kind
+        env:
+          CLUSTER_NAME: rehearsal
+          STATE_DIR: ${{ runner.temp }}/kind
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+        # up.sh ends with /readyz and /docs answering 200 through the api.
+        run: |
+          CHART_PACKAGE="$(ls "$RUNNER_TEMP"/chart/werft-*.tgz)" KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/up.sh
+      - if: failure()
+        name: Why the install stopped
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kind/kubeconfig
+        run: |
+          kubectl -n werft get jobs,deploy,pods -o wide || true
+          kubectl -n werft get events --sort-by=.lastTimestamp || true
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
