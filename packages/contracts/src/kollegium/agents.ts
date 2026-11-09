@@ -693,7 +693,9 @@ const UNSET = {
  *   further (meet with the pin; with no pin only `currentRepositories`). A
  *   row a migration wrote (`updatedBy` null) and no row change nothing.
  * - `agent`: the agent's row now, met with the settings the session started
- *   under (`start`). A session with no snapshot reads the row alone.
+ *   under (`start`), except that a session with its own attached list
+ *   (`attachedRepositoryIds` an array) reads the repository list from the row
+ *   alone. A session with no snapshot reads the row alone.
  */
 export function effectiveGitHubPolicy(input: {
   /** `sessions.github_policy_source`. */
@@ -703,6 +705,13 @@ export function effectiveGitHubPolicy(input: {
   agentRow: AgentGitHubSettingsRow | null;
   /** `sessions.github_policy_start`; null when the session has none. */
   start?: unknown;
+  /**
+   * `sessions.attached_repository_ids`. An array (even an empty one) marks a
+   * session whose attached list is its own, so a repository the agent turned
+   * on after the session started can be attached; null or absent keeps the
+   * session's start list as the ceiling.
+   */
+  attachedRepositoryIds?: readonly string[] | null;
 }): EffectiveGitHubPolicy {
   const { agentRow } = input;
   const current =
@@ -793,9 +802,15 @@ export function effectiveGitHubPolicy(input: {
   }
   const start = githubPolicyStartSchema.safeParse(input.start);
   if (!start.success) return invalid("agent");
+  const met = meetGitHubSettings(start.data.settings, current.data);
   return {
     ...base,
-    settings: meetGitHubSettings(start.data.settings, current.data),
+    // Only the repository list is released from the start snapshot, and only
+    // for a session that keeps its own attached list. Features, push approval
+    // and the Actions allow-list stay capped at what the session started with.
+    settings: Array.isArray(input.attachedRepositoryIds)
+      ? { ...met, repositories: current.data.repositories }
+      : met,
     pushAttached: meetPushAttached(
       start.data.push_attached ?? "ask",
       pushAttachedOf(agentRow.pushAttached),

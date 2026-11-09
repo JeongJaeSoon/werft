@@ -20,6 +20,7 @@ import {
   additionalContextOf,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
+  ownRepositoryRevoked,
 } from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
 import { pathNameOf } from "./session-repository.ts";
@@ -152,20 +153,23 @@ export function createRepositoryAttachmentService(deps: {
       // The row before its status is put in plain words.
       type Listed = Omit<ListedRepository, "meaning">;
       // One row per id, the first one wins: the session's own, then what the
-      // session's release allows, then what only a newer release allows. The
-      // allowed lists may name an id twice, and a cursor would swallow the
-      // second row.
+      // session's release allows, then what was attached but is no longer
+      // allowed, then what only a newer release allows. The allowed lists may
+      // name an id twice, and a cursor would swallow the second row.
       const byId = new Map<string, Listed>();
       const add = (repository: Listed) => {
         if (!byId.has(repository.id)) byId.set(repository.id, repository);
       };
       if (context.repositoryId !== null) {
+        const revoked = ownRepositoryRevoked(catalog, context);
         add({
           id: context.repositoryId,
           name: nameOf(context.repositoryId, context.repository?.url),
           branch: context.repository?.branch ?? null,
-          status: "attached",
-          remote: "origin",
+          status: revoked ? "revoked" : "attached",
+          // The working copy stays, but a revoked repository has no remote to
+          // name any more.
+          ...(revoked ? {} : { remote: "origin" }),
         });
       }
       // Without `attached: null` the cap drops what is not attached yet.
@@ -173,11 +177,10 @@ export function createRepositoryAttachmentService(deps: {
         ...additionalContextOf(context),
         attached: null,
       });
+      // Read even when nothing is allowed any more: that is when a row left
+      // behind has to show as revoked.
       const rows = new Map(
-        (allowed.length === 0 ? [] : await store.list(sessionId)).map((row) => [
-          row.repositoryId,
-          row,
-        ]),
+        (await store.list(sessionId)).map((row) => [row.repositoryId, row]),
       );
       const attached = context.attachedRepositoryIds;
       for (const { id, repository } of allowed) {
@@ -194,6 +197,27 @@ export function createRepositoryAttachmentService(deps: {
           // The remote is named after the repository id; only an attached
           // one has been given it.
           ...(status === "attached" ? { remote: id } : {}),
+        });
+      }
+      // Attached once, not allowed now: a fetch still pending or failed keeps
+      // its own status, anything else is revoked. The catalog may no longer
+      // know the repository, so the name falls back to the id.
+      for (const id of new Set([...rows.keys(), ...(attached ?? [])])) {
+        if (byId.has(id)) continue;
+        const row = rows.get(id);
+        add({
+          id,
+          name: nameOf(
+            id,
+            Object.hasOwn(catalog.repositories, id)
+              ? catalog.repositories[id]?.url
+              : undefined,
+          ),
+          branch: row?.branch ?? null,
+          status:
+            row?.status === "pending" || row?.status === "failed"
+              ? row.status
+              : "revoked",
         });
       }
       for (const { id, repository } of await newerReleaseAllowed(

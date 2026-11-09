@@ -454,6 +454,97 @@ describe("an agent session with a start snapshot", () => {
       }).settings,
     ).toMatchObject({ repositories: ["c", "d", "a"] });
   });
+
+  describe("a session with its own attached list", () => {
+    const grown = { ...now, repositories: ["a", "b", "c", "new"] };
+
+    test("a repository turned on after the start opens, one taken off closes; an empty list counts as its own", () => {
+      for (const attachedRepositoryIds of [[], ["a"], ["a", "b", "c"]]) {
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: grown,
+            start,
+            attachedRepositoryIds,
+          }).settings,
+        ).toMatchObject({ repositories: ["a", "b", "c", "new"] });
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: { ...now, repositories: ["a"] },
+            start,
+            attachedRepositoryIds,
+          }).settings,
+        ).toMatchObject({ repositories: ["a"] });
+      }
+    });
+
+    test("a null list, an absent one or no snapshot keeps today's reading", () => {
+      for (const extra of [{ attachedRepositoryIds: null }, {}]) {
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: grown,
+            start,
+            ...extra,
+          }).settings,
+        ).toMatchObject({ repositories: ["a", "b", "c"] });
+      }
+      // With no snapshot there was never an intersection to remove.
+      expect(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: grown,
+          start: null,
+          attachedRepositoryIds: [],
+        }).settings,
+      ).toMatchObject({ repositories: ["a", "b", "c", "new"] });
+    });
+
+    test("only the repository list is released: features, approval and the Actions list stay at the start", () => {
+      const read = effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: { ...grown, features: ALL_ON, pushApproval: true },
+        start,
+        attachedRepositoryIds: [],
+      });
+      expect(read.settings).toMatchObject({
+        repositories: ["a", "b", "c", "new"],
+        push_approval: true,
+        features: { review: false },
+        actions_allow: [{ workflow: "release.yml" }],
+      });
+      expect(read.startActionsAllow).toEqual([{ workflow: "ci.yml" }]);
+      expect(read.enabledAtStart).toBe(true);
+    });
+
+    test("a release session never reads the list: the pin still caps it", () => {
+      const read = effectiveGitHubPolicy({
+        source: "release",
+        releasePin: { ...PIN, repositories: ["a"] },
+        agentRow: grown,
+        attachedRepositoryIds: [],
+      });
+      expect(read.settings).toMatchObject({ repositories: ["a"] });
+    });
+
+    test("a snapshot this image cannot read stays invalid whatever the list", () => {
+      expect(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: grown,
+          start: { enabled: true },
+          attachedRepositoryIds: [],
+        }).settings,
+      ).toBe("invalid");
+    });
+  });
 });
 
 describe("meetGitHubSettings", () => {

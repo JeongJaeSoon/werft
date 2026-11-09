@@ -209,22 +209,160 @@ describe("list", () => {
     ]);
   });
 
-  test("the agent's GitHub off, or no release list, leaves only the session's own", async () => {
-    for (const context of [
+  test("no release list leaves only the session's own, still attached", async () => {
+    expect(
+      (await service({ context: { policy: releasePolicy(null) } }).list())
+        .repositories,
+    ).toEqual([
       {
-        agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: false },
+        ...APP,
+        status: "attached",
+        remote: "origin",
+        meaning: MEANING.attached,
       },
-      { policy: releasePolicy(null) },
-    ]) {
-      expect((await service({ context }).list()).repositories).toEqual([
+    ]);
+  });
+
+  describe("revoked: attached once, the agent's settings no longer allow it", () => {
+    const REVOKED = { status: "revoked" as const, meaning: MEANING.revoked };
+    const CEILING = {
+      repository_ids: ["app", "docs", "tools", "secret"],
+      github_app_repositories: "listed" as const,
+    };
+    // A session on the agent's settings, under a ceiling that holds them all.
+    const agent = (repositories?: string[]) => ({
+      policy: agentPolicy(attachGitHub(repositories), { revision: 5 }),
+      repositoryCeiling: CEILING,
+    });
+    const statusesOf = async (s: ReturnType<typeof service>) =>
+      (await s.list()).repositories.map((entry) => [entry.id, entry.status]);
+
+    test("the agent's switch off revokes the session's own, which keeps no remote", async () => {
+      const listed = await service({
+        context: {
+          agent: {
+            id: "agent-1",
+            workspaceId: "owner-a",
+            githubEnabled: false,
+          },
+        },
+      }).list();
+      expect(listed.repositories).toEqual([{ ...APP, ...REVOKED }]);
+      expect("remote" in (listed.repositories[0] ?? {})).toBe(false);
+    });
+
+    test("the session's own is revoked when the saved list drops it or the person's list drops it, and stays attached otherwise", async () => {
+      const dropped = [
+        agent(["docs"]),
         {
-          ...APP,
+          policy: {
+            ...releasePolicy(attachGitHub()),
+            currentRepositories: ["docs"],
+          },
+        },
+        {
+          ...agent(),
+          repositoryCeiling: { ...CEILING, repository_ids: ["docs"] },
+        },
+      ];
+      for (const context of dropped) {
+        expect((await statusesOf(service({ context })))[0]).toEqual([
+          "app",
+          "revoked",
+        ]);
+      }
+      expect((await statusesOf(service({ context: agent() })))[0]).toEqual([
+        "app",
+        "attached",
+      ]);
+    });
+
+    test("a repository attached by a fetch or the start list and then taken off the list is revoked; allowed ones are not", async () => {
+      const fetched = service({ context: agent() });
+      await fetched.attach("docs");
+      await fetched.store.settle(SESSION, [
+        {
+          repository_id: "docs",
+          receipt_id:
+            (await fetched.store.find(SESSION, "docs"))?.receiptId ?? "",
           status: "attached",
-          remote: "origin",
-          meaning: MEANING.attached,
+          commit: COMMIT,
         },
       ]);
-    }
+      const taken = service({ context: agent(["app", "tools"]) });
+      // The same store rows under a list without docs.
+      taken.store.list = fetched.store.list;
+      const rows = (await taken.list()).repositories;
+      expect(rows.map((entry) => [entry.id, entry.status])).toEqual([
+        ["app", "attached"],
+        ["docs", "revoked"],
+        ["tools", "not_attached"],
+      ]);
+      const docs = rows.find((entry) => entry.id === "docs");
+      expect(docs).toMatchObject({ name: "acme/docs", branch: "trunk" });
+      expect("remote" in (docs ?? {})).toBe(false);
+
+      // A start-list id off the settings list shows as revoked too.
+      expect(
+        await statusesOf(
+          service({
+            context: {
+              ...agent(),
+              attachedRepositoryIds: ["secret", "tools"],
+            },
+          }),
+        ),
+      ).toEqual([
+        ["app", "attached"],
+        ["docs", "not_attached"],
+        ["secret", "revoked"],
+        ["tools", "attached"],
+      ]);
+    });
+
+    test("a row still pending or failed keeps its status, and an emptied settings list still reads the rows", async () => {
+      const s = service({ context: agent() });
+      await s.attach("docs");
+      const none = service({ context: agent([]) });
+      none.store.list = s.store.list;
+      expect(await statusesOf(none)).toEqual([
+        ["app", "revoked"],
+        ["docs", "pending"],
+      ]);
+    });
+
+    test("what a newer release allows does not cover a revoked row, and the catalog may not know the repository", async () => {
+      const s = service({
+        context: {
+          ...agent(),
+          attachedRepositoryIds: ["gone"],
+        },
+        active: ["gone"],
+      });
+      const listed = (await s.list()).repositories;
+      expect(listed.find((entry) => entry.id === "gone")).toEqual({
+        id: "gone",
+        name: "gone",
+        branch: null,
+        status: "revoked",
+        meaning: MEANING.revoked,
+      });
+    });
+
+    test("an unknown id that looks like a prototype key is only an id", async () => {
+      const listed = (
+        await service({
+          context: {
+            ...agent(),
+            attachedRepositoryIds: ["constructor"],
+          },
+        }).list()
+      ).repositories;
+      expect(listed.find((entry) => entry.id === "constructor")).toMatchObject({
+        name: "constructor",
+        status: "revoked",
+      });
+    });
   });
 
   test("never carries a credential an old session URL held", async () => {

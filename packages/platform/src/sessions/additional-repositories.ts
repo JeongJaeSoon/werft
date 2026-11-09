@@ -95,3 +95,31 @@ export function additionalRepositoriesOf<
     return repository === null ? [] : [{ id, repository }];
   });
 }
+
+/**
+ * Whether the session's own repository is one its agent's settings no longer
+ * allow: the switch is off, or the saved list or the workspace ceiling has
+ * dropped it. The gate refuses it with the same conditions. A policy that is
+ * missing or unreadable says nothing about the repository, so it is not
+ * revoked here.
+ */
+export function ownRepositoryRevoked(
+  catalog: ProfileLookup<CatalogProfileView> & {
+    repositories: Record<string, CatalogRepositoryView>;
+  },
+  context: GitHubSessionContext,
+): boolean {
+  const own = context.repositoryId;
+  if (own === null || context.agent === null) return false;
+  if (!context.agent.githubEnabled) return true;
+  const { settings, currentRepositories, source } = context.policy;
+  if (settings === null || settings === "invalid") return false;
+  if (!settings.repositories.includes(own)) return true;
+  if (currentRepositories !== null && !currentRepositories.includes(own)) {
+    return true;
+  }
+  return (
+    usesWorkspaceCeiling(catalog, context.profileId, source) &&
+    !repositoryInCeiling(catalog, context.repositoryCeiling, own)
+  );
+}

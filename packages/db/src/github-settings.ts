@@ -84,6 +84,7 @@ const agentPolicyColumns = {
 export const githubPolicyColumns = {
   githubPolicySource: sessions.githubPolicySource,
   githubPolicyStart: sessions.githubPolicyStart,
+  attachedRepositoryIds: sessions.attachedRepositoryIds,
   ...agentPolicyColumns,
 };
 
@@ -116,6 +117,8 @@ export function githubPolicyOfRow(
   row: Parameters<typeof agentGitHubSettingsRowOf>[0] & {
     githubPolicySource: unknown;
     githubPolicyStart: unknown;
+    /** Required, so a caller cannot forget the list the policy depends on. */
+    attachedRepositoryIds: string[] | null;
     releasePin: unknown;
   },
 ): EffectiveGitHubPolicy {
@@ -124,6 +127,7 @@ export function githubPolicyOfRow(
     releasePin: row.releasePin,
     agentRow: agentGitHubSettingsRowOf(row),
     start: row.githubPolicyStart,
+    attachedRepositoryIds: row.attachedRepositoryIds,
   });
 }
 
@@ -323,7 +327,6 @@ export function createPostgresGitHubGateStore(
           sessionWorkspaceId: sessions.workspaceId,
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
-          attachedRepositoryIds: sessions.attachedRepositoryIds,
           repoUrl: sessions.repoUrl,
           branch: sessions.branch,
           // Turn 1's actor, else the creator: the session-shares rule.

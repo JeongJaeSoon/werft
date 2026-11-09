@@ -208,8 +208,9 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
  * `primary` and `available` are no longer produced: the list is one list in
  * id order and the session's own is `attached` with `remote: "origin"`. They
  * stay here so that a client built before that still parses a stored or
- * older response. `revoked` is not produced yet; it is one that was attached
- * and is no longer allowed.
+ * older response. `revoked` is a repository that was attached, the session's
+ * own included, and the agent's settings no longer allow; its working copy is
+ * left in place.
  */
 export const LISTED_REPOSITORY_STATUS_VALUES = [
   "primary",
@@ -491,7 +492,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
+  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet), \`allowed_in_newer_release\` (only the agent's current release allows it) or \`revoked\` (it was added, but the agent's settings no longer allow it; its working copy stays, and it has no \`remote\`). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
   attach_repository: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
 };
 

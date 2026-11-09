@@ -376,7 +376,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | D4 | legacy `body` | 확정 (a) | T6·T8: 저장소 템플릿에 다시 배치하지 않는다(`verbatim`). 정리·서명 줄 제거·꼬리는 적용 |
 | D5 | 귀속이 틀린 commit | 확정 (a) | T5: 턴 끝에 자동 복구, 못 고치면 `attribution_mismatch`. T4 commit도 같은 검증 |
 | 작성자 | PR·commit 작성자 | 확정 | App bot. 요청한 사람은 `Co-authored-by`([7절](#7-호출자-매핑)) |
-| D6 | 첨부 저장소 push에 사람 승인 | 도구 기본값 | T5 `push.attached`: 새 release `allow`, 칸 없는 옛 release `ask`. 대상은 release 목록 안 저장소의 `agent/<session-id>…` 브랜치뿐이고 force push 금지와 워크스페이스 상한은 그대로다. 첨부와 쓰기가 모두 사람 없이 열린다 |
+| D6 | 첨부 저장소 push에 사람 승인 | 도구 기본값. 뒤에 push 규칙 하나로 바뀌었다(아래) | T5 `push.attached`: 새 release `allow`, 칸 없는 옛 release `ask`. 대상은 release 목록 안 저장소의 `agent/<session-id>…` 브랜치뿐이고 force push 금지와 워크스페이스 상한은 그대로다. 첨부와 쓰기가 모두 사람 없이 열린다. **대체됨:** 지금은 모든 저장소(주 저장소 포함)에 에이전트의 push 승인과 첨부 저장소 push 정책 중 더 엄격한 쪽 하나가 적용된다. 정책이 `deny`면 거절하고, 그 밖에 둘 중 하나라도 `ask`면 사람 승인이다. "첨부 저장소는 기본 `allow`라 사람 없이 간다"는 이 행의 옛 규칙이다 |
 | D7 | push 뒤 PR 자동 생성 | 폐기 | PR은 모델이 `open_pull_request`(또는 `gh pr create`)를 부를 때만 열린다 |
 | D8 | push·PR·저장소 읽기를 엔진 권한 단계에서 빼기 | (a) 유지, PR 8 조건 | [6절](#6-행동-부류-정책) |
 | D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그". 그 뒤의 control-host 모듈 이름 action-broker는 레이어 이름이 아니다([1절](#1-위치와-이름)) |
@@ -407,7 +407,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 |---|---|---|
 | [github-agent.md](github-agent.md) "입구는 둘(세션 API, 내장 MCP)" | `gh`가 같은 서비스의 셋째 입구가 된다. 서비스 한 곳은 그대로다 | L14 |
 | [github-agent.md 결정 6](github-agent.md#결정-6-push-전-사람-승인)의 이어 턴 | `AGENT_ACTION_FLOWS` on에서는 턴 안 `request_push`가 의도가 되고 이어 턴이 없다. 이어 턴과 승인 후속 턴은 행의 `flow`가 `legacy`인 요청(설정 off 동안 만든 직접 요청)에만 남는다 | L4, L5 |
-| github-agent.md 결정 6 "정책 승인은 세션의 주 저장소에만" | D6: 첨부 저장소 push도 새 release는 기본 `allow` | L3 |
+| github-agent.md 결정 6 "정책 승인은 세션의 주 저장소에만" | D6은 첨부 저장소 push도 새 release는 기본 `allow`라고 했으나 지금은 대체됐다: 모든 저장소에 push 승인과 첨부 저장소 push 정책 중 더 엄격한 쪽 하나가 적용된다 | L3 |
 | [github-agent.md 결정 5](github-agent.md#결정-5-co-authored-by) "Co-authored-by = 세션 시작자" | 그 턴을 요청한 사람으로. 미연결 안내 문구도 "연결하지 않은 요청자의 commit에는…"으로 | L15 |
 | `gh` 경로 차단(JeongJaeSoon/agent-platform#1113, `apps/worker/Dockerfile:135-137`) | 진짜 `gh`는 그대로 로그인이 없다. shim의 여덟 명령만 플랫폼 도구로 간다 | L14 |
 | auto 분류기 allow 규칙이 첨부 저장소 쓰기를 뺌(`packages/adapters/runtimes/claude/src/auto-mode.ts:13`, `:15`) | D6과 이미 어긋나 있다. `gh` 문구를 고칠 때 D6에 맞춘다 | L14 |
