@@ -28,7 +28,11 @@ import {
   withConsoleRepositories,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
-import { installedDescriptors } from "@werft-ai/runtime-codecs";
+import {
+  equivalentToolCatalogVersions,
+  installedDescriptors,
+  installedToolCatalogs,
+} from "@werft-ai/runtime-codecs";
 
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
@@ -136,12 +140,32 @@ export function runtimeServes(profile: CatalogProfileConfig): boolean {
   }
 }
 
-/** The configured worker images' engine versions; undefined without them. */
+/**
+ * The configured worker images' engine versions; undefined without them.
+ * `current` and `accepted` also name the older builds whose tool catalog is
+ * an image's own: a worker runs a profile row left at one of them, and a
+ * session pinned under that row keeps its profile when the row moves on.
+ */
 export function runtimeVersionsFromEnv(
   env: Record<string, string | undefined>,
 ): RuntimeVersions | undefined {
   const images = workerImageRuntimesFromEnv(env);
-  return images === null ? undefined : runtimeVersionsOf(images);
+  if (images === null) return undefined;
+  const versions = runtimeVersionsOf(images);
+  const withEquivalents = (listed: readonly string[]) => [
+    ...new Set([
+      ...listed,
+      ...installedDescriptors.flatMap(({ kind }) =>
+        listed.flatMap((version) =>
+          equivalentToolCatalogVersions(installedToolCatalogs, kind, version),
+        ),
+      ),
+    ]),
+  ];
+  return {
+    accepted: withEquivalents(versions.accepted),
+    current: withEquivalents(versions.current),
+  };
 }
 
 export async function databaseCatalog(options: {

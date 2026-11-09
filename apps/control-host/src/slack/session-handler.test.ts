@@ -210,6 +210,7 @@ async function agentInSlack(
     activate?: boolean;
     mode?: "off" | "on";
     mentionOnly?: boolean;
+    channelKind?: "public_channel" | "private_channel";
   } = {},
 ) {
   const workspaceId = randomUUID();
@@ -317,7 +318,7 @@ async function agentInSlack(
     workspaceId,
     agentId,
     channelId: CHANNEL,
-    channelKind: "public_channel",
+    channelKind: options.channelKind ?? "public_channel",
     mode: options.mode ?? "on",
     home: false,
     ceiling: DEFAULT_SURFACE_CEILING,
@@ -341,7 +342,15 @@ async function agentInSlack(
     verifiedVia: "slack_oidc",
     verifiedAt: new Date(),
   });
-  return { workspaceId, ownerId, agentId, slackAppId, releaseId: release.id };
+  return {
+    workspaceId,
+    ownerId,
+    owner,
+    agentId,
+    slackAppId,
+    releaseId: release.id,
+    bindingId: bound.binding.id,
+  };
 }
 
 let eventCounter = 0;
@@ -885,7 +894,31 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(rows).toHaveLength(2);
   });
 
-  test("a channel Slack reports as another kind than its binding is refused with a notice", async () => {
+  test("a private channel bound as private but seen as public is refused with a notice", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, {
+      ...rootMessage("9999999999.000100"),
+      channel_type: "channel",
+    });
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices.map((notice) => notice.reason)).toEqual([
+      "channel_kind_mismatch",
+    ]);
+  });
+
+  test("a public channel Slack now reports as private waits for approval and answers nothing", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();
     await deliver(fixture, {
@@ -895,11 +928,44 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await drain(handle);
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices.map((notice) => notice.reason)).toEqual([
-      "channel_kind_mismatch",
+      "pending_approval",
     ]);
+    expect(notices[0]?.notice).toEqual({ message: "pendingApproval" });
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({
+      status: "pending_approval",
+      surfaceKind: "private_channel",
+      home: false,
+      revision: 2,
+    });
+    const [receipt] = await db
+      .select()
+      .from(schema.receipts)
+      .where(eq(schema.receipts.operation, "request_surface_binding"));
+    expect(receipt?.actor).toMatchObject({
+      principal: { kind: "installation" },
+      actor_user_id: null,
+    });
   });
 
-  test("a mention in a channel Slack now reports private is refused with a notice", async () => {
+  test("unmentioned talk in a channel that is private now still sends the public binding to approval, thread reply or not", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await deliver(
+      fixture,
+      message("100.000200", { thread_ts: "100.000100", channel_type: "group" }),
+    );
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({
+      status: "pending_approval",
+      surfaceKind: "private_channel",
+    });
+  });
+
+  test("a mention in a channel Slack now reports private waits for approval and answers nothing", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();
     slack.channels.set(CHANNEL, { isPrivate: true });
@@ -907,8 +973,161 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     await drain(handle);
     expect(await sessionsOf(fixture)).toEqual([]);
     expect(notices.map((notice) => notice.reason)).toEqual([
-      "channel_kind_mismatch",
+      "pending_approval",
     ]);
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row?.status).toBe("pending_approval");
+  });
+
+  test("a private channel saved from the console waits: a mention and a thread reply get one notice and no session", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, mention("100.000200", { thread_ts: "100.000100" }));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(await links()).toEqual([]);
+    expect(notices.map((notice) => notice.reason)).toEqual([
+      "pending_approval",
+    ]);
+    expect(notices[0]?.notice).toEqual({ message: "pendingApproval" });
+  });
+
+  test("talk in a channel waiting for approval is not answered and not told", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+      mentionOnly: false,
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, message("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+  });
+
+  test("after approval a new mention is answered, one sent before it is not", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle, notices } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    const sentWhileWaiting = `${Math.floor(Date.now() / 1000) - 60}.000100`;
+    await deliver(fixture, mention(sentWhileWaiting));
+    await drain(handle);
+    expect(notices.map((notice) => notice.reason)).toEqual([
+      "pending_approval",
+    ]);
+
+    const approved = await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+
+    await deliver(
+      fixture,
+      mention(sentWhileWaiting, { thread_ts: undefined }),
+      {
+        thread: false,
+      },
+    );
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+
+    const fresh = `${Math.floor(Date.now() / 1000) + 60}.000100`;
+    await deliver(fixture, mention(fresh));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+  });
+
+  test("a bot invited to an unbound private channel binds it waiting for approval, whatever channel_type says", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    slack.channels.set("G0NEWSECRET", { isPrivate: true });
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: "G0NEWSECRET",
+        channel_type: "C",
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const rows = await db
+      .select()
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.externalSurfaceId, "G0NEWSECRET"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      status: "pending_approval",
+      surfaceKind: "private_channel",
+      membership: "joined",
+      home: false,
+    });
+    const requests = await db
+      .select()
+      .from(schema.receipts)
+      .where(eq(schema.receipts.operation, "request_surface_binding"));
+    expect(requests).toHaveLength(1);
+    expect(notices).toEqual([]);
+  });
+
+  test("a bot invited to a public channel still binds it ready at once", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    slack.channels.set("C0NEWOPEN", { isPrivate: false });
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: "C0NEWOPEN",
+        channel_type: "G",
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    const [row] = await db
+      .select()
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.externalSurfaceId, "C0NEWOPEN"));
+    expect(row).toMatchObject({
+      status: "ready",
+      surfaceKind: "public_channel",
+      membership: "joined",
+    });
+  });
+
+  test("an invite whose kind Slack cannot be asked about binds nothing and is tried again", async () => {
+    const fixture = await agentInSlack();
+    const { handle } = handler();
+    slack.failures.set("conversations.info", "internal_error");
+    await deliver(
+      fixture,
+      {
+        type: "member_joined_channel",
+        user: BOT_USER,
+        channel: "G0UNREAD",
+        channel_type: "C",
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    expect(
+      await db
+        .select()
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.externalSurfaceId, "G0UNREAD")),
+    ).toEqual([]);
+    expect(await inboxStatuses()).toEqual(["received"]);
   });
 
   test("a decision that fails is tried again, with no notice", async () => {

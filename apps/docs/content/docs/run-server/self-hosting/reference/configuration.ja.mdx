@@ -60,7 +60,7 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、profile の `runtime_version` を次のイメージのバージョンに上げても、直前のイメージのバージョンで作った open セッションの profile pin は維持されます。現在のイメージに含まれない `runtime_version` の profile は新規セッションを受け付けません。そのため SDK 更新リリースでは、上限ごとに `runtime_version` を上げた新バージョンも作ります（コンソールまたは `POST /v1/installation-profiles`）。
+両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、profile の `runtime_version` を次のイメージのバージョンに上げても、直前のイメージのバージョンで作った open セッションの profile pin は維持されます。現在のイメージに含まれない `runtime_version` の profile は新規セッションを受け付けません。ただし、組み込みツール対応一覧が現在のイメージの一覧と同じ前のバージョンは搭載しているものとして扱うので、その profile はアップグレード後も新規セッションを開始します。一覧が異なる SDK 更新リリースでは、上限ごとに `runtime_version` を上げた新バージョンも作ります（コンソールまたは `POST /v1/installation-profiles`）。
 
 API と slack role は `SESSION_PROMPT_REVISION`（既定 0、許可値 0・1、不正なら起動拒否）で、エージェント release セッションの system prompt 冒頭段落を決めます。1 なら、新規セッション作成時にエージェント名・説明、開始元（Slack チャネル・DM、Web コンソール、API）、エージェントの言語、セッションリポジトリの GitHub 名（`owner/repo`）を `sessions.platform_prompt` に残し、worker が段落を作ります。段落に役割文はなく、役割はエージェント作成者が指示文に書きます。GitHub 案内は設定の有無によらず一段落です。GitHub 作業は組み込みの `mcp__github__` ツールを使い、利用可能なリポジトリは `list_repositories` が返すと案内します。`git push` は GitHub に届かないことも案内します。ツールがない、または GitHub を使えないと返す場合は、「このセッションでは GitHub 作業ができず、管理者がコンソールのエージェント GitHub タブで設定し、新しいセッションが必要な場合がある」と回答させます。GitHub 設定なしの release で始めたセッションには、後から設定してもツールが付かないためです。0 なら新セッションにも段落はありません。保存値はセッション終了まで変わりません。段落は checkpoint fingerprint に含まれるため、エージェント名・説明や release を変更しても進行中セッションはそのまま再開します。
 
