@@ -482,6 +482,21 @@ const steps: Step[] = [
   bash("sed_subst_w", "sed 's/a/b/w../sed-outside.txt' notes/sample.txt", true),
   bash("sed_address_e", "sed '1e id' notes/sample.txt", true),
   bash("sed_r_secret", "sed 'r.env.secret' notes/sample.txt", true),
+  // Fourth review.
+  bash(
+    "git_checkout_index_prefix",
+    "git checkout-index --prefix=../o/ -a",
+    true,
+  ),
+  bash(
+    "gh_global_opt_download",
+    "gh --repo o/r release download v1 --dir ../o",
+    true,
+  ),
+  bash("sed_unquoted_e_w", "sed -e w../sed-outside.txt notes/sample.txt", true),
+  bash("sed_capital_w", "sed 'W../sed-outside.txt' notes/sample.txt", true),
+  bash("sed_capital_r_secret", "sed 'R.env.secret' notes/sample.txt", true),
+  bash("sed_e_tab", "sed '1e\tid' notes/sample.txt", true),
   bash("git_show_aws_credentials", "git show HEAD:.aws/credentials", true),
   bash(
     "git_grep_code",

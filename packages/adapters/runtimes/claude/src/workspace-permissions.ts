@@ -282,7 +282,10 @@ export function workspaceRules(
         ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
         ...[...policy.read.addressChars].flatMap((c) => [
           `sed *${c}w*`,
+          `sed *${c}W*`,
+          // A space or a tab may follow the command letter.
           `sed *${c}e *`,
+          `sed *${c}e\t*`,
         ]),
       ].map((pattern) => `Bash(${pattern})`),
     );
