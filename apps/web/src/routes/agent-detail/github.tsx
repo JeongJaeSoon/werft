@@ -77,7 +77,10 @@ import {
   PULL_REQUEST_SECTION,
 } from "./github-pull-request.tsx";
 import { RepositoryList } from "./github-repositories.tsx";
-import { useRepositoryToggles } from "./github-repository-toggles.ts";
+import {
+  type SavedSwitch,
+  useRepositoryToggles,
+} from "./github-repository-toggles.ts";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 
@@ -101,6 +104,41 @@ type Draft = {
     readonly revision: number | null;
   };
 };
+
+/**
+ * A repository switch saves at once and raises the settings revision. A draft
+ * made just before it moves along only when that save is the very next one
+ * after its own base, applying the same change as the server (add, or remove
+ * and clear a start that named it); a gap means another save came between, and
+ * the draft stays stale.
+ */
+function followSwitch(held: Draft, saved: SavedSwitch, id: string): Draft {
+  const before = held.from.revision;
+  if (saved.revision !== (before ?? 0) + 1) return held;
+  const apply = (settings: Settings): Settings => ({
+    ...settings,
+    repositories: saved.enabled
+      ? settings.repositories.includes(id)
+        ? settings.repositories
+        : [...settings.repositories, id]
+      : settings.repositories.filter((other) => other !== id),
+  });
+  const startFor = (settings: Settings, start: string | null) =>
+    start !== null && settings.repositories.includes(start) ? start : null;
+  const settings = apply(held.settings);
+  const base = apply(held.from.base);
+  return {
+    ...held,
+    settings,
+    start: startFor(settings, held.start),
+    from: {
+      ...held.from,
+      base,
+      start: startFor(base, held.from.start),
+      revision: saved.revision,
+    },
+  };
+}
 
 // The workspace's Integrations > GitHub order (GitHub with the repositories
 // under it, features, pull requests), then what only an agent has: push
@@ -486,8 +524,19 @@ function GitHubSettings({
   const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
-  const toggles = useRepositoryToggles(agentId);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Every ref the tab has seen with its catalog id: a switch answers by ref,
+  // and a repository just turned off may already be gone from the next read.
+  const idsByRef = useRef(new Map<string, string>());
+  for (const held of data.selected_repositories ?? [])
+    idsByRef.current.set(held.ref, held.id);
+  for (const option of data.options.repositories)
+    if (option.ref) idsByRef.current.set(option.ref, option.id);
+  const toggles = useRepositoryToggles(agentId, (saved) => {
+    const id = idsByRef.current.get(saved.ref);
+    if (id === undefined) return;
+    setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+  });
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
   // `null` is a real start value, so `??` would swap it for the server's.

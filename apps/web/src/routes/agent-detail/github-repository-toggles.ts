@@ -18,6 +18,13 @@ const REFUSALS: Partial<Record<string, MessageKey>> = {
   name_held: "github.repo.pickNameHeld",
 };
 
+/** What the server confirmed for one switch: the revision it left behind. */
+export type SavedSwitch = {
+  readonly revision: number;
+  readonly ref: string;
+  readonly enabled: boolean;
+};
+
 /** Per agent and outside React: a remount still waits behind a request in flight. */
 const queues = new Map<string, Promise<void>>();
 
@@ -36,8 +43,14 @@ const without = <V>(
  * reason in `errors`. A request carries the state asked for, never a flip of
  * what the server held when its turn came.
  */
-export function useRepositoryToggles(agentId: string) {
+export function useRepositoryToggles(
+  agentId: string,
+  onSaved?: (saved: SavedSwitch) => void,
+) {
   const { client } = useWerft();
+  // Read at call time so a request already in flight reports to the latest tab.
+  const reportSaved = useRef(onSaved);
+  reportSaved.current = onSaved;
   const cache = useQueryClient();
   const { t } = useI18n();
   const [wanted, setWanted] = useState<Readonly<Record<string, boolean>>>({});
@@ -116,6 +129,11 @@ export function useRepositoryToggles(agentId: string) {
         // The save went through but the re-read failed: the cache still
         // holds the old value, so keep showing what was saved. Recorded even
         // when a newer click is queued: the server holds this value now.
+        reportSaved.current?.({
+          revision: answered.settings_revision,
+          ref: answered.repository.ref,
+          enabled,
+        });
         const rereadFailed = reread?.status === "error";
         if (rereadFailed) confirmed.current.set(key, enabled);
         if (latest()) {

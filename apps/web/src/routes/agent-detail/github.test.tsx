@@ -1741,6 +1741,112 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByText(/다른 곳에서 GitHub 설정이 바뀌어/)).toBeNull();
   });
 
+  describe("저장소 스위치가 revision을 올린 뒤의 세부 설정 초안", () => {
+    const STALE = /다른 곳에서 GitHub 설정이 바뀌어/;
+    const withDocs = (revision: number): Tab => ({
+      ...TAB,
+      settings_revision: revision,
+      github: { ...SETTINGS, repositories: ["werft-sandbox", "docs-site"] },
+    });
+    // The switch handler really moves the server: the next GET shows it.
+    async function setup(answered: number, held?: Promise<void>) {
+      const { server } = await activeAgent();
+      let live: Tab = TAB;
+      const sent: { expected_revision: number | null; settings: Settings }[] =
+        [];
+      const { services } = renderAt(
+        DETAIL,
+        routesFor(server, TAB, {
+          [`GET ${PATH}/github`]: () => json(200, live),
+          [ACCESS]: async () => {
+            await held;
+            live = withDocs(answered);
+            return json(200, {
+              settings_revision: answered,
+              receipt_id: RECEIPT_ID,
+              enabled: true,
+              repository: {
+                ref: "r1.docs-site",
+                repository: "acme/docs-site",
+                private: null,
+              },
+            });
+          },
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push((await request.json()) as (typeof sent)[number]);
+            return json(200, { settings_revision: 9, receipt_id: RECEIPT_ID });
+          },
+        }),
+      );
+      const user = await setupUser();
+      await screen.findByRole("heading", {
+        name: "에이전트가 쓸 수 있는 기능",
+      });
+      return { user, sent, services };
+    }
+
+    test("초안을 만든 뒤 스위치를 켜도 저장이 막히지 않고 켠 저장소를 싣는다", async () => {
+      const { user, sent } = await setup(4);
+      await user.click(switchNamed("push 전 사람 승인"));
+      await user.click(repoSwitch("docs-site"));
+      await waitFor(() =>
+        expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe(
+          "true",
+        ),
+      );
+      const save = (await screen.findByRole("button", {
+        name: "저장",
+      })) as HTMLButtonElement;
+      await waitFor(() => expect(save.disabled).toBe(false));
+      expect(screen.queryByText(STALE)).toBeNull();
+      await user.click(save);
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.expected_revision).toBe(4);
+      expect(sent[0]?.settings.repositories).toEqual([
+        "werft-sandbox",
+        "docs-site",
+      ]);
+    });
+
+    test("스위치 응답을 기다리는 사이에 만든 초안도 응답 뒤에 옮겨 받는다", async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { user, sent } = await setup(4, held);
+      await user.click(repoSwitch("docs-site"));
+      await user.click(switchNamed("push 전 사람 승인"));
+      release();
+      const save = (await screen.findByRole("button", {
+        name: "저장",
+      })) as HTMLButtonElement;
+      await waitFor(() => expect(save.disabled).toBe(false));
+      expect(screen.queryByText(STALE)).toBeNull();
+      await user.click(save);
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.expected_revision).toBe(4);
+      expect(sent[0]?.settings.repositories).toContain("docs-site");
+    });
+
+    test("사이에 다른 곳 저장이 끼었으면(+2) 옮기지 않고 stale로 둔다", async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { user, sent } = await setup(5, held);
+      await user.click(repoSwitch("docs-site"));
+      await user.click(switchNamed("push 전 사람 승인"));
+      release();
+      await screen.findByText(STALE);
+      const save = screen.getByRole("button", {
+        name: "저장",
+      }) as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+      await user.click(save);
+      expect(sent).toHaveLength(0);
+    });
+  });
+
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
     const sent: { settings: Settings }[] = [];
