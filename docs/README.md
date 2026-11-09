@@ -45,8 +45,10 @@ API로 세션을 만들고 쓰는 사람.
 | [개발 환경과 검증](contributing/development.md) | 로컬 개발 환경, 테스트·스크립트 배치 |
 | [구성요소와 경계](contributing/architecture.md) | 저장소 구성, 앱과 패키지의 경계 |
 | [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
+| [변경 경로에 따른 CI 계획](contributing/ci-path-plan.md) | 바뀐 경로로 문서 전용·축소·전체 검증을 고르는 규칙과 required 판정 |
 | [콘솔 데모](contributing/console-demo.md) | 서버 없는 읽기 전용 데모의 구성, 다시 녹화하고 공개 전 검사하는 절차 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
+| [콘솔·Slack 용어집](contributing/i18n-glossary.md) | 화면·Slack 알림에서 쓰는 한국어·일본어·영어 용어 |
 | [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |
 | [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
 | [결정: 에이전트 GitHub 설정과 기능별 권한](contributing/decisions/github-agent.md) | 기능별 권한의 교집합, 토큰 발급 게이트, 리뷰 승인용 App, 같은 역할에 App 여럿과 저장소에 고정된 연결, 세션 성과물 |
@@ -56,6 +58,9 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
 | [결정: GitHub App manifest](contributing/decisions/github-app-manifest.md) | 콘솔에서 작성용 App을 manifest로 만드는 흐름, 일회용 state, 키·client secret을 한 트랜잭션에 저장, 교체 확인, 로그 마스킹 |
 | [결정: 실행 프로필 DB 단일 관리](contributing/decisions/profile-db.md) | 설치 상한·워크스페이스 프로필을 DB에서 관리하는 계약, YAML 이전, 3단계 롤백, PD-2~PD-5 계획 |
+| [결정: GitHub App 저장소를 DB 카탈로그로](contributing/decisions/repository-catalog-db.md) | App 저장소의 정본을 `catalog_repositories`로 옮기는 결정과 한 번만 읽는 yaml 시드(일부는 파일 카탈로그를 설정으로 옮긴 결정이 대체) |
+| [결정(설계): 한 세션에서 여러 저장소와 PR](contributing/decisions/session-multi-repository.md) | 개수 제한 없이 한 세션이 여러 저장소에 push하고 PR을 여는 설계, 원격 여러 개·push 대상·게이트의 저장소 인자 |
+| [결정: 세션에 저장소를 붙여 쓰기](contributing/decisions/session-repository-attachment.md) | 세션을 저장소에 묶지 않고 0개 이상으로 시작해 도중에 붙이는 방식, 기본 저장소, 상한과 사용 범위 |
 | [결정: 파일 카탈로그를 설정으로](contributing/decisions/settings-replace-file-catalog.md) | 연결·저장소·MCP 서버를 DB·콘솔로 옮기고 설정 파일 로더를 없애는 설계, 자격 증명 경계, 한 번에 옮기는 이전, 내보내기/가져오기, GitHub App 저장소는 설치 목록에서 고름 |
 | [결정(설계): Musterrolle 모듈 경계](contributing/decisions/musterrolle-boundary.md) | 흩어진 신원·역할·권한 코드의 위치 실측, 패키지마다 `musterrolle/` 디렉터리와 공개면 하나로 닫는 목표 경계, architecture 테스트 규칙, 단계별 PR 순서와 증명 방법 |
 | [결정(제안): 로그 레코드 계약과 에러 기록](contributing/decisions/logging-contract.md) | 세 logger의 출력 모양과 로그 소비자, 표준 레코드와 계약 테스트, proxy 무의존 유지, 에러를 문자열로 남기는 규칙, 로그 필드가 바뀌는 단계별 PR |
