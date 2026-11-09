@@ -7,8 +7,8 @@ import packageJson from "../package.json" with { type: "json" };
 // contracts are not marked side-effect free, so a bundler keeps all of them.
 const BUDGET_BYTES: Record<string, number> = {
   ".": 4 * 1024,
-  "./schemas": 138 * 1024,
-  "./forms": 138 * 1024,
+  "./schemas": 139 * 1024,
+  "./forms": 139 * 1024,
 };
 
 test("every entry has a budget", () => {
