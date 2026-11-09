@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The release policy over the scans' result files
-# `supply-chain-verdict.sh <result dir> <no-verdict: warn|fail>`.
+# `supply-chain-verdict.sh <result dir> <warn|fail> [all|amd64|dependencies]`.
 #
 # Reads each app on each arch, <app>-<arch> (image-scan.sh), and npm
 # (npm-audit.ts) from <result dir>/<name>.txt. `found <n>`, a high or
@@ -39,7 +39,13 @@ fi
 # The plan is a value, never an absence: an unset variable means no plan to
 # honour, but an empty or unknown one fails, so a planner that did not run
 # cannot pass as "nothing to build".
-scans=({control-host,worker,egress-proxy}-{amd64,arm64} npm)
+scope=${3:-all}
+case "$scope" in
+  all) scans=({control-host,worker,egress-proxy}-{amd64,arm64} npm) ;;
+  amd64) scans=({control-host,worker,egress-proxy}-amd64 npm) ;;
+  dependencies) scans=(npm) ;;
+  *) echo "::error::unknown scan scope"; exit 2 ;;
+esac
 if [ -n "${IMAGES_PLAN+x}" ]; then
   # A planner that failed or was cancelled can leave an output behind.
   if [ "${IMAGES_PLAN_RESULT:-}" != success ]; then
@@ -48,18 +54,24 @@ if [ -n "${IMAGES_PLAN+x}" ]; then
   fi
   case "$IMAGES_PLAN" in
     build)
+      if [ "$scope" = dependencies ]; then
+        echo "::error::a planned image build requires image scans"
+        exit 1
+      fi
       if [ "${IMAGES_BUILD_RESULT:-}" != success ]; then
         echo "::error::build was planned and finished as '${IMAGES_BUILD_RESULT:-}'"
         exit 1
       fi
       ;;
     skip)
-      # Only a pull request that changes nothing but prose may skip the build.
-      if [ "${GITHUB_EVENT_NAME:-}" != pull_request ] || [ "${IMAGES_BUILD_RESULT:-}" != skipped ]; then
-        echo "::error::build was planned out but the event is '${GITHUB_EVENT_NAME:-}' and the build '${IMAGES_BUILD_RESULT:-}'"
-        exit 1
-      fi
-      scans=(npm)
+      # Main prose pushes use the same plan; tags and manual runs stay full.
+      case "${GITHUB_EVENT_NAME:-}:${GITHUB_REF:-}:${IMAGES_BUILD_RESULT:-}" in
+        pull_request:*:skipped | push:refs/heads/main:skipped) scans=(npm) ;;
+        *)
+          echo "::error::build was planned out but the event is '${GITHUB_EVENT_NAME:-}' and the build '${IMAGES_BUILD_RESULT:-}'"
+          exit 1
+          ;;
+      esac
       ;;
     *)
       echo "::error::no valid image build plan ('${IMAGES_PLAN}')"
