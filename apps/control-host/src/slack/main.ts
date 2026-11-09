@@ -41,6 +41,7 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
+  agentEnvNames,
   agentPromptIdentity,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
@@ -216,6 +217,8 @@ export function slackSessionHandler(deps: {
         ),
       promptIdentity: (workspaceId, releaseId) =>
         agentPromptIdentity(agentStore, workspaceId, releaseId),
+      envNames: (workspaceId, releaseId) =>
+        agentEnvNames(agentStore, workspaceId, releaseId),
       ...newSessionGitHubReaders(db),
     },
     promptRevision: platformPromptRevisionFromEnv(environment),

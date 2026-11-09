@@ -947,3 +947,90 @@ describe("a release's GitHub settings", () => {
     });
   });
 });
+
+describe("a card's declared variable names", () => {
+  const withEnv = (...names: string[]) =>
+    storedAgentCardSchema.parse({
+      ...cardWith(["Read"]),
+      capabilities: {
+        tools: ["Read"],
+        mcp: null,
+        forbidden: [],
+        env: names.map((name) => ({ name })),
+      },
+    });
+
+  test("saving and creating refuse a name the platform sets itself, before the store is reached", async () => {
+    const memory = memoryStore();
+    let writes = 0;
+    const store: AgentStore = {
+      ...memory.store,
+      create: async (...args) => {
+        writes += 1;
+        return memory.store.create(...args);
+      },
+      update: async (...args) => {
+        writes += 1;
+        return memory.store.update(...args);
+      },
+    };
+    const service = serviceOver(store);
+    const reserved = withEnv("REGION", "ANTHROPIC_API_KEY");
+    expect(
+      await codeOf(service.updateAgent(owner, AGENT, { card: reserved })),
+    ).toBe("VARIABLE_NAME_RESERVED");
+    expect(
+      await codeOf(
+        service.createAgent(owner, {
+          slug: "finance",
+          name: "재무 분석가",
+          managing_team_id: "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b",
+          card: reserved,
+        }),
+      ),
+    ).toBe("VARIABLE_NAME_RESERVED");
+    expect(writes).toBe(0);
+  });
+
+  test("activation refuses a release whose card declares a reserved name, without reaching the store", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    const store: AgentStore = {
+      ...memory.store,
+      findVersion: async (...args) => {
+        const version = await memory.store.findVersion(...args);
+        return version && { ...version, card: withEnv("GIT_AUTHOR_NAME") };
+      },
+    };
+    const refused = await serviceOver(store)
+      .activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: -1,
+      })
+      .catch((error: unknown) => error);
+    expect(refused).toMatchObject({ code: "VARIABLE_NAME_RESERVED" });
+    expect(memory.activations()).toBe(0);
+  });
+
+  test("a card that declares only ordinary names, or none, saves and activates as before", async () => {
+    const memory = memoryStore();
+    const service = serviceOver(memory.store);
+    const { release: made } = await service.createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    await service.activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    expect(memory.activations()).toBe(1);
+    await service.updateAgent(owner, AGENT, {
+      card: withEnv("REGION", "TEAM"),
+    });
+  });
+});

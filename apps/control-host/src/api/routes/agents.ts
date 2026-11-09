@@ -27,6 +27,7 @@ export function registerAgentRoutes(
     AgentService,
     | "resolveRelease"
     | "promptIdentity"
+    | "envNames"
     | "rolloutRelease"
     | "migrateAgent"
     | "unlockTools"

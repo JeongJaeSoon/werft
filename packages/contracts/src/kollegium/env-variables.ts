@@ -140,7 +140,19 @@ export const envVariableScopeSchema = z.enum(ENV_VARIABLE_SCOPE_VALUES);
  * a card written before it keeps its content hash.
  */
 export const cardEnvDeclarationSchema = z
-  .array(z.object({ name: envVariableNameSchema }).strict())
+  .array(
+    z
+      .object({
+        // The shape only. A reserved name is judged where a card is saved and
+        // where its release is activated, so the answer is
+        // `VARIABLE_NAME_RESERVED`, and a card saved before the list grew
+        // still reads.
+        name: z
+          .string()
+          .regex(namePattern, "must be an upper-case variable name"),
+      })
+      .strict(),
+  )
   .max(ENV_CARD_DECLARATION_LIMIT)
   .refine(
     (entries) => new Set(entries.map((e) => e.name)).size === entries.length,
