@@ -10,6 +10,7 @@ import type {
   AgentRecord,
   AgentStore,
 } from "../ports/agent-store.ts";
+import type { ExtensionAttachment } from "../ports/extension-bundle-store.ts";
 import {
   type CatalogProfile,
   profileFingerprint,
@@ -949,5 +950,121 @@ describe("a release's GitHub settings", () => {
     expect((error as SessionServiceError).details).toMatchObject({
       reason_code: "release_repository_outside",
     });
+  });
+});
+
+describe("activation and the agent's extension bundles", () => {
+  const scripted: ExtensionAttachment = {
+    scope: "agent",
+    mode: "optional",
+    bundle: {
+      id: "019a0000-0000-7000-8000-0000000e0001",
+      workspaceId: WORKSPACE,
+      name: "tools",
+      digest: "ab".repeat(32),
+      label: "tools",
+      source: "upload",
+      sizeBytes: 10,
+      manifest: {
+        schema: 1,
+        slug: "tools",
+        skills: [{ name: "run", has_scripts: true }],
+      },
+      review: "approved",
+      registeredBy: OWNER,
+      registeredAt: new Date(0),
+      reviewedBy: OWNER,
+      reviewedAt: new Date(0),
+    },
+  };
+  const extensions = {
+    store: {
+      find: async () => null,
+      listAttachments: async () => [scripted],
+    },
+    offersSkills: () => true,
+  };
+  const overWith = (store: AgentStore, profile: CatalogProfile) =>
+    createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store,
+      catalog: catalogOf(profile),
+      credentials: { unboundRefs: async () => [] },
+      extensions,
+    });
+
+  test("a release on an unattended profile is refused while the agent offers a scripted bundle", async () => {
+    const memory = memoryStore();
+    const auto: CatalogProfile = { ...PROFILE, permission_mode: "auto" };
+    const { release: made } = await serviceOver(
+      memory.store,
+      auto,
+    ).createRelease(owner, AGENT, release);
+    const error = await overWith(memory.store, auto)
+      .activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: -1,
+      })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).details).toMatchObject({
+      reason_code: "scripts_need_default_mode",
+      bundle: "tools",
+    });
+    expect(memory.activations()).toBe(0);
+  });
+
+  test("the same release on a default-mode profile activates", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(memory.store).createRelease(
+      owner,
+      AGENT,
+      release,
+    );
+    await overWith(memory.store, PROFILE).activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
+    });
+    expect(memory.activations()).toBe(1);
+  });
+
+  test("returning to an earlier release is refused on the same ground as an activation", async () => {
+    const memory = memoryStore();
+    const auto: CatalogProfile = { ...PROFILE, permission_mode: "auto" };
+    const { release: made } = await serviceOver(
+      memory.store,
+      auto,
+    ).createRelease(owner, AGENT, release);
+    const revert = (service: ReturnType<typeof overWith>) =>
+      service.revertMigration({
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        actorUserId: OWNER,
+        migrationId: "m-1",
+        previousReleaseId: made.id,
+        expected: {
+          activeReleaseId: "other",
+          activationRevision: -1,
+          behaviorRevision: 0,
+          tracking: "follow",
+          modelSource: "profile",
+        },
+        tracking: "follow",
+      });
+    expect(await revert(overWith(memory.store, auto))).toEqual({
+      status: "failed",
+      reason: "release_refused",
+    });
+    expect(memory.activations()).toBe(0);
+    const bare = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: catalogOf(auto),
+      credentials: { unboundRefs: async () => [] },
+    });
+    expect((await revert(bare)).status).not.toBe("failed");
   });
 });

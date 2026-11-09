@@ -78,6 +78,9 @@ function fakeStore() {
     async recordAttachment() {
       return { outcome: "bundle_not_found" };
     },
+    async listAttachments() {
+      return [];
+    },
   };
   return { store, rows };
 }

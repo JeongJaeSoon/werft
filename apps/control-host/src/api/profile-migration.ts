@@ -39,6 +39,7 @@ import {
   runtimeVersionsFromEnv,
   secretsManagerReader,
 } from "./catalog-config.ts";
+import { extensionDepsFor } from "./extension-deps.ts";
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 
@@ -197,6 +198,7 @@ async function apply(
       store: createPostgresAgentStore(db),
       catalog,
       credentials: createPostgresCredentialBindingStore(db),
+      extensions: extensionDepsFor(db),
     });
     const report: Summary[] = [];
     let failed = false;
@@ -337,6 +339,7 @@ async function revert(
       store: createPostgresAgentStore(db),
       catalog,
       credentials: createPostgresCredentialBindingStore(db),
+      extensions: extensionDepsFor(db),
     });
     const reverted: Summary[] = [];
     const skipped: Summary[] = [];
