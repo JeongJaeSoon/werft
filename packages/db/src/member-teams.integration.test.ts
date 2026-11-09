@@ -358,6 +358,15 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
       .set({ disabledAt: new Date() })
       .where(eq(users.id, idOf(suspended)));
 
+    // The detail reads either kind of off as inactive, so the page offers
+    // neither edit on the row.
+    const detail = await teams().get(workspaceId, team.id);
+    expect(
+      Object.fromEntries(
+        (detail?.members ?? []).map((m) => [m.userId, m.disabledAt !== null]),
+      ),
+    ).toEqual({ [idOf(off)]: true, [idOf(suspended)]: true });
+
     const receiptsBefore = await db
       .select()
       .from(receipts)

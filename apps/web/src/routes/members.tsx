@@ -346,6 +346,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
   const editing = items.find((member) => member.user_id === editingId);
   // The name button that opened 구성원 편집 gets the keyboard back.
   const editOpener = useRef<HTMLElement | null>(null);
+  const editedId = useRef<string | null>(null);
   const self = useMe()?.user?.id;
 
   const settle = async (text: string) => {
@@ -471,6 +472,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               inactive={disabled}
               className={disabled ? INACTIVE_ROW_CLASS : undefined}
               data-disabled={disabled}
+              data-member-id={member.user_id}
             >
               <GridTableCell lines={true}>
                 {/* A disabled member opens nothing: no opener, so no pointer,
@@ -483,6 +485,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
                     })}
                     onClick={(event) => {
                       editOpener.current = event.currentTarget;
+                      editedId.current = member.user_id;
                       setEditingId(member.user_id);
                     }}
                   />
@@ -550,7 +553,18 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
           }}
           onSave={(next) => changeRole.mutate({ member: editing, role: next })}
           onClosed={() => {
-            if (editOpener.current?.isConnected) editOpener.current.focus();
+            const opener = editOpener.current;
+            if (opener?.isConnected) {
+              opener.focus();
+              return;
+            }
+            // The member was disabled while the dialog was open, so the row
+            // lost its opener: focus what the row still offers instead.
+            document
+              .querySelector<HTMLElement>(
+                `[data-member-id="${editedId.current}"] button`,
+              )
+              ?.focus();
           }}
         />
       ) : null}

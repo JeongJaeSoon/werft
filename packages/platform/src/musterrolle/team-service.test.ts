@@ -288,6 +288,22 @@ describe("team.manage by role (design 4.1, D23)", () => {
   });
 });
 
+test("a disabled member's removal from a team is MEMBER_DISABLED", async () => {
+  const { store } = recordingStore();
+  const teams = createTeamService({
+    authorization: createAuthorizationPolicy({ agents }),
+    store: {
+      ...store,
+      async removeMember() {
+        return { outcome: "member_disabled" };
+      },
+    },
+  });
+  expect(
+    await refusal(teams.removeTeamMember(caller("owner"), TEAM, USERS.member)),
+  ).toMatchObject({ code: "MEMBER_DISABLED" });
+});
+
 describe("agent.admin.manage by role (design 4.1)", () => {
   function agentAdmins() {
     const changed: AgentAdminSubject[] = [];

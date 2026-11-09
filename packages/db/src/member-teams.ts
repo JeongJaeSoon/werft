@@ -499,7 +499,7 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               ),
             );
           if (!row) return null;
-          const members: TeamMember[] = await tx
+          const rows = await tx
             .select({
               userId: memberTeamMembers.userId,
               email: users.email,
@@ -507,7 +507,8 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               role: sql<TeamMemberRole>`${memberTeamMembers.role}`,
               addedBy: memberTeamMembers.addedBy,
               addedAt: memberTeamMembers.addedAt,
-              disabledAt: memberships.disabledAt,
+              membershipDisabledAt: memberships.disabledAt,
+              accountDisabledAt: users.disabledAt,
             })
             .from(memberTeamMembers)
             .innerJoin(users, eq(users.id, memberTeamMembers.userId))
@@ -528,6 +529,14 @@ export function createPostgresTeamStore(db: Database): TeamStore {
               asc(memberTeamMembers.addedAt),
               asc(memberTeamMembers.userId),
             );
+          // Off in the workspace or suspended account-wide: either way the
+          // row is inactive, as the member list reads it.
+          const members: TeamMember[] = rows.map(
+            ({ membershipDisabledAt, accountDisabledAt, ...member }) => ({
+              ...member,
+              disabledAt: membershipDisabledAt ?? accountDisabledAt,
+            }),
+          );
           return { ...(await teamOf(tx, row)), members };
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },
