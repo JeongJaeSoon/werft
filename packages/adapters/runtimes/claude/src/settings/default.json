@@ -56,10 +56,25 @@
       "git --* -c*",
       "git config -f*",
       "git config * -f*",
+      "git * config -f*",
+      "git * config * -f*",
       "git clone*",
-      "git --* clone*",
+      "git * clone*",
       "git worktree*",
-      "git --* worktree*",
+      "git * worktree*",
+      "git init *",
+      "git * init *",
+      "git archive*",
+      "git * archive*",
+      "git format-patch*",
+      "git * format-patch*",
+      "git bundle*",
+      "git * bundle*",
+      "git * -o*",
+      "gh repo clone*",
+      "gh gist clone*",
+      "gh run download*",
+      "gh release download*",
       "git * --file*",
       "git * --global*",
       "git * --system*",
@@ -100,7 +115,8 @@
       "sed *;e *",
       "sed *{e *"
     ],
-    "inPlaceLetters": "nsEerzu"
+    "inPlaceLetters": "nsEerzu",
+    "addressChars": "0123456789$/"
   },
   "fs": {
     "allow": ["mkdir"],
@@ -133,12 +149,12 @@
       "git cat-file",
       "git * cat-file"
     ],
-    "nameStarts": [" ", "/", "\"", "'", "=", ":", "-f"],
+    "nameStarts": [" ", "/", "\"", "'", "=", ":", "r", "-f"],
     "clusterLetters": "nHiswNlcoF",
     "extensions": [".pem", ".key", ".p12", ".pfx", ".keystore"],
     "extensionEnds": [" ", "\"", "'"],
     "notAReadName": ["credentials", "service-account"],
-    "extraNames": ["service-account*.json", ".git/config"]
+    "extraNames": ["service-account*.json", ".git/config", ".aws/credentials"]
   },
   "rgHidden": {
     "ask": [

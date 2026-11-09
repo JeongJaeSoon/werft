@@ -468,6 +468,21 @@ const steps: Step[] = [
     "git clone https://example.test/r.git ../outside",
     true,
   ),
+  // Third review: more output paths, sed addresses, a secret named in a script.
+  bash(
+    "git_global_opt_config_file",
+    "git --no-pager config -f../o.cfg a.b c",
+    true,
+  ),
+  bash("git_init_outside", "git init ../outside", true),
+  bash("git_archive_outside", "git archive HEAD -o ../outside.tar", true),
+  bash("git_format_patch_outside", "git format-patch -1 -o ../outside", true),
+  bash("gh_repo_clone_outside", "gh repo clone o/r ../outside", true),
+  bash("sed_address_w", "sed '1w../sed-outside.txt' notes/sample.txt", true),
+  bash("sed_subst_w", "sed 's/a/b/w../sed-outside.txt' notes/sample.txt", true),
+  bash("sed_address_e", "sed '1e id' notes/sample.txt", true),
+  bash("sed_r_secret", "sed 'r.env.secret' notes/sample.txt", true),
+  bash("git_show_aws_credentials", "git show HEAD:.aws/credentials", true),
   bash(
     "git_grep_code",
     "git grep --untracked -n process.env src",

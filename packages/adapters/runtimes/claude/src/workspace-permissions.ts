@@ -81,6 +81,14 @@ const policySchema = z
          * `sed -ni` or `-nEi`: one or two of them, then `i`.
          */
         inPlaceLetters: z.string().min(1),
+        /**
+         * What can come right before a `w` (write a file) or `e` (run a
+         * command) in a sed script: a line number, `$`, or the `/` that ends
+         * an `s///` or an address. Three or more bundled flags before `i`
+         * (`-nEri`) are not caught, and `e` after a bare command letter is
+         * not either; the container is what holds those.
+         */
+        addressChars: z.string().min(1),
       })
       .strict(),
     fs: z
@@ -272,6 +280,10 @@ export function workspaceRules(
       ...[
         ...policy.read.ask,
         ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
+        ...[...policy.read.addressChars].flatMap((c) => [
+          `sed *${c}w*`,
+          `sed *${c}e *`,
+        ]),
       ].map((pattern) => `Bash(${pattern})`),
     );
     ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
