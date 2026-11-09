@@ -86,7 +86,7 @@ CI와 같은 Bun 1.3.14로 `bun test --timeout 15000 ./tests`를 실행하여 **
 
 main `ca6ac15f2`의 성공 실행 42566966027과 PR `f8a6ac61d`의 실행 42567660208 attempt 3을 비교했다. 실패는 worker의 GitHub CLI·Git LFS release archive를 가져오는 원격 `ADD --checksum`에서 발생했다. 양쪽 베이스·frontend pin과 Images의 `images-앱-아키텍처` 캐시 scope는 같다. quickstart·kind 빌드는 해당 Images GHA cache나 공유 artifact를 입력으로 쓰지 않으며 Next 캐시는 docs만 대상으로 한다. 오류의 고정 digest는 92바이트 HTTP 504 HTML 본문의 해시이고, 뒤의 서로 다른 digest는 각 archive의 기대 pin이다.
 
-같은 로컬 builder·베이스 pin·`--no-cache`에서 수정 전 gh stage의 실패를 재현했다. 수정 후에는 기존 `fetch-pinned.ts`가 브라우저 다운로드 경로 실패 뒤 공식 release asset API로 전환해 같은 SHA의 파일만 기록한다. 공개 API의 octet-stream 응답과 redirect를 지원하며 인증정보를 전달하지 않는다. 버전·archive pin·베이스·캐시 scope를 바꾸지 않고 cold gh·git-lfs stage와 실제 native 실행을 검증했다. Helm job은 helm archive 검증을 통과한 다음 kubeconform 다운로드에서 실패한 것이어서 그 입력에도 같은 대체 경로를 적용했다. 전체 Actions 결과는 PR 코멘트에 기록한다. 이전의 일시 오류 판단 대신 이 재현과 입력 경로 수정을 후속 결론으로 삼는다.
+같은 로컬 builder·베이스 pin·`--no-cache`에서 수정 전 gh stage의 실패를 재현했다. 수정 후에는 기존 `fetch-pinned.ts`가 브라우저 다운로드 경로 실패 뒤 공식 release asset API로 전환해 같은 SHA의 파일만 기록한다. 공개 API의 octet-stream 응답과 redirect를 지원하며 인증정보를 전달하지 않는다. 버전·archive pin·베이스·캐시 scope를 바꾸지 않고 cold gh·git-lfs stage와 실제 native 실행을 검증했다. Helm job은 helm archive 검증을 통과한 다음 kubeconform 다운로드에서 실패한 것이어서 그 입력에도 같은 대체 경로를 적용했다. Images의 Grype 설치도 같은 브라우저 경로에서 반복 실패해 공식 asset API로 전환하고, 두 경로 모두 원래 SHA를 검증한 다음에만 압축을 풀도록 했다. scanner를 설치·실행하지 못하면 기존처럼 error와 실패를 남긴다. 전체 Actions 결과는 PR 코멘트에 기록한다. 이전의 일시 오류 판단 대신 이 재현과 입력 경로 수정을 후속 결론으로 삼는다.
 
 ## 2026-11-06 당시 측정
 
