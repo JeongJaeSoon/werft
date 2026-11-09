@@ -2415,7 +2415,8 @@ export const pushIntents = pgTable(
     pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
     refusalCode: text("refusal_code"),
     actor: jsonb().notNull(),
-    // `push.primary` or `push.attached`, and who the policy was at creation.
+    // `push`, or `push.primary` / `push.attached` from before the classes were
+    // one; audit only, never read as a permission.
     approvalBasis: text("approval_basis"),
     policySource: text("policy_source"),
     pullRequest: jsonb("pull_request"),

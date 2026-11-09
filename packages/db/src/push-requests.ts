@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  type EffectiveGitHubPolicy,
   GITHUB_MCP_TOOL_ARGUMENTS,
   type GitHubMcpTool,
   type GitHubPolicySource,
@@ -17,7 +16,7 @@ import {
   type PushRequestSnapshot,
   type PushRequestState,
   pushBranchFor,
-  pushClassOf,
+  pushDecisionOf,
   type ReceiptActor,
   repositoryCeilingOf,
 } from "@werft-ai/contracts";
@@ -259,20 +258,6 @@ function resultOf(
   };
 }
 
-// Only an explicit false: no settings, or a shape this image does not know,
-// keeps a person deciding.
-function approvalOff(policy: EffectiveGitHubPolicy): boolean {
-  return (
-    policy.settings !== "invalid" && policy.settings?.push_approval === false
-  );
-}
-
-// `allow` only: no settings or a shape this image does not know keeps a
-// person deciding, and so does a release session (its pin means `ask`).
-function attachedAllowed(policy: EffectiveGitHubPolicy): boolean {
-  return policy.settings !== "invalid" && policy.pushAttached === "allow";
-}
-
 const claimable = sql`${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now()))`;
 
 /**
@@ -286,10 +271,7 @@ async function approvalLapsed(
 ): Promise<GitHubPolicySource | null> {
   if (row.approvalBasis !== "policy") return null;
   const [session] = await tx
-    .select({
-      ...githubPolicyColumns,
-      sessionRepositoryId: sessions.repositoryId,
-    })
+    .select(githubPolicyColumns)
     .from(sessions)
     .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
     .leftJoin(agents, eq(agents.id, agentReleases.agentId))
@@ -298,11 +280,7 @@ async function approvalLapsed(
     .limit(1);
   if (session === undefined) return null;
   const policy = githubPolicyOfRow(session);
-  const stillGiven =
-    pushClassOf(session.sessionRepositoryId, row.repositoryId) ===
-    "push.attached"
-      ? attachedAllowed(policy)
-      : approvalOff(policy);
+  const stillGiven = pushDecisionOf(policy) === "allow";
   return stillGiven ? null : policy.source;
 }
 
@@ -444,23 +422,15 @@ export function createPostgresPushRequests(
         repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
         // Off now, or off as the session started: both close it.
         githubEnabled: (row.githubEnabled ?? false) && policy.enabledAtStart,
+        push: pushDecisionOf(policy),
         policyApproval:
-          approvalOff(policy) && row.releaseId !== null
-            ? {
+          row.releaseId === null
+            ? null
+            : {
                 releaseId: row.releaseId,
                 source: policy.source,
                 settingsRevision: policy.agentSettingsRevision,
-              }
-            : null,
-        pushAttached: policy.pushAttached,
-        attachedApproval:
-          attachedAllowed(policy) && row.releaseId !== null
-            ? {
-                releaseId: row.releaseId,
-                source: policy.source,
-                settingsRevision: policy.agentSettingsRevision,
-              }
-            : null,
+              },
         policyFields: githubPolicyReceiptFields(
           policy,
           row.ceilingRevision ?? 0,

@@ -4,6 +4,7 @@ import {
   type AgentGitHub,
   MCP_TOOL_PREFIX,
   type PushAttached,
+  pushDecisionOf,
 } from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
@@ -350,8 +351,7 @@ export const attachRepositoryReceiptResultSchema = z.object({
 
 /**
  * What kind of action a tool is, the unit a policy value is set on (design
- * 8.1). `push` is judged per repository as `push.primary` or `push.attached`
- * (`pushClassOf`). There is no `administration`: no tool does that.
+ * 8.1). `push` is judged by `pushDecisionOf`. There is no `administration`: no tool does that.
  */
 export const ACTION_CLASS_VALUES = [
   "push",
@@ -401,19 +401,20 @@ export function listedGitHubMcpTools(
   );
 }
 
-/** The class a push to `repositoryId` is judged under. */
-export function pushClassOf(
-  sessionRepositoryId: string | null,
-  repositoryId: string,
-): "push.primary" | "push.attached" {
-  return repositoryId === sessionRepositoryId
-    ? "push.primary"
-    : "push.attached";
-}
+/**
+ * The class a push is recorded under (`push_intents.approval_basis`). A
+ * stored value is audit only: the intent runner judges the push again with
+ * the policy of that moment, whichever class it was made under.
+ */
+export const PUSH_CLASS_VALUES = [
+  "push",
+  "push.primary",
+  "push.attached",
+] as const;
+export type PushClass = (typeof PUSH_CLASS_VALUES)[number];
 
 export type ActionPolicy = {
-  "push.primary": "allow" | "ask";
-  "push.attached": PushAttached;
+  push: PushAttached;
   "pull_request.write": "allow";
   "pull_request.merge": "workspace_ceiling";
   review: "allow" | "deny";
@@ -423,16 +424,14 @@ export type ActionPolicy = {
 
 /**
  * The policy per class, computed from the effective settings; nothing is
- * stored per class. `push.primary` is `push_approval`; `push.attached` is
- * its own value.
+ * stored per class. A push is `pushDecisionOf`.
  */
 export function actionPolicyOf(
   github: AgentGitHub,
   pushAttached: PushAttached,
 ): ActionPolicy {
   return {
-    "push.primary": github.push_approval ? "ask" : "allow",
-    "push.attached": pushAttached,
+    push: pushDecisionOf({ settings: github, pushAttached }),
     "pull_request.write": "allow",
     "pull_request.merge": "workspace_ceiling",
     review: github.features.review ? "allow" : "deny",
