@@ -8,7 +8,7 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, ne, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
@@ -318,8 +318,8 @@ async function write(
     };
   }
   // The thread already heard of this pull request (an earlier push's notice
-  // links it): this push updated it. A thread that was never told, say its
-  // installation was revoked then, hears it opened.
+  // that links it went out): this push updated it. A thread that was never
+  // told, say its installation was revoked then, hears it opened.
   const [told] = await tx
     .select({ id: slackOutbox.id })
     .from(slackOutbox)
@@ -328,9 +328,11 @@ async function write(
         eq(slackOutbox.sessionId, job.sessionId),
         eq(slackOutbox.kind, "action_notice"),
         sql`${slackOutbox.body} ->> 'link_url' = ${opened.url}`,
-        // A notice that was given up on (`failed`, e.g. closed unaddressed
-        // after a revoke) never reached the thread.
-        ne(slackOutbox.status, "failed"),
+        // Only a notice Slack took counts (`uncertain`: sent, unconfirmed).
+        // One still pending may wait in backoff while this one overtakes
+        // it, or be given up on later; the thread hears "opened" again then,
+        // which is true, rather than "updated" first or alone.
+        inArray(slackOutbox.status, ["sent", "uncertain"]),
       ),
     )
     .limit(1);
