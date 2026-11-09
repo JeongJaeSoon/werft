@@ -184,7 +184,7 @@ export function createAgentService(deps: {
   async function extensionRefusal(
     workspaceId: string,
     agentId: string,
-    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind">,
+    profile: Pick<CatalogProfile, "permission_mode" | "runtime_kind" | "tools">,
   ): Promise<ExtensionRefusal | null> {
     if (!deps.extensions) return null;
     const checked = await checkAgentExtensions(deps.extensions, {
@@ -192,6 +192,7 @@ export function createAgentService(deps: {
       agentId,
       permissionMode: profile.permission_mode,
       runtimeKind: profile.runtime_kind,
+      tools: profile.tools,
     });
     return checked.ok ? null : checked.refusal;
   }

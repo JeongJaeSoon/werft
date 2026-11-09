@@ -868,6 +868,7 @@ export function createSessionService(deps: {
           ...(selection === undefined ? {} : { selection }),
           permissionMode: profile.permission_mode,
           runtimeKind: profile.runtime_kind,
+          tools: profile.tools,
         });
         if (resolved.ok) {
           extensions = resolved.extensions.map((e) => ({
@@ -1280,6 +1281,7 @@ export function createSessionService(deps: {
           extensions: record.extensions,
           permissionMode: pair.profile.permission_mode,
           runtimeKind: pair.profile.runtime_kind,
+          tools: pair.profile.tools,
         });
         if (!checked.ok) pinnedRefusal = checked.refusal.message;
       }
