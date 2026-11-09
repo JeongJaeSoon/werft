@@ -23,6 +23,10 @@ To create a new App in the console, the API needs `CONSOLE_ORIGIN`, the origin w
 
 Add the `Workflows` permission to the App only when the "Change workflow files" feature is on. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset. The operations docs describe how to set this up.
 
+### The App's Setup URL
+
+An App made in the console gets its Setup URL filled in as `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`. If you connected an App that already existed, set **Setup URL** to this address in the App's settings on GitHub (Developer settings > GitHub Apps > the App > General). After you add an organization, GitHub sends the browser back to this address, and the console records the installation from what comes back. An App whose Setup URL still points at the old `/settings/workspace/github` needs the new address; that path no longer exists. For an account that already has the App installed, GitHub returns to the console after you save the installation's settings only when the App's **Redirect on update** is on.
+
 ## What the user does
 
 1. Create a session with that repository's `repository_id` ([Start](/sessions/start)).

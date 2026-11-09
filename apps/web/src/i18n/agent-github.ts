@@ -280,7 +280,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "A repository missing here appears once you add it to the App's installation on GitHub.",
   "agentGitHub.permissionsHint":
-    "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Settings > Workspace > Integrations > GitHub.",
+    "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Integrations > GitHub.",
   "agentGitHub.base": "Write pull requests",
   "agentGitHub.baseHint":
     "Pushes to agent/<session> branches, opens and updates pull requests, comments. Needs: contents and pull requests write",
@@ -297,7 +297,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.featureReason.app_permission_missing":
     "The App lacks this permission. Add it in the GitHub App's settings, then approve the installation again.",
   "agentGitHub.featureReason.over_workspace_ceiling":
-    "Over the workspace ceiling. Owners and admins turn it on in Settings > Workspace > Integrations > GitHub.",
+    "Over the workspace ceiling. Owners and admins turn it on in Integrations > GitHub.",
   "agentGitHub.featureReason.no_reviewer_app":
     "The workspace has no reviewer App. The App that writes pull requests cannot approve its own.",
   "agentGitHub.featureReason.github_host_unsupported":
@@ -309,7 +309,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.workflowsActions":
     "With workflow edits and Actions both on, the agent can change an allowed workflow file on its own branch. Once a person merges that branch, the changed file is what runs.",
   "agentGitHub.ceilingNote":
-    "Owners and admins set the workspace ceiling in Settings > Workspace > Integrations > GitHub.",
+    "Owners and admins set the workspace ceiling in Integrations > GitHub.",
   "agentGitHub.allowlistHint":
     "With Run Actions on, only workflows on this list run or rerun. Any other workflow_dispatch or rerun is refused.",
   "agentGitHub.allowlistEmpty": "No workflow outside the list runs.",

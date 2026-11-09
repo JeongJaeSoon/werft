@@ -23,6 +23,10 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 
 `Workflows` 権限は「ワークフローファイルの変更」機能を有効にするときだけ App に加える。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
 
+### App の Setup URL
+
+コンソールで作った App は、Setup URL が `<CONSOLE_ORIGIN>/settings/workspace/integrations/github` で入る。すでにあった App を連携した場合は、GitHub の App 設定（Developer settings > GitHub Apps > その App > General）で **Setup URL** をこの住所に合わせる。組織を追加すると GitHub がブラウザーをこの住所へ戻し、コンソールは戻ってきた値でインストールを記録する。Setup URL が古い `/settings/workspace/github` を指している App は新しい住所に変える。その経路はなくなった。すでにインストール済みのアカウントで、インストールの設定を保存したあとコンソールへ戻るのは、App の **Redirect on update** がオンのときだけである。
+
 ## ユーザーがやること
 
 1. そのリポジトリの `repository_id` でセッションを作る([開始](/sessions/start))。

@@ -23,6 +23,10 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 `Workflows` 권한은 "워크플로 파일 수정" 기능을 켤 때만 App에 더한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다. 설정 방법은 운영 문서에 있다.
 
+### App의 Setup URL
+
+콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. Setup URL이 옛 `/settings/workspace/github`를 가리키는 App은 새 주소로 바꾼다. 그 경로는 없어졌다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
+
 ## 사용자가 할 일
 
 1. 그 저장소의 `repository_id`로 세션을 만든다([시작](/sessions/start)).

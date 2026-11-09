@@ -268,7 +268,7 @@ If the new profile differs in runtime kind, version, or billing mode, or does no
 
 ## Make a workspace profile
 
-Workspace owners and admins can make a profile that only this workspace uses, based on an operator profile. In the console, open **Workspace › Profiles** and press **Create profile**.
+Workspace owners and admins can make a profile that only this workspace uses, based on an operator profile. In the console, open **Workspace > Profiles** and press **Create profile**.
 
 - It can only reduce. Models and tools are picked from the base profile's, and the permission mode is the base profile's own or one that has a person check more. A new profile starts at `auto` when the base profile allows it (a base in `auto` or `bypassPermissions`), and **Create profile** picks such a base first. `auto` and `bypassPermissions` that the base does not allow show as unavailable choices. A `bypassPermissions` base exists only where the operator turned on the installation setting. Picking `bypassPermissions` shows a risk notice. The runtime, provider, credential and repository pairing stay the base profile's.
 - A saved version never changes. Each save after **Edit** makes a new version id `ws_<workspace slug>_<name>_v<n>`, which the screen shows before you save. A release on an earlier version changes only when you make a new release on the new version. The list shows one row per name with its latest version; press **Earlier versions (N)** to unfold the rest.

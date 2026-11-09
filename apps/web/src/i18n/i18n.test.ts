@@ -438,12 +438,7 @@ describe("profile naming", () => {
   // and must not claim there is no merge at all.
   test.each([
     ["ko", agentGitHubKo, /연동 > GitHub/, /머지는 이 에이전트 설정에 없고/],
-    [
-      "en",
-      agentGitHubEn,
-      /Settings > Workspace > Integrations > GitHub/,
-      /allows it/,
-    ],
+    ["en", agentGitHubEn, /Integrations > GitHub/, /allows it/],
     ["ja", agentGitHubJa, /連携 > GitHub/, /マージを許可したときだけ/],
   ] as const)(
     "%s agent GitHub hint points merging at the workspace setting",
