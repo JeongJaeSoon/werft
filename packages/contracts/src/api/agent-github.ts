@@ -62,7 +62,7 @@ export const agentGitHubResponseSchema = z.object({
       }),
     )
     .optional(),
-  /** Kept for compatibility: a session that names none starts without a repository. */
+  /** Kept for compatibility: with a settings row, a session that names none starts without a repository. */
   start_repository_id: z.string().nullable(),
   /**
    * Whether a push to an attached repository needs a person: the row's
