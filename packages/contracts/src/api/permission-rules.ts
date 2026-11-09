@@ -70,12 +70,22 @@ function isPlainHost(host: string): boolean {
   );
 }
 
-/** Every `)` closes an earlier `(` and none is left open. */
-function balanced(text: string): boolean {
+/**
+ * Every `)` closes an earlier `(`, none is left open, and a `)` that closes
+ * the outermost pair is the last character or is followed by another `(`.
+ */
+function wellNested(text: string): boolean {
   let depth = 0;
-  for (const char of text) {
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
     if (char === "(") depth += 1;
-    else if (char === ")" && --depth < 0) return false;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return false;
+      if (depth === 0 && i < text.length - 1 && text[i + 1] !== "(") {
+        return false;
+      }
+    }
   }
   return depth === 0;
 }
@@ -162,17 +172,21 @@ export function parsePermissionRule(
       `${rule} blocks the whole tool: write ${tool} without an argument`,
     );
   }
-  if (argument !== bare) {
+  // An exact or prefix rule is compared with its edge space kept, so it never
+  // matches the command it was meant for. A glob rule is matched loosely.
+  if (argument !== bare && !argument.includes("*")) {
     return refuse(
       "rule_syntax",
       rule,
       `${rule} has a space inside the parentheses at its edge, which the engine keeps as part of the match`,
     );
   }
-  // The engine's list splitter ends a rule at an unbalanced parenthesis, so
-  // `Bash(echo (x) hello)` is stored as two other rules and the deny is lost.
-  // A shell prefix has no use for one; a path may hold a balanced pair.
-  if (tool === "Bash" ? /[()]/.test(argument) : !balanced(argument)) {
+  // The engine's list splitter ends a rule at an unbalanced parenthesis, and
+  // at a closing one that is followed by more text, so `Bash(echo (x) hello)`
+  // or `Read(./a(b) c)` is stored as two other rules and the deny is lost. A
+  // shell prefix has no use for one; a path may hold balanced pairs that end
+  // the rule or lead straight into another pair.
+  if (tool === "Bash" ? /[()]/.test(argument) : !wellNested(argument)) {
     return refuse(
       "rule_syntax",
       rule,

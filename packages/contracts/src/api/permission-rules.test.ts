@@ -85,6 +85,14 @@ describe("parsePermissionRule", () => {
     expect(refusedAs("Read(./a(b)")).toBe("rule_syntax");
     // Round 2: a balanced pair in a path stays one rule in the engine.
     expect(refusedAs("Read(./a(b))")).toBe("accepted");
+    expect(refusedAs("Read(./a(b)(c))")).toBe("accepted");
+    expect(refusedAs("Read((x))")).toBe("accepted");
+    expect(refusedAs("Edit(./a((b)))")).toBe("accepted");
+    // Round 3: text after a pair that closes the rule splits it in two.
+    expect(refusedAs("Read(./a(b) c)")).toBe("rule_syntax");
+    // A glob rule is matched loosely, so edge space (NBSP included) is kept.
+    expect(refusedAs("Bash( git *)")).toBe("accepted");
+    expect(refusedAs("Bash(git * )")).toBe("accepted");
     // An empty prefix is read as the literal `:*`, which matches nothing.
     expect(refusedAs("Bash(:*)")).toBe("rule_syntax");
     // `:*` is the Bash prefix form; on a path it is not a rule, wherever it is.
