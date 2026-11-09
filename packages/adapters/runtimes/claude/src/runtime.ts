@@ -39,7 +39,7 @@ const ENGINE_ATTRIBUTION_OFF = { commit: "", pr: "", sessionUrl: false };
 // Not a person's refusal: the platform could not record that the
 // checkpoint this turn waits on no longer holds once the tool runs.
 const ADMISSION_GUARD_REFUSED =
-  "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.";
+  "The platform could not record that this tool is starting, so it was not run. This is not a user decision.";
 
 /** The SDK driver `ClaudeAgentRuntime` wraps. */
 export class ClaudeSdkRuntime {

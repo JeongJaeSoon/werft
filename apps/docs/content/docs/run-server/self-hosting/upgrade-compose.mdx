@@ -75,22 +75,22 @@ incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함�
 | --- | --- | --- |
 | provider usage의 `inference_geo` | migration 포함 API를 먼저 교체하고 ready 확인 후 egress proxy 교체 | 옛 API는 새 proxy 보고를 400으로 거절하여 비용 계측이 빠짐 |
 | `billing: none` | 모든 API replica와 모든 scheduler의 WORKER_IMAGE 교체 후 새 none 세션 생성 | unmetered 세션이 남으면 옛 API·worker로 rollback 금지 |
-| `SESSION_PROMPT_REVISION=1` | migration 0229 → claim 처리 API 전부·현재/직전 worker 이미지 전부 교체 → 1 활성화 | 0은 새 세션에만 영향. 활성화 후 옛 API·worker로 rollback 미지원 |
+| 체크포인트의 로컬 브랜치(`workspace.sources`, `refs/checkpoint/source/*`) | API·검증기·GC·세션 보관 CronJob 전부 → worker | 옛 API·검증기는 이 필드와 ref를 거절한다. 순서가 어긋나면 새 worker의 체크포인트가 거절되는 동안 push만 막히고 데이터는 잃지 않는다 |
 | transcript 상한/reason | migration → API 전부 → worker. API finalize와 worker capture/restore 상한을 같은 release로 맞춤 | transcript reason을 모르는 빌드로 rollback 금지 |
 | manifest `outputs` | API 전부 → worker | api와 worker 모두 outputs를 아는 빌드까지만 rollback |
-| `AGENT_ACTION_FLOWS` | GC·세션 보관 CronJob까지 모든 구성 요소 교체 후 활성화 | 진행 중 의도는 끈 뒤에도 처리됨 |
 | 모델 차단 Slack DM(migration 0248) | migration 포함 API 전부 → slack 역할 | 0248 뒤에 옛 이미지로 내려도 안전함. 옛 slack 역할은 `model_notice` 행을 보낼 스레드가 없어 `not_addressed`로 닫고 DM은 가지 않음. 0248 아래로 스키마를 내리려면 `model_notice` 행을 먼저 지우고 `slack_outbox_kind_check`를 이전 목록으로 되돌려야 함 |
 | 에이전트 담당 팀 필수(migration 0243) | migration 포함 API 전부 교체 | 0243 뒤에 담당 팀을 이미 필수로 받던 직전 이미지로 내리면 생성은 되지만 보관 팀 에이전트의 세션이 다시 숨겨짐. 팀 없이 INSERT하던 더 오래된 이미지는 에이전트를 만들지 못함(`NOT NULL` 위반). 그 아래로 내리려면 쓰기를 멈추고 `NOT NULL`을 풀어야 하고, 백필과 이전 가시성은 되돌려지지 않음 |
+| Slack 비공개 채널 퇴장 처리(migration 0250) | migration 포함 API 전부 교체 → slack 역할 교체 → 이미 만든 에이전트 앱마다 events 재확인으로 manifest 재전송 | 새 `slack_channel_lifecycle` 표를 모르는 옛 이미지는 그 표를 무시하므로 내려도 데이터는 남는다. 다만 `member_left_channel`을 처리하지 않는 이미지로 내리면 bot이 비공개 채널에서 나갔다 다시 초대돼도 옛 승인이 그대로 살아난다 |
+| 확장 번들 attach·세션 해석(migration 0251) | migration 포함 API 전부 | 0251 뒤에 옛 이미지로 내려도 안전함. 옛 이미지는 `extension_attachments` 테이블과 `sessions.extensions` 열을 읽지 않아 세션에 고정된 번들 목록을 무시함. 0251 아래로 스키마를 내리려면 `extension_attachments` 테이블을 지우고 `sessions.extensions` 열을 빼야 하며, 세션에 고정된 번들 목록은 되돌려지지 않음 |
 
 새 control-host와 직전 worker의 조합은 배포 전 시험 설치에서 확인한다. 세션 turn 1 완료 → worker 제거 → checkpoint에서 turn 2 완료를 보고 API의 worker 요청에 400 BAD_REQUEST가 없어야 한다. 빈 설치 ready 200으로 이를 대신하지 않는다.
 
 ### v0.1.0 이후 변경을 처음 적용할 때
 
-- `v0.1.0` 이후 대상 버전까지의 모든 migration(현재 `0248`까지)을 migrate로 적용한다. `0239_connection_replaces_auth`의 새 열은 이전 이미지가 무시하지만, 이것만으로 나머지 checkpoint·protocol rollback이 안전하다는 뜻은 아니다.
+- `v0.1.0` 이후 대상 버전까지의 모든 migration(현재 `0251`까지)을 migrate로 적용한다. `0239_connection_replaces_auth`의 새 열은 이전 이미지가 무시하지만, 이것만으로 나머지 checkpoint·protocol rollback이 안전하다는 뜻은 아니다.
 - `v0.1.0` 태그의 compose는 `ANTHROPIC_API_KEY`가 비어 있으면 렌더를 거부한다. `v0.1.0`에서 올릴 때 env 파일에 남은 키는 그대로 두어도 된다. `a486f20d2` 이후 소스는 키가 있든 없든 받는다. 반대로 `v0.1.0` 소스를 다시 적용할 때만 키가 비어 있지 않아야 한다.
 - control-host를 먼저, worker를 나중에 교체한다. `platform_tool_trust` fallback이 있어도 교체 사이에는 옛 권한 경로를 사용하므로 순서를 지킨다.
-- `AGENT_ACTION_FLOWS`를 켜기 전에 API, Compose maintenance, Kubernetes checkpointGc·sessionArchive CronJob과 worker를 모두 대상 이미지로 바꾸고 **옛 이미지로 시작한 Job이 종료됐는지** 확인한다. 옛 GC가 고정 revision을 지울 수 있다.
-- 활성화 뒤 새 세션이 받는 prompt revision 2는 옛 worker가 읽지 못한다. 켜기 전 교체와 활성화 뒤 rollback 하한을 따로 확인한다. `v0.1.1` 게시 여부는 변경 기록 제목만으로 판단하지 않는다.
+- API, Compose maintenance, Kubernetes checkpointGc·sessionArchive CronJob을 먼저 대상 이미지로 바꾸고 **옛 이미지로 시작한 Job이 종료됐는지** 확인한 뒤 worker를 바꾼다. 옛 GC가 고정 revision을 지울 수 있고, 옛 API·검증기는 worker가 항상 담는 로컬 브랜치를 거절한다. `AGENT_ACTION_FLOWS`와 `SESSION_PROMPT_REVISION`은 없어졌고 값을 줘도 읽지 않는다. `v0.1.1` 게시 여부는 변경 기록 제목만으로 판단하지 않는다.
 
 다음 조건은 현재 설치가 해당 변경을 이미 포함했는지 대조하여 적용한다. rollback이 필요하면 먼저 영향 세션을 읽기 SQL로 센다. 데이터 손실을 승인하지 않고 roll-forward가 가능한지 먼저 판단한다.
 

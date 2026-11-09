@@ -19,12 +19,14 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresExtensionBundleStore } from "./extension-bundles.ts";
+import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
   agents,
   extensionBundles,
   memberships,
   receipts,
+  sessions,
   users,
   workspaces,
 } from "./schema.ts";
@@ -362,6 +364,8 @@ integration("extension bundles on PostgreSQL", () => {
       expect(rows[0]?.result).toEqual({
         bundle_id: bundle.id,
         digest: bundle.digest,
+        scope: "agent",
+        ...(operation === "attach_extension" ? { mode: "optional" } : {}),
       });
     }
     const stranger = randomUUID();
@@ -386,6 +390,312 @@ integration("extension bundles on PostgreSQL", () => {
       ).outcome,
     ).toBe("bundle_not_found");
     expect(await receiptsOf(other, "attach_extension")).toEqual([]);
+  });
+
+  async function agentIn(workspaceId: string) {
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId,
+      managingTeamId: await fixtureTeam(db, workspaceId),
+      slug: `a-${agentId.slice(0, 8)}`,
+      name: "agent",
+    });
+    return agentId;
+  }
+
+  test("attach offers a version to a scope, replaces it by name, and detach takes back only the version named", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const v1 = await register(service, owner);
+    const v2 = await register(
+      service,
+      owner,
+      [...clean(), file("skills/research/notes.md", "more")],
+      "Research v2",
+    );
+    expect(v2.digest).not.toBe(v1.digest);
+    expect(v2.name).toBe(v1.name);
+    const agentId = await agentIn(workspaceId);
+    const otherAgent = await agentIn(workspaceId);
+    const listed = async (id?: string) =>
+      (
+        await service.listAttachments({
+          workspaceId,
+          ...(id === undefined ? {} : { agentId: id }),
+        })
+      ).map((a) => [a.scope, a.mode, a.bundle.id]);
+
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: v1.id,
+      agentId,
+      mode: "required",
+      kind: "attach",
+    });
+    expect(await listed(agentId)).toEqual([["agent", "required", v1.id]]);
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: v2.id,
+      agentId,
+      kind: "attach",
+    });
+    expect(await listed(agentId)).toEqual([["agent", "optional", v2.id]]);
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: v1.id,
+      agentId,
+      kind: "detach",
+    });
+    expect(await listed(agentId)).toEqual([["agent", "optional", v2.id]]);
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: v1.id,
+      scope: "workspace",
+      mode: "forbidden",
+      kind: "attach",
+    });
+    expect(await listed(agentId)).toEqual([
+      ["agent", "optional", v2.id],
+      ["workspace", "forbidden", v1.id],
+    ]);
+    expect(await listed(otherAgent)).toEqual([
+      ["workspace", "forbidden", v1.id],
+    ]);
+    expect(await listed()).toEqual([["workspace", "forbidden", v1.id]]);
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: v2.id,
+      agentId,
+      kind: "detach",
+    });
+    expect(await listed(agentId)).toEqual([["workspace", "forbidden", v1.id]]);
+    expect(
+      (
+        await service.recordAttachment({
+          principal: owner,
+          bundleId: v1.id,
+          kind: "attach",
+        })
+      ).outcome,
+    ).toBe("agent_not_found");
+    expect(
+      (
+        await service.recordAttachment({
+          principal: owner,
+          bundleId: v1.id,
+          agentId: await agentIn(await workspace()),
+          kind: "attach",
+        })
+      ).outcome,
+    ).toBe("agent_not_found");
+  });
+
+  test("an owner that is no uuid (before workspaces) has no attachments instead of failing the read", async () => {
+    const { store } = build();
+    expect(await store.listAttachments({ workspaceId: "local" })).toEqual([]);
+    expect(await store.find("local", randomUUID())).toBeNull();
+    expect(
+      await store.listAttachments({
+        workspaceId: randomUUID(),
+        agentId: "not-a-uuid",
+      }),
+    ).toEqual([]);
+  });
+
+  test("attaches of one name at once all record and leave a single row", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const versions = [await register(service, owner)];
+    for (let i = 0; i < 3; i++) {
+      versions.push(
+        await register(
+          service,
+          owner,
+          [...clean(), file(`skills/research/n${i}.md`, `v${i}`)],
+          `Research n${i}`,
+        ),
+      );
+    }
+    const agentId = await agentIn(workspaceId);
+    for (const scope of ["agent", "workspace"] as const) {
+      const outcomes = await Promise.all(
+        versions.map((v) =>
+          service.recordAttachment({
+            principal: owner,
+            bundleId: v.id,
+            scope,
+            ...(scope === "agent" ? { agentId } : {}),
+            kind: "attach",
+          }),
+        ),
+      );
+      expect(outcomes.map((o) => o.outcome)).toEqual(
+        versions.map(() => "recorded"),
+      );
+    }
+    const rows = await service.listAttachments({ workspaceId, agentId });
+    expect(rows.map((r) => r.scope).sort()).toEqual(["agent", "workspace"]);
+  });
+
+  test("a member cannot attach; nothing is written", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const member = await person(workspaceId, "member");
+    const bundle = await register(service, owner);
+    const result = await service.recordAttachment({
+      principal: member,
+      bundleId: bundle.id,
+      scope: "workspace",
+      kind: "attach",
+    });
+    expect(result.outcome).toBe("outranked");
+    expect(await service.listAttachments({ workspaceId })).toEqual([]);
+  });
+
+  test("the table refuses a second version of one name in a scope, and a scope that names the wrong agent", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const userId = owner.actor?.userId ?? "";
+    const v1 = await register(service, owner);
+    const v2 = await register(service, owner, [
+      ...clean(),
+      file("skills/research/notes.md", "more"),
+    ]);
+    const agentId = await agentIn(workspaceId);
+    const row = (
+      over: Partial<typeof schema.extensionAttachments.$inferInsert>,
+    ) => ({
+      id: randomUUID(),
+      workspaceId,
+      scope: "workspace",
+      agentId: null,
+      bundleId: v1.id,
+      name: v1.name,
+      mode: "optional",
+      createdBy: userId,
+      ...over,
+    });
+    const insert = (values: ReturnType<typeof row>) =>
+      db.insert(schema.extensionAttachments).values(values);
+    expect(await refusal(insert(row({})))).toBe("accepted");
+    expect(await refusal(insert(row({ bundleId: v2.id })))).toBe(
+      "extension_attachments_workspace_name_idx",
+    );
+    expect(
+      await refusal(insert(row({ scope: "agent", agentId, bundleId: v1.id }))),
+    ).toBe("accepted");
+    expect(
+      await refusal(insert(row({ scope: "agent", agentId, bundleId: v2.id }))),
+    ).toBe("extension_attachments_agent_name_idx");
+    expect(await refusal(insert(row({ scope: "agent", agentId: null })))).toBe(
+      "extension_attachments_scope_check",
+    );
+    expect(await refusal(insert(row({ scope: "workspace", agentId })))).toBe(
+      "extension_attachments_scope_check",
+    );
+    expect(await refusal(insert(row({ mode: "always" })))).toBe(
+      "extension_attachments_mode_check",
+    );
+    expect(
+      await refusal(
+        insert(
+          row({
+            workspaceId: await workspace(),
+            scope: "agent",
+            agentId: await agentIn(workspaceId),
+          }),
+        ),
+      ),
+    ).toBe("extension_attachments_agent_fk");
+  });
+
+  test("a session keeps the bundles resolved at create: a later attachment change does not move them, and a replay answers the same", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const bundle = await register(service, owner);
+    const uow = createPostgresSessionUnitOfWork(db);
+    const resolved = [
+      {
+        bundle_id: bundle.id,
+        name: bundle.name,
+        digest: bundle.digest,
+        scope: "workspace" as const,
+      },
+    ];
+    const request = (over: Record<string, unknown> = {}) => ({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: owner,
+      idempotencyKey: "same-key",
+      payloadHash: "same-hash",
+      profileId: "claude-coding-v1",
+      repository: {
+        id: "sample-app",
+        url: "https://example.invalid/app.git",
+        branch: "main",
+      },
+      message: "first input",
+      ...over,
+    });
+    const first = await uow.acceptInputAtomic(
+      request({ extensions: resolved }),
+    );
+    if (first.outcome !== "accepted") throw new Error(first.outcome);
+    expect(first.response.extensions).toEqual(resolved);
+    const stored = async () =>
+      (
+        await db
+          .select({ extensions: sessions.extensions })
+          .from(sessions)
+          .where(eq(sessions.id, first.response.session_id))
+      )[0]?.extensions;
+    expect(await stored()).toEqual(resolved);
+
+    await service.recordAttachment({
+      principal: owner,
+      bundleId: bundle.id,
+      scope: "workspace",
+      mode: "forbidden",
+      kind: "attach",
+    });
+    expect(await stored()).toEqual(resolved);
+
+    const replay = await uow.acceptInputAtomic(
+      request({ extensions: [], extensionsRefused: true }),
+    );
+    expect(replay).toMatchObject({
+      outcome: "replayed",
+      response: { session_id: first.response.session_id, extensions: resolved },
+    });
+    const refused = await uow.acceptInputAtomic(
+      request({
+        idempotencyKey: "other-key",
+        payloadHash: "other-hash",
+        extensionsRefused: true,
+      }),
+    );
+    expect(refused.outcome).toBe("unsupported");
+    const count = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.ownerId, workspaceId));
+    expect(count).toHaveLength(1);
+
+    const bare = await uow.acceptInputAtomic(
+      request({ idempotencyKey: "bare", payloadHash: "bare" }),
+    );
+    if (bare.outcome !== "accepted") throw new Error(bare.outcome);
+    expect(bare.response.extensions).toBeUndefined();
+    const [bareRow] = await db
+      .select({ extensions: sessions.extensions })
+      .from(sessions)
+      .where(eq(sessions.id, bare.response.session_id));
+    expect(bareRow?.extensions).toBeNull();
   });
 
   test("the table refuses what the service never writes", async () => {

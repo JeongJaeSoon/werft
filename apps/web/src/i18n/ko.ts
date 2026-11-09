@@ -159,7 +159,6 @@ export const slackKo = {
   "slack.private": "비공개",
   "slack.off": "꺼짐",
   "slack.on": "켜짐",
-  "slack.inUse": "이 채널에서 사용",
   "slack.inUseOf": "{channel}에서 사용",
   "slack.mentionOnly": "멘션했을 때만 반응",
   "slack.search": "채널 찾기",

@@ -845,6 +845,40 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 403, code: "FORBIDDEN" });
   });
 
+  test("nextInput tells a turn queued with the old directive wording as facts whoever queued it, and keeps a message that only starts like it", async () => {
+    const subject = "push request p1 (repository app, branch agent/s1)";
+    const legacy = `Platform note: a person approved ${subject} in Slack. The push runs in the background: call open_pull_request now, and if it answers not_pushed, wait a few seconds and call it again. Then finish what you were asked to do.`;
+    const fact = `A person approved ${subject}. The push runs in the background.`;
+    const pasted = `${legacy}\nPlease explain why this is wrong; do not open a PR.`;
+    // The Slack path queues it as the approver, the platform's own as no one.
+    for (const [actor, message, expected] of [
+      [null, legacy, fact],
+      ["approver", legacy, fact],
+      ["person", pasted, pasted],
+    ] as const) {
+      const session = await queuedSession(partitionFor(`legacy-${actor}`));
+      const l = await launch(session.session_id);
+      const claimed = await claim(l);
+      const userId = actor === null ? null : crypto.randomUUID();
+      if (userId !== null) {
+        await db.insert(users).values({
+          id: userId,
+          email: `${userId}@example.invalid`,
+          passwordHash: "argon2id$placeholder",
+          displayName: "queued by",
+        });
+      }
+      await db
+        .update(turns)
+        .set({ message, actorId: userId })
+        .where(eq(turns.sessionId, session.session_id));
+      const next = await gateway.nextInput(principalOf(claimed), {
+        ...scopeOf(claimed),
+      });
+      expect(next.input?.message).toBe(expected);
+    }
+  });
+
   test("nextInput delivers the FIFO head once, records delivery_started_at and redelivers to the same attempt", async () => {
     const { session, claimed, input } = await claimAndDeliver();
     expect(input.turn_id).toBe("1");

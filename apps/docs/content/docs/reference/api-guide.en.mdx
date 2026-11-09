@@ -421,7 +421,7 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 
 **Goal.** Ask for the commit a session made to be pushed to the repository's `agent/<session-id>` branch, and have someone with `sessions:approve` approve or reject that commit. The push is done by the platform (the API), not the worker, within a few seconds after approval.
 
-**Steps.** Send the request with no body (`{}`). The platform pins the session's latest checkpoint revision and its `git_commit`, the session's `repository_id` and the branch `agent/<session-id>`. The person who approves or rejects checks the pinned `git_commit` and puts the same value in the `/approve` or `/reject` body. An approval that names a different commit is refused. A session can have only one open request (`requested`, `approved`, `pushing`), so request again after a rejection.
+**Steps.** Send the request with no body (`{}`). The platform pins the session's latest checkpoint revision and its `git_commit`, the session's `repository_id` and the branch `agent/<session-id>`. To pin the revision you looked at, send `checkpoint_revision` too; it is refused as `checkpoint_moved` once a newer one has been saved. Either way, work the session did after that revision may not be in it. The person who approves or rejects checks the pinned `git_commit` and puts the same value in the `/approve` or `/reject` body. An approval that names a different commit is refused. A session can have only one open request (`requested`, `approved`, `pushing`), so request again after a rejection.
 
 ```bash
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \

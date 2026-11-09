@@ -2998,8 +2998,12 @@ describe("authorizeEgress", () => {
     },
   ) {
     const asked: Array<{ tokenHash: Uint8Array; purpose: string }> = [];
-    const cuts: Array<{ sessionId: string; attemptId: string; model: string }> =
-      [];
+    const cuts: Array<{
+      sessionId: string;
+      attemptId: string;
+      model: string;
+      cause: string;
+    }> = [];
     const instance = createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async (input) => {
@@ -3043,6 +3047,21 @@ describe("authorizeEgress", () => {
         sessionId: scope.session_id,
         attemptId: "att_1",
         model: "retired-model",
+        cause: "model_removed",
+      },
+    ]);
+    // The profile (or its connection) is gone: the same note, naming the
+    // model the session was running, with its own cause.
+    const gone = authorizer(retired, { profiles: {}, repositories: {} });
+    await expect(
+      gone.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
+    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
+    expect(gone.cuts).toEqual([
+      {
+        sessionId: scope.session_id,
+        attemptId: "att_1",
+        model: "retired-model",
+        cause: "profile_removed",
       },
     ]);
     // Still on the list: nothing to say.
@@ -3063,6 +3082,25 @@ describe("authorizeEgress", () => {
       changed.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
     ).rejects.toMatchObject({ status: 409 });
     expect(changed.cuts).toEqual([]);
+    // A workspace version still stored whose base profile moved on does not
+    // run, but nothing was deleted: no "profile removed" note either.
+    const baseMoved = authorizer(retired, {
+      profiles: {},
+      repositories: { app: repository },
+      workspace_profiles: {
+        records: new Map([
+          ["p", { id: "p", base_profile_id: "coding" } as never],
+        ]),
+        refresh: async () => {},
+      },
+    });
+    await expect(
+      baseMoved.instance.authorizeEgress({
+        token: "tok",
+        purpose: "provider",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(baseMoved.cuts).toEqual([]);
   });
 
   test("a note that cannot be written is reported and the cut stays a 409", async () => {

@@ -93,7 +93,11 @@ function recordCheckpointPinProblem(
  */
 export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
   readonly profiles: Readonly<
-    Record<string, { profileSha256: string } | { error: string }>
+    Record<
+      string,
+      | { profileSha256: string; legacyProfileSha256?: string }
+      | { error: string }
+    >
   >;
 };
 
@@ -458,8 +462,9 @@ function earlierProfilesOf(
 }
 
 /**
- * The digests the target image computes for a session's earlier profiles,
- * the ones a worker of it would send as alternate_profile_sha256s. A
+ * The digests the target image computes for the given profile keys (current
+ * and frozen-legacy each), the ones a worker of it would send as
+ * alternate_profile_sha256s; the caller drops the current runtime's. A
  * profile it could not hash is left out, as the gateway leaves out one the
  * catalog no longer holds.
  */
@@ -471,9 +476,10 @@ export function alternateDigests(
     const profile = Object.hasOwn(image.profiles, key)
       ? image.profiles[key]
       : undefined;
-    return profile !== undefined && "profileSha256" in profile
+    if (profile === undefined || !("profileSha256" in profile)) return [];
+    return profile.legacyProfileSha256 === undefined
       ? [profile.profileSha256]
-      : [];
+      : [profile.profileSha256, profile.legacyProfileSha256];
   });
 }
 

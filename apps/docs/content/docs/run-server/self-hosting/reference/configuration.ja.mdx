@@ -39,7 +39,6 @@ API は設置上限以外に次の値を起動時に一つの parser（`apps/con
 | `HEARTBEAT_TTL_SEC` | 30 | 20 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`、以前の worker は 10 秒）。margin と 10 秒の合計以下なら、以前の worker の attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します |
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 整数 1–604800。承認・質問要求を受け付ける期間です。登録済み要求は worker がこの時間待ちます。worker の `QUESTION_TIMEOUT_SEC` は gateway が登録確認する前だけ適用します。turn 実時間 `MAX_TURN_SECONDS` に待ち時間も含むため、待機はその上限を超えません |
 | `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
-| `AGENT_ACTION_FLOWS` | `false` | `true`・`false`・`1`・`0`（それ以外では起動拒否）。有効にすると、実行中 turn の `request_push` は要求の代わりに「turn 終了時に push」の intent を残し、続行 turn なしでその turn の最終 checkpoint を push 要求にします。無効にすると新 intent を作らず以前のフローへ戻ります。既存 intent は処理し続けます。有効化・rollback は先に[アップグレードゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
 | `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |
 
@@ -61,10 +60,6 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
 ```
 
 両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、profile の `runtime_version` を次のイメージのバージョンに上げても、直前のイメージのバージョンで作った open セッションの profile pin は維持されます。現在のイメージに含まれない `runtime_version` の profile は新規セッションを受け付けません。ただし、組み込みツール対応一覧が現在のイメージの一覧と同じ前のバージョンは搭載しているものとして扱うので、その profile はアップグレード後も新規セッションを開始します。一覧が異なる SDK 更新リリースでは、上限ごとに `runtime_version` を上げた新バージョンも作ります（コンソールまたは `POST /v1/installation-profiles`）。
-
-API と slack role は `SESSION_PROMPT_REVISION`（既定 0、許可値 0・1、不正なら起動拒否）で、エージェント release セッションの system prompt 冒頭段落を決めます。1 なら、新規セッション作成時にエージェント名・説明、開始元（Slack チャネル・DM、Web コンソール、API）、エージェントの言語、セッションリポジトリの GitHub 名（`owner/repo`）を `sessions.platform_prompt` に残し、worker が段落を作ります。段落に役割文はなく、役割はエージェント作成者が指示文に書きます。GitHub 案内は設定の有無によらず一段落です。GitHub 作業は組み込みの `mcp__github__` ツールを使い、利用可能なリポジトリは `list_repositories` が返すと案内します。`git push` は GitHub に届かないことも案内します。ツールがない、または GitHub を使えないと返す場合は、「このセッションでは GitHub 作業ができず、管理者がコンソールのエージェント GitHub タブで設定し、新しいセッションが必要な場合がある」と回答させます。GitHub 設定なしの release で始めたセッションには、後から設定してもツールが付かないためです。0 なら新セッションにも段落はありません。保存値はセッション終了まで変わりません。段落は checkpoint fingerprint に含まれるため、エージェント名・説明や release を変更しても進行中セッションはそのまま再開します。
-
-`SESSION_PROMPT_REVISION` のデプロイ・有効化・rollback 順序は[共通の実行前ゲート](/run-server/self-hosting/upgrade-compose#실행-전-게이트)に従います。0 に戻しても既に 1 で作ったセッションの保存段落は変わりません。ローカル compose は API・slack・worker を一つの tree でビルドするため、既定は 1 です。
 
 GitHub Packages bot token（[決定](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md)）を別の host に送る必要がある場合だけ、次を設定します。GitHub Enterprise Server や試験用の偽 registry が該当します。値は http(s) URL で、userinfo・query・fragment があると API は起動しません。registry host は proxy の `EGRESS_CREDENTIAL_ALLOWLIST`（プライベートアドレスなら `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）にも必要です。
 

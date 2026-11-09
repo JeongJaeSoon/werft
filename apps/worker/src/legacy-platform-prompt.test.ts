@@ -8,14 +8,23 @@ import {
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import {
-  claimFingerprint,
-  OUT_DIRECTORY_PROMPT,
-  OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY,
-  runtimeProfile,
+  claimFingerprint as claimFingerprintOf,
+  runtimeProfile as runtimeProfileOf,
 } from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 import { imageRuntimeOf } from "./image-runtime.ts";
-import { platformPromptText } from "./platform-prompt.ts";
+import {
+  LEGACY_OUT_DIRECTORY_PROMPT as OUT_DIRECTORY_PROMPT,
+  LEGACY_OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY as OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY,
+  legacyPlatformPromptText as platformPromptText,
+} from "./legacy-platform-prompt.ts";
+
+// Every test here is about the frozen wording a stored checkpoint's digest
+// was taken from, so the composition entry points are bound to that form.
+const runtimeProfile: typeof runtimeProfileOf = (a, b, c, d) =>
+  runtimeProfileOf(a, b, c, d, true);
+const claimFingerprint = (cfg: Parameters<typeof claimFingerprintOf>[0]) =>
+  claimFingerprintOf(cfg, true);
 
 const claude = realRuntimeFor("claude_agent_sdk");
 
@@ -442,9 +451,13 @@ describe("runtimeProfile with a platform prompt", () => {
         ),
       ).profileSha256;
       expect(claimFingerprint(config)(claim).profileSha256).toBe(launched);
+      // The image probe stamps what a new launch runs, which no longer
+      // carries the paragraph; the legacy digest is only an alternate.
+      const current = claimFingerprintOf(config)(claim).profileSha256;
       expect(imageRuntimeOf({ s1: claim }).profiles).toEqual({
-        s1: { profileSha256: launched },
+        s1: { profileSha256: current, legacyProfileSha256: launched },
       });
+      expect(current).not.toBe(launched);
       expect(launched).not.toBe(
         claimFingerprint(config)({ principal, runtime_config: base })
           .profileSha256,
@@ -533,7 +546,9 @@ describe("runtimeProfile with a platform prompt", () => {
     expect(claude.fingerprint(profile).profileSha256).toBe(before);
     expect(imageRuntimeOf({ s0: { principal, runtime_config: base } })).toEqual(
       expect.objectContaining({
-        profiles: { s0: { profileSha256: before } },
+        profiles: {
+          s0: { profileSha256: before, legacyProfileSha256: before },
+        },
       }),
     );
     // Digests of these claims on the main branch before the field existed.

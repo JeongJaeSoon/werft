@@ -1265,9 +1265,9 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       }),
     ).toEqual(plain);
 
-    // Each checkpoint, sealed by a worker given the row's value, is ready
-    // only when the image is asked with that same value: a revision 0 one
-    // without the field, a revision 1 one with it.
+    // The row's value no longer reaches the image digest (a new launch
+    // carries no paragraph), so a checkpoint sealed either way is ready for
+    // the image asked with either.
     for (const [sealedWith, other] of [
       [base, prompted],
       [prompted, base],
@@ -1287,7 +1287,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       });
       for (const [claim, status] of [
         [sealed, "ready"],
-        [sessionClaim(other, resolved), "incompatible"],
+        [sessionClaim(other, resolved), "ready"],
       ] as const) {
         const runtime = planRuntime(
           seeded.manifest.runtime,

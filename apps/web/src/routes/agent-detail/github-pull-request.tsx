@@ -22,6 +22,13 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import type { Notify } from "../../components/toast.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 
+export const PULL_REQUEST_SECTION = "github-pull-request";
+const SECTION_PROPS = {
+  id: PULL_REQUEST_SECTION,
+  tabIndex: -1,
+  className: "scroll-mt-4 outline-none",
+} as const;
+
 export const AGENT_TEMPLATE_MAX_BYTES = 16 * 1024;
 export const AGENT_TEMPLATE_NAME_MAX_LENGTH = 100;
 
@@ -57,14 +64,14 @@ export function AgentPullRequestSettingsCard({
   });
   if (read.isPending) {
     return (
-      <Section title={t("agentPullRequest.title")}>
+      <Section {...SECTION_PROPS} title={t("agentPullRequest.title")}>
         <Skeleton className="h-24 w-full" />
       </Section>
     );
   }
   if (read.data === undefined) {
     return (
-      <Section title={t("agentPullRequest.title")}>
+      <Section {...SECTION_PROPS} title={t("agentPullRequest.title")}>
         <LoadFailure error={read.error} onRetry={() => void read.refetch()} />
       </Section>
     );
@@ -158,6 +165,7 @@ function Form({
 
   return (
     <Section
+      {...SECTION_PROPS}
       title={t("agentPullRequest.title")}
       description={t("agentPullRequest.hint")}
     >

@@ -60,6 +60,7 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "app_mention",
   "message",
   "member_joined_channel",
+  "member_left_channel",
   "app_uninstalled",
   "tokens_revoked",
 ] as const;

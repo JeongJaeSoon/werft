@@ -4,6 +4,7 @@ import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import type { Principal } from "../musterrolle/policy.ts";
 import type {
   AttachmentReceiptResult,
+  ExtensionAttachment,
   ExtensionBundle,
   ExtensionBundleSource,
   ExtensionBundleStore,
@@ -22,6 +23,7 @@ import {
   type ValidatedBundle,
   validateExtensionBundle,
 } from "./bundle-validator.ts";
+import type { ExtensionMode } from "./resolve.ts";
 
 /** Who may register, review and attach bundles; the web console and API routes say the same. */
 export const EXTENSION_MANAGER_ROLES: readonly WorkspaceRole[] = [
@@ -213,18 +215,29 @@ export function createExtensionBundleService(deps: {
     recordAttachment(input: {
       principal: Principal;
       bundleId: string;
-      agentId: string;
+      scope?: "agent" | "workspace";
+      agentId?: string;
+      mode?: ExtensionMode;
       kind: "attach" | "detach";
     }): Promise<AttachmentReceiptResult> {
       return store.recordAttachment({
         receiptId: newId(),
         workspaceId: input.principal.ownerId,
         bundleId: input.bundleId,
-        agentId: input.agentId,
+        ...(input.scope === undefined ? {} : { scope: input.scope }),
+        ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+        ...(input.mode === undefined ? {} : { mode: input.mode }),
         kind: input.kind,
         principal: input.principal,
         managerRoles: EXTENSION_MANAGER_ROLES,
       });
+    },
+
+    listAttachments(input: {
+      workspaceId: string;
+      agentId?: string;
+    }): Promise<ExtensionAttachment[]> {
+      return store.listAttachments(input);
     },
   };
 }

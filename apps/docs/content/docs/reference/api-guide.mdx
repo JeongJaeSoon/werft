@@ -423,7 +423,7 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 
 **목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
 
-**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
+**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 읽어 둔 revision을 못 박으려면 `checkpoint_revision`을 함께 보낸다. 그 뒤 더 새 revision이 저장됐으면 `checkpoint_moved`로 거절된다. 어느 쪽이든 그 revision 뒤에 세션이 한 일은 담기지 않았을 수 있다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
 
 ```bash
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \

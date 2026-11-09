@@ -405,7 +405,7 @@ export function continuationMessage(rows: GroupRow[], cut = true): string {
     }
     if (answer.kind === "permission") {
       return answer.decision === "allow"
-        ? `- Your ${tool} call: allowed. Make the same call again to run it.`
+        ? `- Your ${tool} call: allowed. The allow is used by the next identical call.`
         : `- Your ${tool} call: denied.${answer.reason === undefined ? "" : ` Reason: ${answer.reason}`}`;
     }
     const questions = payload.kind === "question" ? payload.questions : [];
@@ -429,13 +429,9 @@ export function continuationMessage(rows: GroupRow[], cut = true): string {
   });
   const head =
     "Your previous turn was stopped while it waited for a person. Their answers to what it asked:";
-  const tail = "Carry on from there.";
   return [
     head,
-    ...(cut
-      ? fitted(lines, MESSAGE_MAX_BYTES - bytes(`${head}\n\n${tail}`))
-      : lines),
-    tail,
+    ...(cut ? fitted(lines, MESSAGE_MAX_BYTES - bytes(`${head}\n`)) : lines),
   ].join("\n");
 }
 

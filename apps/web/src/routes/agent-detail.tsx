@@ -526,6 +526,13 @@ function AgentView({
     className: PANEL,
   });
   const releaseTab = useRef<HTMLButtonElement>(null);
+  const tabRow = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
+  useEffect(() => {
+    tabRow.current
+      ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [tab]);
   const [editing, setEditing] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
   // Closing the editor hands the keyboard back to the button that opened it.
@@ -557,7 +564,10 @@ function AgentView({
       onValueChange={(next) => openTab(next as AgentTab)}
       className="min-w-0 gap-[var(--werft-space-block)]"
     >
-      <div className="border-b">
+      {/* overflow-y-hidden: the active underline overhangs the row by 1px, and
+          overflow-x alone makes y `auto` (a vertical scrollbar where scrollbars
+          take space). */}
+      <div ref={tabRow} className="overflow-x-auto overflow-y-hidden border-b">
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
             <TabsTrigger

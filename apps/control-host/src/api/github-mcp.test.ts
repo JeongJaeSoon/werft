@@ -131,13 +131,13 @@ beforeEach(async () => {
         store,
         services: () => ({
           pushRequests: {
-            create: async (actor, sessionId) => {
-              pushes.push({ actor, sessionId });
-              return { id: "push-1" } as never;
-            },
+            create: unused,
             get: unused,
             snapshot: unused,
-            requestIntent: unused,
+            requestIntent: async (actor, sessionId) => {
+              pushes.push({ actor, sessionId });
+              return { status: "unavailable" } as never;
+            },
           },
           pullRequests: {
             schedule: unused,
@@ -272,6 +272,11 @@ async function seeded(
     },
   );
   const token = claim.runtime_config.mcp_servers?.[0]?.access.token;
+  // request_push is an intent of the running turn: give the attempt one.
+  await db
+    .update(schema.turns)
+    .set({ status: "running", attemptId: claim.attempt_id })
+    .where(eq(schema.turns.sessionId, claim.session_id));
   return { agentId, userId, releaseId, claim, token };
 }
 

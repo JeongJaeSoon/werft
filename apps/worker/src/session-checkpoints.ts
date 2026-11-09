@@ -13,11 +13,12 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type {
-  BootstrapClaimResponse,
-  CheckpointRef,
-  RestorePlanWire,
-  WorkerScope,
+import {
+  type BootstrapClaimResponse,
+  type CheckpointRef,
+  MAX_RESTORE_ALTERNATES,
+  type RestorePlanWire,
+  type WorkerScope,
 } from "@werft-ai/contracts";
 import {
   type CheckpointCodec,
@@ -127,6 +128,12 @@ export type SessionCheckpointsOptions = {
   objectPrefix: string;
   /** What this worker runs, recomputed from the claim. */
   fingerprint: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
+  /**
+   * What a session made before the platform stopped giving engines its
+   * paragraph stamped its checkpoints with. Those checkpoints stay
+   * restorable; the ones this run takes carry `fingerprint`.
+   */
+  legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
   /** The provisioned root the engine runs in, and the manifest's `cwd`. */
   workspaceRoot: string;
   /**
@@ -296,11 +303,26 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     const runtime = this.#options.fingerprint(claim);
     // Profiles the session ran before its profile was changed; the
     // checkpoints this run takes carry `runtime`.
-    const alternates = (claim.restore_runtime_configs ?? []).map(
-      (config) =>
-        this.#options.fingerprint({ ...claim, runtime_config: config })
-          .profileSha256,
-    );
+    const configs = [
+      claim.runtime_config,
+      ...(claim.restore_runtime_configs ?? []),
+    ];
+    const legacy = this.#options.legacyFingerprint;
+    const alternates = [
+      ...new Set(
+        configs.flatMap((config, index) => {
+          const next = { ...claim, runtime_config: config };
+          return [
+            ...(legacy === undefined ? [] : [legacy(next).profileSha256]),
+            ...(index === 0
+              ? []
+              : [this.#options.fingerprint(next).profileSha256]),
+          ];
+        }),
+      ),
+    ]
+      .filter((digest) => digest !== runtime.profileSha256)
+      .slice(0, MAX_RESTORE_ALTERNATES);
     const pointer = claim.restore;
     if (pointer !== null) {
       // The store not answering is no fault of the checkpoint: the restore
@@ -1108,9 +1130,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
           ...(bound.claim.workspace.repository === null
             ? { markNewFiles: true }
             : {}),
-          ...(bound.claim.runtime_config.platform_prompt?.prompt_revision === 6
-            ? { keepBranches: true }
-            : {}),
+          keepBranches: true,
           ...(previous === undefined
             ? {}
             : {

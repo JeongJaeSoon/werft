@@ -28,6 +28,7 @@ import type {
   ResumeSessionRequest,
   SessionCredentialUnboundDetails,
   SessionDetail,
+  SessionExtension,
   SessionRuntimeView,
   SlackMessageRef,
   TerminateSessionRequest,
@@ -43,6 +44,12 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
+import type { ExtensionRefusal } from "../extensions/resolve.ts";
+import {
+  checkPinnedExtensions,
+  resolveSessionExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -72,6 +79,8 @@ import {
   isUnmetered,
   type ProfilePin,
   profileFingerprint,
+  profileGone,
+  profileModels,
   profileWithModel,
   refreshWorkspaceProfilesFor,
   repositoryInCeiling,
@@ -82,11 +91,6 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
-import {
-  type AgentPromptIdentity,
-  type PlatformPromptRevision,
-  platformPromptOf,
-} from "./platform-prompt.ts";
 import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -105,6 +109,15 @@ export class SessionServiceError extends Error {
   ) {
     super(message);
   }
+}
+
+function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
+  return new SessionServiceError(
+    "UNSUPPORTED_CAPABILITY",
+    refusal.message,
+    undefined,
+    { reason_code: refusal.code, bundle: refusal.name },
+  );
 }
 
 export function selfApproval(error: unknown): boolean {
@@ -395,24 +408,13 @@ export function createSessionService(deps: {
         | "policy_pins"
       >
     >;
-    // The agent a new session's platform prompt names; null when the
-    // release or its agent is gone. Absent, no session gets the prompt.
-    promptIdentity?(
-      workspaceId: string,
-      releaseId: string,
-    ): Promise<AgentPromptIdentity | null>;
     agentGitHubSettings(
       agentId: string,
     ): Promise<AgentGitHubSettingsRow | null>;
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
-  // The platform prompt revision new sessions of an agent release get;
-  // absent is 0, none.
-  promptRevision?: PlatformPromptRevision;
-  // AGENT_ACTION_FLOWS, read when a session is created: it picks the prompt
-  // wording for `request_push`, and the session keeps it for good.
-  actionFlows?: () => boolean;
+  extensions?: SessionExtensionsDeps;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -514,6 +516,30 @@ export function createSessionService(deps: {
         acceptedRuntimeVersions(catalog),
       ) !== null
     );
+  }
+
+  // Says which model left when that is what moved, so the reader can act on
+  // it; any other mismatch keeps the general sentence.
+  function mismatchReason(record: SessionDetailRecord): string {
+    const listed = record.profile_id
+      ? catalogProfile(catalog, record.profile_id)
+      : undefined;
+    if (
+      listed &&
+      record.model !== null &&
+      !profileModels(listed).includes(record.model)
+    ) {
+      return `Model ${record.model} was taken off the allowed list of profile ${record.profile_id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+    }
+    if (
+      !listed &&
+      record.profile_id &&
+      record.model !== null &&
+      profileGone(catalog, record.profile_id)
+    ) {
+      return `Profile ${record.profile_id}, which served model ${record.model}, is no longer in this host's catalog; messages will not run until an operator restores it, or you start a new session on another profile`;
+    }
+    return "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it";
   }
 
   function runtimeFor(record: {
@@ -649,8 +675,7 @@ export function createSessionService(deps: {
           ? null
           : {
               code: "CATALOG_MISMATCH",
-              reason:
-                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+              reason: mismatchReason(record),
             }) ??
         // Dispatch stops at the same predicate (nextInputAtomic), so what
         // this says and what the gateway does come from one comparison.
@@ -814,35 +839,50 @@ export function createSessionService(deps: {
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
+      const wantedModel = input.body.model ?? releaseModel(release);
       const runs = allowed
-        ? profileWithModel(
-            allowed.profile,
-            input.body.model ?? releaseModel(release),
-          )
+        ? profileWithModel(allowed.profile, wantedModel)
         : null;
       const staleRuntime =
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
-      const identity =
-        release !== null && (deps.promptRevision ?? 0) >= 1
-          ? await deps.releases?.promptIdentity?.(actor.ownerId, release.id)
-          : undefined;
-      const platformPrompt = identity
-        ? platformPromptOf({
-            identity,
-            surface: actor.subject.surface,
-            repositoryUrl:
-              repositoryId === null || pair?.repository == null
-                ? null
-                : pair.repository.url,
-            actionFlows: deps.actionFlows?.() === true,
-          })
-        : undefined;
+      const selection = input.body.extensions;
+      let extensions: SessionExtension[] | undefined;
+      let extensionRefusal: SessionServiceError | null = null;
+      if (deps.extensions && profile) {
+        const resolved = await resolveSessionExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          agentId: release?.agent_id ?? null,
+          ...(selection === undefined ? {} : { selection }),
+          permissionMode: profile.permission_mode,
+          runtimeKind: profile.runtime_kind,
+        });
+        if (resolved.ok) {
+          extensions = resolved.extensions.map((e) => ({
+            bundle_id: e.bundleId,
+            name: e.name,
+            digest: e.digest,
+            scope: e.scope,
+          }));
+        } else {
+          extensionRefusal = extensionRefusalError(resolved.refusal);
+        }
+      } else if (selection !== undefined) {
+        extensionRefusal = extensionRefusalError({
+          code: "feature_unsupported",
+          name: "",
+          message: "This server does not offer extension bundles",
+        });
+      }
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
+        ...(extensions === undefined ? {} : { extensions }),
+        ...(extensionRefusal === null
+          ? {}
+          : { extensionsRefused: true as const }),
         profileId,
         channel: actor.subject.surface.kind,
         title:
@@ -873,7 +913,6 @@ export function createSessionService(deps: {
         ...(policy.source === "agent"
           ? { captureGitHubPolicyStart: true as const }
           : {}),
-        ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined
           ? {}
@@ -910,13 +949,14 @@ export function createSessionService(deps: {
           throw limitError(result);
         case "unsupported":
           throw (
+            extensionRefusal ??
             profileBlockedError(profileId, workspaceRefusal) ??
             new SessionServiceError(
               "UNSUPPORTED_CAPABILITY",
               allowed && staleRuntime
                 ? `Profile ${profileId} runs ${allowed.profile.runtime_kind} ${allowed.profile.runtime_version}, which the current worker image does not ship; the operator updates the profile's runtime_version`
                 : allowed && !runs
-                  ? `Profile ${profileId} does not offer model ${input.body.model}`
+                  ? `Model ${wantedModel} is not on the allowed list of profile ${profileId}; ${input.body.model === undefined ? "release the agent again on a model the profile offers" : "name a model the profile offers"}`
                   : (workspaceRefusal?.message ??
                     repositoryRefusal(profileId, repositoryId)),
             )
@@ -1197,7 +1237,7 @@ export function createSessionService(deps: {
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
-      const refusal = workspaceRefusal
+      const profileRefusal = workspaceRefusal
         ? workspaceRefusal.message
         : pair === null ||
             (pair.repository !== null &&
@@ -1212,6 +1252,24 @@ export function createSessionService(deps: {
                 current.runtime_version !== pair.profile.runtime_version
               ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
               : null;
+      let pinnedRefusal: string | null = null;
+      if (
+        profileRefusal === null &&
+        pair !== null &&
+        deps.extensions &&
+        record.extensions !== null &&
+        record.extensions !== undefined &&
+        record.extensions.length > 0
+      ) {
+        const checked = await checkPinnedExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          extensions: record.extensions,
+          permissionMode: pair.profile.permission_mode,
+          runtimeKind: pair.profile.runtime_kind,
+        });
+        if (!checked.ok) pinnedRefusal = checked.refusal.message;
+      }
+      const refusal = profileRefusal ?? pinnedRefusal;
       const result = await controls.changeProfileAtomic({
         principal: actor,
         sessionId,

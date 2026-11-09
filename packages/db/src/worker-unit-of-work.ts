@@ -5,6 +5,7 @@ import {
   checkpointBlockReasonSchema,
   type EnvRefusal,
   MODEL_NOT_ALLOWED_EVENT_CODE,
+  type ModelCutCause,
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
@@ -128,7 +129,7 @@ import {
   variablesRefusedCause,
 } from "./launch-quarantine.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
-import { enqueueModelCutNotices } from "./model-cut-notices.ts";
+import { writeModelCut } from "./model-cut-notices.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -143,8 +144,7 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
-import { queuePushContinuation } from "./push-continuations.ts";
-import { queuePushFollowUps } from "./push-follow-ups.ts";
+import { followUpFact, queuePushFollowUps } from "./push-follow-ups.ts";
 import { settleTurnPushIntents } from "./push-intents.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -1022,6 +1022,27 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   );
 }
 
+/**
+ * The session's model when its profile is still offered here, with models of
+ * its own, but none of them is the session's; null when anything else moved
+ * (a dropped pair, a row without a model). Read from the pairs' models, not
+ * their fingerprints: a version 1 fingerprint names its model, so it stops
+ * matching whichever way the list changed.
+ */
+export function removedModelOf(
+  session: RunnableFields,
+  runnable: readonly RunnablePair[],
+): string | null {
+  const { model } = session;
+  if (model === null) return null;
+  const named = runnable.filter(
+    (pair) => allowsPair(pair, session) && pair.model !== null,
+  );
+  return named.length > 0 && named.every((pair) => pair.model !== model)
+    ? model
+    : null;
+}
+
 // A row from before has no fingerprint; it runs on whatever the
 // pair's profile is now, and the claim that binds it pins that.
 export function runnablePairOf(
@@ -1312,11 +1333,25 @@ async function giveUpOnCatalogMismatch(
       .where(eq(executions.id, launch.executionId));
     return "context_gap";
   }
+  const removed = removedModelOf(session, runnable);
   // Names ids only: the stored URL may embed a credential.
-  const detail = runnable.some((pair) => allowsPair(pair, session))
-    ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
-    : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  const detail =
+    removed !== null
+      ? `model ${removed} was taken off the allowed list of profile ${session.profileId}`
+      : runnable.some((pair) => allowsPair(pair, session))
+        ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
+        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
   await countLaunchGiveUp(tx, launch.executionId, detail);
+  // The stream and the DMs say which model left, as they do for an attempt
+  // cut while running; the session's own lock is held.
+  if (removed !== null) {
+    await writeModelCut(tx, {
+      sessionId: session.id,
+      attemptId: null,
+      model: removed,
+      cause: "model_removed",
+    });
+  }
   await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
   return "catalog_mismatch";
 }
@@ -2260,6 +2295,7 @@ export function createPostgresWorkerUnitOfWork(
       sessionId: string;
       attemptId: string;
       model: string;
+      cause: ModelCutCause;
     }): Promise<{ recorded: boolean }> {
       return db.transaction(async (tx) => {
         // The session first, as every stream write does: a later event id
@@ -2296,22 +2332,7 @@ export function createPostgresWorkerUnitOfWork(
           )
           .limit(1);
         if (seen) return { recorded: false };
-        await recordEvent(tx, {
-          sessionId: input.sessionId,
-          type: "error",
-          payload: {
-            code: MODEL_NOT_ALLOWED_EVENT_CODE,
-            message: `The model ${input.model} is no longer on the profile's allowed list, so its model requests were blocked`,
-            model: input.model,
-          },
-          turnRowId: null,
-          attemptId: input.attemptId,
-          now: await dbNow(tx),
-        });
-        await enqueueModelCutNotices(tx, {
-          sessionId: input.sessionId,
-          model: input.model,
-        });
+        await writeModelCut(tx, input);
         return { recorded: true };
       });
     },
@@ -2586,7 +2607,9 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            message: turn.message,
+            // Turns queued before the follow-up wording became facts still
+            // hold the old text; only a message equal to it is rewritten.
+            message: followUpFact(turn.message),
             deliveryStartedAt,
           },
         };
@@ -3079,24 +3102,13 @@ export function createPostgresWorkerUnitOfWork(
         );
         // Intents the turn left deferred are pinned to the checkpoint this
         // finalize just advanced to, or cancelled when the turn left none.
-        // They are made only while AGENT_ACTION_FLOWS is on, but settled
-        // whatever it is now. A parked turn keeps them: the answer starts a
-        // turn that takes them over (continueParkedTurn).
+        // A parked turn keeps them: the answer starts a turn that takes
+        // them over (continueParkedTurn).
         if (terminal !== undefined && parked.length === 0) {
           await settleTurnPushIntents(tx, {
             turnRowId: terminal.id,
             completedRevision:
               input.terminal.status === "completed" ? checkpointRevision : null,
-          });
-        }
-        if (
-          terminal !== undefined &&
-          input.terminal.status === "completed" &&
-          checkpointRevision !== null
-        ) {
-          await queuePushContinuation(tx, {
-            session: fenced.session,
-            turnRowId: terminal.id,
           });
         }
         // A parked turn resumes later and may still open the pull request;

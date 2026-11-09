@@ -34,7 +34,9 @@ export const BOT_SCOPES = [
 /**
  * The bot events Finalize registers once the events route can answer the
  * app's signed challenge; creation registers none. `member_joined_channel`
- * is how an invite to a private channel is noticed.
+ * is how an invite to a private channel is noticed, `member_left_channel`
+ * how the bot being removed from one is. An app made before the latter
+ * received it only after its manifest is sent again (events recheck).
  */
 export const SLACK_AGENT_BOT_EVENTS = [
   "app_mention",
@@ -42,6 +44,7 @@ export const SLACK_AGENT_BOT_EVENTS = [
   "message.channels",
   "message.groups",
   "member_joined_channel",
+  "member_left_channel",
   "app_uninstalled",
   "tokens_revoked",
 ] as const;

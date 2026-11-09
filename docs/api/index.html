@@ -201,6 +201,31 @@
               "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
             }
           },
+          "extensions": {
+            "description": "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`, `scripts_need_default_mode`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
+            "type": "object",
+            "properties": {
+              "enable": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "disable": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -1358,6 +1383,11 @@
           "branch": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "checkpoint_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
           }
         },
         "additionalProperties": false
@@ -4284,6 +4314,46 @@
               "failed",
               "stopped"
             ]
+          },
+          "extensions": {
+            "description": "The extension bundles the new session runs with. Absent when the session runs with none.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bundle_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "profile",
+                    "workspace",
+                    "agent",
+                    "session"
+                  ],
+                  "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                }
+              },
+              "required": [
+                "bundle_id",
+                "name",
+                "digest",
+                "scope"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -4705,6 +4775,53 @@
               ],
               "additionalProperties": false
             }
+          },
+          "extensions": {
+            "description": "The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bundle_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "profile",
+                        "workspace",
+                        "agent",
+                        "session"
+                      ],
+                      "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                    }
+                  },
+                  "required": [
+                    "bundle_id",
+                    "name",
+                    "digest",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [
@@ -5385,6 +5502,53 @@
               ],
               "additionalProperties": false
             }
+          },
+          "extensions": {
+            "description": "The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bundle_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "profile",
+                        "workspace",
+                        "agent",
+                        "session"
+                      ],
+                      "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                    }
+                  },
+                  "required": [
+                    "bundle_id",
+                    "name",
+                    "digest",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [
@@ -20344,6 +20508,17 @@
                         }
                       ]
                     },
+                    "release_model": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "bound_credential_refs": {
                       "type": "array",
                       "items": {
@@ -20389,6 +20564,7 @@
                     "version",
                     "runtime_profile_id",
                     "release_label",
+                    "release_model",
                     "bound_credential_refs",
                     "admins",
                     "needs_input_count",
@@ -48321,7 +48497,7 @@
           "Push requests"
         ],
         "summary": "Ask for the session's latest checkpoint to be pushed",
-        "description": "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/\u003csession-id>-\u003cbranch>` instead of `agent/\u003csession-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `checkpoint_revision` (default: the latest committed one) may name the revision you looked at; it is refused as `checkpoint_moved` once a newer one has been saved. Work the session did after that revision may not be in it. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/\u003csession-id>-\u003cbranch>` instead of `agent/\u003csession-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {

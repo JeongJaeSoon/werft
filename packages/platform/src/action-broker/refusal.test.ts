@@ -243,7 +243,6 @@ describe("a person's reason survives the tool answer", () => {
           actor: stored.requested_by,
         }),
         runningTurn: async () => null,
-        markPushContinuation: async () => false,
       },
       services,
     });
