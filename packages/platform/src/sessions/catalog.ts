@@ -238,6 +238,25 @@ export function billingFitsEndpoint(provider: {
   );
 }
 
+export const modelFamiliesSchema = z
+  .record(
+    z.string().min(1),
+    z.object({ family: z.string().min(1), rank: z.number().int() }).strict(),
+  )
+  .refine(
+    (families) => {
+      const seen = new Set<string>();
+      for (const { family, rank } of Object.values(families)) {
+        const key = `${family}\u0000${rank}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+      }
+      return true;
+    },
+    { message: "two models of one family cannot share a rank" },
+  );
+export type ModelFamilies = z.infer<typeof modelFamiliesSchema>;
+
 export const catalogProfileConfigSchema = z
   .object({
     runtime_kind: runtimeKindSchema,
@@ -249,6 +268,9 @@ export const catalogProfileConfigSchema = z
     // The model that names a session after its first turn; the session's own
     // when absent. Not pinned either: it never runs the session.
     title_model: z.string().min(1).optional(),
+    // Which models are versions of one series, newest highest. Keep a removed
+    // model's entry here, or nothing knows what it was a version of.
+    model_families: modelFamiliesSchema.optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
@@ -509,6 +531,7 @@ export type CatalogProfile = {
   model: string;
   models?: string[] | undefined;
   title_model?: string | undefined;
+  model_families?: ModelFamilies | undefined;
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
@@ -1322,6 +1345,7 @@ export function profileFingerprint(profile: CatalogProfileView): string {
     model: _model,
     repository: _repository,
     title_model: _titleModel,
+    model_families: _families,
     ...runs
   } = withoutSecret(profile);
   return sha256({
@@ -1334,6 +1358,7 @@ function profileFingerprintV1(profile: CatalogProfileView): string {
   const {
     models: _models,
     title_model: _titleModel,
+    model_families: _families,
     ...runs
   } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
@@ -1342,6 +1367,46 @@ function profileFingerprintV1(profile: CatalogProfileView): string {
 /** The models a session of this profile may name, the default first. */
 export function profileModels(profile: CatalogProfileView): string[] {
   return [...new Set([profile.model, ...(profile.models ?? [])])];
+}
+
+export function modelSuccessor(
+  profile: CatalogProfileView,
+  removed: string,
+): string | null {
+  const families = profile.model_families;
+  const listed = profileModels(profile);
+  const from = families?.[removed];
+  if (!families || !from || listed.includes(removed)) return null;
+  let best: { model: string; rank: number } | null = null;
+  for (const model of listed) {
+    const entry = families[model];
+    if (
+      entry?.family === from.family &&
+      entry.rank > from.rank &&
+      (best === null || entry.rank < best.rank)
+    ) {
+      best = { model, rank: entry.rank };
+    }
+  }
+  return best?.model ?? null;
+}
+
+export function profileAsMovedModel<P extends CatalogProfileView>(
+  profile: P,
+  removed: string,
+): P | null {
+  if (modelSuccessor(profile, removed) === null) return null;
+  const { models: _models, ...rest } = profile;
+  return { ...rest, model: removed } as unknown as P;
+}
+
+export function modelMoves(
+  profile: CatalogProfileView,
+): Array<{ from: string; to: string }> {
+  return Object.keys(profile.model_families ?? {}).flatMap((from) => {
+    const to = modelSuccessor(profile, from);
+    return to === null ? [] : [{ from, to }];
+  });
 }
 
 /**
@@ -1481,6 +1546,55 @@ export function fingerprintModel(
       { fingerprint, model: null },
       acceptedRuntimeVersions(catalog),
     )?.model ?? null
+  );
+}
+
+export function modelMovePins<P extends CatalogProfileView>(
+  profile: P,
+  versions: readonly string[],
+): Array<{
+  from: string;
+  to: string;
+  fromFingerprint: string;
+  toFingerprint: string;
+  asFrom: P;
+}> {
+  return underVersions(profile, versions).flatMap((seen) =>
+    modelMoves(seen).flatMap(({ from, to }) => {
+      const asFrom = profileAsMovedModel(seen, from);
+      const asTo = profileWithModel(seen, to);
+      if (!asFrom || !asTo) return [];
+      const current = profileFingerprint(seen);
+      return [
+        {
+          from,
+          to,
+          fromFingerprint: current,
+          toFingerprint: current,
+          asFrom,
+        },
+        {
+          from,
+          to,
+          fromFingerprint: profileFingerprintV1(asFrom),
+          toFingerprint: profileFingerprintV1(asTo),
+          asFrom,
+        },
+      ];
+    }),
+  );
+}
+
+export function movesAtNextTurn(
+  profile: CatalogProfileView,
+  pin: ProfilePin,
+  versions: readonly string[],
+): boolean {
+  return modelMovePins(profile, versions).some(
+    (move) =>
+      move.fromFingerprint === pin.fingerprint &&
+      (pin.model === move.from ||
+        (pin.model === null && move.fromFingerprint !== move.toFingerprint)),
   );
 }
 

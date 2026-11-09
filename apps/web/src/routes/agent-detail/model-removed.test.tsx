@@ -50,6 +50,24 @@ describe("에이전트 상세의 빠진 모델 경고", () => {
     );
   });
 
+  test("같은 시리즈의 후속 모델이 있으면 막힌다고 하지 않고 옮겨 실행된다고 알린다", async () => {
+    const moved = {
+      ...PROFILE,
+      model_successors: { "claude-opus-5-5": "claude-sonnet-5" },
+    };
+    renderAt(
+      DETAIL,
+      agentRunning("claude-opus-5-5", () => json(200, { items: [moved] })),
+    );
+    const title = await screen.findByText(
+      "모델 claude-opus-5-5이(가) 프로필 strict v1의 허용 목록에서 빠져 claude-sonnet-5(으)로 옮겨 실행됩니다",
+    );
+    expect(title.parentElement?.textContent).toContain(
+      "새 세션은 claude-sonnet-5(으)로 시작하고",
+    );
+    expect(screen.queryByText(`모델 ${TITLE}`)).toBeNull();
+  });
+
   test("영어 화면도 같은 모델 이름을 보인다", async () => {
     renderAt(DETAIL, agentRunning("claude-opus-5-5"), "en");
     await screen.findByText(

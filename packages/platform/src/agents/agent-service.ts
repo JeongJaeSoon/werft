@@ -65,6 +65,7 @@ import {
   allowedRun,
   type CatalogProfile,
   catalogProfile,
+  modelSuccessor,
   profileModels,
   profilePinned,
   refreshWorkspaceProfilesFor,
@@ -126,7 +127,11 @@ export async function resolveAgentRelease(
       `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  if (model !== undefined && !profileModels(profile).includes(model)) {
+  if (
+    model !== undefined &&
+    !profileModels(profile).includes(model) &&
+    modelSuccessor(profile, model) === null
+  ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
       `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,

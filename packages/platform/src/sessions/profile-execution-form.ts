@@ -29,7 +29,11 @@ export function profileExecutionForm(
   definition: Definition,
   mcpDeny: readonly string[] = [],
 ): string {
-  const { repository: _repository, ...rest } = definition;
+  const {
+    repository: _repository,
+    model_families: _families,
+    ...rest
+  } = definition;
   const provider = isRecord(rest.provider) ? rest.provider : {};
   const form: Definition = {
     ...rest,

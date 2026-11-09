@@ -8491,6 +8491,10 @@ export interface components {
                 source: "operator" | "workspace";
                 model: string;
                 models: string[];
+                /** @description Each model the profile dropped that has a successor, with the listed model of the same series a session on it moves to at its next turn. Absent when none does. */
+                model_successors?: {
+                    [key: string]: string;
+                };
                 tools: string[];
                 /** @description The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version. */
                 deny?: string[] | null;
@@ -8575,6 +8579,10 @@ export interface components {
                 source: "operator" | "workspace";
                 model: string;
                 models: string[];
+                /** @description Each model the profile dropped that has a successor, with the listed model of the same series a session on it moves to at its next turn. Absent when none does. */
+                model_successors?: {
+                    [key: string]: string;
+                };
                 tools: string[];
                 /** @description The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version. */
                 deny?: string[] | null;
