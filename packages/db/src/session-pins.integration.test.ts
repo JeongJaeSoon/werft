@@ -15,7 +15,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { agentReleases, sessions } from "./schema.ts";
@@ -278,6 +278,67 @@ integration("session pin reconciliation on PostgreSQL", () => {
       } finally {
         mover.release();
       }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "a session that changes kind while the gate counts is still counted: the five counts read one snapshot",
+    async () => {
+      const rel = await release(true);
+      const id = await start(rel);
+      // Neither a model nor a pin: the `modelUnknown` kind.
+      await unpin(id);
+      await db.update(sessions).set({ model: null }).where(eq(sessions.id, id));
+
+      // After the first count finishes, a model backfill fills the model on
+      // another connection. Counted one query at a time, the row would then
+      // fall out of `missing` (read before) and `modelUnknown` (read after).
+      let interfered = false;
+      const wrap = (client: PoolClient): PoolClient =>
+        new Proxy(client, {
+          get(target, prop) {
+            if (prop === "query") {
+              return async (...args: unknown[]) => {
+                const first = args[0] as string | { text: string };
+                const text = typeof first === "string" ? first : first.text;
+                const result = await (
+                  target.query as (...a: unknown[]) => Promise<unknown>
+                )(...args);
+                if (!interfered && /count\(\*\)/.test(text)) {
+                  interfered = true;
+                  await pool.query(
+                    "UPDATE sessions SET model = 'sonnet-5-0' WHERE id = $1",
+                    [id],
+                  );
+                }
+                return result;
+              };
+            }
+            const value = Reflect.get(target, prop);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      const watched = new Proxy(pool, {
+        get(target, prop) {
+          if (prop === "connect") {
+            return async () => wrap(await target.connect());
+          }
+          const value = Reflect.get(target, prop);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      const gate = await sessionPinGate(drizzle(watched, { schema }));
+
+      expect(interfered).toBe(true);
+      expect(gate.modelUnknown).toBe(1);
+      expect(gate.missing).toBe(0);
+      expect(gate.open).toBe(false);
+      // The row did change underneath: the next gate sees it as missing.
+      const next = await sessionPinGate(db);
+      expect(next.missing).toBe(1);
+      expect(next.modelUnknown).toBe(0);
     },
     TIMEOUT_MS,
   );

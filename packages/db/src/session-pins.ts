@@ -131,9 +131,19 @@ export type PinGate = {
 
 /**
  * What stands between the sessions and a reader that trusts the pin. Counts
- * live sessions only; a reader that uses a pin still checks it itself.
+ * live sessions only; a reader that uses a pin still checks it itself. All
+ * five counts read one snapshot: a session that moves between kinds while
+ * they run (a model backfill fills the model of one with neither) would
+ * otherwise be missed by every count and let the gate open.
  */
-export async function sessionPinGate(db: Database): Promise<PinGate> {
+export function sessionPinGate(db: Database): Promise<PinGate> {
+  return db.transaction((tx) => readPinGate(tx as unknown as Database), {
+    isolationLevel: "repeatable read",
+    accessMode: "read only",
+  });
+}
+
+async function readPinGate(db: Database): Promise<PinGate> {
   const live = notInArray(sessions.status, [...ENDED]);
   const count = async (where: ReturnType<typeof and>): Promise<number> => {
     const [row] = await db
