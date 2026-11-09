@@ -68,7 +68,7 @@ SID=$(echo "$created" | jq -r .session_id)
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
 | `profile_id` | `agent_release_id` がなければ必須 | プロファイルの id([プロファイルを選ぶ](/agents/run-profiles)) |
-| `repository_id` | プロファイルによる | カタログ上のリポジトリ id。worker はこのリポジトリを clone する。プロファイルの `repository_mode` が `required` なら必須、`none` なら送らない。任意である。エージェントのリリースで作ったセッションは省くとリポジトリなしで始まり、エージェントが必要なリポジトリだけを付ける([リポジトリなしのセッション](/sessions/without-repository)) |
+| `repository_id` | プロファイルによる | カタログ上のリポジトリ id。worker はこのリポジトリを clone する。プロファイルの `repository_mode` が `required` なら必須、`none` なら送らない。任意である。エージェントのリリースで作ったセッションで省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付ける(設定がない古いエージェントはリリースのリポジトリで始まる。[リポジトリなしのセッション](/sessions/without-repository)) |
 | `message` | はい | 最初のターンの入力。UTF-8 で 32,768 バイトまで |
 | `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |
 | `title` | | セッションの名前。省略すると最初の `message` から作る([タイトル](#タイトル)) |
