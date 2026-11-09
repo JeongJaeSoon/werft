@@ -117,8 +117,9 @@ export function validateRuntimeConfig(
   assertEngineRules(config.disallowedTools);
   // A deny the engine would drop is a policy not applied, and so is an ask:
   // `Write(path)` matches nothing and the baseline's Edit allow then runs the
-  // write unasked. An allow it drops only narrows what runs, so it is not
-  // checked here.
+  // write unasked. An allow is not checked here: no baseline rule depends on
+  // it, and what an allow may grant is the platform's save-time check to
+  // make, not a claim-time guarantee.
   assertEngineRules(config.engineSettings?.permissions?.deny, "Deny", true);
   assertEngineRules(config.engineSettings?.permissions?.ask, "Ask", true);
   if (
