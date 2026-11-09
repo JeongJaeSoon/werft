@@ -126,14 +126,18 @@ export function useRepositoryToggles(
           queryKey: githubKey(client, agentId),
         });
         const reread = cache.getQueryState(githubKey(client, agentId));
+        // No receipt means the repository already was in that state and the
+        // revision did not move: whatever raised it came from somewhere else.
+        if (answered.receipt_id !== null) {
+          reportSaved.current?.({
+            revision: answered.settings_revision,
+            ref: answered.repository.ref,
+            enabled,
+          });
+        }
         // The save went through but the re-read failed: the cache still
         // holds the old value, so keep showing what was saved. Recorded even
         // when a newer click is queued: the server holds this value now.
-        reportSaved.current?.({
-          revision: answered.settings_revision,
-          ref: answered.repository.ref,
-          enabled,
-        });
         const rereadFailed = reread?.status === "error";
         if (rereadFailed) confirmed.current.set(key, enabled);
         if (latest()) {

@@ -51,6 +51,7 @@ import { Plus } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -528,14 +529,39 @@ function GitHubSettings({
   // Every ref the tab has seen with its catalog id: a switch answers by ref,
   // and a repository just turned off may already be gone from the next read.
   const idsByRef = useRef(new Map<string, string>());
-  for (const held of data.selected_repositories ?? [])
-    idsByRef.current.set(held.ref, held.id);
-  for (const option of data.options.repositories)
-    if (option.ref) idsByRef.current.set(option.ref, option.id);
+  const remember = (read: GitHubTabData) => {
+    for (const held of read.selected_repositories ?? [])
+      idsByRef.current.set(held.ref, held.id);
+    for (const option of read.options.repositories)
+      if (option.ref) idsByRef.current.set(option.ref, option.id);
+  };
+  remember(data);
   const toggles = useRepositoryToggles(agentId, (saved) => {
+    // The re-read may not have rendered yet, and a repository picked from an
+    // installation only gets its id there: look in the cache too.
+    const fresh = cache.getQueryData<GitHubTabData>(githubKey(client, agentId));
+    if (fresh) remember(fresh);
     const id = idsByRef.current.get(saved.ref);
-    if (id === undefined) return;
+    if (id === undefined) {
+      // The re-read failed, so the new row's id is not known yet.
+      unresolved.current.push(saved);
+      return;
+    }
     setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+  });
+  const unresolved = useRef<SavedSwitch[]>([]);
+  // After every render, so the first read that names the new ref applies it;
+  // the revision check in followSwitch drops a switch a later draft no longer
+  // follows.
+  useEffect(() => {
+    if (unresolved.current.length === 0) return;
+    const waiting = unresolved.current;
+    unresolved.current = [];
+    for (const saved of waiting) {
+      const id = idsByRef.current.get(saved.ref);
+      if (id === undefined) unresolved.current.push(saved);
+      else setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+    }
   });
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;

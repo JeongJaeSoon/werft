@@ -1749,7 +1749,11 @@ describe("에이전트 GitHub 탭", () => {
       github: { ...SETTINGS, repositories: ["werft-sandbox", "docs-site"] },
     });
     // The switch handler really moves the server: the next GET shows it.
-    async function setup(answered: number, held?: Promise<void>) {
+    async function setup(
+      answered: number,
+      held?: Promise<void>,
+      receipt: string | null = RECEIPT_ID,
+    ) {
       const { server } = await activeAgent();
       let live: Tab = TAB;
       const sent: { expected_revision: number | null; settings: Settings }[] =
@@ -1763,7 +1767,7 @@ describe("에이전트 GitHub 탭", () => {
             live = withDocs(answered);
             return json(200, {
               settings_revision: answered,
-              receipt_id: RECEIPT_ID,
+              receipt_id: receipt,
               enabled: true,
               repository: {
                 ref: "r1.docs-site",
@@ -1817,6 +1821,92 @@ describe("에이전트 GitHub 탭", () => {
       await user.click(repoSwitch("docs-site"));
       await user.click(switchNamed("push 전 사람 승인"));
       release();
+      const save = (await screen.findByRole("button", {
+        name: "저장",
+      })) as HTMLButtonElement;
+      await waitFor(() => expect(save.disabled).toBe(false));
+      expect(screen.queryByText(STALE)).toBeNull();
+      await user.click(save);
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.expected_revision).toBe(4);
+      expect(sent[0]?.settings.repositories).toContain("docs-site");
+    });
+
+    test("이미 그 상태라 바뀐 게 없는 스위치(receipt 없음)는, 다른 곳 저장이 만든 +1을 옮기지 않는다", async () => {
+      const { user, sent } = await setup(4, undefined, null);
+      await user.click(switchNamed("push 전 사람 승인"));
+      await user.click(repoSwitch("docs-site"));
+      await screen.findByText(STALE);
+      const save = screen.getByRole("button", {
+        name: "저장",
+      }) as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+      await user.click(save);
+      expect(sent).toHaveLength(0);
+    });
+
+    test("다시 읽기가 실패해 새 ref의 id를 모르면, 다음 읽기가 성공한 뒤에 옮겨 받는다", async () => {
+      const { server } = await activeAgent();
+      let live: Tab = TAB;
+      let failing = false;
+      const sent: { expected_revision: number | null; settings: Settings }[] =
+        [];
+      renderAt(
+        DETAIL,
+        routesFor(server, TAB, {
+          [`GET ${PATH}/github`]: () =>
+            failing ? apiError(500, "INTERNAL_ERROR", "down") : json(200, live),
+          [ACCESS]: () => {
+            failing = true;
+            // The row's ref is one the page has not read yet.
+            return json(200, {
+              settings_revision: 4,
+              receipt_id: RECEIPT_ID,
+              enabled: true,
+              repository: {
+                ref: "r1.docs-site-moved",
+                repository: "acme/docs-site",
+                private: null,
+              },
+            });
+          },
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push((await request.json()) as (typeof sent)[number]);
+            return json(200, { settings_revision: 9, receipt_id: RECEIPT_ID });
+          },
+        }),
+      );
+      const user = await setupUser();
+      await screen.findByRole("heading", {
+        name: "에이전트가 쓸 수 있는 기능",
+      });
+      await user.click(switchNamed("push 전 사람 승인"));
+      await user.click(repoSwitch("docs-site"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const next = withDocs(4);
+      live = {
+        ...next,
+        options: {
+          ...next.options,
+          repositories: next.options.repositories.map((option) =>
+            option.id === "docs-site"
+              ? { ...option, ref: "r1.docs-site-moved" }
+              : option,
+          ),
+        },
+      };
+      failing = false;
+      await user.click(
+        await screen.findByRole("button", { name: "다시 시도" }),
+      );
+      // The re-read has landed once the switch shows the saved row.
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("switch", { name: "acme/docs-site 사용" })[0]
+            ?.getAttribute("aria-checked"),
+        ).toBe("true"),
+      );
       const save = (await screen.findByRole("button", {
         name: "저장",
       })) as HTMLButtonElement;
