@@ -85,7 +85,7 @@ function useConfigToken() {
 }
 
 /**
- * Workspace › Slack, laid out like Workspace › GitHub: one Slack card (the
+ * Integrations › Slack, laid out like Integrations › GitHub: one Slack card (the
  * app-making token, then the apps it made) and the guest card. Until a token
  * works and no app exists, nothing else can take effect, so only the card's
  * start is shown.
