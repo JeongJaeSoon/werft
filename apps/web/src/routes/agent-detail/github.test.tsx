@@ -1259,6 +1259,52 @@ describe("에이전트 GitHub 탭", () => {
     await waitFor(() => expect(save.disabled).toBe(false));
   });
 
+  test("저장소 스위치가 대기 중이면 설치 목록의 페이지 이동도 잠깐 막는다", async () => {
+    const { server } = await activeAgent();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github/repositories`]: () =>
+          json(200, {
+            installations: [
+              {
+                id: 77,
+                account: "acme",
+                connection_id: "app-author",
+                role: "author",
+                permissions: { contents: "write" },
+                repository_count: 60,
+              },
+            ],
+            installation_id: 77,
+            page: 1,
+            per_page: 30,
+            total_count: 60,
+            repositories: [],
+            unavailable: null,
+          }),
+        [ACCESS]: async () => {
+          await held;
+          return accessed();
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    const next = (await screen.findByRole("button", {
+      name: "다음",
+    })) as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+    await user.click(repoSwitch("docs-site"));
+    await waitFor(() => expect(next.disabled).toBe(true));
+    release();
+    await waitFor(() => expect(next.disabled).toBe(false));
+  });
+
   test("시작 저장소가 없던 초안은, 다른 곳에서 시작 저장소를 정해도 손으로 되돌리면 사라진다", async () => {
     const { server } = await activeAgent();
     let live: Tab = TAB;
