@@ -1070,6 +1070,62 @@ describe("에이전트 GitHub 탭", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(screen.queryByText(/저장소를 바꾸지 못했습니다/)).toBeNull();
+    // The cache still says off, but the save went through.
+    expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("세부 설정 초안이 있어도 켠 저장소는 켜진 채로 보인다", async () => {
+    const { server } = await activeAgent();
+    const tab = structuredClone(TAB);
+    renderAt(
+      DETAIL,
+      routesFor(server, tab, {
+        [ACCESS]: () => {
+          tab.github = {
+            ...SETTINGS,
+            repositories: ["werft-sandbox", "docs-site"],
+          };
+          return accessed();
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    await user.selectOptions(screen.getByLabelText("첨부 저장소 push"), "deny");
+    await screen.findByText(/저장하지 않은 변경 1건/);
+    await user.click(repoSwitch("docs-site"));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("switch", { name: "acme/docs-site 사용" })[0]
+          ?.getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    // Settled: the draft's older repository list does not undo it.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("카탈로그가 받은 뒤에도 옛 설치 목록이 catalog_id 없이 오면 같은 이름의 행에 합친다", async () => {
+    const { repositoryRows } = await import("./github-repositories.tsx");
+    const rows = repositoryRows(
+      TAB,
+      ["werft-sandbox"],
+      [
+        {
+          github_repository_id: 11,
+          full_name: "Acme/Werft-Sandbox",
+          default_branch: "main",
+          private: true,
+          catalog_id: null,
+        },
+      ],
+      77,
+    );
+    expect(rows.filter((row) => /werft-sandbox/i.test(row.name))).toHaveLength(
+      1,
+    );
+    expect(rows.find((row) => row.key === "werft-sandbox")?.on).toBe(true);
   });
 
   test("저장소 행은 owner/repo 링크와 스위치 하나뿐이다", async () => {

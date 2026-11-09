@@ -23,6 +23,9 @@ const REFUSALS: Partial<Record<string, MessageKey>> = {
   name_held: "github.repo.pickNameHeld",
 };
 
+/** Per agent and outside React, so a remount still queues behind a request in flight. */
+const queues = new Map<string, Promise<void>>();
+
 const without = <V>(
   held: Readonly<Record<string, V>>,
   key: string,
@@ -46,7 +49,6 @@ export function useRepositoryToggles(agentId: string) {
   const [wanted, setWanted] = useState<Readonly<Record<string, boolean>>>({});
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   const [pending, setPending] = useState(0);
-  const chain = useRef<Promise<void>>(Promise.resolve());
   // The newest click per row: an older request finishing must not clear it.
   const newest = useRef(new Map<string, number>());
   const clicks = useRef(0);
@@ -70,7 +72,8 @@ export function useRepositoryToggles(agentId: string) {
     setWanted((held) => ({ ...held, [key]: enabled }));
     setErrors((held) => without(held, key));
     setPending((count) => count + 1);
-    chain.current = chain.current.then(async () => {
+    const queued = queues.get(agentId) ?? Promise.resolve();
+    const next = queued.then(async () => {
       const latest = () => newest.current.get(key) === click;
       try {
         await unwrap(
@@ -83,7 +86,12 @@ export function useRepositoryToggles(agentId: string) {
         await cache.invalidateQueries({
           queryKey: githubKey(client, agentId),
         });
-        if (latest()) setWanted((held) => without(held, key));
+        // The save went through: while the re-read failed the cache still
+        // holds the old value, so keep showing what was saved.
+        const reread = cache.getQueryState(githubKey(client, agentId));
+        if (latest() && reread?.status !== "error") {
+          setWanted((held) => without(held, key));
+        }
       } catch (error) {
         const message = refuse(error as ApiError);
         if (latest()) {
@@ -96,6 +104,12 @@ export function useRepositoryToggles(agentId: string) {
       } finally {
         setPending((count) => count - 1);
       }
+    });
+    queues.set(agentId, next);
+    // Leaving the screen must not drop the queue: the next mount of the tab
+    // waits behind whatever is still in flight.
+    void next.then(() => {
+      if (queues.get(agentId) === next) queues.delete(agentId);
     });
   };
 

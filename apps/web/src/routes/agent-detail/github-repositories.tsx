@@ -98,9 +98,15 @@ export function repositoryRows(
       target: { ref: held.ref },
     });
   }
+  // A page read before the catalog took a repository still says
+  // `catalog_id: null`; the name finds the row the catalog now holds.
+  const byName = new Map(
+    [...rows.values()].map((row) => [row.name.toLowerCase(), row]),
+  );
   for (const listed of installed) {
     const known =
-      listed.catalog_id === null ? undefined : rows.get(listed.catalog_id);
+      (listed.catalog_id === null ? undefined : rows.get(listed.catalog_id)) ??
+      byName.get(listed.full_name.toLowerCase());
     if (known) {
       rows.set(known.key, {
         ...known,
@@ -253,7 +259,9 @@ export function RepositoryList({
               !editable || row.blocked !== null || row.target === null;
             return (
               <SettingRow
-                key={row.key}
+                // The name, not `row.key`: that changes once the catalog takes
+                // the repository, and a new key would drop the switch's focus.
+                key={row.name.toLowerCase()}
                 title={
                   <Link
                     href={row.href}

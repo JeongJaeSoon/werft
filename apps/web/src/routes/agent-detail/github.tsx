@@ -737,7 +737,11 @@ function GitHubSettings({
               <RepositoryList
                 agentId={agentId}
                 data={data}
-                chosen={settings.repositories}
+                // What the server holds, not the draft: a toggle saves at
+                // once, so an older draft's list would show it undone.
+                chosen={
+                  (data.github ?? data.legacy_defaults)?.repositories ?? []
+                }
                 manages={manages}
                 editable={editable}
                 toggles={toggles}
