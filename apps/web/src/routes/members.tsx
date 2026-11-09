@@ -473,16 +473,20 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               data-disabled={disabled}
             >
               <GridTableCell lines={true}>
-                <GridTableRowOpener
-                  aria-label={t(
-                    disabled ? "members.editForDisabled" : "members.editFor",
-                    { name: member.display_name },
-                  )}
-                  onClick={(event) => {
-                    editOpener.current = event.currentTarget;
-                    setEditingId(member.user_id);
-                  }}
-                />
+                {/* A disabled member opens nothing: no opener, so no pointer,
+                      hover fill, Tab stop or click. "다시 활성화" is the only
+                      action left on the row. */}
+                {disabled ? null : (
+                  <GridTableRowOpener
+                    aria-label={t("members.editFor", {
+                      name: member.display_name,
+                    })}
+                    onClick={(event) => {
+                      editOpener.current = event.currentTarget;
+                      setEditingId(member.user_id);
+                    }}
+                  />
+                )}
                 {/* v4 .strong: body text at weight 500, not link blue;
                       blue stays for links that move (→). */}
                 {/* Below md the "you" badge drops to its own line under

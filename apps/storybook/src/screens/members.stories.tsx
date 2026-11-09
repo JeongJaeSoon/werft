@@ -63,7 +63,7 @@ import {
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
@@ -685,10 +685,9 @@ function MemberTableRow({
       data-disabled={disabled}
     >
       <GridTableCell lines={true}>
-        <GridTableRowOpener
-          aria-label={disabled ? `${name} 편집 (비활성)` : `${name} 편집`}
-          onClick={onEdit}
-        />
+        {disabled ? null : (
+          <GridTableRowOpener aria-label={`${name} 편집`} onClick={onEdit} />
+        )}
         <Text
           as="span"
           weight="medium"
@@ -1184,17 +1183,9 @@ function TeamPage({
   const [name, setName] = useState(team.name);
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex flex-col gap-2">
-        <TextLink
-          href="#teams"
-          className="inline-flex w-fit items-center gap-1"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden="true" />팀 목록
-        </TextLink>
-        <Heading className="min-w-0 [overflow-wrap:anywhere]">
-          {team.name}
-        </Heading>
-      </div>
+      <Heading className="min-w-0 [overflow-wrap:anywhere]">
+        {team.name}
+      </Heading>
       {manages ? (
         <Section title="팀 설정" titleAs="h3">
           <form
@@ -1414,7 +1405,7 @@ function TeamMembers({
                         </GridTableCell>
                       )}
                       <GridTableCell>
-                        {manages ? (
+                        {manages && !inactive ? (
                           <TeamRoleSelect
                             member={member}
                             initialPromote={initialPromote === member.user_id}
@@ -1435,12 +1426,14 @@ function TeamMembers({
                       </GridTableCell>
                       {manages && (
                         <GridTableCell raised={true} align="end">
-                          <RowAction
-                            aria-label={`${name}님을 팀에서 제외`}
-                            onClick={() => setRemoving(member)}
-                          >
-                            제외
-                          </RowAction>
+                          {inactive ? null : (
+                            <RowAction
+                              aria-label={`${name}님을 팀에서 제외`}
+                              onClick={() => setRemoving(member)}
+                            >
+                              제외
+                            </RowAction>
+                          )}
                         </GridTableCell>
                       )}
                     </GridTableRow>

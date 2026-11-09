@@ -73,13 +73,7 @@ const ROLE_NAME = { owner: "소유자", admin: "관리자", member: "구성원" 
 
 /** Opens 구성원 편집 for a member and returns the dialog. */
 async function openEdit(user: User, name: string) {
-  // An inactive row's opener adds "(비활성)" after the name.
-  await user.click(
-    await screen.findByRole("button", {
-      name: (label) =>
-        label === `${name} 편집` || label === `${name} 편집 (비활성)`,
-    }),
-  );
+  await user.click(await screen.findByRole("button", { name: `${name} 편집` }));
   return screen.findByRole("dialog", { name: "구성원 편집" });
 }
 
@@ -260,11 +254,6 @@ describe("구성원 화면", () => {
         selector: "[data-slot=badge]",
       }),
     ).toBeNull();
-    expect(
-      within(goneRow as HTMLElement).getByRole("button", {
-        name: "Gone 편집 (비활성)",
-      }),
-    ).toBeDefined();
     expect(mateRow.hasAttribute("data-inactive")).toBe(false);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
@@ -272,6 +261,45 @@ describe("구성원 화면", () => {
         name: "Gone 다시 활성화",
       }),
     ).toBeDefined();
+  });
+
+  test("비활성 구성원의 행은 열리지 않고, 남은 동작은 다시 활성화 하나다", async () => {
+    renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(
+          200,
+          memberPage({ items: [owner, teammate, gone], next_cursor: null }),
+        ),
+      ...noInvites,
+    });
+    const region = await screen.findByRole("table", { name: "구성원 표" });
+    await screen.findByRole("button", { name: "Mate 편집" });
+    const goneRow = screen
+      .getByText(/^Gone/)
+      .closest("[role=row]") as HTMLElement;
+    // No opener at all: no Tab stop, no pointer cursor or hover fill (both
+    // come from a row holding an opener), nothing to click.
+    expect(goneRow.querySelector("[data-slot=grid-table-row-opener]")).toBe(
+      null,
+    );
+    expect(
+      within(goneRow)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Gone 다시 활성화"]);
+    expect(screen.queryByRole("button", { name: /^Gone 편집/ })).toBeNull();
+    const user = await setupUser();
+    await user.click(within(goneRow).getByText("gone@example.com"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // A live row keeps its opener.
+    expect(
+      (
+        within(region)
+          .getByRole("button", { name: "Mate 편집" })
+          .closest("[role=row]") as HTMLElement
+      ).querySelector("[data-slot=grid-table-row-opener]"),
+    ).not.toBe(null);
   });
 
   test("행에는 비활성화만 있고 역할 select는 없다", async () => {
@@ -923,7 +951,10 @@ describe("되돌리기 어려운 동작의 확인", () => {
             items: [
               { ...owner, role: "admin" },
               {
+                // Disabled by someone else after this list was read: the
+                // refreshed actions say so before the row does.
                 ...gone,
+                disabled_at: null,
                 display_name: "Boss",
                 actions: {
                   ...openActions(gone),
@@ -1137,7 +1168,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await waitFor(() =>
       expect(
         screen
-          .getByRole("button", { name: "Person 0 편집 (비활성)" })
+          .getByRole("button", { name: "Person 0 다시 활성화" })
           .closest("[role=row]")
           ?.getAttribute("data-disabled"),
       ).toBe("true"),
@@ -1181,7 +1212,7 @@ describe("구성원 페이지와 서버 검색", () => {
     await screen.findByRole("button", { name: "더 보기" });
     expect(
       screen
-        .getByRole("button", { name: "Person 0 편집 (비활성)" })
+        .getByRole("button", { name: "Person 0 다시 활성화" })
         .closest("[role=row]")
         ?.getAttribute("data-disabled"),
     ).toBe("true");
@@ -1285,7 +1316,7 @@ describe("구성원 페이지와 서버 검색", () => {
     const user = await setupUser();
     await screen.findByRole("button", { name: "Owner 편집" });
     await user.click(screen.getByRole("button", { name: "더 보기" }));
-    await screen.findByRole("button", { name: "Gone 편집 (비활성)" });
+    await screen.findByRole("button", { name: "Gone 다시 활성화" });
 
     const box = screen.getByRole("searchbox", {
       name: "이름이나 이메일로 찾기",
@@ -1374,7 +1405,7 @@ describe("구성원 페이지와 서버 검색", () => {
     });
   });
 
-  test("계정이 정지된 행은 서버가 준 이유로 다시 활성화와 역할 편집을 막는다", async () => {
+  test("계정이 정지된 행은 서버가 준 이유로 다시 활성화를 막고, 열리지 않는다", async () => {
     const suspended = {
       ...gone,
       actions: {
@@ -1397,11 +1428,9 @@ describe("구성원 페이지와 서버 검색", () => {
     expect(descriptionOf(lockOf(enable))).toBe(
       "계정이 정지된 사람은 여기서 다시 활성화할 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
     );
-    expect(await roleRule(user, "Gone")).toEqual({
-      disabled: true,
-      reason:
-        "계정이 정지된 사람의 역할은 바꿀 수 없습니다 — 계정 정지를 먼저 풀어야 합니다.",
-    });
+    // A suspended row is inactive too: nothing on it opens a role dialog.
+    await user.click(screen.getByText("gone@example.com"));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(api.calls.some((call) => call.method !== "GET")).toBe(false);
   });
 
@@ -1482,40 +1511,6 @@ describe("구성원 페이지와 서버 검색", () => {
     expect(descriptionOf(within(edit).getByRole("radiogroup"))).toBe(
       "소유자의 역할은 관리자가 바꿀 수 없습니다.",
     );
-  });
-
-  test("관리자가 보는 비활성 구성원은 소유자 선택지의 이유가 아니라 비활성 이유로 막힌다", async () => {
-    const off = { allowed: false, reason: "member_disabled" } as const;
-    renderAt("/members", {
-      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
-      "GET /v1/members": () =>
-        json(
-          200,
-          memberPage({
-            items: [
-              { ...owner, role: "admin" },
-              {
-                ...gone,
-                actions: {
-                  ...openActions(gone),
-                  change_role: {
-                    owner: { allowed: false, reason: "owner_protected" },
-                    admin: off,
-                    member: off,
-                  },
-                },
-              },
-            ],
-            next_cursor: null,
-          }),
-        ),
-      ...noInvites,
-    });
-    const user = await setupUser();
-    expect(await roleRule(user, "Gone")).toEqual({
-      disabled: true,
-      reason: "비활성 구성원의 역할은 다시 활성화한 뒤 바꿀 수 있습니다.",
-    });
   });
 
   test("고르지 않은 열린 편집은 다시 받은 행의 역할을 따라, 바뀐 역할을 되돌리지 않는다", async () => {
