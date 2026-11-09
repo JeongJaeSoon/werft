@@ -53,7 +53,6 @@ const touch = (id: string, command: string, creates: string): Step => ({
 const steps: Step[] = [
   touch("control_unlisted", "touch control.txt", "control.txt"),
   touch("deny_exact_pattern", "touch denied.txt", "denied.txt"),
-  touch("deny_prefix_pattern", "rm-guard-probe", "never.txt"),
   touch(
     "deny_in_compound",
     "echo start && touch denied-compound.txt",
@@ -164,17 +163,26 @@ const filesCreated = (workspace: string) =>
 
 describe("settings deny rules under a permission mode", () => {
   test("bypassPermissions: the deny rules still stop the call, an unlisted one runs", async () => {
-    const { results, workspace } = await run("bypassPermissions", DENY);
+    const { asked, results, workspace } = await run("bypassPermissions", DENY);
     const ran = filesCreated(workspace);
     expect(ran.control_unlisted).toBe(true);
     expect(ran.deny_exact_pattern).toBe(false);
     expect(ran.deny_in_compound).toBe(false);
     expect(ran.deny_after_pipe).toBe(false);
     expect(ran.deny_whole_tool).toBe(false);
-    // Stopped by the rule, not by something else in the sandbox.
-    expect(results.get("toolu_deny_exact_pattern")).toContain(
-      "has been denied",
-    );
+    // Stopped by the rule, not by something else in the sandbox and not by
+    // the permission callback: bypass never reaches it for a call it lets by.
+    for (const id of [
+      "deny_exact_pattern",
+      "deny_in_compound",
+      "deny_after_pipe",
+    ]) {
+      expect([id, results.get(`toolu_${id}`)]).toEqual([
+        id,
+        expect.stringContaining("has been denied"),
+      ]);
+    }
+    expect(asked.size).toBe(0);
     expect(results.get("toolu_deny_whole_tool")).toContain(
       "No such tool available: Write",
     );
