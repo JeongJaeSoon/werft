@@ -10,7 +10,10 @@ import type {
   ExtensionAttachment,
   ExtensionBundle,
 } from "../ports/extension-bundle-store.ts";
-import type { AcceptSessionInput } from "../ports/session-unit-of-work.ts";
+import type {
+  AcceptSessionInput,
+  SessionDetailRecord,
+} from "../ports/session-unit-of-work.ts";
 import { profileFingerprint, type SessionCatalog } from "./catalog.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import {
@@ -113,6 +116,8 @@ const unreached = async () => {
 function setup(options: {
   extensions?: SessionExtensionsDeps;
   accept?: "accepted" | "replayed";
+  session?: SessionDetailRecord;
+  changeProfile?: (input: { profile: unknown }) => never;
 }) {
   const accepted: AcceptSessionInput[] = [];
   const policy = createAuthorizationPolicy({
@@ -167,13 +172,14 @@ function setup(options: {
       closeAtomic: unreached,
       decideRecoveryAtomic: unreached,
       resumeAtomic: unreached,
-      changeProfileAtomic: unreached,
+      changeProfileAtomic:
+        (options.changeProfile as typeof unreached | undefined) ?? unreached,
       renameAtomic: unreached,
     },
     reader: {
       listSessions: unreached,
       countSessions: unreached,
-      getSession: async () => null,
+      getSession: async () => options.session ?? null,
       listTurns: unreached,
       getTurn: unreached,
       getReceipt: unreached,
@@ -458,5 +464,58 @@ describe("activation judges every bundle a session could turn on", () => {
     expect(result.ok === false && result.refusal.code).toBe(
       "required_replaced",
     );
+  });
+});
+
+describe("a profile change judges the bundles the session is pinned to", () => {
+  const SESSION = "019a0000-0000-7000-8000-00000000d0a1";
+  const pinnedTo = (bundles: ExtensionBundle[]) =>
+    ({
+      id: SESSION,
+      revision: 1,
+      admission_state: "active",
+      status: "idle",
+      repository_id: "app",
+      repo_url: "https://example.invalid/app.git",
+      branch: "main",
+      repository_mode: "repository",
+      github_policy_source: "release",
+      profile_id: "coding-v1",
+      model: "claude-sonnet-5",
+      profile_fingerprint: null,
+      extensions: bundles.map((b) => ({
+        bundle_id: b.id,
+        name: b.name,
+        digest: b.digest,
+        scope: "agent",
+      })),
+    }) as unknown as SessionDetailRecord;
+
+  async function change(bundles: ExtensionBundle[], profile: string) {
+    let sent: { profile: unknown } | null = null;
+    const { service, caller } = setup({
+      extensions: extensionDeps([]),
+      session: pinnedTo(bundles),
+      changeProfile: (input) => {
+        sent = input;
+        throw new Error("captured");
+      },
+    });
+    await service
+      .changeSessionProfile(caller, SESSION, {
+        idempotencyKey: "k",
+        body: { profile_id: profile, expected_revision: 1 },
+      })
+      .catch(() => undefined);
+    return sent as { profile: unknown } | null;
+  }
+
+  test("a scripted bundle accepted on default does not move to an unattended profile", async () => {
+    expect((await change([tools], "unattended-v1"))?.profile).toBeNull();
+  });
+
+  test("the same session may change to a profile that still allows its bundles", async () => {
+    expect((await change([lint], "unattended-v1"))?.profile).not.toBeNull();
+    expect((await change([], "unattended-v1"))?.profile).not.toBeNull();
   });
 });

@@ -120,6 +120,43 @@ export async function resolveSessionExtensions(
 }
 
 /**
+ * Whether the bundles a session already runs with fit another profile. The
+ * pinned bundles, not the current attachments, are what the next attempt
+ * downloads, so a profile change judges those: a scripted bundle accepted on
+ * a `default` profile must not move to `auto` unchecked.
+ */
+export async function checkPinnedExtensions(
+  deps: SessionExtensionsDeps,
+  input: {
+    workspaceId: string;
+    extensions: readonly { bundle_id: string }[] | null;
+    permissionMode: string;
+    runtimeKind: RuntimeKind;
+  },
+): Promise<ExtensionResolution> {
+  const workspace: ScopeEntry[] = [];
+  for (const pinned of input.extensions ?? []) {
+    const bundle = await deps.store.find(input.workspaceId, pinned.bundle_id);
+    if (!bundle) {
+      return {
+        ok: false,
+        refusal: {
+          code: "bundle_not_found",
+          name: pinned.bundle_id,
+          message: `Bundle ${pinned.bundle_id} the session runs with is no longer registered`,
+        },
+      };
+    }
+    workspace.push({ mode: "required", ref: refOf(bundle) });
+  }
+  return resolveExtensions({
+    scopes: { workspace },
+    permissionMode: input.permissionMode,
+    runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
+  });
+}
+
+/**
  * The activation-time question for an agent on a release's profile: could
  * every bundle a session might turn on run there? A failure is a refusal to
  * activate, not a session that fails later.

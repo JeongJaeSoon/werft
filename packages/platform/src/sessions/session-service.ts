@@ -46,6 +46,7 @@ import {
 import { releaseModel } from "../agents/release-ids.ts";
 import type { ExtensionRefusal } from "../extensions/resolve.ts";
 import {
+  checkPinnedExtensions,
   resolveSessionExtensions,
   type SessionExtensionsDeps,
 } from "../extensions/session-extensions.ts";
@@ -1241,7 +1242,7 @@ export function createSessionService(deps: {
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
-      const refusal = workspaceRefusal
+      const profileRefusal = workspaceRefusal
         ? workspaceRefusal.message
         : pair === null ||
             (pair.repository !== null &&
@@ -1256,6 +1257,26 @@ export function createSessionService(deps: {
                 current.runtime_version !== pair.profile.runtime_version
               ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
               : null;
+      // The bundles pinned at creation keep their scripts: the target profile
+      // must still allow them. Judged after the replay check like the rest.
+      let pinnedRefusal: string | null = null;
+      if (
+        profileRefusal === null &&
+        pair !== null &&
+        deps.extensions &&
+        record.extensions !== null &&
+        record.extensions !== undefined &&
+        record.extensions.length > 0
+      ) {
+        const checked = await checkPinnedExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          extensions: record.extensions,
+          permissionMode: pair.profile.permission_mode,
+          runtimeKind: pair.profile.runtime_kind,
+        });
+        if (!checked.ok) pinnedRefusal = checked.refusal.message;
+      }
+      const refusal = profileRefusal ?? pinnedRefusal;
       const result = await controls.changeProfileAtomic({
         principal: actor,
         sessionId,

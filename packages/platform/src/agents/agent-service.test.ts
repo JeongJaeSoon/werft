@@ -10,6 +10,7 @@ import type {
   AgentRecord,
   AgentStore,
 } from "../ports/agent-store.ts";
+import type { ExtensionAttachment } from "../ports/extension-bundle-store.ts";
 import {
   type CatalogProfile,
   profileFingerprint,
@@ -953,7 +954,7 @@ describe("a release's GitHub settings", () => {
 });
 
 describe("activation and the agent's extension bundles", () => {
-  const scripted = {
+  const scripted: ExtensionAttachment = {
     scope: "agent",
     mode: "optional",
     bundle: {
@@ -975,7 +976,7 @@ describe("activation and the agent's extension bundles", () => {
       reviewedBy: OWNER,
       reviewedAt: new Date(0),
     },
-  } as const;
+  };
   const extensions = {
     store: {
       find: async () => null,
@@ -1028,5 +1029,43 @@ describe("activation and the agent's extension bundles", () => {
       expected_revision: -1,
     });
     expect(memory.activations()).toBe(1);
+  });
+
+  test("returning to an earlier release is refused on the same ground as an activation", async () => {
+    const memory = memoryStore();
+    const auto: CatalogProfile = { ...PROFILE, permission_mode: "auto" };
+    const { release: made } = await serviceOver(
+      memory.store,
+      auto,
+    ).createRelease(owner, AGENT, release);
+    const revert = (service: ReturnType<typeof overWith>) =>
+      service.revertMigration({
+        workspaceId: WORKSPACE,
+        agentId: AGENT,
+        actorUserId: OWNER,
+        migrationId: "m-1",
+        previousReleaseId: made.id,
+        expected: {
+          activeReleaseId: "other",
+          activationRevision: -1,
+          behaviorRevision: 0,
+          tracking: "follow",
+          modelSource: "profile",
+        },
+        tracking: "follow",
+      });
+    expect(await revert(overWith(memory.store, auto))).toEqual({
+      status: "failed",
+      reason: "release_refused",
+    });
+    expect(memory.activations()).toBe(0);
+    // Without the dependency the rollback is what it was: the gap this closes.
+    const bare = createAgentService({
+      authorization: createAuthorizationPolicy(),
+      store: memory.store,
+      catalog: catalogOf(auto),
+      credentials: { unboundRefs: async () => [] },
+    });
+    expect((await revert(bare)).status).not.toBe("failed");
   });
 });

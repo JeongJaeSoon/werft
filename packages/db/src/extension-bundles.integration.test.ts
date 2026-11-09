@@ -499,12 +499,51 @@ integration("extension bundles on PostgreSQL", () => {
   test("an owner that is no uuid (before workspaces) has no attachments instead of failing the read", async () => {
     const { store } = build();
     expect(await store.listAttachments({ workspaceId: "local" })).toEqual([]);
+    // A selection naming a valid bundle id must not reach the uuid column
+    // with an owner that is no uuid.
+    expect(await store.find("local", randomUUID())).toBeNull();
     expect(
       await store.listAttachments({
         workspaceId: randomUUID(),
         agentId: "not-a-uuid",
       }),
     ).toEqual([]);
+  });
+
+  test("attaches of one name at once all record and leave a single row", async () => {
+    const { service } = build();
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const versions = [await register(service, owner)];
+    for (let i = 0; i < 3; i++) {
+      versions.push(
+        await register(
+          service,
+          owner,
+          [...clean(), file(`skills/research/n${i}.md`, `v${i}`)],
+          `Research n${i}`,
+        ),
+      );
+    }
+    const agentId = await agentIn(workspaceId);
+    for (const scope of ["agent", "workspace"] as const) {
+      const outcomes = await Promise.all(
+        versions.map((v) =>
+          service.recordAttachment({
+            principal: owner,
+            bundleId: v.id,
+            scope,
+            ...(scope === "agent" ? { agentId } : {}),
+            kind: "attach",
+          }),
+        ),
+      );
+      expect(outcomes.map((o) => o.outcome)).toEqual(
+        versions.map(() => "recorded"),
+      );
+    }
+    const rows = await service.listAttachments({ workspaceId, agentId });
+    expect(rows.map((r) => r.scope).sort()).toEqual(["agent", "workspace"]);
   });
 
   test("a member cannot attach; nothing is written", async () => {

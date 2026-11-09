@@ -18,7 +18,6 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
-  createPostgresExtensionBundleStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -151,7 +150,6 @@ import {
   profileCatalog,
   releaseStartable,
   resolveAgentRelease,
-  type SessionExtensionsDeps,
   SessionServiceError,
   slackBotToken,
   unrunnableProfiles,
@@ -198,6 +196,7 @@ import {
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
+import { extensionDepsFor } from "./extension-deps.ts";
 import {
   connectionsOf,
   createAppBotUsers,
@@ -514,10 +513,7 @@ const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
 // Resolves which bundles a session runs with, and checks an agent's bundles
 // against the profile it is released on.
-const extensionDeps: SessionExtensionsDeps = {
-  store: createPostgresExtensionBundleStore(db),
-  offersSkills: (kind) => installedRuntimes.offers(kind, "skills"),
-};
+const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,

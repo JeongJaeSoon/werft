@@ -9,7 +9,7 @@ import type {
   ExtensionMode,
   Principal,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
@@ -87,7 +87,8 @@ export function createPostgresExtensionBundleStore(
   db: Database,
 ): ExtensionBundleStore {
   async function byId(tx: Database, workspaceId: string, id: string) {
-    if (!UUID.test(id)) return undefined;
+    // An owner from before workspaces (AUTH_MODE=none) is no uuid either.
+    if (!UUID.test(id) || !UUID.test(workspaceId)) return undefined;
     const [row] = await tx
       .select()
       .from(extensionBundles)
@@ -291,6 +292,11 @@ export function createPostgresExtensionBundleStore(
             ? isNull(extensionAttachments.agentId)
             : eq(extensionAttachments.agentId, agentId),
           eq(extensionAttachments.name, bundle.name),
+        );
+        // Delete-then-insert alone lets two attaches of one name both pass the
+        // delete and collide on the unique index; serialize per target.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${`extension_attachments:${input.workspaceId}:${scope}:${agentId ?? ""}:${bundle.name}`}, 0))`,
         );
         if (input.kind === "attach") {
           await tx.delete(extensionAttachments).where(target);

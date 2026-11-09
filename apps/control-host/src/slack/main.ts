@@ -10,7 +10,6 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
-  createPostgresExtensionBundleStore,
   createPostgresInstallationProfileStore,
   createPostgresInstallationSettingsStore,
   createPostgresLinkedAccountStore,
@@ -71,12 +70,12 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
-  installedRuntimes,
   loadSecretKey,
   profileViewSources,
   refuseFileCatalog,
   runtimeVersionsFromEnv,
 } from "../api/catalog-config.ts";
+import { extensionDepsFor } from "../api/extension-deps.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
@@ -216,10 +215,7 @@ export function slackSessionHandler(deps: {
         ),
       ...newSessionGitHubReaders(db),
     },
-    extensions: {
-      store: createPostgresExtensionBundleStore(db),
-      offersSkills: (kind) => installedRuntimes.offers(kind, "skills"),
-    },
+    extensions: extensionDepsFor(db),
     credentials,
     limits: installationLimitsFromEnv(environment),
   });
