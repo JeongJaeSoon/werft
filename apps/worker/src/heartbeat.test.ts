@@ -222,8 +222,9 @@ describe("Heartbeat", () => {
     }
   });
 
-  test("default clock and timer wake an immediate beat and accept its renewal", async () => {
+  test("default clock and timer renew across forward and backward wall clock jumps", async () => {
     const recorded = Promise.withResolvers<void>();
+    const lost: string[] = [];
     const beat = new Heartbeat({
       gateway: {
         heartbeat: async () => ({ ...answer(60_000), control_pending: true }),
@@ -233,16 +234,26 @@ describe("Heartbeat", () => {
       intervalMs: 10_000,
       lease: { remainingMs: 30_000, sentAt: performance.now() },
       safetyMarginMs: 1_000,
-      onLost: () => {
-        throw new Error("unexpected ownership loss");
-      },
+      onLost: (reason) => lost.push(reason),
       onControlPending: recorded.resolve,
     });
     beat.start();
-    beat.beatNow();
-    await recorded.promise;
-    await beat.stop();
-    expect(beat.leaseLeftMs).toBeGreaterThan(30_000);
+    try {
+      beat.beatNow();
+      await recorded.promise;
+      for (const jump of [3_600_000, -7_200_000]) {
+        setSystemTime(new Date(Date.now() + jump));
+        expect(beat.leaseLeftMs).toBeGreaterThan(30_000);
+        expect(beat.leaseLeftMs).toBeLessThanOrEqual(59_000);
+        await beat.beatOnce();
+        expect(beat.leaseLeftMs).toBeGreaterThan(30_000);
+        expect(beat.leaseLeftMs).toBeLessThanOrEqual(59_000);
+        expect(lost).toEqual([]);
+      }
+    } finally {
+      setSystemTime();
+      await beat.stop();
+    }
   });
 
   test("reports the attempt alive and carries the lease forward", async () => {
