@@ -221,6 +221,58 @@ integration("settings console writes", () => {
     expect(made).toHaveLength(1);
   });
 
+  test("a connection's auto mode is set on its own column: the definition stays, one receipt is written, and disabled or missing ids are refused", async () => {
+    const owner = await person("owner");
+    await store().create(
+      add("connections", "auto-fake", CONNECTION),
+      "example-key-1234",
+      owner,
+    );
+    const before = await db
+      .select()
+      .from(providerConnections)
+      .where(eq(providerConnections.id, "auto-fake"));
+    expect(before[0]?.autoMode).toBe("unknown");
+
+    const set = await store().setConnectionAutoMode(
+      "auto-fake",
+      "supported",
+      owner,
+    );
+    expect(set.outcome).toBe("done");
+    const after = await db
+      .select()
+      .from(providerConnections)
+      .where(eq(providerConnections.id, "auto-fake"));
+    expect(after[0]?.autoMode).toBe("supported");
+    // The fingerprint hashes the definition, so it must not move.
+    expect(after[0]?.definition).toEqual(before[0]?.definition);
+    expect(
+      (await store().listRows("connection")).find(
+        (item) => item.id === "auto-fake",
+      ),
+    ).toMatchObject({ autoMode: "supported" });
+    const written = (await receiptsOf("set_connection_auto_mode")).filter(
+      (receipt) =>
+        (receipt.result as { connection_id?: string }).connection_id ===
+        "auto-fake",
+    );
+    expect(written).toHaveLength(1);
+    expect(written[0]?.result).toMatchObject({ auto_mode: "supported" });
+
+    expect(
+      await store().setConnectionAutoMode(
+        "no-such-connection",
+        "supported",
+        owner,
+      ),
+    ).toEqual({ outcome: "not_found" });
+    await store().disable({ kind: "connection", id: "auto-fake" }, owner);
+    expect(
+      await store().setConnectionAutoMode("auto-fake", "unsupported", owner),
+    ).toEqual({ outcome: "conflict", reason: "disabled" });
+  });
+
   test("an admin or member may not write a connection or MCP server", async () => {
     for (const role of ["admin", "member"] as const) {
       const someone = await person(role);

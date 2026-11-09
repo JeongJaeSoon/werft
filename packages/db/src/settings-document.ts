@@ -582,6 +582,7 @@ function consoleWrites(
   | "create"
   | "setValue"
   | "convertConnection"
+  | "setConnectionAutoMode"
   | "disable"
   | "enableConnection"
   | "setMcpWorkspaces"
@@ -744,6 +745,29 @@ function consoleWrites(
       });
     },
 
+    setConnectionAutoMode(id, autoMode, actor) {
+      return asWriter("connection", actor, async (tx) => {
+        const held = await heldRow(tx, "connection", id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        // This column only: the definition is hashed into every profile
+        // fingerprint and release pin made over the connection.
+        await tx
+          .update(providerConnections)
+          .set({ autoMode })
+          .where(eq(providerConnections.id, id));
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_connection_auto_mode",
+          { connection_id: id, auto_mode: autoMode },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
     disable(owner, actor) {
       return asWriter(owner.kind, actor, async (tx) => {
         const held = await heldRow(tx, owner.kind, owner.id);
@@ -899,6 +923,7 @@ function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
                 last4: value(row.id),
                 createdAt: row.createdAt,
                 disabledAt: row.disabledAt,
+                autoMode: row.autoMode,
               }));
             case "mcp":
               return (

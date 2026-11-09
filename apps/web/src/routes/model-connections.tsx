@@ -71,6 +71,7 @@ export function ModelConnections({
   const connections = useQuery(settingsConnectionsQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [adding, setAdding] = useState(false);
+  const [judging, setJudging] = useState<SettingsConnection | null>(null);
   const rows = useRowActions("connection", setOutcome);
 
   const over = (id: string) =>
@@ -146,6 +147,10 @@ export function ModelConnections({
                 busy={rows.busy}
                 onValue={() => rows.openValue(item.id)}
                 onConvert={() => rows.openConvert(item.id)}
+                onAutoMode={() => {
+                  setOutcome(null);
+                  setJudging(item);
+                }}
                 onDisable={() => rows.openDisable(item.id)}
                 onEnable={() => rows.openEnable(item.id)}
               />
@@ -161,6 +166,11 @@ export function ModelConnections({
         defaults={connections.data?.endpoint_defaults ?? {}}
         onOutcome={setOutcome}
       />
+      <AutoModeDialog
+        item={judging}
+        onClose={() => setJudging(null)}
+        onOutcome={setOutcome}
+      />
       {rows.dialogs}
     </Page>
   );
@@ -172,6 +182,7 @@ function ConnectionRow({
   busy,
   onValue,
   onConvert,
+  onAutoMode,
   onDisable,
   onEnable,
 }: {
@@ -180,6 +191,7 @@ function ConnectionRow({
   readonly busy: boolean;
   readonly onValue: () => void;
   readonly onConvert: () => void;
+  readonly onAutoMode: () => void;
   readonly onDisable: () => void;
   readonly onEnable: () => void;
 }) {
@@ -202,7 +214,9 @@ function ConnectionRow({
         <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.endpoint}</Code>
           <Text as="span" variant="meta">
-            {item.kind} · {t(`settings.connections.billing.${item.billing}`)}
+            {item.kind} · {t(`settings.connections.billing.${item.billing}`)} ·{" "}
+            {t("settings.autoMode.column")}{" "}
+            {t(`settings.autoMode.${item.auto_mode}`)}
           </Text>
         </div>
       </GridTableCell>
@@ -241,6 +255,15 @@ function ConnectionRow({
               {t("settings.convert")}
             </RowAction>
           ) : null}
+          {item.state !== "disabled" ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.autoMode.setFor", { id: item.id })}
+              onClick={onAutoMode}
+            >
+              {t("settings.autoMode.set")}
+            </RowAction>
+          ) : null}
           {actions.disable ? (
             <RowAction
               variant="danger"
@@ -263,6 +286,96 @@ function ConnectionRow({
         </div>
       </GridTableCell>
     </GridTableRow>
+  );
+}
+
+const AUTO_MODES = ["unknown", "supported", "unsupported"] as const;
+
+/**
+ * Records whether a connection's models run the auto-mode classifier. Only
+ * "supported" changes how agents run, so the dialog says what that does.
+ */
+function AutoModeDialog({
+  item,
+  onClose,
+  onOutcome,
+}: {
+  readonly item: SettingsConnection | null;
+  readonly onClose: () => void;
+  readonly onOutcome: (outcome: Outcome) => void;
+}) {
+  const { t } = useI18n();
+  const [error, setError] = useState<string | null>(null);
+  const save = useSettingsWrite(
+    "connection",
+    (
+      client,
+      variables: {
+        readonly id: string;
+        readonly auto_mode: (typeof AUTO_MODES)[number];
+      },
+    ) =>
+      unwrap(
+        client.POST("/v1/installation/settings/connections/{id}/auto-mode", {
+          params: { path: { id: variables.id } },
+          body: { auto_mode: variables.auto_mode },
+        }),
+      ),
+    {
+      onDone: (_answer, variables) => {
+        onClose();
+        onOutcome({
+          kind: "notice",
+          text: t("settings.done.autoMode", {
+            id: variables.id,
+            value: t(`settings.autoMode.${variables.auto_mode}`),
+          }),
+        });
+      },
+      onRefused: setError,
+    },
+  );
+
+  return (
+    <FormDialog
+      open={item !== null}
+      onOpenChange={(next) => {
+        if (next) return;
+        setError(null);
+        onClose();
+      }}
+      pending={save.isPending}
+      title={t("settings.autoMode.title")}
+      description={t("settings.autoMode.description")}
+      error={error}
+      submitLabel={t("settings.autoMode.save")}
+      pendingLabel={t("settings.autoMode.saving")}
+      onSubmit={(form) => {
+        if (item === null) return;
+        setError(null);
+        const picked = AUTO_MODES.find(
+          (mode) => mode === form.get("auto_mode"),
+        );
+        if (picked === undefined) return;
+        save.mutate({ id: item.id, auto_mode: picked });
+      }}
+    >
+      <Field>
+        <FieldLabel>{t("settings.autoMode.label")}</FieldLabel>
+        {/* Keyed so each connection opens on its own stored value. */}
+        <NativeSelect
+          key={item?.id ?? ""}
+          name="auto_mode"
+          defaultValue={item?.auto_mode ?? "unknown"}
+        >
+          {AUTO_MODES.map((mode) => (
+            <NativeSelectOption key={mode} value={mode}>
+              {t(`settings.autoMode.${mode}`)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </Field>
+    </FormDialog>
   );
 }
 

@@ -42,6 +42,7 @@ const CONNECTION: SettingsConnection = {
   endpoint: "https://api.anthropic.com",
   billing: "per_token",
   auth_kind: "api_key",
+  auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
   created_at: "2026-10-01T00:00:00.000Z",
   disabled_at: null,
