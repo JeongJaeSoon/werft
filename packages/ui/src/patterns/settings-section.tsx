@@ -19,7 +19,17 @@ export interface SettingsSectionProps {
   readonly description?: ReactNode | undefined;
   readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   readonly descriptionId?: string | undefined;
-  /** SettingRows under the body, edge to edge like the foot. */
+  /**
+   * The section's main action (an "add" button), on the right of the title
+   * row so it reads as belonging to this section's list.
+   */
+  readonly actions?: ReactNode | undefined;
+  /**
+   * Draws the body in one bordered box, for content that is not already a
+   * framed table or row list (a form, a paragraph, an empty state).
+   */
+  readonly box?: boolean | undefined;
+  /** SettingRows in their own bordered box under the body. */
   readonly rows?: ReactNode | undefined;
   readonly foot?: ReactNode | undefined;
   /** Wraps the body, rows and foot in a form. */
@@ -39,6 +49,8 @@ export function SettingsSection({
   description,
   descriptionId,
   titleRef,
+  actions,
+  box = false,
   rows,
   foot,
   onSubmit,
@@ -47,9 +59,15 @@ export function SettingsSection({
   const titleId = useId();
   const content = (
     <>
-      {children}
+      {children && box ? (
+        <div className="flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
       {rows ? (
-        <RowList variant="joined" framed={false}>
+        <RowList variant="joined" aria-labelledby={titleId}>
           {rows}
         </RowList>
       ) : null}
@@ -67,16 +85,21 @@ export function SettingsSection({
       className="flex min-w-0 flex-col gap-4"
     >
       <div className="flex flex-col gap-1 border-b pb-2">
-        <div className="flex items-center gap-2">
-          <Heading
-            id={titleId}
-            ref={titleRef}
-            tabIndex={titleRef ? -1 : undefined}
-            className="m-0 font-semibold text-body leading-6"
-          >
-            {title}
-          </Heading>
-          {badge}
+        <div className="flex min-h-8 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Heading
+              id={titleId}
+              ref={titleRef}
+              tabIndex={titleRef ? -1 : undefined}
+              className="m-0 font-semibold text-body leading-6"
+            >
+              {title}
+            </Heading>
+            {badge}
+          </div>
+          {actions ? (
+            <div className="flex flex-none items-center gap-2">{actions}</div>
+          ) : null}
         </div>
         {description ? (
           // The rule above runs to the page's edge; the text keeps to a

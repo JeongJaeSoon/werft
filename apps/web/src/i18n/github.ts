@@ -138,6 +138,7 @@ export const githubKo = {
     "설치는 GitHub에 있지만, 시작한 지 1시간이 지났거나 이미 쓰인 링크라 연결한 사람을 기록하지 않았습니다.",
   "github.install.notRecorded":
     "설치는 GitHub에 있지만 연결한 사람을 기록하지 못했습니다.",
+  "github.table.title": "설치",
   "github.table.label": "GitHub App을 설치한 조직과 개인 계정",
   "github.table.name": "이름",
   "github.table.type": "유형",
@@ -431,6 +432,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "The installation is on GitHub, but the link was over an hour old or already used, so who connected it was not recorded.",
   "github.install.notRecorded":
     "The installation is on GitHub, but who connected it could not be recorded.",
+  "github.table.title": "Installations",
   "github.table.label":
     "Organizations and personal accounts the GitHub Apps are installed on",
   "github.table.name": "Name",
@@ -728,6 +730,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "インストールは GitHub にありますが、開始から 1 時間が過ぎたか使用済みのリンクのため、接続した人を記録しませんでした。",
   "github.install.notRecorded":
     "インストールは GitHub にありますが、接続した人を記録できませんでした。",
+  "github.table.title": "インストール",
   "github.table.label": "GitHub App をインストールした組織と個人アカウント",
   "github.table.name": "名前",
   "github.table.type": "種類",

@@ -28,8 +28,8 @@ import {
   PopoverContent,
   PopoverTrigger,
   RelativeTime,
-  RowList,
   RowListItem,
+  SettingsSection,
   Skeleton,
   Text,
   type TimestampLocale,
@@ -82,6 +82,7 @@ import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
 import {
   SETTINGS_CARD as CARD,
   type OnOutcome,
+  SECTIONS,
 } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
@@ -277,40 +278,34 @@ function GitHubCard({
   const empty = connections.length === 0;
 
   return (
-    <section aria-labelledby={titleId} className={CARD}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Heading
-            id={titleId}
-            ref={headingRef}
-            level={2}
-            tabIndex={-1}
-            className="focus-visible:outline-none"
-          >
-            GitHub
-          </Heading>
-          <Text variant="sub">
-            {empty
-              ? t("github.card.none")
-              : t("github.card.counts", {
-                  apps: connections.length,
-                  accounts: accounts.size,
-                })}
-          </Text>
-        </div>
-        {canManage && !empty ? (
-          // Under 640px it drops to its own line, where the text starts.
-          <div className="max-sm:basis-full max-sm:pl-[calc(var(--werft-size-tile-two-line)+0.75rem)]">
-            <AddAccount connections={connections} onOutcome={onOutcome} />
+    <section aria-labelledby={titleId} className={SECTIONS}>
+      <div className={CARD}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+          <IconTile icon={TileMark} hue="slate" size="two-line" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Heading
+              id={titleId}
+              ref={headingRef}
+              level={2}
+              tabIndex={-1}
+              className="focus-visible:outline-none"
+            >
+              GitHub
+            </Heading>
+            <Text variant="sub">
+              {empty
+                ? t("github.card.none")
+                : t("github.card.counts", {
+                    apps: connections.length,
+                    accounts: accounts.size,
+                  })}
+            </Text>
           </div>
-        ) : null}
+        </div>
+        <Text variant="sub">{t("github.card.hint")}</Text>
       </div>
-      <Text variant="sub" className="border-b pb-2">
-        {t("github.card.hint")}
-      </Text>
       {empty ? (
-        <div className="flex flex-col items-start gap-3">
+        <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
           <Text weight="medium">{t("github.empty.title")}</Text>
           <Text variant="sub">{t("github.empty.hint")}</Text>
           {canManage ? (
@@ -339,7 +334,7 @@ function GitHubCard({
             onOutcome={onOutcome}
             onChanged={refresh}
           />
-          <Installations connections={connections} />
+          <Installations connections={connections} onOutcome={onOutcome} />
           {canManage ? (
             <RepositoriesLine
               connections={connections}
@@ -500,20 +495,26 @@ function AppList({
     null,
   );
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const titleId = useId();
   return (
-    <div className="flex flex-col gap-2">
-      <Heading
-        id={titleId}
-        ref={headingRef}
-        level={3}
-        tabIndex={-1}
-        className="focus-visible:outline-none"
-      >
-        {t("github.apps.title")}
-      </Heading>
-      <RowList variant="joined" framed={false} aria-labelledby={titleId}>
-        {settings.connections.map((connection) => (
+    <>
+      <SettingsSection
+        titleAs="h3"
+        titleRef={headingRef}
+        title={t("github.apps.title")}
+        actions={
+          canManage ? (
+            <Button
+              type="button"
+              size="sm"
+              aria-haspopup="dialog"
+              onClick={(event) => onAdd(event.currentTarget)}
+            >
+              <Plus aria-hidden="true" />
+              {t("github.apps.add")}
+            </Button>
+          ) : null
+        }
+        rows={settings.connections.map((connection) => (
           <AppRow
             key={connection.connection_id}
             connection={connection}
@@ -528,19 +529,7 @@ function AppList({
             onRemove={() => setRemoving(connection)}
           />
         ))}
-      </RowList>
-      {canManage ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-fit text-link"
-          aria-haspopup="dialog"
-          onClick={(event) => onAdd(event.currentTarget)}
-        >
-          <Plus aria-hidden="true" />
-          {t("github.apps.add")}
-        </Button>
-      ) : null}
+      />
       <NewKeyDialog
         connection={newKey}
         opener={keyOpener}
@@ -558,7 +547,7 @@ function AppList({
           headingRef.current?.focus();
         }}
       />
-    </div>
+    </>
   );
 }
 
@@ -959,8 +948,10 @@ type Row = {
 /** One row an installation (an account × an App), the account first. */
 function Installations({
   connections,
+  onOutcome,
 }: {
   readonly connections: readonly GitHubSettingsConnection[];
+  readonly onOutcome: OnOutcome;
 }) {
   const { t, locale } = useI18n();
   const canManage = useHasPermission("workspace.manage");
@@ -980,8 +971,25 @@ function Installations({
     .map((connection) => connection.installations_read_at)
     .filter((at): at is string => at !== null)
     .sort()[0];
+  const section = (body: ReactNode) => (
+    <SettingsSection
+      titleAs="h3"
+      title={t("github.table.title")}
+      actions={
+        canManage ? (
+          <AddAccount connections={connections} onOutcome={onOutcome} />
+        ) : null
+      }
+    >
+      {body}
+    </SettingsSection>
+  );
   if (rows.length === 0) {
-    return <Text variant="sub">{t("github.table.empty")}</Text>;
+    return section(
+      <div className="rounded-card border bg-card p-4">
+        <Text variant="sub">{t("github.table.empty")}</Text>
+      </div>,
+    );
   }
 
   const type = (installation: GitHubSettingsInstallation) =>
@@ -1010,14 +1018,14 @@ function Installations({
       : "—";
   };
 
-  return (
+  return section(
     <div className="flex flex-col gap-2">
       <GridTable
         aria-label={t("github.table.label")}
         columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
         narrowAt={760}
         narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
-        framed={false}
+        framed
       >
         <GridTableHeader>
           <GridTableColumnHeader>
@@ -1128,7 +1136,7 @@ function Installations({
           <RelativeTime value={readAt} locale={locale} />
         </Text>
       ) : null}
-    </div>
+    </div>,
   );
 }
 
@@ -1165,9 +1173,23 @@ function RepositoriesLine({
   const catalog = list.data?.catalog ?? [];
   const outside = outsideInstallations(catalog).length;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Text weight="medium">{t("github.repos.title")}</Text>
+    <SettingsSection
+      titleAs="h3"
+      title={t("github.repos.title")}
+      box
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-haspopup="dialog"
+          onClick={(event) => onOpen(event.currentTarget)}
+        >
+          {t("github.repos.manage")}
+        </Button>
+      }
+    >
+      <div>
         <Text variant="sub">
           {list.data
             ? outside > 0
@@ -1179,15 +1201,7 @@ function RepositoriesLine({
             : " "}
         </Text>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        aria-haspopup="dialog"
-        onClick={(event) => onOpen(event.currentTarget)}
-      >
-        {t("github.repos.manage")}
-      </Button>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1199,16 +1213,12 @@ function FeaturesCard({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className={CARD}>
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <Heading id={titleId} level={2}>
-          {t("github.ceiling.title")}
-        </Heading>
-        <Text variant="sub">{t("github.ceiling.hint")}</Text>
-      </div>
+    <SettingsSection
+      title={t("github.ceiling.title")}
+      description={t("github.ceiling.hint")}
+    >
       <FeatureList settings={settings} onOutcome={onOutcome} />
-    </section>
+    </SettingsSection>
   );
 }
