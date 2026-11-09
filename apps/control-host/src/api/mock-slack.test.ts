@@ -313,6 +313,18 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     });
     expect((await api.channelMembership(bot, ids[1])).isMember).toBe(true);
     expect((await invite("C0NOWHERE")).status).toBe(400);
+
+    const remove = (channel_id: string) =>
+      fetch(`${root}/fake/removals`, {
+        method: "POST",
+        body: JSON.stringify({ app_id: appId, channel_id }),
+      });
+    expect((await remove(ids[1])).status).toBe(200);
+    // A private channel the bot is not in is one it cannot see.
+    expect(
+      await api.channelMembership(bot, ids[1]).catch((error) => error.code),
+    ).toBe("channel_not_found");
+    expect((await remove("C0NOWHERE")).status).toBe(400);
   });
 
   test("permalink links the message in the team's archive; a failure or another token is refused", async () => {

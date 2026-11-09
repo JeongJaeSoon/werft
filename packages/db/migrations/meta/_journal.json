@@ -1114,6 +1114,13 @@
       "when": 1794195238396,
       "tag": "0249_env_variables",
       "breakpoints": true
+    },
+    {
+      "idx": 250,
+      "version": "7",
+      "when": 1794199622069,
+      "tag": "0250_slack_channel_lifecycle",
+      "breakpoints": true
     }
   ]
 }

@@ -3729,6 +3729,13 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("ready"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * The newest join/leave of the channel (`slack_channel_lifecycle`, Slack's
+     * own clock) the approval already knew of; 0 when there was none. A later
+     * leave voids the approval, an earlier or equal one cannot. Null until
+     * approved, and for an approval made before this column existed.
+     */
+    approvedLifecycleUs: bigint("approved_lifecycle_us", { mode: "number" }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),
@@ -3812,6 +3819,36 @@ export const surfaceBindings = pgTable(
       sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
     ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
+  ],
+);
+
+/**
+ * The newest join/leave Slack told us of per channel of an install, as
+ * microseconds since the epoch (Slack's `event_ts` has no finer unit, and a
+ * millisecond would tie two events). Kept apart from `surface_bindings` so
+ * it outlives a revoked binding: those events carry no `ts`, so an old one
+ * arriving late is told apart by this.
+ */
+export const slackChannelLifecycle = pgTable(
+  "slack_channel_lifecycle",
+  {
+    installationId: uuid("installation_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    lastEventUs: bigint("last_event_us", { mode: "number" }).notNull(),
+    /** The newest join and leave seen, whether or not Slack answered after. */
+    lastJoinUs: bigint("last_join_us", { mode: "number" }),
+    lastLeaveUs: bigint("last_leave_us", { mode: "number" }),
+  },
+  (table) => [
+    primaryKey({
+      name: "slack_channel_lifecycle_pk",
+      columns: [table.installationId, table.channelId],
+    }),
+    foreignKey({
+      name: "slack_channel_lifecycle_installation_fk",
+      columns: [table.installationId],
+      foreignColumns: [slackInstallations.id],
+    }),
   ],
 );
 
