@@ -9,8 +9,10 @@ import {
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubRepositoryAccessResponseSchema,
   putAgentGitHubSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
+  repositoryRefOf,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
@@ -21,6 +23,7 @@ import {
   type MembershipRole,
   type ResolvedWebSession,
   type SessionCatalog,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
@@ -127,6 +130,24 @@ function appWith(
       }
       return { outcome: "saved", revision: 1, receiptId: null };
     },
+    async setRepository(input) {
+      if (input.agentId !== AGENT) return { outcome: "not_found" };
+      if (input.expectedRevision === STALE_REVISION) {
+        return { outcome: "conflict", revision: 1 };
+      }
+      return {
+        outcome: "saved",
+        revision: 2,
+        receiptId: null,
+        repository: {
+          id: "sample-app",
+          owner: "octo",
+          name: "sample",
+          label: "octo/sample",
+        },
+        catalogChanged: false,
+      };
+    },
     async activity() {
       return [];
     },
@@ -149,6 +170,15 @@ function appWith(
           },
           store,
           catalog,
+          // GitHub does not answer for a pick from an installation.
+          selection: async () => {
+            throw new SessionServiceError(
+              "GITHUB_UNAVAILABLE",
+              "GitHub could not be reached",
+              undefined,
+              { reason_code: "github_unavailable" },
+            );
+          },
           githubSettings: {
             async get() {
               return {
@@ -397,6 +427,96 @@ describe("the agent GitHub API", () => {
         body: { ...body(), pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
       });
       expect(huge.status).toBe(413);
+    });
+
+    describe("turning one repository on or off", () => {
+      const toggle = `${github()}/repository-access`;
+      const ref = repositoryRefOf("sample-app");
+      const on = { repository: { ref }, enabled: true };
+
+      test("an admin toggles by ref and gets the revision and the name back", async () => {
+        const { call } = appWith();
+        const saved = await call("PUT", toggle, {
+          cookie: cookieFor("admin"),
+          body: on,
+        });
+        expect(saved.status).toBe(200);
+        expect(
+          putAgentGitHubRepositoryAccessResponseSchema.parse(saved.json),
+        ).toEqual({
+          settings_revision: 2,
+          receipt_id: null,
+          enabled: true,
+          repository: { ref, repository: "octo/sample", private: null },
+        });
+      });
+
+      test("a stale expected revision is a 409 conflict", async () => {
+        const { call } = appWith();
+        const stale = await call("PUT", toggle, {
+          cookie: cookieFor("admin"),
+          body: { ...on, expected_revision: STALE_REVISION },
+        });
+        expect(stale.status).toBe(409);
+        expect(code(stale.json)).toBe("REVISION_CONFLICT");
+      });
+
+      test("a member and an API key are refused", async () => {
+        const { call } = appWith();
+        expect(
+          (await call("PUT", toggle, { cookie: cookieFor("member"), body: on }))
+            .status,
+        ).toBe(403);
+        const byKey = await call("PUT", toggle, { key: true, body: on });
+        expect(byKey.status).toBe(403);
+      });
+
+      test("an unknown agent is not found; a bad or huge body is refused", async () => {
+        const { call } = appWith();
+        const owner = cookieFor("owner");
+        expect(
+          (
+            await call("PUT", `${github(MISSING)}/repository-access`, {
+              cookie: owner,
+              body: on,
+            })
+          ).status,
+        ).toBe(404);
+        for (const bad of [
+          {},
+          { repository: { ref }, enabled: "yes" },
+          { ...on, extra: 1 },
+          { repository: { ref, installation_id: 1 }, enabled: true },
+          // A repository is turned off by its ref only.
+          {
+            repository: { installation_id: 1, github_repository_id: 2 },
+            enabled: false,
+          },
+          { ...on, repository: { ref: "sample-app" } },
+        ]) {
+          expect(
+            (await call("PUT", toggle, { cookie: owner, body: bad })).status,
+          ).toBe(400);
+        }
+        const huge = await call("PUT", toggle, {
+          cookie: owner,
+          body: { ...on, pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
+        });
+        expect(huge.status).toBe(413);
+      });
+
+      test("GitHub not answering for a pick is a 502 and nothing is written", async () => {
+        const { call } = appWith();
+        const down = await call("PUT", toggle, {
+          cookie: cookieFor("owner"),
+          body: {
+            repository: { installation_id: 1, github_repository_id: 2 },
+            enabled: true,
+          },
+        });
+        expect(down.status).toBe(502);
+        expect(code(down.json)).toBe("GITHUB_UNAVAILABLE");
+      });
     });
 
     test("a start repository outside the list is a 400 before the store", async () => {

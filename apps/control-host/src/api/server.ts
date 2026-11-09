@@ -917,6 +917,7 @@ const agentGitHub = createAgentGitHubService({
   githubSettings: githubSettingsStore,
   connections: githubConnections,
   resolver: githubResolver,
+  selection: githubRepositories.selection,
   ...(githubAppStore === null
     ? {}
     : { pinned: { apps: githubAppStore, pins: githubPins } }),

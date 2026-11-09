@@ -5,18 +5,22 @@ import {
   type AgentGitHubRepositoryUnavailable,
   type AgentGitHubResponse,
   type AgentGitHubSettings,
+  catalogIdOfRef,
   GITHUB_FEATURES_NONE,
   type GitHubAppRole,
   type GitHubFeatures,
   githubFeaturesOverCeiling,
   newSessionGitHubPolicy,
   type PutAgentGitHubEnabledResponse,
+  type PutAgentGitHubRepositoryAccessRequest,
+  type PutAgentGitHubRepositoryAccessResponse,
   type PutAgentGitHubSettingsRequest,
   type PutAgentGitHubSettingsResponse,
   pushAttachedOf,
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
+import type { GitHubRepositoryService } from "../musterrolle/github-repository-service.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -121,6 +125,12 @@ export function createAgentGitHubService(deps: {
   /** Each repository's connections, asked whether their App is installed. */
   connections?: GitHubConnections;
   resolver?: GitHubConnectionResolver;
+  /**
+   * GitHub's answer for a repository picked from an installation, with the
+   * means to reload the catalog after the write. Absent: only a repository
+   * the catalog holds can be turned on.
+   */
+  selection?: GitHubRepositoryService["selection"];
   /** Absent: permissions come from `githubSettings.appPermissions`. */
   pinned?: {
     apps: Pick<GitHubAppStore, "list">;
@@ -512,6 +522,145 @@ export function createAgentGitHubService(deps: {
             "REVISION_CONFLICT",
             `The GitHub settings are at revision ${result.revision ?? "none"}, not ${request.expected_revision ?? "none"}`,
           );
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
+    },
+
+    /**
+     * Turns one repository on or off: one request, one change, never a
+     * release. A repository the catalog does not hold yet is added in the same
+     * transaction as the settings, the receipts and the App pin, so a refusal
+     * or a failure anywhere leaves none of them.
+     */
+    async putRepositoryAccess(
+      caller: Caller,
+      agentId: string,
+      request: PutAgentGitHubRepositoryAccessRequest,
+    ): Promise<PutAgentGitHubRepositoryAccessResponse> {
+      await manage(caller, agentId);
+      const userId = caller.actor?.userId;
+      if (
+        caller.subject.surface.kind !== "web" ||
+        caller.subject.principal?.kind !== "user" ||
+        !userId
+      ) {
+        throw new SessionServiceError(
+          "FORBIDDEN",
+          "An agent's GitHub repositories are turned on or off from a signed-in console session, not with an API key",
+          undefined,
+          { reason_code: "web_session_required" },
+        );
+      }
+      const refuse = (field: string, reason: string) =>
+        new SessionServiceError(
+          "BAD_REQUEST",
+          `${field}: ${reason}`,
+          undefined,
+          { field, reason_code: reason },
+        );
+      const named = request.repository;
+      let selected: Awaited<
+        ReturnType<NonNullable<typeof deps.selection>>
+      > | null = null;
+      let target: Parameters<typeof store.setRepository>[0]["target"];
+      if ("ref" in named) {
+        const id = catalogIdOfRef(named.ref);
+        if (id === null) throw refuse("repository.ref", "invalid_ref");
+        target = { kind: "catalog", id };
+      } else {
+        if (deps.selection === undefined) {
+          throw refuse("repository", "no_author_app");
+        }
+        selected = await deps.selection(caller, agentId, named);
+        const { repository, app } = selected;
+        target = {
+          kind: "github",
+          resolve: {
+            base: selected.base,
+            githubRepositoryId: repository.id,
+            owner: repository.owner,
+            name: repository.name,
+            url: selected.url,
+            branch: repository.defaultBranch,
+            receiptId: selected.newId(),
+          },
+          pin: selected.pinning
+            ? {
+                connectionId: app.id,
+                appId: app.appId,
+                receiptId: selected.newId(),
+              }
+            : null,
+        };
+      }
+      const result = await store.setRepository({
+        workspaceId: caller.ownerId,
+        agentId,
+        enabled: request.enabled,
+        expectedRevision: request.expected_revision,
+        target,
+        userId,
+        principal: caller,
+        managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
+        check: (repository, ceiling) => {
+          // A repository from an installation is picked only where the
+          // ceiling runs on the App's repositories, as `pick` does.
+          const installed = ceiling.github_app_repositories === "installed";
+          if (repository.via === "github" && !installed) {
+            throw refuse("repository", "repository_not_allowed");
+          }
+          if (
+            !ceiling.repository_ids.includes(repository.id) &&
+            !(installed && repository.authKind === "github_app")
+          ) {
+            throw refuse("repository", "repository_not_allowed");
+          }
+          if (
+            repository.authKind !== "github_app" &&
+            repository.authKind !== "github_app_explicit"
+          ) {
+            throw refuse("repository", "app_required");
+          }
+        },
+      });
+      switch (result.outcome) {
+        case "saved":
+          if (result.catalogChanged) await selected?.reload();
+          return {
+            settings_revision: result.revision,
+            receipt_id: result.receiptId,
+            enabled: request.enabled,
+            repository: {
+              ref: repositoryRefOf(result.repository.id),
+              repository: result.repository.label,
+              private: null,
+            },
+          };
+        case "conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            `The GitHub settings are at revision ${result.revision ?? "none"}, not ${request.expected_revision ?? "none"}`,
+            undefined,
+            { revision: result.revision },
+          );
+        case "seed_unavailable":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "The agent has no saved GitHub settings and no active release to start them from",
+            undefined,
+            { reason_code: "settings_seed_unavailable" },
+          );
+        case "app_gone":
+          throw refuse("repository", "no_author_app");
+        case "name_held":
+          throw refuse("repository", "name_held");
+        case "repository_not_found":
+          throw refuse("repository", "repository_not_found");
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":

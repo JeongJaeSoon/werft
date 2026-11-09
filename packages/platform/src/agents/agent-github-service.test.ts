@@ -111,6 +111,9 @@ function serviceWith(input: {
   installed?: Record<string, boolean | null | Error>;
   /** Counts the asks the tab makes of a connection, by kind. */
   asks?: { batch: number; single: number };
+  selection?: NonNullable<
+    Parameters<typeof createAgentGitHubService>[0]["selection"]
+  >;
 }) {
   const release = input.noRelease
     ? null
@@ -137,6 +140,9 @@ function serviceWith(input: {
     async putSettings() {
       return { outcome: "saved", revision: 1, receiptId: null };
     },
+    async setRepository() {
+      return { outcome: "not_found" };
+    },
     async activity() {
       return [];
     },
@@ -145,6 +151,7 @@ function serviceWith(input: {
   };
   return createAgentGitHubService({
     authorization: createAuthorizationPolicy(),
+    ...(input.selection === undefined ? {} : { selection: input.selection }),
     agents: {
       async get() {
         return { active_release: release } as unknown as AgentDetail;
@@ -801,6 +808,306 @@ describe("repositories read as owner/repo", () => {
     expect(catalogIdOfRef("sample-app")).toBeNull();
     expect(catalogIdOfRef("r1.")).toBeNull();
     expect(catalogIdOfRef(`${ref}x`)).toBeNull();
+  });
+
+  describe("putRepositoryAccess", () => {
+    type Toggle = Parameters<AgentGitHubStore["setRepository"]>[0];
+    const SAVED_TOGGLE = {
+      outcome: "saved",
+      revision: 5,
+      receiptId: "receipt-5",
+      repository: {
+        id: "sample-app",
+        owner: "octo",
+        name: "sample",
+        label: "octo/sample",
+      },
+      catalogChanged: false,
+    } as const;
+    const WEB_KEY = callerFor(
+      {
+        kind: "user",
+        id: "019a0000-0000-7000-8000-0000000000d1",
+        workspace_id: WORKSPACE,
+        role: "owner",
+        scopes: ["sessions:read", "sessions:write"],
+      },
+      { kind: "api" },
+      crypto.randomUUID(),
+    );
+    const refusal = async (promise: Promise<unknown>) => {
+      try {
+        await promise;
+      } catch (error) {
+        const failure = error as {
+          code: string;
+          details?: { reason_code?: string; revision?: number | null };
+        };
+        return `${failure.code}:${failure.details?.reason_code ?? ""}`;
+      }
+      return "saved";
+    };
+    const serviceWithToggles = (input: {
+      outcome?: Awaited<ReturnType<AgentGitHubStore["setRepository"]>>;
+      /** What the store judges, as the real one does in its transaction. */
+      enabling?: { id: string; authKind: string; via: "catalog" | "github" };
+      ceiling?: RepositoryCeiling;
+      selection?: Parameters<typeof serviceWith>[0]["selection"];
+    }) => {
+      const toggles: Toggle[] = [];
+      const service = serviceWith({
+        ...(input.selection === undefined
+          ? {}
+          : { selection: input.selection }),
+        store: {
+          async setRepository(toggle) {
+            toggles.push(toggle);
+            if (input.enabling !== undefined) {
+              toggle.check(input.enabling, input.ceiling ?? DEFAULT_CEILING);
+            }
+            return input.outcome ?? SAVED_TOGGLE;
+          },
+        },
+      });
+      return { service, toggles };
+    };
+    const ref = repositoryRefOf("sample-app");
+
+    test("a ref toggles a catalog repository with nothing compared by default", async () => {
+      const { service, toggles } = serviceWithToggles({});
+      const result = await service.putRepositoryAccess(caller, AGENT, {
+        repository: { ref },
+        enabled: true,
+      });
+      expect(result).toEqual({
+        settings_revision: 5,
+        receipt_id: "receipt-5",
+        enabled: true,
+        repository: { ref, repository: "octo/sample", private: null },
+      });
+      expect(toggles).toHaveLength(1);
+      expect(toggles[0]).toMatchObject({
+        agentId: AGENT,
+        enabled: true,
+        expectedRevision: undefined,
+        target: { kind: "catalog", id: "sample-app" },
+        userId: caller.actor?.userId,
+      });
+    });
+
+    test("null expected_revision is passed as null, not as left out", async () => {
+      const { service, toggles } = serviceWithToggles({});
+      await service.putRepositoryAccess(caller, AGENT, {
+        repository: { ref },
+        enabled: false,
+        expected_revision: null,
+      });
+      expect(toggles[0]?.expectedRevision).toBeNull();
+    });
+
+    test("a ref the server did not make is refused before the store", async () => {
+      const { service, toggles } = serviceWithToggles({});
+      expect(
+        await refusal(
+          service.putRepositoryAccess(caller, AGENT, {
+            // Not the canonical encoding of what it decodes to.
+            repository: { ref: "r1.AB" },
+            enabled: true,
+          }),
+        ),
+      ).toBe("BAD_REQUEST:invalid_ref");
+      expect(toggles).toHaveLength(0);
+    });
+
+    test("an API key is refused", async () => {
+      const { service, toggles } = serviceWithToggles({});
+      expect(
+        await refusal(
+          service.putRepositoryAccess(WEB_KEY, AGENT, {
+            repository: { ref },
+            enabled: true,
+          }),
+        ),
+      ).toBe("FORBIDDEN:web_session_required");
+      expect(toggles).toHaveLength(0);
+    });
+
+    test("the ceiling judges what is turned on: ids, installed App rows, own-App rows", async () => {
+      const turnOn = (
+        enabling: { id: string; authKind: string; via: "catalog" | "github" },
+        ceiling: RepositoryCeiling,
+      ) =>
+        refusal(
+          serviceWithToggles({ enabling, ceiling }).service.putRepositoryAccess(
+            caller,
+            AGENT,
+            { repository: { ref }, enabled: true },
+          ),
+        );
+      const installed: RepositoryCeiling = {
+        repository_ids: [],
+        github_app_repositories: "installed",
+      };
+      const listed: RepositoryCeiling = {
+        repository_ids: ["sample-app"],
+        github_app_repositories: "listed",
+      };
+      expect(
+        await turnOn(
+          { id: "sample-app", authKind: "github_app", via: "catalog" },
+          installed,
+        ),
+      ).toBe("saved");
+      // Listed by id: an existing row may be turned on again, as a PUT allows.
+      expect(
+        await turnOn(
+          { id: "sample-app", authKind: "github_app", via: "catalog" },
+          listed,
+        ),
+      ).toBe("saved");
+      expect(
+        await turnOn(
+          { id: "other", authKind: "github_app", via: "catalog" },
+          listed,
+        ),
+      ).toBe("BAD_REQUEST:repository_not_allowed");
+      // An own-App row is not "installed" under the console App's ceiling.
+      expect(
+        await turnOn(
+          { id: "own", authKind: "github_app_explicit", via: "catalog" },
+          installed,
+        ),
+      ).toBe("BAD_REQUEST:repository_not_allowed");
+      expect(
+        await turnOn(
+          { id: "sample-app", authKind: "basic", via: "catalog" },
+          listed,
+        ),
+      ).toBe("BAD_REQUEST:app_required");
+      // A pick from an installation needs a ceiling on the App's repositories.
+      expect(
+        await turnOn(
+          { id: "sample-app", authKind: "github_app", via: "github" },
+          listed,
+        ),
+      ).toBe("BAD_REQUEST:repository_not_allowed");
+    });
+
+    test("the store's refusals become the API's", async () => {
+      const answer = (
+        outcome: Awaited<ReturnType<AgentGitHubStore["setRepository"]>>,
+      ) =>
+        refusal(
+          serviceWithToggles({ outcome }).service.putRepositoryAccess(
+            caller,
+            AGENT,
+            { repository: { ref }, enabled: true },
+          ),
+        );
+      expect(await answer({ outcome: "conflict", revision: 3 })).toBe(
+        "REVISION_CONFLICT:",
+      );
+      expect(await answer({ outcome: "seed_unavailable" })).toBe(
+        "REVISION_CONFLICT:settings_seed_unavailable",
+      );
+      expect(await answer({ outcome: "name_held", id: "x" })).toBe(
+        "BAD_REQUEST:name_held",
+      );
+      expect(await answer({ outcome: "repository_not_found" })).toBe(
+        "BAD_REQUEST:repository_not_found",
+      );
+      expect(await answer({ outcome: "not_found" })).toBe("NOT_FOUND:");
+    });
+
+    test("a conflict names the revision to read again", async () => {
+      const { service } = serviceWithToggles({
+        outcome: { outcome: "conflict", revision: 7 },
+      });
+      let details: unknown;
+      try {
+        await service.putRepositoryAccess(caller, AGENT, {
+          repository: { ref },
+          enabled: true,
+          expected_revision: 2,
+        });
+      } catch (error) {
+        details = (error as { details?: unknown }).details;
+      }
+      expect(details).toEqual({ revision: 7 });
+    });
+
+    test("a pick from an installation goes to the store with GitHub's answer and the catalog reloads", async () => {
+      let reloads = 0;
+      let ids = 0;
+      const { service, toggles } = serviceWithToggles({
+        outcome: { ...SAVED_TOGGLE, catalogChanged: true },
+        selection: async () =>
+          ({
+            repository: {
+              id: 42,
+              owner: "octo",
+              name: "Sample",
+              defaultBranch: "trunk",
+            },
+            app: { id: "conn-1", appId: 9 },
+            base: "sample",
+            url: "https://github.com/octo/Sample.git",
+            pinning: true,
+            reload: async () => {
+              reloads += 1;
+            },
+            newId: () => `id-${++ids}`,
+          }) as never,
+      });
+      await service.putRepositoryAccess(caller, AGENT, {
+        repository: { installation_id: 7, github_repository_id: 42 },
+        enabled: true,
+      });
+      expect(toggles[0]?.target).toEqual({
+        kind: "github",
+        resolve: {
+          base: "sample",
+          githubRepositoryId: 42,
+          owner: "octo",
+          name: "Sample",
+          url: "https://github.com/octo/Sample.git",
+          branch: "trunk",
+          receiptId: "id-1",
+        },
+        pin: { connectionId: "conn-1", appId: 9, receiptId: "id-2" },
+      });
+      expect(reloads).toBe(1);
+    });
+
+    test("without an App store nothing is pinned, and without a selection a pick is refused", async () => {
+      const noPin = serviceWithToggles({
+        selection: async () =>
+          ({
+            repository: { id: 1, owner: "o", name: "r", defaultBranch: "main" },
+            app: { id: "c", appId: 1 },
+            base: "r",
+            url: "https://github.com/o/r.git",
+            pinning: false,
+            reload: async () => {},
+            newId: () => "n",
+          }) as never,
+      });
+      await noPin.service.putRepositoryAccess(caller, AGENT, {
+        repository: { installation_id: 1, github_repository_id: 1 },
+        enabled: true,
+      });
+      expect(noPin.toggles[0]?.target).toMatchObject({ pin: null });
+      const none = serviceWithToggles({});
+      expect(
+        await refusal(
+          none.service.putRepositoryAccess(caller, AGENT, {
+            repository: { installation_id: 1, github_repository_id: 1 },
+            enabled: true,
+          }),
+        ),
+      ).toBe("BAD_REQUEST:no_author_app");
+      expect(none.toggles).toHaveLength(0);
+    });
   });
 
   test("activity names the repository: the receipt's own name, then the catalog's now", async () => {
