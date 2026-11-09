@@ -72,11 +72,12 @@ On Kubernetes, if you do not use the model key in the Secret, remove its name fr
 ### 3. Import and export settings
 
 ```bash
-bun run settings export > settings.json
-bun run settings import --document - --dry-run < settings.json
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts export > settings.json
+docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-This package script requires a checkout matching the installed version and host Bun and Docker Compose, and the command runs inside the api container. On Kubernetes, use `bun run settings:k8s export` and `bun run settings:k8s import --document - --dry-run` with host Bun and kubectl. Review additions and errors from dry-run, then remove `--dry-run` from the same command to import. This tool does not unconditionally overwrite existing database rows with file contents. Reference credential environment-variable names instead of values in the document.
+Identify API_CONTAINER from this installation's status and project label. On Kubernetes, the package scripts below require a checkout matching the installed version and host Bun/kubectl. Substitute `bun run settings:k8s export` and `bun run settings:k8s import --document - --dry-run`. Review additions and errors from dry-run, then remove `--dry-run` from the same command to import. This tool does not unconditionally overwrite existing database rows with file contents. Reference credential environment-variable names instead of values in the document.
 
 <a id="4-과금-없는-사설-모델" />
 ### 4. Private models without per-token billing

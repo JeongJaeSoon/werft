@@ -66,11 +66,12 @@ Kubernetes에서 Secret의 모델 key를 쓰지 않으면 `secrets.catalogEnv`�
 ### 3. 설정 문서 가져오기·내보내기
 
 ```bash
-bun run settings export > settings.json
-bun run settings import --document - --dry-run < settings.json
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts export > settings.json
+docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-이 package script는 설치 버전의 저장소 checkout과 호스트 Bun·Docker Compose를 필요로 하고, 명령은 api 컨테이너 안에서 돈다. Kubernetes에서는 호스트 Bun·kubectl로 `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`을 쓴다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 자격 증명은 문서에 값 대신 환경 변수 이름을 적는다.
+API_CONTAINER는 이 설치의 status와 project label로 확인한다. Kubernetes에서 아래 package script는 설치 버전의 저장소 checkout과 호스트 Bun·kubectl을 필요로 한다. `bun run settings:k8s export`와 `bun run settings:k8s import --document - --dry-run`으로 바꾼다. dry-run의 추가 항목과 오류를 검토한 뒤 같은 명령에서 `--dry-run`을 빼고 가져온다. 기존 DB 행을 파일 내용으로 무조건 덮어쓰는 도구가 아니다. 자격 증명은 문서에 값 대신 환경 변수 이름을 적는다.
 
 ### 4. 과금 없는 사설 모델
 

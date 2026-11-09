@@ -7,7 +7,7 @@ Werft does three things with GitHub. It clones the repository when a session sta
 
 ## What the operator does
 
-The credential is a GitHub App, which an owner or admin handles in the console under **Settings → Integrations → GitHub**.
+The credential is a GitHub App, which an owner or admin handles in the console under **Settings > Workspace > Integrations > GitHub**.
 
 - **Add App**: create a new App on GitHub (the console receives and stores its App ID and key), or connect an existing one with its App ID and private key (the PEM file). A workspace can hold several author Apps and reviewer Apps; a role badge tells them apart in the list. The key is stored encrypted and never shown again on the screen or in an API response. To change a key, use **Register a new key** in the App row's ⋯ menu.
 - **Add organization**: install an App on an organization or a personal account. The installation table shows, for each account, its type, repository scope, App, who connected it and its status; **Manage on GitHub** in the row's ⋯ menu opens that installation's settings.
@@ -130,8 +130,8 @@ A session created without `attached_repository_ids` starts with no repository at
 
 The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Link your GitHub account and the commits of turns you request also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.
 
-1. On the "Member GitHub accounts" line under **Settings → Integrations → GitHub**, an owner or admin picks the author App to link with (when there are several), puts the callback URL from the ⋯ menu in that App's Callback URL, and enters a client secret made in that App. Until then the link button is off.
-2. In the GitHub row of **Settings → Linked accounts**, choose "Link" and approve on GitHub's consent screen. The platform reads only the GitHub account's id and login and keeps no GitHub token.
+1. On the "Member GitHub accounts" line under **Settings > Workspace > Integrations > GitHub**, an owner or admin picks the author App to link with (when there are several), puts the callback URL from the ⋯ menu in that App's Callback URL, and enters a client secret made in that App. Until then the link button is off.
+2. In the GitHub row of **Settings > Linked accounts**, choose "Link" and approve on GitHub's consent screen. The platform reads only the GitHub account's id and login and keeps no GitHub token.
 3. The linked row shows the line commits get (`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`). After you unlink, turns requested from then on leave it out.
 
 Turns requested from the web console, a personal API key, or Slack follow the link of the person who requested that turn. When several people ask in one session, each commit carries the requester of its own turn. A turn requested with an agent key or an operator key has no requesting person, so no co-author is added. Either way, commits carry an `Agent-Session:` trailer: the session's address where the operator has set the console's address, else the session's id. The last line of the Outputs tab in session details shows which case a session is.

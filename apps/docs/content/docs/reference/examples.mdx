@@ -23,7 +23,7 @@ description: 유즈케이스별로 SDK를 실제로 부르는 작은 CLI 샘플�
 
 1. 자기 스택을 `scripts/local.sh up --fake-model`로 띄운다([개발용 서버 실행](/run-server/dev-server)). 실제 모델 key는 필요 없다. 메시지의 `GATE-SPEC`은 FAKE 모델이 재생하는 대본이라 실제 모델에서는 쓰지 않는다.
 2. 웹 콘솔에서 owner로 로그인한다.
-3. 개인 key는 콘솔의 설정 → API key에서 그 샘플의 scope로 발급한다. owner는 다섯 scope를 모두 줄 수 있다.
+3. 개인 key는 콘솔의 설정 > API key에서 그 샘플의 scope로 발급한다. owner는 다섯 scope를 모두 줄 수 있다.
 4. 에이전트 key가 필요한 샘플(`sdk-events`, `sdk-push`, `sdk-approver`)은 콘솔에서 에이전트를 만들고 `claude-coding-local` 프로필과 `sample-app` 저장소로 릴리스를 만들어 켠 뒤, 그 에이전트의 key를 `sessions:read`, `sessions:write`, `sessions:control`로 발급한다. 에이전트 key에는 `sessions:approve`를 줄 수 없으므로 승인은 별도 개인 key가 한다.
 
 환경 변수는 샘플마다 README에 있다. 모두 쓰는 것은 둘이다. key는 소스·README·출력에 붙여 넣지 않는다.

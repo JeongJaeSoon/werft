@@ -213,7 +213,7 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같�
 API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다([github-agent.md 결정 11](../contributing/decisions/github-agent.md#결정-11-같은-역할에-app-여럿)).
 
 - **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(플랫폼은 webhook을 받지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
-- **콘솔에 등록:** owner나 admin이 설정 → 연동 → GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
+- **콘솔에 등록:** owner나 admin이 설정 > 워크스페이스 > 연동 > GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
 - **설치:** 화면의 **조직 추가**(App이 여럿이면 설치할 App을 고른다)로 GitHub의 설치 화면에 가서 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 콘솔에서 시작해 콘솔로 돌아온 설치는 연결한 사람을 남긴다. 화면은 App의 JWT로 GitHub에 물어 설치 표(계정 · 유형 · 저장소 · App · 연결한 사람 · 상태)를 보여 준다. installation id는 적지 않는다. API가 토큰을 받을 때 `GET /repos/{owner}/{repo}/installation`으로 찾는다.
 - **저장소:** 콘솔의 App을 쓰는 저장소는 등록하지 않는다. 에이전트 관리자가 에이전트의 GitHub 탭에서 App 설치에 들어 있는 저장소를 고르면 카탈로그 행이 생긴다. URL과 기본 브랜치는 GitHub에서 읽는다. owner나 admin은 설정 > 워크스페이스 > 연동 > GitHub > **저장소 관리**에서 설치별 저장소를 보고, 행 메뉴로 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 바꾼 것은 `set_repository_branch`·`set_repository_github_app` receipt로 남는다. 저장소는 DB 표 `catalog_repositories`에 있고, 재배포나 재기동은 필요 없다(다른 replica는 10초 안에 읽는다). 결정 문서: [repository-catalog-db.md](../contributing/decisions/repository-catalog-db.md).
 - **설정 문서:** `settings import`로도 같은 행을 더한다(`import_repository` receipt). 항목은 이렇게 적는다. 바깥 참조가 있는 저장소(아래 키를 직접 적는 방식, basic·bearer)는 CLI로 가져오고, 콘솔에는 운영자 참조로 보여 값을 바꿀 수 없다.
@@ -574,7 +574,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" 
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `CONSOLE_ORIGIN` | 없음(연결을 끔. 시작 요청은 `503`. Slack 앱 생성도 꺼진다) | 절대 http(s) origin. 사람이 브라우저로 콘솔을 여는 공개 주소이고, 이 주소에서 모든 주소를 계산한다. Slack 연결의 redirect는 `<CONSOLE_ORIGIN>/settings/linked-accounts/slack`, 에이전트 앱의 redirect는 `<CONSOLE_ORIGIN>/agents/<agent_id>/slack/callback`이다. 설정 › 연동 › Slack 화면이 이 주소들을 복사할 수 있게 보여 준다 |
+| `CONSOLE_ORIGIN` | 없음(연결을 끔. 시작 요청은 `503`. Slack 앱 생성도 꺼진다) | 절대 http(s) origin. 사람이 브라우저로 콘솔을 여는 공개 주소이고, 이 주소에서 모든 주소를 계산한다. Slack 연결의 redirect는 `<CONSOLE_ORIGIN>/settings/linked-accounts/slack`, 에이전트 앱의 redirect는 `<CONSOLE_ORIGIN>/agents/<agent_id>/slack/callback`이다. 설정 > 워크스페이스 > 연동 > Slack 화면이 이 주소들을 복사할 수 있게 보여 준다 |
 
 `SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`은 없어졌다. 옛 값이 남아 있으면 시작할 때 값 없이 경고만 남기고 무시한다(`CONSOLE_ORIGIN`이 없을 때만 옛 redirect의 origin을 이번 릴리스에 한해 쓴다). 지울 것과 되돌릴 때 남길 것은 `CHANGELOG.md`의 "운영자가 할 일"을 따른다.
 
@@ -803,7 +803,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 **준비(owner·admin, 사람이 한다).** 작성용 App이 콘솔에 등록돼 있어야 한다(위 "GitHub 저장소").
 
-1. 콘솔 설정 → 연동 → GitHub의 "사용자 계정 연결" 카드에서 콜백 URL을 복사한다. Client ID는 App을 다시 읽을 때 GitHub가 준 값이 보인다.
+1. 콘솔 설정 > 워크스페이스 > 연동 > GitHub의 "사용자 계정 연결" 카드에서 콜백 URL을 복사한다. Client ID는 App을 다시 읽을 때 GitHub가 준 값이 보인다.
 2. GitHub의 App 설정(Settings → Developer settings → GitHub Apps → 그 App → General)에서 **Callback URL**에 1의 주소를 그대로 넣고 저장한다. **Expire user authorization tokens**는 그대로 둔다(플랫폼은 token을 받자마자 버린다).
 3. 같은 페이지의 **Client secrets → Generate a new client secret**으로 만든 값을 카드의 "입력"에 붙여 넣고 저장한다(`PUT /v1/workspaces/{id}/github-settings/oauth-client-secret`). 값은 App 키처럼 master key로 암호화해 그 App 행의 `secret_values`에 두고, 응답·receipt·로그 어디에도 나오지 않으며 다시 보여 주지 않는다. 같은 App의 키를 바꾸면 남고, 다른 App으로 바꾸거나 App을 지우면 함께 지워진다. 작성용 App이 없으면 본문을 읽기 전에 `409 GITHUB_LINK_NOT_CONFIGURED`, master key 없이 띄운 API는 `503`이다.
 

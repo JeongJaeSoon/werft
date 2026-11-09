@@ -72,11 +72,12 @@ Kubernetes で Secret のモデル key を使わない場合は、`secrets.catal
 ### 3. 設定文書の import・export
 
 ```bash
-bun run settings export > settings.json
-bun run settings import --document - --dry-run < settings.json
+API_CONTAINER='<api-container-id-from-this-installation>'
+docker exec "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts export > settings.json
+docker exec -i "$API_CONTAINER" bun run apps/control-host/src/api/settings.ts import --document - --dry-run < settings.json
 ```
 
-この package script には、設置バージョンのリポジトリ checkout とホストの Bun・Docker Compose が必要で、コマンドは api コンテナの中で動きます。Kubernetes ではホストの Bun・kubectl で `bun run settings:k8s export` と `bun run settings:k8s import --document - --dry-run` を使います。dry-run の追加項目とエラーを確認してから、同じコマンドの `--dry-run` を外して import します。既存の DB 行をファイル内容で無条件に上書きするツールではありません。資格情報は文書に値ではなく環境変数名を書きます。
+API_CONTAINER はこの環境の status と project label で確認します。Kubernetes で次の package script を使うには、設置バージョンのリポジトリ checkout とホストの Bun・kubectl が必要です。`bun run settings:k8s export` と `bun run settings:k8s import --document - --dry-run` に置き換えます。dry-run の追加項目とエラーを確認してから、同じコマンドの `--dry-run` を外して import します。既存の DB 行をファイル内容で無条件に上書きするツールではありません。資格情報は文書に値ではなく環境変数名を書きます。
 
 <a id="4-과금-없는-사설-모델" />
 ### 4. 課金のないプライベートモデル
