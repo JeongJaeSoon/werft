@@ -23,6 +23,7 @@ import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
+import { publishExtensionBundles } from "./extension-bundles.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import {
   gitEnvironmentFor,
@@ -137,6 +138,14 @@ export function createWorkerHost(
     gateway,
     gitTrailers: (claim) => writeGitTrailers(config.runtime.home, claim),
     gitEnvironment: (claim) => gitEnvironmentFor(claim, imageHooks),
+    extensionBundles: (claim, signal) =>
+      publishExtensionBundles({
+        home: config.runtime.home,
+        attemptId: claim.attempt_id,
+        bundles: claim.runtime_config.extensions ?? [],
+        gateway,
+        signal,
+      }),
     placeInstructions: (claim, signal) =>
       placeInstructionFiles({
         root: config.runtime.cwd,

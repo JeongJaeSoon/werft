@@ -181,6 +181,15 @@ export type WorkerHostOptions = {
     claim: BootstrapClaimResponse,
     signal: AbortSignal,
   ) => Promise<string>;
+  /**
+   * Publishes the claim's extension bundles read-only under the image's HOME
+   * before the engine starts. Required whenever a claim carries any; a throw
+   * fails the start.
+   */
+  extensionBundles?: (
+    claim: BootstrapClaimResponse,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
   /** The git settings the claim's engine runs every git under. */
   gitEnvironment?: (
     claim: BootstrapClaimResponse,
@@ -561,6 +570,9 @@ export class WorkerHost {
       let ready = false;
       try {
         const plan = await this.startUp(claim);
+        if (plan !== undefined && this.stopping === undefined) {
+          await this.publishExtensions(claim);
+        }
         if (plan !== undefined) this.startAttachments();
         if (plan !== undefined && this.stopping === undefined) {
           // A convenience file: the engine's prompt carries the same text.
@@ -642,6 +654,24 @@ export class WorkerHost {
       reason: stop.reason,
       turns: this.turns,
     };
+  }
+
+  /**
+   * The claim's extension bundles, in place before the engine starts. Unlike
+   * the instruction files this is fatal: a session that pinned a bundle never
+   * runs without it, so an error here fails the start and its reason is the
+   * release's.
+   */
+  private async publishExtensions(
+    claim: BootstrapClaimResponse,
+  ): Promise<void> {
+    const bundles = claim.runtime_config.extensions;
+    if (bundles === undefined) return;
+    const publish = this.options.extensionBundles;
+    if (publish === undefined) {
+      throw new Error("This worker cannot publish extension bundles");
+    }
+    await this.untilStopped(publish(claim, this.preparation.signal));
   }
 
   /**
