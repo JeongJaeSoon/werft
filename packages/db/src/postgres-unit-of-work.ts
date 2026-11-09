@@ -91,6 +91,11 @@ import {
 } from "./cursors.ts";
 import { drainAttention } from "./drain.ts";
 import { enqueueWithin } from "./enqueue.ts";
+import {
+  captureEnvStart,
+  recordEnvRefusal,
+  recordEnvResolution,
+} from "./env-variables.ts";
 import { eventWithNeutralFields } from "./event-payload.ts";
 import { captureGitHubPolicyStart } from "./github-settings.ts";
 import { admitInput } from "./input-limits.ts";
@@ -297,6 +302,34 @@ export function createPostgresSessionUnitOfWork(
         ) {
           return unbound(input.agentReleaseId);
         }
+        // After the credentials, in the same transaction: the rows are locked
+        // FOR SHARE, so the session stores the values that were checked.
+        const envCapture =
+          input.agentReleaseId === undefined
+            ? ({ outcome: "none" } as const)
+            : await captureEnvStart(tx, {
+                workspaceId: scope.principal,
+                releaseId: input.agentReleaseId,
+                names: input.envNames ?? [],
+              });
+        if (envCapture.outcome === "refused") {
+          // `agentReleaseId` is set: an empty name list never refuses.
+          const { receiptId } = await recordEnvRefusal(tx, {
+            ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
+            reason: envCapture.reason,
+            target: {
+              releaseId: input.agentReleaseId as string,
+              idempotencyKey: input.idempotencyKey,
+            },
+          });
+          return {
+            outcome: "variables_refused" as const,
+            reason: envCapture.reason,
+            receiptId,
+          };
+        }
         const refused = await admitInput(tx, {
           sessionId: null,
           message: input.message,
@@ -332,6 +365,8 @@ export function createPostgresSessionUnitOfWork(
           githubPolicySource: input.githubPolicySource ?? "release",
           githubPolicyStart,
           mcpStart,
+          envStart:
+            envCapture.outcome === "resolved" ? envCapture.envStart : null,
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
@@ -365,6 +400,16 @@ export function createPostgresSessionUnitOfWork(
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
         });
+
+        if (envCapture.outcome === "resolved") {
+          await recordEnvResolution(tx, {
+            ownerId: scope.principal,
+            actor: scope.actor,
+            requestId: scope.requestId,
+            sessionId,
+            envStart: envCapture.envStart,
+          });
+        }
 
         const receiptId = randomUUID();
         const response: CreateSessionResponse = {

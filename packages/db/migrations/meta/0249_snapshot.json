@@ -1,5 +1,5 @@
 {
-  "id": "f8e82b8b-dd9a-4d97-a958-727a09a65561",
+  "id": "7ca25243-199e-44e0-aee5-675d722a0503",
   "prevId": "4061749b-59f5-484f-9456-009ac215cad9",
   "version": "7",
   "dialect": "postgresql",
@@ -3958,6 +3958,279 @@
         "credential_bindings_ref_check": {
           "name": "credential_bindings_ref_check",
           "value": "\"credential_bindings\".\"credential_ref\" ~ '^[a-z0-9][a-z0-9._:/-]{0,127}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.env_variable_grants": {
+      "name": "env_variable_grants",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "variable_id": {
+          "name": "variable_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allow_automation": {
+          "name": "allow_automation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "granted_by": {
+          "name": "granted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "granted_at": {
+          "name": "granted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "env_variable_grants_variable_fk": {
+          "name": "env_variable_grants_variable_fk",
+          "tableFrom": "env_variable_grants",
+          "tableTo": "env_variables",
+          "columnsFrom": ["workspace_id", "variable_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "env_variable_grants_agent_fk": {
+          "name": "env_variable_grants_agent_fk",
+          "tableFrom": "env_variable_grants",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "env_variable_grants_variable_id_agent_id_pk": {
+          "name": "env_variable_grants_variable_id_agent_id_pk",
+          "columns": ["variable_id", "agent_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.env_variables": {
+      "name": "env_variables",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "engine_delivery": {
+          "name": "engine_delivery",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "allow_automation": {
+          "name": "allow_automation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "grant_all": {
+          "name": "grant_all",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "version": {
+          "name": "version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "nextval('env_variable_versions_seq')"
+        },
+        "grant_version": {
+          "name": "grant_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "nextval('env_variable_versions_seq')"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "env_variables_workspace_name_uniq": {
+          "name": "env_variables_workspace_name_uniq",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"env_variables\".\"agent_id\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "env_variables_agent_name_uniq": {
+          "name": "env_variables_agent_name_uniq",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"env_variables\".\"agent_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "env_variables_workspace_id_workspaces_id_fk": {
+          "name": "env_variables_workspace_id_workspaces_id_fk",
+          "tableFrom": "env_variables",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "env_variables_agent_fk": {
+          "name": "env_variables_agent_fk",
+          "tableFrom": "env_variables",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "env_variables_workspace_id_uniq": {
+          "name": "env_variables_workspace_id_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "env_variables_name_check": {
+          "name": "env_variables_name_check",
+          "value": "\"env_variables\".\"name\" ~ '^[A-Z][A-Z0-9_]{0,63}$'"
+        },
+        "env_variables_kind_check": {
+          "name": "env_variables_kind_check",
+          "value": "\"env_variables\".\"kind\" IN ('plain','secret')"
+        },
+        "env_variables_value_check": {
+          "name": "env_variables_value_check",
+          "value": "(\"env_variables\".\"kind\" = 'plain') = (\"env_variables\".\"value\" IS NOT NULL) AND (\"env_variables\".\"value\" IS NULL OR octet_length(\"env_variables\".\"value\") <= 49152)"
+        },
+        "env_variables_engine_delivery_check": {
+          "name": "env_variables_engine_delivery_check",
+          "value": "NOT \"env_variables\".\"engine_delivery\" OR \"env_variables\".\"kind\" = 'secret'"
+        },
+        "env_variables_allow_automation_check": {
+          "name": "env_variables_allow_automation_check",
+          "value": "NOT \"env_variables\".\"allow_automation\" OR (\"env_variables\".\"kind\" = 'secret' AND \"env_variables\".\"agent_id\" IS NOT NULL)"
+        },
+        "env_variables_grant_all_check": {
+          "name": "env_variables_grant_all_check",
+          "value": "NOT \"env_variables\".\"grant_all\" OR (\"env_variables\".\"kind\" = 'plain' AND \"env_variables\".\"agent_id\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -11161,6 +11434,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "env_start": {
+          "name": "env_start",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -11610,64 +11889,6 @@
           "value": "\"slack_apps\".\"state\" NOT IN ('created', 'deleting', 'deleted') OR (\"slack_apps\".\"app_id\" IS NOT NULL AND \"slack_apps\".\"client_id\" IS NOT NULL)"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.slack_channel_lifecycle": {
-      "name": "slack_channel_lifecycle",
-      "schema": "",
-      "columns": {
-        "installation_id": {
-          "name": "installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_event_us": {
-          "name": "last_event_us",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_join_us": {
-          "name": "last_join_us",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_leave_us": {
-          "name": "last_leave_us",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "slack_channel_lifecycle_installation_fk": {
-          "name": "slack_channel_lifecycle_installation_fk",
-          "tableFrom": "slack_channel_lifecycle",
-          "tableTo": "slack_installations",
-          "columnsFrom": ["installation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "slack_channel_lifecycle_pk": {
-          "name": "slack_channel_lifecycle_pk",
-          "columns": ["installation_id", "channel_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_config_tokens": {
@@ -12812,12 +13033,6 @@
         "approved_at": {
           "name": "approved_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_lifecycle_us": {
-          "name": "approved_lifecycle_us",
-          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -14691,7 +14906,18 @@
     }
   },
   "schemas": {},
-  "sequences": {},
+  "sequences": {
+    "public.env_variable_versions_seq": {
+      "name": "env_variable_versions_seq",
+      "schema": "public",
+      "increment": "1",
+      "startWith": "1",
+      "minValue": "1",
+      "maxValue": "9223372036854775807",
+      "cache": "1",
+      "cycle": false
+    }
+  },
   "roles": {},
   "policies": {},
   "views": {},

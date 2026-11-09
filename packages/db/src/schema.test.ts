@@ -151,6 +151,8 @@ describe("database schema", () => {
       "checkpoints",
       "control_intents",
       "credential_bindings",
+      "env_variable_grants",
+      "env_variables",
       "events",
       "executions",
       "extension_bundles",

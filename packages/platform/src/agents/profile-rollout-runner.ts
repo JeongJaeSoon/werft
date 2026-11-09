@@ -4,7 +4,7 @@ import type {
   ProfileRolloutStore,
   RolloutItemResult,
 } from "../ports/profile-rollout-store.ts";
-import { sameExecutionForm } from "../sessions/profile-execution-form.ts";
+import { judgeProfileRollout } from "../sessions/profile-rollout-policy.ts";
 
 export const ROLLOUT_LEASE_MS = 60_000;
 export const ROLLOUT_BATCH = 20;
@@ -66,26 +66,13 @@ export function createProfileRolloutRunner(deps: {
         targetProfileId: item.targetProfileId,
         activeProfileId: active.runtime_profile_id,
       });
-      const { latest } = seen;
-      if (
-        seen.tracking !== "follow" ||
-        !seen.sameLineage ||
-        latest === null ||
-        seen.active === null
-      ) {
-        return { status: "superseded" };
-      }
-      if (
-        seen.active.version >= latest.version ||
-        sameExecutionForm(seen.active, latest)
-      ) {
-        return { status: "applied" };
-      }
+      const decision = judgeProfileRollout(seen);
+      if (decision.status !== "release") return decision;
       last = await agents.rolloutRelease({
         workspaceId: item.workspaceId,
         agentId: item.agentId,
         actorUserId: item.actorUserId,
-        targetProfileId: latest.id,
+        targetProfileId: decision.profileId,
       });
       if (last.status === "applied") return { status: "applied" };
       if (last.status === "failed") {
