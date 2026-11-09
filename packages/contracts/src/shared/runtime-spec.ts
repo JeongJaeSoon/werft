@@ -34,21 +34,45 @@ const legacyPermissionModeSchema = z.enum([
   "auto",
 ]);
 const repositoryModeSchema = z.enum(["required", "optional", "none"]);
-const nonEmpty = z.string().min(1).max(512);
+// No length caps: the catalog sets none on a model, a tool or an endpoint, and
+// a cap here would make a release made from a valid profile underivable.
+const nonEmpty = z.string().min(1);
+
+// The catalog's own rule for a provider endpoint (catalog.ts webUrl): the URL
+// rides every fingerprint and snapshot, so it carries no credential, and the
+// egress proxy takes only http(s) with no fragment.
+const endpointSchema = z.string().refine((value) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.username === "" &&
+    url.password === "" &&
+    url.search === "" &&
+    url.hash === ""
+  );
+}, "must be an http(s) URL with no credential, query or fragment");
 
 const runtimeSchema = z
   .object({ kind: runtimeKindSchema, version: nonEmpty })
   .strict();
 
-// Where the model is called. `id` is null for a release made from a profile
-// whose provider matches no connection row; such a release still runs from
-// `kind` and `endpoint`, and gets an id when the connection is created.
+// Where the model is called. The connection is named by id: it is what picks
+// the credential, and a provider that matches no connection row runs nothing
+// today (`connection_missing`), so a release made from one gets no spec until
+// its connection exists. `kind`, `endpoint` and `billing` are what the id
+// pointed at when the release was made; the catalog's `per_token` is a
+// billing that is absent there.
 const connectionSchema = z
   .object({
-    id: nonEmpty.nullable(),
+    id: nonEmpty,
     kind: z.enum(["anthropic", "litellm"]),
-    endpoint: z.url().max(2048),
-    billing: z.enum(["none", "metered"]),
+    endpoint: endpointSchema,
+    billing: z.enum(["per_token", "none"]),
   })
   .strict();
 
@@ -72,9 +96,9 @@ export const specSourceSchema = z
     connection: connectionSchema,
     model: nonEmpty,
     permission_mode: legacyPermissionModeSchema,
-    tools: z.array(nonEmpty).max(256),
+    tools: z.array(nonEmpty),
     project_settings: projectSettingsSchema.optional(),
-    mcp_deny: z.array(nonEmpty).max(256).optional(),
+    mcp_deny: z.array(nonEmpty).optional(),
     repository_mode: repositoryModeSchema,
   })
   .strict();
@@ -87,9 +111,9 @@ export const runtimeSpecSchema = z
     connection: connectionSchema,
     model: nonEmpty,
     execution_mode: executionModeSchema,
-    tools: z.array(nonEmpty).max(256),
+    tools: z.array(nonEmpty),
     project_settings: projectSettingsSchema.optional(),
-    mcp_deny: z.array(nonEmpty).max(256).optional(),
+    mcp_deny: z.array(nonEmpty).optional(),
     repository_mode: repositoryModeSchema,
   })
   .strict();

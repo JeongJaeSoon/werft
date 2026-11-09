@@ -21,7 +21,7 @@ const source: SpecSource = {
     id: "conn-1",
     kind: "anthropic",
     endpoint: "https://api.anthropic.com",
-    billing: "metered",
+    billing: "per_token",
   },
   model: "claude-sonnet-5",
   permission_mode: "default",
@@ -72,12 +72,67 @@ describe("runtime spec contract", () => {
     );
   });
 
-  test("a connection with no row yet still parses, with a null id", () => {
-    const withoutRow = {
+  // A provider that matches no connection row runs nothing today, so its
+  // release gets no spec; a null id would leave nothing to pick a credential.
+  test("a connection must be named by id", () => {
+    for (const id of [null, ""]) {
+      expect(
+        specSourceSchema.safeParse({
+          ...source,
+          connection: { ...source.connection, id },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  // The catalog sets no cap on these, so a release made from a valid profile
+  // has to be derivable.
+  test("what the catalog allows without a cap is accepted", () => {
+    const large = {
       ...source,
-      connection: { ...source.connection, id: null },
+      model: `claude-${"m".repeat(600)}`,
+      tools: Array.from({ length: 300 }, (_, i) => `Tool${i}`),
+      connection: {
+        ...source.connection,
+        endpoint: `https://gateway.example.test/${"p".repeat(2500)}`,
+      },
     };
-    expect(specSourceSchema.safeParse(withoutRow).success).toBe(true);
+    const parsed = specSourceSchema.parse(large);
+    expect(runtimeSpecSchema.parse(deriveRuntimeSpec(parsed))).toBeDefined();
+  });
+
+  test.each([
+    ["userinfo", "https://user:pass@gateway.example.test"],
+    ["a username only", "https://user@gateway.example.test"],
+    ["a query credential", "https://gateway.example.test/?api_key=k"],
+    ["a fragment", "https://gateway.example.test/#x"],
+    ["a file URL", "file:///etc/passwd"],
+    ["an ssh URL", "ssh://gateway.example.test"],
+    ["no URL at all", "gateway.example.test"],
+  ])("an endpoint with %s is refused", (_name, endpoint) => {
+    expect(
+      specSourceSchema.safeParse({
+        ...source,
+        connection: { ...source.connection, endpoint },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("billing takes the catalog's two values", () => {
+    for (const billing of ["per_token", "none"]) {
+      expect(
+        specSourceSchema.safeParse({
+          ...source,
+          connection: { ...source.connection, billing },
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      specSourceSchema.safeParse({
+        ...source,
+        connection: { ...source.connection, billing: "metered" },
+      }).success,
+    ).toBe(false);
   });
 
   test.each([
