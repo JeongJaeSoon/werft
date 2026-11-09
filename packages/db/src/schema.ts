@@ -1301,6 +1301,16 @@ export const sessions = pgTable(
     agentReleaseId: text("agent_release_id").references(
       (): AnyPgColumn => agentReleases.id,
     ),
+    // The spec this session runs: its release's `spec_source` with the
+    // session's own model, and what it derives. The release stays immutable;
+    // a model move rewrites these four with `model` in one statement. Same
+    // shapes and digests as agent_releases, so verifyReleaseSpec reads both.
+    // Null on a session whose release has no verified spec, and on rows from
+    // before: the reconciliation counts and repairs them. All null or all set.
+    runtimeSpec: jsonb("runtime_spec").$type<Record<string, unknown>>(),
+    specSource: jsonb("spec_source").$type<Record<string, unknown>>(),
+    specSourceDigest: text("spec_source_digest"),
+    specDigest: text("spec_digest"),
     // `platformPromptSchema`, written with the row and never updated: every
     // claim hands it to the worker as it is, since it is part of the
     // checkpoint fingerprint. Null is revision 0, no platform paragraph,
@@ -1388,6 +1398,10 @@ export const sessions = pgTable(
     legacyRuntimeConfigs: jsonb("legacy_runtime_configs").$type<unknown>(),
   },
   (table) => [
+    check(
+      "sessions_spec_check",
+      sql`(${table.runtimeSpec} IS NULL) = (${table.specSource} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specSourceDigest} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specDigest} IS NULL)`,
+    ),
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
     check(
       "sessions_github_policy_source_check",

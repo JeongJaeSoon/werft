@@ -100,6 +100,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "extensions",
     // 0255
     "legacy_runtime_configs",
+    // 0257
+    "runtime_spec",
+    "spec_source",
+    "spec_source_digest",
+    "spec_digest",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",

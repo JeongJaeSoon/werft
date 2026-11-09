@@ -147,6 +147,7 @@ import {
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
+import { newSessionPin } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
 
 export const CREATE_SESSION = "create_session";
@@ -379,6 +380,13 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
+          ...(input.agentReleaseId === undefined
+            ? {}
+            : ((await newSessionPin(
+                tx,
+                input.agentReleaseId,
+                input.model ?? null,
+              )) ?? {})),
           platformPrompt: input.platformPrompt ?? null,
           permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,

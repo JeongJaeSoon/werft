@@ -203,6 +203,7 @@ import {
   recordStatus,
   streamClock,
 } from "./session-events.ts";
+import { movedSessionPin } from "./session-spec-pin.ts";
 import {
   settleTurnInterrupts,
   turnInterruptPending,
@@ -1296,12 +1297,16 @@ export async function moveSessionsToSuccessors(
         FOR SHARE OF a`)) as unknown as { rows: { on: boolean }[] };
       if (held.some((row) => row.on === false)) continue;
       moved += 1;
+      // The spec pin follows the model in the same statement, so a replica
+      // that reads the pin never sees the old model next to the new one.
+      const pin = await movedSessionPin(tx, id, move.to);
       await tx
         .update(sessions)
         .set({
           model: move.to,
           profileFingerprint: move.toFingerprint,
           updatedAt: input.now,
+          ...(pin ?? {}),
         })
         .where(eq(sessions.id, id));
       await recordEvent(tx, {
