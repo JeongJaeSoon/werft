@@ -3,7 +3,9 @@ import type { SessionEvent } from "@werft-ai/contracts";
 import {
   CLAUDE_DESCRIPTOR,
   CLAUDE_RUNTIME_FINGERPRINT,
+  CLAUDE_TOOL_CATALOGS,
   claudeCheckpointCodec,
+  equivalentToolCatalogVersions,
 } from "@werft-ai/runtime-claude-codec";
 import {
   type AdmissionHold,
@@ -230,13 +232,21 @@ export const claudeRuntimeModule: RuntimeModule = {
   descriptor: CLAUDE_DESCRIPTOR,
   checkpointCodec: claudeCheckpointCodec,
   /**
-   * The transcript a checkpoint resumes is only replayable on the build that
-   * wrote it, so a session made for another one is refused.
+   * A session made for another build is refused, unless that build's tool
+   * catalog is this one's: a profile row left at the version before an SDK
+   * upgrade then still starts. The transcript a checkpoint resumes is only
+   * replayable on the build that wrote it, and the checkpoint's own
+   * fingerprint holds it to that, whatever version the row names.
    */
   assertCompatible(runtime) {
     if (
       runtime.version !== CLAUDE_AGENT_SDK_VERSION &&
-      runtime.version !== CLAUDE_CODE_VERSION
+      runtime.version !== CLAUDE_CODE_VERSION &&
+      !equivalentToolCatalogVersions(
+        CLAUDE_TOOL_CATALOGS,
+        runtime.kind,
+        CLAUDE_AGENT_SDK_VERSION,
+      ).includes(runtime.version)
     ) {
       throw new RuntimeMismatch(
         `Session needs runtime version ${runtime.version}; this worker ships Agent SDK ${CLAUDE_AGENT_SDK_VERSION} (Claude Code ${CLAUDE_CODE_VERSION})`,

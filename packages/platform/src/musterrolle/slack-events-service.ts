@@ -18,6 +18,7 @@ import type {
   SlackInboundEventStore,
 } from "../ports/slack-inbound-event-store.ts";
 import type { SlackInstallStore } from "../ports/slack-install-store.ts";
+import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
 import { slackConversationKey } from "./slack-inbox.ts";
 
@@ -122,7 +123,33 @@ export type SlackEventsOutcome =
 
 type Classified =
   | { status: "dropped"; dropReason: SlackInboundDropReason }
-  | { status: "received" | "processed" };
+  | {
+      status: "received" | "processed";
+      redact?: { botUserId: string; mention: boolean };
+    };
+
+const PENDING_EVENT_FIELDS = [
+  "type",
+  "user",
+  "channel",
+  "channel_type",
+  "ts",
+  "thread_ts",
+  "event_ts",
+] as const;
+
+function redactedEvent(
+  event: SlackEventCallback["event"],
+  botUserId: string,
+  mention: boolean,
+): SlackEventCallback["event"] {
+  const kept: Record<string, unknown> = {};
+  for (const field of PENDING_EVENT_FIELDS) {
+    if (event[field] !== undefined) kept[field] = event[field];
+  }
+  kept.text = mention ? `<@${botUserId}>` : "";
+  return kept as SlackEventCallback["event"];
+}
 
 const ACCEPTED_TYPES = new Set<string>(SLACK_INBOUND_EVENT_TYPES);
 const ACCEPTED_SUBTYPES = new Set<string>(SLACK_ACCEPTED_MESSAGE_SUBTYPES);
@@ -140,6 +167,7 @@ export function createSlackEventsService(deps: {
   apps: Pick<SlackAppStore, "setEventsUnlessVerified">;
   identities: Pick<AgentIdentityStore, "resolveSlackEvent">;
   installs: Pick<SlackInstallStore, "revokeInstallation">;
+  bindings: Pick<SurfaceBindingStore, "findLiveSlackChannel" | "wasRejected">;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
@@ -192,6 +220,49 @@ export function createSlackEventsService(deps: {
         !ACCEPTED_SUBTYPES.has(event.subtype)
       ) {
         return { status: "dropped", dropReason: "message_subtype" };
+      }
+      if (typeof event.channel === "string" && event.channel_type !== "im") {
+        const bound = await deps.bindings.findLiveSlackChannel(
+          resolved.installationId,
+          event.channel,
+        );
+        // A private channel without an approved, ready binding keeps no
+        // text: waiting, rejected, or flipped from public since it was bound.
+        const unapproved =
+          bound?.status === "pending_approval" ||
+          (event.channel_type === "group" &&
+            !(
+              bound?.status === "ready" &&
+              bound.channelKind === "private_channel"
+            )) ||
+          // An app_mention carries no channel_type, so a channel with no
+          // live binding is told apart by what became of its last one.
+          (bound === null &&
+            event.channel_type !== "channel" &&
+            (await deps.bindings.wasRejected(
+              resolved.installationId,
+              event.channel,
+            )));
+        if (unapproved) {
+          const mentioned =
+            event.type === "app_mention" ||
+            (typeof event.text === "string" &&
+              event.text.includes(`<@${resolved.botUserId}`));
+          if (mentioned) {
+            return {
+              status: "received",
+              redact: { botUserId: resolved.botUserId, mention: true },
+            };
+          }
+          // Bound as public but private now: the handler still has to see
+          // the event to demote the binding, with no text.
+          return bound?.status === "ready"
+            ? {
+                status: "received",
+                redact: { botUserId: resolved.botUserId, mention: false },
+              }
+            : { status: "dropped", dropReason: "channel_pending_approval" };
+        }
       }
     }
     return { status: "received" };
@@ -267,7 +338,18 @@ export function createSlackEventsService(deps: {
             ? null
             : new Date(envelope.event_time * 1000),
       };
-      const { token: _token, ...payload } = envelope;
+      const { token: _token, ...unredacted } = envelope;
+      const payload =
+        classified.status !== "dropped" && classified.redact !== undefined
+          ? {
+              ...unredacted,
+              event: redactedEvent(
+                envelope.event,
+                classified.redact.botUserId,
+                classified.redact.mention,
+              ),
+            }
+          : unredacted;
       const row: SlackInboundEventInput =
         classified.status === "dropped"
           ? { ...base, ...classified }

@@ -208,6 +208,9 @@ function deps(): SlackInteractionDeps {
       },
     },
     bindings: {
+      async findPendingApproval() {
+        return null;
+      },
       async resolveSlackChannel(installationId, channelId) {
         if (installationId !== INSTALLATION || channelId !== CHANNEL) {
           return null;
@@ -232,6 +235,7 @@ function deps(): SlackInteractionDeps {
           home: false,
           memoryWritePolicy: "deny",
           status: "ready",
+          approvedAt: null,
           membership: null,
           muted: false,
           revision: 1,

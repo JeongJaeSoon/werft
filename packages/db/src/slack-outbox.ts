@@ -122,6 +122,27 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
   return sql`substr(${row}.dedupe_key, ${sql.raw(String(from))} + position(':' in substr(${row}.dedupe_key, ${sql.raw(String(from))})))`;
 };
 
+// Only the notice that a channel waits for approval may go to a channel
+// whose binding waits, or was rejected and has no live binding since.
+const channelNotWaiting = (row: SQL) => sql`(
+  ${row}.kind = 'notice' OR NOT EXISTS (
+    SELECT 1 FROM surface_bindings b
+    WHERE b.installation_id = ${row}.installation_id
+      AND b.external_surface_id = ${row}.channel_id
+      AND (
+        (b.status = 'pending_approval' AND b.revoked_at IS NULL)
+        OR (b.status = 'revoked' AND b.approved_at IS NULL
+            AND b.surface_kind = 'private_channel')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM surface_bindings r
+        WHERE r.installation_id = b.installation_id
+          AND r.external_surface_id = b.external_surface_id
+          AND r.status = 'ready' AND r.revoked_at IS NULL
+      )
+  )
+)`;
+
 // Where a row may still go: an installation not revoked, for a session's row
 // its thread's link still live, unmuted and showing full answers, and for an
 // input notice its request still waiting: a card's own request, or, for a
@@ -133,6 +154,7 @@ const addressed = (db: Database, row: SQL) => sql`(
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
+  AND ${channelNotWaiting(row)}
   AND (${row}.session_id IS NULL OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.session_id = ${row}.session_id
@@ -631,6 +653,7 @@ export function createPostgresSlackOutboxStore(
                 eq(surfaceBindings.id, whileHome.bindingId),
                 eq(surfaceBindings.agentId, input.agentId),
                 eq(surfaceBindings.home, true),
+                eq(surfaceBindings.status, "ready"),
                 ne(surfaceBindings.mode, "off"),
                 isNull(surfaceBindings.revokedAt),
               ),
@@ -1245,6 +1268,7 @@ export function createPostgresSlackOutboxStore(
             fenced(fence),
             eq(t.status, "pending"),
             sql`${t.leaseExpiresAt} > now()`,
+            channelNotWaiting(sql.raw('"slack_outbox"')),
           ),
         )
         .returning({ id: t.id });

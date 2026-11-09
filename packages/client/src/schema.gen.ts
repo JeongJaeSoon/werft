@@ -2489,6 +2489,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/slack-bindings/{binding_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a private Slack channel
+         * @description A binding of a private channel starts as `pending_approval` and takes no input until an owner or admin approves it here: it becomes `ready` and `approved_at` is set, and a message sent before `approved_at` is not answered. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same approval again, after it landed, answers the binding as it is with a null `receipt_id`. Owners and admins only, not the agent's admins; API keys are refused. Writes a `resolve_surface_binding` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["approveSlackBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack-bindings/{binding_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a private Slack channel
+         * @description Revokes a binding that waits for approval, so its channel slot is free again. The bot stays in the channel and takes no input; remove it in Slack to make it leave. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same rejection again answers the binding as it is with a null `receipt_id`. Owners and admins only; API keys are refused. Writes a `resolve_surface_binding` receipt.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["rejectSlackBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/slack-channels": {
         parameters: {
             query?: never;
@@ -5040,6 +5084,9 @@ export interface components {
                 disclosure: "full" | "summary";
             };
         };
+        ResolveSlackBindingRequest: {
+            revision: number;
+        };
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
@@ -6897,7 +6944,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -7844,7 +7891,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "profile.define" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "profile.define" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -9601,7 +9648,8 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
                     state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
@@ -9639,7 +9687,8 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
                     state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
@@ -9653,6 +9702,46 @@ export interface components {
             };
             /** Format: uuid */
             receipt_id: string;
+        };
+        ResolveSlackBindingResponse: {
+            slack_binding: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                workspace_id: string;
+                owner_id: string;
+                /** @enum {string} */
+                surface: "web" | "slack" | "api";
+                installation_id: string | null;
+                external_surface_id: string | null;
+                surface_kind: ("public_channel" | "private_channel" | "dm") | null;
+                /** Format: uuid */
+                agent_id: string;
+                /** @enum {string} */
+                mode: "off" | "on";
+                ceiling: {
+                    actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
+                    /** @enum {string} */
+                    disclosure: "full" | "summary";
+                };
+                home: boolean;
+                /** @enum {string} */
+                memory_write_policy: "deny" | "allow_explicit";
+                /** @enum {string} */
+                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                approved_at?: string | null;
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
+                muted: boolean;
+                revision: number;
+                /** Format: date-time */
+                created_at: string;
+                revoked_at: string | null;
+            };
+            receipt_id: string | null;
         };
         SearchSlackChannelsResponse: {
             items: {
@@ -26918,6 +27007,312 @@ export interface operations {
             };
         };
     };
+    approveSlackBinding: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveSlackBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveSlackBindingResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    rejectSlackBinding: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveSlackBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveSlackBindingResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     lookupSlackChannels: {
         parameters: {
             query: {
@@ -32253,7 +32648,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "acceptEdits",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required"
                      *         },
@@ -32275,7 +32670,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "acceptEdits",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required",
                      *           "repository_ids": [
@@ -32314,7 +32709,7 @@ export interface operations {
                      *           ],
                      *           "permission_mode": "default",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "billing": "metered",
                      *           "repository_mode": "required",
                      *           "workspace": {
@@ -32438,7 +32833,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "default",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "workspace": {
@@ -32604,7 +32999,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "default",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "workspace": {
@@ -34805,9 +35200,9 @@ export interface operations {
                      *       ],
                      *       "tool_catalogs": [
                      *         {
-                     *           "id": "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+                     *           "id": "claude_agent_sdk@0.3.319+claude-code@2.1.319",
                      *           "runtime_kind": "claude_agent_sdk",
-                     *           "runtime_version": "0.3.270",
+                     *           "runtime_version": "0.3.319",
                      *           "tools": [
                      *             {
                      *               "name": "Read",
@@ -34900,7 +35295,7 @@ export interface operations {
                  *       "name": "coding",
                  *       "connection_id": "anthropic-main",
                  *       "runtime_kind": "claude_agent_sdk",
-                 *       "runtime_version": "0.3.270",
+                 *       "runtime_version": "0.3.319",
                  *       "model": "claude-sonnet-5",
                  *       "models": [
                  *         "claude-sonnet-5",
@@ -34953,7 +35348,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35134,7 +35529,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35285,7 +35680,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [
@@ -35436,7 +35831,7 @@ export interface operations {
                      *         ],
                      *         "permission_mode": "acceptEdits",
                      *         "runtime_kind": "claude_agent_sdk",
-                     *         "runtime_version": "0.3.270",
+                     *         "runtime_version": "0.3.319",
                      *         "billing": "metered",
                      *         "repository_mode": "required",
                      *         "repository_ids": [

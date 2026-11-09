@@ -235,6 +235,8 @@ export const sessionsKo = {
   "session.event.kind.question": "질문",
   "session.event.kind.result": "턴 끝",
   "session.event.kind.error": "오류",
+  "session.event.error.modelNotAllowed":
+    "{model}이(가) 프로필의 허용 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 허용 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.init": "세션 시작",
@@ -485,6 +487,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.question": "Question",
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
+  "session.event.error.modelNotAllowed":
+    "Model requests for this session were blocked because {model} is no longer allowed by its profile. Ask an administrator to restore access, or start a new session with another model.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.init": "Session started",
@@ -708,6 +712,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.question": "質問",
   "session.event.kind.result": "ターン終了",
   "session.event.kind.error": "エラー",
+  "session.event.error.modelNotAllowed":
+    "{model} がプロファイルの許可リストから外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.init": "セッション開始",
