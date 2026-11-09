@@ -8,6 +8,8 @@ import {
   type ExecutionRef,
   hashWorkerToken,
   type LaunchIntent,
+  type ReleaseSpecRecord,
+  releaseSpecRecord,
   runScheduler,
   type SchedulerLogger,
 } from "@werft-ai/platform";
@@ -155,6 +157,7 @@ function pass(backend: ExecutionBackend) {
 async function releaseWith(
   snapshot: unknown,
   card: Record<string, unknown> = {},
+  specOf?: (releaseId: string) => ReleaseSpecRecord,
 ): Promise<string> {
   const workspaceId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
@@ -190,6 +193,17 @@ async function releaseWith(
     profileDigest: "digest",
     runtimeConfigSnapshot: snapshot,
     effectiveTools: [],
+    ...(specOf === undefined
+      ? {}
+      : (() => {
+          const record = specOf(id);
+          return {
+            runtimeSpec: record.runtime_spec,
+            specSource: record.spec_source,
+            specSourceDigest: record.spec_source_digest,
+            specDigest: record.spec_digest,
+          };
+        })()),
   });
   return id;
 }
@@ -299,6 +313,54 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
     expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
+  });
+
+  test("the binding carries the release's runtime spec only when the stored pair verifies", async () => {
+    const specBound = async (specOf?: (id: string) => ReleaseSpecRecord) => {
+      const backend = new NonceHoldingBackend();
+      await queuedSession(
+        "default",
+        await releaseWith({ model: "m", tools: ["Read"] }, {}, specOf),
+      );
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.releaseSpec;
+    };
+    const record = (id: string) =>
+      releaseSpecRecord({
+        derivation_version: 1,
+        origin: "profile",
+        release_id: id,
+        release_id_version: 2,
+        profile_id: PROFILE,
+        profile_digest: "digest",
+        runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
+        connection: {
+          id: "conn-1",
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          billing: "per_token",
+        },
+        model: "m",
+        permission_mode: "bypassPermissions",
+        tools: ["Read"],
+        repository_mode: "required",
+      });
+    // Not backfilled yet: the claim reads the profile as before.
+    expect(await specBound()).toBeNull();
+    const verified = await specBound(record);
+    expect(verified?.execution_mode).toBe("bypass");
+    // A pair whose digest does not hold is no spec at all.
+    expect(
+      await specBound((id) => ({
+        ...record(id),
+        spec_digest: `sha256:${"0".repeat(64)}`,
+      })),
+    ).toBeNull();
+    // Nor is a spec made for another release.
+    expect(await specBound(() => record("rel-another"))).toBeNull();
   });
 
   test("the binding carries the session row's platform prompt as stored, and none for a revision 0 row", async () => {

@@ -66,6 +66,7 @@ import {
   TRANSCRIPT_LIMITS,
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
+  verifyReleaseSpec,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -1673,19 +1674,38 @@ function pinnedExtensionsOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseTools">> {
-  if (session.agentReleaseId === null) return { releaseTools: null };
+): Promise<Pick<WorkerBinding, "releaseTools" | "releaseSpec">> {
+  if (session.agentReleaseId === null) {
+    return { releaseTools: null, releaseSpec: null };
+  }
   const [release] = await tx
-    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
+    .select({
+      snapshot: agentReleases.runtimeConfigSnapshot,
+      runtimeSpec: agentReleases.runtimeSpec,
+      specSource: agentReleases.specSource,
+      specSourceDigest: agentReleases.specSourceDigest,
+      specDigest: agentReleases.specDigest,
+    })
     .from(agentReleases)
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
   const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
+  // A pair that does not verify is treated as no spec, never as a spec.
+  const verdict =
+    release === undefined || release.runtimeSpec === null
+      ? null
+      : verifyReleaseSpec(session.agentReleaseId, {
+          spec_source: release.specSource,
+          runtime_spec: release.runtimeSpec,
+          spec_source_digest: release.specSourceDigest,
+          spec_digest: release.specDigest,
+        });
   return {
     releaseTools:
       Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
         ? tools
         : [],
+    releaseSpec: verdict?.ok === true ? verdict.record.runtime_spec : null,
   };
 }
 
