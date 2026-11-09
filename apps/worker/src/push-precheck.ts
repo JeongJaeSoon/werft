@@ -19,7 +19,8 @@ type Git = (
 /**
  * The tool precheck the runtime runs before each call: only `request_push`
  * is judged, and only for one thing the workspace can tell at once, a commit
- * that shares no history with the branch it would be pushed onto. The push
+ * that shares no history with the remote's HEAD branch, the base the push
+ * itself checks a new branch against. The push
  * itself checks again on the server with the remote's HEAD; this is advice
  * that saves a turn, never the gate. Whatever cannot be judged for sure (no
  * such ref, a shallow clone, git failing) lets the call through.
@@ -71,8 +72,8 @@ export function createPushPrecheck(workspaceRoot: string) {
 }
 
 /**
- * The remote-tracking branch the pushed commit shares no history with, or
- * null when it shares history with one, or when that cannot be told.
+ * The remote's HEAD branch the pushed commit shares no history with, or
+ * null when it shares history with it, or when that cannot be told.
  */
 async function unrelatedBase(
   git: Git,
@@ -102,26 +103,23 @@ async function unrelatedBase(
     if (!named.ok) return null;
     if (named.out.split("\n").includes(repositoryId)) remote = repositoryId;
   }
-  const listed = await git([
-    "for-each-ref",
-    "--format=%(refname)",
-    `refs/remotes/${remote}/`,
+  // The push compares with the remote's HEAD, so only a ref known to be
+  // that HEAD is judged against: a clone records it as
+  // `refs/remotes/<remote>/HEAD`. An attached repository fetches only its
+  // catalog branch, which may be unrelated to the default one, and a
+  // workspace may not have kept the symref: nothing is judged then.
+  const head = await git([
+    "symbolic-ref",
+    "--quiet",
+    `refs/remotes/${remote}/HEAD`,
   ]);
-  if (!listed.ok) return null;
-  const bases = listed.out
-    .split("\n")
-    .filter((ref) => ref !== "" && !ref.endsWith("/HEAD"));
-  // A session without a repository, or a workspace whose remote refs were
-  // not kept: nothing to judge against.
-  if (bases.length === 0) return null;
-  const commit = tip.out.trim();
-  for (const ref of bases) {
-    const common = await git(["merge-base", commit, ref]);
-    if (common.ok) return null;
-    // Exit 1 is git's "no common ancestor"; anything else is not an answer.
-    if (common.code !== 1) return null;
-  }
-  return bases[0]?.slice("refs/remotes/".length) ?? null;
+  if (!head.ok) return null;
+  const base = head.out.trim();
+  if (!base.startsWith(`refs/remotes/${remote}/`)) return null;
+  const common = await git(["merge-base", tip.out.trim(), base]);
+  // Exit 1 is git's "no common ancestor"; anything else is not an answer.
+  if (common.ok || common.code !== 1) return null;
+  return base.slice("refs/remotes/".length);
 }
 
 /** A name git and the tool's schema both take, nothing an option could be. */

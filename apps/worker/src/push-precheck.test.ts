@@ -90,34 +90,65 @@ describe("the request_push precheck", () => {
     expect(await precheck(REQUEST_PUSH_TOOL, { source_ref: "orphan" })).toBe(
       UNRELATED_HISTORY_ADVICE.replaceAll("{base}", "origin/main"),
     );
+    // The session's own id is no remote here: origin is judged.
     expect(
       await precheck(REQUEST_PUSH_TOOL, {
         source_ref: "orphan",
-        repository_id: "docs",
+        repository_id: "app",
       }),
-    ).toBe(UNRELATED_HISTORY_ADVICE.replaceAll("{base}", "docs/main"));
+    ).toBe(UNRELATED_HISTORY_ADVICE.replaceAll("{base}", "origin/main"));
   });
 
-  test("judges an attached repository against its own remote", async () => {
+  test("an attached repository is judged only once its remote's HEAD is known", async () => {
     const precheck = createPushPrecheck(workspace);
+    // Attaching fetches the catalog branch alone, with no HEAD: the branch
+    // may not be the default one the push compares with, so nothing is
+    // refused, not even the cross-repository case the push will refuse.
+    const toDocs = { source_ref: "main", repository_id: "docs" };
+    expect(await precheck(REQUEST_PUSH_TOOL, toDocs)).toBeNull();
+    const head = join(root, "with-head");
+    await git(root, "clone", "--quiet", workspace, head);
+    await git(head, "remote", "add", "docs", join(root, "docs-src"));
+    await git(
+      head,
+      "fetch",
+      "--quiet",
+      "docs",
+      "+refs/heads/main:refs/remotes/docs/main",
+    );
+    await git(head, "remote", "set-head", "docs", "main");
+    await git(head, "checkout", "--quiet", "-b", "docs-work", "docs/main");
+    const known = createPushPrecheck(head);
     expect(
-      await precheck(REQUEST_PUSH_TOOL, {
+      await known(REQUEST_PUSH_TOOL, {
         source_ref: "docs-work",
         repository_id: "docs",
       }),
     ).toBeNull();
-    // The app's work pushed to docs is the cross-repository case the push refuses.
+    expect(await known(REQUEST_PUSH_TOOL, toDocs)).toBe(
+      UNRELATED_HISTORY_ADVICE.replaceAll("{base}", "docs/main"),
+    );
+  });
+
+  test("a catalog branch unrelated to the default one refuses nothing the default could take", async () => {
+    // The fork case: the attached repository's catalog branch shares no
+    // history with its default branch, which the session's commit builds on.
+    const source = join(root, "pages-src");
+    await git(root, "clone", "--quiet", join(root, "app-src"), source);
+    await git(source, "checkout", "--quiet", "--orphan", "pages");
+    await commit(source, "index.html", "pages\n");
+    await git(workspace, "remote", "add", "pages", source);
+    await git(
+      workspace,
+      "fetch",
+      "--quiet",
+      "pages",
+      "+refs/heads/pages:refs/remotes/pages/pages",
+    );
     expect(
-      await precheck(REQUEST_PUSH_TOOL, {
+      await createPushPrecheck(workspace)(REQUEST_PUSH_TOOL, {
         source_ref: "main",
-        repository_id: "docs",
-      }),
-    ).toBe(UNRELATED_HISTORY_ADVICE.replaceAll("{base}", "docs/main"));
-    // The session's own id is no remote here: origin is judged.
-    expect(
-      await precheck(REQUEST_PUSH_TOOL, {
-        source_ref: "main",
-        repository_id: "app",
+        repository_id: "pages",
       }),
     ).toBeNull();
   });
