@@ -1,9 +1,4 @@
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -43,6 +38,7 @@ import {
   RadioGroup,
   RadioGroupItem,
   RowAction,
+  SettingsSection,
   Text,
 } from "@werft-ai/ui";
 import { useId, useRef, useState } from "react";
@@ -50,7 +46,6 @@ import {
   firstMembersQuery,
   invitesQuery,
   queryKeysOf,
-  teamPagesQuery,
 } from "../api/queries.ts";
 import {
   offeredActions,
@@ -81,8 +76,6 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
-import { TeamCreateDialog } from "./team-create-dialog.tsx";
-import { TeamHeadAction } from "./teams.tsx";
 
 // Past more invites than this the list is searched like the member list.
 export const INVITE_SEARCH_THRESHOLD = 10;
@@ -164,44 +157,15 @@ export function MembersLayout() {
 
 function MembersPage() {
   const { t } = useI18n();
-  const notify = useNotify();
-  const { client } = useWerft();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
-  const reason = usePermissionReason("member.manage", members);
-  // The read is the permission probe: when it failed, nobody knows.
-  const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
   const onTeams = pathname.startsWith("/members/teams");
   // The router also serves the list at "/members/teams/".
   const onTeamList = pathname.replace(/\/$/, "") === "/members/teams";
   const managesTeams = useHasPermission("team.manage");
-  // The teams screen's own first page: only whether it is refused matters.
-  const teams = useInfiniteQuery({
-    ...teamPagesQuery(client),
-    enabled: managesTeams && onTeams,
-  });
-  const teamReason = usePermissionReason("team.manage", teams);
-  const teamsFailed = teams.isError && !isApiError(teams.error, "FORBIDDEN");
 
-  // Each tab's one primary action, in the same place (v4 toolbar ②).
-  const action = onTeams ? (
-    onTeamList && managesTeams && !teamsFailed ? (
-      <TeamCreateDialog
-        reason={teamReason}
-        onCreated={(name) => notify(t("teams.created", { name }))}
-      />
-    ) : !onTeamList ? (
-      <TeamHeadAction />
-    ) : undefined
-  ) : manages && !failed ? (
-    <InviteDialog
-      reason={reason}
-      assignableRoles={offeredInviteRoles(members.data)}
-      refusal={(error, role) => refusal(t, error, role)}
-    />
-  ) : undefined;
-
+  // Each tab's one primary action sits on its own section's title row (R1),
+  // so the page head carries none.
   return (
     <Page
       title={t("members.title")}
@@ -212,7 +176,6 @@ function MembersPage() {
             ? "teams.intro"
             : "members.description",
       )}
-      actions={action}
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
@@ -253,6 +216,7 @@ export function MembersScreen() {
   const q = useSearchTerm(query);
   const members = useMemberPages(q, { enabled: manages });
   const search = useRef<HTMLInputElement>(null);
+  const invite = useInviteButton();
 
   if (!manages) return null;
 
@@ -265,21 +229,37 @@ export function MembersScreen() {
     search.current?.focus();
   };
 
+  // Nothing to search in a list that is empty to begin with: its box holds
+  // only the empty state (R4).
+  const listEmpty =
+    !members.isPending && !members.error && items.length === 0 && query === "";
+
   return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
-      <ListToolbar
-        filter={null}
-        search={{
-          ref: search,
-          type: "search",
-          "aria-label": t("members.search"),
-          placeholder: t("members.search"),
-          maxLength: SEARCH_MAX,
-          value: query,
-          onChange: (event) => setQuery(event.target.value),
-        }}
-      />
-      {members.isPending ? (
+    <SettingsSection
+      title={t("members.tab.members")}
+      // Always here, never in the empty box: a button that changes place
+      // remounts, and would close an invite dialog open on its link step
+      // when the list fills.
+      actions={invite.button}
+      box={listEmpty}
+    >
+      {listEmpty ? (
+        <EmptyState title={t("members.empty")} />
+      ) : (
+        <ListToolbar
+          filter={null}
+          search={{
+            ref: search,
+            type: "search",
+            "aria-label": t("members.search"),
+            placeholder: t("members.search"),
+            maxLength: SEARCH_MAX,
+            value: query,
+            onChange: (event) => setQuery(event.target.value),
+          }}
+        />
+      )}
+      {listEmpty ? null : members.isPending ? (
         <StatusScreen kind="loading" />
       ) : members.error && items.length === 0 ? (
         isApiError(members.error, "FORBIDDEN") ? (
@@ -307,30 +287,43 @@ export function MembersScreen() {
           <PagedListFooter list={members} />
         </div>
       )}
-    </div>
+    </SettingsSection>
   );
+}
+
+/**
+ * The invite button of the 구성원 and 초대 sections. It waits on the first
+ * member page for the roles it may offer. A screen calls this once, at its
+ * top, so the read starts with the screen: an observer that mounts later
+ * would read an already loaded page again.
+ */
+function useInviteButton() {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const manages = useHasPermission("member.manage");
+  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
+  const reason = usePermissionReason("member.manage", members);
+  // The read is the permission probe: when it failed, nobody knows.
+  const failed = members.isError && !isApiError(members.error, "FORBIDDEN");
+  return {
+    // Why the button is gone: the read it waits on failed.
+    failure: manages && failed ? members : null,
+    button:
+      manages && !failed ? (
+        <InviteDialog
+          reason={reason}
+          assignableRoles={offeredInviteRoles(members.data)}
+          refusal={(error, role) => refusal(t, error, role)}
+        />
+      ) : null,
+  };
 }
 
 /** The 초대 tab: invites still waiting to be accepted. */
 export function InvitesScreen() {
-  const { client } = useWerft();
   const manages = useHasPermission("member.manage");
-  const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
-
   if (!manages) return null;
-
-  return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
-      {/* The invite button in the head waits on this list; say why it is gone. */}
-      {members.isError && !isApiError(members.error, "FORBIDDEN") ? (
-        <LoadFailure
-          error={members.error}
-          onRetry={() => void members.refetch()}
-        />
-      ) : null}
-      <InviteList />
-    </div>
-  );
+  return <InviteList />;
 }
 
 function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
@@ -424,10 +417,6 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
       fail(error, enable ? "enable" : "disable");
     },
   });
-
-  if (items.length === 0) {
-    return <EmptyState title={t("members.empty")} />;
-  }
 
   return (
     <>
@@ -789,8 +778,24 @@ function InviteList() {
     search.current?.focus();
   };
 
+  const invite = useInviteButton();
+  // A search box left over from a revoke stays out of the empty box (R4).
+  const listEmpty =
+    !invites.isPending && !invites.error && listed.length === 0 && !searchable;
+
   return (
-    <>
+    <SettingsSection
+      title={t("members.tab.invites")}
+      actions={invite.button}
+      box={listEmpty}
+    >
+      {/* The invite button waits on the member list; say why it is gone. */}
+      {invite.failure ? (
+        <LoadFailure
+          error={invite.failure.error}
+          onRetry={() => void invite.failure?.refetch()}
+        />
+      ) : null}
       {searchable ? (
         <ListToolbar
           filter={null}
@@ -911,6 +916,6 @@ function InviteList() {
           if (revoking) revoke.mutate(revoking);
         }}
       />
-    </>
+    </SettingsSection>
   );
 }

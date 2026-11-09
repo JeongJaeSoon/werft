@@ -57,7 +57,7 @@ import {
   RowAction,
   RowList,
   RowListItem,
-  Section,
+  SettingsSection,
   Skeleton,
   Stepper,
   Text,
@@ -107,8 +107,7 @@ const SEARCH_MAX = 200;
 
 const SECTION = "flex flex-col gap-[var(--werft-space-block)]";
 const MUTED = "m-0 text-muted-foreground";
-const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
-const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
+const NAME_FIELD = "min-w-0 max-w-xl";
 const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
 const ROW_LINK =
   "after:absolute after:inset-0 after:rounded-card focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
@@ -386,14 +385,12 @@ function MembersLayout({
   manages,
   tab,
   onTeamList = false,
-  action,
   children,
 }: {
   readonly manages: boolean;
   readonly tab: Tab;
   /** The team list, not a team's page: its intro is the description. */
   readonly onTeamList?: boolean;
-  readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
@@ -406,7 +403,6 @@ function MembersLayout({
             ? TEAMS_INTRO
             : "워크스페이스에 속한 사람과 역할입니다."
       }
-      actions={action}
     >
       <div className="flex flex-col gap-[var(--werft-space-block)]">
         <LinkTabs aria-label="구성원 보기">
@@ -541,7 +537,10 @@ function MembersTab({
   initialEdit,
   initialDisable,
   initialRoleChange,
+  action,
 }: {
+  /** The section's one action, on its title row. */
+  readonly action?: ReactNode;
   readonly viewer: "owner" | "admin";
   readonly state: ListState;
   readonly initialQuery?: string;
@@ -564,7 +563,7 @@ function MembersTab({
   const [confirming, setConfirming] = useState(find(initialDisable));
 
   return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
+    <SettingsSection title="구성원" actions={action}>
       <ListToolbar
         filter={null}
         search={{
@@ -638,7 +637,7 @@ function MembersTab({
         tone="danger"
         onConfirm={() => setConfirming(null)}
       />
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -846,7 +845,10 @@ function InvitesTab({
   invites,
   initialRevoke,
   initialQuery = "",
+  action,
 }: {
+  /** The section's one action, on its title row. */
+  readonly action?: ReactNode;
   readonly invites: readonly InviteRow[];
   readonly initialRevoke?: string | undefined;
   readonly initialQuery?: string;
@@ -861,7 +863,7 @@ function InvitesTab({
   );
   const pending = listed.filter((invite) => matches(query, invite.email));
   return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
+    <SettingsSection title="초대" actions={action} box={listed.length === 0}>
       {listed.length > 10 || query !== "" ? (
         <ListToolbar
           filter={null}
@@ -966,7 +968,7 @@ function InvitesTab({
         tone="danger"
         onConfirm={() => setRevoking(null)}
       />
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1054,70 +1056,85 @@ function TeamRowLink({ name }: { readonly name: string }) {
 function TeamsTab({
   teams,
   initialQuery = "",
+  action,
 }: {
+  /** The section's one action, on its title row. */
+  readonly action?: ReactNode;
   readonly teams: readonly TeamView[];
   readonly initialQuery?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const items = teams.filter((team) => matches(query, team.name));
+  const listEmpty = teams.length === 0;
   return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
-      <ListToolbar
-        filter={null}
-        search={{
-          type: "search",
-          "aria-label": "이름으로 팀 찾기",
-          placeholder: "이름으로 팀 찾기",
-          maxLength: SEARCH_MAX,
-          value: query,
-          onChange: (event) => setQuery(event.target.value),
-        }}
-      />
-      {items.length === 0 && query.trim() !== "" ? (
-        <EmptyState
-          className="w-full"
-          title="검색어에 맞는 팀이 없습니다"
-          description="다른 이름으로 찾아 보세요."
-          action={<ClearSearch onClick={() => setQuery("")} />}
-        />
-      ) : items.length === 0 ? (
+    <SettingsSection title="팀" actions={action} box={listEmpty}>
+      {listEmpty ? (
         <EmptyState title="아직 팀이 없습니다." />
       ) : (
-        <div className="-m-1 grid overflow-x-auto p-1">
-          <GridTable
-            aria-label="팀 표"
-            columns="minmax(0,1fr) 9rem"
-            narrowAt={640}
-            narrowColumns="minmax(0,1fr) 7rem"
-            framed={true}
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>팀</GridTableColumnHeader>
-              <GridTableColumnHeader>구성원</GridTableColumnHeader>
-            </GridTableHeader>
-            {items.map((team) => (
-              <GridTableRow key={team.id}>
-                <GridTableCell>
-                  <GridTableRowOpener aria-label={`팀 열기: ${team.name}`} />
-                  <Text as="span" weight="medium" truncate title={team.name}>
-                    {team.name}
-                  </Text>
-                </GridTableCell>
-                <GridTableCell>
-                  <Text as="span" variant="meta" numeric truncate>
-                    {`구성원 ${team.member_count}명`}
-                  </Text>
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="ml-auto size-4 shrink-0 text-subtle-foreground"
-                  />
-                </GridTableCell>
-              </GridTableRow>
-            ))}
-          </GridTable>
-        </div>
+        <>
+          <ListToolbar
+            filter={null}
+            search={{
+              type: "search",
+              "aria-label": "이름으로 팀 찾기",
+              placeholder: "이름으로 팀 찾기",
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
+          {items.length === 0 && query.trim() !== "" ? (
+            <EmptyState
+              className="w-full"
+              title="검색어에 맞는 팀이 없습니다"
+              description="다른 이름으로 찾아 보세요."
+              action={<ClearSearch onClick={() => setQuery("")} />}
+            />
+          ) : (
+            <div className="-m-1 grid overflow-x-auto p-1">
+              <GridTable
+                aria-label="팀 표"
+                columns="minmax(0,1fr) 9rem"
+                narrowAt={640}
+                narrowColumns="minmax(0,1fr) 7rem"
+                framed={true}
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>팀</GridTableColumnHeader>
+                  <GridTableColumnHeader>구성원</GridTableColumnHeader>
+                </GridTableHeader>
+                {items.map((team) => (
+                  <GridTableRow key={team.id}>
+                    <GridTableCell>
+                      <GridTableRowOpener
+                        aria-label={`팀 열기: ${team.name}`}
+                      />
+                      <Text
+                        as="span"
+                        weight="medium"
+                        truncate
+                        title={team.name}
+                      >
+                        {team.name}
+                      </Text>
+                    </GridTableCell>
+                    <GridTableCell>
+                      <Text as="span" variant="meta" numeric truncate>
+                        {`구성원 ${team.member_count}명`}
+                      </Text>
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="ml-auto size-4 shrink-0 text-subtle-foreground"
+                      />
+                    </GridTableCell>
+                  </GridTableRow>
+                ))}
+              </GridTable>
+            </div>
+          )}
+        </>
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1167,7 +1184,10 @@ function TeamPage({
   initialRemove,
   initialQuery = "",
   manages409 = false,
+  action,
 }: {
+  /** The members section's one action, on its title row. */
+  readonly action?: ReactNode;
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialDelete?: boolean;
@@ -1187,21 +1207,12 @@ function TeamPage({
         {team.name}
       </Heading>
       {manages ? (
-        <Section title="팀 설정" titleAs="h3">
-          <form
-            className={INLINE_FORM}
-            onSubmit={(event) => event.preventDefault()}
-          >
-            <Field className={NAME_FIELD}>
-              <FieldLabel>팀 이름</FieldLabel>
-              <Input
-                name="team-name"
-                required
-                maxLength={100}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
+        <SettingsSection
+          title="팀 설정"
+          titleAs="h3"
+          box
+          onSubmit={(event) => event.preventDefault()}
+          foot={
             <Button
               type="submit"
               variant="outline"
@@ -1209,10 +1220,22 @@ function TeamPage({
             >
               이름 바꾸기
             </Button>
-          </form>
-        </Section>
+          }
+        >
+          <Field className={NAME_FIELD}>
+            <FieldLabel>팀 이름</FieldLabel>
+            <Input
+              name="team-name"
+              required
+              maxLength={100}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+        </SettingsSection>
       ) : null}
       <TeamMembers
+        action={action}
         team={team}
         manages={manages}
         initialPromote={initialPromote}
@@ -1270,7 +1293,9 @@ function TeamMembers({
   initialPromote,
   initialRemove,
   initialQuery,
+  action,
 }: {
+  readonly action?: ReactNode;
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialPromote: string | undefined;
@@ -1304,10 +1329,12 @@ function TeamMembers({
     .filter(Boolean)
     .join(" ");
   return (
-    <Section
+    <SettingsSection
       title="팀 구성원"
       titleAs="h3"
       badge={<Badge variant="gray">{`${team.members.length}명`}</Badge>}
+      actions={action}
+      box={team.members.length === 0}
     >
       {team.members.length === 0 ? (
         <EmptyState title="아직 구성원이 없습니다." />
@@ -1456,7 +1483,7 @@ function TeamMembers({
         tone="danger"
         onConfirm={() => setRemoving(null)}
       />
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -1722,6 +1749,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   if (tab === "members" && manager) {
     content = (
       <MembersTab
+        action={action}
         viewer={manager}
         state={
           screen === "members-loading"
@@ -1749,6 +1777,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   } else if (tab === "invites") {
     content = (
       <InvitesTab
+        action={action}
         invites={
           screen === "invites-empty"
             ? []
@@ -1763,6 +1792,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   } else if (onTeamPage) {
     content = (
       <TeamPage
+        action={action}
         team={screen === "team-empty" ? EMPTY_TEAM : TEAM}
         manages={manager !== null}
         initialDelete={screen === "team-delete"}
@@ -1775,6 +1805,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   } else if (manager) {
     content = (
       <TeamsTab
+        action={action}
         teams={screen === "teams-empty" ? [] : TEAMS}
         initialQuery={screen === "teams-no-match" ? "없는 팀" : ""}
       />
@@ -1789,7 +1820,6 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         manages={manager !== null}
         tab={tab}
         onTeamList={tab === "teams" && !onTeamPage}
-        action={action}
       >
         {content}
       </MembersLayout>
