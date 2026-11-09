@@ -46,7 +46,7 @@ scripts/local.sh up --fake-model
 {"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
 ```
 
-`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([最初のセッションを作る](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、実際の Claude を呼び出し、費用がかかる。モデルの key は、コンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で入れるのが基本で、シェルの `ANTHROPIC_API_KEY` で渡すのは代替手段である。key なしで起動しても fake には切り替わらず、モデル接続がない状態で起動する。
+`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([最初のセッションを作る](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、実際の Claude を呼び出し、費用がかかる。モデルの key は、コンソールの**設定 > エージェント接続 > モデル接続 > 接続を追加**で入れるのが基本で、シェルの `ANTHROPIC_API_KEY` で渡すのは代替手段である。key なしで起動しても fake には切り替わらず、モデル接続がない状態で起動する。
 
 ## 状態を確認する
 
@@ -92,7 +92,7 @@ scripts/local.sh down
 | --- | --- |
 | `Docker Engine … is too old` | Docker Engine を 28 以上に上げる |
 | `127.0.0.1 port(s) … already in use` | 上の `lsof` ループで、そのポートを使っているプロセスを探す |
-| `up` が `no ANTHROPIC_API_KEY … no model connection` を出力し、セッションが接続なし(`connection_missing`)で拒否される | オプションなしの `up` は実際の Claude を使い、key なしでも起動する。**設定 > ワークスペース設定 > モデル接続 > 接続を追加**で key を入れる。モデルのアカウントなしで動かすには `--fake-model` を付ける |
+| `up` が `no ANTHROPIC_API_KEY … no model connection` を出力し、セッションが接続なし(`connection_missing`)で拒否される | オプションなしの `up` は実際の Claude を使い、key なしでも起動する。**設定 > エージェント接続 > モデル接続 > 接続を追加**で key を入れる。モデルのアカウントなしで動かすには `--fake-model` を付ける |
 | Docker を再起動した後に API が起動しない | S3 volume・暗号化キー・ログを確認する。以前の LocalStack のデータ消失なら移行・バックアップ手順に従う |
 | pull の後、`up` が `has neither an image nor a build context specified` または `port is already allocated` で終わる | Git サーバーのサービス名が `fake-git` に変わった。ポート override ファイルのキーを直し、`scripts/local.sh down --keep-volumes` の後でもう一度 `up` する。以前のセッションは `CATALOG_MISMATCH` で止まるので、新しいセッションを開く |
 

@@ -1,6 +1,7 @@
 export const shellKo = {
   "shell.group.work": "업무",
   "shell.group.workspace": "워크스페이스",
+  "shell.group.agentConnections": "에이전트 연결",
   "shell.group.personal": "내 설정",
   "shell.openMenu": "메뉴 열기",
   "shell.closeMenu": "메뉴 닫기",
@@ -22,6 +23,7 @@ export const shellKo = {
 export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.group.work": "Work",
   "shell.group.workspace": "Workspace",
+  "shell.group.agentConnections": "Agent connections",
   "shell.group.personal": "My settings",
   "shell.openMenu": "Open menu",
   "shell.closeMenu": "Close menu",
@@ -43,6 +45,7 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
 export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.group.work": "業務",
   "shell.group.workspace": "ワークスペース",
+  "shell.group.agentConnections": "エージェント接続",
   "shell.group.personal": "個人設定",
   "shell.openMenu": "メニューを開く",
   "shell.closeMenu": "メニューを閉じる",

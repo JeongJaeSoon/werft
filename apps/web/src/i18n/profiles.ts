@@ -140,7 +140,7 @@ export const profilesKo = {
   "profiles.ceiling.connection": "연결",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설정의 모델 연결에서 추가하고 바꿉니다.",
+    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설정 › 에이전트 연결 › 모델 연결에서 추가하고 바꿉니다.",
   "profiles.ceiling.connectionPick": "연결을 고르세요",
   "profiles.ceiling.connectionDropped":
     "이 프로필의 기존 연결을 쓸 수 없습니다. 연결을 새로 고르세요.",
@@ -505,7 +505,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.connection": "Connection",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "The connection sets the model provider and credentials. Add or change connections under Settings > Model connections.",
+    "The connection sets the model provider and credentials. Add or change connections under Settings › Agent connections › Model connections.",
   "profiles.ceiling.connectionPick": "Pick a connection",
   "profiles.ceiling.connectionDropped":
     "The connection this profile used is not available. Pick a connection.",
@@ -875,7 +875,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.connection": "接続",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "モデルの提供元と認証情報は接続が決めます。接続は設定のモデル接続で追加・変更します。",
+    "モデルの提供元と認証情報は接続が決めます。接続は 設定 › エージェント接続 › モデル接続 で追加・変更します。",
   "profiles.ceiling.connectionPick": "接続を選んでください",
   "profiles.ceiling.connectionDropped":
     "このプロファイルが使っていた接続は利用できません。接続を選んでください。",

@@ -10,7 +10,7 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
 
-const CONNECTIONS_PAGE = "/settings/workspace/connections";
+const CONNECTIONS_PAGE = "/settings/workspace/model-connections";
 
 const CHANGE = (id: string) => ({
   id,
@@ -1107,7 +1107,7 @@ describe("설정의 모델 연결", () => {
         name: "모델 연결로 가기",
       });
       expect(
-        link.getAttribute("href") === "/settings/workspace/connections",
+        link.getAttribute("href") === "/settings/workspace/model-connections",
       ).toBe(true);
       expect(screen.getByText(HINT) !== null).toBe(true);
     });
@@ -1185,10 +1185,7 @@ describe("설정의 모델 연결", () => {
 
   for (const role of ["admin", "member"] as const) {
     test(`a ${role} gets no menu item, and a direct visit is refused without a request`, async () => {
-      const { api } = renderAt(
-        "/settings/workspace/connections",
-        routes(me(undefined, role)),
-      );
+      const { api } = renderAt(CONNECTIONS_PAGE, routes(me(undefined, role)));
       await screen.findByText("이 화면을 볼 권한이 없습니다");
       const nav = screen.getByRole("navigation", { name: "설정" });
       expect(

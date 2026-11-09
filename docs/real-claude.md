@@ -12,7 +12,7 @@
 ## 기본 스택이 쓰는 것
 
 - migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 문서에는 fake를 가리키는 profile이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
-- key의 기본 경로는 콘솔이다. B는 key 없이 뜨고, 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가에서 넣은 key가 DB에 봉인돼 저장된다. 환경 변수는 대안이다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 **API 컨테이너에만** 이름으로 전달되고(`infra/compose.local.yml`), 설정 문서의 `value_env`가 그 값을 읽는다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
+- key의 기본 경로는 콘솔이다. B는 key 없이 뜨고, 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣은 key가 DB에 봉인돼 저장된다. 환경 변수는 대안이다. 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)가 있으면 **API 컨테이너에만** 이름으로 전달되고(`infra/compose.local.yml`), 설정 문서의 `value_env`가 그 값을 읽는다. 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
 - 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
 `ANTHROPIC_API_KEY`가 셸과 `.env` 어디에도 없거나 비어 있을 때 `run.sh --real-model`(A)은 Docker를 건드리기 전에 exit 2로 끝난다. `local.sh up`(B)은 뜨되, 모델 연결 없이 뜬다고 알리고 화면 경로를 한 줄로 알려 준다. 어느 쪽도 fake로 대신 뜨지 않는다. 연결이 없는 동안 `claude-coding-real`은 `connection_missing`(연결 없음)이고, 이 profile로 세션을 만들면 화면 경로를 알려 주는 오류로 거절된다. 연결을 넣으면 쓸 수 있게 된다. `.env`의 key 줄 따옴표가 깨졌으면 B도 exit 2로 끝난다. fake로 돌리려면 `--fake-model`을 명시한다.
@@ -21,7 +21,7 @@
 
 이 용도로 쓸 **전용 key**를 만들고 Console에서 workspace 지출 한도를 걸어 두기를 권한다. 상한은 세션마다 따로 걸리므로 세션을 여러 개 만들면 합계는 상한보다 커질 수 있다.
 
-**B의 기본 경로는 화면이다.** `scripts/local.sh up`을 key 없이 실행한 뒤(아래 B의 1단계), 콘솔에 owner로 로그인해 **설정 > 워크스페이스 설정 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고 key를 붙여 넣어 저장한다. key는 DB에 봉인돼 저장되고 화면에는 끝 네 글자만 보인다. 셸 history, 프로세스 목록, 컨테이너 설정에 key가 남지 않는다. 이미 `value_env` 연결이 있으면 같은 화면에서 key를 넣어 저장형으로 바꾼다. 저장한 key는 그 화면에서 교체하거나 지우고, 스택을 `down`하면 DB와 함께 사라진다.
+**B의 기본 경로는 화면이다.** `scripts/local.sh up`을 key 없이 실행한 뒤(아래 B의 1단계), 콘솔에 owner로 로그인해 **설정 > 에이전트 연결 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고 key를 붙여 넣어 저장한다. key는 DB에 봉인돼 저장되고 화면에는 끝 네 글자만 보인다. 셸 history, 프로세스 목록, 컨테이너 설정에 key가 남지 않는다. 이미 `value_env` 연결이 있으면 같은 화면에서 key를 넣어 저장형으로 바꾼다. 저장한 key는 그 화면에서 교체하거나 지우고, 스택을 `down`하면 DB와 함께 사라진다.
 
 **대안: 환경 변수.** A는 환경 변수로만 받고, B도 화면을 거치지 않으려면 환경 변수로 줄 수 있다. 셸 history에 남지 않도록 `read -rs`로 입력받는다.
 
@@ -209,7 +209,7 @@ Sonnet 5 기준(100만 토큰당 입력 2달러, 출력 10달러, 캐시 쓰기 
 |---|---|
 | `run.sh --real-model`이 바로 exit 2로 끝난다 | A는 환경 변수로만 key를 받는다. `ANTHROPIC_API_KEY`가 셸에도 `.env`에도 없거나 비었다. [key 입력](#key-입력과-폐기)의 `read -rs` 세 줄과 `export ANTHROPIC_API_KEY`를 같은 셸에서 한 뒤 다시 실행한다 |
 | `local.sh up`이 `invalid ANTHROPIC_API_KEY quoting`으로 exit 2로 끝난다 | `.env`의 key 줄 따옴표가 한쪽만 있다. 따옴표를 맞추거나 그 줄을 지우고(key는 화면으로 넣는다) 다시 실행한다 |
-| 세션이 `connection_missing`(연결 없음)이거나 모델 key를 넣으라는 오류로 거절된다 | 모델 연결에 key가 없다. 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가에서 넣는다 |
+| 세션이 `connection_missing`(연결 없음)이거나 모델 key를 넣으라는 오류로 거절된다 | 모델 연결에 key가 없다. 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣는다 |
 | `local.sh up`이 `docker compose … is too old; … is an overlay on compose.yaml's include`로 끝난다 | Docker Compose가 2.24.6보다 낮다. 2.24.0–2.24.5는 `include` 위의 overlay를 `conflicts with imported resource`로 거부한다. compose를 올린다 |
 | turn이 `budget_exceeded`로 실패한다 | 세션 비용이 1달러 상한을 넘었다. 새 세션을 만든다 |
 | 그 밖의 증상 | [quickstart 8장](quickstart.md#8-막혔을-때)을 본다 |
