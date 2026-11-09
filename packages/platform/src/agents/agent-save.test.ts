@@ -182,6 +182,7 @@ function scripted(script: Script) {
     hasGitHubSettings: async () => script.hasRow ?? false,
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
+    activationActor: async () => null,
     notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) => {

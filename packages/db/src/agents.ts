@@ -21,6 +21,7 @@ import type {
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   inArray,
@@ -846,10 +847,29 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return row?.on ?? true;
     },
 
+    async activationActor(workspaceId, agentId, releaseId) {
+      const [row] = await db
+        .select({ actor: agentActivationEvents.actorUserId })
+        .from(agentActivationEvents)
+        .where(
+          and(
+            eq(agentActivationEvents.workspaceId, workspaceId),
+            eq(agentActivationEvents.agentId, agentId),
+            eq(agentActivationEvents.releaseId, releaseId),
+          ),
+        )
+        .orderBy(desc(agentActivationEvents.createdAt))
+        .limit(1);
+      return row?.actor ?? null;
+    },
+
     async notifyModelMigrationFailed(input) {
       return await db.transaction(async (tx) => {
         const [agent] = await tx
-          .select({ revision: agents.activationRevision })
+          .select({
+            revision: agents.activationRevision,
+            releaseId: agents.activeReleaseId,
+          })
           .from(agents)
           .where(
             and(
@@ -857,8 +877,15 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               eq(agents.workspaceId, input.workspaceId),
             ),
           )
+          .for("update")
           .limit(1);
-        if (!agent) return 0;
+        if (
+          !agent ||
+          agent.revision !== input.revision ||
+          agent.releaseId !== input.releaseId
+        ) {
+          return 0;
+        }
         return await enqueueModelMoveNotices(tx, {
           workspaceId: input.workspaceId,
           agentId: input.agentId,

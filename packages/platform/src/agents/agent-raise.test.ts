@@ -153,6 +153,7 @@ function raiseOver(reads: AgentRecord[]) {
     hasGitHubSettings: async () => false,
     autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
+    activationActor: async () => null,
     notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) =>

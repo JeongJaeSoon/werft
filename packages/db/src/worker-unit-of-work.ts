@@ -1277,6 +1277,16 @@ export async function moveSessionsToSuccessors(
         wait ? { of: sessions } : { of: sessions, skipLocked: true },
       );
     for (const { id } of rows) {
+      // A share lock on the agent row orders this move against the switch's
+      // update: a switch committed after the filter above is seen here.
+      const { rows: held } = (await tx.execute(sql`
+        SELECT a.auto_model_migration AS "on"
+        FROM ${sessions} AS s
+        JOIN ${agentReleases} AS r ON r.id = s.agent_release_id
+        JOIN ${agents} AS a ON a.id = r.agent_id
+        WHERE s.id = ${id}
+        FOR SHARE OF a`)) as unknown as { rows: { on: boolean }[] };
+      if (held.some((row) => row.on === false)) continue;
       moved += 1;
       await tx
         .update(sessions)

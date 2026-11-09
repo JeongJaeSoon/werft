@@ -26,6 +26,7 @@ import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import { createPostgresProfileRolloutStore } from "./profile-rollouts.ts";
 import * as schema from "./schema.ts";
 import {
+  agentActivationEvents,
   agentReleases,
   agents,
   agentVersions,
@@ -316,6 +317,69 @@ integration("an agent moves to the next model of its series", () => {
     });
     expect(step.status).toBe("failed");
     expect(await activeModel(agentId)).toBe("claude-opus-5-0");
+  });
+
+  test("the actor is whoever last activated the release, not whoever approved it first", async () => {
+    const caller = await owner();
+    const agentId = await agentOn(caller);
+    const adminId = randomUUID();
+    await db.insert(users).values({
+      id: adminId,
+      email: `${adminId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "admin",
+    });
+    await db
+      .update(memberships)
+      .set({ role: "member" })
+      .where(eq(memberships.workspaceId, caller.ownerId));
+    await db
+      .insert(memberships)
+      .values({ workspaceId: caller.ownerId, userId: adminId, role: "admin" });
+    const [first] = await db
+      .select()
+      .from(agentActivationEvents)
+      .where(eq(agentActivationEvents.agentId, agentId));
+    await db.insert(agentActivationEvents).values({
+      ...(first as typeof agentActivationEvents.$inferSelect),
+      id: randomUUID(),
+      actorUserId: adminId,
+      createdAt: new Date(Date.now() + 1_000),
+    });
+
+    expect(
+      (
+        await service(CUT).migrateModel({
+          workspaceId: caller.ownerId,
+          agentId,
+        })
+      ).status,
+    ).toBe("applied");
+    expect(await activeModel(agentId)).toBe("claude-opus-5-1");
+  });
+
+  test("a failure notice for a state the agent has left writes nothing", async () => {
+    const caller = await owner();
+    const agentId = await agentOn(caller);
+    const row = await agentRow(agentId);
+    const stale = {
+      workspaceId: caller.ownerId,
+      agentId,
+      from: "claude-opus-5-0",
+      to: "claude-opus-5-1",
+      reason: "actor_inactive",
+      releaseId: row?.activeReleaseId as string,
+      revision: (row?.activationRevision as number) + 1,
+    };
+
+    expect(await store().notifyModelMigrationFailed(stale)).toBe(0);
+    expect(
+      await store().notifyModelMigrationFailed({
+        ...stale,
+        revision: row?.activationRevision as number,
+        releaseId: "rel_other",
+      }),
+    ).toBe(0);
   });
 
   test("the runner moves what can move, leaves the rest, and a failure waits before it is tried again", async () => {

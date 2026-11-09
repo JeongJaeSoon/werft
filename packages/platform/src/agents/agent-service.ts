@@ -1354,7 +1354,12 @@ export function createAgentService(deps: {
     agentId: string;
   }): Promise<ModelMoveStep> {
     const { workspaceId, agentId } = input;
-    let move: { from: string; to: string } | null = null;
+    let move: {
+      from: string;
+      to: string;
+      releaseId: string;
+      revision: number;
+    } | null = null;
     try {
       const record = await store.get(workspaceId, agentId);
       const active = record?.active_release ?? null;
@@ -1372,14 +1377,21 @@ export function createAgentService(deps: {
       }
       const to = modelSuccessor(profile, from);
       if (to === null) return { status: "skipped" };
-      move = { from, to };
+      const found = {
+        from,
+        to,
+        releaseId: active.id,
+        revision: record.agent.activation_revision,
+      };
+      move = found;
       const failed = (reason: string): ModelMoveStep => ({
         status: "failed",
         reason,
-        from,
-        to,
+        ...found,
       });
-      const actorUserId = active.approved_by;
+      const actorUserId =
+        (await store.activationActor(workspaceId, agentId, active.id)) ??
+        active.approved_by;
       if (actorUserId === null) return failed("actor_inactive");
       const principal = migrationPrincipal(workspaceId, actorUserId);
       const activeVersion = record.versions.find(

@@ -352,12 +352,21 @@ export interface AgentStore {
     }[]
   >;
   autoModelMigration(workspaceId: string, agentId: string): Promise<boolean>;
+  /** The user who last activated this release of the agent, if recorded. */
+  activationActor(
+    workspaceId: string,
+    agentId: string,
+    releaseId: string,
+  ): Promise<string | null>;
+  /** Writes nothing unless the agent is still on `releaseId` at `revision`. */
   notifyModelMigrationFailed(input: {
     workspaceId: string;
     agentId: string;
     from: string;
     to: string;
     reason: string;
+    releaseId: string;
+    revision: number;
   }): Promise<number>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's

@@ -12,7 +12,14 @@ export const MODEL_MOVE_RETRY_MS = 15 * 60_000;
 export type ModelMoveStep =
   | { status: "applied"; from: string; to: string }
   | { status: "skipped" | "superseded" }
-  | { status: "failed"; reason: string; from: string; to: string };
+  | {
+      status: "failed";
+      reason: string;
+      from: string;
+      to: string;
+      releaseId: string;
+      revision: number;
+    };
 
 export type ModelMoveRunnerLogger = {
   info(message: string, fields: Record<string, unknown>): void;
@@ -77,6 +84,8 @@ export function createModelMoveRunner(deps: {
               from: step.from,
               to: step.to,
               reason: step.reason,
+              releaseId: step.releaseId,
+              revision: step.revision,
             });
             logger.warn("Agent could not move to the next model", {
               agent: row.agentId,
