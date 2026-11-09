@@ -267,7 +267,9 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(
       /bun \/tmp\/fetch-pinned\.ts \\\n {2}"https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz" \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/git-lfs-src\.tar\.gz \\$/m,
     );
-    expect(source).not.toMatch(/^ADD [^\n]*\\\n\s+https:\/\/github\.com\//m);
+    expect(source.replace(/\\\n\s*/g, " ")).not.toMatch(
+      /^ADD [^\n]*github\.com/m,
+    );
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
         new RegExp(
@@ -325,7 +327,9 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(
       /bun \/tmp\/fetch-pinned\.ts \\\n {4}"https:\/\/github\.com\/cli\/cli\/releases\/download\/v\$\{GH_VERSION\}\/gh_\$\{GH_VERSION\}_linux_\$\{TARGETARCH\}\.tar\.gz" \\\n {4}"\$GH_SHA256" \\$/m,
     );
-    expect(source).not.toMatch(/^ADD [^\n]*\\\n\s+https:\/\/github\.com\//m);
+    expect(source.replace(/\\\n\s*/g, " ")).not.toMatch(
+      /^ADD [^\n]*github\.com/m,
+    );
     expect(source.match(/^COPY --from=gh .*$/gm)).toEqual([
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
