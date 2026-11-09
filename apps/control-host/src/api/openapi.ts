@@ -8043,7 +8043,7 @@ function pathParameters(path: string) {
     if (!property) throw new Error(`No params schema for ${name} in ${path}`);
     const description =
       property.description === undefined
-        ? pathParameterDescription(path, name)
+        ? pathParameterDescription(path, name as string)
         : undefined;
     return {
       name,
