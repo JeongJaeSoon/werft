@@ -421,6 +421,32 @@ describe("에이전트 GitHub 탭", () => {
     ]);
   });
 
+  test("행이 이미 ref를 가졌으면 이전 응답의 ref가 아니라 행의 ref로 보낸다", async () => {
+    const { server } = await activeAgent();
+    const { api } = renderAt(
+      DETAIL,
+      // accessed() always answers with ref "r1.x", whatever was asked.
+      routesFor(server, TAB, { [ACCESS]: () => accessed() }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    const puts = () =>
+      api.calls.filter((c) => c.path.endsWith("/repository-access"));
+    await user.click(repoSwitch("werft-sandbox"));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    await waitFor(() =>
+      expect(repoSwitch("werft-sandbox").getAttribute("aria-checked")).toBe(
+        "true",
+      ),
+    );
+    await user.click(repoSwitch("werft-sandbox"));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect(puts().map((c) => c.body)).toEqual([
+      { repository: { ref: "r1.werft-sandbox" }, enabled: false },
+      { repository: { ref: "r1.werft-sandbox" }, enabled: false },
+    ]);
+  });
+
   test("워크스페이스에 저장소 상한이 아직 없으면, 저장소를 범위 밖으로 막지 않고 저장 시 기본 허용 목록이 적용된다고 안내한다", async () => {
     const { server } = await activeAgent();
     renderAt(

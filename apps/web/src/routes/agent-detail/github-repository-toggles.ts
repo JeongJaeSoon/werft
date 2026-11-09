@@ -99,8 +99,11 @@ export function useRepositoryToggles(agentId: string) {
           client.PUT("/v1/agents/{id}/github/repository-access", {
             params: { path: { id: agentId } },
             body: {
+              // A row that already has a ref keeps it: it is the row's own.
               repository:
-                !enabled && known !== undefined ? { ref: known } : repository,
+                !enabled && known !== undefined && !("ref" in repository)
+                  ? { ref: known }
+                  : repository,
               enabled,
             },
           }),
