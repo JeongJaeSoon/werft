@@ -829,7 +829,8 @@ describe("Claude SDK adapter options", () => {
         }
       ).permissions;
       expect(permissions?.allow).toContain(`Edit(/${config.cwd}/**)`);
-      expect(permissions?.allow).toContain("Bash(git commit *)");
+      expect(permissions?.allow).toContain("Bash(git *)");
+      expect(permissions?.allow).toContain("Bash(gh *)");
       expect(permissions?.ask).toContain(`Edit(/${config.cwd}/.git/**)`);
     }
     for (const permissionMode of ["plan", "auto"] as const) {

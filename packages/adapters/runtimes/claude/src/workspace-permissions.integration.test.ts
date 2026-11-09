@@ -223,6 +223,19 @@ const steps: Step[] = [
     false,
     "origin",
   ),
+  // The command a person saw asked: a pipe through sed, then `;`.
+  bash(
+    "read_owner_sed_pipe",
+    "git remote -v | sed 's/\\(https\\?:\\/\\/\\)[^ ]*/<url>/' ; git branch -a",
+    false,
+    // BSD sed (macOS) and GNU sed differ on `\?`, so the sed output is not
+    // pinned; the branch list after the `;` proves the whole line ran.
+    "main",
+  ),
+  bash("read_sed_file", "sed -n 1p notes/sample.txt", false, "sample"),
+  bash("read_jq_file", "echo '{\"a\":1}' | jq .a", false, "1"),
+  bash("read_sort_uniq", "sort notes/sample.txt | uniq", false, "sample"),
+  bash("read_cut_tr", "cut -c1-3 notes/sample.txt | tr a-z A-Z", false, "SAM"),
   bash("read_branch_list", "git branch --list 'feature/*'", false, "feature/"),
   bash("read_branch_contains", "git branch -a --contains HEAD", false, "main"),
   bash("read_branch_current", "git branch --show-current", false, "feature/"),
@@ -355,7 +368,7 @@ const steps: Step[] = [
     "git remote -v add origin https://x.test",
     true,
   ),
-  // The catch-all option ask is gone; the engine has to ask for each of these.
+  // The git ask rules are gone; each of these runs unasked (see NOW_ALLOWED).
   ...[
     "-m a b",
     "-M a b",
@@ -363,16 +376,13 @@ const steps: Step[] = [
     "-C a b",
     "-u origin/main",
     "--set-upstream-to=origin/main",
-    "--edit-description",
     "-f a HEAD",
     "--track a origin/main",
     "--no-track a",
     "-vm a b",
     "-vf a HEAD",
     "--set-upstream-t=origin/main",
-    "--edit-desc",
     "--forc a HEAD",
-    "--list --edit-description",
   ].map((flags) =>
     bash(`read_git_branch_${flags}`, `git branch ${flags}`, true),
   ),
@@ -407,6 +417,24 @@ const steps: Step[] = [
   bash("git_reset_hard", "git reset --hard HEAD~1", true),
   bash("git_force_add", "git add -f .env", true),
   bash("git_other_repo", "git -C /tmp add x", true),
+  // gh is allowed like git; a pull request read runs (the login is absent, so
+  // it fails after the engine let it through), its credential command asks.
+  bash("gh_pr_view", "gh pr view 1 --json title", false),
+  bash("gh_pr_view_compound", "git remote -v && gh pr list && ls", false),
+  bash("gh_auth_token", "gh auth token", true),
+  // What stays outside the allow: in-place sed, a redirect that leaves the
+  // workspace, a secret read through sed, and any network tool but git and gh.
+  bash("sed_in_place", "sed -i s/a/b/ notes/sample.txt", true),
+  bash("sed_in_place_late", "sed s/a/b/ notes/sample.txt -i", true),
+  bash("sed_in_place_long", "sed --in-place s/a/b/ notes/sample.txt", true),
+  bash("sed_dotenv", "sed -n 1p .env.secret", true),
+  bash("ls_redirect_outside", "ls > ../ls-outside.txt", true),
+  bash("curl_bare", "curl -s http://127.0.0.1:9/", true),
+  bash(
+    "sed_pipe_then_curl",
+    "git remote -v | sed s/a/b/ ; curl -s http://127.0.0.1:9/",
+    true,
+  ),
   bash(
     "compound_one_part_outside",
     "git add notes/sample.txt && curl -s http://127.0.0.1:9/ -o /dev/null",
@@ -424,8 +452,58 @@ const steps: Step[] = [
   },
 ];
 
+/**
+ * Shapes the narrow git list used to ask for. `git` and `gh` are allowed
+ * whole now, so these run unasked; the container, the egress authorizer and
+ * the branch protection are what hold them. They change the fixture's
+ * repository, so they run after every step that reads it.
+ */
+const NOW_ALLOWED = new Set([
+  "git_checkout_discard",
+  "git_restore_worktree",
+  "git_restore_both",
+  "git_restore_abbreviated",
+  "git_switch_detach_force",
+  "git_checkout_path_bare",
+  "git_checkout_head_path",
+  "git_checkout_dir",
+  "git_checkout_bundled_force",
+  "git_switch_bundled_force",
+  "git_restore_bundled",
+  "git_checkout_force_late",
+  "git_switch_discard_late",
+  "git_branch_delete_late",
+  "git_stash_drop",
+  "read_git_remote_add",
+  "read_git_remote_set_url",
+  "read_git_remote_show_online",
+  "read_git_remote_verbose_add",
+  "read_git_branch_delete",
+  "read_git_branch_delete_long",
+  "read_git_branch_bundled_delete",
+  "read_git_branch_move",
+  "read_git_branch_create",
+  "read_git_branch_list_delete",
+  "read_git_branch_contains_delete",
+  "read_git_config_list",
+  "read_git_config_token",
+  "read_git_config_set",
+  "read_git_config_unset",
+  "git_push",
+  "git_reset_hard",
+  "read_rev_parse_outside",
+  "read_git_remote_remove",
+]);
+const isNowAllowed = (step: Step) =>
+  NOW_ALLOWED.has(step.id) || step.id.startsWith("read_git_branch_-");
+
+const ordered = [
+  ...steps.filter((step) => !isNowAllowed(step)),
+  ...steps.filter(isNowAllowed).map((step) => ({ ...step, asks: false })),
+];
+
 const stepsFor = (mode: PermissionMode) =>
-  steps.filter((step) => step.onlyIn === undefined || step.onlyIn === mode);
+  ordered.filter((step) => step.onlyIn === undefined || step.onlyIn === mode);
 
 async function run(permissionMode: PermissionMode) {
   const active = stepsFor(permissionMode);

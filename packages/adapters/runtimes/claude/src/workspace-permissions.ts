@@ -42,24 +42,20 @@ const policySchema = z
     git: z
       .object({
         /**
-         * Git that stays on this machine. Each entry is the narrowest shape
-         * that does its job, because the way to stay safe is to allow little:
-         * whatever is not listed (`git checkout <path>`, `git restore` of the
-         * working tree, `git switch -f`, `git stash drop`, `git reset`,
-         * `git clean`, ...) is not allowed and so asks, however its flags are
-         * spelled. A listed shape is followed by an ask pattern for any
-         * further option, so an abbreviated or bundled flag (`--forc`, `-fA`,
-         * `-df`) cannot slip past. `git restore --staged` only unstages;
-         * restoring the working tree discards edits that no object or reflog
-         * keeps, so it is not listed.
+         * Whole programs, `git` and `gh`: a session that makes a pull request
+         * runs many shapes of them, and a compound read such as
+         * `git remote -v | sed ... ; git branch -a` needs every part allowed.
+         * What stops harm is not this list but the boundaries behind it: the
+         * workspace container, the egress authorizer (push target, token
+         * scope) and the branch protection on GitHub.
          */
         allow: patterns,
-        /** Bare forms that must not also take the `*` of the shapes above. */
-        exact: patterns,
         /**
-         * Options that turn a listed shape into one that discards work,
-         * stages a secret or reaches beyond the repository. An option can
-         * come after the operands, so each is matched anywhere in the line.
+         * Shapes carved out of the allow that still reach a person: a file
+         * written or a program run through an option, another repository
+         * than the workspace's, a forced add, and `gh`'s credential commands.
+         * An option can come after the operands, so each is matched anywhere
+         * in the line.
          */
         ask: patterns,
         /**
@@ -69,6 +65,14 @@ const policySchema = z
         askWhenSecretNamed: patterns,
       })
       .strict(),
+    /**
+     * Readers the engine does not run unasked on its own (`sed`, which can
+     * also write, and the stream filters). `ls`, `cat`, `grep` and the rest
+     * of the plain readers are already run inside the workspace by the
+     * engine, so listing them here would only skip its outside-path check.
+     * `ask` carves the writing forms out: `sed -i` edits a file in place.
+     */
+    read: z.object({ allow: patterns, ask: patterns }).strict(),
     fs: z
       .object({
         /**
@@ -231,12 +235,12 @@ export function workspaceRules(
   if (tools.has("Bash")) {
     for (const command of [
       ...policy.git.allow,
+      ...policy.read.allow,
       ...policy.fs.allow,
       ...policy.dev.commands,
     ]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
-    allow.push(...policy.git.exact.map((command) => `Bash(${command})`));
     ask.push(
       ...[
         ...policy.git.ask,
@@ -245,6 +249,7 @@ export function workspaceRules(
         ),
       ].map((pattern) => `Bash(${pattern})`),
     );
+    ask.push(...policy.read.ask.map((pattern) => `Bash(${pattern})`));
     ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
     for (const command of policy.secretRead.readers) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
