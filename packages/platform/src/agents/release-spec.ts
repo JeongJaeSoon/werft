@@ -11,7 +11,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
-  profileFingerprint,
+  pinnedRuntimeVersion,
   repositoryModeOf,
 } from "../sessions/catalog.ts";
 import { type ReleaseIdentity, releaseIdVersion } from "./release-ids.ts";
@@ -61,9 +61,18 @@ export function buildSpecSource(input: {
   release: SpecRelease;
   profile: CatalogProfile;
   connectionId: string | null;
+  /** `acceptedRuntimeVersions` of the catalog: engines a release may predate. */
+  acceptedVersions?: readonly string[];
 }): { ok: true; source: SpecSource } | ({ ok: false } & SpecSourceRefusal) {
   const { release, profile, connectionId } = input;
-  if (profileFingerprint(profile) !== release.profile_digest) {
+  // The release runs while its digest names the profile under any accepted
+  // runtime version; the version it names is the one it ran on.
+  const runtimeVersion = pinnedRuntimeVersion(
+    profile,
+    release.profile_digest,
+    input.acceptedVersions ?? [],
+  );
+  if (runtimeVersion === undefined) {
     return { ok: false, reason: "profile_changed" };
   }
   if (connectionId === null) return { ok: false, reason: "connection_missing" };
@@ -75,7 +84,7 @@ export function buildSpecSource(input: {
     release_id_version: releaseIdVersion(release),
     profile_id: release.runtime_profile_id,
     profile_digest: release.profile_digest,
-    runtime: { kind: profile.runtime_kind, version: profile.runtime_version },
+    runtime: { kind: profile.runtime_kind, version: runtimeVersion },
     connection: {
       id: connectionId,
       kind: profile.provider.kind,
@@ -188,9 +197,11 @@ export type SpecBackfillReport = {
  */
 export async function backfillReleaseSpecs(
   store: SpecBackfillStore,
-  resolve: (
-    release: SpecRelease,
-  ) => { profile: CatalogProfile; connectionId: string | null } | null,
+  resolve: (release: SpecRelease) => {
+    profile: CatalogProfile;
+    connectionId: string | null;
+    acceptedVersions?: readonly string[];
+  } | null,
   pageSize = 200,
 ): Promise<SpecBackfillReport> {
   const report: SpecBackfillReport = { stored: 0, raced: 0, skipped: [] };

@@ -1379,7 +1379,7 @@ export function profileFingerprint(profile: CatalogProfileView): string {
   });
 }
 
-function profileFingerprintV1(profile: CatalogProfileView): string {
+export function profileFingerprintV1(profile: CatalogProfileView): string {
   const {
     models: _models,
     title_model: _titleModel,
@@ -1515,6 +1515,31 @@ function pinnedModel(
       return runs !== null && profileFingerprintV1(runs) === pin.fingerprint;
     });
     if (model !== undefined) return model;
+  }
+  return undefined;
+}
+
+/**
+ * The `runtime_version` a fingerprint was taken under, by the same rule as
+ * `profilePinned`: the profile as written, then as a row pinned under each
+ * other accepted version saw it, under either fingerprint version. Undefined
+ * when it names none of them.
+ */
+export function pinnedRuntimeVersion(
+  profile: CatalogProfileView,
+  fingerprint: string,
+  versions: readonly string[],
+): string | undefined {
+  for (const seen of underVersions(profile, versions)) {
+    if (
+      fingerprint === profileFingerprint(seen) ||
+      profileModels(seen).some((model) => {
+        const runs = profileWithModel(seen, model);
+        return runs !== null && profileFingerprintV1(runs) === fingerprint;
+      })
+    ) {
+      return seen.runtime_version;
+    }
   }
   return undefined;
 }

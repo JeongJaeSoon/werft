@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
-import type { CatalogProfile } from "../sessions/catalog.ts";
+import {
+  type CatalogProfile,
+  profileFingerprintV1,
+} from "../sessions/catalog.ts";
 import {
   cardContentSha256,
   deriveReleaseId,
@@ -127,6 +130,40 @@ describe("buildSpecSource", () => {
       connectionId: "conn-1",
     });
     expect(built.ok && built.source.repository_mode).toBe("none");
+  });
+
+  // The engine moved on and the old one stays accepted: such a release runs
+  // today, and its source names the engine it was cut under.
+  test("a release cut under an older accepted runtime version gets a source", () => {
+    const older = releaseOf();
+    const upgraded: CatalogProfile = { ...profile, runtime_version: "0.3.280" };
+    const input = {
+      release: older,
+      profile: upgraded,
+      connectionId: "conn-1",
+    };
+    expect(buildSpecSource(input)).toEqual({
+      ok: false,
+      reason: "profile_changed",
+    });
+    const built = buildSpecSource({
+      ...input,
+      acceptedVersions: ["0.3.270", "0.3.280"],
+    });
+    expect(built.ok && built.source.runtime.version).toBe("0.3.270");
+  });
+
+  test("a release whose digest is a version 1 fingerprint gets a source", () => {
+    const legacy = {
+      ...releaseOf(),
+      profile_digest: profileFingerprintV1(profile),
+    };
+    const built = buildSpecSource({
+      release: legacy,
+      profile,
+      connectionId: "conn-1",
+    });
+    expect(built.ok && built.source.profile_digest).toBe(legacy.profile_digest);
   });
 
   test("a provider that matches no connection gets no source", () => {
