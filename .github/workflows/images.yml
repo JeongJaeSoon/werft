@@ -1,24 +1,7 @@
 name: Images
 
-# Builds product images on amd64 for PRs and both native architectures on
-# main, tags, daily and manual runs. It smokes the worker's bundled Claude Code executable, and records
-# every digest as an artifact. A push to main and a v* tag push publish to
-# ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
-# approval; a tag waits for the `release` environment once, at `publish`, and
-# its digests are what the release manifest pins. Registry CD
-# beyond the push is D5. After the promotion the chart follows, with that run's
-# digests in its values, under the same two events and the same single approval. A tag
-# then gets a GitHub Release carrying the manifest (`release`). A merge that
-# turns CHANGELOG.md's `## 미출시` into `## vX.Y.Z` releases from its own main
-# push run instead (the `release-*` jobs): one approval, the tag made last.
-#
-# Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
-# and scans it for known vulnerabilities. The `supply-chain` job is
-# the verdict, a required check: a high or critical vulnerability with a fix
-# available, in an image or anywhere in bun.lock, fails it; one without a fix
-# is only reported. A publish waits for the same verdict on
-# the build and on the digest it promotes. The daily run turns a failed
-# verdict into an issue (`vulnerability-report`).
+# PRs validate amd64; main, tags, scheduled and manual runs validate both architectures.
+# Publishing requires the supply-chain verdict; releases also require environment approval.
 on:
   push:
     branches: [main]

@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  # Listening to push on every branch as well as pull_request ran each PR commit
-  # twice. A branch with no pull request now gets no automatic run, so
-  # workflow_dispatch is here to cover that case on demand. Tag pushes are not
-  # built; the tagged tree already ran as a main push.
+  # Branches without a PR can be checked through workflow_dispatch.
   push:
     branches: [main]
   pull_request:
@@ -137,16 +134,9 @@ jobs:
       && ((github.event_name == 'workflow_dispatch' && github.event.inputs.only == 'check')
         || needs.changes.outputs.domains == '["surface"]')
       && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
-    # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
-    # LTS image on its own schedule, which lands as an unrelated CI break in
-    # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # A hang ceiling, not a runtime target: split normal runs below 6m
-    # instead of letting them approach this ceiling on slow runners.
     timeout-minutes: 12
     strategy:
-      # Each part's failures are its own; a cancelled part would hide them
-      # until the next push.
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.unit_parts) }}
@@ -234,23 +224,8 @@ jobs:
           echo "::error::workflow was cancelled"
           exit 1
 
-  # The same suite with the opt-in variables on, so the tests gated on
-  # PostgreSQL, LocalStack or the Docker daemon run instead of skipping.
-  # Filtering by file name would miss opt-in tests that do not follow the
-  # *.integration.test.ts convention, so every file of `bun run test` runs in
-  # exactly one of these jobs.
-  #
-  # One job per domain, each on its own VM with only the services its
-  # files need: a job that needs no LocalStack does not wait ~40s for one. The
-  # `paths` below are prefixes of repo-relative paths and the only record of
-  # which job runs which file; .github/scripts/integration-jobs.ts reads them
-  # from here and fails every job when a file belongs to no job or to two.
-  # After the run the same script fails the job on any skip it does not
-  # declare — a file placed in a job without the service it needs skips its
-  # tests rather than failing them, and that must not pass as green.
-  #
-  # Domains start alongside static checks. Both required verdicts consume
-  # their results; the service-free manual shards do not duplicate them.
+  # integration-jobs.ts reads ownership from this matrix and rejects missing
+  # or duplicate files and undeclared skips.
   integration-domain:
     name: integration (${{ matrix.domain }})
     needs: changes
@@ -258,13 +233,8 @@ jobs:
       needs.changes.outputs.tests == 'true'
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Bounds a stuck job; it is not a budget. Slow runners are projected to need
-    # 10.5-11m for surface and db, and a 10m limit cancelled them with no test
-    # recorded as failed, which turned the required `integration` red.
     timeout-minutes: 15
     strategy:
-      # A failing job must not cancel the rest: each one's failures are
-      # their own, and a cancelled job would hide them until the next push.
       fail-fast: false
       matrix:
         # `docker` means the runner's own daemon, not a service container.
@@ -912,31 +882,14 @@ jobs:
           docker logs apq 2>&1 | tail -40 || true
           docker rm -f apq || true
 
-  # The alpha path end to end: the api, scheduler and worker images
-  # this commit builds, started as the compose `apps` profile a quickstart
-  # user starts, driven only through the public HTTP API — create, events,
-  # pending request, answer, follow-up, interrupt, pause, resume, terminate,
-  # recovery, resume — plus the concurrency regressions, the pause coverage
-  # branches, and a paused session whose workspace volume is deleted coming
-  # back from its checkpoint, with and without a repository; a remote MCP
-  # call through the egress proxy; and installation ceilings saved, retired
-  # and blocked from the API. A real Claude Code
-  # runs in every worker; the compose fake Messages API answers it, so no
-  # model account is involved. tests/e2e/run.sh does all of it and prints
-  # the record the delivery plan asks for: command, tested SHA, image ids,
-  # SDK and Claude Code versions, and the skip list.
-  #
-  # The runner's own daemon is used; the scheduler refuses one older than
-  # Docker 28, and the record's first line shows which it got.
-  # tests/e2e/compose.ci-mirror.yml points the stack's third-party images
-  # and the Dockerfiles' base at the CI mirror.
+  # Exercise the real worker CLI against the compose fake Messages API.
+  # The scenario records the tested SHA, images and declared skips.
   e2e:
     needs: changes
     if: >-
       !cancelled()
       && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # Image builds take most of it; the scenario itself is a few minutes.
     timeout-minutes: 30
     steps:
       - name: Validate product test plan
@@ -999,12 +952,7 @@ jobs:
           echo "::error::workflow was cancelled"
           exit 1
 
-  # docs/quickstart.md and the site's reference/api-guide.mdx run as written on this fresh clone
-  # every `bash` block, in order, on the default project and ports —
-  # the terminal record a new user would get, printed block by block. A page
-  # edit that breaks a command fails here instead of in someone's terminal.
-  # COMPOSE_FILE adds the mirror overlay `e2e` uses under the
-  # page's own `docker compose` commands, so the page needs no CI-only line.
+  # Execute both guides as written, with the CI mirror compose overlay.
   quickstart:
     needs: changes
     if: >-
@@ -1077,11 +1025,7 @@ jobs:
           echo "::error::workflow was cancelled"
           exit 1
 
-  # The Helm chart (deploy/helm/werft) with the CI digests and with
-  # the AWS example: helm lint, the render check (hardening, probes,
-  # resources, digests, RBAC, NetworkPolicy, and the renders it must refuse)
-  # and kubeconform against the Kubernetes and CRD schemas. Both tools are
-  # release binaries checked against their published sha256.
+  # Validate the chart against pinned Kubernetes and CRD schemas.
   helm-chart:
     needs: changes
     if: >-
@@ -1135,14 +1079,8 @@ jobs:
                   -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"
           done
 
-  # The chart on a kind cluster, as deploy/kind/smoke.sh runs it locally: the
-  # install answers /readyz and /docs, a fake-model session runs a turn in a
-  # worker Pod the scheduler launched, terminate reclaims the Pod and its
-  # PVC, a Pod with the worker labels reaches the egress proxy and nothing
-  # else (kindnet enforces NetworkPolicy), and the KubernetesBackend suites
-  # run against the cluster. Every image comes from the CI mirror: the node,
-  # the registry and the stand-ins by their digests, the app builds' base and
-  # frontend as build args.
+  # Check installation, worker lifecycle, NetworkPolicy and backend contracts
+  # against kind using images from the CI mirror.
   k8s-smoke:
     needs: changes
     if: >-
@@ -1190,28 +1128,14 @@ jobs:
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
 
-  # The Agent SDK and LiteLLM compatibility harness, with its own lockfile.
-  # Its failures have never been a product regression, so it reports without
-  # blocking the run; see docs/contributing/ci.md.
-  #
-  # Deliberately NOT a required status check, for three reasons
-  #   1. It does not run on pull_request, so a required `agent-sdk-compat` context would
-  #      leave every PR waiting for a status that never arrives.
-  # 2. Running it on every PR commit would bring back the cost
-  #      removed: this is the most expensive job (python, uv,
-  #      litellm[proxy], real CLI runs), right after a month's minutes ran out.
-  #   3. Product main pushes exercise the harness; its issue step reports
-  #      failures without gating PRs.
+  # Non-blocking main/manual compatibility probe; failures are reported as issues.
+  # It is absent on PRs, so it must not become a required check.
   agent-sdk-compat:
     needs: [changes, static]
     # The job writes issues; nothing else in this workflow may.
     permissions:
       contents: read
       issues: write
-    # Because a harness failure never blocks anything, running it on every PR
-    # commit buys no signal the main-push run does not already give. It stays on
-    # main pushes and on demand (`-f only=agent-sdk-compat`), which is also how
-    # a PR that actually touches scripts/agent-sdk-compat/ gets its answer.
     if: >-
       !cancelled() && needs.static.result != 'failure'
       && needs.changes.outputs.product == 'true'
@@ -1236,10 +1160,6 @@ jobs:
       - run: bun install --cwd scripts/agent-sdk-compat --frozen-lockfile
       - run: uv tool install 'litellm[proxy]==1.100.1'
       - run: bun run --cwd scripts/agent-sdk-compat probe:version
-      # No retry wrapper. This job is `continue-on-error`, so a failure never
-      # blocks a merge and a retry buys no safety — it only squares the odds of
-      # a flake being seen at all, which is how cause stayed hidden
-      # for 233 runs. Let a failure show on its first occurrence.
       - id: harness
         name: agent-sdk-compat check
         run: bun run --cwd scripts/agent-sdk-compat check
@@ -1260,17 +1180,8 @@ jobs:
             echo
             echo "This job never fails the run. A \`failure\` above still needs a look."
           } >>"$GITHUB_STEP_SUMMARY"
-      # The summary table is only seen by whoever opens the run. A failure
-      # also lands in an issue, one per open signal: repeats append to it.
-      # `steps.*.outcome` rather than the run conclusion, which
-      # continue-on-error keeps green; `!= 'success'` rather than
-      # `== 'failure'` so a suite that never ran because setup broke counts
-      # too. Not gated on `push` or on main: the job already never runs on
-      # pull_request, a manual run is a person asking, and the body names the
-      # ref. Gating on main would also leave the step untestable from a branch.
-      # A job timeout or cancellation (no step runs) and a failure of the
-      # issue call itself stay hidden here; main-push-run.yml reads the job's
-      # conclusion afterwards and reports a failed run no issue names yet.
+      # Use step outcomes because continue-on-error keeps the run green.
+      # Report setup failures too; the main-push monitor covers timeouts and cancellations.
       - if: >-
           !cancelled()
           && steps.harness.outcome != 'success'

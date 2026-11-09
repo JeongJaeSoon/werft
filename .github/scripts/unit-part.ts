@@ -1,15 +1,4 @@
 #!/usr/bin/env bun
-// Prints the test files one unit part of `check` runs, one `./path` per line.
-//
-// `check` runs the suite without services in parts named after the repo
-// layout: `packages-db` is packages/db/, `packages` is the rest of packages/, `worker-web`
-// every one under apps/worker/ and apps/web/, `control-slack` the slow Slack fixtures,
-// and `rest` every other one. `rest` is the complement by construction,
-// so a file cannot fall between the parts, and a new directory the `test`
-// filters pick up lands in `rest` rather than nowhere.
-//
-// The web plan excludes surface-owned files; manual checks keep the full suite.
-// usage: unit-part.ts <matrix|packages|packages-db|worker-web|control-slack|rest> [--exclude-surface]
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
