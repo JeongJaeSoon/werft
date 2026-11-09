@@ -1963,6 +1963,25 @@ export const queueMessages = pgTable(
   ],
 );
 
+// The one row that says whether a session's spec pin is what a claim reads.
+// It only ever goes from false to true (flipPinCutover), and only while the
+// pin gate reads zero under the cutover lock.
+export const sessionPinCutover = pgTable(
+  "session_pin_cutover",
+  {
+    id: integer().primaryKey().default(1),
+    authoritative: boolean().notNull().default(false),
+    flippedAt: timestamp("flipped_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("session_pin_cutover_single", sql`${table.id} = 1`),
+    check(
+      "session_pin_cutover_flipped",
+      sql`${table.authoritative} = (${table.flippedAt} IS NOT NULL)`,
+    ),
+  ],
+);
+
 export const unassignedSessions = pgTable("unassigned_sessions", {
   sessionId: uuid("session_id")
     .primaryKey()
