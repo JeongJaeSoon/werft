@@ -168,6 +168,8 @@ async function openSessionsHolding(
 
 export function createPostgresEnvVariableStore(db: Database): EnvVariableStore {
   return {
+    hasAgent: (workspaceId, agentId) => agentExists(db, workspaceId, agentId),
+
     async list(scope) {
       const rows = await db
         .select()

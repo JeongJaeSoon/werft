@@ -88,6 +88,8 @@ export type SetEnvVariableGrantsResult =
  * so two concurrent first writes cannot both take the last place.
  */
 export interface EnvVariableStore {
+  /** Whether the agent belongs to the workspace; a read of its variables 404s otherwise. */
+  hasAgent(workspaceId: string, agentId: string): Promise<boolean>;
   list(scope: EnvVariableScope): Promise<EnvVariableRecord[]>;
   put(input: PutEnvVariableInput): Promise<PutEnvVariableResult>;
   delete(input: DeleteEnvVariableInput): Promise<DeleteEnvVariableResult>;

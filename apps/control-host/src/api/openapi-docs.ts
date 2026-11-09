@@ -212,6 +212,25 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The Slack app and team are already pinned to another agent; revoke that identity first.",
   CREDENTIAL_REF_IN_USE:
     "The credential name is already held by an agent identity, or bound to an agent an identity would take it from.",
+  VARIABLE_NAME_INVALID:
+    "The variable name is not upper case: a letter, then letters, digits or `_`, 64 characters at most.",
+  VARIABLE_NAME_RESERVED:
+    "The platform sets that name itself (credentials, proxies, git, loader and shell variables); pick another.",
+  VARIABLE_VALUE_INVALID:
+    "The value holds a NUL byte or is not valid UTF-8 text.",
+  VARIABLE_VALUE_TOO_LARGE: "The value is more than 48 KB (UTF-8 bytes).",
+  VARIABLE_QUOTA_EXCEEDED:
+    "The workspace already holds 100 variables, or the agent 50; delete one first.",
+  SECRET_ACK_REQUIRED:
+    "A secret asked for engine delivery without `acknowledge_engine_exposure: true`.",
+  SECRET_GRANT_ALL_FORBIDDEN:
+    "A secret is granted to named agents only, never to every agent.",
+  SECRET_ENV_UNSUPPORTED:
+    "Only `kind: plain` is accepted: no runtime can carry a secret variable yet.",
+  VERSION_MISMATCH:
+    "`If-Match` names another version than the current one, the variable does not exist, or `If-None-Match: *` met one that does. Read it again and retry.",
+  PRECONDITION_REQUIRED:
+    "The write sent neither `If-Match` nor `If-None-Match: *`.",
   RELEASE_PROFILE_MISMATCH:
     "The release was made for another runtime profile than the one named.",
   CREDENTIAL_UNBOUND:

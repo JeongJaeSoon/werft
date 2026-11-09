@@ -416,6 +416,14 @@ integration("user variables on PostgreSQL", () => {
       });
     }, 60_000);
 
+    test("an agent is found only in its own workspace", async () => {
+      const workspaceId = await workspace();
+      const { agentId } = await agentOn(workspaceId);
+      expect(await store().hasAgent(workspaceId, agentId)).toBe(true);
+      expect(await store().hasAgent(await workspace(), agentId)).toBe(false);
+      expect(await store().hasAgent(workspaceId, randomUUID())).toBe(false);
+    }, 60_000);
+
     test("a delete says who received the value and which open sessions hold a copy", async () => {
       const workspaceId = await workspace();
       const { agentId, releaseId } = await agentOn(workspaceId);

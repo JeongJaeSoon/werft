@@ -9,6 +9,7 @@ import type {
   AgentService,
   ApiKeyService,
   CredentialBindingService,
+  EnvVariableService,
   GitHubAppService,
   GitHubRepositoryService,
   GitHubSettingsService,
@@ -60,6 +61,7 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
@@ -171,6 +173,7 @@ function apiApp() {
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
+      registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerPauseRoutes(router, {} as SessionService);
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);
