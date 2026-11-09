@@ -14,19 +14,20 @@ import {
   Badge,
   Code,
   FieldError,
-  Heading,
   Link,
   RelativeTime,
   RowAction,
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 /** The outputs tab's `out/` file list, which a file achievement points at. */
@@ -105,7 +106,6 @@ export function SessionAchievements({
   readonly session: SessionDetail;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const achievements = useSessionAchievements(session);
@@ -139,42 +139,43 @@ export function SessionAchievements({
     return null;
   }
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <Heading id={titleId}>
-          {t("session.achievements.title")}{" "}
-          <Text as="span" variant="sub">
-            {data.items.length}
-          </Text>
-        </Heading>
-        {data.judgment ? (
+    <Section
+      title={t("session.achievements.title")}
+      badge={<Badge>{data.items.length}</Badge>}
+      actions={
+        data.judgment ? (
           <RejudgeButton
             session={session}
             onQueued={() => void achievements.refetch()}
           />
+        ) : null
+      }
+    >
+      <div className={SECTION_BODY}>
+        {/* Three lines on a phone: body text, not the head's one meta line,
+            so the rejudge button keeps the title row. */}
+        <Text variant="sub">{t("session.achievements.description")}</Text>
+        {data.judgment ? (
+          <JudgmentMeta
+            judgment={data.judgment}
+            count={data.judgment_count}
+            costUsd={data.judge_cost_usd}
+          />
         ) : null}
+        {data.items.length === 0 ? null : (
+          <RowList variant="joined">
+            {data.items.map((achievement) => (
+              <AchievementRow
+                key={achievement.id}
+                achievement={achievement}
+                reviewable={reviewable(achievement.agent_id)}
+                onReviewed={reviewed}
+              />
+            ))}
+          </RowList>
+        )}
       </div>
-      <Text variant="sub">{t("session.achievements.description")}</Text>
-      {data.judgment ? (
-        <JudgmentMeta
-          judgment={data.judgment}
-          count={data.judgment_count}
-          costUsd={data.judge_cost_usd}
-        />
-      ) : null}
-      {data.items.length === 0 ? null : (
-        <RowList variant="joined">
-          {data.items.map((achievement) => (
-            <AchievementRow
-              key={achievement.id}
-              achievement={achievement}
-              reviewable={reviewable(achievement.agent_id)}
-              onReviewed={reviewed}
-            />
-          ))}
-        </RowList>
-      )}
-    </section>
+    </Section>
   );
 }
 
