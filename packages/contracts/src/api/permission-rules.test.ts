@@ -96,6 +96,11 @@ describe("parsePermissionRule", () => {
     expect(refusedAs("Read((x))")).toBe("accepted");
     expect(refusedAs("Edit(./a((b)))")).toBe("accepted");
     expect(refusedAs("Bash(echo (x))")).toBe("accepted");
+    // Round 5: an escaped parenthesis beside a bare one is ambiguous to the
+    // engine's validator; escaped alone is fine. An escaped star is no glob.
+    expect(refusedAs("Bash(a\\(b))")).toBe("rule_syntax");
+    expect(refusedAs("Bash(a\\(b\\))")).toBe("accepted");
+    expect(refusedAs("Bash( echo \\*)")).toBe("rule_syntax");
     // A space inside the pair is not a cut point.
     expect(refusedAs("Read(./a(b c))")).toBe("accepted");
     // The file matcher compares edge space literally, so it is refused for

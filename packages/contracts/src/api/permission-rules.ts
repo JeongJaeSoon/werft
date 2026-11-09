@@ -70,6 +70,11 @@ function isPlainHost(host: string): boolean {
   );
 }
 
+/** A `*` the engine reads as a glob: one that is not escaped with a backslash. */
+function hasGlobStar(argument: string): boolean {
+  return /(^|[^\\])\*/.test(argument);
+}
+
 /**
  * Whether the engine's rule-list splitter cuts this one rule in two. The
  * splitter keeps one bit: a `(` puts it inside, every `)` puts it outside
@@ -171,7 +176,7 @@ export function parsePermissionRule(
   // Edge space is compared literally by the engine, so an exact, prefix or path
   // rule never matches what it was written for. Only a Bash glob is matched
   // loosely.
-  if (argument !== bare && !(tool === "Bash" && argument.includes("*"))) {
+  if (argument !== bare && !(tool === "Bash" && hasGlobStar(argument))) {
     return refuse(
       "rule_syntax",
       rule,
@@ -180,6 +185,14 @@ export function parsePermissionRule(
   }
   // `Bash(echo (x) hello)` or `Read(./a(b) c)` is stored by the engine as two
   // other rules, and the deny is lost.
+  // The engine's validator refuses `\(` or `\)` beside a bare parenthesis.
+  if (/\\[()]/.test(argument) && /(^|[^\\])[()]/.test(argument)) {
+    return refuse(
+      "rule_syntax",
+      rule,
+      `${rule} mixes an escaped and a bare parenthesis, which the engine refuses as ambiguous`,
+    );
+  }
   if (splitsInTwo(`${tool}(${argument})`)) {
     return refuse(
       "rule_syntax",
