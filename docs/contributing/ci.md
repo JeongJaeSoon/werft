@@ -118,6 +118,8 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 
 SDK 빈 프로젝트 설치·타입 검사·샘플 실행은 ci.yml의 독립 `sdk-pack-smoke` job으로 옮겼다. SDK·client·contracts·examples·consumer 스크립트·LICENSE·lockfile·Bun setup·관련 workflow 변경에만 실행하며, 경로를 알 수 없으면 실행한다. 기존 SDK PR 검사와 동일하게 비필수 job이고, 필수 여섯 체크와 집계는 바꾸지 않았다. UI consumer는 기존 `ui-pack`이 담당한다.
 
+2026-11-09 확인한 `release` environment 정책은 `main` 브랜치와 `v*` 태그만 허용한다. 따라서 현재 실효 게시 경로는 SDK의 main dispatch이며, `sdk-v*`·`ui-v*` 태그 실행은 빌드·검증 뒤 게시가 environment 정책에 막힌다. 두 태그 패턴 허용은 필수 승인자를 유지한 채 오너가 별도로 결정해야 한다. 이 CI 변경은 environment 설정을 바꾸지 않는다.
+
 ## D2 gate (nightly)
 
 D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2), control-host role 수명주기(H1–H5)를 스택 밖에서 확인한다. 이 테스트들은 이 커밋에서 빌드한 이미지로 compose 스택 전체를 띄워야 돈다. 그래서 ci.yml은 이 테스트들을 `integration (worker)`의 선언된 skip으로 두고, 실제로는 `scripts/d2-gate/run.sh`만 이 테스트들을 돌린다. 사람이 손으로만 돌리면 harness가 조용히 낡는다. harness가 incremental bundle을 chain 없이 unbundle해 main `33a9c99c`에서 gate A가 깨졌는데, 누군가 돌려 보기 전까지 아무도 몰랐다.

@@ -55,6 +55,8 @@ console.log(turn.status);
 
 이미 main에 머지됐고 그 커밋의 main CI가 성공한 버전에 `sdk-v<버전>` 태그를 직접 push해도 게시한다. 태그의 버전은 `packages/sdk/package.json`과 같아야 한다. `build`는 main 소속·버전·해당 커밋의 main CI를 확인하고 같은 테스트·빌드·consumer 검사·pack을 실행한다. 이 경로는 이미 태그가 있으므로 `tag`를 생략하고, `publish`가 `release` 승인을 기다린다. 수동 dispatch를 태그 ref로 실행하는 것은 게시 경로가 아니다.
 
+단, 2026-11-09 확인한 실제 `release` 정책은 `main` 브랜치와 `v*` 태그만 허용한다. 오너가 필수 승인자를 유지하며 `sdk-v*`를 추가하기 전까지 태그 경로는 빌드·검증까지만 가능하고 게시가 정책에 막힌다. 현재는 위 main dispatch로 게시한다.
+
 main push 게시와 `SDK_PRERELEASE` 조건은 제거했다. 기존 prerelease environment와 variable은 이 workflow가 참조하지 않는다.
 
 ### 릴리스 준비
