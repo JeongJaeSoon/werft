@@ -1,7 +1,7 @@
 export const linkedKo = {
   "linked.title": "연동 계정",
   "linked.intro":
-    "Slack 계정을 연결하면 Slack에서 에이전트에게 요청할 때 내 권한이 적용됩니다. GitHub 계정을 연결하면 내가 시작한 세션의 commit에 공동 작성자로 이름이 들어갑니다. 어느 쪽 토큰도 저장하지 않습니다.",
+    "Slack 계정을 연결하면 Slack에서 에이전트에게 요청할 때 내 권한이 적용됩니다. GitHub 계정을 연결하면 내가 요청한 턴의 commit에 공동 작성자로 이름이 들어갑니다. 어느 쪽 토큰도 저장하지 않습니다.",
   "linked.slack": "Slack",
   "linked.connected": "연결됨",
   "linked.notLinked": "연결 안 됨",
@@ -32,7 +32,7 @@ export const linkedKo = {
     "Slack에서 보낸 요청이 더 이상 나와 연결되지 않습니다. 다시 쓰려면 Slack 동의를 거쳐 다시 연결하세요.",
   "linked.github.unlinkTitle": "GitHub 계정 연결을 해제할까요?",
   "linked.github.unlinkHint":
-    "내가 시작한 세션의 commit에 더 이상 공동 작성자로 들어가지 않습니다. 다시 쓰려면 GitHub 동의를 거쳐 다시 연결하세요.",
+    "내가 요청한 턴의 commit에 더 이상 공동 작성자로 들어가지 않습니다. 다시 쓰려면 GitHub 동의를 거쳐 다시 연결하세요.",
   "linked.unavailable":
     "이 설치에서는 Slack 계정 연결을 쓸 수 없습니다 — 운영자에게 문의하세요.",
   "linked.cancelled": "Slack 계정 연결을 마치지 못했습니다 — 다시 시도하세요.",
@@ -42,7 +42,7 @@ export const linkedKo = {
 export const linkedEn: Record<keyof typeof linkedKo, string> = {
   "linked.title": "Linked accounts",
   "linked.intro":
-    "Link your Slack account so that requests you make to agents in Slack use your permissions. Link your GitHub account so that commits of the sessions you start name you as co-author. No token of either is stored.",
+    "Link your Slack account so that requests you make to agents in Slack use your permissions. Link your GitHub account so that commits of the turns you request name you as co-author. No token of either is stored.",
   "linked.slack": "Slack",
   "linked.connected": "Linked",
   "linked.notLinked": "Not linked",
@@ -72,7 +72,7 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
     "Requests you send from Slack are no longer tied to you. To use it again, link it again through Slack's consent screen.",
   "linked.github.unlinkTitle": "Unlink the GitHub account?",
   "linked.github.unlinkHint":
-    "Commits of the sessions you start no longer name you as co-author. To use it again, link it again through GitHub's consent screen.",
+    "Commits of the turns you request no longer name you as co-author. To use it again, link it again through GitHub's consent screen.",
   "linked.unavailable":
     "Slack account linking is not available on this installation — ask your operator.",
   "linked.cancelled": "Slack linking was not completed — try again.",
@@ -82,7 +82,7 @@ export const linkedEn: Record<keyof typeof linkedKo, string> = {
 export const linkedJa: Record<keyof typeof linkedKo, string> = {
   "linked.title": "連携アカウント",
   "linked.intro":
-    "Slack アカウントを連携すると、Slack でエージェントに依頼したリクエストに自分の権限が使われます。GitHub アカウントを連携すると、自分が開始したセッションのコミットに共同作成者として名前が入ります。どちらのトークンも保存しません。",
+    "Slack アカウントを連携すると、Slack でエージェントに依頼したリクエストに自分の権限が使われます。GitHub アカウントを連携すると、自分が依頼したターンのコミットに共同作成者として名前が入ります。どちらのトークンも保存しません。",
   "linked.slack": "Slack",
   "linked.connected": "連携済み",
   "linked.notLinked": "未連携",
@@ -113,7 +113,7 @@ export const linkedJa: Record<keyof typeof linkedKo, string> = {
     "Slack から送ったリクエストはあなたに結び付かなくなります。再び使うには、Slack の同意画面から連携し直してください。",
   "linked.github.unlinkTitle": "GitHub アカウントの連携を解除しますか?",
   "linked.github.unlinkHint":
-    "あなたが始めたセッションの commit に共同作成者として入らなくなります。再び使うには、GitHub の同意画面から連携し直してください。",
+    "あなたが依頼したターンの commit に共同作成者として入らなくなります。再び使うには、GitHub の同意画面から連携し直してください。",
   "linked.unavailable":
     "この環境では Slack アカウント連携を利用できません。運用担当者にお問い合わせください。",
   "linked.cancelled":

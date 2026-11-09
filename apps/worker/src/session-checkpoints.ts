@@ -61,7 +61,7 @@ import {
   writeWorkspaceFile,
 } from "@werft-ai/runtime-core";
 import {
-  claimExpectation,
+  claimExpectations,
   repairAttribution,
   workspaceMismatches,
 } from "./attribution-repair.ts";
@@ -183,6 +183,7 @@ type Bound = {
   committed?: PublishedCheckpoint;
   /** The last one this run published, until the next shows it committed. */
   published?: PublishedCheckpoint | undefined;
+  judgedTip?: string | undefined;
 };
 
 /** A checkpoint's workspace bundles as its manifest names them. */
@@ -1097,8 +1098,12 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       gateway: this.#options.gateway,
       scope: context.scope,
       spool,
+      ...(bound.judgedTip === undefined ? {} : { judged: [bound.judgedTip] }),
       logger: this.#options.logger,
     });
+    if ("head" in repaired && repaired.head !== undefined) {
+      bound.judgedTip = repaired.head;
+    }
     if (repaired.status !== "clean") {
       this.#options.logger.info("worker.attribution_repair", {
         status: repaired.status,
@@ -1175,7 +1180,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         ? await workspaceMismatches({
             root: this.#options.workspaceRoot,
             tip: capture.gitCommit,
-            expectation: claimExpectation(bound.claim),
+            expectations: claimExpectations(bound.claim),
             stripEmails: bound.claim.git_strip ?? [],
             protectedCommits:
               repaired.status === "skipped" ? null : repaired.protectedCommits,

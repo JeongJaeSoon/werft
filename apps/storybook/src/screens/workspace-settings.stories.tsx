@@ -33,6 +33,8 @@ import {
   IconTile,
   Input,
   Link,
+  LinkTab,
+  LinkTabs,
   linkVariants,
   Page,
   Popover,
@@ -69,8 +71,8 @@ import { MOBILE, type Role, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
  * apps/web routes/workspace-settings.tsx (설정 › 일반) and
- * routes/workspace-slack.tsx with workspace-slack-apps.tsx (설정 › Slack 연결
- * 설정). Owners hold workspace.manage and audit_retention.manage, admins only
+ * routes/workspace-slack.tsx with workspace-slack-apps.tsx (설정 › 연동 ›
+ * Slack). Owners hold workspace.manage and audit_retention.manage, admins only
  * workspace.manage, members neither (packages/platform musterrolle/policy.ts).
  */
 
@@ -1183,9 +1185,15 @@ function SlackPage({
 
   return (
     <Page
-      title="Slack 연결 설정"
+      title="연동"
       description="에이전트를 Slack에서 쓸 수 있게 이 콘솔이 Slack 앱을 만들 때 쓰는 연결입니다. 에이전트마다 앱 설치와 채널은 에이전트의 Slack 탭에서 정합니다."
     >
+      <LinkTabs aria-label="연동 종류">
+        <LinkTab href="#slack" current>
+          Slack
+        </LinkTab>
+        <LinkTab href="#github">GitHub</LinkTab>
+      </LinkTabs>
       <div className={SECTIONS}>
         <OutcomeLine outcome={outcome} />
         {canManage ? null : guest}
@@ -1249,7 +1257,7 @@ function WorkspaceSettingsScreen({
   return (
     <ScreenShell
       current="settings"
-      crumb={[page === "general" ? "일반" : "Slack 연결 설정"]}
+      crumb={[page === "general" ? "일반" : "연동"]}
       role={viewer}
       settings={page}
     >

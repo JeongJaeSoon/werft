@@ -12,6 +12,7 @@ import type {
   PostSessionMessageResponse,
   Receipt,
   SessionDetail,
+  SessionExtension,
   SessionSummary,
   SlackMessageRef,
   SseEvent,
@@ -56,6 +57,8 @@ export type AcceptSessionInput = {
   repository: { id: string; url: string; branch: string } | "none" | null;
   // Already checked against the release; left out, the column stays null.
   attachedRepositoryIds?: string[];
+  extensions?: SessionExtension[];
+  extensionsRefused?: true;
   /** Absent: `release`. */
   githubPolicySource?: GitHubPolicySource;
   /**

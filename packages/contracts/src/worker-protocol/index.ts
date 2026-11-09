@@ -511,6 +511,21 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // session's commits (ENGINE_COAUTHOR_EMAILS). Sent with `git`; top-level for
   // the reason `git_author` is.
   git_strip: claimGitStripSchema.optional(),
+  // Every bundle the server's ledger holds for the session, so a restarted
+  // worker judges commits by what the push check accepts and not by what it
+  // remembers. Top-level for the reason `git_author` is.
+  git_issued: z
+    .array(
+      z
+        .object({
+          author: claimGitAuthorSchema,
+          co_author: claimGitAuthorSchema.nullable(),
+          agent_session: trailerValueSchema.nullable(),
+        })
+        .strict(),
+    )
+    .max(5000)
+    .optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
   // it (session-repository-attachment.md decision 3). Top-level so an older
@@ -563,6 +578,15 @@ export const nextInputResponseSchema = z.object({
       input_id: z.string().min(1),
       message: z.string().min(1),
       delivery_started_at: timestampSchema,
+      // The co-author this turn's commits name: the turn's requester, not the
+      // session's starter. Absent from a control host that predates it (the
+      // claim's value stands); null when the requester has no linked GitHub
+      // account or there is no requester.
+      co_author: z
+        .object({ name: trailerValueSchema, email: trailerValueSchema })
+        .strict()
+        .nullable()
+        .optional(),
     })
     .nullable(),
   lease_expires_at: timestampSchema,

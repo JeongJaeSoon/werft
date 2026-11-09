@@ -1,5 +1,7 @@
 import type { RuntimeConfig, RuntimeKind } from "@werft-ai/contracts";
 import {
+  type FeatureKey,
+  featureSupport,
   type RuntimeDescriptor,
   runtimeRequirementsOf,
   unmetFeatures,
@@ -24,6 +26,18 @@ export class ProfileFeatureGate {
     for (const descriptor of descriptors) {
       this.descriptors.set(descriptor.kind, descriptor);
     }
+  }
+
+  offers(kind: RuntimeKind, feature: FeatureKey): boolean {
+    const descriptor = this.descriptors.get(kind);
+    return (
+      descriptor !== undefined &&
+      featureSupport(
+        descriptor.capabilities,
+        descriptor.extraFeatures,
+        feature,
+      ) !== "none"
+    );
   }
 
   /** Why a runtime of `kind` cannot run these settings; null when it can. */

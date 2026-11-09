@@ -699,6 +699,10 @@ describe("GitHub work routes", () => {
 describe("GET /v1/sessions/{id}/github/attribution", () => {
   const OTHER_OWNERS = "22222222-2222-4222-8222-222222222222";
   const DOWN = "33333333-3333-4333-8333-333333333333";
+  let lastRequester: {
+    userId: string | null;
+    github: { id: string; login: string } | null;
+  } | null = null;
   const records: Record<string, SessionAttributionRecord> = {
     [SESSION]: {
       ownerId: "owner-a",
@@ -745,6 +749,7 @@ describe("GET /v1/sessions/{id}/github/attribution", () => {
         createSessionAttributionService({
           authorization: createAuthorizationPolicy(),
           store: {
+            lastRequesterOf: async () => lastRequester,
             attribution: async (sessionId) => {
               if (sessionId === DOWN) {
                 throw Object.assign(new Error("connection refused"), {
@@ -774,6 +779,34 @@ describe("GET /v1/sessions/{id}/github/attribution", () => {
       attribution: "co_author",
       login: "octocat",
     });
+  });
+
+  test("goes by the latest turn's requester, not the starter (94S-1304)", async () => {
+    try {
+      lastRequester = { userId: "user-2", github: null };
+      expect((await read(SESSION, "attr_reader")).json).toEqual({
+        trigger: "personal_key",
+        attribution: "unlinked",
+        login: null,
+      });
+      lastRequester = {
+        userId: "user-3",
+        github: { id: "42", login: "hubot" },
+      };
+      expect((await read(SESSION, "attr_reader")).json).toEqual({
+        trigger: "personal_key",
+        attribution: "co_author",
+        login: "hubot",
+      });
+      lastRequester = { userId: null, github: null };
+      expect((await read(SESSION, "attr_reader")).json).toEqual({
+        trigger: "personal_key",
+        attribution: "app_only",
+        login: null,
+      });
+    } finally {
+      lastRequester = null;
+    }
   });
 
   test("another owner's session or none is 404; no scope 403; no key 401; a store outage 503", async () => {

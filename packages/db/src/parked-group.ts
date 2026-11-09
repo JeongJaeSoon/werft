@@ -278,7 +278,7 @@ async function continueParkedTurn(
   });
   const message = continuationMessage(group.rows);
   const [parkedTurn] = await tx
-    .select({ sequence: turns.sequence })
+    .select({ sequence: turns.sequence, actorId: turns.actorId })
     .from(turns)
     .where(eq(turns.id, group.turnRowId));
   const parkedSequence = parkedTurn?.sequence ?? 0;
@@ -314,7 +314,9 @@ async function continueParkedTurn(
       message,
       status: "queued",
       createdAt: sql`clock_timestamp()`,
-      actorId: null,
+      // The continuation is the parked turn going on, so it keeps whoever
+      // made that request; the person who answered did not.
+      actorId: parkedTurn?.actorId ?? null,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert the continuing turn");

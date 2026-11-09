@@ -145,10 +145,10 @@ export const outputsKo = {
     "고정한 체크포인트를 더는 확인할 수 없습니다.",
   "session.attribution.coAuthor": "commit 공동 작성자: {login}",
   "session.attribution.unlinked":
-    "시작한 사람의 GitHub 계정이 연결되지 않아 commit에 공동 작성자가 없습니다.",
+    "마지막 요청자의 GitHub 계정이 연결되지 않아 commit에 공동 작성자가 없습니다.",
   "session.attribution.link": "연동 계정",
   "session.attribution.appOnly":
-    "시작한 사람이 없는 세션이라 commit은 App 이름으로만 남습니다.",
+    "마지막 요청에 사람이 없어 commit은 App 이름으로만 남습니다.",
 };
 
 export const outputsJa: Record<keyof typeof outputsKo, string> = {
@@ -307,10 +307,10 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "固定したチェックポイントをもう確認できません。",
   "session.attribution.coAuthor": "コミットの共同作成者: {login}",
   "session.attribution.unlinked":
-    "開始した人の GitHub アカウントが連携されていないため、コミットに共同作成者はいません。",
+    "最後の依頼者の GitHub アカウントが連携されていないため、コミットに共同作成者はいません。",
   "session.attribution.link": "連携アカウント",
   "session.attribution.appOnly":
-    "開始した人がいないセッションのため、コミットは App の名前だけで残ります。",
+    "最後の依頼に人がいないため、コミットは App の名前だけで残ります。",
 };
 
 export const outputsEn: Record<keyof typeof outputsKo, string> = {
@@ -466,8 +466,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
     "The pinned checkpoint can no longer be verified.",
   "session.attribution.coAuthor": "Commit co-author: {login}",
   "session.attribution.unlinked":
-    "The person who started it has not linked a GitHub account, so commits have no co-author.",
+    "The latest requester has not linked a GitHub account, so commits have no co-author.",
   "session.attribution.link": "Linked accounts",
   "session.attribution.appOnly":
-    "No person started this session, so commits carry only the App's name.",
+    "The latest request came from no person, so commits carry only the App's name.",
 };

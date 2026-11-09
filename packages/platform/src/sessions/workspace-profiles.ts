@@ -18,6 +18,7 @@ import {
   catalogProfileConfigSchema,
   derivationPolicyOf,
   isUnmetered,
+  modelMoves,
   profileAllowsRepository,
   profileFingerprint,
   profileModels,
@@ -92,6 +93,17 @@ function mcpDenyField(names: readonly string[] | null | undefined): {
   return mcp.length > 0 ? { mcp_deny: mcp } : {};
 }
 
+function modelSuccessorsField(profile: CatalogProfileView) {
+  const moves = modelMoves(profile);
+  return moves.length === 0
+    ? {}
+    : {
+        model_successors: Object.fromEntries(
+          moves.map(({ from, to }) => [from, to]),
+        ),
+      };
+}
+
 /** `trustedId` is the operator profile a repository's allow list names. */
 function summaryOf(
   catalog: SessionCatalogView,
@@ -104,6 +116,7 @@ function summaryOf(
     id,
     model: profile.model,
     models: profileModels(profile),
+    ...modelSuccessorsField(profile),
     tools: [...profile.tools],
     ...denyField(catalog, stored, profile.tools, {
       kind: profile.runtime_kind,

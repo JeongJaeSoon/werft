@@ -17,6 +17,7 @@ export * from "./musterrolle/agent-admin-service.ts";
 export * from "./musterrolle/agent-identity-service.ts";
 export * from "./musterrolle/api-key-service.ts";
 export * from "./musterrolle/credential-binding-service.ts";
+export * from "./musterrolle/env-variable-service.ts";
 export * from "./musterrolle/github-app-service.ts";
 export * from "./musterrolle/github-packages-service.ts";
 export * from "./musterrolle/github-repository-service.ts";
@@ -165,6 +166,8 @@ export * from "./workers/worker-gateway.ts";
 export * from "./extensions/bundle-archive.ts";
 export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
+export * from "./extensions/resolve.ts";
+export * from "./extensions/session-extensions.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
 export * from "./sessions/achievements/achievement-judgment-store.ts";

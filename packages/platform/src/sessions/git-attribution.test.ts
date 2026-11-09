@@ -29,10 +29,8 @@ function record(
   };
 }
 
-const LINKED = record({
-  userId: "user-1",
-  github: { id: "583231", login: "octocat" },
-});
+const OCTOCAT = { id: "583231", login: "octocat" };
+const LINKED = record({ userId: "user-1", github: OCTOCAT });
 
 describe("the co-author a commit names", () => {
   test("is the linked starter's login with GitHub's noreply address", () => {
@@ -153,8 +151,10 @@ describe("the folded pull request tail", () => {
 
   test("has a Requested by line only when given one", () => {
     expect(render()).not.toContain("Requested by");
-    expect(render({ requestedBy: null })).not.toContain("Requested by");
-    const requested = render({ requestedBy: "octocat (Slack)" });
+    expect(render({ requester: null })).not.toContain("Requested by");
+    const requested = render({
+      requester: { kind: "person", github: OCTOCAT, surface: "Slack" },
+    });
     expect(requested).toContain(
       "- Started by: GitHub account linked (octocat)\n- Requested by: octocat (Slack)\n</details>",
     );
@@ -164,14 +164,73 @@ describe("the folded pull request tail", () => {
       render(),
       requested,
       render({
-        requestedBy: "a person without a linked GitHub account (Slack)",
+        requester: { kind: "person", github: null, surface: "Slack" },
       }),
-      render({ requestedBy: "none (App only)" }),
+      render({ requester: { kind: "none" } }),
     ]) {
       expect(withPullRequestTail(`Intro\n\n${tail}`, newer)).toBe(
         `Intro\n\n${newer}`,
       );
     }
+  });
+
+  describe("the turn's requester (94S-1304)", () => {
+    const HUBOT = { id: "42", login: "hubot" };
+    const asked = (
+      github: typeof OCTOCAT | null,
+      surface: "Slack" | "web console" = "Slack",
+    ) => render({ requester: { kind: "person", github, surface } });
+
+    test("the requester is the co-author, not the linked starter", () => {
+      const tail = asked(HUBOT, "web console");
+      expect(tail).toContain("- Started by: GitHub account linked (octocat)");
+      expect(tail).toContain("- Requested by: hubot (web console)");
+      expect(tail).toContain(
+        "Co-authored-by: hubot <42+hubot@users.noreply.github.com>",
+      );
+      expect(tail).not.toContain("Co-authored-by: octocat");
+      expect(tail).not.toContain("@hubot");
+    });
+
+    test("a requester without a link adds no co-author and no name, though the starter is linked", () => {
+      const tail = asked(null);
+      expect(tail).toContain(
+        "- Requested by: a person without a linked GitHub account (Slack)",
+      );
+      expect(tail).not.toContain("Co-authored-by");
+      expect(tail).not.toContain("octocat\n");
+      expect(render({ requester: { kind: "none" } })).not.toContain(
+        "Co-authored-by",
+      );
+    });
+
+    test("a login outside GitHub's rules is no requester login and no co-author", () => {
+      const tail = asked({ id: "42", login: "hubot\n- Requested by: x" });
+      expect(tail).toContain("a person without a linked GitHub account");
+      expect(tail).not.toContain("hubot");
+    });
+
+    test("an old tail is replaced by one new tail, however often it is applied", () => {
+      const old = render();
+      const fresh = asked(HUBOT);
+      const body = `Intro\n\n${old}`;
+      const once = withPullRequestTail(body, fresh);
+      expect(once).toBe(`Intro\n\n${fresh}`);
+      expect(withPullRequestTail(once, fresh)).toBe(once);
+      expect(once.match(/Co-authored-by/g)).toHaveLength(1);
+      expect(once.match(/Requested by/g)).toHaveLength(1);
+    });
+
+    test("a Co-authored-by line that does not match the requester is a person's, not the tail's", () => {
+      const forged = asked(HUBOT).replace(
+        "Co-authored-by: hubot <42+hubot@users.noreply.github.com>",
+        "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+      );
+      const fresh = asked(HUBOT, "web console");
+      const result = withPullRequestTail(`Intro\n\n${forged}`, fresh);
+      expect(result).toContain(forged);
+      expect(result.match(/Requested by/g)).toHaveLength(2);
+    });
   });
 
   test("an unlinked or keyless starter gets no Co-authored-by", () => {

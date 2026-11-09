@@ -1,6 +1,6 @@
 import type { SessionTrigger } from "@werft-ai/contracts";
 import type { SessionAttributionStore } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -8,6 +8,7 @@ import {
   catalogRepositoryGitHubApps,
   githubApps,
   linkedAccounts,
+  pushIntents,
   sessions,
   turns,
 } from "./schema.ts";
@@ -31,10 +32,78 @@ function triggerOf(row: {
   return row.createdByUserId !== null ? "web" : "operator_key";
 }
 
+async function activeGitHubLink(
+  db: Database,
+  workspaceId: string,
+  userId: string,
+): Promise<{ id: string; login: string } | null> {
+  const [link] = await db
+    .select({
+      id: linkedAccounts.externalUserId,
+      login: linkedAccounts.externalUserName,
+    })
+    .from(linkedAccounts)
+    .where(
+      and(
+        eq(linkedAccounts.workspaceId, workspaceId),
+        eq(linkedAccounts.userId, userId),
+        eq(linkedAccounts.provider, "github"),
+        eq(linkedAccounts.status, "active"),
+      ),
+    )
+    .limit(1);
+  return link === undefined || link.login === null
+    ? null
+    : { id: link.id, login: link.login };
+}
+
 export function createPostgresSessionAttributionStore(
   db: Database,
 ): SessionAttributionStore {
   return {
+    async githubLinkOf(rawSessionId, userId) {
+      const [session] = await db
+        .select({ workspaceId: sessions.workspaceId })
+        .from(sessions)
+        .where(eq(sessions.id, rawSessionId.toLowerCase()))
+        .limit(1);
+      return session?.workspaceId == null
+        ? null
+        : activeGitHubLink(db, session.workspaceId, userId);
+    },
+    async lastRequesterOf(rawSessionId) {
+      const sessionId = rawSessionId.toLowerCase();
+      const [latest] = await db
+        .select({
+          userId: turns.actorId,
+          workspaceId: sessions.workspaceId,
+        })
+        .from(turns)
+        .innerJoin(sessions, eq(sessions.id, turns.sessionId))
+        .where(eq(turns.sessionId, sessionId))
+        .orderBy(desc(turns.sequence))
+        .limit(1);
+      if (latest === undefined) return null;
+      const github =
+        latest.userId !== null && latest.workspaceId !== null
+          ? await activeGitHubLink(db, latest.workspaceId, latest.userId)
+          : null;
+      return { userId: latest.userId, github };
+    },
+    async requesterOfPushRequest(rawSessionId, pushRequestId) {
+      const [row] = await db
+        .select({ userId: turns.actorId, channel: turns.channel })
+        .from(pushIntents)
+        .innerJoin(turns, eq(turns.id, pushIntents.turnId))
+        .where(
+          and(
+            eq(pushIntents.sessionId, rawSessionId.toLowerCase()),
+            eq(pushIntents.pushRequestId, pushRequestId),
+          ),
+        )
+        .limit(1);
+      return row ?? null;
+    },
     async attribution(rawSessionId) {
       const sessionId = rawSessionId.toLowerCase();
       const [row] = await db
@@ -59,28 +128,10 @@ export function createPostgresSessionAttributionStore(
         .where(eq(sessions.id, sessionId))
         .limit(1);
       if (row === undefined) return null;
-      let github: { id: string; login: string } | null = null;
-      if (row.startedBy !== null && row.workspaceId !== null) {
-        const [link] = await db
-          .select({
-            id: linkedAccounts.externalUserId,
-            login: linkedAccounts.externalUserName,
-          })
-          .from(linkedAccounts)
-          .where(
-            and(
-              eq(linkedAccounts.workspaceId, row.workspaceId),
-              eq(linkedAccounts.userId, row.startedBy),
-              eq(linkedAccounts.provider, "github"),
-              eq(linkedAccounts.status, "active"),
-            ),
-          )
-          .limit(1);
-        github =
-          link === undefined || link.login === null
-            ? null
-            : { id: link.id, login: link.login };
-      }
+      const github =
+        row.startedBy !== null && row.workspaceId !== null
+          ? await activeGitHubLink(db, row.workspaceId, row.startedBy)
+          : null;
       // The App the primary repository is pinned to, the one that opens its
       // pull requests (decision D11). A pin whose connection is gone or now
       // holds another App names none: no other App stands in for it.

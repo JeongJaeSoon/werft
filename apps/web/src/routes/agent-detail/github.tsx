@@ -820,7 +820,7 @@ function GitHubSettings({
                                 {option.reason ===
                                 "github_host_unsupported" ? null : (
                                   <Link asChild>
-                                    <RouterLink to="/settings/workspace/github">
+                                    <RouterLink to="/settings/workspace/integrations/github">
                                       {t("agentGitHub.settingsLink")}
                                     </RouterLink>
                                   </Link>
@@ -832,7 +832,7 @@ function GitHubSettings({
                                   repositories: uninstalled.join(", "),
                                 })}{" "}
                                 <Link asChild>
-                                  <RouterLink to="/settings/workspace/github">
+                                  <RouterLink to="/settings/workspace/integrations/github">
                                     {t("agentGitHub.settingsLink")}
                                   </RouterLink>
                                 </Link>
@@ -880,7 +880,7 @@ function GitHubSettings({
                   <Text as="span" variant="meta">
                     {t("agentGitHub.ceilingNote")}{" "}
                     <Link asChild>
-                      <RouterLink to="/settings/workspace/github">
+                      <RouterLink to="/settings/workspace/integrations/github">
                         {t("agentGitHub.settingsLink")}
                       </RouterLink>
                     </Link>

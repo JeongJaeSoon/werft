@@ -6,7 +6,7 @@ const harness = await appHarness();
 const { screen, waitFor, within } = harness;
 
 const APPS = `/v1/workspaces/${WORKSPACE_ID}/slack/apps`;
-const SLACK = "/settings/workspace/slack";
+const SLACK = "/settings/workspace/integrations/slack";
 const EMPTY = "이 콘솔이 만든 Slack 앱이 아직 없습니다.";
 // The token card above the list, settled so the page stops loading.
 const CONFIG = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
@@ -69,7 +69,7 @@ const agent = (installed: boolean, name = "Release Notes") => ({
   installed,
 });
 
-describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
+describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
   test("소유자는 계정 연결 앱과 에이전트 앱을 상태와 함께 본다", async () => {
     harness.renderAt(SLACK, {
       "GET /v1/auth/me": () => json(200, me()),
@@ -105,7 +105,7 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     expect(section?.id).toBe("slack-apps");
     expect(section?.contains(table)).toBe(true);
     expect(
-      screen.getByRole("heading", { level: 1, name: "Slack 연결 설정" }),
+      screen.getByRole("heading", { level: 1, name: "연동" }),
     ).toBeTruthy();
 
     const link = within(rows[0] as HTMLElement);
@@ -187,14 +187,22 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  test("설정 메뉴에는 Slack·GitHub 연결 설정만 있고 앱 목록 항목은 없다", async () => {
+  test("설정 메뉴에는 연동 한 항목만 있고 옛 두 항목과 앱 목록 항목은 없다", async () => {
     harness.renderAt(SLACK, {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${APPS}`]: () => json(200, { items: [] }),
     });
     await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
-    expect(screen.getByRole("link", { name: "Slack 연결 설정" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "GitHub 연결 설정" })).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "설정" });
+    expect(
+      within(nav).getByRole("link", { name: "연동" }).getAttribute("href"),
+    ).toBe("/settings/workspace/integrations/slack");
+    expect(
+      within(nav).queryByRole("link", { name: "Slack 연결 설정" }),
+    ).toBeNull();
+    expect(
+      within(nav).queryByRole("link", { name: "GitHub 연결 설정" }),
+    ).toBeNull();
     expect(
       screen.queryByRole("link", { name: "자동으로 만든 Slack 앱" }),
     ).toBeNull();
@@ -228,15 +236,20 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
   });
 
-  test("예전 주소는 Slack 연결 설정의 앱 목록 절로 보낸다", async () => {
-    const { history } = harness.renderAt("/settings/workspace/slack-apps", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${APPS}`]: () => json(200, { items: [] }),
-    });
-    await screen.findByText("이 콘솔이 만든 Slack 앱이 아직 없습니다.");
-    expect(history.location.pathname).toBe(SLACK);
-    expect(history.location.hash).toBe("#slack-apps");
-  });
+  test.each(["/settings/workspace/slack-apps", "/settings/workspace/slack"])(
+    "예전 주소 %s는 어디로도 보내지 않고 찾을 수 없음 화면이다",
+    async (old) => {
+      const { history } = harness.renderAt(old, {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${APPS}`]: () => json(200, { items: [] }),
+      });
+      expect(await screen.findByText("찾을 수 없는 화면입니다")).toBeTruthy();
+      expect(history.location.pathname).toBe(old);
+      expect(
+        screen.queryByText("이 콘솔이 만든 Slack 앱이 아직 없습니다."),
+      ).toBeNull();
+    },
+  );
 
   test("앵커로 들어오면 목록이 그려진 뒤 그 절로 스크롤한다", async () => {
     const scrolled: Element[] = [];
@@ -246,7 +259,7 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
       if (this.textContent?.includes(EMPTY)) scrolled.push(this);
     };
     try {
-      harness.renderAt("/settings/workspace/slack-apps", {
+      harness.renderAt(`${SLACK}#slack-apps`, {
         "GET /v1/auth/me": () => json(200, me()),
         [`GET ${CONFIG}`]: () => json(200, UNSET),
         [`GET ${APPS}`]: () => json(200, { items: [] }),

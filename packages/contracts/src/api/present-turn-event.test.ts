@@ -338,4 +338,31 @@ describe("presentTurnEvent", () => {
       }),
     ).toMatchObject({ summary: [{ text: "cut" }], error: true });
   });
+
+  test("a session moved to the next model of its series names both models", () => {
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: {
+          type: "system",
+          subtype: "model_migrated",
+          from: "claude-old",
+          to: "claude-new",
+        },
+      }),
+    ).toMatchObject({
+      summary: [
+        {
+          key: "session.event.modelMigrated",
+          params: { from: "claude-old", to: "claude-new" },
+        },
+      ],
+    });
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: { type: "system", subtype: "model_migrated", from: "claude-old" },
+      }),
+    ).toMatchObject({ summary: [{ text: "model_migrated" }] });
+  });
 });

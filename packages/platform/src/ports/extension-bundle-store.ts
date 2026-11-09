@@ -1,5 +1,6 @@
 import type { WorkspaceRole } from "@werft-ai/contracts";
 import type { BundleManifest } from "../extensions/bundle-validator.ts";
+import type { ExtensionMode } from "../extensions/resolve.ts";
 import type { Principal } from "../musterrolle/policy.ts";
 
 export const EXTENSION_BUNDLE_REVIEWS = [
@@ -99,18 +100,36 @@ export interface ExtensionBundleStore {
     managerRoles: readonly WorkspaceRole[];
   }): Promise<ReviewExtensionBundleResult>;
   /**
-   * Writes the `attach_extension` or `detach_extension` receipt for an agent.
-   * What an attachment is, and where it is kept, is the session-resolution
-   * ticket's (94S-867); this only proves the two exist in the workspace and
-   * leaves the audit trail.
+   * Offers a bundle version to a workspace or to one agent (or takes it
+   * back) and writes the `attach_extension` or `detach_extension` receipt in
+   * the same transaction. A scope holds one version per bundle name:
+   * attaching another version of a name replaces the earlier row.
+   * `scope` defaults to `agent`, which needs `agentId`; a `workspace`
+   * attachment names no agent. `mode` defaults to `optional`.
    */
   recordAttachment(input: {
     receiptId: string;
     workspaceId: string;
     bundleId: string;
-    agentId: string;
+    scope?: "agent" | "workspace";
+    agentId?: string;
+    mode?: ExtensionMode;
     kind: "attach" | "detach";
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<AttachmentReceiptResult>;
+  /**
+   * The bundles the workspace offers, and with `agentId` those its agent
+   * offers, each with the version it names.
+   */
+  listAttachments(input: {
+    workspaceId: string;
+    agentId?: string;
+  }): Promise<ExtensionAttachment[]>;
 }
+
+export type ExtensionAttachment = {
+  scope: "workspace" | "agent";
+  mode: ExtensionMode;
+  bundle: ExtensionBundle;
+};

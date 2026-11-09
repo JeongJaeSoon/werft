@@ -19,9 +19,9 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 | 2 | 콘솔 → API | `POST /v1/workspaces/{id}/github-apps/author/manifest`. 서버가 manifest와 state를 만들어 돌려준다 |
 | 3 | 브라우저 | 숨은 form으로 GitHub(`https://github.com/organizations/{org}/settings/apps/new?state=…` 또는 `https://github.com/settings/apps/new?state=…`)에 `manifest`를 POST한다 |
 | 4 | 관리자 | GitHub에서 이름을 확인하고 Create를 누른다 |
-| 5 | GitHub → 브라우저 | `redirect_url`(콘솔 화면 `/settings/workspace/github/new-app`)로 `code`와 `state`를 붙여 보낸다 |
+| 5 | GitHub → 브라우저 | `redirect_url`(콘솔 화면 `/settings/workspace/integrations/github/new-app`)로 `code`와 `state`를 붙여 보낸다 |
 | 6 | 콘솔 → API | `POST /v1/workspaces/{id}/github-apps/author/manifest/complete` `{ code, state }`. 서버가 state를 검사하고 소모한 뒤 `POST /app-manifests/{code}/conversions`를 부르고, 결과를 한 트랜잭션에 저장한다 |
-| 7 | 콘솔 | 응답의 설치 주소(`{html_url}/installations/new`)로 보낸다. 설치를 마치면 GitHub가 `setup_url`(GitHub 연결 설정)로 돌려보낸다 |
+| 7 | 콘솔 | 응답의 설치 주소(`{html_url}/installations/new`)로 보낸다. 설치를 마치면 GitHub가 `setup_url`(설정 › 연동 › GitHub)로 돌려보낸다 |
 
 - 시작 요청 본문: `owner`(`{ kind: "organization", login }` 또는 `{ kind: "user" }`), `public`(기본 false), `actions`(기본 false), `replace`(기본 false). 응답: `action_url`(state를 붙인 GitHub 주소), `manifest`(form에 넣을 JSON 문자열), `expires_at`.
 - 완료 응답: `github_app`(GET과 같은 모양), `install_url`, `receipt_id`.
@@ -53,9 +53,9 @@ GitHub 연결 설정에 '새 App 만들기'를 주 버튼으로 둔다. '이미 
 |---|---|
 | `name` | `werft-{조직 login 앞 22자, 개인 계정이면 agent}-{16진 4자}`. App 이름은 GitHub 전체에서 하나뿐이고 34자까지라 끝에 무작위 4자를 붙인다. GitHub 화면에서 바꿀 수 있다 |
 | `url` | `CONSOLE_ORIGIN` |
-| `redirect_url` | `{CONSOLE_ORIGIN}/settings/workspace/github/new-app` |
+| `redirect_url` | `{CONSOLE_ORIGIN}/settings/workspace/integrations/github/new-app` |
 | `callback_urls` | 구성원 계정 연결 콜백(`githubCallbackUrl`) |
-| `setup_url` | `{CONSOLE_ORIGIN}/settings/workspace/github` |
+| `setup_url` | `{CONSOLE_ORIGIN}/settings/workspace/integrations/github` |
 | `public` | 기본 `false`. 관리자가 '여러 조직에서 쓰기'를 고르면 `true` |
 | `default_permissions` | `contents: write`, `pull_requests: write`, `metadata: read`. 고르면 `actions: write`, `workflows: write`를 더한다. administration과 조직 권한은 넣지 않는다 |
 | `hook_attributes` | 넣지 않는다. GitHub는 꺼 둔 webhook이어도 인터넷에서 닿지 않는 URL이면 manifest를 거절한다(`localhost` 콘솔에서 확인) |

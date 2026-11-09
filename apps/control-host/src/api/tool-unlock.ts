@@ -20,6 +20,7 @@ import {
   type ToolUnlockPlan,
 } from "@werft-ai/platform";
 import type { Pool } from "pg";
+import { extensionDepsFor } from "./extension-deps.ts";
 import { openJobCatalog } from "./profile-migration.ts";
 
 const USAGE = [
@@ -113,6 +114,7 @@ async function apply(deps: ToolUnlockDeps, out: string, say: Say) {
       store: createPostgresAgentStore(db),
       catalog,
       credentials: createPostgresCredentialBindingStore(db),
+      extensions: extensionDepsFor(db),
     });
     const actors = new Map<string, string | null>();
     const actorOf = async (workspaceId: string) => {

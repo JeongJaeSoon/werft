@@ -1378,6 +1378,7 @@ export const sessions = pgTable(
     // restores replay it; a trigger drops the values when the session closes.
     // Null on a session that declared no variable.
     envStart: jsonb("env_start").$type<unknown>(),
+    extensions: jsonb("extensions").$type<unknown>(),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -4365,6 +4366,54 @@ export const envVariableGrants = pgTable(
       columns: [table.workspaceId, table.agentId],
       foreignColumns: [agents.workspaceId, agents.id],
     }),
+  ],
+);
+
+export const extensionAttachments = pgTable(
+  "extension_attachments",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    scope: text().notNull(),
+    agentId: uuid("agent_id"),
+    bundleId: uuid("bundle_id")
+      .notNull()
+      .references(() => extensionBundles.id),
+    name: text().notNull(),
+    mode: text().notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "extension_attachments_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    uniqueIndex("extension_attachments_workspace_name_idx")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.scope} = 'workspace'`),
+    uniqueIndex("extension_attachments_agent_name_idx")
+      .on(table.agentId, table.name)
+      .where(sql`${table.scope} = 'agent'`),
+    check(
+      "extension_attachments_scope_check",
+      sql`${table.scope} IN ('workspace', 'agent') AND (${table.scope} = 'agent') = (${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "extension_attachments_mode_check",
+      sql`${table.mode} IN ('required', 'optional', 'forbidden')`,
+    ),
+    check(
+      "extension_attachments_name_check",
+      sql`${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
   ],
 );
 
