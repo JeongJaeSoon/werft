@@ -253,7 +253,17 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       } catch {
         // An unreadable error body falls back to the status alone.
       }
-      throw failure(path, response.status, payload, "GET");
+      const refusal = failure(path, response.status, payload, "GET");
+      // The status decides, not the body: the route answers a damaged stored
+      // object with 503 and `retryable: false`, which still counts as the
+      // gateway failing rather than this request being wrong.
+      throw new WorkerGatewayRequestError(
+        refusal.status,
+        refusal.code,
+        refusal.message,
+        response.status >= 500 || response.status === 429,
+        refusal.details,
+      );
     }
     const declared = Number(response.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > options.maxBytes) {
