@@ -893,13 +893,58 @@ describe("the session's GitHub work", () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...working({ items: [waiting], intents: [] }),
       [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
-        () => apiError(409, "PUSH_REFUSED", "The push was refused"),
+        () => apiError(409, "CHECKPOINT_MOVED", "A newer checkpoint was saved"),
     });
     const area = await screen.findByRole("region", { name: "GitHub 작업" });
     await (await setupUser()).click(
       within(area).getByRole("button", { name: "push 승인" }),
     );
-    expect(await within(area).findByRole("alert")).toBeDefined();
+    // Waiting does not heal a moved checkpoint, so the sentence says to reject
+    // and ask again instead of the generic "try again later".
+    expect((await within(area).findByRole("alert")).textContent).toContain(
+      "거절하고 새 push를 요청하세요",
+    );
+    // The buttons stay: the request is still open.
+    expect(
+      within(area).getByRole("button", { name: "push 승인" }),
+    ).toBeDefined();
+  });
+
+  test("an approved push leaves the waiting row once the list is read again, and the decision is sent once", async () => {
+    let state: "requested" | "approved" = "requested";
+    const waiting = {
+      ...request,
+      state: "requested" as const,
+      finished_at: null,
+      pr_state: null,
+    };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...working({ items: [waiting], intents: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+        json(200, { items: [{ ...waiting, state }], intents: [] }),
+      [`POST /v1/sessions/${SESSION_ID}/push-requests/${waiting.id}/approve`]:
+        () => {
+          state = "approved";
+          return json(200, { ...waiting, state });
+        },
+    });
+    const area = await screen.findByRole("region", { name: "GitHub 작업" });
+    const approve = within(area).getByRole("button", { name: "push 승인" });
+    expect(
+      within(area).getByText(waiting.git_commit.slice(0, 7)),
+    ).toBeDefined();
+    await (await setupUser()).click(approve);
+    await waitFor(() =>
+      expect(
+        within(area).queryByRole("button", { name: "push 승인" }),
+      ).toBeNull(),
+    );
+    expect(within(area).getByText("승인됨")).toBeDefined();
+    expect(
+      api.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("/approve"),
+      ),
+    ).toHaveLength(1);
   });
 
   test("a push that failed says in plain words what to check, and a pushed one has no approve button", async () => {

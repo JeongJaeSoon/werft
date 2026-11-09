@@ -174,6 +174,15 @@ function BranchGroup({
   );
 }
 
+// A moved checkpoint does not heal by waiting: the request stays open and
+// only a new one carries the newer commit.
+const decisionErrorKey = (code: string): MessageKey =>
+  code === "CHECKPOINT_MOVED"
+    ? "session.github.error.moved"
+    : code === "PUSH_REQUEST_RESOLVED"
+      ? "session.github.error.resolved"
+      : errorKey(code);
+
 /**
  * Approves or rejects a waiting push on the session. The approval names the
  * commit the reader saw, so a request that moved since is refused by the
@@ -227,9 +236,10 @@ function Decision({
       >
         {t("session.github.reject")}
       </Button>
+      <Code title={request.git_commit}>{request.git_commit.slice(0, 7)}</Code>
       {decide.error ? (
         <Text as="span" variant="meta" role="alert">
-          {t(errorKey(decide.error.code))}
+          {t(decisionErrorKey(decide.error.code))}
         </Text>
       ) : null}
     </div>

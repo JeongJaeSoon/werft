@@ -87,6 +87,9 @@ export const outputsKo = {
   "session.github.state.failed": "push 실패",
   "session.github.approve": "push 승인",
   "session.github.reject": "거절",
+  "session.github.error.moved":
+    "그 사이 새 체크포인트가 저장되어 이 요청은 승인할 수 없습니다. 거절하고 새 push를 요청하세요.",
+  "session.github.error.resolved": "이미 승인 또는 거절된 요청입니다.",
   "session.github.pushFailed":
     "원격 저장소가 push를 받지 않았습니다. 저장소가 보관(archived) 상태이거나 쓰기 권한이 없는지 확인하세요.",
   "session.github.showEarlier": "같은 브랜치의 이전 push {count}건 보기",
@@ -250,6 +253,9 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
   "session.github.state.failed": "push 失敗",
   "session.github.approve": "push を承認",
   "session.github.reject": "却下",
+  "session.github.error.moved":
+    "その間に新しいチェックポイントが保存されたため、このリクエストは承認できません。却下して新しい push を依頼してください。",
+  "session.github.error.resolved": "すでに承認または却下されたリクエストです。",
   "session.github.pushFailed":
     "リモートリポジトリが push を受け付けませんでした。リポジトリがアーカイブ済みか、書き込み権限がないか確認してください。",
   "session.github.showEarlier": "同じブランチの以前の push を {count} 件表示",
@@ -416,6 +422,10 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.github.state.failed": "Push failed",
   "session.github.approve": "Approve push",
   "session.github.reject": "Reject",
+  "session.github.error.moved":
+    "A newer checkpoint was saved, so this request can no longer be approved. Reject it and ask for a new push.",
+  "session.github.error.resolved":
+    "This request was already approved or rejected.",
   "session.github.pushFailed":
     "The remote repository did not accept the push. Check whether the repository is archived or the app lacks write access.",
   "session.github.showEarlier": "Show {count} earlier pushes to this branch",
