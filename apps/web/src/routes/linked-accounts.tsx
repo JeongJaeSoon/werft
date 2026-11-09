@@ -223,7 +223,12 @@ export function LinkedAccountsScreen() {
   return (
     <Page title={t("linked.title")} description={t("linked.intro")}>
       <OutcomeLine outcome={outcome} live />
-      <RowList ref={listRef} variant="joined" framed={false}>
+      <RowList
+        ref={listRef}
+        variant="joined"
+        // The settings layout zeroes the row inset; a framed list needs it.
+        className="[--werft-row-padding-x:var(--werft-space-4)]"
+      >
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
           unlinking={unlink.isPending ? unlink.variables?.id : undefined}

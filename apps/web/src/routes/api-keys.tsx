@@ -587,15 +587,15 @@ function KeyList({
   );
 
   if (items.length === 0) {
-    return <EmptyState title={empty} />;
+    return <EmptyState className="rounded-card border bg-card" title={empty} />;
   }
 
   return (
     <>
-      {/* The page's own background shows through: no card fill. */}
       <RowList
         variant="joined"
-        framed={false}
+        // The settings layout zeroes the row inset; a framed list needs it.
+        className="[--werft-row-padding-x:var(--werft-space-4)]"
         aria-label={t("apiKeys.listTitle")}
       >
         {items.map((key) => {
@@ -610,7 +610,7 @@ function KeyList({
           return (
             <li
               key={key.id}
-              className="flex min-h-12 flex-col items-start gap-2 py-3 sm:flex-row sm:items-center sm:gap-3"
+              className="flex min-h-12 flex-col items-start gap-2 px-[var(--werft-row-padding-x)] py-3 sm:flex-row sm:items-center sm:gap-3"
               data-revoked={key.revoked_at !== null}
             >
               <div className="flex min-w-0 flex-1 flex-col gap-1">
