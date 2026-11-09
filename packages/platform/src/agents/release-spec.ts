@@ -3,6 +3,7 @@ import {
   type AgentRelease,
   canonicalJsonOfJson,
   deriveRuntimeSpec,
+  type RuntimeConfig,
   type RuntimeSpec,
   runtimeSpecSchema,
   SPEC_DERIVATION_VERSION,
@@ -228,4 +229,31 @@ export async function backfillReleaseSpecs(
       }
     }
   }
+}
+
+/**
+ * The runtime config a spec means, shaped as `runtimeConfigOf` shapes one from
+ * a profile. The two execution modes map back to the engine's own: `bypass`
+ * is `bypassPermissions`, `auto` is `auto`. The spec's tools are the release's
+ * list, already narrowed, so nothing is taken within a profile.
+ */
+export function runtimeConfigFromSpec(
+  spec: RuntimeSpec,
+  providerToken: string,
+  hasRepository: boolean,
+): RuntimeConfig {
+  return {
+    model: spec.model,
+    tools: [...spec.tools],
+    permission_mode:
+      spec.execution_mode === "bypass" ? "bypassPermissions" : "auto",
+    provider: {
+      kind: spec.connection.kind,
+      endpoint: spec.connection.endpoint,
+      auth: { kind: "egress_token", token: providerToken },
+    },
+    ...(hasRepository && spec.project_settings?.claude_md === true
+      ? { project_settings: spec.project_settings }
+      : {}),
+  };
 }
