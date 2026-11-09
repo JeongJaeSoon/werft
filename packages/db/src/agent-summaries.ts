@@ -61,6 +61,9 @@ export async function agentSummaries(
     .select({
       id: agents.id,
       profile: agentReleases.runtimeProfileId,
+      model: sql<
+        string | null
+      >`${agentReleases.runtimeConfigSnapshot}->>'model'`,
       versionId: agentReleases.versionId,
       releasedAt: agentReleases.createdAt,
       earlier: earlierInSecond(agentReleases),
@@ -269,6 +272,7 @@ export async function agentSummaries(
   );
 
   const profiles = new Map(heads.map((head) => [head.id, head.profile]));
+  const models = new Map(heads.map((head) => [head.id, head.model]));
   const labels = new Map(
     heads.map((head) => [
       head.id,
@@ -300,6 +304,7 @@ export async function agentSummaries(
       },
       runtime_profile_id: profiles.get(version.agentId) ?? null,
       release_label: labels.get(version.agentId) ?? null,
+      release_model: models.get(version.agentId) ?? null,
       bound_credential_refs: bound.get(version.agentId) ?? [],
       admins: admins.get(version.agentId) ?? [],
       needs_input_count: live.get(version.agentId)?.needsInput ?? 0,

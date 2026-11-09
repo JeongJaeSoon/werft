@@ -8296,6 +8296,7 @@ export interface components {
                     };
                     runtime_profile_id: string | null;
                     release_label: string | null;
+                    release_model: string | null;
                     bound_credential_refs: string[];
                     admins: string[];
                     needs_input_count: number;

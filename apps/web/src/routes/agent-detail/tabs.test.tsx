@@ -67,6 +67,7 @@ const listed = (
     },
     runtime_profile_id: null,
     release_label: null,
+    release_model: null,
     bound_credential_refs: [],
     admins: ["Owner"],
     slack_action: null,

@@ -72,6 +72,8 @@ import {
   isUnmetered,
   type ProfilePin,
   profileFingerprint,
+  profileGone,
+  profileModels,
   profileWithModel,
   refreshWorkspaceProfilesFor,
   repositoryInCeiling,
@@ -499,6 +501,30 @@ export function createSessionService(deps: {
     );
   }
 
+  // Says which model left when that is what moved, so the reader can act on
+  // it; any other mismatch keeps the general sentence.
+  function mismatchReason(record: SessionDetailRecord): string {
+    const listed = record.profile_id
+      ? catalogProfile(catalog, record.profile_id)
+      : undefined;
+    if (
+      listed &&
+      record.model !== null &&
+      !profileModels(listed).includes(record.model)
+    ) {
+      return `Model ${record.model} was taken off the allowed list of profile ${record.profile_id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+    }
+    if (
+      !listed &&
+      record.profile_id &&
+      record.model !== null &&
+      profileGone(catalog, record.profile_id)
+    ) {
+      return `Profile ${record.profile_id}, which served model ${record.model}, is no longer in this host's catalog; messages will not run until an operator restores it, or you start a new session on another profile`;
+    }
+    return "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it";
+  }
+
   function runtimeFor(record: {
     profile_id: string | null;
     profile_fingerprint: string | null;
@@ -632,8 +658,7 @@ export function createSessionService(deps: {
           ? null
           : {
               code: "CATALOG_MISMATCH",
-              reason:
-                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+              reason: mismatchReason(record),
             }) ??
         // Dispatch stops at the same predicate (nextInputAtomic), so what
         // this says and what the gateway does come from one comparison.
@@ -797,11 +822,9 @@ export function createSessionService(deps: {
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
+      const wantedModel = input.body.model ?? releaseModel(release);
       const runs = allowed
-        ? profileWithModel(
-            allowed.profile,
-            input.body.model ?? releaseModel(release),
-          )
+        ? profileWithModel(allowed.profile, wantedModel)
         : null;
       const staleRuntime =
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
@@ -883,7 +906,7 @@ export function createSessionService(deps: {
               allowed && staleRuntime
                 ? `Profile ${profileId} runs ${allowed.profile.runtime_kind} ${allowed.profile.runtime_version}, which the current worker image does not ship; the operator updates the profile's runtime_version`
                 : allowed && !runs
-                  ? `Profile ${profileId} does not offer model ${input.body.model}`
+                  ? `Model ${wantedModel} is not on the allowed list of profile ${profileId}; ${input.body.model === undefined ? "release the agent again on a model the profile offers" : "name a model the profile offers"}`
                   : (workspaceRefusal?.message ??
                     repositoryRefusal(profileId, repositoryId)),
             )

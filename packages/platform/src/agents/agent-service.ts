@@ -112,22 +112,27 @@ export async function resolveAgentRelease(
   );
   const blocked = profileBlockedError(profileId, refusal);
   if (blocked) throw blocked;
+  const model = releaseModel(release);
   const profile =
     refusal === null ? catalogProfile(deps.catalog, profileId) : undefined;
   if (!profile) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+      `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  const model = releaseModel(release);
+  if (model !== undefined && !profileModels(profile).includes(model)) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,
+    );
+  }
   if (
     !profilePinned(
       profile,
       release.profile_digest,
       acceptedRuntimeVersions(deps.catalog),
-    ) ||
-    (model !== undefined && !profileModels(profile).includes(model))
+    )
   ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",

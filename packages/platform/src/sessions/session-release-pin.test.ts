@@ -473,6 +473,37 @@ describe("a session pinned to an agent release", () => {
     expect(accepted[3]?.profileFingerprint).toBeUndefined();
   });
 
+  test("a new session says which model left the list, whether the request or the release named it", async () => {
+    // The profile no longer offers claude-opus-5-5, the release's model.
+    const narrowed: SessionCatalog = {
+      ...catalog,
+      profiles: {
+        ...catalog.profiles,
+        "coding-v1": { ...profile, models: ["claude-haiku-5-5"] },
+      },
+    };
+    const refused = async (extra: object) => {
+      const { service, caller } = setup({
+        accept: "unsupported",
+        catalog: narrowed,
+      });
+      return service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: { ...body, agent_release_id: "rel-1", ...extra },
+        })
+        .catch((error: unknown) => error);
+    };
+    expect(await refused({})).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining("claude-opus-5-5"),
+    });
+    expect(await refused({ model: "claude-fable-5-1" })).toMatchObject({
+      code: "UNSUPPORTED_CAPABILITY",
+      message: expect.stringContaining("claude-fable-5-1"),
+    });
+  });
+
   test("a profile naming a runtime the current worker image does not ship takes no new session", async () => {
     const on = (current: string[]) =>
       setup({

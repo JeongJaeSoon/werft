@@ -283,6 +283,7 @@ describe("agent service", () => {
       },
       runtime_profile_id: null,
       release_label: null,
+      release_model: null,
       bound_credential_refs: [],
       admins: [],
       needs_input_count: 0,
@@ -572,14 +573,17 @@ describe("agent service", () => {
     expect(memory.activations()).toBe(1);
     const dropped = { ...PROFILE, model: "claude-opus-5-5" };
     expect(profileFingerprint(dropped)).toBe(made.profile_digest);
-    expect(
-      await codeOf(
-        serviceOver(memory.store, dropped).activateAgent(owner, AGENT, {
-          release_id: made.id,
-          expected_revision: -1,
-        }),
-      ),
-    ).toBe("PROFILE_DIGEST_MISMATCH");
+    const refused = await serviceOver(memory.store, dropped)
+      .activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: -1,
+      })
+      .catch((error: unknown) => error);
+    // The refusal names the model that left, not only that the profile moved.
+    expect(refused).toMatchObject({
+      code: "PROFILE_DIGEST_MISMATCH",
+      message: expect.stringContaining("claude-sonnet-5"),
+    });
     expect(memory.activations()).toBe(1);
   });
 

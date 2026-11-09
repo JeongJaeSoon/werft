@@ -1008,6 +1008,21 @@ export function catalogProfile<P extends CatalogProfileView>(
     : undefined;
 }
 
+/**
+ * True when the catalog holds no record of the profile at all. A workspace
+ * version whose base profile changed is stored but not runnable, so
+ * `catalogProfile` is undefined for it and this is false.
+ */
+export function profileGone<P extends CatalogProfileView>(
+  catalog: ProfileLookup<P>,
+  profileId: string,
+): boolean {
+  return (
+    !Object.hasOwn(catalog.profiles, profileId) &&
+    !catalog.workspace_profiles?.records.has(profileId)
+  );
+}
+
 /** Every workspace version that runs now, with the operator profile it narrows. */
 export function workspaceCatalogProfiles<P extends CatalogProfileView>(
   catalog: ProfileLookup<P>,

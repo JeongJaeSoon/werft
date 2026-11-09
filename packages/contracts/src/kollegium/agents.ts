@@ -1067,6 +1067,12 @@ export const agentSummarySchema = z
     runtime_profile_id: z.string().min(1).max(128).nullable(),
     /** The active release's, or null before any activation. */
     release_label: releaseLabelSchema.nullable(),
+    /**
+     * The model the active release runs, or null before any activation. A
+     * screen compares it with its profile's allowed list to warn when the
+     * model has left it.
+     */
+    release_model: z.string().min(1).nullable(),
     /** Names with a live binding on the agent. */
     bound_credential_refs: z.array(credentialRefSchema),
     /** Admins by display name (email when unset), then admin teams by name. */

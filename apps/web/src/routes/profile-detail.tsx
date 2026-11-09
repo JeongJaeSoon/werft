@@ -55,7 +55,7 @@ import {
 import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
-import { pickable } from "../components/profile-options.tsx";
+import { pickable, runsModel } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { installationOptionsQuery } from "./profile-tools.tsx";
 import { blockedNewTools } from "./profile-tools-model.ts";
@@ -65,7 +65,9 @@ const HISTORY_COLUMNS = [
   "minmax(0,1fr) 152px 168px",
   "minmax(0,1fr) 128px",
 ] as const;
-const AGENT_COLUMNS = "minmax(0,1fr) minmax(0,1fr)";
+// The release label has one width; the rest goes to the name and, under it,
+// the model note.
+const AGENT_COLUMNS = "minmax(0,1fr) 152px";
 
 /**
  * The versions of `profile`'s line: a workspace profile's name, or for a
@@ -1083,6 +1085,12 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
     enabled: lists,
   });
   const using = agents.data?.pages.flatMap((page) => page.items) ?? [];
+  // An agent whose active release runs a model this profile no longer lists.
+  const removedModel = (agent: (typeof using)[number]) => {
+    const model = agent.summary?.release_model;
+    return model != null && !runsModel(profile, model) ? model : null;
+  };
+  const removed = using.filter((agent) => removedModel(agent) !== null);
   return (
     <Section
       title={t("profiles.detail.agents.title")}
@@ -1113,6 +1121,18 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
         <EmptyState title={t("profiles.detail.agents.empty")} />
       ) : (
         <div>
+          {removed.length === 0 ? null : (
+            <Alert variant="amber" className="mb-4 border-0">
+              <AlertTitle>
+                {t("profiles.detail.agents.modelRemovedTitle", {
+                  count: removed.length,
+                })}
+              </AlertTitle>
+              <AlertDescription>
+                {t("profiles.detail.agents.modelRemovedText")}
+              </AlertDescription>
+            </Alert>
+          )}
           <GridTable
             className="[--werft-row-padding-x:0px]"
             aria-label={t("profiles.detail.agents.title")}
@@ -1148,6 +1168,17 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                   >
                     {agent.name}
                   </Text>
+                  {removedModel(agent) === null ? null : (
+                    <Text
+                      as="span"
+                      variant="meta"
+                      className="block [overflow-wrap:anywhere]"
+                    >
+                      {t("profiles.detail.agents.modelRemovedRow", {
+                        model: removedModel(agent) ?? "",
+                      })}
+                    </Text>
+                  )}
                 </GridTableCell>
                 <GridTableCell>
                   {/* As the release tab names it. */}

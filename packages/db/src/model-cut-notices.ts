@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { modelCutDedupeKey, modelCutNoticeText } from "@werft-ai/platform";
+import {
+  MODEL_NOT_ALLOWED_EVENT_CODE,
+  type ModelCutCause,
+} from "@werft-ai/contracts";
+import {
+  modelCutDedupeKey,
+  modelCutEventMessage,
+  modelCutNoticeText,
+} from "@werft-ai/platform";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { administers } from "./administers.ts";
+import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -13,6 +22,37 @@ import {
   slackOutbox,
   users,
 } from "./schema.ts";
+import { recordEvent } from "./session-events.ts";
+
+/**
+ * The stream's `MODEL_NOT_ALLOWED` error event and the DMs that go with it,
+ * for the caller's transaction, which already holds the session's lock. The
+ * attempt is null when no attempt ran yet: a claim that gives the session up.
+ */
+export async function writeModelCut(
+  tx: Database,
+  input: {
+    sessionId: string;
+    attemptId: string | null;
+    model: string;
+    cause: ModelCutCause;
+  },
+): Promise<void> {
+  await recordEvent(tx, {
+    sessionId: input.sessionId,
+    type: "error",
+    payload: {
+      code: MODEL_NOT_ALLOWED_EVENT_CODE,
+      message: modelCutEventMessage(input.model, input.cause),
+      model: input.model,
+      cause: input.cause,
+    },
+    turnRowId: null,
+    ...(input.attemptId === null ? {} : { attemptId: input.attemptId }),
+    now: await dbNow(tx),
+  });
+  await enqueueModelCutNotices(tx, input);
+}
 
 /**
  * Writes one `model_notice` row per person who should hear that a session's
@@ -31,7 +71,7 @@ import {
  */
 export async function enqueueModelCutNotices(
   tx: Database,
-  input: { sessionId: string; model: string },
+  input: { sessionId: string; model: string; cause?: ModelCutCause },
 ): Promise<number> {
   const [session] = await tx
     .select({
@@ -110,7 +150,7 @@ export async function enqueueModelCutNotices(
         slackUserId: null,
         sessionId: input.sessionId,
         body: {
-          text: modelCutNoticeText(person.locale, input.model),
+          text: modelCutNoticeText(person.locale, input.model, input.cause),
           ...(person.locale === null ? {} : { locale: person.locale }),
         },
         dedupeKey: modelCutDedupeKey(
