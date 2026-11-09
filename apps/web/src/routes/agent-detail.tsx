@@ -30,7 +30,7 @@ import {
   TabsTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import {
   agentQuery,
   agentSummariesQuery,
@@ -54,6 +54,7 @@ import { useProfileDisplay } from "../components/profile-options.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { useToast } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { McpSettings } from "./agent-detail/access.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
@@ -251,6 +252,44 @@ function OutsideAgentView({ agent }: { readonly agent: Agent }) {
         </div>
       </Section>
     </Page>
+  );
+}
+
+/**
+ * The admins tab says a done change in one toast shared by both sections,
+ * and keeps the page for a refusal. Its own component, so the toast timer
+ * does not redraw the whole detail.
+ */
+function AdminsTab({
+  agent,
+  manages,
+  onOutcome,
+  result,
+}: {
+  readonly agent: Agent;
+  readonly manages: boolean;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+  readonly result: ReactNode;
+}) {
+  const { t } = useI18n();
+  const { notify, toast } = useToast(t("common.dismiss"));
+  return (
+    <>
+      <ManagingTeam
+        agent={agent}
+        manages={manages}
+        notify={notify}
+        onOutcome={onOutcome}
+      />
+      <AgentAdmins
+        agentId={agent.id}
+        managingTeamId={agent.managing_team_id}
+        notify={notify}
+        onOutcome={onOutcome}
+      />
+      {result}
+      {toast}
+    </>
   );
 }
 
@@ -692,13 +731,12 @@ function AgentView({
         />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
-        <ManagingTeam
+        <AdminsTab
           agent={agent}
           manages={manages}
           onOutcome={outcomeAt("admins")}
+          result={<PlacedOutcome placed={placed} at="admins" />}
         />
-        <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
-        <PlacedOutcome placed={placed} at="admins" />
       </TabsContent>
       <TabsContent {...tabPanel("slack")}>
         {tab === "slack" || slackOpened ? (

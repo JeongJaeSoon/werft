@@ -353,8 +353,17 @@ describe("모델 연결", () => {
     );
     const confirm = await screen.findByRole("dialog");
     expect(confirm.textContent).toContain(
-      "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+      "나중에 같은 화면에서 다시 켤 수 있습니다.",
     );
+    expect(confirm.textContent).not.toContain("다시 켤 수 없습니다");
+    // A disabled id is turned back on, so it stays taken: it is not "gone for
+    // good", and the stop lasts only until it is turned on again.
+    expect(confirm.textContent).toContain(
+      "이 id는 다른 연결에 쓸 수 없습니다.",
+    );
+    expect(confirm.textContent).toContain("다시 켤 때까지 실행되지 않습니다.");
+    expect(confirm.textContent).not.toContain("이 id는 다시 쓸 수 없습니다");
+    expect(confirm.textContent).not.toContain("더 이상 실행되지 않습니다");
     expect(writes(api.calls).length).toBe(1);
     await user.click(
       within(confirm).getByRole("button", { name: "사용 중지" }),
@@ -493,7 +502,7 @@ describe("모델 연결", () => {
       expect(within(confirm).queryByRole("alert") === null).toBe(true);
       expect(confirm.textContent).not.toContain("확인하지 못했습니다");
       expect(confirm.textContent).toContain(
-        "지금은 사용 중지한 연결을 다시 켤 수 없습니다.",
+        "나중에 같은 화면에서 다시 켤 수 있습니다.",
       );
     });
 
@@ -578,6 +587,246 @@ describe("모델 연결", () => {
       const confirm = await screen.findByRole("dialog");
       expect(confirm.textContent).toContain("되돌릴 수 없습니다");
       expect(impactCalls(api.calls)).toEqual([]);
+    });
+  });
+
+  describe("a disabled connection is enabled again from its row", () => {
+    const ENABLE = `${CONNECTIONS}/off-key/enable`;
+    const withDisabled = (extra: Record<string, () => Response> = {}) => ({
+      ...routes(),
+      [`GET ${CONNECTIONS}`]: () =>
+        json(200, {
+          items: [
+            connection("off-key", {
+              state: "disabled",
+              disabled_at: AT,
+            }),
+            connection("on-key"),
+          ],
+          credential_hosts: null,
+          endpoint_defaults: {},
+        }),
+      ...extra,
+    });
+
+    test("only the disabled row offers it, and it offers nothing else", async () => {
+      renderAt(CONNECTIONS_PAGE, withDisabled());
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      const off = within(rowOf(table, "off-key"));
+      expect(
+        off.getAllByRole("button").map((button) => button.textContent),
+      ).toEqual(["다시 켜기"]);
+      expect(
+        off.getByRole("button", { name: "off-key 다시 켜기" }),
+      ).toBeTruthy();
+      expect(
+        within(rowOf(table, "on-key")).queryByRole("button", {
+          name: "on-key 다시 켜기",
+        }) === null,
+      ).toBe(true);
+      expectNarrowActions(table);
+    });
+
+    test("asks first, then posts to its route and says it is on again", async () => {
+      const { api } = renderAt(
+        CONNECTIONS_PAGE,
+        withDisabled({
+          [`POST ${ENABLE}`]: () => json(200, CHANGE("off-key")),
+        }),
+      );
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      const confirm = await screen.findByRole("dialog");
+      expect(confirm.textContent).toContain("off-key를 다시 켤까요?");
+      expect(writes(api.calls)).toEqual([]);
+
+      await user.click(within(confirm).getByRole("button", { name: "취소" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog") === null).toBe(true),
+      );
+      expect(writes(api.calls)).toEqual([]);
+
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "다시 켜기",
+        }),
+      );
+      await screen.findByText("off-key를 다시 켰습니다.");
+      expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+        [ENABLE, null],
+      ]);
+    });
+
+    test("the row comes back active and keyboard focus lands on its new button", async () => {
+      let on = false;
+      renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        [`GET ${CONNECTIONS}`]: () =>
+          json(200, {
+            items: [
+              connection(
+                "off-key",
+                on ? {} : { state: "disabled", disabled_at: AT },
+              ),
+            ],
+            credential_hosts: null,
+            endpoint_defaults: {},
+          }),
+        [`POST ${ENABLE}`]: () => {
+          on = true;
+          return json(200, CHANGE("off-key"));
+        },
+      });
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "다시 켜기",
+        }),
+      );
+      await screen.findByText("off-key를 다시 켰습니다.");
+      const disable = await within(table).findByRole("button", {
+        name: "off-key 사용 중지",
+      });
+      await waitFor(() =>
+        expect(document.activeElement === disable).toBe(true),
+      );
+    });
+
+    test("focus waits for a button that is still disabled while another refetch runs", async () => {
+      let on = false;
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      renderAt(CONNECTIONS_PAGE, {
+        ...routes(),
+        "GET /v1/profiles": async () => {
+          if (on) await gate;
+          return json(200, { items: [] });
+        },
+        [`GET ${CONNECTIONS}`]: () =>
+          json(200, {
+            items: [
+              connection(
+                "off-key",
+                on ? {} : { state: "disabled", disabled_at: AT },
+              ),
+            ],
+            credential_hosts: null,
+            endpoint_defaults: {},
+          }),
+        [`POST ${ENABLE}`]: () => {
+          on = true;
+          return json(200, CHANGE("off-key"));
+        },
+      });
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "다시 켜기",
+        }),
+      );
+      const disable = (await within(table).findByRole("button", {
+        name: "off-key 사용 중지",
+      })) as HTMLButtonElement;
+      expect(document.activeElement === disable).toBe(false);
+      release();
+      await waitFor(() =>
+        expect(document.activeElement === disable).toBe(true),
+      );
+    });
+
+    for (const [reason, words] of [
+      [
+        "definition_active",
+        "같은 정의의 다른 연결이 사용 중이라 켤 수 없습니다",
+      ],
+      ["needs_value", "저장된 키가 없어 다시 켤 수 없습니다"],
+      ["not_disabled", "이미 사용 중인 연결입니다"],
+    ] as const) {
+      test(`a refusal for ${reason} is said in the page's words, not the server's`, async () => {
+        renderAt(
+          CONNECTIONS_PAGE,
+          withDisabled({
+            [`POST ${ENABLE}`]: () =>
+              json(409, {
+                error: {
+                  code: "REVISION_CONFLICT",
+                  message: "server words",
+                  details: { reason_code: reason },
+                },
+              }),
+          }),
+        );
+        const user = await setupUser();
+        const table = await screen.findByRole("table", { name: "모델 연결" });
+        await user.click(
+          within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+        );
+        await user.click(
+          within(await screen.findByRole("dialog")).getByRole("button", {
+            name: "다시 켜기",
+          }),
+        );
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain(words);
+        expect(alert.textContent).not.toContain("server words");
+        // The dialog is closed and the row is still there to try again.
+        expect(screen.queryByRole("dialog") === null).toBe(true);
+        expect(
+          within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+        ).toBeTruthy();
+      });
+    }
+
+    test("a server without the route (404) is a failure line, not a crash", async () => {
+      renderAt(
+        CONNECTIONS_PAGE,
+        withDisabled({
+          [`POST ${ENABLE}`]: () =>
+            json(404, { code: "NOT_FOUND", message: "no", details: null }),
+        }),
+      );
+      const user = await setupUser();
+      const table = await screen.findByRole("table", { name: "모델 연결" });
+      await user.click(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      );
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "다시 켜기",
+        }),
+      );
+      await screen.findByRole("alert");
+      expect(
+        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
+      ).toBeTruthy();
+    });
+
+    test("a disabled MCP server has no way back", async () => {
+      renderAt("/settings/workspace/mcp-servers", {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${MCP}`]: () =>
+          json(200, {
+            items: [mcp("docs", { state: "disabled", disabled_at: AT })],
+          }),
+      });
+      const table = await screen.findByRole("table", { name: "MCP 서버" });
+      expect(within(table).queryAllByRole("button")).toEqual([]);
     });
   });
 

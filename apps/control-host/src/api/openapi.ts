@@ -221,6 +221,8 @@ import {
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
   resolvePushRequestRequestSchema,
+  resolveSlackBindingRequestSchema,
+  resolveSlackBindingResponseSchema,
   resumeSessionRequestSchema,
   retryProfileRolloutRequestSchema,
   retryProfileRolloutResponseSchema,
@@ -442,6 +444,7 @@ const requestComponents = {
   SetAgentManagingTeamRequest: setAgentManagingTeamRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
   PutSlackBindingRequest: putSlackBindingRequestSchema,
+  ResolveSlackBindingRequest: resolveSlackBindingRequestSchema,
 } satisfies Record<string, z.ZodType>;
 const responseComponents = {
   ApiErrorResponse: apiErrorResponseSchema,
@@ -619,6 +622,7 @@ const responseComponents = {
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
   ListSlackBindingsResponse: listSlackBindingsResponseSchema,
   PutSlackBindingResponse: putSlackBindingResponseSchema,
+  ResolveSlackBindingResponse: resolveSlackBindingResponseSchema,
   SearchSlackChannelsResponse: searchSlackChannelsResponseSchema,
   LookupSlackChannelsResponse: lookupSlackChannelsResponseSchema,
   OpenApiDocument: openApiDocumentResponseSchema,
@@ -986,7 +990,7 @@ const WORKSPACE_PROFILE_EXAMPLE = {
   tools: ["Read", "Glob", "Grep"],
   permission_mode: "default",
   runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
+  runtime_version: "0.3.319",
   billing: "metered",
   repository_mode: "required",
   workspace: {
@@ -1081,6 +1085,10 @@ const SETTINGS_CONVERT =
   "For a connection whose key comes from the operator's deployment (an env or Secrets Manager reference): the person types the key, it is sealed under the same id, and the row is stored from then on. The server does not read the referenced value. Ceilings made before keep running on the stored key and their pins do not change. A settings document that still names the old entry leaves the row as it is. A connection that already keeps its own value is 409 `not_external`, a disabled one 409 `disabled`, one that another connection is or was exactly 409 `alias_taken`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters and which reference it replaced.";
 const SETTINGS_DISABLE =
   "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
+const SETTINGS_DISABLE_CONNECTION =
+  "Nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything until it is enabled again. Disabling one already disabled is 409 `disabled`.";
+const SETTINGS_ENABLE_CONNECTION =
+  "Brings a disabled connection back: ceilings over it match it again once the settings are read again (a reference to the deployment that does not resolve leaves it `unresolved`). It is refused with 409 `not_disabled` when the row is in use, 409 `definition_active` when another connection in use is, or was, exactly what this one is (disable that one first), and 409 `needs_value` when its stored value is gone (disabling keeps it, so this is rare). The destination never changes. Writes an `enable_connection` receipt.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
   id,
   receipt_id: "019a0000-0000-7000-8000-0000000000f3",
@@ -1116,7 +1124,7 @@ const INSTALLATION_PROFILE_EXAMPLE = {
   tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
   permission_mode: "acceptEdits",
   runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
+  runtime_version: "0.3.319",
   billing: "metered",
   repository_mode: "required",
   repository_ids: ["sample-app"],
@@ -1530,7 +1538,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Set what members outside an agent may do with it and its sessions (owner or admin)",
     description:
-      "Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent, one with no managing team included. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent with a managing team from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent with no managing team is not limited. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.",
+      "Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent still held by the 'Unassigned agents' team that migration 0243 made for agents that had no managing team is not limited, until it is moved to a real team. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.",
     auth: "session",
     body: "AgentAccessRequest",
     requestExample: { agent_outsider_access: "view" },
@@ -3002,7 +3010,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Who sees the session",
     description:
-      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's with a managing team and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).",
+      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's, the agent is not held by the 'Unassigned agents' team of migration 0243, and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).",
     scope: "read",
     success: { status: 200, schema: "SessionShare" },
     errors: [401, 404, 503],
@@ -4935,6 +4943,36 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "post",
+    path: "/v1/agents/{id}/slack-bindings/{binding_id}/approve",
+    operationId: "approveSlackBinding",
+    tag: "Agents",
+    summary: "Approve a private Slack channel",
+    description:
+      "A binding of a private channel starts as `pending_approval` and takes no input until an owner or admin approves it here: it becomes `ready` and `approved_at` is set, and a message sent before `approved_at` is not answered. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same approval again, after it landed, answers the binding as it is with a null `receipt_id`. Owners and admins only, not the agent's admins; API keys are refused. Writes a `resolve_surface_binding` receipt.",
+    auth: "session",
+    body: "ResolveSlackBindingRequest",
+    success: { status: 200, schema: "ResolveSlackBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/agents/{id}/slack-bindings/{binding_id}/reject",
+    operationId: "rejectSlackBinding",
+    tag: "Agents",
+    summary: "Reject a private Slack channel",
+    description:
+      "Revokes a binding that waits for approval, so its channel slot is free again. The bot stays in the channel and takes no input; remove it in Slack to make it leave. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same rejection again answers the binding as it is with a null `receipt_id`. Owners and admins only; API keys are refused. Writes a `resolve_surface_binding` receipt.",
+    auth: "session",
+    body: "ResolveSlackBindingRequest",
+    success: { status: 200, schema: "ResolveSlackBindingResponse" },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
     method: "get",
     path: "/v1/agents/{id}/slack-channels",
     operationId: "lookupSlackChannels",
@@ -6020,7 +6058,7 @@ export const API_ROUTE_DECLARATIONS = [
             tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
             permission_mode: "acceptEdits",
             runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
+            runtime_version: "0.3.319",
             billing: "metered",
             repository_mode: "required",
           },
@@ -6457,9 +6495,9 @@ export const API_ROUTE_DECLARATIONS = [
         repositories: [{ id: "sample-app" }],
         tool_catalogs: [
           {
-            id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+            id: "claude_agent_sdk@0.3.319+claude-code@2.1.319",
             runtime_kind: "claude_agent_sdk",
-            runtime_version: "0.3.270",
+            runtime_version: "0.3.319",
             tools: [
               { name: "Read", boundary: "local" },
               { name: "Bash", boundary: "local" },
@@ -6487,7 +6525,7 @@ export const API_ROUTE_DECLARATIONS = [
       name: "coding",
       connection_id: "anthropic-main",
       runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
+      runtime_version: "0.3.319",
       model: "claude-sonnet-5",
       models: ["claude-sonnet-5", "claude-haiku-5"],
       title_model: "claude-haiku-5",
@@ -6773,8 +6811,26 @@ export const API_ROUTE_DECLARATIONS = [
     path: "/v1/installation/settings/connections/{id}/disable",
     operationId: "disableSettingsConnection",
     tag: "Agents",
-    summary: "Disable a provider connection for good",
-    description: `${SETTINGS_OWNER} ${SETTINGS_DISABLE} Writes a \`disable_connection\` receipt.`,
+    summary: "Disable a provider connection",
+    description: `${SETTINGS_OWNER} ${SETTINGS_DISABLE_CONNECTION} Writes a \`disable_connection\` receipt.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SettingsChangeResponse",
+      description: "The entry's id and the change's receipt.",
+      example: SETTINGS_CHANGE_EXAMPLE("anthropic-console"),
+    },
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/connections/{id}/enable",
+    operationId: "enableSettingsConnection",
+    tag: "Agents",
+    summary: "Enable a disabled provider connection again",
+    description: `${SETTINGS_OWNER} ${SETTINGS_ENABLE_CONNECTION}`,
     auth: "session",
     success: {
       status: 200,
@@ -7014,7 +7070,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "What the sessions created in a period cost and the achievements they earned",
     description:
-      "The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.\n\n`achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.\n\n`type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent with a managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.",
+      "The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.\n\n`achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.\n\n`type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.",
     scope: "read",
     query: "UsageAchievementsQuery",
     success: {
@@ -7252,7 +7308,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Recent or slowest calls of one tool, and its calls per day",
     description:
-      "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent with a managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.",
+      "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.",
     scope: "read",
     query: "UsageToolCallsQuery",
     success: {

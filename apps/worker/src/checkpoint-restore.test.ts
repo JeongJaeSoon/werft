@@ -70,6 +70,7 @@ async function captured(
     root: from,
     bundlePath: join(scratch, `capture-${crypto.randomUUID()}.bundle`),
     signal: new AbortController().signal,
+    keepBranches: true,
     ...(instructions === undefined ? {} : { instructions }),
     ...(base === undefined ? {} : { base }),
   });
@@ -204,6 +205,44 @@ describe("restoring a captured checkout", () => {
         path: capture.bundle.path,
       }),
     ).toEqual({ status: "restorable" });
+  });
+
+  test("puts back the other local branches at their own commits, and the verifier checks the manifest's names", async () => {
+    const base = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "checkout", "--quiet", "-b", "guard-docs");
+    const guard = await commitFiles({ "guard.md": "guard\n" });
+    await git(root, "checkout", "--quiet", "-b", "skills-sample", base);
+    const skills = await commitFiles({ "skills.md": "skills\n" });
+    const capture = await captured();
+
+    const restored = await restore(capture);
+
+    expect((await git(restored, "rev-parse", "guard-docs")).trim()).toBe(guard);
+    expect((await git(restored, "rev-parse", "main")).trim()).toBe(base);
+    expect((await git(restored, "rev-parse", "skills-sample")).trim()).toBe(
+      skills,
+    );
+    const verifier = createGitWorkspaceBundleVerifier({ tempRoot: scratch });
+    const input = {
+      bytes: capture.bundle.bytes,
+      commit: capture.gitCommit,
+      key: "k",
+      path: capture.bundle.path,
+    };
+    expect(
+      await verifier.verify({ ...input, sources: capture.sources }),
+    ).toEqual({ status: "restorable" });
+    const wrong = await verifier.verify({
+      ...input,
+      sources: [{ name: "guard-docs", commit: skills }],
+    });
+    expect(wrong).toMatchObject({ status: "unusable" });
+    expect(
+      await verifier.verify({
+        ...input,
+        sources: [{ name: "not-a-branch", commit: guard }],
+      }),
+    ).toMatchObject({ status: "unusable" });
   });
 
   test.each(["refs/remotes/origin/cache", "refs/cache/origin"])(

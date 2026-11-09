@@ -152,8 +152,15 @@ const deps = () => ({
       installationId: string,
       channelId: string | null,
     ) {
-      return installationId === INSTALLATION
-        ? (stored.get(channelId) ?? null)
+      const binding =
+        installationId === INSTALLATION ? stored.get(channelId) : undefined;
+      return binding?.status === "ready" ? binding : null;
+    },
+    async findPendingApproval(installationId: string, channelId: string) {
+      const binding =
+        installationId === INSTALLATION ? stored.get(channelId) : undefined;
+      return binding?.status === "pending_approval"
+        ? { id: binding.id, revision: binding.revision }
         : null;
     },
   },
@@ -194,7 +201,10 @@ const slackUser = (id: string, extra: Partial<SlackUser> = {}): SlackUser => ({
 
 // The channel's binding as the store holds it; `null` stores none.
 type Binding = Partial<
-  Pick<SurfaceBindingRecord, "channelKind" | "ceiling" | "mode" | "agentId">
+  Pick<
+    SurfaceBindingRecord,
+    "channelKind" | "ceiling" | "mode" | "agentId" | "status"
+  >
 >;
 
 function bind(channelId: string | null, binding: Binding) {
@@ -210,6 +220,7 @@ function bind(channelId: string | null, binding: Binding) {
     home: false,
     memoryWritePolicy: "deny",
     status: "ready",
+    approvedAt: null,
     membership: null,
     muted: false,
     revision: 1,
@@ -391,6 +402,33 @@ describe("the channel's stored binding (94S-177)", () => {
         reason_code: "agent_ceiling",
       });
     }
+  });
+
+  test("a private channel waiting for approval takes nothing, and its people are told it waits, once per wait", async () => {
+    link("U0B", 1);
+    const waiting = input(slackUser("U0B"), {
+      binding: { channelKind: "private_channel", status: "pending_approval" },
+    });
+    expect(await judge(waiting)).toMatchObject({
+      decision: { outcome: "deny", reason_code: "surface_ceiling" },
+      actorUserId: null,
+      notice: { message: "pendingApproval" },
+      pending: { id: BINDING, revision: 1 },
+    });
+    const pressed = pressing(slackUser("U0B"));
+    stored.set(CHANNEL, {
+      ...(stored.get(CHANNEL) as SurfaceBindingRecord),
+      status: "pending_approval",
+    });
+    expect(await judge(pressed)).toMatchObject({
+      decision: { outcome: "deny" },
+      notice: { message: "pendingApproval" },
+    });
+    stored.set(CHANNEL, {
+      ...(stored.get(CHANNEL) as SurfaceBindingRecord),
+      status: "ready",
+    });
+    expect((await judge(input(slackUser("U0B")))).pending).toBeNull();
   });
 
   test("an unbound, switched-off or other agent's channel is refused, not dropped", async () => {

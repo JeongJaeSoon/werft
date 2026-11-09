@@ -910,7 +910,7 @@ describe("에이전트 상세 탭", () => {
     });
     const panel = await screen.findByRole("tabpanel");
     await within(panel).findByText("재무");
-    await within(panel).findByText(/에이전트 관리자는/);
+    await within(panel).findByText(/담당 팀과 별개로/);
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByRole("combobox")).toBeNull();
   });

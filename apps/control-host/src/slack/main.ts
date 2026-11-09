@@ -235,6 +235,9 @@ export function slackSessionHandler(deps: {
   const consoleOrigin = consoleOriginFrom(environment);
   const identities = createPostgresAgentIdentityStore(db);
   const bindings = createPostgresSurfaceBindingStore(db);
+  const slackApi = createSlackBotApi({
+    apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+  });
   const sessionHandler = createSlackSessionHandler({
     inbox: deps.inbox ?? createPostgresSlackInboundEventStore(db),
     leaseMs: deps.leaseMs,
@@ -261,9 +264,7 @@ export function slackSessionHandler(deps: {
         )
       );
     },
-    slack: createSlackBotApi({
-      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
-    }),
+    slack: slackApi,
     botToken: (workspaceId, slackAppId) =>
       slackBotToken(secrets, workspaceId, slackAppId),
     notices: deps.notices ?? createLoggingSlackNoticeSink(logger),
@@ -284,6 +285,9 @@ export function slackSessionHandler(deps: {
       join: null,
       logger,
     }),
+    slack: slackApi,
+    botToken: (workspaceId, slackAppId) =>
+      slackBotToken(secrets, workspaceId, slackAppId),
     next: sessionHandler,
   });
 }

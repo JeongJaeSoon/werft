@@ -12,21 +12,19 @@ import type {
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
-  Avatar,
-  avatarInitials,
-  buttonVariants,
+  Badge,
   Combobox,
   ConfirmDialog,
   EmptyState,
   RowAction,
-  RowLines,
   RowList,
   RowListItem,
   Section,
+  SettingRow,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentAdminsQuery,
@@ -43,7 +41,6 @@ import {
   usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
-import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { useManagesAgent } from "./agent-access.tsx";
 import { LoadFailure } from "./load-failure.tsx";
@@ -52,6 +49,7 @@ import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
 import { SECTION_BODY } from "./section-body.ts";
 import { StatusScreen } from "./status-screen.tsx";
+import type { Notify } from "./toast.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
 const ADMIN_ROW = "gap-y-[var(--werft-row-line-gap)]";
@@ -63,23 +61,19 @@ const DAY = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
 });
 
-/** The same person gets the same avatar colour on every visit. */
-function avatarTone(id: string): 1 | 2 | 3 | 4 {
-  let sum = 0;
-  for (const char of id) sum += char.charCodeAt(0);
-  return ((sum % 4) + 1) as 1 | 2 | 3 | 4;
-}
-
 /** contracts TEAM_LIST_LIMIT: a list this long may have left agents out. */
 export const ADMINISTERED_LIST_LIMIT = 200;
 
-export function AgentAdmins({
-  agentId,
-  onOutcome,
-}: {
+interface AdminListProps {
   readonly agentId: string;
+  /** Marks the admin team that is also the managing team. */
+  readonly managingTeamId: string;
+  /** Said as a toast; only a refusal is placed on the page. */
+  readonly notify: Notify;
   readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+}
+
+export function AgentAdmins(props: AdminListProps) {
   const { t } = useI18n();
   return (
     <Section
@@ -87,7 +81,7 @@ export function AgentAdmins({
       description={t("agentAdmins.intro")}
     >
       <div className={SECTION_BODY}>
-        <AdminList agentId={agentId} onOutcome={onOutcome} />
+        <AdminList {...props} />
       </div>
     </Section>
   );
@@ -95,11 +89,10 @@ export function AgentAdmins({
 
 function AdminList({
   agentId,
+  managingTeamId,
+  notify,
   onOutcome,
-}: {
-  readonly agentId: string;
-  readonly onOutcome: (outcome: Outcome | null) => void;
-}) {
+}: AdminListProps) {
   const manages = useManagesAgent();
   const { t } = useI18n();
   const { client } = useWerft();
@@ -124,14 +117,6 @@ function AdminList({
     ...teamPagesQuery(client, q),
     enabled: listsTeams && picking,
   });
-  // The input's text is held here so editing it after a choice drops the
-  // choice: what is added is always what the input shows.
-  const [text, setText] = useState("");
-  const [picked, setPicked] = useState<{
-    kind: AgentAdminKind;
-    id: string;
-    name: string;
-  } | null>(null);
   const [removing, setRemoving] = useState<{
     kind: AgentAdminKind;
     id: string;
@@ -168,14 +153,7 @@ function AdminList({
         queryKeysOf(client).agentAdmins(agentId),
         result.admins,
       );
-      if (add) {
-        setPicked(null);
-        setText("");
-      }
-      onOutcome({
-        kind: "notice",
-        text: t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }),
-      });
+      notify(t(add ? "agentAdmins.added" : "agentAdmins.removed", { name }));
       // Naming or dropping the caller (or their team) changes what they
       // administer; the list's summaries name the admins.
       await Promise.all([
@@ -191,6 +169,19 @@ function AdminList({
         text: refusalText(t, error, "agent.admin.manage", role),
       }),
   });
+
+  // The picker is locked while a change runs, and a disabled input drops focus
+  // to the page. Give it back when the lock lifts, but only if the page still
+  // holds it: someone who moved on keeps their place.
+  const pickerHadFocus = useRef(false);
+  useEffect(() => {
+    if (change.isPending || !pickerHadFocus.current) return;
+    pickerHadFocus.current = false;
+    const picker = document.getElementById(pickerId);
+    if (picker && (document.activeElement ?? document.body) === document.body) {
+      picker.focus();
+    }
+  }, [change.isPending, pickerId]);
 
   if (admins.isPending) return <StatusScreen kind="loading" />;
   if (admins.error) {
@@ -271,6 +262,9 @@ function AdminList({
             ? t("agentAdmins.nothingLeft")
             : undefined
       : undefined;
+  // Said under the picker: the whole reason when neither half can be picked
+  // (the picker is shut), else the part that failed or ran out.
+  const hint = addReason ?? partial;
   const since = (at: string) => {
     const parts = new Map(
       DAY.formatToParts(new Date(at)).map((p) => [p.type, p.value] as const),
@@ -279,114 +273,84 @@ function AdminList({
       date: `${parts.get("month")}/${parts.get("day")}`,
     });
   };
+  // A quiet action like the repository and channel lists use; the confirm
+  // dialog still stands between it and the change.
   const removeButton = (kind: AgentAdminKind, id: string, name: string) =>
     manages ? (
       <RowAction
-        variant="danger"
-        className="ml-auto"
         disabled={change.isPending}
         aria-label={t("agentAdmins.removeFor", { name })}
         onClick={() => setRemoving({ kind, id, name })}
       >
         {t("agentAdmins.remove")}
       </RowAction>
-    ) : null;
+    ) : undefined;
 
   return (
-    <div className="overflow-hidden rounded-card border bg-card">
+    <>
       {admins.data.users.length + admins.data.teams.length === 0 ? (
         <EmptyState title={t("agentAdmins.empty")} />
       ) : (
-        <RowList variant="joined" framed={false}>
+        <RowList variant="joined" aria-label={t("agentAdmins.title")}>
           {admins.data.users.map((user) => {
             const name = user.display_name ?? user.email;
             return (
-              <RowListItem key={`u:${user.user_id}`}>
-                <Avatar
-                  size="two-line"
-                  initials={avatarInitials(name).slice(0, 1)}
-                  tone={avatarTone(user.user_id)}
-                />
-                <RowLines>
-                  <Text
-                    as="span"
-                    weight="medium"
-                    className="[overflow-wrap:anywhere]"
-                  >
-                    {name}
-                  </Text>
-                  <Text
-                    as="span"
-                    variant="meta"
-                    className="[overflow-wrap:anywhere]"
-                  >
-                    <span className="sr-only">
-                      {t("agentAdmins.person")} ·{" "}
-                    </span>
-                    {user.email} · {since(user.created_at)}
-                  </Text>
-                </RowLines>
-                {removeButton("users", user.user_id, name)}
-              </RowListItem>
+              <SettingRow
+                key={`u:${user.user_id}`}
+                title={name}
+                badge={<Badge>{t("agentAdmins.person")}</Badge>}
+                description={`${user.email} · ${since(user.created_at)}`}
+                actions={removeButton("users", user.user_id, name)}
+              />
             );
           })}
           {admins.data.teams.map((row) => (
-            <RowListItem key={`t:${row.team_id}`}>
-              <Avatar
-                size="two-line"
-                shape="square"
-                initials={avatarInitials(row.name).slice(0, 1)}
-                tone={avatarTone(row.team_id)}
-              />
-              <RowLines>
-                <Text
-                  as="span"
-                  weight="medium"
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {row.name}
-                </Text>
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {t("agentAdmins.team")} · {since(row.created_at)}
-                </Text>
-              </RowLines>
-              {removeButton("teams", row.team_id, row.name)}
-            </RowListItem>
+            <SettingRow
+              key={`t:${row.team_id}`}
+              title={row.name}
+              badge={
+                <>
+                  <Badge>{t("agentAdmins.team")}</Badge>
+                  {row.team_id === managingTeamId ? (
+                    <Badge variant="blue">
+                      {t("agentAdmins.alsoManaging")}
+                    </Badge>
+                  ) : null}
+                </>
+              }
+              description={
+                row.team_id === managingTeamId
+                  ? `${t("agentAdmins.alsoManagingNote")} · ${since(row.created_at)}`
+                  : since(row.created_at)
+              }
+              actions={removeButton("teams", row.team_id, row.name)}
+            />
           ))}
         </RowList>
       )}
       {manages ? (
+        // A form so the pointer and focus listeners sit on an element that may
+        // carry them; Enter never submits it (the picker takes the key).
         <form
-          className="flex flex-wrap items-center gap-2 border-t px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]"
+          className="flex flex-wrap items-center gap-2"
           onPointerEnter={() => setPicking(true)}
           onFocus={() => setPicking(true)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (picked) change.mutate({ add: true, ...picked });
-          }}
+          onSubmit={(event) => event.preventDefault()}
         >
           <label className="sr-only" htmlFor={pickerId}>
             {t("agentAdmins.pick")}
           </label>
-          <div className="w-60 max-w-full min-w-0 flex-1 sm:flex-none">
+          <div className="w-72 max-w-full min-w-0 flex-1 sm:flex-none">
             <Combobox
               id={pickerId}
-              aria-describedby={partial ? hintId : undefined}
+              aria-describedby={hint ? hintId : undefined}
               options={options}
-              value={picked ? `${picked.kind}:${picked.id}` : null}
-              inputValue={text}
-              onInputValueChange={(next) => {
-                setText(next);
-                setPicked((current) =>
-                  current && current.name !== next ? null : current,
-                );
-              }}
+              value={null}
+              clearOnSelect
               maxLength={SEARCH_MAX}
-              disabled={!listsMembers && !listsTeams}
+              // Locked while a change is in flight: the picker clears its query on
+              // select, so a choice made now would be dropped with nothing to retry.
+              disabled={change.isPending || (!listsMembers && !listsTeams)}
               filter="none"
               onQueryChange={setTerm}
               debounceMs={SEARCH_SETTLE_MS}
@@ -395,9 +359,13 @@ function AdminList({
                 if (members.hasNextPage) void members.fetchNextPage();
                 if (teams.hasNextPage) void teams.fetchNextPage();
               }}
+              // Choosing from the results adds at once; there is no second
+              // button to leave disabled.
               onValueChange={(value, option) => {
                 const [kind, id] = value.split(":") as [AgentAdminKind, string];
-                setPicked({ kind, id, name: option.label });
+                pickerHadFocus.current =
+                  document.activeElement === document.getElementById(pickerId);
+                change.mutate({ add: true, kind, id, name: option.label });
               }}
               placeholder={t("agentAdmins.pickPlaceholder")}
               loading={members.isFetching || teams.isFetching}
@@ -412,17 +380,9 @@ function AdminList({
               }
             />
           </div>
-          <ReasonButton
-            type="submit"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-            reason={addReason}
-            disabled={!picked || change.isPending}
-          >
-            {t("agentAdmins.add")}
-          </ReasonButton>
-          {partial ? (
+          {hint ? (
             <Text id={hintId} variant="meta" className="basis-full">
-              {partial}
+              {hint}
             </Text>
           ) : null}
         </form>
@@ -446,7 +406,7 @@ function AdminList({
           if (removing) change.mutate({ add: false, ...removing });
         }}
       />
-    </div>
+    </>
   );
 }
 

@@ -115,6 +115,7 @@ import {
   receiptAcceptedResponseSchema,
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
+  resolveSlackBindingResponseSchema,
   retryProfileRolloutResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
@@ -342,6 +343,10 @@ export const responseSchemas = {
     revokeAgentIdentityResponseSchema,
   "GET /v1/agents/{id}/slack-bindings": listSlackBindingsResponseSchema,
   "PUT /v1/agents/{id}/slack-bindings": putSlackBindingResponseSchema,
+  "POST /v1/agents/{id}/slack-bindings/{binding_id}/approve":
+    resolveSlackBindingResponseSchema,
+  "POST /v1/agents/{id}/slack-bindings/{binding_id}/reject":
+    resolveSlackBindingResponseSchema,
   "GET /v1/agents/{id}/slack/channels": searchSlackChannelsResponseSchema,
   "GET /v1/api-keys": listApiKeysResponseSchema,
   "POST /v1/api-keys": createApiKeyResponseSchema,
@@ -410,6 +415,8 @@ export const responseSchemas = {
   "POST /v1/installation/settings/connections/{id}/convert":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/enable":
     settingsChangeResponseSchema,
   "GET /v1/installation/settings/mcp-servers":
     listSettingsMcpServersResponseSchema,

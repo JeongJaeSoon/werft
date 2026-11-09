@@ -116,6 +116,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation/settings/connections/{id}/convert",
     "POST /v1/installation/settings/connections/{id}/credential",
     "POST /v1/installation/settings/connections/{id}/disable",
+    "POST /v1/installation/settings/connections/{id}/enable",
     "GET /v1/installation/settings/mcp-servers",
     "POST /v1/installation/settings/mcp-servers",
     "PATCH /v1/installation/settings/mcp-servers/{id}",
@@ -251,6 +252,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/slack-bindings.test.ts": [
     "GET /v1/agents/{id}/slack-bindings",
     "PUT /v1/agents/{id}/slack-bindings",
+    "POST /v1/agents/{id}/slack-bindings/{binding_id}/approve",
+    "POST /v1/agents/{id}/slack-bindings/{binding_id}/reject",
   ],
   "routes/slack-channels.test.ts": [
     "GET /v1/agents/{id}/slack/channels",

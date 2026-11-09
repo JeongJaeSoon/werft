@@ -395,7 +395,7 @@ export const agentsKo = {
 
   "agentAdmins.title": "에이전트 관리자",
   "agentAdmins.intro":
-    "에이전트 관리자는 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 사람이나 팀을 관리자로 추가하세요.",
+    "담당 팀과 별개로, 여기에 추가한 사람이나 팀이 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 팀을 추가하면 그 팀 구성원 모두가 관리자가 됩니다.",
   "agentAdmins.empty":
     "아직 에이전트 관리자가 없습니다. 워크스페이스 소유자와 관리자는 여기에 추가하지 않아도 모든 에이전트를 관리할 수 있습니다.",
   "agentAdmins.person": "사람",
@@ -412,7 +412,9 @@ export const agentsKo = {
   "agentAdmins.pickLoading": "사람과 팀을 불러오는 중…",
   "agentAdmins.pickEmpty": "맞는 사람이나 팀이 없습니다.",
   "agentAdmins.pickCount": "{count}개가 있습니다.",
-  "agentAdmins.add": "관리자로 추가",
+  "agentAdmins.alsoManaging": "담당 팀",
+  "agentAdmins.alsoManagingNote":
+    "담당 팀이기도 합니다. 팀 관리자만이 아니라 구성원 모두가 관리자입니다",
   "agentAdmins.nothingLeft":
     "추가할 수 있는 사람이나 팀이 없습니다. 활성 구성원과 팀이 모두 이미 관리자입니다.",
   "agentAdmins.since": "{date}부터 관리자",
@@ -426,14 +428,16 @@ export const agentsKo = {
 
   "managingTeam.title": "담당 팀",
   "managingTeam.intro":
-    "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
+    "담당 팀의 팀 관리자가 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 담당 팀은 늘 하나이고 바꿀 수만 있습니다.",
   "managingTeam.noLead": "이 담당 팀에는 팀 관리자가 없습니다.",
   "managingTeam.pick": "담당 팀으로 정할 팀",
   "managingTeam.pickPlaceholder": "팀 고르기",
   "managingTeam.change": "바꾸기",
+  "managingTeam.holding":
+    "보관용으로 만들어진 팀이라 담당 팀으로 고를 수 없습니다. 다른 팀을 고르세요.",
   "managingTeam.saving": "저장하는 중…",
   "managingTeam.audience":
-    "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
+    "담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
   "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
   "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
   "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
@@ -855,7 +859,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
 
   "agentAdmins.title": "Agent admins",
   "agentAdmins.intro":
-    "Agent admins manage this agent's card, releases, linked credentials and agent keys. Add people or teams as admins.",
+    "Apart from the responsible team, the people and teams added here manage this agent's card, releases, linked credentials and agent keys. Adding a team makes all of its members admins.",
   "agentAdmins.empty":
     "No agent admins yet. Workspace owners and admins can manage every agent without being added here.",
   "agentAdmins.person": "Person",
@@ -872,7 +876,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pickLoading": "Loading people and teams…",
   "agentAdmins.pickEmpty": "No person or team matches.",
   "agentAdmins.pickCount": "{count} found.",
-  "agentAdmins.add": "Add as admin",
+  "agentAdmins.alsoManaging": "Responsible team",
+  "agentAdmins.alsoManagingNote":
+    "Also the responsible team: every member is an admin, not only the team leads",
   "agentAdmins.nothingLeft":
     "There is no one left to add. Every active member and team is already an admin.",
   "agentAdmins.since": "Admin since {date}",
@@ -886,14 +892,16 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
 
   "managingTeam.title": "Responsible team",
   "managingTeam.intro":
-    "This team's leads manage this agent; its members see its settings and use it.",
+    "The leads of the responsible team manage this agent; its members see its settings and use it. An agent always has one responsible team, which can be changed but not cleared.",
   "managingTeam.noLead": "This responsible team has no team lead.",
   "managingTeam.pick": "Team to make the responsible team",
   "managingTeam.pickPlaceholder": "Pick a team",
   "managingTeam.change": "Change",
+  "managingTeam.holding":
+    "This team was made to hold unassigned agents and cannot be picked. Pick another team.",
   "managingTeam.saving": "Saving…",
   "managingTeam.audience":
-    "With a responsible team, people outside it see only their own sessions of this agent and the ones shared with them (workspace setting).",
+    "People outside the responsible team see only their own sessions of this agent and the ones shared with them (workspace setting).",
   "managingTeam.saved": "The responsible team is now {name}.",
   "managingTeam.notAllowed": "You can only pick a team you are in.",
   "managingTeam.noChoices": "There is no other team you can pick.",
@@ -1311,7 +1319,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
 
   "agentAdmins.title": "エージェント管理者",
   "agentAdmins.intro":
-    "エージェント管理者は、このエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。人またはチームを管理者に追加してください。",
+    "担当チームとは別に、ここに追加した人やチームがこのエージェントのカード・リリース・接続した認証情報・エージェントキーを管理します。チームを追加すると、そのチームのメンバー全員が管理者になります。",
   "agentAdmins.empty":
     "エージェント管理者はまだいません。ワークスペースのオーナーと管理者は、ここに追加しなくてもすべてのエージェントを管理できます。",
   "agentAdmins.person": "人",
@@ -1328,7 +1336,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentAdmins.pickLoading": "人とチームを読み込み中…",
   "agentAdmins.pickEmpty": "一致する人やチームはいません。",
   "agentAdmins.pickCount": "{count}件見つかりました。",
-  "agentAdmins.add": "管理者に追加",
+  "agentAdmins.alsoManaging": "担当チーム",
+  "agentAdmins.alsoManagingNote":
+    "担当チームでもあり、チーム管理者だけでなくメンバー全員が管理者です",
   "agentAdmins.nothingLeft":
     "追加できる人やチームがいません。有効なメンバーとチームはすべて管理者です。",
   "agentAdmins.since": "{date}から管理者",
@@ -1351,14 +1361,16 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
 
   "managingTeam.title": "担当チーム",
   "managingTeam.intro":
-    "このチームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。",
+    "担当チームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。担当チームは常に1つで、変更のみできます。",
   "managingTeam.noLead": "この担当チームにはチーム管理者がいません。",
   "managingTeam.pick": "担当チームにするチーム",
   "managingTeam.pickPlaceholder": "チームを選ぶ",
   "managingTeam.change": "変更",
+  "managingTeam.holding":
+    "保管用に作られたチームなので、担当チームには選べません。ほかのチームを選んでください。",
   "managingTeam.saving": "保存中…",
   "managingTeam.audience":
-    "担当チームを決めると、チーム外の人はこのエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
+    "担当チーム外の人は、このエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
   "managingTeam.saved": "担当チームを「{name}」にしました。",
   "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
   "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",

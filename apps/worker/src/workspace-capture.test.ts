@@ -15,7 +15,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readGitBundleHeader } from "@werft-ai/runtime-core";
+import {
+  CHECKPOINT_SOURCE_PREFIX,
+  MAX_CHECKPOINT_SOURCES,
+  readGitBundleHeader,
+} from "@werft-ai/runtime-core";
 import { isolatedGit } from "@werft-ai/testkit/git";
 import {
   GitOutputLimitError,
@@ -102,18 +106,22 @@ async function running(pid: number): Promise<boolean> {
 }
 
 async function capture(
-  options: { limits?: Partial<typeof DEFAULT_WORKSPACE_CAPTURE_LIMITS> } = {},
+  options: {
+    limits?: Partial<typeof DEFAULT_WORKSPACE_CAPTURE_LIMITS>;
+    keepBranches?: boolean;
+  } = {},
 ) {
   return captureWorkspace({
     root,
     bundlePath: bundlePath(),
     signal: new AbortController().signal,
     limits: { ...DEFAULT_WORKSPACE_CAPTURE_LIMITS, ...options.limits },
+    keepBranches: options.keepBranches ?? true,
   });
 }
 
-async function captured(): Promise<WorkspaceCapture> {
-  const result = await capture();
+async function captured(keepBranches = true): Promise<WorkspaceCapture> {
+  const result = await capture({ keepBranches });
   if (result.status !== "captured") throw new Error(result.reason);
   return result.capture;
 }
@@ -374,7 +382,7 @@ exec "$REAL_GIT" "$@"`);
     );
   });
 
-  test("bundles no branch for a detached HEAD", async () => {
+  test("bundles no branch for a detached HEAD, only the branches as sources", async () => {
     const head = await commitFiles({ "a.txt": "a\n" });
     await git(root, "checkout", "--quiet", "--detach");
 
@@ -383,8 +391,97 @@ exec "$REAL_GIT" "$@"`);
     expect(header?.refs.map((ref) => ref.name)).toEqual([
       CHECKPOINT_HEAD_REF,
       CHECKPOINT_WORKTREE_REF,
+      `${CHECKPOINT_SOURCE_PREFIX}main`,
     ]);
     expect(header?.refs[0]?.oid).toBe(head);
+  });
+
+  test("keeps every local branch as a source, each at its own commit", async () => {
+    const base = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "checkout", "--quiet", "-b", "guard/docs");
+    const guard = await commitFiles({ "guard.md": "guard\n" });
+    await git(root, "checkout", "--quiet", "-b", "skills-sample", base);
+    const skills = await commitFiles({ "skills.md": "skills\n" });
+
+    const result = await captured();
+
+    expect(result.gitCommit).toBe(skills);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        { name: "main", commit: base },
+        { name: "guard/docs", commit: guard },
+        { name: "skills-sample", commit: skills },
+      ]),
+    );
+    expect(result.sources).toHaveLength(3);
+    const refs = headerOf(result)?.refs ?? [];
+    expect(refs).toContainEqual({
+      name: `${CHECKPOINT_SOURCE_PREFIX}guard/docs`,
+      oid: guard,
+    });
+    expect(refs).toContainEqual({
+      name: `${CHECKPOINT_SOURCE_PREFIX}main`,
+      oid: base,
+    });
+    expect(refs.map((ref) => ref.name)).not.toContain(
+      `${CHECKPOINT_SOURCE_PREFIX}skills-sample`,
+    );
+  });
+
+  test("carries no branch and no source ref unless the caller asks, so an older API still takes the manifest", async () => {
+    const base = await commitFiles({ "a.txt": "a\n" });
+    await git(root, "checkout", "--quiet", "-b", "guard/docs");
+    await commitFiles({ "guard.md": "guard\n" });
+    await git(root, "checkout", "--quiet", "main");
+
+    const result = await captured(false);
+
+    expect(result.gitCommit).toBe(base);
+    expect(result.sources).toEqual([]);
+    expect(
+      headerOf(result)?.refs.some((ref) =>
+        ref.name.startsWith(CHECKPOINT_SOURCE_PREFIX),
+      ),
+    ).toBe(false);
+  });
+
+  test("keeps at most MAX_CHECKPOINT_SOURCES branches, the newest first, rather than refusing", async () => {
+    // `git` above pins the environment, so a committer date needs its own spawn.
+    const dated = async (date: string) => {
+      const child = Bun.spawn(
+        ["git", "commit", "--quiet", "--allow-empty", "-m", date],
+        {
+          cwd: root,
+          env: {
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+            HOME: scratch,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_AUTHOR_NAME: "test",
+            GIT_AUTHOR_EMAIL: "test@example.test",
+            GIT_COMMITTER_NAME: "test",
+            GIT_COMMITTER_EMAIL: "test@example.test",
+            GIT_COMMITTER_DATE: date,
+          },
+        },
+      );
+      expect(await child.exited).toBe(0);
+    };
+    await commitFiles({ "a.txt": "a\n" });
+    await dated("2000-01-01T00:00:00Z");
+    for (let at = 0; at < 3; at += 1) {
+      await git(root, "branch", `a-old-${at}`);
+    }
+    await dated("2020-01-01T00:00:00Z");
+    for (let at = 0; at < MAX_CHECKPOINT_SOURCES; at += 1) {
+      await git(root, "branch", `z-new-${at}`);
+    }
+
+    const result = await captured();
+
+    expect(result.sources).toHaveLength(MAX_CHECKPOINT_SOURCES);
+    expect(
+      result.sources.filter((source) => source.name.startsWith("a-old-")),
+    ).toEqual([]);
   });
 
   test("pins the caller's instructions commit, from objects kept outside the workspace", async () => {

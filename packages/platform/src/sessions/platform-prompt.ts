@@ -45,12 +45,12 @@ export function platformPromptOf(input: {
   identity: AgentPromptIdentity;
   surface: AuthorizationSurface;
   repositoryUrl: string | null;
-  /** AGENT_ACTION_FLOWS when the session is created: the push wording differs (revision 3, not 2). */
+  /** AGENT_ACTION_FLOWS when the session is created: the push wording differs (revision 6, not 1). */
   actionFlows?: boolean;
 }): PlatformPrompt {
   const { identity } = input;
   return {
-    prompt_revision: input.actionFlows === true ? 3 : 1,
+    prompt_revision: input.actionFlows === true ? 6 : 1,
     agent_identity: {
       name: identity.name,
       description:
