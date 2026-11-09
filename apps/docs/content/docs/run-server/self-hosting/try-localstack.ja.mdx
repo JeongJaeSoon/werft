@@ -70,7 +70,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 | `POSTGRES_PASSWORD` | ランダムな値。英字、数字、`.` `_` `~` `-` だけを使います |
 | `EGRESS_AUTHORIZER_TOKEN` | 32 文字以上のランダムな値 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。失うと保存した資格情報を読めなくなります |
-| `BOOTSTRAP_TOKEN` | コメントを外し、32–256 文字のランダムな値を設定します。最初の owner を作るトークンです。未設定なら API が生成し、コンテナログに出力します |
+| `BOOTSTRAP_TOKEN` | コメントを外し、32–256 文字のランダムな値を設定します。最初の owner を作るトークンです。未設定なら API が生成し、`deploy` の後に `scripts/test-ops.sh bootstrap-token` が一度だけ表示します |
 
 `EXECUTION_INSTALLATION_ID=test-ops`、`PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`、`EXECUTION_WORKSPACE_QUOTA=on` を使います。credential allowlist は `api.anthropic.com:443,github.com:443`、private credential allowlist は `localstack:4566` です。AWS key・region・bucket 変数は例のまま空にします。LocalStack は固定の試験 key と `claude-sessions` bucket を使います。
 

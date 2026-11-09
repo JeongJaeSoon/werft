@@ -70,7 +70,7 @@ Open `/etc/werft/test-ops.env` in an editor and fill in the following. Tools suc
 | `POSTGRES_PASSWORD` | Random value using only letters, digits, `.`, `_`, `~`, and `-` |
 | `EGRESS_AUTHORIZER_TOKEN` | Random value of at least 32 characters |
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`. Losing it prevents reading stored credentials |
-| `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and prints it in container logs |
+| `BOOTSTRAP_TOKEN` | Uncomment and enter a random 32–256-character token for creating the first owner. If omitted, the API generates one and `scripts/test-ops.sh bootstrap-token` shows it once after `deploy` |
 
 Use `EXECUTION_INSTALLATION_ID=test-ops`, `PLATFORM_SETTINGS_DOCUMENT=/etc/werft/settings.json`, and `EXECUTION_WORKSPACE_QUOTA=on`. Set the credential allowlist to `api.anthropic.com:443,github.com:443` and the private credential allowlist to `localstack:4566`. Leave AWS key, region, and bucket variables empty as in the example. LocalStack uses fixed test keys and the `claude-sessions` bucket.
 

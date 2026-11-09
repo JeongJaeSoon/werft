@@ -13,7 +13,7 @@ Sessions run with the profile named by `profile_id`, and a session created from 
 
 The web console of the local stack is at `http://127.0.0.1:3000/`.
 
-1. The first time only, create the first owner and workspace at `/bootstrap`. The API logs the bootstrap token once when it first starts: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
+1. The first time only, create the first owner and workspace at `/bootstrap`. How you get the first owner's token depends on the installation. A single-server installation shows it once with `scripts/test-ops.sh bootstrap-token`. See [first owner and keys](/run-server/self-hosting/users-and-keys) for details.
 2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with five steps: Name → What it does → Release → Turn on → Connect channels.
 3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". Click "Next".
 4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.

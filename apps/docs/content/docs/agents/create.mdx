@@ -13,7 +13,7 @@ description: 에이전트를 정의하고, release를 만들어 활성화하고,
 
 로컬 스택의 웹 콘솔은 `http://127.0.0.1:3000/`이다.
 
-1. 처음 한 번은 `/bootstrap`에서 첫 owner와 워크스페이스를 만든다. bootstrap token은 API가 처음 뜰 때 로그에 한 번 찍는다: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
+1. 처음 한 번은 `/bootstrap`에서 첫 owner와 워크스페이스를 만든다. 첫 owner 토큰을 받는 방법은 설치 방식마다 다르다. 단일 서버 설치는 `scripts/test-ops.sh bootstrap-token`이 한 번 보여 준다. 자세한 내용은 [첫 owner와 key](/run-server/self-hosting/users-and-keys)에 있다.
 2. 로그인한 뒤 왼쪽 사이드바의 "에이전트"를 열고 오른쪽 위의 "새 에이전트"를 누른다. "새 에이전트" 화면이 다섯 단계(이름 → 하는 일 → 릴리스 → 켜기 → 채널 연결)로 열린다.
 3. "이름" 단계에서 이름을 넣는다. 식별자(slug)는 이름에서 채워지고 고칠 수 있다. 필요하면 "설명 (선택)"에 사람이 읽을 소개를 적는다. "다음"을 누른다.
 4. "하는 일" 단계에서 모델을 고르고, "쓸 수 있는 도구"에서 프로필 도구를 체크로 고른 뒤([지시문과 설명](/agents/instructions-and-roles#웹-콘솔에서-도구-고르기)) 답변 언어를 정하고 "초안 저장하고 다음"을 누른다. 에이전트가 초안으로 저장되고 버전 1이 생긴다. 동작 지시는 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다.
