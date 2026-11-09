@@ -445,8 +445,30 @@ integration("the readers of an agent's GitHub settings", () => {
       ).rejects.toThrow();
     });
 
-    test("approval off with push_attached allow is a policy approval for an attached repository; ask or deny after that sends it back to a person", async () => {
-      for (const narrowed of ["ask", "deny"]) {
+    test("approval off with push_attached allow is a policy approval for any repository; narrowing either setting sends it back to a person", async () => {
+      // The two cases the old split rule let through: the own repository with
+      // push_attached narrowed, an attached one with push_approval turned on.
+      const NARROWED = [
+        { repositoryId: "docs", pushApproval: false, pushAttached: "ask" },
+        { repositoryId: "docs", pushApproval: false, pushAttached: "deny" },
+        { repositoryId: "docs", pushApproval: true, pushAttached: "allow" },
+        {
+          repositoryId: "sample-app",
+          pushApproval: false,
+          pushAttached: "ask",
+        },
+        {
+          repositoryId: "sample-app",
+          pushApproval: false,
+          pushAttached: "deny",
+        },
+        {
+          repositoryId: "sample-app",
+          pushApproval: true,
+          pushAttached: "allow",
+        },
+      ];
+      for (const narrowed of NARROWED) {
         const { workspaceId, agentId, sessionId } = await fixture({
           source: "agent",
           start: START_ATTACHED_ALLOW,
@@ -466,7 +488,7 @@ integration("the readers of an agent's GitHub settings", () => {
         const created = await request({
           workspaceId,
           sessionId,
-          repositoryId: "docs",
+          repositoryId: narrowed.repositoryId,
           policyApproval: found?.policyApproval ?? null,
           policyFields: found?.policyFields ?? {},
         });
@@ -477,8 +499,8 @@ integration("the readers of an agent's GitHub settings", () => {
         });
 
         await settingsRow(workspaceId, agentId, {
-          pushApproval: false,
-          pushAttached: narrowed,
+          pushApproval: narrowed.pushApproval,
+          pushAttached: narrowed.pushAttached,
           revision: 3,
           updatedBy: randomUUID(),
         });

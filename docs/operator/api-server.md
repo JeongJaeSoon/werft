@@ -286,13 +286,19 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 
 ### push 규칙: 모든 저장소에 하나
 
-세션의 저장소가 무엇이든 push가 필요로 하는 승인은 규칙 하나로 정해진다. 에이전트의 `push_approval`(꺼져 있으면 `allow`, 아니면 `ask`)과 `push_attached` 중 더 엄격한 쪽이다. `deny`면 승인 요청 없이 거절하고, 읽을 수 없는 설정은 `ask`로 본다. API, push intent runner, push 실행기, 자격 증명 gate는 모두 control-host 한 이미지에서 같은 함수로 계산한다. 설치 설정은 없다.
+세션의 저장소가 무엇이든 push가 필요로 하는 승인은 규칙 하나로 정해진다. 에이전트의 `push_approval`(꺼져 있으면 `allow`, 아니면 `ask`)과 `push_attached` 중 더 엄격한 쪽이다. `deny`면 새 push 요청을 승인 요청 없이 거절한다. 계산은 유효한 설정에 대한 것이다. 에이전트 설정을 적용할 수 없으면 push 요청은 `ask`로 계산되고 자격 증명 gate가 따로 거절한다. API, push intent runner, push 실행기, 자격 증명 gate는 모두 control-host 한 이미지에서 같은 함수로 계산한다. 설치 설정은 없다.
 
 이전에는 세션 저장소의 push가 `push_approval`만, 그 밖의 저장소의 push가 `push_attached`만 따랐다. 바뀌는 것은 두 값이 다를 때뿐이고, 덜 엄격하던 저장소가 더 엄격한 쪽을 따른다. `push_approval`이 꺼져 있고 `push_attached`가 `ask`(기본)이면 세션 저장소의 push가 `allow`에서 `ask`로, `deny`면 `allow`에서 `deny`로 바뀐다. `push_approval`이 켜져 있고 `push_attached`가 `allow`면 그 밖의 저장소의 push가 `allow`에서 `ask`로, `deny`면 세션 저장소의 push가 `ask`에서 `deny`로 바뀐다.
 
-세션에 저장소가 없으면 workflow·review 도구는 `409 workflow_review_need_session_repository`로 거절된다. 저장소가 없는 세션의 다른 거절 사유는 그대로 `repository_none`이다. 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있다.
+세션에 저장소가 없으면 workflow·review 도구는 `409 workflow_review_need_session_repository`로 거절된다. 저장소가 없는 세션이 저장소를 직접 지정하는 작업(attach 등)의 거절 사유는 그대로다. 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있고, 구버전 서버는 새 코드의 refusal receipt를 목록에서 걸러 기록이 안 보일 수 있다. 어느 쪽도 실행을 허용으로 바꾸지는 않는다.
 
-이미 저장된 push intent의 분류(`push`·`push.primary`·`push.attached`)는 읽기만 하며 감사용이다. 실행 시점의 정책으로 다시 판정하므로 이전 규칙으로 만든 대기 중 intent도 새 규칙을 따른다. 이 규칙은 설정으로 끌 수 없고, 되돌리려면 이전 이미지로 롤백한다. 롤링 교체 중에는 새·구 파드가 같은 요청을 서로 다른 규칙으로 판정할 수 있다.
+이미 저장된 push intent의 분류(`push`·`push.primary`·`push.attached`)는 읽기만 하며 감사용이다. 실행 시점의 정책으로 다시 판정한다. 기존 행은 이렇게 바뀐다.
+
+- 정책 승인(`approved`, `approval_basis: policy`)이거나 lease가 끝난 `pushing`인 행은 새 규칙이 `allow`가 아니면 claim 때 `requested`로 돌아가 사람을 기다린다.
+- 이미 `requested`인 행과 사람이 승인한 행은 그대로다. 새 규칙이 `deny`인 저장소는 자격 증명 gate가 막으므로, 승인한 뒤에 실패할 수 있다.
+- lease가 살아 있는 `pushing`은 다시 검사하지 않는다.
+
+**교체 절차.** 이 규칙은 설정으로 끌 수 없고, 되돌리려면 이전 이미지로 롤백한다. 롤링 교체 중에는 구 replica가 같은 요청을 이전 규칙으로 판정해 사람 승인 없이 push할 수 있다(위 표에서 `allow`가 `ask`·`deny`로 바뀌는 조합). 행 잠금은 중복 claim만 막고 정책 버전을 강제하지 않는다. 그래서 교체와 롤백 모두 구 replica의 push 요청 수락, intent 처리, push 실행을 먼저 멈추고 진행 중인 push가 끝난 뒤 새 이미지를 올린다.
 
 ### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
 

@@ -125,10 +125,10 @@ export const agentGitHubKo = {
   "agentGitHub.pushApprovalHint":
     "켜면 에이전트가 만든 commit을 sessions:approve 권한이 있는 사람이 승인해야 push합니다. 기존 에이전트는 켜진 채로 옮겨졌습니다.",
   "agentGitHub.pushApprovalOff":
-    "승인 없이 agent/<세션> 브랜치로 push하고 PR을 엽니다.",
+    "이 설정만으로는 승인 없이 agent/<세션> 브랜치로 push하고 PR을 엽니다. 아래 push 규칙이 사람 승인이면 그쪽을 따릅니다.",
   "agentGitHub.pushAttached": "첨부 저장소 push",
   "agentGitHub.pushAttachedHint":
-    "세션이 붙인 저장소의 agent/<세션> 브랜치로 push할 때의 규칙입니다. 세션의 주 저장소는 위의 승인 설정을 따릅니다.",
+    "모든 저장소의 agent/<세션> 브랜치로 push할 때의 한도입니다. 위의 승인 설정과 이 값 중 더 엄격한 쪽을 따릅니다.",
   "agentGitHub.pushAttached.allow": "승인 없이 허용",
   "agentGitHub.pushAttached.ask": "사람 승인 필요",
   "agentGitHub.pushAttached.deny": "허용하지 않음",
@@ -337,10 +337,10 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushApprovalHint":
     "When on, someone with sessions:approve approves the agent's commits before they are pushed. Existing agents moved over with it on.",
   "agentGitHub.pushApprovalOff":
-    "Pushes to agent/<session> branches and opens pull requests without approval.",
+    "On its own, this pushes to agent/<session> branches and opens pull requests without approval. If the push rule below asks a person, that rule wins.",
   "agentGitHub.pushAttached": "Push to attached repositories",
   "agentGitHub.pushAttachedHint":
-    "The rule for pushing to agent/<session> branches of repositories a session attached. The session's own repository follows the approval setting above.",
+    "The limit for pushing to agent/<session> branches of every repository. The stricter of the approval setting above and this value applies.",
   "agentGitHub.pushAttached.allow": "Allow without approval",
   "agentGitHub.pushAttached.ask": "Ask a person",
   "agentGitHub.pushAttached.deny": "Do not allow",
@@ -552,10 +552,10 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushApprovalHint":
     "オンにすると、エージェントが作った commit を sessions:approve 権限のある人が承認してから push します。既存のエージェントはオンのまま移行しました。",
   "agentGitHub.pushApprovalOff":
-    "承認なしで agent/<セッション> ブランチに push し、PR を開きます。",
+    "この設定だけなら、承認なしで agent/<セッション> ブランチに push し、PR を開きます。下の push ルールが人の承認なら、そちらに従います。",
   "agentGitHub.pushAttached": "追加リポジトリへの push",
   "agentGitHub.pushAttachedHint":
-    "セッションが追加したリポジトリの agent/<セッション> ブランチへ push するときのルールです。セッションの主リポジトリは上の承認設定に従います。",
+    "すべてのリポジトリの agent/<セッション> ブランチへ push するときの上限です。上の承認設定とこの値のうち、より厳しい方に従います。",
   "agentGitHub.pushAttached.allow": "承認なしで許可",
   "agentGitHub.pushAttached.ask": "人の承認が必要",
   "agentGitHub.pushAttached.deny": "許可しない",

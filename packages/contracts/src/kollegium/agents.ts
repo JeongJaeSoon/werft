@@ -488,9 +488,10 @@ export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
 });
 
 /**
- * Whether a push to an attached repository (not the session's own) needs a
- * person. Stored on `agent_github_settings.push_attached`, never on a release
- * pin: a pin means `ask`.
+ * The bound `push_attached` puts on a push to any repository; the stricter of
+ * it and `push_approval` applies (`pushDecisionOf`). Stored on
+ * `agent_github_settings.push_attached`, never on a release pin: a pin means
+ * `ask`.
  */
 export const PUSH_ATTACHED_VALUES = ["allow", "ask", "deny"] as const;
 export const pushAttachedSchema = z.enum(PUSH_ATTACHED_VALUES);
