@@ -67,7 +67,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`
 
 ## Request
 
-The SDK passes only the session id, and the HTTP API sends an empty JSON object (`{}`) as the request body. The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
+The SDK passes only the session id, and the HTTP API by default sends an empty JSON object (`{}`) as the request body. The requester does not choose what is sent. The platform pins the session's latest checkpoint and its commit at that moment, and the branch `agent/<session-id>`. If you omit `repository_id`, the repository is the one named when the session was created. To send a repository that an agent session, which starts without one, attached, put its `repository_id` in the HTTP API body (the SDK's `pushRequests.create` does not take it yet). One request sends one repository, so with several repositories you make one request per repository, and the approval rule is the same for every repository.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
