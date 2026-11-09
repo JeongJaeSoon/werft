@@ -306,6 +306,14 @@ export const platformPromptSchema = z
   })
   .strict();
 
+export const runtimeExtensionSchema = z
+  .object({
+    name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    scope: z.enum(["profile", "workspace", "agent", "session"]),
+  })
+  .strict();
+
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
@@ -336,6 +344,17 @@ export const runtimeConfigSchema = z
     // so a session without variables claims exactly as before. Not part of
     // any fingerprint: changing a value must not break a running session.
     env: runtimeEnvSchema.optional(),
+    // In the strict claim config, so a worker that does not know the field
+    // refuses the claim instead of running without a required bundle.
+    extensions: z
+      .array(runtimeExtensionSchema)
+      .min(1)
+      .refine(
+        (bundles) =>
+          new Set(bundles.map((b) => b.name)).size === bundles.length,
+        { message: "must not repeat a bundle name" },
+      )
+      .optional(),
   })
   .strict();
 
@@ -1195,6 +1214,7 @@ export type AdditionalWorkspaceRepository = z.infer<
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+export type RuntimeExtension = z.infer<typeof runtimeExtensionSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
 export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;

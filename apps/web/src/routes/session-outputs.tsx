@@ -41,7 +41,6 @@ import {
   SessionAchievements,
   useSessionAchievements,
 } from "./session-achievements.tsx";
-import { SessionGitHubWork } from "./session-github-work.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -408,7 +407,6 @@ export function SessionOutputsTab({
       ) : (
         <SessionOutputs session={session} />
       )}
-      <SessionGitHubWork session={session} />
       <SessionGitHubRefusals session={session} />
       <div className="flex flex-col gap-1">
         <SessionAttribution session={session} />

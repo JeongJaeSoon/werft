@@ -101,6 +101,16 @@ export interface WorkerGatewayClient {
   restorePlan(request: RestorePlanRequest): Promise<RestorePlanResponse>;
   finalize(request: FinalizeRequest): Promise<FinalizeResponse>;
   release(request: ReleaseRequest): Promise<ReleaseResponse>;
+  /**
+   * The tar of one extension bundle the claim named, at most `maxBytes`
+   * long. Optional so the many callers that never fetch one need not fake it;
+   * a worker handed bundles by a gateway without it fails the start.
+   */
+  extensionBundle?(
+    attemptId: string,
+    digest: string,
+    options: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<Uint8Array>;
 }
 
 // What a response may carry, which is more: a rejected body, an oversized
