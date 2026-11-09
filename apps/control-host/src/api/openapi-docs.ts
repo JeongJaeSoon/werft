@@ -272,9 +272,9 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   SLACK_INSTALL_CONFLICT:
     "This Slack app is already installed in that Slack team for another workspace.",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack account linking cannot start: the workspace has no link app, nothing to make one with (no usable App Configuration Token, or the API runs without its master key) and no fallback OIDC app. `error.details.reason_code` is `config_token`, `store_off` or `no_console`. Ask an owner or admin to set up the Slack connection.",
+    "Slack account linking cannot start: the workspace has no link app, nothing to make one with (no usable App Configuration Token, or the API runs without its master key) and no fallback OIDC app. `error.details.reason_code` is `config_token`, `store_off` or `no_console`. Ask an owner or admin to set up Slack in Integrations.",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking.",
+    "GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.",
 };
 
 function when(

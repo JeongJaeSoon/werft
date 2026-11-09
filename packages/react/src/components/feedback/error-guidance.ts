@@ -486,9 +486,9 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   SLACK_APP_GONE:
     "Slack にこのアプリがありません — Slack タブでアプリを削除し、もう一度インストールしてください。",
   SLACK_LINK_NOT_CONFIGURED:
-    "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に Slack 接続の設定を依頼してください。",
+    "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 › Slack の設定を依頼してください。",
   GITHUB_LINK_NOT_CONFIGURED:
-    "GitHub アカウントの連携はまだ使えません — ワークスペースの管理者に GitHub 接続のユーザー連携の設定を依頼してください。",
+    "GitHub アカウントの連携はまだ使えません — ワークスペースの管理者に 連携 › GitHub のユーザー連携の設定を依頼してください。",
   AGENT_NOT_ACTIVE:
     "有効な release がないエージェントです — release を有効化してからもう一度お試しください。",
   SLACK_INSTALL_STATE_INVALID:

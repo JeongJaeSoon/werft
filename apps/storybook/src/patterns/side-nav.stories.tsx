@@ -26,7 +26,7 @@ const COPY = {
     settings: "設定",
     workspace: "ワークスペース",
     mine: "自分の設定",
-    pages: ["一般", "Slack 連携設定", "組織管理キー"],
+    pages: ["一般", "連携", "組織管理キー"],
     myPages: ["連携アカウント", "API キー", "言語・テーマ"],
     slack: "Slack",
     manage: "管理",
