@@ -77,8 +77,6 @@ export async function publishExtensionBundles(
   const published: string[] = [];
   for (const bundle of options.bundles) {
     const target = join(root, bundle.digest);
-    // Not trusted for existing: the HOME tmpfs outlives a start, and the agent
-    // shares our uid, so a restart re-proves what an earlier one left.
     if (
       !isIntact(target, bundle.digest, options.maxBytes ?? MAX_BUNDLE_BYTES)
     ) {
@@ -126,14 +124,8 @@ function lstatOrNull(path: string) {
   }
 }
 
-/**
- * A published directory is the claimed bundle only while it is a real
- * directory tree of regular files, none writable, hashing to the digest.
- */
 function isIntact(target: string, digest: string, maxBytes: number): boolean {
   const files: { path: string; mode: number; sha256: string }[] = [];
-  // Sizes come from lstat, before any read: a bundle never grew past the
-  // download cap, so a directory that did is not one this worker published.
   let total = 0;
   const walk = (dir: string, prefix: string): boolean => {
     if ((statOf(dir)?.mode ?? 0o222) & 0o222) return false;
@@ -277,7 +269,6 @@ function place(
       writeFileSync(at, file.bytes, { flag: "wx", mode: 0o600 });
       chmodSync(at, file.mode === 0o755 ? 0o555 : 0o444);
     }
-    // Deepest first, so a directory is closed after its children.
     for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
       chmodSync(dir, 0o555);
     }
@@ -306,9 +297,7 @@ function discard(path: string): void {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.isDirectory()) open(join(dir, entry.name));
       }
-    } catch {
-      // Already gone or never closed: the removal below is what matters.
-    }
+    } catch {}
   };
   open(path);
   rmSync(path, { recursive: true, force: true });

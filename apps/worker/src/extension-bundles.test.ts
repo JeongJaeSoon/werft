@@ -46,7 +46,6 @@ function digestOf(entries: Entry[]): string {
   );
 }
 
-/** Rewrites the type flag of the first entry and fixes the header checksum. */
 function withType(tar: Uint8Array, type: string): Uint8Array {
   const out = tar.slice();
   out[156] = type.charCodeAt(0);
@@ -125,7 +124,6 @@ describe("a received bundle is published", () => {
     ]) {
       expect(statSync(path).mode & 0o222).toBe(0);
     }
-    // The execute bit is kept only where the bundle had it.
     expect(
       statSync(join(placed ?? "", "skills/lint/run.sh")).mode & 0o111,
     ).not.toBe(0);
@@ -133,7 +131,6 @@ describe("a received bundle is published", () => {
       statSync(join(placed ?? "", "skills/lint/SKILL.md")).mode & 0o111,
     ).toBe(0);
     expect(leftovers()).toEqual([]);
-    // The agent's own uid cannot add to it either.
     if (process.getuid?.() !== 0) {
       expect(() => writeFileSync(join(placed ?? "", "new"), "x")).toThrow();
     }

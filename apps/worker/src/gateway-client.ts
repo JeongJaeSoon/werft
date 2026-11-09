@@ -250,18 +250,13 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       let payload: unknown;
       try {
         payload = await response.json();
-      } catch {
-        // An unreadable error body falls back to the status alone.
-      }
+      } catch {}
       const refusal = failure(path, response.status, payload, "GET");
-      // The status decides, not the body: the route answers a damaged stored
-      // object with 503 and `retryable: false`, which still counts as the
-      // gateway failing rather than this request being wrong.
       throw new WorkerGatewayRequestError(
         refusal.status,
         refusal.code,
         refusal.message,
-        response.status >= 500 || response.status === 429,
+        isTransientStatus(response.status),
         refusal.details,
       );
     }
@@ -367,6 +362,10 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
   }
 }
 
+function isTransientStatus(status: number): boolean {
+  return status >= 500 || status === 429;
+}
+
 function failure(
   path: string,
   status: number,
@@ -381,7 +380,7 @@ function failure(
       status,
       null,
       `${method} ${path} failed with HTTP ${status}`,
-      status >= 500 || status === 429,
+      isTransientStatus(status),
     );
   }
   const { code, message: detail, retryable, details } = parsed.data.error;
