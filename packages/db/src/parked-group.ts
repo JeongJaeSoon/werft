@@ -21,6 +21,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { enqueueEndedIntentNotices } from "./action-notices.ts";
 import { dbNow } from "./db-clock.ts";
 import { enqueueWithin } from "./enqueue.ts";
 import { cancelParkedRequests } from "./pending-requests.ts";
@@ -365,7 +366,7 @@ async function carryPushIntents(
     eq(pushIntents.turnId, input.parkedTurnRowId),
     eq(pushIntents.status, "deferred"),
   );
-  await tx
+  const rows = await tx
     .update(pushIntents)
     .set(
       input.intervened
@@ -377,7 +378,14 @@ async function carryPushIntents(
           }
         : { turnId: input.continuationRowId, updatedAt: sql`now()` },
     )
-    .where(held);
+    .where(held)
+    .returning({ id: pushIntents.id });
+  if (input.intervened) {
+    await enqueueEndedIntentNotices(
+      tx,
+      rows.map((row) => row.id),
+    );
+  }
 }
 
 function isAllow(answer: unknown): boolean {

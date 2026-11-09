@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import type { PushIntentStore, PushIntentTransition } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { enqueueEndedIntentNotices } from "./action-notices.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import type { Database } from "./queries.ts";
@@ -76,6 +77,12 @@ export async function settleTurnPushIntents(
       ),
     )
     .returning({ id: pushIntents.id });
+  if (pin === null) {
+    await enqueueEndedIntentNotices(
+      tx,
+      rows.map((row) => row.id),
+    );
+  }
   return rows.length;
 }
 
@@ -242,32 +249,39 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
     },
 
     async end(job, status, code) {
-      const rows = await db
-        .update(pushIntents)
-        .set({
-          status,
-          refusalCode: code,
-          claimToken: null,
-          leaseExpiresAt: null,
-          settledAt: sql`now()`,
-          updatedAt: sql`now()`,
-        })
-        .where(
-          and(
-            eq(pushIntents.id, job.id),
-            eq(pushIntents.status, "pinned"),
-            eq(pushIntents.claimToken, job.claimToken),
-          ),
-        )
-        .returning({ id: pushIntents.id });
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .update(pushIntents)
+          .set({
+            status,
+            refusalCode: code,
+            claimToken: null,
+            leaseExpiresAt: null,
+            settledAt: sql`now()`,
+            updatedAt: sql`now()`,
+          })
+          .where(
+            and(
+              eq(pushIntents.id, job.id),
+              eq(pushIntents.status, "pinned"),
+              eq(pushIntents.claimToken, job.claimToken),
+            ),
+          )
+          .returning({ id: pushIntents.id });
+        await enqueueEndedIntentNotices(
+          tx,
+          rows.map((row) => row.id),
+        );
+        return rows.length > 0;
+      });
     },
 
     async settleStale() {
       // Session row first would be the lock order; this is a single
       // statement over rows no finalize can still pin (their turn is over or
       // their session closed), so it takes only the intent rows.
-      const rows = await db.execute(sql`
+      return db.transaction(async (tx) => {
+        const rows = await tx.execute(sql`
         UPDATE ${pushIntents} i
         SET status = 'cancelled',
             refusal_code = CASE WHEN s.admission_state = 'closed'
@@ -290,7 +304,13 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
                       WHERE c.parked_turn_id = t.id)))
                OR s.admission_state = 'closed')
         RETURNING i.id`);
-      return rowsOf(rows).length;
+        const ended = rowsOf(rows) as Array<{ id: string }>;
+        await enqueueEndedIntentNotices(
+          tx,
+          ended.map((row) => row.id),
+        );
+        return ended.length;
+      });
     },
 
     transition(job, input) {
@@ -328,6 +348,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
               updatedAt: sql`now()`,
             })
             .where(eq(pushIntents.id, job.id));
+          await enqueueEndedIntentNotices(tx, [job.id]);
           return { outcome: "ended", code };
         };
         // The session may have closed or been held since the claim: a closed
