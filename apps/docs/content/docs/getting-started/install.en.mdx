@@ -28,7 +28,7 @@ npm pkg set type=module
 npm install @werft-ai/sdk
 ```
 
-This command installs the release (dist-tag `latest`). To install the newest prerelease from main, run `npm install @werft-ai/sdk@main`. Its version is `<release version>-main.<12 characters of the commit>`, and `latest` does not move.
+This command installs the release (dist-tag `latest`). Automatic prerelease publishing on main pushes has stopped. The existing `main` dist-tag is no longer updated, so use a release version.
 
 The SDK package is under the Apache License 2.0. The server and the rest of the repository are source-available code under the PolyForm Small Business License 1.0.0.
 

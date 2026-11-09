@@ -28,7 +28,7 @@ npm pkg set type=module
 npm install @werft-ai/sdk
 ```
 
-このコマンドはリリース版(dist-tag `latest`)をインストールする。main の最新プレリリースは `npm install @werft-ai/sdk@main` でインストールする。バージョンは `<リリースバージョン>-main.<コミットの 12 文字>` で、`latest` は動かない。
+このコマンドはリリース版(dist-tag `latest`)をインストールする。main push ごとのプレリリース自動公開は停止した。既存の `main` dist-tag は更新されないため、リリース版を使用する。
 
 SDK パッケージは Apache License 2.0 である。サーバーとリポジトリの残りは PolyForm Small Business License 1.0.0 に従う source-available のコードである。
 

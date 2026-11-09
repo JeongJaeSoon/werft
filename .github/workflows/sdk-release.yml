@@ -1,40 +1,10 @@
 name: sdk-release
 
-# Builds, smokes and packs @werft-ai/sdk, and keeps the tarball as an artifact.
-# A manual run on main that names a `version` is the only path to npm: one run
-# checks the commit, creates the `sdk-v<version>` tag, and publishes with
-# provenance after a person approves the `release` environment. Pull requests
-# and manual runs without a version stop after the pack; they are the dry run.
-# A failed publish is retried with Re-run failed jobs on the same run. The
-# steps a person takes around a release are in packages/sdk/README.md
-# (빌드와 배포).
-# A push to main that touches the SDK also publishes a prerelease,
-# <package version>-main.<12 hex of the commit>, under the dist-tag `main`
-# (`publish-main`). Only a release moves `latest`.
+# PR consumer checks live in ci.yml. Only sdk-v* pushes and manual runs
+# reach this workflow; a manual run without a version only tests and packs.
 on:
-  pull_request:
-    paths:
-      - packages/sdk/**
-      - packages/client/**
-      - packages/contracts/**
-      - examples/**
-      - scripts/sdk-pack-smoke.ts
-      - bun.lock
-      - .github/actions/bun-setup/**
-      - .github/workflows/sdk-release.yml
   push:
-    branches: [main]
-    # The same paths as pull_request, written twice: Actions anchors are not
-    # relied on here.
-    paths:
-      - packages/sdk/**
-      - packages/client/**
-      - packages/contracts/**
-      - examples/**
-      - scripts/sdk-pack-smoke.ts
-      - bun.lock
-      - .github/actions/bun-setup/**
-      - .github/workflows/sdk-release.yml
+    tags: ["sdk-v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -43,15 +13,12 @@ on:
         required: false
         default: ''
 
-# Read-only at the top. `tag` alone may write the repository and `publish`
-# alone may mint the OIDC token npm trusts.
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-release-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.version }}
-  # A release run waiting on approval must not be cancelled by another run.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: sdk-release-${{ github.event_name }}-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -59,27 +26,28 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      # Reads the ci.yml run of the commit being released.
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: ./.github/actions/bun-setup
-      # The consumer's toolchain is npm's, as an outside app's would be.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      # Here, not in `tag`: a refused release must stop before anything is
-      # written. A failed lookup stops it too; it never reads as "absent".
-      - if: inputs.version != ''
+      # Ref, version and main CI are checked before any write-capable job.
+      - if: github.event_name == 'push' || inputs.version != ''
         name: Commit and version can be released
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           fail() { echo "::error::$1"; exit 1; }
-          [ "$GITHUB_REF" = refs/heads/main ] || fail "a release runs on main, not ${GITHUB_REF}"
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/tags/sdk-v*) VERSION=${GITHUB_REF#refs/tags/sdk-v} ;;
+            workflow_dispatch:refs/heads/main) ;;
+            *) fail "a release requires a pushed sdk-v tag or a manual run on main" ;;
+          esac
           version=$(node -p 'require("./packages/sdk/package.json").version')
           [ "$VERSION" = "$version" ] || fail "${VERSION} does not match packages/sdk version ${version}"
           git fetch --no-tags origin main
@@ -89,13 +57,15 @@ jobs:
           ci=$(gh api "$runs" --jq '.workflow_runs[0].conclusion // "not finished"') \
             || fail "could not read main CI for ${GITHUB_SHA}"
           [ "$ci" = success ] || fail "main CI for ${GITHUB_SHA} is ${ci}, not success"
-          found=0
-          git ls-remote --exit-code origin "refs/tags/sdk-v${VERSION}" >/dev/null || found=$?
-          case "$found" in
-            0) fail "tag sdk-v${VERSION} already exists" ;;
-            2) ;;
-            *) fail "could not read tag sdk-v${VERSION} from origin" ;;
-          esac
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            found=0
+            git ls-remote --exit-code origin "refs/tags/sdk-v${VERSION}" >/dev/null || found=$?
+            case "$found" in
+              0) fail "tag sdk-v${VERSION} already exists" ;;
+              2) ;;
+              *) fail "could not read tag sdk-v${VERSION} from origin" ;;
+            esac
+          fi
       - run: bun install --frozen-lockfile
       - run: bun test packages/sdk examples
       - name: SDK_VERSION matches package.json
@@ -103,23 +73,6 @@ jobs:
           version=$(node -p 'require("./packages/sdk/package.json").version')
           grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts \
             || { echo "::error::packages/sdk/src/version.ts SDK_VERSION is not ${version}"; exit 1; }
-      # Before the build, so the bundle's SDK_VERSION and the manifest agree.
-      # Only in this checkout; nothing is committed.
-      - if: github.event_name == 'push'
-        name: Stamp the main prerelease version
-        run: |
-          base=$(node -p 'require("./packages/sdk/package.json").version')
-          case "$base" in
-            ''|*[!0-9.]*) echo "::error::packages/sdk version ${base} is not a stable x.y.z"; exit 1 ;;
-          esac
-          # SemVer rejects a numeric identifier with a leading zero; the next
-          # push publishes instead.
-          case "${GITHUB_SHA:0:12}" in
-            0*[!0-9]*) ;;
-            0*) echo "::error::${GITHUB_SHA:0:12} is a numeric identifier with a leading zero, not valid SemVer"; exit 1 ;;
-          esac
-          version="${base}-main.${GITHUB_SHA:0:12}"
-          node -e 'const fs = require("fs"); const v = process.argv[1]; const p = "packages/sdk/package.json"; const j = JSON.parse(fs.readFileSync(p, "utf8")); j.version = v; fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); const f = "packages/sdk/src/version.ts"; fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/SDK_VERSION = "[^"]*"/, `SDK_VERSION = "${v}"`));' "$version"
       - name: Build the package
         run: bun run --cwd packages/sdk build:package
       - name: The bundle reports the version it is published as
@@ -139,14 +92,10 @@ jobs:
           name: sdk-package
           path: ${{ runner.temp }}/sdk-package/*.tgz
           if-no-files-found: error
-          # A release run may wait on approval for days.
           retention-days: 30
 
-  # Before approval, not after: placed after it this job would need a second
-  # `release` approval, or would have to share a job with the OIDC token. The
-  # create is atomic, so a second run of one version stops here. A rejected or
-  # failed publish leaves the tag, and Re-run failed jobs retries from it.
-  # GITHUB_TOKEN's tag wakes no workflow, so `publish` has to be in this run.
+  # GITHUB_TOKEN-created tags do not trigger a second run, so manual releases
+  # publish this run's tested artifact after creating the tag atomically.
   tag:
     needs: build
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.version != ''
@@ -163,23 +112,19 @@ jobs:
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f "ref=refs/tags/sdk-v${VERSION}" -f "sha=${GITHUB_SHA}"
 
-  # The `if` and `build`'s checks are in this file, which a branch or tag can
-  # edit, so they do not hold on their own. What holds is `release`'s required
-  # reviewer, who must see this run's ref is main: its deployment policy refuses
-  # other branches, but still admits the tag patterns other packages release
-  # from. No checkout: this job publishes the tarball `build` tested,
-  # nothing else. npm trusts this workflow's file name and environment as registered on
-  # npmjs.com, so renaming either stops publishing until it is registered again.
+  # An external tag push skips `tag`; explicitly admit only that skip.
+  # The protected release environment approves both supported release refs.
   publish:
     needs: [build, tag]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.version != ''
+    if: >-
+      !cancelled() && needs.build.result == 'success'
+      && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sdk-v') && needs.tag.result == 'skipped')
+        || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.version != '' && needs.tag.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release
     permissions:
       contents: read
-      # npm trades this job's OIDC token for a publish token and signs the
-      # provenance statement with it.
       id-token: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -190,71 +135,4 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # `./` keeps npm from reading `pkg/<name>.tgz` as a GitHub `user/repo`.
       - run: npm publish ./pkg/*.tgz --provenance --access public
-
-  # The prerelease path. npm's registration for this file and environment has
-  # no prerelease-only setting, so the only fence is this job: the version
-  # check below and the literal `--tag main`. Both live in this file, which a
-  # reviewed change to main can edit; this job does not keep the stable
-  # version behind the `release` approval, review of main does. `vars` keeps
-  # it skipped until the `sdk-prerelease` environment and its npm registration
-  # exist; without them the first publish fails with ENEEDAUTH. No checkout.
-  publish-main:
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SDK_PRERELEASE == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    environment: sdk-prerelease
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: sdk-package
-          path: pkg
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-      # A run for a commit that is no longer the head of main must not move
-      # `main` back, and a rerun of a published commit must not fail on a
-      # version npm already has. A lookup that errors stops the job; only an
-      # E404 reads as "not published yet".
-      - id: check
-        name: This commit's prerelease can be published
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          fail() { echo "::error::$1"; exit 1; }
-          [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ] \
-            || fail "a prerelease publishes from a push to main, not ${GITHUB_EVENT_NAME} on ${GITHUB_REF}"
-          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "GITHUB_SHA is not a commit hash"
-          set -- pkg/*.tgz
-          [ "$#" -eq 1 ] && [ -f "$1" ] || fail "expected one tarball in pkg"
-          manifest=$(tar -xzOf "$1" package/package.json) || fail "could not read package.json from $1"
-          # npm publishes under manifest.tag or publishConfig.tag when no
-          # --tag is given, so neither may be present, whatever its value.
-          fields=$(printf '%s' "$manifest" | node -e 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")); const bad = (v) => typeof v !== "string" || /\s/.test(v); if (bad(m.name) || bad(m.version)) throw new Error("name and version must be strings without whitespace"); if ("tag" in m || (m.publishConfig && "tag" in m.publishConfig)) throw new Error("package.json sets a publish tag"); console.log(m.name + " " + m.version)') \
-            || fail "package.json in $1 is not valid for a prerelease"
-          read -r name version <<< "$fields"
-          [ "$name" = "@werft-ai/sdk" ] || fail "tarball is ${name}, not @werft-ai/sdk"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-main\.${GITHUB_SHA:0:12}$ ]] \
-            || fail "version ${version} is not <x.y.z>-main.${GITHUB_SHA:0:12}"
-          head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha) \
-            || fail "could not read the head of main"
-          if [ "$head" != "$GITHUB_SHA" ]; then
-            echo "::notice::${GITHUB_SHA} is not the head of main (${head}); not publishing"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if seen=$(npm view "${name}@${version}" version 2>&1); then
-            echo "::notice::${name}@${version} is already on npm; not publishing"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          printf '%s' "$seen" | grep -q E404 || fail "could not look up ${name}@${version}: ${seen}"
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-      - if: steps.check.outputs.publish == 'true'
-        run: npm publish ./pkg/*.tgz --tag main --provenance --access public
