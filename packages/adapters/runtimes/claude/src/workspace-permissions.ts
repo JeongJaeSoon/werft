@@ -72,7 +72,17 @@ const policySchema = z
      * engine, so listing them here would only skip its outside-path check.
      * `ask` carves the writing forms out: `sed -i` edits a file in place.
      */
-    read: z.object({ allow: patterns, ask: patterns }).strict(),
+    read: z
+      .object({
+        allow: patterns,
+        ask: patterns,
+        /**
+         * The usual one-letter flags that can come before `i` in a bundled
+         * `sed -ni` or `-nEi`: one or two of them, then `i`.
+         */
+        inPlaceLetters: z.string().min(1),
+      })
+      .strict(),
     fs: z
       .object({
         /**
@@ -253,7 +263,17 @@ export function workspaceRules(
         ),
       ].map((pattern) => `Bash(${pattern})`),
     );
-    ask.push(...policy.read.ask.map((pattern) => `Bash(${pattern})`));
+    const letters = [...policy.read.inPlaceLetters];
+    const bundles = letters.flatMap((a) => [
+      a,
+      ...letters.map((b) => `${a}${b}`),
+    ]);
+    ask.push(
+      ...[
+        ...policy.read.ask,
+        ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
+      ].map((pattern) => `Bash(${pattern})`),
+    );
     ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
     for (const command of policy.secretRead.readers) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
