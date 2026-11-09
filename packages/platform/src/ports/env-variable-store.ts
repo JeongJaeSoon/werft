@@ -91,6 +91,15 @@ export interface EnvVariableStore {
   /** Whether the agent belongs to the workspace; a read of its variables 404s otherwise. */
   hasAgent(workspaceId: string, agentId: string): Promise<boolean>;
   list(scope: EnvVariableScope): Promise<EnvVariableRecord[]>;
+  /**
+   * An agent's own variables and the workspace's, with values and grants read
+   * from one snapshot, so a value is never paired with a grant that was made
+   * for a later value.
+   */
+  readAgentView(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<{ own: EnvVariableRecord[]; workspace: EnvVariableRecord[] }>;
   put(input: PutEnvVariableInput): Promise<PutEnvVariableResult>;
   delete(input: DeleteEnvVariableInput): Promise<DeleteEnvVariableResult>;
   /** Replaces the whole grant set of a workspace-level variable. */

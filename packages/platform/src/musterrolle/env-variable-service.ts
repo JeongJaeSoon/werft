@@ -45,11 +45,13 @@ const required = () =>
 const malformed = (message: string) =>
   new SessionServiceError("BAD_REQUEST", message);
 
-// A version is a plain integer, optionally quoted like an entity tag.
+// A version is a plain integer, or a strong entity tag that quotes one.
+// A weak tag never matches under If-Match's strong comparison.
 function versionOf(header: string): number {
-  const match = /^(?:W\/)?"?(\d{1,15})"?$/.exec(header.trim());
-  if (!match?.[1]) throw malformed("If-Match must be a version number");
-  return Number(match[1]);
+  const match = /^(?:"(\d{1,15})"|(\d{1,15}))$/.exec(header.trim());
+  const digits = match?.[1] ?? match?.[2];
+  if (!digits) throw malformed("If-Match must be a version number");
+  return Number(digits);
 }
 
 /** A write that creates names `If-None-Match: *`; one that changes names `If-Match`. */
@@ -153,10 +155,12 @@ function agentViewOf(
   workspace: EnvVariableRecord[],
   agentId: string,
 ): AgentEnvVariables {
+  // The path accepts any UUID case; stored ids are lower case.
+  const wanted = agentId.toLowerCase();
   const granted = workspace.filter(
     (variable) =>
       variable.grantAll ||
-      variable.grantedAgents.some((grant) => grant.id === agentId),
+      variable.grantedAgents.some((grant) => grant.id.toLowerCase() === wanted),
   );
   const grantedNames = new Set(granted.map((variable) => variable.name));
   const workspaceNames = new Set(workspace.map((variable) => variable.name));
@@ -357,10 +361,10 @@ export function createEnvVariableService(deps: {
     ): Promise<AgentEnvVariables> {
       await onAgent(caller, agentId);
       if (!(await store.hasAgent(caller.ownerId, agentId))) throw NOT_FOUND();
-      const [own, workspace] = await Promise.all([
-        store.list({ workspaceId: caller.ownerId, agentId }),
-        store.list({ workspaceId: caller.ownerId, agentId: null }),
-      ]);
+      const { own, workspace } = await store.readAgentView(
+        caller.ownerId,
+        agentId.toLowerCase(),
+      );
       return agentViewOf(own, workspace, agentId);
     },
 

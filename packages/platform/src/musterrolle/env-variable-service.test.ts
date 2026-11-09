@@ -109,6 +109,13 @@ function serviceOver(plan: Plan = {}) {
       calls.push({ op: "list", input: scope });
       return plan.lists?.(scope) ?? [];
     },
+    readAgentView: async (workspaceId, agentId) => {
+      calls.push({ op: "readAgentView", input: { workspaceId, agentId } });
+      return {
+        own: plan.lists?.({ workspaceId, agentId }) ?? [],
+        workspace: plan.lists?.({ workspaceId, agentId: null }) ?? [],
+      };
+    },
     put: async (input) => {
       calls.push({ op: "put", input });
       return (
@@ -240,7 +247,7 @@ describe("preconditions", () => {
       writePreconditionOf({ ifMatch: "12", ifNoneMatch: undefined }),
     ).toEqual({ ifMatch: 12 });
     expect(
-      writePreconditionOf({ ifMatch: 'W/"12"', ifNoneMatch: undefined }),
+      writePreconditionOf({ ifMatch: '"12"', ifNoneMatch: undefined }),
     ).toEqual({ ifMatch: 12 });
     expect(() => writePreconditionOf(none)).toThrow(
       expect.objectContaining({ code: "PRECONDITION_REQUIRED" }),
@@ -257,6 +264,11 @@ describe("preconditions", () => {
       { ifMatch: "latest", ifNoneMatch: undefined },
       { ifMatch: "-1", ifNoneMatch: undefined },
       { ifMatch: "", ifNoneMatch: undefined },
+      // A weak tag never matches under strong comparison; quotes must pair.
+      { ifMatch: 'W/"3"', ifNoneMatch: undefined },
+      { ifMatch: "W/3", ifNoneMatch: undefined },
+      { ifMatch: '"3', ifNoneMatch: undefined },
+      { ifMatch: '3"', ifNoneMatch: undefined },
     ]) {
       expect(() => writePreconditionOf(headers)).toThrow(
         expect.objectContaining({ code: "BAD_REQUEST" }),
@@ -604,6 +616,37 @@ describe("what a read shows", () => {
     expect(text).not.toContain("ungranted-workspace-value");
     expect(text).not.toContain("others-value");
     expect(text).not.toContain("OTHERS");
+  });
+
+  test("an upper-case agent id in the path still finds its explicit grants, in one snapshot read", async () => {
+    const { service, calls } = serviceOver({
+      lists: (scope) =>
+        scope.agentId === null
+          ? [
+              record({
+                name: "REGION",
+                value: "ap-northeast-1",
+                grantedAgents: [{ id: AGENT, allowAutomation: false }],
+              }),
+              record({ name: "SAME_NAME", value: "workspace-copy" }),
+            ]
+          : [record({ name: "SAME_NAME", value: "own-copy" })],
+    });
+    const view = await service.listAgent(owner, AGENT.toUpperCase());
+    expect(view.granted_workspace_values).toEqual([
+      { name: "REGION", kind: "plain", value: "ap-northeast-1" },
+    ]);
+    // SAME_NAME is not granted, so the agent learns it exists and nothing more.
+    expect(
+      view.effective.find((entry) => entry.name === "SAME_NAME"),
+    ).toMatchObject({ workspace_value_ungranted: true });
+    expect(calls.filter((call) => call.op === "list")).toEqual([]);
+    expect(calls.filter((call) => call.op === "readAgentView")).toEqual([
+      {
+        op: "readAgentView",
+        input: { workspaceId: owner.ownerId, agentId: AGENT },
+      },
+    ]);
   });
 
   test("an unknown agent is 404, and a secret never carries a value", async () => {

@@ -424,6 +424,23 @@ integration("user variables on PostgreSQL", () => {
       expect(await store().hasAgent(workspaceId, randomUUID())).toBe(false);
     }, 60_000);
 
+    test("the agent view returns the agent's own and the workspace's variables with grants", async () => {
+      const workspaceId = await workspace();
+      const { agentId } = await agentOn(workspaceId);
+      expect(await put(workspaceId, null, "SHARED_ONE", "w")).toMatchObject({
+        outcome: "saved",
+      });
+      expect(await put(workspaceId, agentId, "OWN_ONE", "a")).toMatchObject({
+        outcome: "saved",
+      });
+      const view = await store().readAgentView(workspaceId, agentId);
+      expect(view.own.map((record) => record.name)).toEqual(["OWN_ONE"]);
+      expect(view.workspace.map((record) => record.name)).toEqual([
+        "SHARED_ONE",
+      ]);
+      expect(view.workspace[0]?.grantedAgents).toEqual([]);
+    }, 60_000);
+
     test("a delete says who received the value and which open sessions hold a copy", async () => {
       const workspaceId = await workspace();
       const { agentId, releaseId } = await agentOn(workspaceId);
