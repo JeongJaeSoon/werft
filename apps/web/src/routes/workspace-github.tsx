@@ -971,23 +971,24 @@ function Installations({
     .map((connection) => connection.installations_read_at)
     .filter((at): at is string => at !== null)
     .sort()[0];
+  const addAccount = (
+    <AddAccount connections={connections} onOutcome={onOutcome} />
+  );
   const section = (body: ReactNode) => (
     <SettingsSection
       titleAs="h3"
       title={t("github.table.title")}
-      actions={
-        canManage ? (
-          <AddAccount connections={connections} onOutcome={onOutcome} />
-        ) : null
-      }
+      actions={canManage && rows.length > 0 ? addAccount : null}
     >
       {body}
     </SettingsSection>
   );
   if (rows.length === 0) {
+    // No list yet: the call to action lives in the empty box.
     return section(
-      <div className="rounded-card border bg-card p-4">
+      <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
         <Text variant="sub">{t("github.table.empty")}</Text>
+        {canManage ? addAccount : null}
       </div>,
     );
   }

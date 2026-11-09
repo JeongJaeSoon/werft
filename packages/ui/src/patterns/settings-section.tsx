@@ -87,7 +87,9 @@ export function SettingsSection({
       className="flex min-w-0 flex-col gap-4 [--werft-row-padding-x:var(--werft-space-4)]"
     >
       <div className="flex flex-col gap-1 border-b pb-2">
-        <div className="flex min-h-8 items-center justify-between gap-3">
+        {/* Wraps so a wide action (a select, several buttons) drops under the
+            title at 390px instead of pushing the page sideways. */}
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex min-w-0 items-center gap-2">
             <Heading
               id={titleId}
@@ -100,7 +102,9 @@ export function SettingsSection({
             {badge}
           </div>
           {actions ? (
-            <div className="flex flex-none items-center gap-2">{actions}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {actions}
+            </div>
           ) : null}
         </div>
         {description ? (

@@ -76,6 +76,11 @@ describe("SettingsSection", () => {
     );
     const text = getByRole("region", { name: "앱" }).textContent ?? "";
     expect(text.indexOf("앱 추가")).toBeLessThan(text.indexOf("행"));
+    // 390px: a wide action wraps under the title instead of overflowing.
+    expect(heading.parentElement?.parentElement?.className).toContain(
+      "flex-wrap",
+    );
+    expect(add.parentElement?.className).toContain("flex-wrap");
   });
 
   test("rows는 테두리 상자 안에, box는 본문을 상자로 감싼다", () => {
