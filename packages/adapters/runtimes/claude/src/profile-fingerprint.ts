@@ -46,16 +46,27 @@ export function claudeProfileFingerprint(
     | "repositoryClaudeMd"
     | "settingSources"
     | "tools"
-  >,
+  > & {
+    /**
+     * Where a plugin under it is read from. A plugin below `home` is hashed by
+     * its path relative to it, so two images that mount the same bundle under
+     * another HOME still resume each other's checkpoints.
+     */
+    home?: string;
+  },
 ): string {
   const components = describeComponents(config);
+  const plugins = components.plugins.map((plugin) => ({
+    ...plugin,
+    path: relativeTo(config.home, plugin.path),
+  }));
   return sha256Hex(
     canonicalJsonOfJson({
       appendSystemPrompt: config.appendSystemPrompt ?? null,
       mcpServers: components.mcpServers,
       model: config.model,
       permissionMode: config.permissionMode ?? "default",
-      plugins: components.plugins,
+      plugins,
       profile: publicProfile(config.profile),
       // Only when on, so a run that never let CLAUDE.md in keeps the
       // digest its checkpoints were taken under before this switch existed.
@@ -66,4 +77,10 @@ export function claudeProfileFingerprint(
       tools: [...config.tools].sort(),
     }),
   );
+}
+
+function relativeTo(home: string | undefined, path: string): string {
+  if (home === undefined || home === "") return path;
+  const prefix = home.endsWith("/") ? home : `${home}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }

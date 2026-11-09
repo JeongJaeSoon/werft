@@ -263,7 +263,13 @@ export function buildSdkOptions(
     pathToClaudeCodeExecutable: resolvePinnedClaudeExecutable(),
     permissionMode: config.permissionMode ?? "default",
     ...(bypass ? { allowDangerouslySkipPermissions: true } : {}),
-    ...(config.plugins === undefined ? {} : { plugins: config.plugins }),
+    ...(config.plugins === undefined || config.plugins.length === 0
+      ? {}
+      : {
+          plugins: config.plugins,
+          // The platform owns MCP: a bundle's own MCP declarations never load.
+          skipMcpDiscovery: true,
+        }),
     pluginDelivery: "initialize",
     ...(config.mode === "resume" ? { resume: config.resume } : {}),
     // "eager" so a batch is durable within a frame of the local write: a

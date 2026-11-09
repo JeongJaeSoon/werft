@@ -125,6 +125,20 @@ export type RuntimeBundle = {
    */
   repoInstructions: { files: readonly string[]; text: string | null } | null;
   mcpServers: readonly PlatformMcpServer[];
+  /**
+   * Extension bundles the worker published read-only at `path`, identified by
+   * their content digest. Absent when the session has none, so a profile
+   * without extensions describes exactly what it did before the field.
+   */
+  extensions?: readonly RuntimeExtensionBundle[];
+};
+
+export type RuntimeExtensionBundle = {
+  /** The bundle's slug: the name its skills carry in the engine (`<name>:<skill>`). */
+  name: string;
+  digest: string;
+  /** Absolute directory of the published tree. */
+  path: string;
 };
 
 export type RuntimeStart = {
