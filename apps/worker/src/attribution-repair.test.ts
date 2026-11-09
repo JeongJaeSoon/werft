@@ -361,8 +361,19 @@ describe("repairAttribution", () => {
     // The next turn rewrites that commit (a rebase onto new work does the
     // same): its hash is no longer under the judged tip.
     await turn(hubot);
-    git(["commit", "--amend", "--no-edit", "--allow-empty", "--date=now"]);
-    git(["commit", "--amend", "--no-edit", "--reset-author"]);
+    git([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "user.name=someone",
+      "-c",
+      "user.email=a@b.c",
+      "commit",
+      "-q",
+      "--amend",
+      "--no-edit",
+      "--reset-author",
+    ]);
     expect(git(["rev-parse", "HEAD"])).not.toBe(judgedTip);
     await repair(judgedTip === undefined ? [] : [judgedTip]);
     const trailers = git(["show", "-s", "--format=%B", "HEAD"])
