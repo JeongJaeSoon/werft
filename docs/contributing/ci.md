@@ -8,7 +8,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 서비스를 job마다 나누면 새 구멍이 하나 생긴다: 필요한 서비스가 없는 job에 들어간 파일은 opt-in 변수가 꺼져 있어 테스트가 실패하지 않고 **skip된다**. 그래서 각 job은 `bun test --reporter=junit`의 보고서를 같은 스크립트로 다시 읽어, 자기 파일이 전부 돌았는지, 다른 파일이 끼지 않았는지, matrix에 선언하지 않은 skip이 없는지 확인하고 하나라도 어긋나면 실패한다. 선언된 skip은 두 종류다. `integration (storage)`의 `packages/storage/src/git-runner.test.ts` 1건(Linux에서 의도적으로 skip)과, `integration (worker)`의 D2 gate 테스트(`tests/d2-gate/*.e2e.test.ts`, 스택 전체가 필요해 [D2 gate](#d2-gate-nightly)만 돌린다)다. 선언했는데 skip되지 않아도 실패한다. skip을 세지 못하는 유일한 형태 — opt-in이 꺼지면 테스트를 아예 선언하지 않는 것 — 는 쓰지 않는다(`tests/checkpoint-flow.test.ts`의 LocalStack 변형도 `describe.skip`으로 선언한다).
 
-정적 검사 `check (static)`은 항상 실행한다. 수동 `only=check`와 웹 경로에서 실행하는 unit 다섯 부분(`check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: control Slack)`, `check (unit: other apps, tests)`)은 별도 job이다. `static`은 typecheck → lint → `THIRD_PARTY_NOTICES.md` 대조를 각각 별도 step으로 실행한다. 설치가 성공하면 typecheck가 실패해도 lint·라이선스는 취소 전까지 실행돼 한 번에 결과를 보고한다. unit은 `.github/scripts/unit-part.ts`가 `packages/db/`를 `packages-db`로, 나머지 `packages/`를 `packages`로, `apps/worker/`·`apps/web/`를 `worker-web`으로, `apps/control-host/src/slack/`를 `control-slack`으로, 나머지 전부를 `rest`로 나눈다. 기존 `rest`는 main 실행에서 8분42초·8분51초였고, [후자 실행](https://github.com/JeongJaeSoon/werft/actions/runs/42527182111)의 파일 경계 시각 기준 Slack 약 262초·나머지 약 241초로 나뉜다. 정상 job 실행을 6분 아래로 낮추기 위한 분할이며 기존 timeout 값은 바꾸지 않는다. 빈 부분은 전체 suite로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 typecheck·lint·전체 테스트를 직렬로 돈다.
+정적 검사 `check (static)`은 항상 실행한다. 웹 전용 계획은 `surface`에 배정된 파일을 unit 목록에서 제외하고 남은 파일이 있는 shard만 생성한다. 따라서 Slack 전용 unit shard는 생성되지 않으며, surface와 unit 보완 집합이 전체 suite를 정확히 한 번씩 덮는다. 계획 job과 각 shard는 같은 `unit-part.ts` 선택기를 사용하고, surface 제외 전에 integration 배정의 누락·중복·빈 도메인을 검증한다. 수동 `only=check`에서 실행하는 unit 다섯 부분(`check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: control Slack)`, `check (unit: other apps, tests)`)은 별도 job이다. `static`은 typecheck → lint → `THIRD_PARTY_NOTICES.md` 대조를 각각 별도 step으로 실행한다. 설치가 성공하면 typecheck가 실패해도 lint·라이선스는 취소 전까지 실행돼 한 번에 결과를 보고한다. unit은 `.github/scripts/unit-part.ts`가 `packages/db/`를 `packages-db`로, 나머지 `packages/`를 `packages`로, `apps/worker/`·`apps/web/`를 `worker-web`으로, `apps/control-host/src/slack/`를 `control-slack`으로, 나머지 전부를 `rest`로 나눈다. 기존 `rest`는 main 실행에서 8분42초·8분51초였고, [후자 실행](https://github.com/JeongJaeSoon/werft/actions/runs/42527182111)의 파일 경계 시각 기준 Slack 약 262초·나머지 약 241초로 나뉜다. 정상 job 실행을 6분 아래로 낮추기 위한 분할이며 기존 timeout 값은 바꾸지 않는다. 빈 부분은 전체 suite로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 typecheck·lint·전체 테스트를 직렬로 돈다.
 
 브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`, Images의 `supply-chain`, `forbidden-terms` 여섯 개다(2026-11-09 classic 보호 설정과 활성 ruleset을 함께 조회). `check`와 `integration`은 `always()`로 실행해 계획 성공과 실제 선행 결과를 판정한다. 제품 계획에서 실패·취소·timeout·skip은 성공이 아니며, 문서 계획의 명시적 생략은 문서 검사 성공 등 정해진 조합만 허용한다. `e2e`·`quickstart`는 계획을 먼저 검사한 뒤 무거운 step을 실행하거나 생략 이유를 남겨 success를 낸다. 두 job은 `!cancelled()`로 대체된 run에서 취소 가능하게 유지하고, required `integration`이 두 결과까지 기다려 취소·예상 밖 skip을 실패로 판정한다. 수동 `only=integration`에서만 두 job의 의도한 skip을 허용한다. 경로 감지 실패나 출력 누락은 required 실패다. `check`는 Storybook 접근성·문서 빌드·demo·UI 패키지 consumer·quota·Helm·Kubernetes·사이트 조립의 결과를 각 계획 값과 짝지어 판정한다. 계획이 켜진 job은 success, 꺼진 job은 skipped여야 하며 예정된 skip·실패·취소·누락을 거부한다. 수동 `only=check`에서만 선택 밖 소비자의 skip을 허용한다. main push의 `site=false`는 별도 `pages.yml` 빌드·배포를 보존한다. main Pages 배포와 비차단 SDK 호환성은 집계에서 제외한다. matrix의 `fail-fast: false`는 그대로다. main·제품 PR에서 정적 검사 1개와 integration 7개 외에도 제품·사이트 job들이 runner를 요청하므로 계정 동시성 한도에 닿으면 큐를 기다린다. 실제 job 수·점유·큐 산식은 [측정 기록](ci-optimization-2026-11.md)에 있다.
 
@@ -47,6 +47,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true        # 진행 중 수
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
 
 bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`이 쓰는 `bun-root-*`는 root lockfile만(unit 부분·문서 검사·integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다. 의존성을 설치하지 않는 job(`forbidden-terms`, `helm-chart`, `supply-chain`)은 `restore-cache: "false"`로 복원을 건너뛴다. 이 입력은 복원과 저장을 한 번에 하는 단계를 건너뛰므로 `save-cache: "true"`와 함께 쓰면 job이 실패한다. 스크립트가 `node:` 내장과 이 repo의 파일만 import한다는 것이 소스로 확인된 job에만 쓴다. 그 밖의 import는 Bun이 이 캐시로 내려받는다.
+
+PR 이벤트에서는 `save-cache: "true"`를 요청해도 Bun 의존성 캐시를 복원만 하고 저장하지 않는다. 따라서 lockfile 변경 PR의 별도 ref에 새 캐시가 쌓이지 않는다. setup-bun의 실행 파일 캐시는 기존대로 재사용한다. CI의 main·수동 실행 및 agent-sdk-compat 실행에서 지정한 writer는 의존성 캐시를 저장한다. `Cache restore result`는 요청 키와 `exact-hit=true/false`, 실행 파일 캐시 hit를 출력한다. exact-hit=false는 완전한 cache miss 또는 prefix 복원이며, 설치 성공 여부를 뜻하지 않는다. Images workflow의 이미지 캐시는 기존 앱·아키텍처별 `cache-from`을 유지하고, PR은 읽기만 한다. main·태그·예약·수동 실행의 export는 `mode=min`으로 최종 release stage의 레이어만 보존한다. 중간 빌드 stage까지 저장하던 `mode=max`보다 보존 범위가 작으며, 공용 캐시 한도 안에서 최종 이미지 재사용을 우선한다. 중간 stage 재빌드로 시간이 늘 수 있어 main Images의 job 시간과 `CACHED` 로그도 함께 비교한다. 공용 사용량은 `gh api repos/JeongJaeSoon/werft/actions/cache/usage`로 확인한다.
 
 서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러)).
 
@@ -112,6 +114,14 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
 
+## SDK·UI 패키지 릴리스
+
+`ui-release.yml`은 `ui-v*`, `sdk-release.yml`은 `sdk-v*` 태그 push와 수동 dispatch에서만 실행한다. PR·main push는 릴리스 workflow를 실행하지 않고, SDK main prerelease도 게시하지 않는다. SDK의 버전 지정 main dispatch는 기존처럼 검증·태그 생성·승인 게시하며, 빈 버전 dispatch는 dry run이다. SDK 태그 push도 main 소속·버전 일치·해당 커밋 main CI 성공을 확인한 뒤 `release` 승인을 받아 게시한다.
+
+SDK 빈 프로젝트 설치·타입 검사·샘플 실행은 ci.yml의 독립 `sdk-pack-smoke` job으로 옮겼다. SDK·client·contracts·examples·consumer 스크립트·LICENSE·lockfile·Bun setup·관련 workflow 변경에만 실행하며, 경로를 알 수 없으면 실행한다. 기존 SDK PR 검사와 동일하게 비필수 job이고, 필수 여섯 체크와 집계는 바꾸지 않았다. UI consumer는 기존 `ui-pack`이 담당한다.
+
+2026-11-09 확인한 `release` environment 정책은 `main` 브랜치와 `v*` 태그만 허용한다. 따라서 현재 실효 게시 경로는 SDK의 main dispatch이며, `sdk-v*`·`ui-v*` 태그 실행은 빌드·검증 뒤 게시가 environment 정책에 막힌다. 두 태그 패턴 허용은 필수 승인자를 유지한 채 오너가 별도로 결정해야 한다. 이 CI 변경은 environment 설정을 바꾸지 않는다.
+
 ## D2 gate (nightly)
 
 D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2), control-host role 수명주기(H1–H5)를 스택 밖에서 확인한다. 이 테스트들은 이 커밋에서 빌드한 이미지로 compose 스택 전체를 띄워야 돈다. 그래서 ci.yml은 이 테스트들을 `integration (worker)`의 선언된 skip으로 두고, 실제로는 `scripts/d2-gate/run.sh`만 이 테스트들을 돌린다. 사람이 손으로만 돌리면 harness가 조용히 낡는다. harness가 incremental bundle을 chain 없이 unbundle해 main `33a9c99c`에서 gate A가 깨졌는데, 누군가 돌려 보기 전까지 아무도 몰랐다.
@@ -163,6 +173,22 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 목록에서 지운 digest도 ghcr에는 untagged로 남는다. 이전 커밋의 CI를 다시 돌려도 받을 수 있도록 지우지 않는다.
 
 mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서만** package write를 쥔다. 그 token은 이 저장소가 쓸 수 있는 모든 package, 곧 앱 릴리스 이미지까지 쓸 수 있다. 그래서 pull request trigger가 없고, `main`이 아닌 ref에서 dispatch하면 job을 건너뛴다. digest를 올리는 PR이 자기 run에서 미러하게 하면 PR이 고칠 수 있는 workflow에 package write를 주게 되어 `images.yml`의 게시 경계를 우회하므로, 두 단계로 나눈다.
+
+## 컨테이너 패키지 보존 정책 (dry run)
+
+`package-retention.yml`은 매주 월요일 05:41 KST(일요일 20:41 UTC)와 수동 dispatch에서 읽기 전용 보존 목록을 만든다. 관련 PR에서는 보호 규칙 시험과 `packages: read` 권한의 preview를 실행해 같은 목록을 로그로 남긴다. 대상은 이 저장소에 연결된 `werft-control-host`·`werft-worker`·`werft-egress-proxy`와 chart `werft` 네 패키지이며, 다른 패키지는 조회·정리 대상에 넣지 않는다.
+
+이미지의 `main-<sha>`·`staging-<runid>[-<attempt>][-amd64|-arm64]`, chart의 `0.1.0-main-<sha>`만 후보로 분류한다. 생성·최근 갱신이 7일 미만인 버전과 패키지별 최신 임시 버전 20개는 남긴다. semver와 알 수 없는 태그를 하나라도 함께 가진 digest, 태그 없는 버전은 예외로 남긴다. 조회 권한으로 보이는 GitHub Release의 `release-manifest.json`이 가리키는 이미지 index·platform digest와 chart 버전은 보존한다. 반환된 제품 릴리스의 manifest가 없거나 손상됐으면 중단한다. 남길 OCI index가 참조하는 하위 manifest도 재귀적으로 보존하므로, staging platform을 지워 남긴 multi-arch 이미지를 깨는 목록을 만들지 않는다. registry 응답의 digest도 검증하며 조회 실패는 안전한 생략으로 처리하지 않는다.
+
+로그는 버전마다 `would-delete` 또는 `keep`, 태그·digest·보존 이유를 출력한다. 마지막 JSON과 실행 summary에서 지울 후보 수·남길 수·예외 수를 확인하고, 예외 목록은 로그에서 확인한다. 이 숫자는 조회한 시점의 스냅샷이며, 실제 삭제 전에 다시 조회·검토해야 한다. 예약·수동·PR preview 모두 `packages: read`만 받으므로 어떤 ref의 스크립트도 패키지 쓰기 권한을 얻지 못한다. 이 첫 단계에는 삭제 API가 없으며, 수동 입력 `dry_run=false`도 실패한다.
+
+```sh
+gh workflow run package-retention.yml --repo JeongJaeSoon/werft -f dry_run=true
+GITHUB_REPOSITORY=JeongJaeSoon/werft bun .github/scripts/package-retention.ts --dry-run
+bun test ./.github/scripts/package-retention.test.ts
+```
+
+삭제 활성화는 dry-run의 지울·남길·예외 목록에 대한 리드 승인 뒤 별도 PR로만 진행한다. 그 PR에서는 draft 릴리스까지 빠짐없이 열거되는 권한인지 확인하고, 후보가 존재하는 실데이터에서 OCI 하위 참조 보호와 삭제 직전 태그·manifest 재검증을 입증해야 한다. 쓰기 권한을 추가한다면 리뷰된 main 코드에만 제한해야 한다. 현재 단계는 공간을 회수하지 않는다.
 
 ## 제3자 라이선스와 취약점
 

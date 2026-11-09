@@ -91,6 +91,36 @@ const MERGEABLE_STATES: ReadonlySet<string> = new Set([
   "has_hooks",
 ]);
 
+/** What each `mergeable_state` GitHub refuses on says, as fact and without advice. */
+const MERGE_STATE_FACTS: Readonly<Record<string, string>> = {
+  dirty: "The head branch has merge conflicts with the base branch.",
+  blocked:
+    "A rule on the base branch is not met: required reviews, required status checks or required conversation resolution.",
+  behind:
+    "The head branch is behind the base branch, and the base branch requires it to be up to date.",
+  draft: "The pull request is a draft.",
+  unknown: "GitHub has not computed whether the pull request can merge.",
+};
+
+/** `details` of a `merge_blocked` refusal: GitHub's own state plus the stated reason. */
+const mergeBlockedDetails = (
+  pull: ForgePullRequestDetail,
+  reason?: string,
+): Record<string, unknown> => {
+  const state = pull.mergeableState ?? null;
+  return {
+    mergeable_state: state,
+    mergeable: pull.mergeable ?? null,
+    draft: pull.draft ?? null,
+    reason:
+      reason ??
+      (state === null
+        ? "GitHub reported no mergeable_state."
+        : (MERGE_STATE_FACTS[state] ??
+          `GitHub reported mergeable_state \`${state}\`.`)),
+  };
+};
+
 const isForgeFailure = (error: unknown): boolean =>
   error instanceof ForgeCredentialError || error instanceof GitHubCallError;
 
@@ -1244,16 +1274,37 @@ export function createPullRequestService(deps: {
       // adopted pull request records the base it had then), so the stack
       // itself is looked for: a base that is another open pull request's head.
       if (before.base !== pullRequest.base) {
-        return await refuse("merge_blocked", fields);
+        return await refuse(
+          "merge_blocked",
+          fields,
+          undefined,
+          mergeBlockedDetails(
+            before,
+            `The pull request's base is now \`${before.base}\`, not the \`${pullRequest.base}\` it was opened on.`,
+          ),
+        );
       }
       // Refused before a request that GitHub would queue and then fail. The
       // rules themselves are enforced at merge time, with bypass off.
       if (!MERGEABLE_STATES.has(before.mergeableState ?? "")) {
-        return await refuse("merge_blocked", fields);
+        return await refuse(
+          "merge_blocked",
+          fields,
+          undefined,
+          mergeBlockedDetails(before),
+        );
       }
       try {
         if ((await forge.findPullRequestForBranch(before.base)) !== null) {
-          return await refuse("merge_blocked", fields);
+          return await refuse(
+            "merge_blocked",
+            fields,
+            undefined,
+            mergeBlockedDetails(
+              before,
+              `The base branch \`${before.base}\` is the head of another open pull request, and merging would merge that one too.`,
+            ),
+          );
         }
         const merged = await forge.mergePullRequest({
           number: pullRequest.number,
@@ -1263,10 +1314,17 @@ export function createPullRequestService(deps: {
           // GitHub reports a cancelled merge and a refused one alike.
           const after = (await forge.getPullRequest(pullRequest.number))
             .pullRequest;
-          return await refuse(
-            after.headSha === source.gitCommit ? "merge_blocked" : "head_moved",
-            fields,
-          );
+          return after.headSha === source.gitCommit
+            ? await refuse(
+                "merge_blocked",
+                fields,
+                undefined,
+                mergeBlockedDetails(
+                  after,
+                  "GitHub did not merge the pull request and reported no further cause.",
+                ),
+              )
+            : await refuse("head_moved", fields);
         }
         if (merged.already === true) {
           // Merged by someone between the read and the request, by whatever
@@ -1285,7 +1343,15 @@ export function createPullRequestService(deps: {
       } catch (error) {
         if (error instanceof GitHubCallError) {
           if (error.status === 400 || error.status === 405)
-            return await refuse("merge_blocked", fields);
+            return await refuse(
+              "merge_blocked",
+              fields,
+              undefined,
+              mergeBlockedDetails(
+                before,
+                `GitHub refused the merge request with status ${error.status}, after reporting mergeable_state \`${before.mergeableState ?? "none"}\`.`,
+              ),
+            );
           if (error.status === 409) return await refuse("head_moved", fields);
           if (error.status === 202) {
             // Accepted and still queued when the wait ended: it may have

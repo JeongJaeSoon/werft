@@ -1708,6 +1708,9 @@ export function createWorkerGateway(deps: {
         },
         leaseTtlMs,
         now: at,
+        ...(request.capabilities?.user_env === true
+          ? { userEnv: true as const }
+          : {}),
       });
       switch (result.outcome) {
         case "invalid_credential":
@@ -1745,6 +1748,15 @@ export function createWorkerGateway(deps: {
             409,
             "CATALOG_MISMATCH",
             "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
+          );
+        // Retryable, and nothing was consumed: the session waits for a worker
+        // that announces `user_env`. It never runs without its variables.
+        case "user_env_unsupported":
+          throw new WorkerGatewayError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "The session holds variables and this worker does not carry them yet",
+            true,
           );
         // Not retryable, as above: the session was failed and the launch given up.
         case "variables_refused":
@@ -1795,10 +1807,15 @@ export function createWorkerGateway(deps: {
           const extensions = claimedExtensionsOf(binding);
           const resolved = {
             ...profile,
-            runtime_config: withExtensions(
-              withMcp(profile.runtime_config, mcp, mcpToken),
-              extensions,
-            ),
+            runtime_config: {
+              ...withExtensions(
+                withMcp(profile.runtime_config, mcp, mcpToken),
+                extensions,
+              ),
+              // Only for a worker that announced `user_env` (the claim
+              // refused otherwise), and absent when there are none.
+              ...(binding.env === undefined ? {} : { env: binding.env }),
+            },
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);
           const attribution = deps.attribution;

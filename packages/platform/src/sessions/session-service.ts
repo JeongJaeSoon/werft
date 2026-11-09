@@ -411,6 +411,9 @@ export function createSessionService(deps: {
         | "policy_pins"
       >
     >;
+    // The variable names the release's card declares. Absent, no session
+    // takes variables.
+    envNames?(workspaceId: string, releaseId: string): Promise<string[]>;
     agentGitHubSettings(
       agentId: string,
     ): Promise<AgentGitHubSettingsRow | null>;
@@ -586,11 +589,8 @@ export function createSessionService(deps: {
     );
   }
 
-  async function credentialUnbound(
-    workspaceId: string,
-    agentId: string,
-    receiptId: string,
-  ): Promise<SessionServiceError> {
+  // Who can fix what a session lacks: the agent's administrators.
+  async function adminContactsOf(workspaceId: string, agentId: string) {
     const admins = (
       (await deps.credentials?.contacts(workspaceId, agentId)) ?? []
     ).map((contact) => ({
@@ -598,16 +598,46 @@ export function createSessionService(deps: {
       display_name: contact.displayName,
       email: contact.email,
     }));
-    const details: SessionCredentialUnboundDetails = {
-      reason_code: "credential_unbound",
-      guidance: CREDENTIAL_UNBOUND_GUIDANCE,
-      agent_id: agentId,
-      receipt_id: receiptId,
+    return {
       admins,
       admin_link:
         admins.length === 0
           ? null
           : `mailto:${admins.map((admin) => encodeURIComponent(admin.email)).join(",")}`,
+    };
+  }
+
+  // The name that is missing is not in the answer: the requester is not the
+  // administrator who can supply it.
+  async function variableUnresolved(
+    workspaceId: string,
+    agentId: string,
+    receiptId: string,
+  ): Promise<SessionServiceError> {
+    return new SessionServiceError(
+      "VARIABLE_UNRESOLVED",
+      "A variable this agent's card declares has no value for it; ask the agent's administrator",
+      undefined,
+      {
+        reason_code: "variable_unresolved",
+        agent_id: agentId,
+        receipt_id: receiptId,
+        ...(await adminContactsOf(workspaceId, agentId)),
+      },
+    );
+  }
+
+  async function credentialUnbound(
+    workspaceId: string,
+    agentId: string,
+    receiptId: string,
+  ): Promise<SessionServiceError> {
+    const details: SessionCredentialUnboundDetails = {
+      reason_code: "credential_unbound",
+      guidance: CREDENTIAL_UNBOUND_GUIDANCE,
+      agent_id: agentId,
+      receipt_id: receiptId,
+      ...(await adminContactsOf(workspaceId, agentId)),
     };
     return new SessionServiceError(
       "CREDENTIAL_UNBOUND",
@@ -859,6 +889,12 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
+      // What the card declares; the accept resolves them in its transaction.
+      const envNames =
+        release === null
+          ? []
+          : ((await deps.releases?.envNames?.(actor.ownerId, release.id)) ??
+            []);
       const selection = input.body.extensions;
       let extensions: SessionExtension[] | undefined;
       let extensionRefusal: SessionServiceError | null = null;
@@ -933,6 +969,7 @@ export function createSessionService(deps: {
           ? { captureGitHubPolicyStart: true as const }
           : {}),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
+        ...(envNames.length === 0 ? {} : { envNames }),
         ...(input.shareScope === undefined
           ? {}
           : { shareScope: input.shareScope }),
@@ -957,11 +994,14 @@ export function createSessionService(deps: {
             release.agent_id,
             result.receiptId,
           );
-        // Names no variable: the requester is not the administrator who can fix it.
         case "variables_refused":
-          throw new SessionServiceError(
-            "VARIABLE_UNRESOLVED",
-            "A variable this agent's card declares has no value for it; ask the agent's administrator",
+          if (!release) {
+            throw new Error("Only a pinned release declares variables");
+          }
+          throw await variableUnresolved(
+            actor.ownerId,
+            release.agent_id,
+            result.receiptId,
           );
         case "queue_full":
         case "storage_exhausted":

@@ -45,13 +45,12 @@ const PIN_OFF = {
   actions_allow: [],
 };
 
-/** A snapshot taken when the agent's attached push was `allow`. */
 const START_ATTACHED_ALLOW = {
   enabled: true,
   revision: 1,
   settings: {
     repositories: ["sample-app"],
-    push_approval: true,
+    push_approval: false,
     features: { ...GITHUB_FEATURES_NONE },
     actions_allow: [],
   },
@@ -430,10 +429,7 @@ integration("the readers of an agent's GitHub settings", () => {
         pushAttached: null,
       });
       const found = await pushes.findSession(workspaceId, sessionId);
-      expect(found).toMatchObject({
-        pushAttached: "ask",
-        attachedApproval: null,
-      });
+      expect(found).toMatchObject({ push: "ask" });
       // Reading it does not write the column.
       expect(await columnOf(agentId)).toBeNull();
     });
@@ -449,30 +445,51 @@ integration("the readers of an agent's GitHub settings", () => {
       ).rejects.toThrow();
     });
 
-    test("allow is a policy approval for an attached repository even while the own repository asks; ask or deny after that sends it back to a person", async () => {
-      for (const narrowed of ["ask", "deny"]) {
+    test("approval off with push_attached allow is a policy approval for any repository; narrowing either setting sends it back to a person", async () => {
+      // The two cases the old split rule let through: the own repository with
+      // push_attached narrowed, an attached one with push_approval turned on.
+      const NARROWED = [
+        { repositoryId: "docs", pushApproval: false, pushAttached: "ask" },
+        { repositoryId: "docs", pushApproval: false, pushAttached: "deny" },
+        { repositoryId: "docs", pushApproval: true, pushAttached: "allow" },
+        {
+          repositoryId: "sample-app",
+          pushApproval: false,
+          pushAttached: "ask",
+        },
+        {
+          repositoryId: "sample-app",
+          pushApproval: false,
+          pushAttached: "deny",
+        },
+        {
+          repositoryId: "sample-app",
+          pushApproval: true,
+          pushAttached: "allow",
+        },
+      ];
+      for (const narrowed of NARROWED) {
         const { workspaceId, agentId, sessionId } = await fixture({
           source: "agent",
           start: START_ATTACHED_ALLOW,
         });
         await settingsRow(workspaceId, agentId, {
-          pushApproval: true,
+          pushApproval: false,
           pushAttached: "allow",
           revision: 2,
           updatedBy: randomUUID(),
         });
         const found = await pushes.findSession(workspaceId, sessionId);
-        // The own repository still asks; the attached one is approved.
-        expect(found?.policyApproval).toBeNull();
-        expect(found?.attachedApproval).toMatchObject({
+        expect(found?.push).toBe("allow");
+        expect(found?.policyApproval).toMatchObject({
           source: "agent",
           settingsRevision: 2,
         });
         const created = await request({
           workspaceId,
           sessionId,
-          repositoryId: "docs",
-          policyApproval: found?.attachedApproval ?? null,
+          repositoryId: narrowed.repositoryId,
+          policyApproval: found?.policyApproval ?? null,
           policyFields: found?.policyFields ?? {},
         });
         if (created.outcome !== "written") throw new Error("not written");
@@ -482,8 +499,8 @@ integration("the readers of an agent's GitHub settings", () => {
         });
 
         await settingsRow(workspaceId, agentId, {
-          pushApproval: true,
-          pushAttached: narrowed,
+          pushApproval: narrowed.pushApproval,
+          pushAttached: narrowed.pushAttached,
           revision: 3,
           updatedBy: randomUUID(),
         });
@@ -492,6 +509,101 @@ integration("the readers of an agent's GitHub settings", () => {
           state: "requested",
           approval_basis: null,
         });
+      }
+    });
+
+    test("the store decides the stricter of push_approval and push_attached across snapshot, no snapshot, unreadable snapshot and release sources", async () => {
+      const AGENT = [
+        // [push_approval, push_attached, decision]
+        [false, "allow", "allow"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        [true, "allow", "ask"],
+        [true, "ask", "ask"],
+        [true, "deny", "deny"],
+      ] as const;
+      for (const [pushApproval, pushAttached, decision] of AGENT) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+          start: START_ATTACHED_ALLOW,
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
+      // No snapshot means no recorded start value for push_attached: it counts
+      // as ask, so a later allow cannot loosen the session, but deny still binds.
+      const NO_SNAPSHOT = [
+        [false, "allow", "ask"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        [true, "allow", "ask"],
+        [true, "ask", "ask"],
+        [true, "deny", "deny"],
+      ] as const;
+      for (const [pushApproval, pushAttached, decision] of NO_SNAPSHOT) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
+      // A release pin carries no push_attached: it reads as ask, so a release
+      // session never gets a policy approval.
+      for (const pushApproval of [false, true]) {
+        const { workspaceId, sessionId } = await fixture({
+          pins: { github: { ...PIN_OFF, push_approval: pushApproval } },
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          "ask",
+        );
+      }
+      // A row a person saved for the agent afterwards can take a release
+      // session from ask to deny, never to allow.
+      for (const [pushAttached, decision] of [
+        ["allow", "ask"],
+        ["ask", "ask"],
+        ["deny", "deny"],
+      ] as const) {
+        const { workspaceId, agentId, sessionId } = await fixture();
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: false,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
+      // A snapshot this image cannot read decides nothing looser than ask.
+      for (const pushAttached of ["allow", "ask", "deny"]) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+          start: { enabled: true },
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: false,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          "ask",
+        );
       }
     });
 
@@ -582,8 +694,7 @@ integration("the readers of an agent's GitHub settings", () => {
         updatedBy: randomUUID(),
       });
       expect(await pushes.findSession(workspaceId, sessionId)).toMatchObject({
-        pushAttached: "ask",
-        attachedApproval: null,
+        push: "ask",
       });
     });
 
@@ -593,7 +704,7 @@ integration("the readers of an agent's GitHub settings", () => {
         start: START_ATTACHED_ALLOW,
       });
       await settingsRow(workspaceId, agentId, {
-        pushApproval: true,
+        pushApproval: false,
         pushAttached: "allow",
         updatedBy: randomUUID(),
       });
@@ -602,15 +713,21 @@ integration("the readers of an agent's GitHub settings", () => {
         workspaceId,
         sessionId,
         repositoryId: "docs",
-        policyApproval: found?.attachedApproval ?? null,
+        policyApproval: found?.policyApproval ?? null,
       });
       expect(await claimed()).toContain(sessionId);
     });
   });
 
   test("the row still off, the push is claimed; a person's approval outlives the row", async () => {
-    const off = await fixture({ source: "agent" });
-    await settingsRow(off.workspaceId, off.agentId, { pushApproval: false });
+    const off = await fixture({
+      source: "agent",
+      start: START_ATTACHED_ALLOW,
+    });
+    await settingsRow(off.workspaceId, off.agentId, {
+      pushApproval: false,
+      pushAttached: "allow",
+    });
     const found = await pushes.findSession(off.workspaceId, off.sessionId);
     await request({
       workspaceId: off.workspaceId,
@@ -653,29 +770,34 @@ integration("the readers of an agent's GitHub settings", () => {
     expect(sessionIds).toContain(person.sessionId);
   });
 
-  test("a `release` session's approval stands whatever a row says later", async () => {
-    const { workspaceId, agentId, sessionId } = await fixture();
+  test("a `release` session asks under the one rule, so a policy approval it was handed goes back to a person at the claim", async () => {
+    const { workspaceId, sessionId } = await fixture();
     const found = await pushes.findSession(workspaceId, sessionId);
+    expect(found?.push).toBe("ask");
     expect(found?.policyApproval).toMatchObject({
       source: "release",
       settingsRevision: null,
     });
-    await request({
+    const created = await request({
       workspaceId,
       sessionId,
       policyApproval: found?.policyApproval ?? null,
     });
-    await settingsRow(workspaceId, agentId, { pushApproval: true });
-    expect(await claimed()).toContain(sessionId);
+    if (created.outcome !== "written") throw new Error("not written");
+    expect(await claimed()).not.toContain(sessionId);
+    expect(await stateOf(created.request.id)).toMatchObject({
+      state: "requested",
+      approval_basis: null,
+    });
   });
 
   test("a pin that cannot be read keeps a person deciding", async () => {
     const { workspaceId, sessionId } = await fixture({
       pins: { github: { push_approval: false, from: "later" } },
     });
-    expect(
-      (await pushes.findSession(workspaceId, sessionId))?.policyApproval,
-    ).toBeNull();
+    expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+      "ask",
+    );
   });
 
   describe("a session started under a snapshot of the agent's settings", () => {
@@ -741,9 +863,9 @@ integration("the readers of an agent's GitHub settings", () => {
         updatedBy: PERSON,
       });
       expect(await read.push()).toMatchObject({ push_approval: true });
-      expect(
-        (await pushes.findSession(workspaceId, sessionId))?.policyApproval,
-      ).toBeNull();
+      expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+        "ask",
+      );
     });
 
     test("a repository added after the start does not open", async () => {

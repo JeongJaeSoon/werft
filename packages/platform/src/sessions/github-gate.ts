@@ -7,6 +7,7 @@ import {
   githubEffectiveFeatures,
   githubPermissionsFor,
   githubPolicyReceiptFields,
+  pushDecisionOf,
 } from "@werft-ai/contracts";
 import {
   ForgeCredentialError,
@@ -44,6 +45,13 @@ const ANOTHER_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
   "push",
   "pull_request",
   "outcome_refresh",
+]);
+
+const NEEDS_SESSION_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
+  "actions_read",
+  "dispatch",
+  "rerun",
+  "review",
 ]);
 
 /**
@@ -151,7 +159,13 @@ export function createGitHubGate(deps: {
         throw new GitHubGateError(reason, receiptId);
       };
 
-      if (repositoryId === null) return await refuse("repository_none");
+      if (repositoryId === null) {
+        return await refuse(
+          NEEDS_SESSION_REPOSITORY_PURPOSES.has(work.purpose)
+            ? "workflow_review_need_session_repository"
+            : "repository_none",
+        );
+      }
       // Reading a pull request the platform recorded is not the agent's
       // work: no switch, scope, feature or ceiling applies (§10).
       const platformRead = work.purpose === "outcome_refresh";
@@ -164,12 +178,9 @@ export function createGitHubGate(deps: {
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }
-      // Whoever approved the request, a push the agent's settings now deny
-      // does not get a credential (`push.attached = deny` narrows at once).
       if (
-        !own &&
         work.purpose === "push" &&
-        context.policy.pushAttached === "deny"
+        pushDecisionOf(context.policy) === "deny"
       ) {
         return await refuse("repository_not_allowed");
       }

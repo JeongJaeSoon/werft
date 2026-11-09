@@ -1,4 +1,5 @@
 import type {
+  PushClass,
   PushIntent,
   PushIntentRefusal,
   ReceiptActor,
@@ -19,8 +20,11 @@ export type CreatePushIntentInput = {
    * never gains `session.approve`.
    */
   actor: ReceiptActor;
-  /** `push.primary` or `push.attached`, as judged when the model asked. */
-  pushClass: "push.primary" | "push.attached";
+  /**
+   * The class the push was recorded under when the model asked. Audit only:
+   * the runner judges the push again with the policy of that moment.
+   */
+  pushClass: PushClass;
   /** `effectiveGitHubPolicy` source at that time, for the receipt. */
   policySource: string;
   /** The pull request content to open once pushed; the PR drain reads it. */
@@ -54,7 +58,7 @@ export type PushIntentJob = {
   /** The local branch to push, or null for the snapshot. */
   sourceRef: string | null;
   actor: ReceiptActor;
-  pushClass: "push.primary" | "push.attached";
+  pushClass: PushClass;
   pullRequest: unknown;
   /** Fences every write of this claim: a dropped claim writes nothing. */
   claimToken: string;

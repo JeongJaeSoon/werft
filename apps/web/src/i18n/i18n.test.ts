@@ -400,4 +400,22 @@ describe("profile naming", () => {
     );
     expect(hits.map(([key]) => key)).toEqual([]);
   });
+
+  // Merging is set per workspace, not on the agent; the hint must say where
+  // and must not claim there is no merge at all.
+  test.each([
+    ["ko", agentGitHubKo, /연동 › GitHub/, /머지는 이 에이전트 설정에 없고/],
+    ["en", agentGitHubEn, /Settings › Integrations › GitHub/, /allows it/],
+    ["ja", agentGitHubJa, /連携 › GitHub/, /マージを許可したときだけ/],
+  ] as const)(
+    "%s agent GitHub hint points merging at the workspace setting",
+    (_locale, table, where, allowed) => {
+      const hint = table["agentGitHub.permissionsHint"];
+      expect(hint).toMatch(where);
+      expect(hint).toMatch(allowed);
+      expect(hint).not.toMatch(
+        /merge 권한은 없습니다|no merge permission|merge の権限はありません/i,
+      );
+    },
+  );
 });

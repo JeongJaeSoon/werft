@@ -159,7 +159,12 @@ describe("a card's env declaration", () => {
     expect(cardHash(named)).not.toBe(cardHash(agentCardSchema.parse(card)));
   });
 
-  test("an empty list is allowed; more than 32, a repeat or a reserved name is not", () => {
+  test("a reserved name parses: the save and the activation judge it, with their own error code", () => {
+    expect(withEnv([{ name: "PATH" }]).success).toBe(true);
+    expect(withEnv([{ name: "GITHUB_TOKEN" }]).success).toBe(true);
+  });
+
+  test("an empty list is allowed; more than 32, a repeat or a malformed name is not", () => {
     expect(withEnv([]).success).toBe(true);
     expect(
       withEnv(Array.from({ length: 32 }, (_, i) => ({ name: `V${i}` })))
@@ -168,8 +173,6 @@ describe("a card's env declaration", () => {
     for (const env of [
       Array.from({ length: 33 }, (_, i) => ({ name: `V${i}` })),
       [{ name: "A_B" }, { name: "A_B" }],
-      [{ name: "PATH" }],
-      [{ name: "GITHUB_TOKEN" }],
       [{ name: "lower" }],
       [{ name: "A_B", value: "x" }],
     ]) {

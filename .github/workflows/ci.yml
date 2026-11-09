@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs, demo, ui-pack]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs, demo, ui-pack, sdk-pack-smoke]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -46,6 +46,8 @@ jobs:
       helm: ${{ steps.plan.outputs.helm }}
       k8s: ${{ steps.plan.outputs.k8s }}
       domains: ${{ steps.plan.outputs.domains }}
+      sdk_pack: ${{ steps.sdk.outputs.run }}
+      unit_parts: ${{ steps.units.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +58,40 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
+      - id: sdk
+        name: Plan SDK consumer check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          run=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
+            run=false
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                packages/sdk/*|packages/client/*|packages/contracts/*|examples/*|scripts/sdk-pack-smoke.ts|LICENSE|bun.lock|.github/actions/bun-setup/*|.github/workflows/sdk-release.yml|.github/workflows/ci.yml)
+                  run=true ;;
+              esac
+            done <"$RUNNER_TEMP/sdk-pack-paths"
+          fi
+          echo "run=$run" >>"$GITHUB_OUTPUT"
+      - if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
+        uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
+      - id: units
+        if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
+        env:
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+        run: |
+          args=()
+          if [ "$ONLY" != check ] && [ "$DOMAINS" = '["surface"]' ]; then
+            args+=(--exclude-surface)
+          fi
+          matrix=$(bun .github/scripts/unit-part.ts matrix "${args[@]}")
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
   static:
     name: check (static)
@@ -90,8 +126,8 @@ jobs:
         run: bun test ./tests
 
   # Integration domains already run every unit test with their services on.
-  # Keep shards for manual checks and the reduced web plan, whose surface
-  # domain alone does not cover repository policy or other unit tests.
+  # Manual checks keep all shards. The web plan runs only the complement
+  # of surface, retaining policy tests without repeating surface files.
   check-part:
     name: check (${{ matrix.part }})
     needs: changes
@@ -113,23 +149,7 @@ jobs:
       # until the next push.
       fail-fast: false
       matrix:
-        include:
-          - part: "unit: packages"
-            unit: packages
-          # PGlite migration fixtures otherwise exhaust the packages job's ceiling.
-          - part: "unit: db"
-            unit: packages-db
-          # apps/worker/ and apps/web/ apart from the rest of apps/ and
-          # tests/: as one part they ran about 5m of the then-6m ceiling.
-          - part: "unit: worker, web"
-            unit: worker-web
-          # Recent runs spent about 4m22s in Slack and 4m01s in the complement.
-          - part: "unit: control Slack"
-            unit: control-slack
-          # The complement of the parts above: other app tests, tests/, and any
-          # other directory the `test` script's filters pick up.
-          - part: "unit: other apps, tests"
-            unit: rest
+        include: ${{ fromJSON(needs.changes.outputs.unit_parts) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
@@ -137,11 +157,17 @@ jobs:
       - name: Tests of this part
         env:
           UNIT: ${{ matrix.unit }}
+          DOMAINS: ${{ needs.changes.outputs.domains }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
         # An assignment, not process substitution, so a planner failure fails
         # the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         run: |
-          files=$(bun .github/scripts/unit-part.ts "$UNIT")
+          args=()
+          if [ "$ONLY" != check ] && [ "$DOMAINS" = '["surface"]' ]; then
+            args+=(--exclude-surface)
+          fi
+          files=$(bun .github/scripts/unit-part.ts "$UNIT" "${args[@]}")
           mapfile -t files <<<"$files"
           bun test "${files[@]}"
 
@@ -744,6 +770,36 @@ jobs:
           name: ui-pack-button
           path: ${{ runner.temp }}/ui-pack-button.png
           retention-days: 7
+
+  # Preserve the release workflow's PR consumer check without publishing.
+  sdk-pack-smoke:
+    needs: changes
+    if: >-
+      needs.changes.outputs.sdk_pack == 'true'
+      && contains(fromJSON('["all","sdk-pack-smoke"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/sdk examples
+      - name: SDK_VERSION matches package.json
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts \
+            || { echo "::error::SDK_VERSION does not match packages/sdk/package.json"; exit 1; }
+      - run: bun run --cwd packages/sdk build:package
+      - name: The bundle reports the version it is published as
+        run: |
+          version=$(node -p 'require("./packages/sdk/dist/package.json").version')
+          grep -qF "\"${version}\"" packages/sdk/dist/index.js \
+            || { echo "::error::SDK bundle does not carry its package version"; exit 1; }
+      - name: Install, type-check and run the sample in an empty project
+        run: bun scripts/sdk-pack-smoke.ts
 
   # Assemble the current run's artifacts to prove the deploy layout: the
   # docs site at the root, Storybook and the Scalar reference beside it

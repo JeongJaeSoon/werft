@@ -4,6 +4,7 @@ import {
   type Principal,
   type PushAttached,
   type PushRequest,
+  pushDecisionOf,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
@@ -147,6 +148,7 @@ describe("push request decisions", () => {
       store: {
         findSession: async () => ({
           repositoryId: "sample-app",
+          push: "ask",
           policyApproval: null,
           policyFields: {},
         }),
@@ -474,13 +476,19 @@ describe("a push to another repository", () => {
       revision: 3,
       gitCommit: "a".repeat(40),
     },
-    attachedPolicy: {
-      pushAttached: PushAttached;
-      attachedApproval: PushPolicyApproval | null;
-    } = { pushAttached: "ask", attachedApproval: null },
+    pushAttached: PushAttached = "ask",
+    // The real store fills policyApproval whenever a release exists, so the
+    // switch can be on while an approval is still on offer.
+    pushApprovalOn: boolean = policyApproval === null,
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
+    const github = {
+      repositories: released,
+      features: GITHUB_FEATURES_NONE,
+      actions_allow: [],
+      push_approval: pushApprovalOn,
+    };
     const push = createPushRequestService({
       authorization: createAuthorizationPolicy(),
       store: {
@@ -489,20 +497,15 @@ describe("a push to another repository", () => {
           repositoryId: own,
           profileId: "default",
           attached,
-          github: {
-            repositories: released,
-            features: GITHUB_FEATURES_NONE,
-            actions_allow: [],
-            push_approval: true,
-          },
+          github,
           policySource: policyApproval?.source ?? "release",
           repositoryCeiling: {
             repository_ids: ["sample-app", "docs", "tools"],
             github_app_repositories: "listed",
           },
           githubEnabled: true,
+          push: pushDecisionOf({ settings: github, pushAttached }),
           policyApproval,
-          ...attachedPolicy,
           policyFields: { policy_source: "release" },
         }),
         recordRefusal: async (input: PushRefusalRecord) => {
@@ -642,7 +645,7 @@ describe("a push to another repository", () => {
     expect(created).toHaveLength(1);
   });
 
-  test("a release with approval off approves the session's own repository alone", async () => {
+  test("approval off and push_attached allow approve every repository by policy", async () => {
     const approval: PushPolicyApproval = {
       releaseId: "019a0000-0000-7000-8000-0000000000d1",
       source: "release",
@@ -653,6 +656,8 @@ describe("a push to another repository", () => {
       "sample-app",
       undefined,
       approval,
+      undefined,
+      "allow",
     );
     expect(await to()).toBeNull();
     expect(await to("sample-app")).toBeNull();
@@ -662,12 +667,12 @@ describe("a push to another repository", () => {
     ).toEqual([
       ["sample-app", approval],
       ["sample-app", approval],
-      ["docs", null],
+      ["docs", approval],
     ]);
     expect(created[0]?.policyFields).toEqual({ policy_source: "release" });
   });
 
-  test("an agent's approval-off settings approve the same way, carrying the settings revision", async () => {
+  test("an agent's settings approve the same way, carrying the settings revision", async () => {
     const approval: PushPolicyApproval = {
       releaseId: "019a0000-0000-7000-8000-0000000000d1",
       source: "agent",
@@ -678,6 +683,8 @@ describe("a push to another repository", () => {
       "sample-app",
       undefined,
       approval,
+      undefined,
+      "allow",
     );
     expect(await to()).toBeNull();
     expect(await to("docs")).toBeNull();
@@ -685,62 +692,79 @@ describe("a push to another repository", () => {
       created.map((input) => [input.repositoryId, input.policyApproval]),
     ).toEqual([
       ["sample-app", approval],
-      ["docs", null],
+      ["docs", approval],
     ]);
   });
 
-  describe("push.attached: allow, ask, deny", () => {
+  describe("push_attached with push_approval: the stricter of the two", () => {
     const own: PushPolicyApproval = {
       releaseId: "019a0000-0000-7000-8000-0000000000d1",
       source: "agent",
       settingsRevision: 4,
     };
-    const attachedApproval: PushPolicyApproval = {
-      ...own,
-      settingsRevision: 7,
-    };
 
-    test("allow approves an attached repository by policy, with no card; the own repository follows push_approval alone", async () => {
+    test("allow with push_approval on still asks a person, for the own repository and an attached one", async () => {
       const { to, created } = pushing(
         ["docs"],
         "sample-app",
         undefined,
         null,
         undefined,
-        { pushAttached: "allow", attachedApproval },
+        "allow",
       );
       expect(await to("docs")).toBeNull();
       expect(await to("sample-app")).toBeNull();
       expect(
         created.map((input) => [input.repositoryId, input.policyApproval]),
       ).toEqual([
-        ["docs", attachedApproval],
-        // Own repository: approval is still on (policyApproval is null).
+        ["docs", null],
         ["sample-app", null],
       ]);
     });
 
-    test("ask leaves an attached repository to a person, as before the column", async () => {
+    test("an approval on offer is dropped when push_approval is on, even with push_attached allow", async () => {
       const { to, created } = pushing(
         ["docs"],
         "sample-app",
         undefined,
         own,
         undefined,
-        { pushAttached: "ask", attachedApproval: null },
+        "allow",
+        true,
       );
       expect(await to("docs")).toBeNull();
-      expect(created.map((input) => input.policyApproval)).toEqual([null]);
+      expect(await to("sample-app")).toBeNull();
+      expect(created.map((input) => input.policyApproval)).toEqual([
+        null,
+        null,
+      ]);
     });
 
-    test("deny refuses an attached repository as repository_not_allowed and records the refusal", async () => {
+    test("ask with push_approval off leaves every repository to a person", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        "ask",
+      );
+      expect(await to("docs")).toBeNull();
+      expect(await to("sample-app")).toBeNull();
+      expect(created.map((input) => input.policyApproval)).toEqual([
+        null,
+        null,
+      ]);
+    });
+
+    test("deny refuses every repository as repository_not_allowed and records the refusal", async () => {
       const { to, created, refusals } = pushing(
         ["docs"],
         "sample-app",
         undefined,
         own,
         undefined,
-        { pushAttached: "deny", attachedApproval: null },
+        "deny",
       );
       const error = (await to("docs")) as SessionServiceError;
       expect(error).toBeInstanceOf(SessionServiceError);
@@ -753,21 +777,18 @@ describe("a push to another repository", () => {
         refusal: "repository_not_allowed",
       });
       expect(created).toEqual([]);
-      // The session's own repository is not an attached one: deny leaves it be.
-      expect(await to("sample-app")).toBeNull();
-      expect(created.map((input) => input.repositoryId)).toEqual([
-        "sample-app",
-      ]);
+      expect(await to("sample-app")).toBeInstanceOf(SessionServiceError);
+      expect(created).toEqual([]);
     });
 
-    test("with no repository of its own, every repository is attached, so deny refuses them all", async () => {
+    test("with no repository of its own, deny refuses an attached one", async () => {
       const { to, created } = pushing(
         ["docs"],
         null,
         undefined,
         null,
         undefined,
-        { pushAttached: "deny", attachedApproval: null },
+        "deny",
       );
       expect(await to("docs")).toBeInstanceOf(SessionServiceError);
       expect(created).toEqual([]);
@@ -820,6 +841,7 @@ describe("a release with push_approval off", () => {
         recordRefusal: async () => "receipt-1",
         findSession: async () => ({
           repositoryId: "sample-app",
+          push: releaseId === null ? "ask" : "allow",
           policyApproval:
             releaseId === null
               ? null

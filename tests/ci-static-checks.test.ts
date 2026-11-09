@@ -50,9 +50,62 @@ test("bun-setup skips both cache steps for restore-cache false and refuses it wi
   expect(guard?.run).toContain("exit 1");
   const caches = steps.filter((s) => s.uses?.startsWith("actions/cache"));
   expect(caches.map((s) => s.if)).toEqual([
-    "inputs.restore-cache != 'false' && inputs.save-cache == 'true'",
-    "inputs.restore-cache != 'false' && inputs.save-cache != 'true'",
+    "inputs.restore-cache != 'false' && inputs.save-cache == 'true' && github.event_name != 'pull_request'",
+    "inputs.restore-cache != 'false' && (inputs.save-cache != 'true' || github.event_name == 'pull_request')",
   ]);
+});
+
+test("Bun cache restores on PRs but only saves outside PR events", () => {
+  const action = Bun.YAML.parse(
+    readFileSync(
+      join(import.meta.dir, "../.github/actions/bun-setup/action.yml"),
+      "utf8",
+    ),
+  ) as { runs: { steps: Step[] } };
+  const caches = action.runs.steps.filter((s) =>
+    s.uses?.startsWith("actions/cache"),
+  );
+  for (const event of [
+    "pull_request",
+    "push",
+    "workflow_dispatch",
+    "schedule",
+  ]) {
+    for (const restore of ["true", "false"])
+      for (const save of ["true", "false"]) {
+        const selected = caches.filter((s) =>
+          Boolean(
+            new Function(
+              `return (${s.if
+                ?.replaceAll("inputs.restore-cache", JSON.stringify(restore))
+                .replaceAll("inputs.save-cache", JSON.stringify(save))
+                .replaceAll("github.event_name", JSON.stringify(event))});`,
+            )(),
+          ),
+        );
+        expect(selected.length).toBe(restore === "false" ? 0 : 1);
+        expect(selected.some((s) => s.uses?.startsWith("actions/cache@"))).toBe(
+          restore === "true" && save === "true" && event !== "pull_request",
+        );
+      }
+  }
+  const log = action.runs.steps.find((s) => s.name === "Cache restore result");
+  expect(log?.if).toBe("inputs.restore-cache != 'false'");
+  expect(log?.env?.CACHE_HIT).toContain("steps.writer.outputs.cache-hit");
+  expect(log?.env?.CACHE_HIT).toContain("steps.reader.outputs.cache-hit");
+  for (const hit of ["true", "false"]) {
+    const result = Bun.spawnSync(["bash", "-c", log?.run as string], {
+      env: {
+        ...process.env,
+        CACHE_KEY: "bun-root-test",
+        CACHE_HIT: hit,
+        EVENT: "pull_request",
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain(`exact-hit=${hit}`);
+    expect(result.stdout.toString()).toContain("bun-root-test");
+  }
 });
 
 test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
@@ -75,8 +128,8 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
       ).toEqual([]);
     }
   }
-  // forbidden-terms, helm-chart, supply-chain
-  expect(skipping).toBe(3);
+  // changes, forbidden-terms, helm-chart, supply-chain
+  expect(skipping).toBe(4);
 });
 
 test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {
@@ -88,11 +141,25 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   );
   expect(partOf("apps/control-host/src/slack-extra/a.test.ts")).toBe("rest");
   expect(partOf("apps/control-host/src/api/auth.test.ts")).toBe("rest");
-  const units = workflow.jobs["check-part"]?.strategy?.matrix.include.map(
-    (entry) => entry.unit,
+  const files = PARTS.map((unit) => {
+    const paths = {
+      packages: "packages/a.test.ts",
+      "packages-db": "packages/db/a.test.ts",
+      "worker-web": "apps/web/a.test.ts",
+      "control-slack": "apps/control-host/src/slack/a.test.ts",
+      rest: "tests/a.test.ts",
+    };
+    return paths[unit];
+  });
+  const { matrix } = await import("../.github/scripts/unit-part.ts");
+  expect(
+    matrix(files)
+      .map((entry) => entry.unit)
+      .sort(),
+  ).toEqual([...PARTS].sort());
+  expect(workflow.jobs["check-part"]?.strategy?.matrix.include).toBe(
+    `\${{ fromJSON(needs.changes.outputs.unit_parts) }}`,
   );
-  expect(units?.sort()).toEqual([...PARTS].sort());
-  expect(new Set(units).size).toBe(PARTS.length);
   expect(workflow.jobs["check-part"]?.["timeout-minutes"]).toBe(12);
   for (const part of PARTS) {
     expect(() => pick([], part)).toThrow(`unit part ${part} has no files`);
@@ -101,9 +168,21 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
 
 test("static checks keep one cache writer and report independent failures", () => {
   const parts = workflow.jobs["check-part"];
+  expect(workflow.jobs.changes?.outputs?.unit_parts).toBe(
+    `\${{ steps.units.outputs.matrix }}`,
+  );
+  expect(workflow.jobs.changes?.outputs?.sdk_pack).toBe(
+    `\${{ steps.sdk.outputs.run }}`,
+  );
   expect(
-    parts?.strategy?.matrix.include.filter((entry) => !entry.unit),
-  ).toEqual([]);
+    workflow.jobs.changes?.steps.map((step) => step.id ?? step.uses),
+  ).toEqual([
+    expect.stringContaining("actions/checkout@"),
+    "plan",
+    "sdk",
+    "./.github/actions/bun-setup",
+    "units",
+  ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
   expect(job?.needs).toBeUndefined();
