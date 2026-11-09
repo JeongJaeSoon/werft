@@ -11,6 +11,7 @@ import { TurnLedger } from "./turn-ledger.ts";
 // engine and is part of the live verification of 94S-879.
 
 const config: ClaudeRuntimeConfig = {
+  claudeConfigDir: "/tenant/config",
   correlationId: "conformance",
   mode: "new",
   cwd: "/tenant/workspace",
@@ -34,9 +35,10 @@ describe("the options a session with extension bundles launches the engine with"
   const options = buildSdkOptions(config, deps);
 
   test("deliver the plugins once at launch and never read the bundle's own MCP or settings", () => {
-    expect(options.plugins).toEqual(config.plugins);
+    expect(options.plugins).toEqual([
+      { type: "local", path: "/tenant/home/.ext/d1", skipMcpDiscovery: true },
+    ]);
     expect(options.pluginDelivery).toBe("initialize");
-    expect(options.skipMcpDiscovery).toBe(true);
     expect(options.settingSources).toEqual([]);
   });
 
@@ -49,7 +51,6 @@ describe("the options a session with extension bundles launches the engine with"
     const { plugins: _plugins, identities: _identities, ...plain } = config;
     const bare = buildSdkOptions(plain, deps);
     expect(bare).not.toHaveProperty("plugins");
-    expect(bare).not.toHaveProperty("skipMcpDiscovery");
   });
 
   test("the platform's tool allowlist holds in every mode, so a bundle's own tool grant cannot widen it", async () => {

@@ -309,7 +309,7 @@ describe("Claude SDK adapter options", () => {
       snapshot: true,
     });
     expect(options.plugins).toEqual([
-      { type: "local", path: "/tenant/plugin" },
+      { type: "local", path: "/tenant/plugin", skipMcpDiscovery: true },
     ]);
     expect(options.pathToClaudeCodeExecutable).toBe(
       resolvePinnedClaudeExecutable(),

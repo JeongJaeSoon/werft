@@ -295,7 +295,11 @@ describe("claimFingerprint", () => {
   });
 
   test("a claim's extensions reach the engine's profile as the paths the worker published, and move the digest", () => {
-    const bundle = { name: "lint", digest: "ab".repeat(32), scope: "agent" };
+    const bundle = {
+      name: "lint",
+      digest: "ab".repeat(32),
+      scope: "agent",
+    } as const;
     const runtimeConfig = {
       ...shipped["claude-coding-real"],
       extensions: [bundle],

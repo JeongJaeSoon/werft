@@ -12,6 +12,7 @@ function start(
 ): RuntimeStart {
   return {
     config: {
+      correlationId: "extensions",
       cwd: "/workspace",
       home,
       model: "claude-sonnet-5",

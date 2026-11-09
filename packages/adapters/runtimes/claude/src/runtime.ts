@@ -274,9 +274,11 @@ export function buildSdkOptions(
     ...(config.plugins === undefined || config.plugins.length === 0
       ? {}
       : {
-          plugins: config.plugins,
           // The platform owns MCP: a bundle's own MCP declarations never load.
-          skipMcpDiscovery: true,
+          plugins: config.plugins.map((plugin) => ({
+            ...plugin,
+            skipMcpDiscovery: true,
+          })),
         }),
     pluginDelivery: "initialize",
     ...(config.mode === "resume" ? { resume: config.resume } : {}),
