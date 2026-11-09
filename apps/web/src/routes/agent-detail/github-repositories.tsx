@@ -273,8 +273,14 @@ export function RepositoryList({
         >
           {rows.map((row) => {
             const on = toggles.wanted[row.view] ?? row.on;
+            // Rows kept from the previous page while the next one loads are
+            // not clickable: a switch pressed then would change identity when
+            // the page lands.
             const disabled =
-              !editable || row.blocked !== null || row.target === null;
+              !editable ||
+              row.blocked !== null ||
+              row.target === null ||
+              list.isPlaceholderData;
             return (
               <SettingRow
                 // The view key, not the catalog id: that changes once the

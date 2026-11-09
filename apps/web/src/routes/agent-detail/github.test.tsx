@@ -1305,6 +1305,48 @@ describe("에이전트 GitHub 탭", () => {
     await waitFor(() => expect(next.disabled).toBe(false));
   });
 
+  test("다음 페이지를 읽는 동안 남아 있는 이전 페이지의 스위치는 잠긴다", async () => {
+    const { server } = await activeAgent();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const page = (n: number) => ({
+      installations: [
+        {
+          id: 77,
+          account: "acme",
+          connection_id: "app-author",
+          role: "author",
+          permissions: { contents: "write" },
+          repository_count: 60,
+        },
+      ],
+      installation_id: 77,
+      page: n,
+      per_page: 30,
+      total_count: 60,
+      repositories: [],
+      unavailable: null,
+    });
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github/repositories`]: async (request: Request) => {
+          const n = Number(new URL(request.url).searchParams.get("page") ?? 1);
+          if (n > 1) await held;
+          return json(200, page(n));
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    await user.click(await screen.findByRole("button", { name: "다음" }));
+    await waitFor(() => expect(repoSwitch("docs-site").disabled).toBe(true));
+    release();
+    await waitFor(() => expect(repoSwitch("docs-site").disabled).toBe(false));
+  });
+
   test("시작 저장소가 없던 초안은, 다른 곳에서 시작 저장소를 정해도 손으로 되돌리면 사라진다", async () => {
     const { server } = await activeAgent();
     let live: Tab = TAB;
