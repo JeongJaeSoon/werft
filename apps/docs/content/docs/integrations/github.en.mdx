@@ -7,7 +7,7 @@ Werft does three things with GitHub. It clones the repository when a session sta
 
 ## What the operator does
 
-The credential is a GitHub App, which an owner or admin handles in the console under **Settings → Workspace → GitHub connection**.
+The credential is a GitHub App, which an owner or admin handles in the console under **Settings → Integrations → GitHub**.
 
 - **Add App**: create a new App on GitHub (the console receives and stores its App ID and key), or connect an existing one with its App ID and private key (the PEM file). A workspace can hold several author Apps and reviewer Apps; a role badge tells them apart in the list. The key is stored encrypted and never shown again on the screen or in an API response. To change a key, use **Register a new key** in the App row's ⋯ menu.
 - **Add organization**: install an App on an organization or a personal account. The installation table shows, for each account, its type, repository scope, App, who connected it and its status; **Manage on GitHub** in the row's ⋯ menu opens that installation's settings.
@@ -86,7 +86,7 @@ Reference: [`POST …/pull-request/comments`](/reference/http-api/push-requests/
 
 Titles, bodies, and comments are sanitized before they are sent to GitHub. Lines that look like secrets are masked, and `@mentions` and closing keywords such as `Closes #N` are rewritten so they trigger no notification or automatic close.
 
-The platform adds a tail to the end of the PR body: the session id and commit, the session's address, the agent and release, and who started the session and how. Push to the branch again and ask for the PR again, and only the tail changes to the new commit; the text a person wrote above it stays.
+The platform adds a tail to the end of the PR body: the session id and commit, the session's address, the agent and release, who started the session and how, and who requested the push (`Requested by`, the login without `@` so nobody is notified). Push to the branch again and ask for the PR again, and only the tail changes to the new commit; the text a person wrote above it stays.
 
 The agent in a session does the same work with built-in MCP tools: `open_pull_request` opens the PR, `update_pull_request` changes its title and body, and `comment_pull_request` comments on it. `close_pull_request` and `reopen_pull_request` close a PR that a push request of this session opened, without merging it, and reopen it. No person approves these. The agent cannot close a PR from another session, or one in a repository it is not allowed. Closing a closed PR, or reopening an open one, changes nothing and answers `changed: false`. A merged PR is refused with `PULL_REQUEST_MERGED`. Closing does not delete the `agent/<session-id>` branch, so the PR can be reopened.
 
@@ -128,13 +128,13 @@ A session created without `attached_repository_ids` starts with no repository at
 
 ## Link your GitHub account
 
-The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Link your GitHub account and the commits of sessions you start also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.
+The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Link your GitHub account and the commits of turns you request also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.
 
-1. On the "Member GitHub accounts" line under **Settings → Workspace → GitHub connection**, an owner or admin picks the author App to link with (when there are several), puts the callback URL from the ⋯ menu in that App's Callback URL, and enters a client secret made in that App. Until then the link button is off.
+1. On the "Member GitHub accounts" line under **Settings → Integrations → GitHub**, an owner or admin picks the author App to link with (when there are several), puts the callback URL from the ⋯ menu in that App's Callback URL, and enters a client secret made in that App. Until then the link button is off.
 2. In the GitHub row of **Settings → Linked accounts**, choose "Link" and approve on GitHub's consent screen. The platform reads only the GitHub account's id and login and keeps no GitHub token.
-3. The linked row shows the line commits get (`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`). After you unlink, sessions started from then on leave it out.
+3. The linked row shows the line commits get (`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`). After you unlink, turns requested from then on leave it out.
 
-Sessions started from the web console, a personal API key, or Slack follow the starter's link. A session started with an agent key or an operator key has no person who started it, so no co-author is added. Either way, commits carry an `Agent-Session:` trailer: the session's address where the operator has set the console's address, else the session's id. The last line of the Outputs tab in session details shows which case a session is.
+Turns requested from the web console, a personal API key, or Slack follow the link of the person who requested that turn. When several people ask in one session, each commit carries the requester of its own turn. A turn requested with an agent key or an operator key has no requesting person, so no co-author is added. Either way, commits carry an `Agent-Session:` trailer: the session's address where the operator has set the console's address, else the session's id. The last line of the Outputs tab in session details shows which case a session is.
 
 A GitHub account links to one person only. Linking an account someone else already linked is refused.
 

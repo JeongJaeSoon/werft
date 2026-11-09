@@ -14,7 +14,7 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor } = await appHarness();
 
-const PATH = "/settings/workspace/github";
+const PATH = "/settings/workspace/integrations/github";
 const PUT_PATH = `${GITHUB_SETTINGS}/pull-request`;
 
 const settings = (

@@ -56,15 +56,18 @@ describe("연동 화면 본문은 페이지 껍데기를 내보내지 않는다"
     },
   );
 
-  test("새 App 콜백 경로는 껍데기를 한 번만 그리고 제목을 유지한다", async () => {
-    renderAt("/settings/workspace/github/new-app", {
+  test("새 App 콜백 경로는 껍데기를 한 번만 그리고 연동 제목 아래 소제목으로 둔다", async () => {
+    renderAt("/settings/workspace/integrations/github/new-app", {
       "GET /v1/auth/me": () => json(200, me()),
     });
     const heading = await screen.findByRole("heading", {
-      level: 1,
+      level: 2,
       name: "새 App 만들기",
     });
-    expect(heading.tagName === "H1").toBe(true);
+    expect(heading.tagName === "H2").toBe(true);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "연동" }).tagName === "H1",
+    ).toBe(true);
     expect(document.querySelectorAll('[data-slot="page"]').length === 1).toBe(
       true,
     );

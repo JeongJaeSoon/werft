@@ -204,7 +204,7 @@ describe("app shell", () => {
     ["/settings/api-keys", "API 키"],
     ["/settings/workspace", "일반"],
     ["/settings/workspace/", "일반"],
-    ["/settings/workspace/slack", "Slack 연결 설정"],
+    ["/settings/workspace/integrations/slack", "연동"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
     ["/settings/api-keys/new", "새 개인 키"],
@@ -247,8 +247,8 @@ describe("app shell", () => {
     ["/sessions", "세션"],
     ["/settings/api-keys", "API 키"],
     ["/settings/workspace", "일반"],
-    ["/settings/workspace/slack", "Slack 연결 설정"],
-    ["/settings/workspace/github", "GitHub 연결 설정"],
+    ["/settings/workspace/integrations/slack", "연동"],
+    ["/settings/workspace/integrations/github", "연동"],
     ["/settings/workspace/api-keys", "조직 관리 키"],
     ["/settings/preferences", "언어·테마"],
     ["/settings/linked-accounts", "연동 계정"],
@@ -840,7 +840,7 @@ describe("who the cache belongs to", () => {
       "/settings/api-keys",
       "/settings/linked-accounts",
       "/settings/workspace",
-      "/settings/workspace/slack",
+      "/settings/workspace/integrations/slack",
     ]) {
       await history.push(path);
       await waitFor(() => expect(history.location.pathname).toBe(path));

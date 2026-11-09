@@ -37,9 +37,9 @@ export const errorsKo = {
     "운영자가 이 프로필이나 그 바탕 프로필을 차단했습니다 — 차단이 풀릴 때까지 새 릴리스와 세션에 쓸 수 없습니다.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
+    "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 › Slack 설정을 요청하세요.",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 GitHub 연결의 사용자 연결 설정을 요청하세요.",
+    "GitHub 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 › GitHub의 사용자 연결 설정을 요청하세요.",
   "error.SLACK_APP_CREATING":
     "Slack 앱을 만드는 중입니다 — 잠시 뒤 다시 시도하세요.",
   "error.GITHUB_UNAVAILABLE":
@@ -87,9 +87,9 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "The operator blocked this profile or the profile it is based on — no new release or session can use it until it is unblocked.",
   "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack account linking isn't available yet — ask a workspace admin to set up the Slack connection.",
+    "Slack account linking isn't available yet — ask a workspace admin to set up Slack in Integrations.",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub account linking isn't available yet — ask a workspace admin to set up user linking in the GitHub connection.",
+    "GitHub account linking isn't available yet — ask a workspace admin to set up user linking in Integrations › GitHub.",
   "error.SLACK_APP_CREATING":
     "The Slack app is being created — try again shortly.",
   "error.GITHUB_UNAVAILABLE":
@@ -142,9 +142,9 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "運用担当者がこのプロファイルか、そのもとになっているプロファイルをブロックしました。解除されるまで、新しいリリースとセッションでは使えません。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
   "error.SLACK_LINK_NOT_CONFIGURED":
-    "Slack アカウント連携はまだ使えません。ワークスペースの管理者に Slack 連携の設定を依頼してください。",
+    "Slack アカウント連携はまだ使えません。ワークスペースの管理者に 連携 › Slack の設定を依頼してください。",
   "error.GITHUB_LINK_NOT_CONFIGURED":
-    "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に GitHub 連携のユーザー連携の設定を依頼してください。",
+    "GitHub アカウント連携はまだ使えません。ワークスペースの管理者に 連携 › GitHub のユーザー連携の設定を依頼してください。",
   "error.SLACK_APP_CREATING":
     "Slack アプリを作成中です。しばらくしてから、もう一度お試しください。",
   "error.GITHUB_UNAVAILABLE":

@@ -324,9 +324,9 @@ describe("making the author GitHub App from a manifest", () => {
     expect(manifest).toEqual({
       name: expect.stringMatching(/^werft-acme-[0-9a-f]{4}$/),
       url: ORIGIN,
-      redirect_url: `${ORIGIN}/settings/workspace/github/new-app`,
+      redirect_url: `${ORIGIN}/settings/workspace/integrations/github/new-app`,
       callback_urls: [CALLBACK],
-      setup_url: `${ORIGIN}/settings/workspace/github`,
+      setup_url: `${ORIGIN}/settings/workspace/integrations/github`,
       public: false,
       default_permissions: {
         contents: "write",
