@@ -24,8 +24,10 @@ import {
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import {
+  type CatalogProfile,
   type InstallationProfileEntry,
   type InstallationProfileState,
+  modelMovePins,
   profileFingerprint,
   type SessionCatalog,
   type WorkspaceProfileRecord,
@@ -589,6 +591,35 @@ describe("a session pinned to an agent release", () => {
       expect((await a.service.getSession(a.caller, SESSION)).attention).toBe(
         null,
       );
+      // A version 1 pin names its model, so a row on it may hold none.
+      const v1 = modelMovePins(
+        withSuccessor.profiles["coding-v1"] as CatalogProfile,
+        [],
+      ).find(
+        (pin) =>
+          pin.from === "claude-opus-5-5" &&
+          pin.fromFingerprint !== pin.toFingerprint,
+      );
+      if (!v1) throw new Error("no version 1 pin");
+      const legacy = setup({
+        catalog: withSuccessor,
+        session: {
+          ...row("claude-opus-5-5", withSuccessor),
+          model: null,
+          profile_fingerprint: v1.fromFingerprint,
+        },
+      });
+      expect(
+        (await legacy.service.getSession(legacy.caller, SESSION)).attention,
+      ).toBe(null);
+      // A version 2 pin with no model names nothing to move.
+      const bare = setup({
+        catalog: withSuccessor,
+        session: { ...row("claude-opus-5-5", withSuccessor), model: null },
+      });
+      expect(
+        (await bare.service.getSession(bare.caller, SESSION)).attention,
+      ).toMatchObject({ code: "CATALOG_MISMATCH" });
       const without = moved(["claude-haiku-5-5"]);
       const b = setup({
         catalog: without,

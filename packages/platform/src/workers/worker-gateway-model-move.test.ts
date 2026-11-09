@@ -202,6 +202,20 @@ describe("a model that left the list, at claim", () => {
     ).toEqual(["sonnet-5-0"]);
   });
 
+  test("a version 2 checkpoint that names no model is not taken for the dropped one", async () => {
+    const { claimed } = claimWith(profile, {
+      model: "sonnet-5-1",
+      restoreProfiles: [
+        {
+          profileId: "p",
+          profileFingerprint: profileFingerprint(profile),
+          model: null,
+        },
+      ],
+    });
+    expect((await claimed).restore_runtime_configs).toBeUndefined();
+  });
+
   test("a checkpoint from a model with no successor is still refused", async () => {
     const { claimed } = claimWith(profile, {
       model: "sonnet-5-1",

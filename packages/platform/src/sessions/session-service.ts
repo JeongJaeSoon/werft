@@ -71,6 +71,7 @@ import {
   catalogProfile,
   isUnmetered,
   modelSuccessor,
+  movesAtNextTurn,
   type ProfilePin,
   profileFingerprint,
   profileGone,
@@ -502,9 +503,11 @@ export function createSessionService(deps: {
         // The next turn's claim moves a session off a dropped model onto its
         // successor (a row pinned to the profile as it is now), so nothing
         // blocks it.
-        (record.model !== null &&
-          record.profile_fingerprint === profileFingerprint(run.profile) &&
-          modelSuccessor(run.profile, record.model) !== null))
+        movesAtNextTurn(
+          run.profile,
+          pinOf(record),
+          acceptedRuntimeVersions(catalog),
+        ))
     );
   }
 

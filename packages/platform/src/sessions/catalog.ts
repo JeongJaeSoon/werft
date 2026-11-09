@@ -1608,6 +1608,25 @@ export function modelMovePins<P extends CatalogProfileView>(
 }
 
 /**
+ * Whether a row with this pin is on a dropped model the next turn's claim
+ * moves, by the same pins it moves them by. A version 2 pin needs the row's
+ * model to be the dropped one; a version 1 pin names it, so the column may
+ * be empty.
+ */
+export function movesAtNextTurn(
+  profile: CatalogProfileView,
+  pin: ProfilePin,
+  versions: readonly string[],
+): boolean {
+  return modelMovePins(profile, versions).some(
+    (move) =>
+      move.fromFingerprint === pin.fingerprint &&
+      (pin.model === move.from ||
+        (pin.model === null && move.fromFingerprint !== move.toFingerprint)),
+  );
+}
+
+/**
  * Every pin a row of this profile may hold, its default model first: the
  * version 2 fingerprint once per offered model, then each model's version 1
  * fingerprint, which names its model itself (`model` null: any row model);

@@ -1202,7 +1202,10 @@ export function createWorkerGateway(deps: {
         ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
             (pin) =>
               pin.fromFingerprint === made.profileFingerprint &&
-              (made.model === null || made.model === pin.from) &&
+              // A version 1 pin names its model, so its column may be empty.
+              (made.model === pin.from ||
+                (made.model === null &&
+                  pin.fromFingerprint !== pin.toFingerprint)) &&
               pin.to === binding.model,
           )?.asFrom ?? null)
         : null;
