@@ -18,7 +18,9 @@ const DEFAULT_GIT_PUSH_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * The git under the platform's push: a throwaway bare repository fed only the
- * checkpoint's bundles, and one push of one commit to one ref.
+ * checkpoint's bundles, and one push of `<commit>:<ref>`. That makes the
+ * pinned commit the ref's tip, so every ancestor the remote does not hold yet
+ * (the session's earlier, unpushed commits) goes up with it.
  *
  * The bundles were written by the agent, so nothing in them may run here.
  * The repository is bare (no checkout, so no filter, attribute, submodule or
