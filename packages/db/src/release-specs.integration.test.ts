@@ -146,16 +146,57 @@ integration("release spec backfill on PostgreSQL", () => {
     }));
     const stored = await row(id);
     expect(stored.runtime_spec).not.toBeNull();
-    // Another writer arriving later loses, and the row is untouched.
-    const report = await backfillReleaseSpecs(
-      { pending: async () => [], save: store.save },
-      () => null,
-    );
-    expect(report).toEqual({ stored: 0, raced: 0, skipped: [] });
+    // Two writers on the same release: exactly one wins, the row is the
+    // first one's, and the loser is told so.
+    const record = verifyOk(id, stored);
+    expect(await store.save(id, record)).toBe(false);
     expect((await store.pending(null, 100)).map((r) => r.id)).not.toContain(id);
-    expect(await store.save(id, verifyOk(id, stored))).toBe(false);
     expect(await row(id)).toEqual(stored);
   });
+  test("two backfills at once store each release exactly once", async () => {
+    const ids = await Promise.all(
+      ["Glob", "WebFetch", "Task"].map((tool) =>
+        insertRelease({ ...profile, tools: [tool] }),
+      ),
+    );
+    const store = releaseSpecStore(db);
+    const resolve = (release: { id: string }) => {
+      const tool = ["Glob", "WebFetch", "Task"][ids.indexOf(release.id)];
+      return tool === undefined
+        ? null
+        : { profile: { ...profile, tools: [tool] }, connectionId: "conn-1" };
+    };
+    // Both read the pending set before either writes, so each really races.
+    let reads = 0;
+    let release: () => void = () => {};
+    const bothRead = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const gated = {
+      ...store,
+      pending: async (after: string | null, limit: number) => {
+        const rows = await store.pending(after, limit);
+        if (after === null) {
+          reads += 1;
+          if (reads === 2) release();
+          await bothRead;
+        }
+        return rows;
+      },
+    };
+    const [a, b] = await Promise.all([
+      backfillReleaseSpecs(gated, resolve),
+      backfillReleaseSpecs(gated, resolve),
+    ]);
+    expect(a.stored + b.stored).toBe(3);
+    // Each writer saw all three; every one it did not store, the other had.
+    expect(a.stored + a.raced).toBe(3);
+    expect(b.stored + b.raced).toBe(3);
+    for (const id of ids) {
+      expect(verifyReleaseSpec(id, await row(id)).ok).toBe(true);
+    }
+  });
+
   test("the table still refuses every other write to a release", async () => {
     const id = await insertRelease({ ...profile, tools: ["Read", "Grep"] });
     const store = releaseSpecStore(db);

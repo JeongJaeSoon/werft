@@ -111,6 +111,24 @@ describe("buildSpecSource", () => {
     ).toEqual({ ok: false, reason: "profile_changed" });
   });
 
+  // The fingerprint leaves the repository mode out, so the source takes the
+  // profile's mode as of the backfill, which is what sessions are held to now.
+  test("the repository mode is the profile's current one", () => {
+    const optional: CatalogProfile = { ...profile, repository: "optional" };
+    expect(sourceOf(optional).repository_mode).toBe("optional");
+  });
+
+  test("a release that names a repository is not frozen under none", () => {
+    const none: CatalogProfile = { ...profile, repository: "none" };
+    expect(
+      buildSpecSource({
+        release: { ...releaseOf(none), repository_id: "repo-1" },
+        profile: none,
+        connectionId: "conn-1",
+      }),
+    ).toEqual({ ok: false, reason: "repository_mode_conflict" });
+  });
+
   test("a provider that matches no connection gets no source", () => {
     expect(
       buildSpecSource({
