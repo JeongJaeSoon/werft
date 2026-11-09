@@ -99,6 +99,7 @@ export function createSlackWelcome(deps: {
     if (
       home === undefined ||
       !home.home ||
+      home.status !== "ready" ||
       home.mode === "off" ||
       home.channelId === null ||
       home.installationId === null

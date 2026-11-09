@@ -1,5 +1,5 @@
 {
-  "id": "a25a9ff4-e126-412a-a23a-a1f1721b11e1",
+  "id": "681fca6d-6b00-47b7-889a-aabb0bfd4b8b",
   "prevId": "1f89e09c-1c57-45a6-a619-3c71055d279a",
   "version": "7",
   "dialect": "postgresql",
@@ -4233,182 +4233,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.extension_bundles": {
-      "name": "extension_bundles",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "digest": {
-          "name": "digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size_bytes": {
-          "name": "size_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "manifest": {
-          "name": "manifest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "review": {
-          "name": "review",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "registered_by": {
-          "name": "registered_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "registered_at": {
-          "name": "registered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "reviewed_by": {
-          "name": "reviewed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reviewed_at": {
-          "name": "reviewed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "extension_bundles_workspace_digest_idx": {
-          "name": "extension_bundles_workspace_digest_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "digest",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "extension_bundles_workspace_id_workspaces_id_fk": {
-          "name": "extension_bundles_workspace_id_workspaces_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "extension_bundles_registered_by_users_id_fk": {
-          "name": "extension_bundles_registered_by_users_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "users",
-          "columnsFrom": ["registered_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "extension_bundles_reviewed_by_users_id_fk": {
-          "name": "extension_bundles_reviewed_by_users_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "users",
-          "columnsFrom": ["reviewed_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "extension_bundles_digest_check": {
-          "name": "extension_bundles_digest_check",
-          "value": "\"extension_bundles\".\"digest\" ~ '^[0-9a-f]{64}$'"
-        },
-        "extension_bundles_name_check": {
-          "name": "extension_bundles_name_check",
-          "value": "\"extension_bundles\".\"name\" ~ '^[a-z0-9][a-z0-9-]{0,63}$'"
-        },
-        "extension_bundles_label_check": {
-          "name": "extension_bundles_label_check",
-          "value": "char_length(\"extension_bundles\".\"label\") BETWEEN 1 AND 200"
-        },
-        "extension_bundles_source_check": {
-          "name": "extension_bundles_source_check",
-          "value": "\"extension_bundles\".\"source\" IN ('upload','github')"
-        },
-        "extension_bundles_review_check": {
-          "name": "extension_bundles_review_check",
-          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected')"
-        },
-        "extension_bundles_review_actor_check": {
-          "name": "extension_bundles_review_actor_check",
-          "value": "(\"extension_bundles\".\"review\" = 'pending') = (\"extension_bundles\".\"reviewed_by\" IS NULL AND \"extension_bundles\".\"reviewed_at\" IS NULL)"
-        },
-        "extension_bundles_size_check": {
-          "name": "extension_bundles_size_check",
-          "value": "\"extension_bundles\".\"size_bytes\" > 0"
-        },
-        "extension_bundles_manifest_check": {
-          "name": "extension_bundles_manifest_check",
-          "value": "jsonb_typeof(\"extension_bundles\".\"manifest\") = 'object'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.github_app_manifest_states": {
       "name": "github_app_manifest_states",
       "schema": "",
@@ -5271,11 +5095,11 @@
         },
         "grants_actions_check": {
           "name": "grants_actions_check",
-          "value": "cardinality(\"grants\".\"actions\") > 0 AND coalesce(array_ndims(\"grants\".\"actions\"), 1) = 1 AND \"grants\".\"actions\" <@ ARRAY['workspace.read','workspace.manage','agent.manage','binding.manage','routine.manage','session.read','session.submit','session.approve','session.control','session.recover','memory.read','memory.write','artifact.read','delivery.send']::text[]"
+          "value": "cardinality(\"grants\".\"actions\") > 0 AND coalesce(array_ndims(\"grants\".\"actions\"), 1) = 1 AND \"grants\".\"actions\" <@ ARRAY['workspace.read','workspace.manage','agent.manage','binding.manage','binding.approve','routine.manage','session.read','session.submit','session.approve','session.control','session.recover','memory.read','memory.write','artifact.read','delivery.send']::text[]"
         },
         "grants_actions_resource_check": {
           "name": "grants_actions_resource_check",
-          "value": "\"grants\".\"actions\" <@ CASE \"resource_kind\" WHEN 'workspace' THEN ARRAY['workspace.read','workspace.manage','agent.manage','binding.manage','routine.manage','memory.read','memory.write']::text[] WHEN 'session' THEN ARRAY['session.read','session.submit','session.approve','session.control','session.recover','artifact.read','delivery.send']::text[] WHEN 'invite' THEN ARRAY[]::text[] WHEN 'agent' THEN ARRAY['agent.manage','binding.manage','routine.manage','memory.read','memory.write']::text[] WHEN 'agent_release' THEN ARRAY[]::text[] WHEN 'surface_binding' THEN ARRAY['binding.manage','session.submit','delivery.send']::text[] WHEN 'session_link' THEN ARRAY['session.read','session.submit','session.approve','session.control','delivery.send']::text[] WHEN 'dispatch' THEN ARRAY[]::text[] WHEN 'memory' THEN ARRAY['memory.read','memory.write']::text[] WHEN 'routine' THEN ARRAY['routine.manage']::text[] WHEN 'artifact' THEN ARRAY['artifact.read']::text[] ELSE ARRAY[]::text[] END"
+          "value": "\"grants\".\"actions\" <@ CASE \"resource_kind\" WHEN 'workspace' THEN ARRAY['workspace.read','workspace.manage','agent.manage','binding.manage','binding.approve','routine.manage','memory.read','memory.write']::text[] WHEN 'session' THEN ARRAY['session.read','session.submit','session.approve','session.control','session.recover','artifact.read','delivery.send']::text[] WHEN 'invite' THEN ARRAY[]::text[] WHEN 'agent' THEN ARRAY['agent.manage','binding.manage','binding.approve','routine.manage','memory.read','memory.write']::text[] WHEN 'agent_release' THEN ARRAY[]::text[] WHEN 'surface_binding' THEN ARRAY['binding.manage','binding.approve','session.submit','delivery.send']::text[] WHEN 'session_link' THEN ARRAY['session.read','session.submit','session.approve','session.control','delivery.send']::text[] WHEN 'dispatch' THEN ARRAY[]::text[] WHEN 'memory' THEN ARRAY['memory.read','memory.write']::text[] WHEN 'routine' THEN ARRAY['routine.manage']::text[] WHEN 'artifact' THEN ARRAY['artifact.read']::text[] ELSE ARRAY[]::text[] END"
         },
         "grants_scopes_check": {
           "name": "grants_scopes_check",
@@ -11917,7 +11741,7 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','own_bot_user','message_subtype','unsupported_event','user_tokens_only')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','own_bot_user','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval')"
         },
         "slack_inbound_events_dropped_check": {
           "name": "slack_inbound_events_dropped_check",
@@ -12751,6 +12575,12 @@
           "notNull": true,
           "default": "'ready'"
         },
+        "approved_at": {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "muted": {
           "name": "muted",
           "type": "boolean",
@@ -12930,7 +12760,7 @@
         },
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
-          "value": "\"surface_bindings\".\"status\" IN ('ready','partial','failed','revoked')"
+          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','partial','failed','revoked')"
         },
         "surface_bindings_membership_check": {
           "name": "surface_bindings_membership_check",
@@ -12947,6 +12777,10 @@
         "surface_bindings_ready_check": {
           "name": "surface_bindings_ready_check",
           "value": "\"surface_bindings\".\"surface\" <> 'slack' OR \"surface_bindings\".\"status\" <> 'ready' OR (\"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" IS NOT NULL AND (\"surface_bindings\".\"external_surface_id\" IS NOT NULL OR \"surface_bindings\".\"surface_kind\" = 'dm'))"
+        },
+        "surface_bindings_pending_check": {
+          "name": "surface_bindings_pending_check",
+          "value": "\"surface_bindings\".\"status\" <> 'pending_approval' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" = 'private_channel' AND NOT \"surface_bindings\".\"home\")"
         },
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",

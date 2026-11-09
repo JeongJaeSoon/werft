@@ -15,7 +15,8 @@ export const teamsKo = {
   "teams.open": "팀 열기: {name}",
   "teams.empty": "아직 팀이 없습니다.",
   "teams.listSearch": "이름으로 팀 찾기",
-  "teams.listNoMatch": "검색어에 맞는 팀이 없습니다.",
+  "teams.listNoMatch": "검색어에 맞는 팀이 없습니다",
+  "teams.listNoMatchHint": "다른 이름으로 찾아 보세요.",
   "teams.memberCount": "구성원 {count}명",
   "teams.mine.title": "내가 속한 팀",
   "teams.mine.intro":
@@ -24,7 +25,7 @@ export const teamsKo = {
   "teams.back": "팀 목록",
   "teams.settings": "팀 설정",
   "teams.rename": "이름 바꾸기",
-  "teams.renamed": "팀 이름을 {name}(으)로 바꿨습니다.",
+  "teams.renamed": "팀 이름을 바꿨습니다. 지금 이름은 {name}입니다.",
   "teams.delete": "팀 삭제",
   "teams.deleted": "{name} 팀을 삭제했습니다.",
   "teams.deleteHint":
@@ -53,25 +54,26 @@ export const teamsKo = {
   "teams.memberRemoved": "{name}님을 팀에서 제외했습니다.",
   "teams.noMembers": "아직 구성원이 없습니다.",
   "teams.search": "이름이나 이메일로 구성원 찾기",
-  "teams.noMatch": "찾는 구성원이 이 팀에 없습니다.",
+  "teams.noMatch": "검색어에 맞는 구성원이 없습니다",
+  "teams.noMatchHint": "다른 이름이나 이메일로 찾아 보세요.",
   "teams.tableLabel": "팀 구성원",
   "teams.column.addedAt": "추가한 날",
-  "teams.removeMember": "빼기",
-  "teams.removeMemberFor": "{name}님을 팀에서 빼기",
-  "teams.removeMemberTitle": "{name}님을 {team}에서 뺄까요?",
+  "teams.removeMember": "제외",
+  "teams.removeMemberFor": "{name}님을 팀에서 제외",
+  "teams.removeMemberTitle": "{name}님을 {team} 팀에서 제외할까요?",
   "teams.removeMemberConsequence":
     "워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다.",
   "teams.column.workspaceRole": "워크스페이스 역할",
   "teams.column.teamRole": "팀 역할",
   "teams.role.lead": "팀 관리자",
   "teams.role.member": "구성원",
-  "teams.role.lead.help": "이 팀이 담당 팀인 에이전트를 관리합니다.",
-  "teams.role.member.help":
-    "이 팀이 담당 팀인 에이전트의 설정을 보고 사용합니다. 관리하지는 않습니다.",
-  "teams.changeRole": "역할 바꾸기",
-  "teams.changeRoleFor": "{name}님의 팀 역할 바꾸기",
-  "teams.roleTitle": "팀 역할 바꾸기",
-  "teams.roleChanged": "{name}님의 팀 역할을 {role}(으)로 바꿨습니다.",
+  "teams.changeRoleFor": "{name}님의 팀 역할",
+  "teams.promoteTitle": "{name}님을 팀 관리자로 바꿀까요?",
+  "teams.promoteConsequence":
+    "팀 관리자는 이 팀이 담당 팀인 에이전트를 모두 관리합니다. 바꾸면 바로 적용됩니다.",
+  "teams.promoteConfirm": "팀 관리자로 바꾸기",
+  "teams.roleChanged":
+    "{name}님의 팀 역할을 바꿨습니다. 지금 역할은 {role}입니다.",
   "teams.deleteManages":
     "이 팀이 담당 팀인 에이전트가 있어 삭제하지 못했습니다. 아래 에이전트의 담당 팀을 먼저 바꾸세요.",
   "teams.deleteManagesCount":
@@ -98,7 +100,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.open": "Open team {name}",
   "teams.empty": "No teams yet.",
   "teams.listSearch": "Search teams by name",
-  "teams.listNoMatch": "No team matches the search.",
+  "teams.listNoMatch": "No team matches the search",
+  "teams.listNoMatchHint": "Try another name.",
   "teams.memberCount": "Members: {count}",
   "teams.mine.title": "Your teams",
   "teams.mine.intro":
@@ -107,7 +110,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.back": "All teams",
   "teams.settings": "Team settings",
   "teams.rename": "Rename",
-  "teams.renamed": "Renamed the team to {name}.",
+  "teams.renamed": "Renamed the team. Its name is now {name}.",
   "teams.delete": "Delete team",
   "teams.deleted": "Deleted the {name} team.",
   "teams.deleteHint":
@@ -136,7 +139,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.memberRemoved": "Removed {name} from the team.",
   "teams.noMembers": "No members yet.",
   "teams.search": "Search members by name or email",
-  "teams.noMatch": "Nobody on this team matches.",
+  "teams.noMatch": "No members match the search",
+  "teams.noMatchHint": "Try another name or email.",
   "teams.tableLabel": "Team members",
   "teams.column.addedAt": "Added",
   "teams.removeMember": "Remove",
@@ -148,14 +152,12 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "Team role",
   "teams.role.lead": "Team lead",
   "teams.role.member": "Member",
-  "teams.role.lead.help":
-    "Manages the agents this team is the responsible team of.",
-  "teams.role.member.help":
-    "Sees the settings of the agents this team manages and uses them, without managing them.",
-  "teams.changeRole": "Change role",
-  "teams.changeRoleFor": "Change {name}'s team role",
-  "teams.roleTitle": "Change team role",
-  "teams.roleChanged": "Changed {name}'s team role to {role}.",
+  "teams.changeRoleFor": "{name}'s team role",
+  "teams.promoteTitle": "Make {name} a team lead?",
+  "teams.promoteConsequence":
+    "A team lead manages every agent this team is the responsible team of. The change applies right away.",
+  "teams.promoteConfirm": "Make team lead",
+  "teams.roleChanged": "Changed {name}'s team role. It is now {role}.",
   "teams.deleteManages":
     "The team was not deleted: it is the responsible team of the agents below. Give each of them another responsible team first.",
   "teams.deleteManagesCount":
@@ -182,7 +184,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.open": "チーム {name} を開く",
   "teams.empty": "チームはまだありません。",
   "teams.listSearch": "名前でチームを検索",
-  "teams.listNoMatch": "検索語に一致するチームはありません。",
+  "teams.listNoMatch": "検索語に一致するチームはありません",
+  "teams.listNoMatchHint": "別の名前で探してみてください。",
   "teams.memberCount": "メンバー {count}人",
   "teams.mine.title": "所属チーム",
   "teams.mine.intro":
@@ -191,7 +194,7 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.back": "チーム一覧",
   "teams.settings": "チーム設定",
   "teams.rename": "名前を変更",
-  "teams.renamed": "チーム名を「{name}」に変更しました。",
+  "teams.renamed": "チーム名を変更しました。現在の名前は「{name}」です。",
   "teams.delete": "チームを削除",
   "teams.deleted": "チーム「{name}」を削除しました。",
   "teams.deleteHint":
@@ -220,7 +223,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.memberRemoved": "{name}さんをチームから外しました。",
   "teams.noMembers": "メンバーはまだいません。",
   "teams.search": "名前またはメールでメンバーを検索",
-  "teams.noMatch": "このチームに該当するメンバーはいません。",
+  "teams.noMatch": "検索語に一致するメンバーはいません",
+  "teams.noMatchHint": "別の名前またはメールで探してみてください。",
   "teams.tableLabel": "チームメンバー",
   "teams.column.addedAt": "追加日",
   "teams.removeMember": "外す",
@@ -232,13 +236,13 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.column.teamRole": "チームのロール",
   "teams.role.lead": "チーム管理者",
   "teams.role.member": "メンバー",
-  "teams.role.lead.help": "このチームが担当チームのエージェントを管理します。",
-  "teams.role.member.help":
-    "このチームが担当チームのエージェントの設定を見て利用します。管理はしません。",
-  "teams.changeRole": "ロールを変更",
-  "teams.changeRoleFor": "{name}さんのチームのロールを変更",
-  "teams.roleTitle": "チームのロールを変更",
-  "teams.roleChanged": "{name}さんのチームのロールを{role}に変更しました。",
+  "teams.changeRoleFor": "{name}さんのチームのロール",
+  "teams.promoteTitle": "{name}さんをチーム管理者にしますか？",
+  "teams.promoteConsequence":
+    "チーム管理者は、このチームが担当チームのエージェントをすべて管理します。変更はすぐに反映されます。",
+  "teams.promoteConfirm": "チーム管理者にする",
+  "teams.roleChanged":
+    "{name}さんのチームのロールを変更しました。現在のロールは{role}です。",
   "teams.deleteManages":
     "このチームが担当チームのエージェントがあるため、削除できませんでした。先に下のエージェントの担当チームを変更してください。",
   "teams.deleteManagesCount":

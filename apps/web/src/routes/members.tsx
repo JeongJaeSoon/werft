@@ -82,6 +82,7 @@ import {
 } from "../i18n/i18n.tsx";
 import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
+import { TeamHeadAction } from "./teams.tsx";
 
 // Past more invites than this the list is searched like the member list.
 export const INVITE_SEARCH_THRESHOLD = 10;
@@ -190,6 +191,8 @@ function MembersPage() {
         reason={teamReason}
         onCreated={(name) => notify(t("teams.created", { name }))}
       />
+    ) : !onTeamList ? (
+      <TeamHeadAction />
     ) : undefined
   ) : manages && !failed ? (
     <InviteDialog

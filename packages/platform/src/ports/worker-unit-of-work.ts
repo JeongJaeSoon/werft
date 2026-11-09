@@ -576,6 +576,15 @@ export interface WorkerUnitOfWork {
     tokenHash: Uint8Array;
     purpose: EgressPurpose;
   }): Promise<EgressAuthorization>;
+  // Says on the session's stream why the proxy is cutting this attempt's
+  // provider access: its model was taken off the profile's list. Written once
+  // per attempt however many exchanges are refused; `recorded` is true only
+  // for the call that wrote it, which is the one that may tell people.
+  recordModelCutAtomic(input: {
+    sessionId: string;
+    attemptId: string;
+    model: string;
+  }): Promise<{ recorded: boolean }>;
   // Adds a metered call's cost to its session, once per exchange id.
   recordProviderUsageAtomic(
     input: ProviderUsageInput,
