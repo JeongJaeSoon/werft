@@ -68,11 +68,11 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | Field | Required | Description |
 | --- | --- | --- |
 | `profile_id` | Yes, unless `agent_release_id` is set | The profile id ([Choose a profile](/agents/run-profiles)) |
-| `repository_id` | Depends on the profile | A repository id in the catalog. The worker clones this repository. Required when the profile's `repository_mode` is `required`; not sent when it is `none` ([Sessions without a repository](/sessions/without-repository)) |
+| `repository_id` | Depends on the profile | A repository id in the catalog. The worker clones this repository. Optional. Required when the profile's `repository_mode` is `required`; not sent when it is `none`. A session made from an agent release starts without a repository when you omit it, and the agent attaches only the repositories it needs ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |
 | `title` | | The session's name. If omitted, derived from the first `message` ([Title](#title)) |
-| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)). Then `profile_id` and `repository_id`, if omitted, are the release's values |
+| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)). Then `profile_id`, if omitted, is the release's value. If you omit `repository_id`, an agent with GitHub settings starts without a repository, and an older agent with no settings starts on its release's repository |
 
 The response is 201. The request is only accepted; read the result by fetching the turn ([Status and lifecycle](/sessions/lifecycle)).
 

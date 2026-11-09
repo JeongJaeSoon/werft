@@ -134,6 +134,12 @@ curl -sS "$API/v1/sessions" \
 
 저장소가 없으니 push할 곳도 없다. 이 세션의 [push 요청](/approvals/request)은 409 `PUSH_SOURCE_MISSING`이다. 진행 중에 프로필을 바꿀 때는 저장소를 쓰지 않는 프로필(`optional`, `none`)로만 바꿀 수 있다([프로필 바꾸기](/agents/run-profiles#진행-중인-세션의-프로필-바꾸기)).
 
+## 에이전트 세션은 저장소 없이 시작한다
+
+[에이전트](/agents/create#세션에-묶기)의 release로 만든 세션에서 `repository_id`를 빼면, GitHub 설정이 있는 에이전트는 저장소 없이 시작한다. 예외가 아니라 에이전트 세션의 기본이다. 에이전트는 허용된 저장소를 `list_repositories`로 보고, 작업이 읽거나 바꾸는 저장소만 `attach_repository`로 붙인다([세션 도중 저장소 붙이기](/integrations/github#세션-도중-저장소-붙이기)). 붙인 저장소는 작업 공간에 git 원격으로 들어오고, 그 저장소에 쓰는 일은 저장소마다 push 요청 한 번씩 [승인](/approvals/request)을 거친다.
+
+저장소가 없는 세션에서 만든 파일 가운데 성과물로 모으려는 것은 작업 공간 루트의 `out/`에 둔다. checkpoint가 그 아래 파일을 성과물로 거둔다. `repository_id`를 보내면 그 저장소로 시작하고, GitHub 설정이 아직 없는 옛 에이전트는 release의 저장소로 시작한다.
+
 ## 다음 단계
 
 - [보내기](/messages/send): 세션에 메시지 보내기

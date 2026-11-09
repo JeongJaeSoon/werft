@@ -6,8 +6,8 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 - `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
 - `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
-- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다.
-- `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
+- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다. `start_repository_id`는 저장·읽기만 되고 세션 시작에는 쓰이지 않는다(`startRepositoryOf`).
+- `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 시작 저장소 규칙: 요청의 `repository_id`가 있으면 그 저장소, 없으면 설정 행이 있는 에이전트는 저장소 없이 시작해 `attach_repository`로 붙인 저장소를 받아 오고, 행이 없는 에이전트(아래 3단계의 릴리스 `github`로 설정한 경우)는 릴리스의 저장소로 시작한다. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
 - `push` `POST …/push-requests` `{}` → `requested` → `POST …/approve` `{git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
 - `dispatch` `POST /v1/sessions/{id}/github/workflow-dispatches` `{workflow, ref, inputs?}`. 게이트 순서대로 거절한다: 목록 밖 `403 workflow_not_allowed`, `agent/…` ref `403 agent_ref_refused`, App에 권한이 없으면 `409 app_permission_missing`(GitHub가 발급을 거절). 성공은 201 `{receipt_id, run}`.
@@ -91,7 +91,7 @@ for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq 
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
-기대: 세션 `201`(저장소 `sandbox`), `needs_input`에 Bash 권한 요청 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+기대: 세션 `201`(저장소 `sandbox`. 설정 행이 없는 에이전트라서이고, 행이 있는 에이전트는 `repository_id: null`로 시작한다), `needs_input`에 Bash 권한 요청 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
 
 ```sh
 # 4b. push 거절 3종 (승인 전 push 요청이 없는 상태에서, 5보다 먼저)

@@ -134,6 +134,12 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 
 With no repository there is nowhere to push. A [push request](/approvals/request) for this session is 409 `PUSH_SOURCE_MISSING`. When you change the profile of a session in progress, you can change it only to a profile that does not use a repository (`optional`, `none`) ([Change the profile of a running session](/agents/run-profiles#change-the-profile-of-a-running-session)).
 
+## An agent session starts without a repository
+
+When you omit `repository_id` on a session made from an [agent](/agents/create#bind-to-a-session) release, an agent with GitHub settings starts without a repository. That is the default for agent sessions, not an exception. The agent sees the allowed repositories with `list_repositories` and attaches only the ones the task reads or changes with `attach_repository` ([Attaching a repository mid-session](/integrations/github#attaching-a-repository-mid-session)). An attached repository enters the workspace as a git remote, and writing to it goes through [approval](/approvals/request) with one push request per repository.
+
+In a session without a repository, put the files you want collected as outputs in `out/` at the workspace root; a checkpoint collects the files under it. If you send `repository_id`, the session starts on that repository, and an older agent with no GitHub settings yet starts on its release's repository.
+
 ## Next steps
 
 - [Send](/messages/send): send a message to a session
