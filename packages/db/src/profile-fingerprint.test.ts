@@ -537,9 +537,7 @@ describe("a model named at create", () => {
       await db
         .select({ payload: events.payload })
         .from(events)
-        .where(
-          and(eq(events.sessionId, session_id), eq(events.type, "error")),
-        )
+        .where(and(eq(events.sessionId, session_id), eq(events.type, "error")))
     ).map((row) => row.payload);
     expect(cut).toMatchObject({
       code: "MODEL_NOT_ALLOWED",

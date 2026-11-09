@@ -1030,7 +1030,8 @@ function removedModelOf(
   if (model === null || profileFingerprint === null) return null;
   const offered = runnable.filter(
     (pair) =>
-      allowsPair(pair, session) && pair.profileFingerprint === profileFingerprint,
+      allowsPair(pair, session) &&
+      pair.profileFingerprint === profileFingerprint,
   );
   return offered.length > 0 &&
     offered.every((pair) => pair.model !== null && pair.model !== model)

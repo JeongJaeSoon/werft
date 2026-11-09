@@ -1960,7 +1960,8 @@ export function createWorkerGateway(deps: {
           // cut, with nothing to name.
           const cause: ModelCutCause | null = !listed
             ? "profile_removed"
-            : result.model !== null && !profileModels(listed).includes(result.model)
+            : result.model !== null &&
+                !profileModels(listed).includes(result.model)
               ? "model_removed"
               : null;
           if (cause !== null && result.model !== null) {

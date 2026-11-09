@@ -263,6 +263,8 @@ export const sessionsKo = {
   "session.event.kind.error": "오류",
   "session.event.error.modelNotAllowed":
     "{model}이(가) 프로필의 허용 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 허용 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
+  "session.event.error.modelProfileRemoved":
+    "{model}을(를) 쓰던 프로필이나 모델 연결이 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 프로필·연결 복원을 요청하거나, 다른 프로필로 새 세션을 시작하세요.",
   "session.event.phase.interrupting": "멈추는 중",
   "session.event.phase.engine_stopped": "엔진이 멈춤",
   "session.event.init": "세션 시작",
@@ -541,6 +543,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "Error",
   "session.event.error.modelNotAllowed":
     "Model requests for this session were blocked because {model} is no longer allowed by its profile. Ask an administrator to restore access, or start a new session with another model.",
+  "session.event.error.modelProfileRemoved":
+    "Model requests for this session were blocked because the profile or model connection that served {model} is gone. Ask an administrator to restore it, or start a new session on another profile.",
   "session.event.phase.interrupting": "Stopping",
   "session.event.phase.engine_stopped": "Engine stopped",
   "session.event.init": "Session started",
@@ -793,6 +797,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.error": "エラー",
   "session.event.error.modelNotAllowed":
     "{model} がプロファイルの許可リストから外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
+  "session.event.error.modelProfileRemoved":
+    "{model} を使っていたプロファイルまたはモデル接続がなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別のプロファイルで新しいセッションを開始してください。",
   "session.event.phase.interrupting": "停止中",
   "session.event.phase.engine_stopped": "エンジン停止",
   "session.event.init": "セッション開始",

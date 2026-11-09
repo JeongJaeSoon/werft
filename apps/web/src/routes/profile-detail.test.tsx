@@ -32,6 +32,8 @@ function agent(
   name: string,
   profile: string | null,
   release: string | null,
+  // What the active release runs; a profile's own default unless named.
+  model: string | null = profile === null ? null : "claude-sonnet-5",
 ): AgentListItem {
   return {
     id: `5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8${n}`,
@@ -57,6 +59,7 @@ function agent(
       },
       runtime_profile_id: profile,
       release_label: profile === null ? null : `2026-10-20_09:00:0${n}`,
+      release_model: model,
       bound_credential_refs: [],
       admins: [],
       needs_input_count: 0,
@@ -81,6 +84,7 @@ function catalog(
   ],
   signedIn = me(),
   options: InstallationProfileOptionsResponse = OPTIONS,
+  agents: AgentListItem[] = AGENTS,
 ) {
   const items = [...start];
   const retire = (id: string) => {
@@ -130,7 +134,7 @@ function catalog(
       const profile = new URL(request.url).searchParams.get(
         "runtime_profile_id",
       );
-      const items = AGENTS.filter(
+      const items = agents.filter(
         (agent) =>
           profile === null ||
           (agent.active_release_id !== null &&
@@ -249,6 +253,30 @@ describe("프로필 상세", () => {
         cells(screen.getByRole("table", { name: "이 프로필을 쓰는 에이전트" })),
       ).toEqual([["리뷰 담당", "2026-10-20_09:00:02"]]),
     );
+  });
+
+  test("agents whose release runs a model the profile no longer lists are warned, with the model", async () => {
+    renderAt(
+      "/profiles/op_wl_strict_v2",
+      catalog(undefined, undefined, undefined, [
+        agent(1, "결제 담당", "op_wl_strict_v2", RELEASE),
+        agent(4, "옛 모델 담당", "op_wl_strict_v2", RELEASE, "claude-opus-5-5"),
+      ]),
+    );
+    const agents = await screen.findByRole("table", {
+      name: "이 프로필을 쓰는 에이전트",
+    });
+    const banner = await screen.findByText(
+      "허용 목록에서 빠진 모델을 쓰는 에이전트가 1개 있습니다",
+    );
+    // What to do, in the banner; which model, on the agent's own row.
+    expect(banner.parentElement?.textContent).toContain(
+      "상세 설정 탭에서 모델을 허용된 모델로 바꿔 저장하세요",
+    );
+    expect(cells(agents).map((row) => row[0])).toEqual([
+      "결제 담당",
+      "옛 모델 담당모델 claude-opus-5-5이(가) 이 프로필에서 빠졌습니다",
+    ]);
   });
 
   test("새 버전 opens the creation page on this version", async () => {

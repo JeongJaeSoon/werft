@@ -19,6 +19,17 @@ export const modelsKo = {
     "운영자가 프로필 {profile}을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
   "agent.releases.baseProfileBlocked":
     "운영자가 프로필 {profile}의 바탕 프로필을 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
+
+  "agent.modelRemoved.title":
+    "모델 {model}이(가) 프로필 {profile}의 허용 목록에서 빠졌습니다",
+  "agent.modelRemoved.text":
+    "이 에이전트로는 새 세션이 시작되지 않고, 이 모델로 실행 중인 세션은 멈춥니다. 프로필 관리자에게 모델을 허용 목록에 되돌려 달라고 요청하거나, 상세 설정 탭에서 모델을 허용된 모델로 바꿔 저장하세요.",
+  "profiles.detail.agents.modelRemovedTitle":
+    "허용 목록에서 빠진 모델을 쓰는 에이전트가 {count}개 있습니다",
+  "profiles.detail.agents.modelRemovedText":
+    "이 에이전트들로는 새 세션이 시작되지 않고, 해당 모델로 실행 중인 세션은 멈춥니다. 모델을 프로필의 허용 목록에 되돌리거나, 각 에이전트의 상세 설정 탭에서 모델을 허용된 모델로 바꿔 저장하세요.",
+  "profiles.detail.agents.modelRemovedRow":
+    "모델 {model}이(가) 이 프로필에서 빠졌습니다",
 };
 
 export const modelsEn: Record<keyof typeof modelsKo, string> = {
@@ -38,6 +49,17 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
     "The operator blocked the profile {profile}. Until it is unblocked, no release on it can be created or activated.",
   "agent.releases.baseProfileBlocked":
     "The operator blocked the profile that profile {profile} narrows. Until it is unblocked, no release on it can be created or activated.",
+
+  "agent.modelRemoved.title":
+    "Model {model} was taken off the allowed list of profile {profile}",
+  "agent.modelRemoved.text":
+    "This agent starts no new session, and sessions running this model stop. Ask the profile's administrator to put the model back on the list, or change the model to an allowed one in the Settings tab and save.",
+  "profiles.detail.agents.modelRemovedTitle":
+    "{count} agents run a model that is no longer on the allowed list",
+  "profiles.detail.agents.modelRemovedText":
+    "These agents start no new session, and sessions running that model stop. Put the model back on the profile's list, or change the model to an allowed one in each agent's Settings tab and save.",
+  "profiles.detail.agents.modelRemovedRow":
+    "Model {model} is no longer on this profile",
 };
 
 export const modelsJa: Record<keyof typeof modelsKo, string> = {
@@ -57,4 +79,15 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
     "運用担当者がプロファイル {profile} をブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
   "agent.releases.baseProfileBlocked":
     "運用担当者がプロファイル {profile} のもとになっているプロファイルをブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
+
+  "agent.modelRemoved.title":
+    "モデル {model} がプロファイル {profile} の許可リストから外れました",
+  "agent.modelRemoved.text":
+    "このエージェントでは新しいセッションを開始できず、このモデルで実行中のセッションは止まります。プロファイルの管理者にモデルを許可リストへ戻すよう依頼するか、詳細設定タブでモデルを許可されたものに変更して保存してください。",
+  "profiles.detail.agents.modelRemovedTitle":
+    "許可リストから外れたモデルを使うエージェントが {count} 件あります",
+  "profiles.detail.agents.modelRemovedText":
+    "これらのエージェントでは新しいセッションを開始できず、そのモデルで実行中のセッションは止まります。モデルをプロファイルの許可リストへ戻すか、各エージェントの詳細設定タブでモデルを許可されたものに変更して保存してください。",
+  "profiles.detail.agents.modelRemovedRow":
+    "モデル {model} はこのプロファイルから外れました",
 };

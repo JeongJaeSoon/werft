@@ -20337,6 +20337,17 @@
                         }
                       ]
                     },
+                    "release_model": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "bound_credential_refs": {
                       "type": "array",
                       "items": {
@@ -20382,6 +20393,7 @@
                     "version",
                     "runtime_profile_id",
                     "release_label",
+                    "release_model",
                     "bound_credential_refs",
                     "admins",
                     "needs_input_count",
