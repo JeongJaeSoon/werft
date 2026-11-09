@@ -496,6 +496,17 @@ integration("extension bundles on PostgreSQL", () => {
     ).toBe("agent_not_found");
   });
 
+  test("an owner that is no uuid (before workspaces) has no attachments instead of failing the read", async () => {
+    const { store } = build();
+    expect(await store.listAttachments({ workspaceId: "local" })).toEqual([]);
+    expect(
+      await store.listAttachments({
+        workspaceId: randomUUID(),
+        agentId: "not-a-uuid",
+      }),
+    ).toEqual([]);
+  });
+
   test("a member cannot attach; nothing is written", async () => {
     const { service } = build();
     const workspaceId = await workspace();

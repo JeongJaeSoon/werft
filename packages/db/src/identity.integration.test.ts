@@ -96,6 +96,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "mcp_start",
     // 0249
     "env_start",
+    // 0250
+    "extensions",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",

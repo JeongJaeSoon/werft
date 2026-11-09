@@ -155,6 +155,7 @@ describe("database schema", () => {
       "env_variables",
       "events",
       "executions",
+      "extension_attachments",
       "extension_bundles",
       "github_app_manifest_states",
       "github_apps",

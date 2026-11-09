@@ -333,6 +333,10 @@ export function createPostgresExtensionBundleStore(
     },
 
     async listAttachments(input) {
+      // An owner from before workspaces (AUTH_MODE=none) is no uuid and has
+      // no bundles; comparing it to a uuid column would fail the request.
+      if (!UUID.test(input.workspaceId)) return [];
+      if (input.agentId !== undefined && !UUID.test(input.agentId)) return [];
       const rows = await db
         .select({
           scope: extensionAttachments.scope,
