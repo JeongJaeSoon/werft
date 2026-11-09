@@ -49,6 +49,10 @@ export function useRepositoryToggles(agentId: string) {
   // What the server last confirmed while the tab's re-read keeps failing: a
   // refused request goes back to this, not to the stale cache.
   const confirmed = useRef(new Map<string, boolean>());
+  // The `ref` an earlier response gave for a row. The contract turns a
+  // repository off by its ref only, and a row taken from an installation has
+  // none until the server has answered for it.
+  const refs = useRef(new Map<string, string>());
 
   useEffect(() => {
     const own = JSON.stringify(githubKey(client, agentId));
@@ -88,12 +92,20 @@ export function useRepositoryToggles(agentId: string) {
       // An older request finishing must not clear a newer click on the row.
       const latest = () => newest.current.get(key) === click;
       try {
-        await unwrap(
+        // Chosen now, not at the click: a request ahead in the queue may be
+        // the one that gives the row its ref.
+        const known = refs.current.get(key);
+        const answered = await unwrap(
           client.PUT("/v1/agents/{id}/github/repository-access", {
             params: { path: { id: agentId } },
-            body: { repository, enabled },
+            body: {
+              repository:
+                !enabled && known !== undefined ? { ref: known } : repository,
+              enabled,
+            },
           }),
         );
+        refs.current.set(key, answered.repository.ref);
         await cache.invalidateQueries({
           queryKey: githubKey(client, agentId),
         });

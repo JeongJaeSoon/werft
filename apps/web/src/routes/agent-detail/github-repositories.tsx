@@ -11,7 +11,7 @@ import {
   Switch,
   Text,
 } from "@werft-ai/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import {
@@ -178,6 +178,7 @@ export function RepositoryList({
   readonly toggles: ReturnType<typeof useRepositoryToggles>;
 }) {
   const { t } = useI18n();
+  const idBase = useId();
   const { client } = useWerft();
   const [installation, setInstallation] = useState<number | undefined>();
   const [page, setPage] = useState(1);
@@ -258,10 +259,24 @@ export function RepositoryList({
           framed={false}
           aria-label={t("agentGitHub.section.repositories")}
         >
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const on = toggles.wanted[row.anchor] ?? row.on;
             const disabled =
               !editable || row.blocked !== null || row.target === null;
+            const reason =
+              row.blocked !== null && row.blocked !== "no_target"
+                ? t(`agentGitHub.repositoryReason.${row.blocked}`)
+                : undefined;
+            const refusal = toggles.errors[row.anchor];
+            // The row's text reaches its switch, not only the live region.
+            const reasonId = `${idBase}-${index}-reason`;
+            const errorId = `${idBase}-${index}-error`;
+            const described = [
+              reason === undefined ? null : reasonId,
+              refusal ? errorId : null,
+            ]
+              .filter((id) => id !== null)
+              .join(" ");
             return (
               <SettingRow
                 // Not the catalog id: a new key after adoption drops focus.
@@ -290,13 +305,13 @@ export function RepositoryList({
                   </>
                 }
                 description={
-                  row.blocked !== null && row.blocked !== "no_target"
-                    ? t(`agentGitHub.repositoryReason.${row.blocked}`)
-                    : undefined
+                  reason === undefined ? undefined : (
+                    <span id={reasonId}>{reason}</span>
+                  )
                 }
                 meta={
-                  toggles.errors[row.anchor] ? (
-                    <FieldError>{toggles.errors[row.anchor]}</FieldError>
+                  refusal ? (
+                    <FieldError id={errorId}>{refusal}</FieldError>
                   ) : undefined
                 }
                 actions={
@@ -305,6 +320,8 @@ export function RepositoryList({
                       aria-label={t("agentGitHub.repositoryToggle", {
                         name: row.name,
                       })}
+                      aria-describedby={described || undefined}
+                      aria-invalid={refusal ? true : undefined}
                       checked={on}
                       disabled={disabled}
                       onCheckedChange={(checked) => {

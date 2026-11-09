@@ -144,6 +144,11 @@ function routesFor(
 const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 const repoSwitch = (repo: string) => switchNamed(`acme/${repo} 사용`);
+const describedBy = (element: HTMLElement) =>
+  (element.getAttribute("aria-describedby") ?? "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
 const ACCESS = `PUT ${PATH}/github/repository-access`;
 const accessed = (revision = 4) =>
   json(200, {
@@ -329,6 +334,93 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
+  test("설치 목록에만 있던 저장소를 켠 요청이 끝나기 전에 끄면, 끄기는 켜기 응답의 ref로 나간다", async () => {
+    const { server } = await activeAgent();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((open) => {
+      release = open;
+    });
+    let calls = 0;
+    const { api } = renderAt(
+      DETAIL,
+      routesFor(server, structuredClone(TAB), {
+        [`GET ${PATH}/github/repositories`]: () =>
+          json(200, {
+            installations: [
+              {
+                id: 77,
+                account: "acme",
+                connection_id: "app-author",
+                role: "author",
+                permissions: { contents: "write" },
+                repository_count: 1,
+              },
+            ],
+            installation_id: 77,
+            page: 1,
+            per_page: 30,
+            total_count: 1,
+            repositories: [
+              {
+                github_repository_id: 12,
+                full_name: "acme/api",
+                default_branch: "main",
+                private: false,
+                catalog_id: null,
+              },
+            ],
+            unavailable: null,
+          }),
+        [ACCESS]: async () => {
+          calls += 1;
+          if (calls === 1) {
+            await gate;
+            return json(200, {
+              settings_revision: 5,
+              receipt_id: RECEIPT_ID,
+              enabled: true,
+              repository: {
+                ref: "r1.api",
+                repository: "acme/api",
+                private: null,
+              },
+            });
+          }
+          return json(200, {
+            settings_revision: 6,
+            receipt_id: RECEIPT_ID,
+            enabled: false,
+            repository: {
+              ref: "r1.api",
+              repository: "acme/api",
+              private: null,
+            },
+          });
+        },
+      }),
+    );
+    const user = await setupUser();
+    const api12 = await screen.findByRole("switch", { name: "acme/api 사용" });
+    await user.click(api12);
+    await user.click(api12);
+    release();
+    await waitFor(() =>
+      expect(
+        api.calls.filter((c) => c.path.endsWith("/repository-access")),
+      ).toHaveLength(2),
+    );
+    const bodies = api.calls
+      .filter((c) => c.path.endsWith("/repository-access"))
+      .map((c) => c.body);
+    expect(bodies).toEqual([
+      {
+        repository: { installation_id: 77, github_repository_id: 12 },
+        enabled: true,
+      },
+      { repository: { ref: "r1.api" }, enabled: false },
+    ]);
+  });
+
   test("워크스페이스에 저장소 상한이 아직 없으면, 저장소를 범위 밖으로 막지 않고 저장 시 기본 허용 목록이 적용된다고 안내한다", async () => {
     const { server } = await activeAgent();
     renderAt(
@@ -399,6 +491,10 @@ describe("에이전트 GitHub 탭", () => {
       /워크스페이스가 허용한 저장소 범위 밖/,
     );
     expectLocked("acme/legacy-pat 사용", /PAT로 연결된 저장소라/);
+    // A person who tabs to the locked switch hears why it is locked.
+    expect(describedBy(switchNamed("acme/billing-api 사용"))).toMatch(
+      /워크스페이스가 허용한 저장소 범위 밖/,
+    );
     expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
     expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
@@ -962,6 +1058,12 @@ describe("에이전트 GitHub 탭", () => {
         repoSwitch("werft-sandbox").closest("li") as HTMLElement,
       ).queryByText(/저장소를 바꾸지 못했습니다/),
     ).toBeNull();
+    // The refusal stays reachable from the switch after the alert is read.
+    expect(repoSwitch("docs-site").getAttribute("aria-invalid")).toBe("true");
+    expect(describedBy(repoSwitch("docs-site"))).toMatch(
+      /저장소를 바꾸지 못했습니다/,
+    );
+    expect(repoSwitch("werft-sandbox").getAttribute("aria-invalid")).toBeNull();
   });
 
   test("연속한 스위치는 겹치지 않고 클릭한 값 그대로 차례로 보낸다", async () => {
