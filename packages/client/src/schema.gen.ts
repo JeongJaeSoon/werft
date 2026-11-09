@@ -319,7 +319,7 @@ export interface paths {
         };
         /**
          * Whether the Slack App Configuration Token is set (owner or admin)
-         * @description Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. API keys are refused.
+         * @description Says whether a token is set, its last four characters, when it was last set and by whom, when the current access token expires and which Slack user issued it. `state` is `unset`, `active`, or `needs_reentry` when Slack no longer takes the stored token or a rotation's answer was lost: paste a new one. The token itself is never returned. `urls` are the addresses to copy into a Slack app made by hand, computed from the console's public origin (`CONSOLE_ORIGIN`) and fixed paths: `redirect_url` for Sign in with Slack and `events_url_template` with `{agent_id}` for the agent's id. Each is null when it cannot be computed: no origin, or (events) an origin that is not https. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3048,7 +3048,7 @@ export interface paths {
         put?: never;
         /**
          * Slack's Events API request URL for one agent's app
-         * @description Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).
+         * @description Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when an https events address is known: `CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -3070,7 +3070,7 @@ export interface paths {
         put?: never;
         /**
          * Slack's interactivity request URL for one agent's app
-         * @description Called by Slack, not by people: each agent app's interactivity points here, beside its events route (Finalize registers both when SLACK_EVENTS_PUBLIC_URL is set). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app's signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack's JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{"ok": true}`; a submitted question modal answers `{"response_action": "clear"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).
+         * @description Called by Slack, not by people: each agent app's interactivity points here, beside its events route (Finalize registers both when an https events address is known, as for the events route). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app's signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack's JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{"ok": true}`; a submitted question modal answers `{"response_action": "clear"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -5057,6 +5057,7 @@ export interface components {
         UpdateAgentRequest: {
             name?: string;
             description?: string | null;
+            auto_model_migration?: boolean;
             card?: {
                 role?: string;
                 instructions?: string;
@@ -7344,6 +7345,10 @@ export interface components {
                 user_id: string;
                 display_name: string;
             } | null;
+            urls: {
+                redirect_url: string | null;
+                events_url_template: string | null;
+            };
             /** @enum {string} */
             state: "unset" | "active" | "needs_reentry";
             expires_at: string | null;
@@ -7361,6 +7366,10 @@ export interface components {
                 user_id: string;
                 display_name: string;
             } | null;
+            urls: {
+                redirect_url: string | null;
+                events_url_template: string | null;
+            };
             /** @enum {string} */
             state: "unset" | "active" | "needs_reentry";
             expires_at: string | null;
@@ -8447,6 +8456,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9005,6 +9015,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9217,6 +9228,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9692,6 +9704,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9716,6 +9729,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -11581,6 +11595,10 @@ export interface operations {
                      *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "display_name": "Jae"
                      *       },
+                     *       "urls": {
+                     *         "redirect_url": "https://werft.example.com/settings/linked-accounts/slack",
+                     *         "events_url_template": "https://werft.example.com/v1/slack/events/{agent_id}"
+                     *       },
                      *       "state": "active",
                      *       "expires_at": "2026-10-23T21:00:00Z",
                      *       "issuer": {
@@ -11694,6 +11712,10 @@ export interface operations {
                      *       "updated_by": {
                      *         "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "display_name": "Jae"
+                     *       },
+                     *       "urls": {
+                     *         "redirect_url": "https://werft.example.com/settings/linked-accounts/slack",
+                     *         "events_url_template": "https://werft.example.com/v1/slack/events/{agent_id}"
                      *       },
                      *       "state": "active",
                      *       "expires_at": "2026-10-23T21:00:00Z",
@@ -25523,6 +25545,7 @@ export interface operations {
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
+                     *           "auto_model_migration": true,
                      *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *           "created_at": "2026-10-11T08:00:00Z",
                      *           "updated_at": "2026-10-11T08:00:00Z"
@@ -31248,7 +31271,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY) or SLACK_OIDC_REDIRECT_URI, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also when the API runs without a master key (PLATFORM_SECRET_KEY) or `CONSOLE_ORIGIN`, when Slack refused the manifest (`error.details.slack_error`; nothing was created) or could not be reached. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31410,7 +31433,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also without a master key (PLATFORM_SECRET_KEY), without SLACK_EVENTS_PUBLIC_URL, or when Slack refuses or loses the manifest update. */
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Also without a master key (PLATFORM_SECRET_KEY), without an https events address (`CONSOLE_ORIGIN`, or `SLACK_EVENTS_PUBLIC_URL` when events enter apart from the console), or when Slack refuses or loses the manifest update. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34014,6 +34037,7 @@ export interface operations {
                      *         "status": "active",
                      *         "active_release_id": null,
                      *         "activation_revision": -1,
+                     *         "auto_model_migration": true,
                      *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "created_at": "2026-10-11T08:00:00Z",
                      *         "updated_at": "2026-10-11T08:00:00Z"

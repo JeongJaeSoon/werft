@@ -116,7 +116,7 @@ PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
 
 ## 세션 도중 저장소 붙이기
 
-에이전트는 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 다른 저장소를 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 프로필이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(주 저장소 `primary`, 붙인 것 `attached`·`pending`·`failed`, 붙일 수 있는 것 `available`). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다.
+에이전트는 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 다른 저장소를 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 프로필이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거치고, 부착 저장소의 push는 push 승인을 끄고 첨부 저장소 push 정책도 `allow`로 둔 에이전트만 사람 승인 없이 간다(모든 저장소에 같은 규칙). 붙일 수 있는 저장소는 에이전트가 `list_repositories`로 본다(주 저장소 `primary`, 붙인 것 `attached`·`pending`·`failed`, 붙일 수 있는 것 `available`). 세션은 시작할 때의 release를 계속 쓴다. 그래서 그 뒤 활성 release에만 더한 저장소는 `allowed_in_newer_release`로 따로 보이고, `attach_repository`도 `repository_not_allowed` 대신 `allowed_in_newer_release`로 거절한다. 다시 허용할 필요는 없고, 새 세션(Slack에서는 새 스레드)에서 붙일 수 있다. 에이전트 설정으로 도는 세션(붙인 저장소 목록을 가진 세션)은 다르다. 시작한 뒤에 에이전트가 목록에 켠 저장소를 바로 붙일 수 있고, 목록에서 빼거나 GitHub를 끄면 붙였던 저장소(세션의 주 저장소 포함)가 `revoked`로 보이며, 플랫폼이 에이전트의 그 저장소 GitHub 작업과 다른 저장소의 새 attach를 거절한다. 세션의 주 저장소에 대한 attach는 아무것도 하지 않고 이미 붙은 것으로 답하고, 플랫폼이 기록된 PR을 읽는 일은 계속된다. 작업 공간의 사본은 지우지 않고, 다시 켜면 그대로 쓴다.
 
 세션을 만들 때 `attached_repository_ids`를 보내지 않으면 세션 자신의 저장소 말고는 붙인 저장소 없이 시작한다. 처음부터 필요한 저장소는 그 목록에 넣고, 나머지는 에이전트가 필요할 때 붙인다.
 

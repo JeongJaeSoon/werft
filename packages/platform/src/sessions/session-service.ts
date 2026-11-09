@@ -521,11 +521,12 @@ export function createSessionService(deps: {
         pinOf(record),
         acceptedRuntimeVersions(catalog),
       ) !== null ||
-        movesAtNextTurn(
-          run.profile,
-          pinOf(record),
-          acceptedRuntimeVersions(catalog),
-        ))
+        (record.auto_model_migration &&
+          movesAtNextTurn(
+            run.profile,
+            pinOf(record),
+            acceptedRuntimeVersions(catalog),
+          )))
     );
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   AGENT_ID,
   agentServer,
@@ -18,6 +19,7 @@ const PROFILE = version(1, "usable");
 function agentRunning(
   model: string,
   listed: () => Response = () => json(200, { items: [PROFILE] }),
+  autoMove = true,
 ) {
   const server = agentServer();
   const release = seedRelease(1, { profile: PROFILE.id, model });
@@ -25,7 +27,11 @@ function agentRunning(
     const base = server.detail();
     return {
       ...base,
-      agent: { ...base.agent, active_release_id: release.id },
+      agent: {
+        ...base.agent,
+        active_release_id: release.id,
+        auto_model_migration: autoMove,
+      },
       releases: [release],
       active_release: release,
     };
@@ -66,6 +72,30 @@ describe("에이전트 상세의 빠진 모델 경고", () => {
       "새 세션은 claude-sonnet-5(으)로 시작하고",
     );
     expect(screen.queryByText(`모델 ${TITLE}`)).toBeNull();
+  });
+
+  test("자동 이동을 끈 에이전트는 막혔다고 알리고 켜는 버튼을 준다", async () => {
+    const moved = {
+      ...PROFILE,
+      model_successors: { "claude-opus-5-5": "claude-sonnet-5" },
+    };
+    const patches: unknown[] = [];
+    const routes = agentRunning(
+      "claude-opus-5-5",
+      () => json(200, { items: [moved] }),
+      false,
+    );
+    renderAt(DETAIL, {
+      ...routes,
+      [`PATCH /v1/agents/${AGENT_ID}`]: async () => {
+        patches.push(true);
+        return json(200, {});
+      },
+    });
+    const user = await setupUser();
+    await screen.findByText(/자동 이동이 꺼져 있어 멈춰 있습니다/);
+    await user.click(screen.getByRole("button", { name: "자동 이동 켜기" }));
+    await waitFor(() => expect(patches.length).toBe(1));
   });
 
   test("영어 화면도 같은 모델 이름을 보인다", async () => {

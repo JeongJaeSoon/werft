@@ -104,6 +104,7 @@ function recordOn(
       status: "active",
       active_release_id: active.id,
       activation_revision: revisions.activation,
+      auto_model_migration: true,
       created_by: OWNER,
       created_at: AT,
       updated_at: AT,
@@ -150,6 +151,10 @@ function raiseOver(reads: AgentRecord[], stored: typeof version = version) {
     update: async () => ({ outcome: "not_found" }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    autoModelMigration: async () => true,
+    modelMigrationCandidates: async () => [],
+    activationActor: async () => null,
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) =>
       ({

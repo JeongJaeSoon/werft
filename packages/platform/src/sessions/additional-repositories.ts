@@ -95,3 +95,33 @@ export function additionalRepositoriesOf<
     return repository === null ? [] : [{ id, repository }];
   });
 }
+
+/**
+ * Whether the session's own repository is one the gate now refuses on policy:
+ * the agent's switch is off, or its saved list, a person's saved list or the
+ * workspace ceiling has dropped it. These are the gate's own conditions; it
+ * checks the ceiling first, which only changes which refusal it names. A policy that is unreadable says nothing about the repository,
+ * so it is not revoked here.
+ */
+export function ownRepositoryRevoked(
+  catalog: ProfileLookup<CatalogProfileView> & {
+    repositories: Record<string, CatalogRepositoryView>;
+  },
+  context: GitHubSessionContext,
+): boolean {
+  const own = context.repositoryId;
+  if (own === null) return false;
+  const { settings, currentRepositories, source } = context.policy;
+  if (settings === "invalid") return false;
+  if (context.agent !== null && !context.agent.githubEnabled) return true;
+  // A release without a pin has no list of its own (`settings` is null), but
+  // a person's saved list still takes repositories away from it.
+  if (settings !== null && !settings.repositories.includes(own)) return true;
+  if (currentRepositories !== null && !currentRepositories.includes(own)) {
+    return true;
+  }
+  return (
+    usesWorkspaceCeiling(catalog, context.profileId, source) &&
+    !repositoryInCeiling(catalog, context.repositoryCeiling, own)
+  );
+}

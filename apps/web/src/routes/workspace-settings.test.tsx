@@ -77,11 +77,16 @@ const NO_SECRET = {
   updated_at: null,
   updated_by: null,
 };
+const ADDRESSES = {
+  redirect_url: "https://werft.example/settings/linked-accounts/slack",
+  events_url_template: "https://werft.example/v1/slack/events/{agent_id}",
+};
 const UNSET_TOKEN = {
   configured: false,
   last4: null,
   updated_at: null,
   updated_by: null,
+  urls: ADDRESSES,
   state: "unset",
   expires_at: null,
   issuer: null,
@@ -399,8 +404,10 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const user = await setupUser();
-    // The token row's menu comes right before the guest switch.
-    (await screen.findByRole("button", TOKEN_MENU)).focus();
+    const copies = within(
+      await screen.findByRole("region", { name: "Slack 앱에 넣을 주소" }),
+    ).getAllByRole("button", { name: "복사" });
+    (copies[copies.length - 1] as HTMLElement).focus();
     await user.tab();
     expect(document.activeElement === toggle).toBe(true);
     await user.keyboard(" ");
@@ -1045,6 +1052,93 @@ describe("워크스페이스 설정", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
     );
+  });
+
+  test("계산된 Slack 주소 두 개를 읽기 전용 칸에 보이고 각각 복사한다", async () => {
+    renderAt("/settings/workspace/integrations/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const redirect = await screen.findByLabelText(
+      "Sign in with Slack 리디렉션 URL",
+    );
+    const events = await screen.findByLabelText("이벤트 요청 URL");
+    for (const [field, address] of [
+      [redirect, ADDRESSES.redirect_url],
+      [events, ADDRESSES.events_url_template],
+    ] as const) {
+      expect((field as HTMLInputElement).value === address).toBe(true);
+      expect(field.hasAttribute("readonly")).toBe(true);
+    }
+    const user = await setupUser();
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void written.push(text) },
+    });
+    const region = screen.getByRole("region", { name: "Slack 앱에 넣을 주소" });
+    const copy = within(region).getAllByRole("button", { name: "복사" });
+    expect(copy).toHaveLength(2);
+    await user.click(copy[0] as HTMLElement);
+    await user.click(copy[1] as HTMLElement);
+    expect(written).toEqual([
+      ADDRESSES.redirect_url,
+      ADDRESSES.events_url_template,
+    ]);
+    expect(await screen.findByText("주소를 복사했습니다.")).toBeDefined();
+  });
+
+  test("콘솔 공개 주소가 없으면 두 주소 대신 이유를 보인다", async () => {
+    renderAt("/settings/workspace/integrations/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, {
+          ...REGISTERED_TOKEN,
+          urls: { redirect_url: null, events_url_template: null },
+        }),
+    });
+    const region = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    expect(
+      within(region).getAllByText(/CONSOLE_ORIGIN\)가 설정되지 않아/),
+    ).toHaveLength(2);
+    expect(within(region).queryByRole("button", { name: "복사" })).toBeNull();
+  });
+
+  test("콘솔 주소가 https가 아니면 redirect만 보이고 이벤트 주소는 이유를 보인다", async () => {
+    renderAt("/settings/workspace/integrations/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, {
+          ...REGISTERED_TOKEN,
+          urls: {
+            redirect_url: "http://werft.example/settings/linked-accounts/slack",
+            events_url_template: null,
+          },
+        }),
+    });
+    const region = await screen.findByRole("region", {
+      name: "Slack 앱에 넣을 주소",
+    });
+    expect(
+      within(region).getAllByRole("button", { name: "복사" }),
+    ).toHaveLength(1);
+    expect(
+      within(region).getByText(/Slack은 https 주소만 부릅니다/),
+    ).toBeDefined();
+  });
+
+  test("영어 화면에서도 같은 주소를 복사 칸에 보인다", async () => {
+    renderAt(
+      "/settings/workspace/integrations/slack",
+      { "GET /v1/auth/me": () => json(200, me()) },
+      "en",
+    );
+    const events = await screen.findByLabelText("Events Request URL");
+    expect((events as HTMLInputElement).value).toBe(
+      ADDRESSES.events_url_template,
+    );
+    expect(await screen.findByText(/Put the agent's ID where/)).toBeDefined();
   });
 
   test("이미 지워진 token을 삭제하면 다시 읽어 지워졌다고 알린다", async () => {

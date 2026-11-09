@@ -15,6 +15,7 @@ const UNSET = {
   last4: null,
   updated_at: null,
   updated_by: null,
+  urls: { redirect_url: null, events_url_template: null },
   state: "unset",
   expires_at: null,
   issuer: null,
@@ -227,7 +228,11 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
       within(card)
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent),
-    ).toEqual(["Slack 앱 생성", "자동으로 만든 Slack 앱"]);
+    ).toEqual([
+      "Slack 앱 생성",
+      "Slack 앱에 넣을 주소",
+      "자동으로 만든 Slack 앱",
+    ]);
     expect(
       screen
         .getAllByRole("heading", { level: 2 })

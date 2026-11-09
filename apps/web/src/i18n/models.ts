@@ -27,7 +27,13 @@ export const modelsKo = {
   "agent.modelMoves.title":
     "모델 {model}이(가) 프로필 {profile}의 허용 목록에서 빠져 {successor}(으)로 옮겨 실행됩니다",
   "agent.modelMoves.text":
-    "새 세션은 {successor}(으)로 시작하고, 기다리던 세션은 다음 턴부터 {successor}(으)로 옮겨 갑니다. 실행 중인 턴은 {model} 요청이 막혀 멈춥니다. 릴리스 카드에는 아직 {model}이(가) 적혀 있으니 상세 설정 탭에서 모델을 바꿔 저장해 두세요.",
+    "새 세션은 {successor}(으)로 시작하고, 기다리던 세션은 다음 턴부터 {successor}(으)로 옮겨 갑니다. 에이전트의 릴리스도 {successor}(으)로 새로 만들어지고 관리자에게 Slack DM으로 알립니다. 실행 중인 턴은 {model} 요청이 막혀 멈춥니다.",
+  "agent.modelMoves.offTitle":
+    "모델 {model}이(가) 프로필 {profile}의 허용 목록에서 빠졌고, 자동 이동이 꺼져 있어 멈춰 있습니다",
+  "agent.modelMoves.offText":
+    "{successor}(으)로 옮길 수 있지만 이 에이전트는 자동 이동을 끄고 있어 새 세션도 시작되지 않습니다. 자동 이동을 켜거나 상세 설정 탭에서 모델을 바꿔 저장하세요.",
+  "agent.modelMoves.turnOn": "자동 이동 켜기",
+  "agent.modelMoves.turnOff": "자동 이동 끄기",
   "profiles.detail.agents.modelRemovedTitle":
     "허용 목록에서 빠진 모델을 쓰는 에이전트가 {count}개 있습니다",
   "profiles.detail.agents.modelRemovedText":
@@ -61,7 +67,13 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.title":
     "Model {model} was taken off the allowed list of profile {profile}; it now runs on {successor}",
   "agent.modelMoves.text":
-    "New sessions start on {successor}, and sessions waiting for a turn move to {successor} from their next turn. A turn already running is stopped when its {model} requests are blocked. The release card still names {model}: change the model in the Settings tab and save.",
+    "New sessions start on {successor}, and sessions waiting for a turn move to {successor} from their next turn. The agent also gets a new release on {successor}, and its administrators are told by Slack DM. A turn already running is stopped when its {model} requests are blocked.",
+  "agent.modelMoves.offTitle":
+    "Model {model} was taken off the allowed list of profile {profile}, and automatic move is off, so this agent is blocked",
+  "agent.modelMoves.offText":
+    "It could move to {successor}, but this agent has automatic move turned off, so no new session starts. Turn automatic move on, or change the model in the Settings tab and save.",
+  "agent.modelMoves.turnOn": "Turn automatic move on",
+  "agent.modelMoves.turnOff": "Turn automatic move off",
   "profiles.detail.agents.modelRemovedTitle":
     "{count} agents run a model that is no longer on the allowed list",
   "profiles.detail.agents.modelRemovedText":
@@ -95,7 +107,13 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agent.modelMoves.title":
     "モデル {model} がプロファイル {profile} の許可リストから外れたため、{successor} に切り替えて実行されます",
   "agent.modelMoves.text":
-    "新しいセッションは {successor} で開始し、ターンを待っているセッションは次のターンから {successor} に切り替わります。実行中のターンは {model} へのリクエストがブロックされて止まります。リリースのカードにはまだ {model} が書かれているので、詳細設定タブでモデルを変更して保存してください。",
+    "新しいセッションは {successor} で開始し、ターンを待っているセッションは次のターンから {successor} に切り替わります。エージェントのリリースも {successor} で新しく作られ、管理者には Slack の DM で知らせます。実行中のターンは {model} へのリクエストがブロックされて止まります。",
+  "agent.modelMoves.offTitle":
+    "モデル {model} がプロファイル {profile} の許可リストから外れ、自動切り替えがオフのため止まっています",
+  "agent.modelMoves.offText":
+    "{successor} に切り替えられますが、このエージェントは自動切り替えをオフにしているため新しいセッションも開始されません。自動切り替えをオンにするか、詳細設定タブでモデルを変更して保存してください。",
+  "agent.modelMoves.turnOn": "自動切り替えをオンにする",
+  "agent.modelMoves.turnOff": "自動切り替えをオフにする",
   "profiles.detail.agents.modelRemovedTitle":
     "許可リストから外れたモデルを使うエージェントが {count} 件あります",
   "profiles.detail.agents.modelRemovedText":

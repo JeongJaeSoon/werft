@@ -5,109 +5,27 @@ import {
 } from "@werft-ai/testkit/mock-slack-oidc";
 import {
   exchangeSlackCode,
-  SlackOidcConfigError,
   SlackOidcRejectedError,
   SlackOidcUnavailableError,
   signInWithSlackOff,
   slackAuthorizeUrl,
-  slackOidcSettingsFromEnv,
 } from "./slack-link.ts";
 
 const REDIRECT_URI = "https://werft.example/settings/linked-accounts/slack";
 
-describe("slackOidcSettingsFromEnv", () => {
-  const pair = {
-    SLACK_OIDC_CLIENT_ID: "id",
-    SLACK_OIDC_CLIENT_SECRET: "fallback-value",
-  };
-
-  test("off when nothing is set", () => {
-    expect(slackOidcSettingsFromEnv({})).toBeNull();
-  });
-
-  test("the redirect alone is enough: link apps are made per workspace", () => {
-    expect(
-      slackOidcSettingsFromEnv({ SLACK_OIDC_REDIRECT_URI: REDIRECT_URI }),
-    ).toEqual({
-      redirectUri: REDIRECT_URI,
-      issuer: "https://slack.com",
-      client: null,
-    });
-  });
-
-  test("a client id and secret name the fallback app; the issuer defaults to Slack", () => {
-    expect(
-      slackOidcSettingsFromEnv({
-        ...pair,
-        SLACK_OIDC_REDIRECT_URI: REDIRECT_URI,
-      }),
-    ).toEqual({
-      redirectUri: REDIRECT_URI,
-      issuer: "https://slack.com",
-      client: { clientId: "id", clientSecret: pair.SLACK_OIDC_CLIENT_SECRET },
-    });
-  });
-
-  test("half a client pair stops the process, with or without the redirect", () => {
-    for (const environment of [
-      { SLACK_OIDC_CLIENT_ID: "id" },
-      { SLACK_OIDC_CLIENT_ID: "id", SLACK_OIDC_REDIRECT_URI: REDIRECT_URI },
-      {
-        SLACK_OIDC_CLIENT_SECRET: pair.SLACK_OIDC_CLIENT_SECRET,
-        SLACK_OIDC_REDIRECT_URI: REDIRECT_URI,
-      },
-    ]) {
-      expect(() => slackOidcSettingsFromEnv(environment)).toThrow(
-        SlackOidcConfigError,
-      );
-    }
-  });
-
-  test("a client pair without the redirect stops the process", () => {
-    expect(() => slackOidcSettingsFromEnv(pair)).toThrow(SlackOidcConfigError);
-  });
-
-  test("URLs must be absolute http(s)", () => {
-    expect(() =>
-      slackOidcSettingsFromEnv({ SLACK_OIDC_REDIRECT_URI: "/relative" }),
-    ).toThrow(SlackOidcConfigError);
-    expect(() =>
-      slackOidcSettingsFromEnv({
-        SLACK_OIDC_REDIRECT_URI: REDIRECT_URI,
-        SLACK_OIDC_ISSUER: "ftp://slack.example",
-      }),
-    ).toThrow(SlackOidcConfigError);
-  });
-});
-
 describe("signInWithSlackOff", () => {
-  const redirectOnly = {
-    redirectUri: REDIRECT_URI,
-    issuer: "https://slack.com",
-  };
-
-  test("silent when link apps can be made, even with no fallback", () => {
-    expect(
-      signInWithSlackOff({ ...redirectOnly, client: null }, true),
-    ).toBeNull();
+  test("silent when the console origin is known and link apps can be made", () => {
+    expect(signInWithSlackOff("https://werft.example", true)).toBeNull();
   });
 
-  test("silent with a fallback app and no secret store", () => {
-    expect(
-      signInWithSlackOff(
-        { ...redirectOnly, client: { clientId: "id", clientSecret: "v" } },
-        false,
-      ),
-    ).toBeNull();
+  test("off without the console origin", () => {
+    expect(signInWithSlackOff(null, true)).toContain("CONSOLE_ORIGIN");
   });
 
-  test("off without the redirect, or with neither a store nor a fallback", () => {
-    expect(signInWithSlackOff(null, true)).toContain(
-      "Sign in with Slack is off",
+  test("off without a secret store: no env client stands in for the link app", () => {
+    expect(signInWithSlackOff("https://werft.example", false)).toContain(
+      "PLATFORM_SECRET_KEY",
     );
-    expect(
-      signInWithSlackOff({ ...redirectOnly, client: null }, false),
-    ).toContain("Sign in with Slack is off");
   });
 });
 

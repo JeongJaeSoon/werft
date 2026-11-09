@@ -5,7 +5,7 @@
 # MOCK_SLACK_USER_ID, or the mock_team/mock_user query parameters added to
 # the authorize URL. The issuer is only reachable inside the compose network.
 # It accepts the client of any app the Web API fake below made (a
-# workspace's link app), and a fixed fallback client. The same service fakes
+# workspace's link app). The same service fakes
 # Slack's Web API for SLACK_API_URL (config token rotation, app manifests,
 # oauth.v2.access); `POST http://mock-slack:4020/fake/config-tokens` returns
 # a config token it accepts. Never layer this over a real deployment: the
@@ -34,20 +34,20 @@ services:
       start_period: 5s
   api:
     environment:
-      # Empty: each workspace links with the link app it makes through
-      # the fake on the first start. Set both to mock-client-id and
-      # mock-client-secret to link with the mock's fixed fallback app.
-      SLACK_OIDC_CLIENT_ID: ${MOCK_SLACK_FALLBACK_CLIENT_ID:-}
-      SLACK_OIDC_CLIENT_SECRET: ${MOCK_SLACK_FALLBACK_CLIENT_SECRET:-}
+      # Each workspace links with the link app it makes through the fake on
+      # the first start. The issuer and API URL below are for this mock
+      # only; an operational deployment never sets them.
       SLACK_OIDC_ISSUER: http://mock-slack:4020
-      SLACK_OIDC_REDIRECT_URI: http://127.0.0.1:3000/settings/linked-accounts/slack
       SLACK_API_URL: http://mock-slack:4020/api
+      # The console as a browser on this host opens it; the redirect and
+      # events addresses are computed from it.
+      CONSOLE_ORIGIN: http://127.0.0.1:3000
     depends_on:
       mock-slack:
         condition: service_healthy
   slack:
     environment:
-      SLACK_OIDC_REDIRECT_URI: http://127.0.0.1:3000/settings/linked-accounts/slack
+      CONSOLE_ORIGIN: http://127.0.0.1:3000
       SLACK_API_URL: http://mock-slack:4020/api
     depends_on:
       mock-slack:

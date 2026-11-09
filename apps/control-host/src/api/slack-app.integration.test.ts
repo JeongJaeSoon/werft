@@ -66,7 +66,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
     const io: SlackAppIo = {
       env: {
         DATABASE_URL: "postgres://handled-by-openDatabase",
-        SLACK_OIDC_REDIRECT_URI: `${CONSOLE}/settings/linked-accounts/slack`,
+        CONSOLE_ORIGIN: CONSOLE,
         SLACK_API_URL: apiUrl,
         ...extraEnv,
       },
@@ -344,11 +344,27 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
         .length;
     const before = updates();
 
-    const unset = await run(["finalize", "--agent", agentId]);
+    const unset = await run(["finalize", "--agent", agentId], slack.url, {
+      CONSOLE_ORIGIN: "http://werft.internal.test",
+    });
     expect(unset.code).toBe(SLACK_APP_EXIT.events_url_unset);
     expect(unset.out).toEqual([]);
     expect(unset.err.join("\n")).toContain("events_url_unset");
     expect(updates()).toBe(before);
+
+    const computed = await run(["finalize", "--agent", agentId]);
+    expect(computed.code).toBe(SLACK_APP_EXIT.created);
+    expect(JSON.parse(computed.out[0] ?? "{}").request_url).toBe(
+      `${CONSOLE}/v1/slack/events/${agentId}`,
+    );
+    expect(
+      (
+        slack.apps.get(appId)?.manifest as {
+          settings: { event_subscriptions: { request_url: string } };
+        }
+      ).settings.event_subscriptions.request_url,
+    ).toBe(`${CONSOLE}/v1/slack/events/${agentId}`);
+    const afterComputed = updates();
 
     const env = { SLACK_EVENTS_PUBLIC_URL: "https://events.example.test/" };
     const manifests: unknown[] = [];
@@ -365,7 +381,7 @@ integration("slack-app create on PostgreSQL against a fake Slack", () => {
       });
       manifests.push(structuredClone(slack.apps.get(appId)?.manifest));
     }
-    expect(updates()).toBe(before + 2);
+    expect(updates()).toBe(afterComputed + 2);
     expect(manifests[1]).toEqual(manifests[0]);
     expect(
       (manifests[0] as { settings: { event_subscriptions: object } }).settings

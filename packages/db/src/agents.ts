@@ -21,6 +21,7 @@ import type {
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   inArray,
@@ -51,6 +52,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { enqueueModelMoveNotices } from "./model-move-notices.ts";
 import {
   isNewestProfile,
   openRolloutStep,
@@ -124,6 +126,7 @@ export function agentOf(row: AgentRow, managingTeamName: string): Agent {
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
+    auto_model_migration: row.autoModelMigration,
     created_by: row.createdBy,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
@@ -355,6 +358,7 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       modelSource: agents.modelSource,
       profileTracking: agents.profileTracking,
       draftVersionId: agents.draftVersionId,
+      autoModelMigration: agents.autoModelMigration,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
@@ -652,6 +656,26 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             .returning({ id: agents.id });
           changed ||= described.length > 0;
         }
+        let switched: boolean | null = null;
+        if (input.autoModelMigration !== undefined) {
+          const flipped = await tx
+            .update(agents)
+            .set({
+              autoModelMigration: input.autoModelMigration,
+              updatedAt: DB_NOW,
+            })
+            .where(
+              and(
+                eq(agents.id, agent.id),
+                sql`${agents.autoModelMigration} IS DISTINCT FROM ${input.autoModelMigration}`,
+              ),
+            )
+            .returning({ id: agents.id });
+          if (flipped.length > 0) {
+            changed = true;
+            switched = input.autoModelMigration;
+          }
+        }
         if (input.card !== undefined) {
           const [latest] = await tx
             .select({ versionNo: max(agentVersions.versionNo) })
@@ -737,6 +761,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             operation: "update_agent",
             workspaceId: input.workspaceId,
             agentId: agent.id,
+            ...(switched === null
+              ? {}
+              : { result: { auto_model_migration: switched } }),
           });
         }
         const detail = await detailOf(tx, input.workspaceId, agent.id);
@@ -787,6 +814,87 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(eq(agentGitHubSettings.agentId, agentId.toLowerCase()))
         .limit(1);
       return row !== undefined;
+    },
+
+    async modelMigrationCandidates(input) {
+      const rows = await db
+        .select({
+          workspaceId: agents.workspaceId,
+          agentId: agents.id,
+          profileId: agentReleases.runtimeProfileId,
+          model: sql<string>`${agentReleases.runtimeConfigSnapshot} ->> 'model'`,
+        })
+        .from(agents)
+        .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
+        .where(
+          and(
+            eq(agents.status, "active"),
+            eq(agents.autoModelMigration, true),
+            input.after === null ? undefined : gt(agents.id, input.after),
+          ),
+        )
+        .orderBy(agents.id)
+        .limit(input.limit);
+      return rows;
+    },
+
+    async autoModelMigration(workspaceId, agentId) {
+      const [row] = await db
+        .select({ on: agents.autoModelMigration })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+        .limit(1);
+      return row?.on ?? true;
+    },
+
+    async activationActor(workspaceId, agentId, releaseId) {
+      const [row] = await db
+        .select({ actor: agentActivationEvents.actorUserId })
+        .from(agentActivationEvents)
+        .where(
+          and(
+            eq(agentActivationEvents.workspaceId, workspaceId),
+            eq(agentActivationEvents.agentId, agentId),
+            eq(agentActivationEvents.releaseId, releaseId),
+          ),
+        )
+        .orderBy(desc(agentActivationEvents.createdAt))
+        .limit(1);
+      return row?.actor ?? null;
+    },
+
+    async notifyModelMigrationFailed(input) {
+      return await db.transaction(async (tx) => {
+        const [agent] = await tx
+          .select({
+            revision: agents.activationRevision,
+            releaseId: agents.activeReleaseId,
+          })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.id, input.agentId),
+              eq(agents.workspaceId, input.workspaceId),
+            ),
+          )
+          .for("update")
+          .limit(1);
+        if (
+          !agent ||
+          agent.revision !== input.revision ||
+          agent.releaseId !== input.releaseId
+        ) {
+          return 0;
+        }
+        return await enqueueModelMoveNotices(tx, {
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          kind: "failed",
+          from: input.from,
+          to: input.to,
+          revision: agent.revision,
+        });
+      });
     },
 
     insertRelease(input) {
@@ -925,6 +1033,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        if (
+          intent?.kind === "model_migration" &&
+          agent.activeReleaseId !== input.releaseId &&
+          (!agent.autoModelMigration ||
+            agent.activeReleaseId !== intent.expected.activeReleaseId ||
+            agent.activationRevision !== intent.expected.activationRevision ||
+            agent.behaviorRevision !== intent.expected.behaviorRevision)
+        ) {
+          return { outcome: "superseded" };
+        }
         const intentColumns =
           intent?.kind === "migrate"
             ? { profileTracking: intent.tracking }
@@ -1041,6 +1159,15 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   },
                 }
               : {}),
+            ...(intent?.kind === "model_migration"
+              ? {
+                  model_migration: {
+                    from: intent.from,
+                    to: intent.to,
+                    automatic: true,
+                  },
+                }
+              : {}),
             ...(intent?.kind === "tool_unlock"
               ? {
                   tool_unlock: {
@@ -1068,6 +1195,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           actor: receiptActorOf(input.principal),
           receiptId,
         });
+        if (intent?.kind === "model_migration") {
+          await enqueueModelMoveNotices(tx, {
+            workspaceId: input.workspaceId,
+            agentId: agent.id,
+            kind: "moved",
+            from: intent.from,
+            to: intent.to,
+            revision: swapped.revision,
+          });
+        }
         return {
           outcome: "activated",
           revision: swapped.revision,

@@ -21,11 +21,6 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000f2";
 const ORIGIN = "https://console.example.ts.net";
 const LINK_REDIRECT = `${ORIGIN}/settings/linked-accounts/slack`;
-const FALLBACK = {
-  clientId: "env-client",
-  clientSecret: "env-client-value",
-  redirectUri: "https://env.example/settings/linked-accounts/slack",
-};
 
 function user(
   role: WorkspaceRole,
@@ -46,7 +41,6 @@ function user(
 
 async function setup(
   options: {
-    fallback?: typeof FALLBACK | null;
     register?: boolean;
     consoleOrigin?: string | null;
     storeOff?: boolean;
@@ -77,7 +71,6 @@ async function setup(
     api: slack.api,
     consoleOrigin:
       options.consoleOrigin === undefined ? ORIGIN : options.consoleOrigin,
-    fallback: options.fallback ?? null,
     now: () => clock,
     sleep: async (ms) => {
       clock = new Date(clock.getTime() + ms);
@@ -108,7 +101,7 @@ async function setup(
   };
 }
 
-describe("a start with no link app and no fallback", () => {
+describe("a start with no link app", () => {
   test("a member's first start makes the link app and links with it", async () => {
     const { service, slack, apps, secrets, creates } = await setup();
     const client = await service.clientForStart(user("member"));
@@ -121,7 +114,6 @@ describe("a start with no link app and no fallback", () => {
       redirectUrl: LINK_REDIRECT,
     });
     expect(client).toEqual({
-      source: "link_app",
       clientId: row?.clientId ?? "",
       clientSecret: expect.any(String),
       redirectUri: LINK_REDIRECT,
@@ -245,27 +237,16 @@ describe("a start with no link app and no fallback", () => {
 });
 
 describe("which client a workspace links with", () => {
-  test("a created link app wins over the fallback", async () => {
-    const { service, creates } = await setup({ fallback: FALLBACK });
+  test("a created link app is the client for the start and the callback", async () => {
+    const { service, creates } = await setup();
     await service.createLinkAppAsOperator(WORKSPACE, {
       replace_uncertain: false,
     });
     const start = await service.clientForStart(user("member"));
     const callback = await service.clientFor(WORKSPACE);
-    expect(start.source).toBe("link_app");
     expect(callback).toEqual(start);
-    expect(start.clientId).not.toBe(FALLBACK.clientId);
+    expect(start.slackAppId).not.toBeNull();
     expect(creates()).toBe(1);
-  });
-
-  test("without a link app the fallback is used and nothing is made", async () => {
-    const { service, creates } = await setup({ fallback: FALLBACK });
-    expect(await service.clientForStart(user("member"))).toEqual({
-      ...FALLBACK,
-      source: "env",
-      slackAppId: null,
-    });
-    expect(creates()).toBe(0);
   });
 
   test("a callback never makes an app", async () => {

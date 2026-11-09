@@ -1224,6 +1224,7 @@ describe("session titles (94S-804)", () => {
     repository_mode: "repository",
     github_policy_source: "release",
     profile_fingerprint: null,
+    auto_model_migration: true,
   };
   const accepted = {
     session_id: sessionId,

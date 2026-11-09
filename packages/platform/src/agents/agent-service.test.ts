@@ -94,6 +94,7 @@ const detail: AgentRecord = {
     status: "active",
     active_release_id: null,
     activation_revision: -1,
+    auto_model_migration: true,
     created_by: OWNER,
     created_at: AT,
     updated_at: AT,
@@ -138,6 +139,10 @@ function memoryStore(
     update: async () => ({ outcome: "updated", detail, saved: null }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => settingsRow,
+    autoModelMigration: async () => true,
+    modelMigrationCandidates: async () => [],
+    activationActor: async () => null,
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release, refuseGitHubWhenSettings }) => {
       if (

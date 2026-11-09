@@ -80,6 +80,7 @@ const detail: AgentRecord = {
     status: "active",
     active_release_id: null,
     activation_revision: -1,
+    auto_model_migration: true,
     created_by: OWNER_USER,
     created_at: AT,
     updated_at: AT,
@@ -163,6 +164,10 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     update: async () => ({ outcome: "updated", detail, saved: null }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    autoModelMigration: async () => true,
+    modelMigrationCandidates: async () => [],
+    activationActor: async () => null,
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release }) => ({
       outcome: "created",
@@ -203,6 +208,7 @@ type Routed = Omit<
   | "resolveRelease"
   | "envNames"
   | "rolloutRelease"
+  | "migrateModel"
   | "migrateAgent"
   | "unlockTools"
   | "revertMigration"

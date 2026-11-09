@@ -85,7 +85,49 @@ export async function enqueueModelCutNotices(
     .limit(1);
   if (!session || session.workspaceId === null) return 0;
   const { workspaceId, agentId } = session;
-  const recipients = await tx
+  const recipients = await slackRecipientsOf(tx, {
+    workspaceId,
+    agentId,
+    userId: session.createdByUserId,
+  });
+  let enqueued = 0;
+  for (const person of recipients) {
+    const [row] = await tx
+      .insert(slackOutbox)
+      .values({
+        id: randomUUID(),
+        workspaceId,
+        agentId,
+        slackAppId: person.slackAppId,
+        installationId: person.installationId,
+        kind: "model_notice",
+        channelId: person.slackUserId,
+        threadTs: "",
+        slackUserId: null,
+        sessionId: input.sessionId,
+        body: {
+          text: modelCutNoticeText(person.locale, input.model, input.cause),
+          ...(person.locale === null ? {} : { locale: person.locale }),
+        },
+        dedupeKey: modelCutDedupeKey(
+          workspaceId,
+          input.sessionId,
+          person.slackUserId,
+        ),
+      })
+      .onConflictDoNothing({ target: slackOutbox.dedupeKey })
+      .returning({ id: slackOutbox.id });
+    if (row) enqueued += 1;
+  }
+  return enqueued;
+}
+
+export async function slackRecipientsOf(
+  tx: Database,
+  input: { workspaceId: string; agentId: string; userId: string | null },
+) {
+  const { workspaceId, agentId } = input;
+  return await tx
     .select({
       slackUserId: linkedAccounts.externalUserId,
       locale: users.locale,
@@ -127,41 +169,11 @@ export async function enqueueModelCutNotices(
         ne(linkedAccounts.status, "revoked"),
         isNull(users.disabledAt),
         or(
-          session.createdByUserId === null
+          input.userId === null
             ? undefined
-            : eq(linkedAccounts.userId, session.createdByUserId),
+            : eq(linkedAccounts.userId, input.userId),
           administers(tx, workspaceId, linkedAccounts.userId, agentId),
         ),
       ),
     );
-  let enqueued = 0;
-  for (const person of recipients) {
-    const [row] = await tx
-      .insert(slackOutbox)
-      .values({
-        id: randomUUID(),
-        workspaceId,
-        agentId,
-        slackAppId: person.slackAppId,
-        installationId: person.installationId,
-        kind: "model_notice",
-        channelId: person.slackUserId,
-        threadTs: "",
-        slackUserId: null,
-        sessionId: input.sessionId,
-        body: {
-          text: modelCutNoticeText(person.locale, input.model, input.cause),
-          ...(person.locale === null ? {} : { locale: person.locale }),
-        },
-        dedupeKey: modelCutDedupeKey(
-          workspaceId,
-          input.sessionId,
-          person.slackUserId,
-        ),
-      })
-      .onConflictDoNothing({ target: slackOutbox.dedupeKey })
-      .returning({ id: slackOutbox.id });
-    if (row) enqueued += 1;
-  }
-  return enqueued;
 }

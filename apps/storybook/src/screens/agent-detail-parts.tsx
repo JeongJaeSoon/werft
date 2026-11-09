@@ -151,6 +151,7 @@ export const RELEASED: DetailFixture = {
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,
+    auto_model_migration: true,
     created_by: VIEWER.id,
     created_at: "2026-10-20T05:00:00Z",
     updated_at: "2026-10-22T05:00:00Z",

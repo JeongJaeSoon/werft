@@ -132,7 +132,7 @@ const ENVIRONMENT = {
   QUEUED_INPUT_LIMIT_PER_SESSION: "20",
   SESSION_COST_LIMIT_USD: "25",
   STORAGE_LIMIT_BYTES: "1073741824",
-  SLACK_OIDC_REDIRECT_URI: `${CONSOLE}/auth/slack/callback`,
+  CONSOLE_ORIGIN: CONSOLE,
 };
 
 const slack = startFakeSlackApi({ teamId: TEAM });

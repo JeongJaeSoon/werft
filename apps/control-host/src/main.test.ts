@@ -26,6 +26,40 @@ async function run(args: string[], env: Record<string, string> = {}) {
   return { exitCode, stderr, stdout };
 }
 
+// A loop never ends by itself: read its output until the line shows, then stop it.
+async function runUntil(
+  args: string[],
+  env: Record<string, string>,
+  needle: string,
+  waitMs = 20_000,
+) {
+  const child = Bun.spawn(
+    [process.execPath, "run", `${import.meta.dir}/main.ts`, ...args],
+    {
+      env: { PATH: process.env.PATH ?? "", ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  let seen = "";
+  const drain = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder();
+    for await (const chunk of stream) seen += decoder.decode(chunk);
+  };
+  const readers = [drain(child.stdout), drain(child.stderr)];
+  const deadline = Date.now() + waitMs;
+  while (
+    !seen.includes(needle) &&
+    child.exitCode === null &&
+    Date.now() < deadline
+  ) {
+    await Bun.sleep(100);
+  }
+  child.kill();
+  await Promise.all([child.exited, ...readers]);
+  return seen;
+}
+
 describe("control host executable", () => {
   test(
     "refuses to guess a role or a mode",
@@ -118,6 +152,24 @@ describe("control host executable", () => {
       });
       expect(once.exitCode).not.toBe(0);
       expect(once.stderr).toContain("PLATFORM_CONFIG_DIR no longer read");
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "the slack loop warns once at start when SLACK_API_URL points away from Slack, without the value",
+    async () => {
+      const seen = await runUntil(
+        ["slack"],
+        {
+          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+          PLATFORM_SECRET_KEY: "ab".repeat(32),
+          SLACK_API_URL: "https://slack-proxy.example/api",
+        },
+        "SLACK_API_URL points away from Slack",
+      );
+      expect(seen).toContain("SLACK_API_URL points away from Slack");
+      expect(seen).not.toContain("slack-proxy.example");
     },
     TIMEOUT_MS,
   );
