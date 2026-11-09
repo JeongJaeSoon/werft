@@ -53,6 +53,7 @@ set -f
   echo "\$ volumes of the run that still exist"
   echo "${left:-(none)}"
 } >"$out" 2>&1
+set +f
 cat "$out" >&2
 if [ "$failed" = 1 ]; then
   echo "rm-volumes.sh: a volume could not be removed or listed (above); ports.yml kept" >&2

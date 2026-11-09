@@ -103,7 +103,9 @@ anon=$(printf 'a%.0s' $(seq 1 64))
 printf '  volume  %s_pgdata\n  volume  %s\n  volume  werft-ws-1\n  volume  verify-ap-20261031-094644-90075_pgdata\n' "$p" "$anon" \
   >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
 : >"$log"
+: >"$VERIFY_AP_ROOT/$id/cookie"; : >"$VERIFY_AP_ROOT/$id/cookie.owner"; : >"$VERIFY_AP_ROOT/$id/cookie.member"
 bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: own project exits 0" 0 $?
+[ -z "$(find "$VERIFY_AP_ROOT/$id" -maxdepth 1 -name 'cookie*')" ]; check "rm-volumes.sh: cookie and cookie.<who> removed" 0 $?
 [ "$(grep -c '^volume rm' "$log")" = 1 ] && grep -qx "volume rm ${p}_pgdata" "$log"; check "rm-volumes.sh: removes only the run's own prefixed name" 0 $?
 grep -Eq -- ' -f|prune|--force' "$log"; check "rm-volumes.sh: no force or prune flag" 1 $?
 [ ! -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: ports.yml removed after success" 0 $?
