@@ -13,16 +13,22 @@ import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
+import {
+  createPostgresPushIntents,
+  settleTurnPushIntents,
+} from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
   agents,
+  pushIntents,
   pushRequests,
   sessionLinks,
   sessions,
   slackApps,
   slackInstallations,
   slackOutbox,
+  turns,
   users,
   workspaces,
 } from "./schema.ts";
@@ -197,6 +203,27 @@ integration("action_notice rows on PostgreSQL", () => {
     return id;
   }
 
+  /** A turn of the session with one deferred push intent on it. */
+  async function deferredIntent(sessionId: string, status = "running") {
+    const [turn] = await db
+      .insert(turns)
+      .values({ sessionId, sequence: 1, message: "push it", status })
+      .returning({ id: turns.id });
+    if (!turn) throw new Error("no turn");
+    const id = crypto.randomUUID();
+    await db.insert(pushIntents).values({
+      id,
+      ownerId: OWNER,
+      sessionId,
+      turnId: turn.id,
+      attemptId: "attempt-1",
+      repositoryId: "app",
+      targetBranch: `agent/${sessionId}`,
+      actor: HUMAN,
+    });
+    return { id, turnId: turn.id };
+  }
+
   const notices = (sessionId: string) =>
     db
       .select()
@@ -250,6 +277,76 @@ integration("action_notice rows on PostgreSQL", () => {
       });
     });
   }
+
+  test("an intent the turn ends without a checkpoint tells the thread once, in the starter's language", async () => {
+    const sessionId = await threadedSession("ko");
+    const { id, turnId } = await deferredIntent(sessionId);
+    const settle = () =>
+      db.transaction((tx) =>
+        settleTurnPushIntents(tx, {
+          turnRowId: turnId,
+          completedRevision: null,
+        }),
+      );
+    expect(await settle()).toBe(1);
+    // Nothing more to settle, and nothing told twice.
+    expect(await settle()).toBe(0);
+    const rows = await notices(sessionId);
+    expect(rows.map((n) => n.dedupeKey)).toEqual([`intent:${id}:ended`]);
+    expect(rows[0]).toMatchObject({
+      kind: "action_notice",
+      channelId: "C1",
+      threadTs: "1730000000.000100",
+    });
+    expect(rows[0]?.body).toMatchObject({
+      text: `push 요청이 진행되지 않고 끝났어요: app agent/${sessionId} (turn_ended_without_checkpoint). 다시 push하려면 다시 요청해 주세요.`,
+      locale: "ko",
+    });
+  });
+
+  test("an intent pinned at the turn's end is not an ending and tells nothing", async () => {
+    const sessionId = await threadedSession("en");
+    const { turnId } = await deferredIntent(sessionId);
+    await db.transaction((tx) =>
+      settleTurnPushIntents(tx, { turnRowId: turnId, completedRevision: 1 }),
+    );
+    expect(await notices(sessionId)).toEqual([]);
+  });
+
+  test("a stale intent cancelled by the sweep tells the thread", async () => {
+    const sessionId = await threadedSession("en");
+    const { id } = await deferredIntent(sessionId, "failed");
+    expect(await createPostgresPushIntents(db).settleStale()).toBeGreaterThan(
+      0,
+    );
+    const rows = await notices(sessionId);
+    expect(rows.map((n) => n.dedupeKey)).toEqual([`intent:${id}:ended`]);
+    expect(rows[0]?.body).toMatchObject({
+      text: `The push request ended without a push: app agent/${sessionId} (turn_finalized_without_pin). Ask again to push.`,
+    });
+  });
+
+  test("a session with no Slack thread gets no notice when its intent ends", async () => {
+    const sessionId = crypto.randomUUID();
+    await db.insert(sessions).values({
+      id: sessionId,
+      ownerId: OWNER,
+      repoUrl: "https://github.com/acme/app.git",
+      branch: "main",
+      repositoryId: "app",
+      checkpointRevision: 1,
+    });
+    const { turnId } = await deferredIntent(sessionId);
+    expect(
+      await db.transaction((tx) =>
+        settleTurnPushIntents(tx, {
+          turnRowId: turnId,
+          completedRevision: null,
+        }),
+      ),
+    ).toBe(1);
+    expect(await notices(sessionId)).toEqual([]);
+  });
 
   test("the list shows the stage, why it ended and the recorded pull request", async () => {
     const sessionId = await threadedSession("en");

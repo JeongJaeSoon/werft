@@ -2,7 +2,9 @@ import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 
 /**
  * What an `action_notice` row tells the thread. One row per result, keyed
- * `action:<push request id>:<result>`, so a result is told at most once.
+ * `action:<push request id>:<result>`, so a result is told at most once. A
+ * push that ends before it became a request (`push_cancelled`) has no push
+ * request id and is keyed by its intent instead (`intentNoticeDedupeKey`).
  */
 export const ACTION_NOTICE_RESULTS = [
   "pushed",
@@ -11,6 +13,7 @@ export const ACTION_NOTICE_RESULTS = [
   "pr_failed",
   "pr_closed",
   "pr_uncertain",
+  "push_cancelled",
 ] as const;
 export type ActionNoticeResult = (typeof ACTION_NOTICE_RESULTS)[number];
 
@@ -19,6 +22,11 @@ export function actionNoticeDedupeKey(
   result: ActionNoticeResult,
 ): string {
   return `action:${pushRequestId}:${result}`;
+}
+
+/** An intent ends once, so its notice is keyed by the intent alone. */
+export function intentNoticeDedupeKey(pushIntentId: string): string {
+  return `intent:${pushIntentId}:ended`;
 }
 
 /**
@@ -31,7 +39,8 @@ export type ActionNotice = {
   /** `owner/name` from the catalog; the catalog id when it has none. */
   repository: string;
   branch: string;
-  commit: string;
+  /** Absent for a push that ended before a commit was pinned to a request. */
+  commit?: string;
   number?: number;
   url?: string;
   /** A refusal or stage error code. */
@@ -40,7 +49,7 @@ export type ActionNotice = {
 
 type Copy = Record<ActionNoticeResult, (notice: ActionNotice) => string>;
 
-const short = (notice: ActionNotice) => notice.commit.slice(0, 7);
+const short = (notice: ActionNotice) => (notice.commit ?? "").slice(0, 7);
 const code = (notice: ActionNotice) => notice.reason ?? "unknown";
 
 const COPY: Record<UserLocale, Copy> = {
@@ -55,6 +64,8 @@ const COPY: Record<UserLocale, Copy> = {
       `이 push의 PR #${n.number}이 이미 닫혔어요: ${n.repository}`,
     pr_uncertain: (n) =>
       `PR이 열렸는지 확인하지 못했어요 (${code(n)}). GitHub에서 ${n.repository} ${n.branch}를 확인해 주세요.`,
+    push_cancelled: (n) =>
+      `push 요청이 진행되지 않고 끝났어요: ${n.repository} ${n.branch} (${code(n)}). 다시 push하려면 다시 요청해 주세요.`,
   },
   ja: {
     pushed: (n) => `pushしました: ${n.repository} ${n.branch} (${short(n)})`,
@@ -67,6 +78,8 @@ const COPY: Record<UserLocale, Copy> = {
       `このpushのPR #${n.number} はすでにクローズされています: ${n.repository}`,
     pr_uncertain: (n) =>
       `PRが作成されたか確認できませんでした (${code(n)})。GitHubで ${n.repository} ${n.branch} を確認してください。`,
+    push_cancelled: (n) =>
+      `pushリクエストは実行されずに終了しました: ${n.repository} ${n.branch} (${code(n)})。pushするにはもう一度依頼してください。`,
   },
   en: {
     pushed: (n) => `Pushed ${n.repository} ${n.branch} (${short(n)})`,
@@ -79,6 +92,8 @@ const COPY: Record<UserLocale, Copy> = {
       `PR #${n.number} for this push was already closed in ${n.repository}`,
     pr_uncertain: (n) =>
       `Could not confirm whether a PR was opened (${code(n)}). Check ${n.repository} ${n.branch} on GitHub.`,
+    push_cancelled: (n) =>
+      `The push request ended without a push: ${n.repository} ${n.branch} (${code(n)}). Ask again to push.`,
   },
 };
 
