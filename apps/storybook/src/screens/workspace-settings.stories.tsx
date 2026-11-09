@@ -13,6 +13,7 @@ import {
   buttonVariants,
   Code,
   ConfirmDialog,
+  CopyButton,
   cn,
   ErrorState,
   Field,
@@ -100,6 +101,19 @@ const CHECKED_AT = "2026-10-23T04:58:00Z";
 const ADDRESSES = {
   redirect_url: "https://werft.example/settings/linked-accounts/slack",
   events_url_template: "https://werft.example/v1/slack/events/{agent_id}",
+};
+
+type Addresses = "ready" | "noConsole" | "noHttps";
+
+// A console with no public origin has neither address; an http one has only
+// the redirect, since Slack calls https events addresses only.
+const ADDRESS_STATES: Record<Addresses, SlackConfigTokenSummary["urls"]> = {
+  ready: ADDRESSES,
+  noConsole: { redirect_url: null, events_url_template: null },
+  noHttps: {
+    redirect_url: "http://werft.example/settings/linked-accounts/slack",
+    events_url_template: null,
+  },
 };
 
 // GET /v1/workspaces/{id}/slack/config-token.
@@ -1060,16 +1074,90 @@ function TokenMenu({
   );
 }
 
+function AddressField({
+  label,
+  value,
+  unset,
+  hint,
+}: {
+  readonly label: string;
+  readonly value: string | null;
+  readonly unset: string;
+  readonly hint?: string;
+}) {
+  if (value === null) {
+    return (
+      <Field>
+        <FieldLabel>{label}</FieldLabel>
+        <Text variant="sub">{unset}</Text>
+      </Field>
+    );
+  }
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          className="font-mono sm:flex-1"
+          type="text"
+          readOnly
+          value={value}
+        />
+        <CopyButton
+          value={value}
+          variant="outline"
+          label="복사"
+          description={label}
+        />
+      </div>
+      {hint ? <FieldDescription>{hint}</FieldDescription> : null}
+    </Field>
+  );
+}
+
+function SlackAddresses({
+  urls,
+}: {
+  readonly urls: SlackConfigTokenSummary["urls"];
+}) {
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-3">
+      <Heading id={titleId} level={3}>
+        Slack 앱에 넣을 주소
+      </Heading>
+      <Text variant="sub">
+        콘솔의 공개 주소(CONSOLE_ORIGIN)에서 계산한 주소입니다. 콘솔이 만드는
+        앱에는 자동으로 들어가므로, Slack 앱을 직접 만들었을 때만 복사해서
+        넣으세요.
+      </Text>
+      <AddressField
+        label="Sign in with Slack 리디렉션 URL"
+        value={urls.redirect_url}
+        unset="콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 주소를 만들 수 없습니다. 운영자에게 설정을 요청하세요."
+      />
+      <AddressField
+        label="이벤트 요청 URL"
+        value={urls.events_url_template}
+        unset="Slack은 https 주소만 부릅니다. 콘솔의 공개 주소가 https가 아니어서 이벤트 주소를 만들 수 없습니다."
+        hint="에이전트마다 다릅니다. {agent_id} 자리에 에이전트 ID를 넣으세요."
+      />
+    </section>
+  );
+}
+
 function SlackPage({
   viewer,
   token: firstRead,
   appsEmpty,
+  addresses,
   editing: initialEditing,
   guestSaving,
 }: {
   readonly viewer: Role;
   readonly token: TokenRead;
   readonly appsEmpty: boolean;
+  readonly addresses: Addresses;
   readonly editing: boolean;
   readonly guestSaving: boolean;
 }) {
@@ -1187,6 +1275,7 @@ function SlackPage({
           </Text>
         ) : null}
       </section>
+      {summary ? <SlackAddresses urls={ADDRESS_STATES[addresses]} /> : null}
       {tokenOnly ? null : <SlackApps apps={apps} />}
     </>
   );
@@ -1251,6 +1340,7 @@ function WorkspaceSettingsScreen({
   models = "ready",
   token = "active",
   appsEmpty = false,
+  addresses = "ready",
   editing = false,
   guestSaving = false,
 }: {
@@ -1259,6 +1349,7 @@ function WorkspaceSettingsScreen({
   readonly models?: Models | undefined;
   readonly token?: TokenRead | undefined;
   readonly appsEmpty?: boolean | undefined;
+  readonly addresses?: Addresses | undefined;
   readonly editing?: boolean | undefined;
   readonly guestSaving?: boolean | undefined;
 }) {
@@ -1276,6 +1367,7 @@ function WorkspaceSettingsScreen({
           viewer={viewer}
           token={token}
           appsEmpty={appsEmpty}
+          addresses={addresses}
           editing={editing}
           guestSaving={guestSaving}
         />
@@ -1299,6 +1391,10 @@ const meta = {
     token: {
       control: "inline-radio",
       options: ["active", "needs_reentry", "unset", "loading", "storeOff"],
+    },
+    addresses: {
+      control: "inline-radio",
+      options: ["ready", "noConsole", "noHttps"],
     },
   },
 } satisfies Meta<typeof WorkspaceSettingsScreen>;
@@ -1345,6 +1441,19 @@ export const WorkspaceSettingsMobileDark: Story = {
 export const WorkspaceSettingsSlackSlack: Story = {
   name: "Slack › 토큰 확인됨",
   args: { page: "slack" },
+};
+export const WorkspaceSettingsSlackNoConsole: Story = {
+  name: "Slack › 콘솔 공개 주소 없음",
+  args: { page: "slack", addresses: "noConsole" },
+};
+export const WorkspaceSettingsSlackNoHttps: Story = {
+  name: "Slack › 콘솔 공개 주소가 https 아님",
+  args: { page: "slack", addresses: "noHttps" },
+};
+export const WorkspaceSettingsSlackNoHttpsMobile: Story = {
+  ...WorkspaceSettingsSlackNoHttps,
+  name: "Slack › 콘솔 공개 주소가 https 아님 (390px)",
+  globals: MOBILE,
 };
 export const WorkspaceSettingsSlackSlackDark: Story = {
   ...WorkspaceSettingsSlackSlack,
