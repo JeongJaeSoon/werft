@@ -4,7 +4,7 @@ import {
   type MessageKey,
   type Translate,
 } from "../../../i18n/i18n.tsx";
-import { storeOff } from "../../workspace-slack.tsx";
+import { reasonCodeOf, storeOff } from "../../workspace-slack.tsx";
 
 export type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -76,6 +76,19 @@ export function slackReason(error: unknown, t: Translate): string | undefined {
     return t("slack.error.rejected");
   if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
   if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
+  if (code === "BACKEND_UNAVAILABLE") {
+    const reason = reasonCodeOf(error);
+    if (reason === "slack_refused") {
+      const slack = (error as { details?: { slack_error?: unknown } }).details
+        ?.slack_error;
+      return t("slack.error.refused", {
+        code: typeof slack === "string" ? slack : "unknown",
+      });
+    }
+    if (reason === "console_origin_unset")
+      return t("slack.error.consoleOrigin");
+    if (reason === "events_url_unset") return t("slack.error.eventsUrl");
+  }
   return undefined;
 }
 

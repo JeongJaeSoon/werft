@@ -766,7 +766,17 @@ function tokenLine(
     .join(" · ");
 }
 
-// The API answers this way when it runs without its secret key; a retry
-// cannot help, an administrator has to configure the store.
+/** `details.reason_code` of an error, when the server named one. */
+export const reasonCodeOf = (error: unknown): string | undefined => {
+  if (!isApiError(error)) return undefined;
+  const code = (error.details as { reason_code?: unknown } | null)?.reason_code;
+  return typeof code === "string" ? code : undefined;
+};
+
+// The API names this reason when it runs without its secret key; a retry
+// cannot help, an administrator has to configure the store. Other
+// non-retryable BACKEND_UNAVAILABLE answers (Slack refusing a call, an unset
+// address) are not this.
 export const storeOff = (error: unknown) =>
-  isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
+  isApiError(error, "BACKEND_UNAVAILABLE") &&
+  reasonCodeOf(error) === "secret_store_off";

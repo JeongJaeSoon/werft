@@ -7,6 +7,7 @@ import {
   json,
   me,
   memberMe,
+  STORE_OFF,
   USER_ID,
   WORKSPACE_ID,
 } from "../../test-support/fake-api.ts";
@@ -1998,7 +1999,13 @@ describe("Slack management", () => {
     renderAt(DETAIL, {
       ...routes(),
       [`GET ${PATH}/slack/app`]: () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "secret store off",
+          false,
+          STORE_OFF,
+        ),
     });
     expect(
       await screen.findByText(
@@ -2013,7 +2020,13 @@ describe("Slack management", () => {
       {
         ...routes(),
         [`GET ${PATH}/slack/app`]: () =>
-          apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+          apiError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "secret store off",
+            false,
+            STORE_OFF,
+          ),
       },
       "en",
     );
@@ -2022,6 +2035,52 @@ describe("Slack management", () => {
         "The secret store is unavailable. Ask an administrator to check its configuration.",
       ),
     ).toBeDefined();
+  });
+  test("names Slack's refusal, not the secret store, when Slack refused the call", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Slack refused apps.manifest.create: invalid_manifest",
+          false,
+          { reason_code: "slack_refused", slack_error: "invalid_manifest" },
+        ),
+    });
+    expect(
+      await screen.findByText(
+        "Slack이 앱 만들기를 거절했습니다(코드: invalid_manifest). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+  });
+  test("names the unset console address in English", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "not configured", false, {
+            reason_code: "console_origin_unset",
+          }),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(
+        "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
+      ),
+    ).toBeDefined();
+  });
+  test("does not call an unnamed non-retryable 503 a secret store problem", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "unavailable"),
+    });
+    await screen.findByText("오류");
+    expect(document.body.textContent).not.toContain("비밀 저장소");
   });
   test("keeps the try-again text for a 503 a retry can clear", async () => {
     renderAt(DETAIL, {
