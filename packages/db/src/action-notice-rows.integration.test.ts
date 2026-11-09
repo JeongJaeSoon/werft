@@ -302,6 +302,50 @@ integration("action_notice rows on PostgreSQL", () => {
     });
   }
 
+  test("a thread that never heard the pull request opened hears it opened, not updated", async () => {
+    const sessionId = await threadedSession("en");
+    const [before] = await db
+      .select({ status: slackInstallations.status })
+      .from(slackInstallations)
+      .where(eq(slackInstallations.teamId, "T1"));
+    const installations = () =>
+      db
+        .update(slackInstallations)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(slackInstallations.teamId, "T1"));
+    const open = async (id: string, commit: string, created: boolean) => {
+      const job = await drain.claimNextDue(60_000);
+      if (job?.id !== id) throw new Error("claimed another request");
+      await drain.settle(job, {
+        kind: "opened",
+        pullRequest: {
+          number: 7,
+          url: "https://github.com/acme/app/pull/7",
+          head: `agent/${sessionId}`,
+          base: "main",
+          headSha: commit,
+          title: "Add the thing",
+          created,
+        },
+      });
+    };
+    // The installation is revoked while the first push opens the PR.
+    await installations();
+    const first = await pushedWithIntent(sessionId);
+    await open(first, COMMIT, true);
+    expect(await notices(sessionId)).toEqual([]);
+    // Installed again: the same row is live once more.
+    await db
+      .update(slackInstallations)
+      .set({ status: before?.status ?? "pending", revokedAt: null })
+      .where(eq(slackInstallations.teamId, "T1"));
+    const second = await pushedWithIntent(sessionId, "app", "d".repeat(40));
+    await open(second, "d".repeat(40), false);
+    expect((await notices(sessionId)).map((n) => n.dedupeKey).sort()).toEqual(
+      [`action:${second}:opened`, `action:${second}:pushed`].sort(),
+    );
+  });
+
   test("the list shows the stage, why it ended and the recorded pull request", async () => {
     const sessionId = await threadedSession("en");
     const id = await pushedWithIntent(sessionId);
