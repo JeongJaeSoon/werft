@@ -38,8 +38,17 @@ describe("runtime spec contract", () => {
     expect(shape.repository_mode.options).toEqual(repositoryModeSchema.options);
   });
 
-  // The kind is a plain string here (guard G2), so a kind the session
-  // contract knows is never refused by this one.
+  test("a runtime kind the session contract does not name is refused", () => {
+    const runtime = { ...source.runtime, kind: "unknown_runtime" };
+    expect(specSourceSchema.safeParse({ ...source, runtime }).success).toBe(
+      false,
+    );
+    expect(
+      runtimeSpecSchema.safeParse({ ...deriveRuntimeSpec(source), runtime })
+        .success,
+    ).toBe(false);
+  });
+
   test("every runtime kind the session contract names is accepted", () => {
     for (const kind of RUNTIME_KIND_VALUES) {
       expect(

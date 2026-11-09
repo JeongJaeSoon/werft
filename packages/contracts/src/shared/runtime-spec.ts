@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { runtimeKindSchema } from "./runtime-kind.ts";
+
 // What a release runs as, with no runtime profile in the way. A release holds
 // two documents: `spec_source`, the raw inputs it was made from, and
 // `runtime_spec`, what those inputs mean now. The spec is a pure function of
@@ -11,9 +13,8 @@ import { z } from "zod";
 // The mode and repository enums below repeat api/session.ts and
 // api/profiles.ts, which this module cannot import without a cycle
 // (api/session.ts imports the agents contract that will import this).
-// runtime-spec.test.ts holds them to the originals. The runtime kind is data
-// (architecture guard G2): it is a string here, and `runtimeKindSchema` in
-// api/session.ts is what says which kinds exist.
+// runtime-spec.test.ts holds them to the originals. The runtime kind comes
+// from the import-free shared/runtime-kind.ts, which api/session.ts re-exports.
 
 export const RUNTIME_SPEC_VERSION = 1;
 export const SPEC_DERIVATION_VERSION = 1;
@@ -54,7 +55,9 @@ const endpointSchema = z.string().refine((value) => {
   );
 }, "must be an http(s) URL with no credential, query or fragment");
 
-const runtimeSchema = z.object({ kind: nonEmpty, version: nonEmpty }).strict();
+const runtimeSchema = z
+  .object({ kind: runtimeKindSchema, version: nonEmpty })
+  .strict();
 
 // Where the model is called. The connection is named by id: it is what picks
 // the credential, and a provider that matches no connection row runs nothing
