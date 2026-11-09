@@ -100,6 +100,7 @@ export type ReleaseReason =
   | "profile_rollout"
   | "profile_migration"
   | "tool_unlock"
+  | "model_migration"
   | "direct";
 
 /**
@@ -165,6 +166,23 @@ export type ActivationIntent =
         behaviorRevision: number;
       };
       tools: { before: string[]; after: string[] };
+    }
+  | {
+      /**
+       * A model that left the profile's list replaced by its same-family
+       * successor: the same profile and a card that differs in `model` only.
+       * Judged on the revisions the plan read and on `auto_model_migration`
+       * under the lock; changes neither tracking, the model source nor the
+       * draft. The administrators' notices are written with the swap.
+       */
+      kind: "model_migration";
+      expected: {
+        activeReleaseId: string;
+        activationRevision: number;
+        behaviorRevision: number;
+      };
+      from: string;
+      to: string;
     }
   | {
       kind: "direct";
@@ -328,6 +346,30 @@ export interface AgentStore {
   ): Promise<InsertReleaseResult>;
   /** Whether the agent has an `agent_github_settings` row. */
   hasGitHubSettings(agentId: string): Promise<boolean>;
+  /**
+   * One page, by agent id, of the active agents that allow an automatic model
+   * move, with the model their active release runs. The catalog decides which
+   * of them hold a model that left the list.
+   */
+  modelMigrationCandidates(input: {
+    after: string | null;
+    limit: number;
+  }): Promise<
+    {
+      workspaceId: string;
+      agentId: string;
+      profileId: string;
+      model: string;
+    }[]
+  >;
+  /** The failed move's notice: written without a swap, once per cause. */
+  notifyModelMigrationFailed(input: {
+    workspaceId: string;
+    agentId: string;
+    from: string;
+    to: string;
+    reason: string;
+  }): Promise<number>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.

@@ -27,6 +27,7 @@ export function registerAgentRoutes(
     AgentService,
     | "resolveRelease"
     | "rolloutRelease"
+    | "migrateModel"
     | "migrateAgent"
     | "unlockTools"
     | "revertMigration"

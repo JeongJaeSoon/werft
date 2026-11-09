@@ -81,6 +81,7 @@ import {
   SessionServiceError,
   viewerOf,
 } from "../sessions/session-service.ts";
+import type { ModelMoveStep } from "./model-move-runner.ts";
 import {
   assertReleaseIdentity,
   cardContentSha256,
@@ -1343,9 +1344,107 @@ export function createAgentService(deps: {
     }
   }
 
+  /**
+   * Moves an agent whose active release runs a model that left its profile's
+   * list onto the same-family successor: a card that differs in `model`
+   * only, released and activated under the revisions read here. Nobody asks
+   * for it, so the person who last approved the release stands in for it and
+   * must still be an owner or admin; without one the agent stays blocked and
+   * the caller says so.
+   */
+  async function migrateModel(input: {
+    workspaceId: string;
+    agentId: string;
+  }): Promise<ModelMoveStep> {
+    const { workspaceId, agentId } = input;
+    let move: { from: string; to: string } | null = null;
+    try {
+      const record = await store.get(workspaceId, agentId);
+      const active = record?.active_release ?? null;
+      if (!record || !active) return { status: "skipped" };
+      const from = releaseModel(active);
+      if (from === undefined) return { status: "skipped" };
+      let profile: CatalogProfile;
+      try {
+        profile = await usableProfile(workspaceId, active.runtime_profile_id, {
+          retiredAllowed: true,
+        });
+      } catch (error) {
+        if (refusalCode(error) === null) throw error;
+        return { status: "skipped" };
+      }
+      const to = modelSuccessor(profile, from);
+      if (to === null) return { status: "skipped" };
+      move = { from, to };
+      const failed = (reason: string): ModelMoveStep => ({
+        status: "failed",
+        reason,
+        from,
+        to,
+      });
+      const actorUserId = active.approved_by;
+      if (actorUserId === null) return failed("actor_inactive");
+      const principal = migrationPrincipal(workspaceId, actorUserId);
+      const activeVersion = record.versions.find(
+        (version) => version.id === active.version_id,
+      );
+      if (!activeVersion) return failed("release_refused");
+      const card = { ...activeVersion.card, model: to };
+      const contentSha256 = cardContentSha256(card);
+      const saved = await store.update({
+        principal,
+        workspaceId,
+        agentId,
+        card: { card, contentSha256 },
+        updatedBy: actorUserId,
+        managerRoles: AGENT_MANAGERS,
+        requireRoles: ROLLOUT_ROLES,
+      });
+      if (saved.outcome === "stale") return { status: "superseded" };
+      if (saved.outcome === "not_found") return { status: "skipped" };
+      if (saved.outcome !== "updated") return failed("actor_inactive");
+      const version = saved.detail.versions.find(
+        (candidate) => candidate.content_sha256 === contentSha256,
+      );
+      if (!version) throw new Error("a model-only card version is stored");
+      const outcome = await releaseAgent(principal, actorUserId, {
+        agentId,
+        version,
+        profileId: active.runtime_profile_id,
+        active,
+        expectedActivationRevision: record.agent.activation_revision,
+        intent: {
+          kind: "model_migration",
+          expected: {
+            activeReleaseId: active.id,
+            activationRevision: record.agent.activation_revision,
+            behaviorRevision: record.behavior_revision,
+          },
+          from,
+          to,
+        },
+        reason: "model_migration",
+        requireRoles: ROLLOUT_ROLES,
+        retiredAllowed: true,
+      });
+      if (outcome.status === "applied") return { status: "applied", from, to };
+      if (outcome.status === "failed") return failed(outcome.reason);
+      return { status: "superseded" };
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        if (error.code === "NOT_FOUND") return { status: "skipped" };
+        if (error.code === "FORBIDDEN" && move !== null) {
+          return { status: "failed", reason: "actor_inactive", ...move };
+        }
+      }
+      throw error;
+    }
+  }
+
   return {
     resolveRelease,
     rolloutRelease,
+    migrateModel,
     migrateAgent,
     unlockTools,
     revertMigration,

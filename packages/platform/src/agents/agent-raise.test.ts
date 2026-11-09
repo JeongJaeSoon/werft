@@ -150,6 +150,8 @@ function raiseOver(reads: AgentRecord[]) {
     update: async () => ({ outcome: "not_found" }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    modelMigrationCandidates: async () => [],
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) =>
       ({

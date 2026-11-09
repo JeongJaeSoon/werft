@@ -163,6 +163,8 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     update: async () => ({ outcome: "updated", detail, saved: null }),
     recordDraftFailure: async () => true,
     hasGitHubSettings: async () => false,
+    modelMigrationCandidates: async () => [],
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async ({ release }) => ({
       outcome: "created",
@@ -203,6 +205,7 @@ type Routed = Omit<
   | "resolveRelease"
   | "promptIdentity"
   | "rolloutRelease"
+  | "migrateModel"
   | "migrateAgent"
   | "unlockTools"
   | "revertMigration"

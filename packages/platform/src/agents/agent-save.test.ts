@@ -179,6 +179,8 @@ function scripted(script: Script) {
       return true;
     },
     hasGitHubSettings: async () => script.hasRow ?? false,
+    modelMigrationCandidates: async () => [],
+    notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
     insertRelease: async (input) => {
       calls.insert.push(input);

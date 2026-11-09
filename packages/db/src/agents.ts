@@ -51,6 +51,7 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { enqueueModelMoveNotices } from "./model-move-notices.ts";
 import {
   isNewestProfile,
   openRolloutStep,
@@ -355,6 +356,7 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       modelSource: agents.modelSource,
       profileTracking: agents.profileTracking,
       draftVersionId: agents.draftVersionId,
+      autoModelMigration: agents.autoModelMigration,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
@@ -789,6 +791,52 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return row !== undefined;
     },
 
+    async modelMigrationCandidates(input) {
+      const rows = await db
+        .select({
+          workspaceId: agents.workspaceId,
+          agentId: agents.id,
+          profileId: agentReleases.runtimeProfileId,
+          model: sql<string>`${agentReleases.runtimeConfigSnapshot} ->> 'model'`,
+        })
+        .from(agents)
+        .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
+        .where(
+          and(
+            eq(agents.status, "active"),
+            eq(agents.autoModelMigration, true),
+            input.after === null ? undefined : gt(agents.id, input.after),
+          ),
+        )
+        .orderBy(agents.id)
+        .limit(input.limit);
+      return rows;
+    },
+
+    async notifyModelMigrationFailed(input) {
+      return await db.transaction(async (tx) => {
+        const [agent] = await tx
+          .select({ revision: agents.activationRevision })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.id, input.agentId),
+              eq(agents.workspaceId, input.workspaceId),
+            ),
+          )
+          .limit(1);
+        if (!agent) return 0;
+        return await enqueueModelMoveNotices(tx, {
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+          kind: "failed",
+          from: input.from,
+          to: input.to,
+          revision: agent.revision,
+        });
+      });
+    },
+
     insertRelease(input) {
       const { release } = input;
       return db.transaction(async (tx) => {
@@ -925,6 +973,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
+        // Switched off, or changed by a person, since the plan read it: not
+        // this move's to make.
+        if (
+          intent?.kind === "model_migration" &&
+          agent.activeReleaseId !== input.releaseId &&
+          (!agent.autoModelMigration ||
+            agent.activeReleaseId !== intent.expected.activeReleaseId ||
+            agent.activationRevision !== intent.expected.activationRevision ||
+            agent.behaviorRevision !== intent.expected.behaviorRevision)
+        ) {
+          return { outcome: "superseded" };
+        }
         const intentColumns =
           intent?.kind === "migrate"
             ? { profileTracking: intent.tracking }
@@ -1041,6 +1101,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   },
                 }
               : {}),
+            ...(intent?.kind === "model_migration"
+              ? {
+                  model_migration: {
+                    from: intent.from,
+                    to: intent.to,
+                    // Nobody asked for it: the actor is the release's last
+                    // approver, standing in.
+                    automatic: true,
+                  },
+                }
+              : {}),
             ...(intent?.kind === "tool_unlock"
               ? {
                   tool_unlock: {
@@ -1068,6 +1139,16 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           actor: receiptActorOf(input.principal),
           receiptId,
         });
+        if (intent?.kind === "model_migration") {
+          await enqueueModelMoveNotices(tx, {
+            workspaceId: input.workspaceId,
+            agentId: agent.id,
+            kind: "moved",
+            from: intent.from,
+            to: intent.to,
+            revision: swapped.revision,
+          });
+        }
         return {
           outcome: "activated",
           revision: swapped.revision,

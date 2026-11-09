@@ -3215,6 +3215,11 @@ export const agents = pgTable(
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
     /** Read at every GitHub token request, so turning it off is immediate. */
     githubEnabled: boolean("github_enabled").notNull().default(true),
+    /**
+     * Off: nothing moves this agent to a successor model on its own, neither
+     * its release, nor its sessions' next claim, nor a new session.
+     */
+    autoModelMigration: boolean("auto_model_migration").notNull().default(true),
     /** Its leads administer the agent. An agent is never without one. */
     managingTeamId: uuid("managing_team_id").notNull(),
     // Nothing writes the five columns below yet; they hold their defaults.

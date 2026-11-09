@@ -103,6 +103,7 @@ import {
   createInviteService,
   createLinkedAccountService,
   createMemberService,
+  createModelMoveRunner,
   createOutcomeRefresher,
   createPendingRequestService,
   createProfileRegistry,
@@ -1035,6 +1036,15 @@ const profileRolloutRunner = createProfileRolloutRunner({
   logger,
   sweep: true,
 }).start();
+// Moves agents whose model left their profile's list onto the next model of
+// the same series (94S-1475). Every replica runs it; the activation's
+// compare-and-swap and the notice keys make a second one harmless.
+const modelMoveRunner = createModelMoveRunner({
+  store: agentStore,
+  catalog,
+  agents,
+  logger,
+}).start();
 // The pull request drain of the control-host's action-broker: a stage left
 // from before a restart is still finished.
 const pullRequestDrain = createPullRequestDrain({
@@ -1434,6 +1444,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
           name: "profile-rollout-runner",
           close: () => profileRolloutRunner.stop(),
         },
+        { name: "model-move-runner", close: () => modelMoveRunner.stop() },
         { name: "pull-request-drain", close: () => pullRequestDrain.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },

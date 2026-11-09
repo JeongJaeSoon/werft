@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "auto_model_migration" boolean DEFAULT true NOT NULL;
