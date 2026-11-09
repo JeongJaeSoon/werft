@@ -105,7 +105,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 
 ローカルスタックの `sample-app` はスタック内の Git サーバーに GitHub App として登録されているため、`pushed` になる。receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。書き込める GitHub App の認証情報がないリポジトリは `no_push_credential` で終わる。
 
-プラットフォームは、その commit 1 つだけをそのブランチに送る。force push はしない。デフォルトブランチには送らない。
+プラットフォームは、承認した commit をそのブランチの新しい先端として送る(`git push <commit>:<ブランチ>`)。そのブランチにまだない祖先 commit、つまりセッションが先に作ってまだ push していない commit も一緒に上がる。承認するときは、固定された commit だけでなく、リモートブランチ(ない場合はデフォルトブランチ)からその commit までの変更全体を確認する。force push はしない。デフォルトブランチには送らない。
 
 | `refusal` | 意味 |
 | --- | --- |
