@@ -1627,6 +1627,13 @@ export function createWorkerGateway(deps: {
             "CATALOG_MISMATCH",
             "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
           );
+        // Not retryable, as above: the session was failed and the launch given up.
+        case "variables_refused":
+          throw new WorkerGatewayError(
+            409,
+            "VARIABLE_UNRESOLVED",
+            "A variable the session took when it was accepted is refused; the session was failed",
+          );
         // Not retryable: this worker will never be the image it was launched
         // as. The session waits for a launch on a correctly configured one.
         case "image_mismatch":

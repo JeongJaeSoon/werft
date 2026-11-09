@@ -12,6 +12,9 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  ENV_VARIABLE_KIND_VALUES,
+  ENV_VARIABLE_NAME_PATTERN,
+  ENV_VARIABLE_VALUE_MAX_BYTES,
   GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   GITHUB_REVIEW_OUTCOME_STATE_VALUES,
@@ -81,6 +84,7 @@ import {
   jsonb,
   numeric,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -1369,6 +1373,11 @@ export const sessions = pgTable(
     // on a session started without a settings row, which follows its
     // release's card and pins.
     mcpStart: jsonb("mcp_start").$type<unknown>(),
+    // The user variables the session took when it was accepted
+    // (`envStartSchema`). A plain entry keeps its value so claims, retries and
+    // restores replay it; a trigger drops the values when the session closes.
+    // Null on a session that declared no variable.
+    envStart: jsonb("env_start").$type<unknown>(),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -4211,6 +4220,114 @@ export const extensionBundles = pgTable(
       "extension_bundles_manifest_check",
       sql`jsonb_typeof(${table.manifest}) = 'object'`,
     ),
+  ],
+);
+
+// One counter for every variable write and grant write. A deleted and
+// re-created variable never repeats a version, so an `If-Match` that was read
+// before the delete cannot match the new row by accident.
+export const envVariableVersionsSeq = pgSequence("env_variable_versions_seq");
+
+// User variables a workspace (`agent_id` null) or one agent registers. A secret
+// keeps its value in `secret_values`, never here; its columns exist so the
+// secret path adds no migration.
+export const envVariables = pgTable(
+  "env_variables",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id"),
+    name: text().notNull(),
+    kind: text().notNull(),
+    value: text(),
+    engineDelivery: boolean("engine_delivery").notNull().default(false),
+    allowAutomation: boolean("allow_automation").notNull().default(false),
+    grantAll: boolean("grant_all").notNull().default(false),
+    version: bigint({ mode: "number" })
+      .notNull()
+      .default(sql`nextval('env_variable_versions_seq')`),
+    grantVersion: bigint("grant_version", { mode: "number" })
+      .notNull()
+      .default(sql`nextval('env_variable_versions_seq')`),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "env_variables_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // The grant rows' composite key: a grant cannot name a variable of
+    // another workspace.
+    unique("env_variables_workspace_id_uniq").on(table.workspaceId, table.id),
+    uniqueIndex("env_variables_workspace_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.agentId} IS NULL`),
+    uniqueIndex("env_variables_agent_name_uniq")
+      .on(table.workspaceId, table.agentId, table.name)
+      .where(sql`${table.agentId} IS NOT NULL`),
+    check(
+      "env_variables_name_check",
+      sql`${table.name} ~ ${sql.raw(`'${ENV_VARIABLE_NAME_PATTERN}'`)}`,
+    ),
+    check(
+      "env_variables_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(ENV_VARIABLE_KIND_VALUES))})`,
+    ),
+    // A plain value lives here; a secret's never does.
+    check(
+      "env_variables_value_check",
+      sql`(${table.kind} = 'plain') = (${table.value} IS NOT NULL) AND (${table.value} IS NULL OR octet_length(${table.value}) <= ${sql.raw(String(ENV_VARIABLE_VALUE_MAX_BYTES))})`,
+    ),
+    check(
+      "env_variables_engine_delivery_check",
+      sql`NOT ${table.engineDelivery} OR ${table.kind} = 'secret'`,
+    ),
+    check(
+      "env_variables_allow_automation_check",
+      sql`NOT ${table.allowAutomation} OR (${table.kind} = 'secret' AND ${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "env_variables_grant_all_check",
+      sql`NOT ${table.grantAll} OR (${table.kind} = 'plain' AND ${table.agentId} IS NULL)`,
+    ),
+  ],
+);
+
+// The agents a workspace-level variable is granted to. Without a row (and
+// without `grant_all`) no agent receives the value.
+export const envVariableGrants = pgTable(
+  "env_variable_grants",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    variableId: uuid("variable_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    /** Secrets only: the agent's unattended sessions may receive the value. */
+    allowAutomation: boolean("allow_automation").notNull().default(false),
+    /** No foreign key: the row outlives the account. */
+    grantedBy: uuid("granted_by"),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.variableId, table.agentId] }),
+    foreignKey({
+      name: "env_variable_grants_variable_fk",
+      columns: [table.workspaceId, table.variableId],
+      foreignColumns: [envVariables.workspaceId, envVariables.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "env_variable_grants_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
   ],
 );
 

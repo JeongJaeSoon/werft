@@ -23,6 +23,7 @@ export * from "./credential-bindings.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./drain.ts";
 export * from "./enqueue.ts";
+export * from "./env-variables.ts";
 export * from "./execution-revocation.ts";
 export * from "./extension-bundles.ts";
 export * from "./github-app-manifest-states.ts";

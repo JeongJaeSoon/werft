@@ -305,3 +305,4 @@ export const ENV_REFUSAL_VALUES = [
   "runtime_unsupported",
 ] as const;
 export const envRefusalSchema = z.enum(ENV_REFUSAL_VALUES);
+export type EnvRefusal = z.infer<typeof envRefusalSchema>;
