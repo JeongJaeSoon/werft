@@ -82,7 +82,10 @@ export function withEngineSettings(
           Object.fromEntries(
             AUTO_MODE_SECTIONS.map((section) => [
               section,
-              joined(baseline.autoMode?.[section], extra.autoMode?.[section]),
+              classifierRules(
+                baseline.autoMode?.[section],
+                extra.autoMode?.[section],
+              ),
             ]),
           ),
         )
@@ -91,6 +94,20 @@ export function withEngineSettings(
     ...(permissions === undefined ? {} : { permissions }),
     ...(autoMode === undefined ? {} : { autoMode }),
   };
+}
+
+// A classifier section that is set without "$defaults" replaces the engine's
+// own rules for it, so a section the baseline leaves unset (hard_deny) keeps
+// them only if the claim's rules are put after "$defaults".
+function classifierRules(
+  baseline: readonly string[] | undefined,
+  extra: readonly string[] | undefined,
+): string[] | undefined {
+  if (extra === undefined || extra.length === 0)
+    return joined(baseline, undefined);
+  return baseline === undefined || baseline.length === 0
+    ? ["$defaults", ...extra]
+    : [...baseline, ...extra];
 }
 
 const AUTO_MODE_SECTIONS = [

@@ -122,7 +122,10 @@ describe("engine_settings from a claim", () => {
     expect(merged.autoMode?.environment).toEqual(
       PLATFORM_AUTO_MODE.environment,
     );
+    // The baseline sets no hard_deny; without "$defaults" first the engine
+    // would take the claim's rule as its whole HARD BLOCK section.
     expect(merged.autoMode?.hard_deny).toEqual([
+      "$defaults",
       "Agent rule: never touch billing.",
     ]);
     expect(merged.permissions?.deny).toEqual(["Bash(rm:*)", "Read(./.env)"]);
@@ -223,16 +226,51 @@ describe("a deny the engine would drop does not start", () => {
     ).toThrow(/Deny rule/);
   });
 
-  test("an allow or ask the engine may read differently is not checked: it only narrows", () => {
+  // `Write(path)` matches nothing in the engine, so the baseline's Edit allow
+  // would run that write unasked: an ask it drops widens what runs.
+  test.each([
+    ["an unknown tool", "NoSuchTool"],
+    ["a tool glob", "B*"],
+  ])("refuses an ask over %s", (_name, rule) => {
+    expect(() =>
+      validateRuntimeConfig(
+        configOf({ engineSettings: { permissions: { ask: [rule] } } }),
+        policy,
+      ),
+    ).toThrow(/Ask rule/);
+  });
+
+  test("an allow the engine may read differently is not checked: it only narrows", () => {
     expect(() =>
       validateRuntimeConfig(
         configOf({
-          engineSettings: {
-            permissions: { allow: ["whatever(x)"], ask: ["whatever(y)"] },
-          },
+          engineSettings: { permissions: { allow: ["whatever(x)"] } },
         }),
         policy,
       ),
     ).not.toThrow();
+  });
+
+  test("a workspace list and an agent list merged past one list's cap still start", () => {
+    const deny = Array.from({ length: 128 }, (_, i) => `Bash(command${i}:*)`);
+    expect(() =>
+      validateRuntimeConfig(
+        configOf({ engineSettings: { permissions: { deny } } }),
+        policy,
+      ),
+    ).not.toThrow();
+  });
+
+  test("a bad rule in the second list is still refused", () => {
+    const deny = [
+      ...Array.from({ length: 64 }, (_, i) => `Bash(command${i}:*)`),
+      "NoSuchTool",
+    ];
+    expect(() =>
+      validateRuntimeConfig(
+        configOf({ engineSettings: { permissions: { deny } } }),
+        policy,
+      ),
+    ).toThrow(/Deny rule/);
   });
 });
