@@ -1050,7 +1050,10 @@ describe("에이전트 GitHub 탭", () => {
 
   test("저장은 됐는데 다시 읽기가 실패해도 스위치 오류로 세지 않는다", async () => {
     const { server } = await activeAgent();
-    const base = routesFor(server, TAB);
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
     const key = `GET ${PATH}/github`;
     let saved = false;
     renderAt(DETAIL, {
@@ -1085,7 +1088,10 @@ describe("에이전트 GitHub 탭", () => {
 
   test("설치 목록에만 있던 저장소를 켠 뒤 설치 목록만 새로 읽혀도 켠 채로 보인다", async () => {
     const { server } = await activeAgent();
-    const base = routesFor(server, TAB);
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
     const tabKey = `GET ${PATH}/github`;
     let saved = false;
     renderAt(DETAIL, {
