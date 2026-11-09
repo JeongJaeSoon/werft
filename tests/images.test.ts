@@ -1003,7 +1003,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
       expect(build?.with?.["cache-to"]).toBe(
         expression(
-          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=max', matrix.app, matrix.arch) || ''",
+          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || ''",
         ),
       );
     });

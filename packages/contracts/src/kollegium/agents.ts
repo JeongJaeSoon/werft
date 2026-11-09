@@ -488,9 +488,10 @@ export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
 });
 
 /**
- * Whether a push to an attached repository (not the session's own) needs a
- * person. Stored on `agent_github_settings.push_attached`, never on a release
- * pin: a pin means `ask`.
+ * The bound `push_attached` puts on a push to any repository; the stricter of
+ * it and `push_approval` applies (`pushDecisionOf`). Stored on
+ * `agent_github_settings.push_attached`, never on a release pin: a pin means
+ * `ask`.
  */
 export const PUSH_ATTACHED_VALUES = ["allow", "ask", "deny"] as const;
 export const pushAttachedSchema = z.enum(PUSH_ATTACHED_VALUES);
@@ -516,6 +517,27 @@ export function pushAttachedOf(stored: unknown): PushAttached {
   if (stored === null || stored === undefined) return "ask";
   const parsed = pushAttachedSchema.safeParse(stored);
   return parsed.success ? parsed.data : "deny";
+}
+
+/**
+ * What a push to any repository needs: `allow` pushes without a person, `ask`
+ * waits for one, `deny` refuses. One rule for every repository, the stricter
+ * of `push_approval` and `push_attached`; `settings` that cannot be applied
+ * ask. A caller reads this at run time, so a push intent made under an older
+ * rule (its stored class is audit only) is judged again by this one.
+ */
+export function pushDecisionOf(policy: {
+  settings: AgentGitHub | "invalid" | null;
+  pushAttached: PushAttached;
+}): PushAttached {
+  const { settings } = policy;
+  const usable = settings !== null && settings !== "invalid";
+  const approval: PushAttached =
+    usable && !settings.push_approval ? "allow" : "ask";
+  const attached = usable
+    ? policy.pushAttached
+    : meetPushAttached("ask", policy.pushAttached);
+  return meetPushAttached(approval, attached);
 }
 
 /**

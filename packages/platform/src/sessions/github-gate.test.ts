@@ -536,6 +536,21 @@ describe("refusals", () => {
       setup: { repositoryId: null },
       work: { purpose: "clone" },
     },
+    ...(
+      [
+        { purpose: "dispatch", workflow: { file: "ci.yml", ref: "main" } },
+        { purpose: "rerun", runId: 7 },
+        { purpose: "actions_read" },
+        {
+          purpose: "review",
+          review: { number: 1, commitId: "a".repeat(40), event: "COMMENT" },
+        },
+      ] as const
+    ).map((work) => ({
+      reason: "workflow_review_need_session_repository" as const,
+      setup: { repositoryId: null },
+      work,
+    })),
   ];
 
   for (const { reason, setup, work } of cases) {
@@ -972,6 +987,25 @@ describe("another repository than the session's", () => {
     });
   });
 
+  test("push_attached deny refuses a push to the session's own repository too", async () => {
+    const onList = settings({ repositories: ["app", "docs"] });
+    const { grant } = harness({
+      catalog: MULTI,
+      policy: agentPolicy(onList, { pushAttached: "deny" }),
+      repositoryCeiling: {
+        repository_ids: ["app", "docs"],
+        github_app_repositories: "listed",
+      },
+    });
+    expect(
+      (await refused(grant({ purpose: "push", repositoryId: "docs" }))).reason,
+    ).toBe("repository_not_allowed");
+    expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+      "repository_not_allowed",
+    );
+    expect(await grant({ purpose: "clone" })).not.toBeNull();
+  });
+
   test("a push to an attached repository gets no credential when push.attached is deny, whoever approved the request", async () => {
     const onList = settings({ repositories: ["app", "docs"] });
     for (const [pushAttached, granted] of [
@@ -1001,8 +1035,9 @@ describe("another repository than the session's", () => {
         repository_id: "docs",
         purpose: "push",
       });
-      // The session's own repository and a clone of the attached one stay.
-      expect(await grant({ purpose: "push" })).not.toBeNull();
+      expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+        "repository_not_allowed",
+      );
       expect(
         await grant({ purpose: "clone", repositoryId: "docs" }),
       ).not.toBeNull();

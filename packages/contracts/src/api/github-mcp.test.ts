@@ -23,7 +23,7 @@ import {
   LISTED_REPOSITORY_STATUS_VALUES,
   listedGitHubMcpTools,
   listedRepositorySchema,
-  pushClassOf,
+  PUSH_CLASS_VALUES,
 } from "./github-mcp.ts";
 import { PULL_REQUEST_REFUSAL_VALUES } from "./pull-request.ts";
 import { PUSH_REFUSAL_VALUES } from "./push-request.ts";
@@ -90,16 +90,17 @@ describe("the action class every tool carries", () => {
     }
   });
 
-  test("a push is judged per repository: the session's own is primary, any other attached", () => {
-    expect(pushClassOf("app", "app")).toBe("push.primary");
-    expect(pushClassOf("app", "docs")).toBe("push.attached");
-    expect(pushClassOf(null, "docs")).toBe("push.attached");
+  test("the stored push classes still parse, so an older row is read", () => {
+    expect(PUSH_CLASS_VALUES).toEqual([
+      "push",
+      "push.primary",
+      "push.attached",
+    ]);
   });
 
   test("the policy per class is computed from the settings and the attached value", () => {
     expect(actionPolicyOf(settings({}), "ask")).toEqual({
-      "push.primary": "ask",
-      "push.attached": "ask",
+      push: "ask",
       "pull_request.write": "allow",
       "pull_request.merge": "workspace_ceiling",
       review: "deny",
@@ -112,11 +113,17 @@ describe("the action class every tool carries", () => {
         "deny",
       ),
     ).toMatchObject({
-      "push.primary": "allow",
-      "push.attached": "deny",
+      push: "deny",
       review: "allow",
       workflow: "allow",
     });
+  });
+
+  test("a push is the stricter of push_approval and push_attached", () => {
+    const open = { ...settings({}), push_approval: false };
+    expect(actionPolicyOf(open, "allow").push).toBe("allow");
+    expect(actionPolicyOf(open, "ask").push).toBe("ask");
+    expect(actionPolicyOf(open, "deny").push).toBe("deny");
   });
 });
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PushClass,
   type PushIntent,
   type PushIntentRefusal,
   type ReceiptActor,
@@ -232,7 +233,7 @@ export function createPostgresPushIntents(db: Database): PushIntentStore {
           pinnedRevision: intent.pinnedRevision ?? 0,
           sourceRef: intent.sourceRef,
           actor: intent.actor as ReceiptActor,
-          pushClass: intent.approvalBasis as "push.primary" | "push.attached",
+          pushClass: intent.approvalBasis as PushClass,
           pullRequest: intent.pullRequest,
           claimToken,
           sessionClosed: picked.admission === "closed",

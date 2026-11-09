@@ -42,8 +42,7 @@ const NO_GITHUB = {
   github: null,
   repositoryCeiling: null,
   githubEnabled: false,
-  pushAttached: "ask" as const,
-  attachedApproval: null,
+  push: "ask" as const,
   policyFields: { policy_source: "release" as const },
 };
 const KEYS: Record<string, readonly SessionScope[]> = {
@@ -349,8 +348,7 @@ describe("push request routes", () => {
       repositoryCeiling: null,
       githubEnabled: true,
       policyApproval: null,
-      pushAttached: "ask" as const,
-      attachedApproval: null,
+      push: "ask" as const,
       policyFields: {},
     };
 
@@ -402,6 +400,7 @@ describe("push request routes", () => {
         findSession: async () => ({
           ...NO_GITHUB,
           repositoryId: "sample-app",
+          push: "allow" as const,
           policyApproval: approval,
         }),
       },

@@ -84,6 +84,9 @@ export type WorkerBinding = {
   // none. The claim's engine version comes from it, not the catalog: a
   // launch on the previous image runs that image's engine.
   launchRuntime?: ImageRuntime;
+  // The plain values the session took when it was accepted, by name. Absent
+  // when it took none, so a session without variables binds as before.
+  env?: Readonly<Record<string, string>>;
 };
 
 // A profile and repository this host may run together, with the URL and
@@ -191,6 +194,9 @@ export type ClaimInput = {
   credentialTtlMs: number;
   leaseTtlMs: number;
   now: Date;
+  // The worker announced `user_env`. A session that holds variables is not
+  // bound to one that did not: its claim could not carry them.
+  userEnv?: true;
 };
 
 export type EgressPurpose =
@@ -303,6 +309,10 @@ export type ClaimResult =
   // reserves now. The session is `failed` and its launch given up in the same
   // transaction, one `reject_session_env` receipt written; nothing was bound.
   | { outcome: "variables_refused" }
+  // The session holds variables and this worker did not announce `user_env`.
+  // Nothing was bound and nothing changed: another worker, or this one after
+  // an update, claims it later.
+  | { outcome: "user_env_unsupported" }
   // The worker runs another combination than its launch was reserved under:
   // the image's configured runtime is wrong. Nothing was bound and the
   // session is untouched; the launch was asked to go and the image refused

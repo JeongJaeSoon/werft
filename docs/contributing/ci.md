@@ -48,6 +48,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true        # 진행 중 수
 
 bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`이 쓰는 `bun-root-*`는 root lockfile만(unit 부분·문서 검사·integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다. 의존성을 설치하지 않는 job(`forbidden-terms`, `helm-chart`, `supply-chain`)은 `restore-cache: "false"`로 복원을 건너뛴다. 이 입력은 복원과 저장을 한 번에 하는 단계를 건너뛰므로 `save-cache: "true"`와 함께 쓰면 job이 실패한다. 스크립트가 `node:` 내장과 이 repo의 파일만 import한다는 것이 소스로 확인된 job에만 쓴다. 그 밖의 import는 Bun이 이 캐시로 내려받는다.
 
+PR 이벤트에서는 `save-cache: "true"`를 요청해도 Bun 의존성 캐시를 복원만 하고 저장하지 않는다. 따라서 lockfile 변경 PR의 별도 ref에 새 캐시가 쌓이지 않는다. setup-bun의 실행 파일 캐시는 기존대로 재사용한다. CI의 main·수동 실행 및 agent-sdk-compat 실행에서 지정한 writer는 의존성 캐시를 저장한다. `Cache restore result`는 요청 키와 `exact-hit=true/false`, 실행 파일 캐시 hit를 출력한다. exact-hit=false는 완전한 cache miss 또는 prefix 복원이며, 설치 성공 여부를 뜻하지 않는다. Images workflow의 이미지 캐시는 기존 앱·아키텍처별 `cache-from`을 유지하고, PR은 읽기만 한다. main·태그·예약·수동 실행의 export는 `mode=min`으로 최종 release stage의 레이어만 보존한다. 중간 빌드 stage까지 저장하던 `mode=max`보다 보존 범위가 작으며, 공용 캐시 한도 안에서 최종 이미지 재사용을 우선한다. 중간 stage 재빌드로 시간이 늘 수 있어 main Images의 job 시간과 `CACHED` 로그도 함께 비교한다. 공용 사용량은 `gh api repos/JeongJaeSoon/werft/actions/cache/usage`로 확인한다.
+
 서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러)).
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
@@ -112,6 +114,14 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
 
+## SDK·UI 패키지 릴리스
+
+`ui-release.yml`은 `ui-v*`, `sdk-release.yml`은 `sdk-v*` 태그 push와 수동 dispatch에서만 실행한다. PR·main push는 릴리스 workflow를 실행하지 않고, SDK main prerelease도 게시하지 않는다. SDK의 버전 지정 main dispatch는 기존처럼 검증·태그 생성·승인 게시하며, 빈 버전 dispatch는 dry run이다. SDK 태그 push도 main 소속·버전 일치·해당 커밋 main CI 성공을 확인한 뒤 `release` 승인을 받아 게시한다.
+
+SDK 빈 프로젝트 설치·타입 검사·샘플 실행은 ci.yml의 독립 `sdk-pack-smoke` job으로 옮겼다. SDK·client·contracts·examples·consumer 스크립트·LICENSE·lockfile·Bun setup·관련 workflow 변경에만 실행하며, 경로를 알 수 없으면 실행한다. 기존 SDK PR 검사와 동일하게 비필수 job이고, 필수 여섯 체크와 집계는 바꾸지 않았다. UI consumer는 기존 `ui-pack`이 담당한다.
+
+2026-11-09 확인한 `release` environment 정책은 `main` 브랜치와 `v*` 태그만 허용한다. 따라서 현재 실효 게시 경로는 SDK의 main dispatch이며, `sdk-v*`·`ui-v*` 태그 실행은 빌드·검증 뒤 게시가 environment 정책에 막힌다. 두 태그 패턴 허용은 필수 승인자를 유지한 채 오너가 별도로 결정해야 한다. 이 CI 변경은 environment 설정을 바꾸지 않는다.
+
 ## D2 gate (nightly)
 
 D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2), control-host role 수명주기(H1–H5)를 스택 밖에서 확인한다. 이 테스트들은 이 커밋에서 빌드한 이미지로 compose 스택 전체를 띄워야 돈다. 그래서 ci.yml은 이 테스트들을 `integration (worker)`의 선언된 skip으로 두고, 실제로는 `scripts/d2-gate/run.sh`만 이 테스트들을 돌린다. 사람이 손으로만 돌리면 harness가 조용히 낡는다. harness가 incremental bundle을 chain 없이 unbundle해 main `33a9c99c`에서 gate A가 깨졌는데, 누군가 돌려 보기 전까지 아무도 몰랐다.
@@ -163,6 +173,22 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 목록에서 지운 digest도 ghcr에는 untagged로 남는다. 이전 커밋의 CI를 다시 돌려도 받을 수 있도록 지우지 않는다.
 
 mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서만** package write를 쥔다. 그 token은 이 저장소가 쓸 수 있는 모든 package, 곧 앱 릴리스 이미지까지 쓸 수 있다. 그래서 pull request trigger가 없고, `main`이 아닌 ref에서 dispatch하면 job을 건너뛴다. digest를 올리는 PR이 자기 run에서 미러하게 하면 PR이 고칠 수 있는 workflow에 package write를 주게 되어 `images.yml`의 게시 경계를 우회하므로, 두 단계로 나눈다.
+
+## 컨테이너 패키지 보존 정책 (dry run)
+
+`package-retention.yml`은 매주 월요일 05:41 KST(일요일 20:41 UTC)와 수동 dispatch에서 읽기 전용 보존 목록을 만든다. 관련 PR에서는 보호 규칙 시험과 `packages: read` 권한의 preview를 실행해 같은 목록을 로그로 남긴다. 대상은 이 저장소에 연결된 `werft-control-host`·`werft-worker`·`werft-egress-proxy`와 chart `werft` 네 패키지이며, 다른 패키지는 조회·정리 대상에 넣지 않는다.
+
+이미지의 `main-<sha>`·`staging-<runid>[-<attempt>][-amd64|-arm64]`, chart의 `0.1.0-main-<sha>`만 후보로 분류한다. 생성·최근 갱신이 7일 미만인 버전과 패키지별 최신 임시 버전 20개는 남긴다. semver와 알 수 없는 태그를 하나라도 함께 가진 digest, 태그 없는 버전은 예외로 남긴다. 조회 권한으로 보이는 GitHub Release의 `release-manifest.json`이 가리키는 이미지 index·platform digest와 chart 버전은 보존한다. 반환된 제품 릴리스의 manifest가 없거나 손상됐으면 중단한다. 남길 OCI index가 참조하는 하위 manifest도 재귀적으로 보존하므로, staging platform을 지워 남긴 multi-arch 이미지를 깨는 목록을 만들지 않는다. registry 응답의 digest도 검증하며 조회 실패는 안전한 생략으로 처리하지 않는다.
+
+로그는 버전마다 `would-delete` 또는 `keep`, 태그·digest·보존 이유를 출력한다. 마지막 JSON과 실행 summary에서 지울 후보 수·남길 수·예외 수를 확인하고, 예외 목록은 로그에서 확인한다. 이 숫자는 조회한 시점의 스냅샷이며, 실제 삭제 전에 다시 조회·검토해야 한다. 예약·수동·PR preview 모두 `packages: read`만 받으므로 어떤 ref의 스크립트도 패키지 쓰기 권한을 얻지 못한다. 이 첫 단계에는 삭제 API가 없으며, 수동 입력 `dry_run=false`도 실패한다.
+
+```sh
+gh workflow run package-retention.yml --repo JeongJaeSoon/werft -f dry_run=true
+GITHUB_REPOSITORY=JeongJaeSoon/werft bun .github/scripts/package-retention.ts --dry-run
+bun test ./.github/scripts/package-retention.test.ts
+```
+
+삭제 활성화는 dry-run의 지울·남길·예외 목록에 대한 리드 승인 뒤 별도 PR로만 진행한다. 그 PR에서는 draft 릴리스까지 빠짐없이 열거되는 권한인지 확인하고, 후보가 존재하는 실데이터에서 OCI 하위 참조 보호와 삭제 직전 태그·manifest 재검증을 입증해야 한다. 쓰기 권한을 추가한다면 리뷰된 main 코드에만 제한해야 한다. 현재 단계는 공간을 회수하지 않는다.
 
 ## 제3자 라이선스와 취약점
 

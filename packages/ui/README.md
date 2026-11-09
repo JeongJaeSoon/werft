@@ -101,8 +101,8 @@ Storybook의 Foundations/No preflight가 같은 파일을 읽는다. 워크스�
 
 ### 릴리스 절차
 
-`.github/workflows/ui-release.yml`이 빌드·smoke·pack을 하고 tarball을 artifact `ui-package`로 남긴다. pull request(이 패키지나
-워크플로를 바꿀 때)와 수동 실행은 여기서 멈춘다. 이것이 dry run이다. 게시(`publish` job)는 `ui-v*` 태그의 **push**이고 그 커밋이
+`.github/workflows/ui-release.yml`이 태그 push·수동 실행에서 빌드·smoke·pack을 하고 tarball을 artifact `ui-package`로 남긴다. PR consumer 검사는 ci.yml의 `ui-pack`이 담당한다.
+수동 실행은 pack에서 멈춘다. 이것이 dry run이다. 게시(`publish` job)는 `ui-v*` 태그의 **push**이고 그 커밋이
 main에 있을 때만 돌고, `release` environment의 필수 승인자가 승인해야 시작한다. 그 job만 `packages: write`를 받고, 인증은 자동
 `GITHUB_TOKEN`이다.
 
@@ -118,9 +118,8 @@ main에 있을 때만 돌고, `release` environment의 필수 승인자가 승�
 
 1. `packages/ui/package.json`의 `version`을 올리는 PR을 land한다(`private: true`는 그대로다. 배포용 package.json은 빌드가 만든다).
 2. main의 그 커밋에 `ui-vX.Y.Z` 태그를 push한다. 태그 이름과 `version`이 다르면 build job이 실패한다.
-3. 처음 한 번: `release` environment의 deployment 정책에 태그 패턴 `ui-v*`를 더한다. 지금 정책은 `v*`뿐이라 그 전에는
-   `publish` job이 거부된다.
-4. ui-release 실행의 build 결과(smoke 로그, tarball 파일 목록)를 보고 `publish` job을 승인한다.
+3. 오너가 태그 게시를 결정한 경우에만 `release` environment의 deployment 정책에 `ui-v*`를 더한다. 현재 정책은 `main` 브랜치와 `v*` 태그만 허용하므로 그 전에는 `publish` job이 거부된다. required reviewer는 유지하고, tag ruleset으로 태그 생성자를 제한하는 것을 권장한다.
+4. 승인자는 이벤트가 `push`인지, 태그가 패키지 버전과 일치하는지 직접 확인한다. 신뢰할 수 있는 checkout에서 `git fetch origin main` 뒤 `git merge-base --is-ancestor <태그의 커밋 SHA> origin/main` 또는 GitHub compare로 main 소속을 독립 확인한다. 태그의 workflow를 고치면 smoke 로그도 임의로 만들 수 있으므로 로그만 승인 근거로 삼지 않는다. 태그 패턴을 허용한 environment는 해당 태그 ref의 workflow를 고친 수동 실행도 통과시킬 수 있으므로 이벤트·ref·커밋을 별도로 확인한다.
 
 `ui-v*` 태그는 `images.yml`(`v*` 태그)을 시작하지 않는다. `tests/ui-release.test.ts`가 이 게이트를 검사한다.
 

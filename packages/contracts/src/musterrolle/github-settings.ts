@@ -124,6 +124,7 @@ export const GITHUB_REFUSAL_VALUES = [
   "github_settings_unsupported",
   "github_host_unsupported",
   "repository_none",
+  "workflow_review_need_session_repository",
   // No connection is pinned to the repository and more than one reaches it.
   "ambiguous_app",
   // The connection pinned to the repository was removed.
