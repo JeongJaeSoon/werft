@@ -83,7 +83,7 @@ jobs:
   build:
     needs: plan
     if: needs.plan.outputs.images == 'build'
-    # Pinned rather than ubuntu-latest for the same reason as ci.yml.
+    # Pin the OS release to avoid ubuntu-latest switching to a new major version.
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     strategy:

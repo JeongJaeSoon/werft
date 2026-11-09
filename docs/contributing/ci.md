@@ -14,7 +14,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 `agent-sdk-compat`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main`의 제품 변경과 수동 실행에서 돈다. 정적 검사 후 시작하여 전체 integration 집계를 기다리지 않으며, 문서 전용 main에서는 생략한다. `scripts/agent-sdk-compat`을 건드리거나 SDK·LiteLLM 버전을 올리는 PR은 `-f only=agent-sdk-compat`로 직접 확인한다.
 
-제품·정적 검사의 OS는 `ubuntu-24.04`로, Git·Bash 경로 계획은 `ubuntu-24.04-arm`으로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 정적 검사 9분, unit shard 12분, integration 도메인·quota·SDK 호환성 15분, 집계 2분, 경로 계획 3분, 문서 정책 검사 12분이다. 정상 실행 목표가 아닌 멈춘 job의 상한이다.
+제품·정적 검사의 OS는 `ubuntu-24.04`로, Git·Bash 경로 계획은 `ubuntu-24.04-arm`으로 고정한다. `ubuntu-latest`의 자동 major-version 변경을 피하기 위한 것이며, runner 이미지의 패치 업데이트까지 고정하는 것은 아니다. `timeout-minutes`는 정적 검사 9분, unit shard 12분, integration 도메인·quota·SDK 호환성 15분, 집계 2분, 경로 계획 3분, 문서 정책 검사 12분이다. 느린 runner에서 integration은 10분·unit은 9분 제한에 테스트 실패 없이 취소된 사례가 있어 각각 15분·12분의 여유를 둔다. 정상 실행 목표가 아닌 멈춘 job의 상한이다.
 
 그 대가로 **pull request가 없는 브랜치에 push하면 CI가 돌지 않는다.** PR을 열기 전에 확인하고 싶으면 `workflow_dispatch`로 수동 실행한다(`gh workflow run CI --ref <branch>`). tag push도 빌드하지 않는다 — 태그가 가리키는 트리는 이미 main push에서 돌았다. merge queue를 켜려면 `merge_group` 이벤트를 따로 추가해야 한다.
 

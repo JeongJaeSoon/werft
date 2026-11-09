@@ -1182,6 +1182,7 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
       # Use step outcomes because continue-on-error keeps the run green.
       # Report setup failures too; the main-push monitor covers timeouts and cancellations.
+      # Manual probes must report failures too, so this step is not gated to push/main.
       - if: >-
           !cancelled()
           && steps.harness.outcome != 'success'
