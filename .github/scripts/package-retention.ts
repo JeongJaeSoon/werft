@@ -52,11 +52,13 @@ export function planRetention(
   if (!PACKAGES.includes(pkg) || !Number.isFinite(now))
     throw new Error("invalid retention scope or time");
   const seen = new Set<number>();
+  const seenDigests = new Set<string>();
   for (const v of versions) {
     if (
       !Number.isSafeInteger(v.id) ||
       v.id <= 0 ||
       seen.has(v.id) ||
+      seenDigests.has(v.name) ||
       !DIGEST.test(v.name) ||
       !Number.isFinite(Date.parse(v.created_at)) ||
       !Number.isFinite(Date.parse(v.updated_at)) ||
@@ -68,6 +70,7 @@ export function planRetention(
       throw new Error(`invalid or duplicate package version in ${pkg}`);
     }
     seen.add(v.id);
+    seenDigests.add(v.name);
   }
   const eligible = versions.filter(
     (v) =>

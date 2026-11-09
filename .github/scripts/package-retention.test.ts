@@ -202,11 +202,20 @@ describe("package retention dry run", () => {
         planRetention("werft-worker", [bad], new Set(), new Set(), now),
       ).toThrow();
     });
-  test("duplicate API versions fail closed", () => {
+  test("duplicate API ids or digests fail closed", () => {
     expect(() =>
       planRetention(
         "werft-worker",
         [version(1), version(1)],
+        new Set(),
+        new Set(),
+        now,
+      ),
+    ).toThrow();
+    expect(() =>
+      planRetention(
+        "werft-worker",
+        [version(1), { ...version(2), name: digest(1) }],
         new Set(),
         new Set(),
         now,
@@ -333,7 +342,7 @@ describe("package retention dry run", () => {
       "invalid registry child",
     );
   });
-  test("workflow scopes package write to dry run and cannot activate deletion", () => {
+  test("workflow grants no package write and cannot activate deletion", () => {
     const root = join(import.meta.dir, "../..");
     const text = readFileSync(
       join(root, ".github/workflows/package-retention.yml"),
@@ -351,7 +360,7 @@ describe("package retention dry run", () => {
     expect(w.on.workflow_dispatch.inputs.dry_run.default).toBe(true);
     expect(w.jobs["dry-run"]?.permissions).toEqual({
       contents: "read",
-      packages: "write",
+      packages: "read",
     });
     expect(w.jobs["dry-run"]?.if).toContain(
       "github.event_name != 'pull_request'",
