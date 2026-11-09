@@ -457,7 +457,7 @@ describe("runtimeProfile with a platform prompt", () => {
       // carries the paragraph; the legacy digest is only an alternate.
       const current = claimFingerprintOf(config)(claim).profileSha256;
       expect(imageRuntimeOf({ s1: claim }).profiles).toEqual({
-        s1: { profileSha256: current },
+        s1: { profileSha256: current, legacyProfileSha256: launched },
       });
       expect(current).not.toBe(launched);
       expect(launched).not.toBe(
@@ -548,7 +548,9 @@ describe("runtimeProfile with a platform prompt", () => {
     expect(claude.fingerprint(profile).profileSha256).toBe(before);
     expect(imageRuntimeOf({ s0: { principal, runtime_config: base } })).toEqual(
       expect.objectContaining({
-        profiles: { s0: { profileSha256: before } },
+        profiles: {
+          s0: { profileSha256: before, legacyProfileSha256: before },
+        },
       }),
     );
     // Digests of these claims on the main branch before the field existed.

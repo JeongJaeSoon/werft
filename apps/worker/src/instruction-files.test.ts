@@ -261,6 +261,20 @@ describe("placeInstructionFiles", () => {
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("mine\n");
   });
 
+  test("without text, a file the repository now tracks is kept even though our marker is still in the exclude", async () => {
+    expect(await place("old directive text\n")).toBe("placed");
+    await rm(join(root, "CLAUDE.md"), { force: true });
+    await rm(join(root, "AGENTS.md"), { force: true });
+    await writeFile(join(root, "AGENTS.md"), "the repository's own\n");
+    git(["add", "-f", "AGENTS.md"]);
+    git(["commit", "--quiet", "-m", "repository adds AGENTS.md"]);
+
+    expect(await place("")).toBe("kept");
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(
+      "the repository's own\n",
+    );
+  });
+
   test("writes nothing without text, or where .git is not a directory", async () => {
     expect(await place("  \n")).toBe("skipped");
     expect(await exists("AGENTS.md")).toBe(false);

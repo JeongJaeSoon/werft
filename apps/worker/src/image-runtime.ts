@@ -25,7 +25,11 @@ const claimSchema = bootstrapClaimResponseSchema
   .pick({ principal: true, runtime_config: true, workspace: true })
   .partial({ workspace: true });
 
-type ImageProfile = { profileSha256: string } | { error: string };
+// `legacyProfileSha256` is the digest under the frozen pre-strip prompt, which
+// a worker sends as an alternate when it restores an older checkpoint.
+type ImageProfile =
+  | { profileSha256: string; legacyProfileSha256: string }
+  | { error: string };
 
 // Where the engine runs is the launcher's per host, not the claim's; these
 // stand in for it.
@@ -40,12 +44,16 @@ const HOST_STAND_IN: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> = {
 };
 
 export const imageClaimFingerprint = claimFingerprint(HOST_STAND_IN);
+const imageLegacyClaimFingerprint = claimFingerprint(HOST_STAND_IN, true);
 
 export function imageRuntimeOf(
   claims: unknown,
   fingerprint: (
     claim: Parameters<typeof imageClaimFingerprint>[0],
   ) => RuntimeFingerprint = imageClaimFingerprint,
+  legacyFingerprint: (
+    claim: Parameters<typeof imageClaimFingerprint>[0],
+  ) => RuntimeFingerprint = imageLegacyClaimFingerprint,
 ) {
   if (typeof claims !== "object" || claims === null || Array.isArray(claims)) {
     throw new Error("claims must be an object keyed by session id");
@@ -55,7 +63,10 @@ export function imageRuntimeOf(
     const parsed = claimSchema.safeParse(claim);
     try {
       profiles[sessionId] = parsed.success
-        ? { profileSha256: fingerprint(parsed.data).profileSha256 }
+        ? {
+            profileSha256: fingerprint(parsed.data).profileSha256,
+            legacyProfileSha256: legacyFingerprint(parsed.data).profileSha256,
+          }
         : {
             error: `claim refused: ${parsed.error.issues
               .map((issue) => `${issue.path.join(".")} ${issue.message}`)

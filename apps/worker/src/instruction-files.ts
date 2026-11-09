@@ -47,6 +47,8 @@ export async function placeInstructionFiles(input: {
   const gitDir = join(root, ".git");
   if (!(await lstat(gitDir).catch(() => null))?.isDirectory()) return "skipped";
   if (input.text.trim() === "") {
+    // A file the repository tracks now is the repository's, marker or not.
+    if (await repositoryTracks(root, signal)) return "kept";
     await removePlacedFiles(root, gitDir);
     return "skipped";
   }

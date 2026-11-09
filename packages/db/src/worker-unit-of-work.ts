@@ -135,7 +135,7 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
-import { queuePushFollowUps } from "./push-follow-ups.ts";
+import { followUpFact, queuePushFollowUps } from "./push-follow-ups.ts";
 import { settleTurnPushIntents } from "./push-intents.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -2444,7 +2444,7 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            message: turn.message,
+            message: followUpFact(turn.message),
             deliveryStartedAt,
           },
         };
