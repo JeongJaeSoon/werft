@@ -114,9 +114,27 @@ export function claudeProfileConfig(
       ? {}
       : { repositoryClaudeMd: { contents: bundle.repoInstructions.text } }),
     settingSources: [],
-    tools: [...config.tools],
+    tools: toolsWithSkill(config.tools, bundle),
     ...componentConfig(bundle),
   };
+}
+
+/**
+ * A bundle's skills reach the model only through the engine's `Skill` tool,
+ * and the engine, the permission callback and the PreToolUse allowlist all
+ * take their tool surface from this list. The tool is named here, not
+ * pre-approved: each call still goes through the permission gate, and
+ * whatever tools a skill's own frontmatter asks for stay outside the list.
+ */
+function toolsWithSkill(
+  tools: readonly string[],
+  bundle: RuntimeStart["bundle"],
+): string[] {
+  const named = [...tools];
+  if ((bundle.extensions ?? []).length === 0 || named.includes("Skill")) {
+    return named;
+  }
+  return [...named, "Skill"];
 }
 
 function componentConfig(
