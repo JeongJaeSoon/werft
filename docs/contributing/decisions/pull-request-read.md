@@ -26,7 +26,7 @@
 | 출력 | `number`, `url`, `state`, `title`, `body`, `body_truncated`, `body_sha256`, `head_sha`, `base` |
 | `body` | 플랫폼 꼬리(`<!-- werft:pr-tail -->` … `<!-- /werft:pr-tail -->`)를 뺀 사람·에이전트 부분. 길이 상한 64 KiB, 넘으면 앞부분과 `body_truncated: true` |
 | `body_sha256` | GitHub가 돌려준 본문 전체(꼬리 포함)의 해시. 아래 B의 낙관적 잠금에 쓴다 |
-| 권한 | 행동 부류(`GITHUB_MCP_TOOL_CLASSES`, `github-mcp.ts:372`)는 `get_push_request`가 push의 부류를 따르듯 PR의 부류 `pull_request.write`를 따른다. 새 부류는 만들지 않는다. PR 쓰기 도구와 같은 게이트(세션의 저장소, 에이전트 GitHub 설정)를 지나고, GitHub 호출에는 읽기 권한 토큰만 쓴다 |
+| 권한 | 행동 부류(`GITHUB_MCP_TOOL_CLASSES`, `github-mcp.ts:372`)는 `get_push_request`가 push의 부류를 따르듯 PR의 부류 `pull_request.write`를 따른다. 새 부류는 만들지 않는다. GitHub 토큰은 읽기 권한만 받아야 하는데, 지금 있는 목적(`GitHubPurpose`, `packages/contracts/src/musterrolle/github-settings.ts:151`)으로는 안 된다. `pull_request`는 `pull_requests: write`를 받고(`:197-201`), 읽기 전용인 `outcome_refresh`(`:222-226`)는 게이트가 플랫폼 읽기로 보고 에이전트 GitHub 설정·상한을 건너뛴다(`packages/platform/src/sessions/github-gate.ts:171`). 그래서 새 목적 `pull_request_read`(`pull_requests: read`, `contents: read`)를 더하고, 게이트에서는 `pull_request`와 같이 에이전트 설정을 거치게 하며, 붙인 저장소에도 허용되는 목적 목록(`ANOTHER_REPOSITORY_PURPOSES`)에 넣는다 |
 | receipt | 남기지 않는다(읽기). 실패는 다른 PR 도구와 같은 봉투(`by`, `retryable`) |
 | 구현 자리 | forge 포트 `getPullRequest`(`packages/platform/src/ports/github-gate.ts:134`)가 이미 PR을 읽는다. `ForgePullRequestDetail`(`packages/platform/src/ports/forge.ts:52`)에 `body`를 더하고, 꼬리 분리는 `withPullRequestTail`이 쓰는 인식 규칙을 재사용한다 |
 
@@ -55,7 +55,7 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
 | 단위 | 내용 | 확인 |
 |---|---|---|
 | 1 | C의 절차만 먼저(코드 변경 없음). 지금 main의 꼬리 교체를 실제 GitHub로 확인한다 | sandbox E2E |
-| 2 | A: 계약(`GITHUB_MCP_TOOL_ARGUMENTS`·응답 스키마·OpenAPI), MCP 서버, forge `body`, 꼬리 분리 | 단위 + fake forge + sandbox |
+| 2 | A: 계약(`GITHUB_MCP_TOOL_ARGUMENTS`·응답 스키마·OpenAPI), MCP 서버, forge `body`, 꼬리 분리, 새 목적 `pull_request_read`(권한표·게이트 경로·붙인 저장소·`GITHUB_PURPOSE_VALUES`를 읽는 receipt 집계) | 단위(게이트가 설정이 꺼진 에이전트를 거절하는지, 토큰 권한이 읽기뿐인지) + fake forge + sandbox |
 | 3 | 플랫폼 프롬프트 리비전: 도구 목록과 "읽고 나서 고쳐라" 한 줄 | 프롬프트 골든 시험 |
 | 4 | B(선택) | 단위 + sandbox |
 
