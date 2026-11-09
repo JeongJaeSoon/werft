@@ -318,6 +318,21 @@ describe("the tool envelope", () => {
     expect(attach).not.toMatch(/same answer|has been given|exists/i);
   });
 
+  // 94S-1479: the fetch leaves no working tree, so a model that attached
+  // a repository and then looked for files with Read or Glob found nothing,
+  // and one without Bash had no way to read it at all.
+  test("attach_repository says the fetch leaves no working tree, how Bash reads it, and that a session without Bash cannot", () => {
+    const attach = GITHUB_MCP_TOOL_DESCRIPTIONS.attach_repository;
+    expect(attach).toContain("no working tree");
+    expect(attach).toContain("Read, Glob and Grep cannot see");
+    expect(attach).toContain("git ls-tree -r <repository_id>/<branch>");
+    expect(attach).toContain("git show <repository_id>/<branch>:<path>");
+    expect(attach).toContain("git grep <pattern> <repository_id>/<branch>");
+    expect(attach).toContain(
+      "without Bash can attach a repository but cannot read it",
+    );
+  });
+
   test("list_repositories names the statuses it answers and the remote it reports", () => {
     const list = GITHUB_MCP_TOOL_DESCRIPTIONS.list_repositories;
     for (const word of [
