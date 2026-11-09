@@ -109,6 +109,7 @@ const record: SessionDetailRecord = {
   repository_mode: "repository",
   github_policy_source: "release",
   profile_fingerprint: profileFingerprint(sonnet),
+  auto_model_migration: true,
 };
 
 function change(

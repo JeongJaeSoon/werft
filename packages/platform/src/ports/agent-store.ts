@@ -362,6 +362,8 @@ export interface AgentStore {
       model: string;
     }[]
   >;
+  /** False when the agent switched the automatic model move off. */
+  autoModelMigration(workspaceId: string, agentId: string): Promise<boolean>;
   /** The failed move's notice: written without a swap, once per cause. */
   notifyModelMigrationFailed(input: {
     workspaceId: string;

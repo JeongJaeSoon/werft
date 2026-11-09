@@ -97,7 +97,7 @@ import { sameToolSet } from "./tool-unlock.ts";
  */
 export async function resolveAgentRelease(
   deps: {
-    store: Pick<AgentStore, "findRelease">;
+    store: Pick<AgentStore, "findRelease" | "autoModelMigration">;
     catalog: Pick<
       SessionCatalogView,
       "profiles" | "workspace_profiles" | "runtime_versions"
@@ -128,10 +128,13 @@ export async function resolveAgentRelease(
       `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
+  // An agent that switched the automatic move off is refused like one whose
+  // model has no successor.
   if (
     model !== undefined &&
     !profileModels(profile).includes(model) &&
-    modelSuccessor(profile, model) === null
+    (modelSuccessor(profile, model) === null ||
+      !(await deps.store.autoModelMigration(workspaceId, release.agent_id)))
   ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",

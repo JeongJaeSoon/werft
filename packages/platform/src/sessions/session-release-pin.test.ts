@@ -616,6 +616,16 @@ describe("a session pinned to an agent release", () => {
       expect(
         (await bare.service.getSession(bare.caller, SESSION)).attention,
       ).toMatchObject({ code: "CATALOG_MISMATCH" });
+      const optedOut = setup({
+        catalog: withSuccessor,
+        session: {
+          ...row("claude-opus-5-5", withSuccessor),
+          auto_model_migration: false,
+        },
+      });
+      expect(
+        (await optedOut.service.getSession(optedOut.caller, SESSION)).attention,
+      ).toMatchObject({ code: "CATALOG_MISMATCH" });
       const without = moved(["claude-haiku-5-5"]);
       const b = setup({
         catalog: without,
@@ -1256,6 +1266,7 @@ function sessionOn(profileId: string): SessionDetailRecord {
     repository_mode: "repository",
     github_policy_source: "release",
     profile_fingerprint: null,
+    auto_model_migration: true,
   };
 }
 

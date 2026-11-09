@@ -163,6 +163,8 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   repository_mode: "repository" | "none";
   github_policy_source: string;
   profile_fingerprint: string | null;
+  // False when the session's agent switched the automatic model move off.
+  auto_model_migration: boolean;
 };
 
 export interface SessionUnitOfWork {

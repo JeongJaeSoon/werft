@@ -163,6 +163,7 @@ import {
 import {
   achievementJudgments,
   agentReleases,
+  agents,
   approvalCheckpoints,
   attempts,
   checkpointOutputs,
@@ -1259,6 +1260,14 @@ export async function moveSessionsToSuccessors(
           inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
           isNull(sessions.executionRevokedAt),
           isNull(sessions.takeoverRequiredAt),
+          // An agent that switched the automatic move off keeps its sessions
+          // where they are, blocked as before.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${agentReleases} AS r
+            JOIN ${agents} AS a ON a.id = r.agent_id
+            WHERE r.id = ${sessions.agentReleaseId}
+              AND a.auto_model_migration = false
+          )`,
           ...(launch.sessionId === null
             ? []
             : [eq(sessions.id, launch.sessionId)]),

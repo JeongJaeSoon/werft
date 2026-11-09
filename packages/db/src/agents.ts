@@ -813,6 +813,15 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return rows;
     },
 
+    async autoModelMigration(workspaceId, agentId) {
+      const [row] = await db
+        .select({ on: agents.autoModelMigration })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+        .limit(1);
+      return row?.on ?? true;
+    },
+
     async notifyModelMigrationFailed(input) {
       return await db.transaction(async (tx) => {
         const [agent] = await tx

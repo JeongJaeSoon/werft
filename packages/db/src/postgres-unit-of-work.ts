@@ -1312,8 +1312,24 @@ export function createPostgresSessionReader(
                     ),
                   )
                   .limit(1);
+          const [optedOut] = await tx
+            .select({ id: agents.id })
+            .from(sessions)
+            .innerJoin(
+              agentReleases,
+              eq(agentReleases.id, sessions.agentReleaseId),
+            )
+            .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+            .where(
+              and(
+                eq(sessions.id, sessionId),
+                eq(agents.autoModelMigration, false),
+              ),
+            )
+            .limit(1);
           return {
             ...summary,
+            auto_model_migration: optedOut === undefined,
             ...(workspaceLimitMode === undefined
               ? {}
               : { workspace_limit_mode: workspaceLimitMode }),

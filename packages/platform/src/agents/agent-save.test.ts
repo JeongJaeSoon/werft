@@ -179,6 +179,7 @@ function scripted(script: Script) {
       return true;
     },
     hasGitHubSettings: async () => script.hasRow ?? false,
+    autoModelMigration: async () => true,
     modelMigrationCandidates: async () => [],
     notifyModelMigrationFailed: async () => 0,
     followProfile: async () => ({ outcome: "updated" as const }),
