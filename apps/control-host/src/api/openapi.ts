@@ -6194,7 +6194,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Teams",
     summary: "Take a member out of a team",
     description:
-      "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).",
+      "What the person held through the team ends from their next request. A disabled member is not changed: 409 MEMBER_DISABLED, nothing written; reactivate them first. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).",
     auth: "session",
     success: {
       status: 200,
@@ -6210,7 +6210,8 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [401, 403, 404, 409, 503],
+    errorCodes: { 409: ["MEMBER_DISABLED"] },
     idempotent: false,
   },
   {
@@ -6220,7 +6221,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Teams",
     summary: "Make a team member a lead or a member",
     description:
-      "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).",
+      "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404; a disabled member is 409 MEMBER_DISABLED with nothing written. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).",
     auth: "session",
     body: "SetTeamMemberRoleRequest",
     requestExample: { role: "lead" },
@@ -6230,7 +6231,8 @@ export const API_ROUTE_DECLARATIONS = [
       description: "The team after the change.",
       example: { team: EXAMPLE_TEAM, receipt_id: EXAMPLE_RECEIPT_ID },
     },
-    errors: [400, 401, 403, 404, 413, 503],
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["MEMBER_DISABLED"] },
     idempotent: false,
   },
   {

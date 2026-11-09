@@ -48,6 +48,9 @@ const forbidden = async () => {
 const notFound = async () => {
   throw new SessionServiceError("NOT_FOUND", "Resource not found");
 };
+const memberDisabled = async () => {
+  throw new SessionServiceError("MEMBER_DISABLED", "disabled");
+};
 const taken = async () => {
   throw new SessionServiceError("ALREADY_EXISTS", "taken");
 };
@@ -325,6 +328,7 @@ describe("PATCH /v1/teams/{team_id}/members/{user_id}", () => {
     for (const [fail, status] of [
       [forbidden, 403],
       [notFound, 404],
+      [memberDisabled, 409],
       [outage, 503],
     ] as const) {
       expect(
@@ -466,6 +470,7 @@ describe("DELETE /v1/teams/{team_id}/members/{user_id}", () => {
     ).toBe(404);
     for (const [fail, status] of [
       [forbidden, 403],
+      [memberDisabled, 409],
       [outage, 503],
     ] as const) {
       expect(

@@ -346,6 +346,7 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
   const editing = items.find((member) => member.user_id === editingId);
   // The name button that opened 구성원 편집 gets the keyboard back.
   const editOpener = useRef<HTMLElement | null>(null);
+  const editedId = useRef<string | null>(null);
   const self = useMe()?.user?.id;
 
   const settle = async (text: string) => {
@@ -471,18 +472,24 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               inactive={disabled}
               className={disabled ? INACTIVE_ROW_CLASS : undefined}
               data-disabled={disabled}
+              data-member-id={member.user_id}
             >
               <GridTableCell lines={true}>
-                <GridTableRowOpener
-                  aria-label={t(
-                    disabled ? "members.editForDisabled" : "members.editFor",
-                    { name: member.display_name },
-                  )}
-                  onClick={(event) => {
-                    editOpener.current = event.currentTarget;
-                    setEditingId(member.user_id);
-                  }}
-                />
+                {/* A disabled member opens nothing: no opener, so no pointer,
+                      hover fill, Tab stop or click. "다시 활성화" is the only
+                      action left on the row. */}
+                {disabled ? null : (
+                  <GridTableRowOpener
+                    aria-label={t("members.editFor", {
+                      name: member.display_name,
+                    })}
+                    onClick={(event) => {
+                      editOpener.current = event.currentTarget;
+                      editedId.current = member.user_id;
+                      setEditingId(member.user_id);
+                    }}
+                  />
+                )}
                 {/* v4 .strong: body text at weight 500, not link blue;
                       blue stays for links that move (→). */}
                 {/* Below md the "you" badge drops to its own line under
@@ -546,7 +553,20 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
           }}
           onSave={(next) => changeRole.mutate({ member: editing, role: next })}
           onClosed={() => {
-            if (editOpener.current?.isConnected) editOpener.current.focus();
+            const opener = editOpener.current;
+            if (opener?.isConnected) {
+              opener.focus();
+              return;
+            }
+            // The member was disabled while the dialog was open, so the row
+            // lost its opener: focus what the row still offers instead, the
+            // button or, when the server withholds it, the box that says why.
+            const row = `[data-member-id="${editedId.current}"]`;
+            document
+              .querySelector<HTMLElement>(
+                `${row} button:not(:disabled), ${row} [data-slot=disabled-reason]`,
+              )
+              ?.focus();
           }}
         />
       ) : null}

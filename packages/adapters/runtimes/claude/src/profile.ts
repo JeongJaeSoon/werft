@@ -1,4 +1,6 @@
 import { tmpdir } from "node:os";
+import { parsePermissionRules } from "@werft-ai/contracts";
+import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
 import {
   assertGitEnvironment,
   assertUserEnvironment,
@@ -58,6 +60,29 @@ export type RuntimePolicy = {
   models: string[];
 };
 
+/**
+ * A rule the engine would drop without a word is a policy that is not
+ * applied, so a run with one does not start. `mcp__` names are the
+ * platform's own path, never the engine's.
+ */
+function assertEngineRules(rules: readonly string[] | undefined): void {
+  if (rules === undefined) return;
+  const catalog = pinnedClaudeToolCatalog();
+  if (catalog === undefined) {
+    throw new Error("No tool catalog for the pinned engine to check rules by");
+  }
+  const parsed = parsePermissionRules(catalog, rules);
+  if ("refusal" in parsed) {
+    throw new Error(`Deny rule refused: ${parsed.refusal.message}`);
+  }
+  const mcp = parsed.rules.find((rule) => rule.kind === "mcp");
+  if (mcp !== undefined) {
+    throw new Error(
+      `Deny rule ${mcp.rule} names an MCP tool, which the platform enforces and the engine is not given`,
+    );
+  }
+}
+
 export function validateRuntimeConfig(
   config: ClaudeRuntimeConfig,
   policy: RuntimePolicy,
@@ -76,6 +101,7 @@ export function validateRuntimeConfig(
   // resumed runs alike, is what turns that into a start-time error with a
   // reason instead of a checkpoint that quietly never commits.
   describeComponents(config);
+  assertEngineRules(config.disallowedTools);
   if (
     config.repositoryClaudeMd !== undefined &&
     (config.settingSources ?? ["project"]).length > 0

@@ -3,9 +3,8 @@ title: "세션 데이터가 흐르는 길"
 description: 세션 이벤트가 저장되는 곳, 비밀값을 가리는 곳, 내용을 볼 수 있는 사람, Langfuse 예제 수집기
 ---
 
-worker가 엔진에서 받은 세션 데이터(모델 답변, 도구 호출과 결과, 권한 요청, 상태 변화)는 DB의 `events` 표로 간다. 이 표가 기능이 기대는 정본이다. 이 문서는 이 표가 무엇을 담고, 끊기면 무엇이 깨지는지, 비밀값을 어디서 가리는지, 누가 내용을 볼 수 있는지를 적고, Langfuse 수집기 예제를 띄우는 법을 적는다. 내용마다 근거 파일을 함께 적는다.
-
-지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog)에 있다. 앱에는 OpenTelemetry(OTel) 의존성도 trace exporter도 없다. 로그의 `trace_id`는 `packages/observability/src/index.ts`의 `ObservabilityContext`에 필드만 있고 채우는 곳이 없다.
+worker가 엔진에서 받은 세션 데이터(모델 답변, 도구 호출과 결과, 권한 요청, 상태 변화)는 DB의 `events` 표로 간다. 이 표가 기능이 기대는 정본이다. 이 문서는 이 표가 무엇을 담고, 끊기면 무엇이 깨지는지, 비밀값을 어디서 가리는지, 누가 내용을 볼 수 있는지를 적고, Langfuse 수집기 예제를 띄우는 법을 적는다.
+지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog)에 있다. 앱에는 OpenTelemetry(OTel) 의존성도 trace exporter도 없다. 로그의 `trace_id`는 관측 컨텍스트에 필드만 있고 채우는 곳이 없다.
 
 ## 한눈에
 
@@ -29,41 +28,41 @@ engine (Claude Agent SDK)
 | 내용 길이 | worker가 따로 자르지 않는다 |
 | 받는 곳 | 설치한 PostgreSQL |
 
-이벤트 종류와 payload 계약은 `packages/contracts/src/api/event.ts`의 `SESSION_EVENT_NAMES`와 `sessionEventVariants`다. worker의 Claude adapter가 엔진 메시지를 이 이벤트로 바꾼다(`packages/adapters/runtimes/claude/src/mapper.ts`의 `projectPublicEvents`). assistant 메시지는 블록마다 이벤트 하나가 되고, 도구 결과 블록은 받은 그대로 `tool_result` 이벤트가 된다.
+이벤트 종류와 payload 계약은 공개 API 스키마의 세션 이벤트 정의다. worker의 Claude adapter가 엔진 메시지를 이 이벤트로 바꾼다. assistant 메시지는 블록마다 이벤트 하나가 되고, 도구 결과 블록은 받은 그대로 `tool_result` 이벤트가 된다.
 
-worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에 attempt 단위 `source_sequence`를 붙이고 Worker Gateway의 `/append-events`로 순서대로 보낸다. gateway가 받았다고 답하기 전에는 큐에서 지우지 않는다. API는 이벤트를 `events` 표(`packages/db/src/schema.ts`의 `events`)에 쓴다. 같은 attempt의 같은 sequence는 유일 인덱스 `events_attempt_sequence_uniq`가 한 번만 받는다.
+worker의 이벤트 전송 단계가 이벤트에 attempt 단위 `source_sequence`를 붙이고 Worker Gateway의 `/append-events`로 순서대로 보낸다. gateway가 받았다고 답하기 전에는 큐에서 지우지 않는다. API는 이벤트를 `events` 표에 쓴다. 같은 attempt의 같은 sequence는 유일 인덱스 `events_attempt_sequence_uniq`가 한 번만 받는다.
 
 이 표에 기대는 기능은 다음과 같다.
 
-- **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [API 유즈케이스 가이드](/reference/api-guide)의 5절에 있다.
-- **turn 종료 판정.** 앞 sequence가 비어 있으면 `sequence_gap`, finalize할 때 이벤트가 덜 저장됐으면 `events_incomplete`로 거절한다(`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
-- **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다(`packages/db/src/pending-control.ts`). 답은 `pending_requests` 표에 남는다. worker가 요청을 어떻게 닫았는지도 같은 행에 남는다. `settled_outcome`은 `answered`·`expired`·`cancelled`다. `settled_reason`은 worker가 취소한 이유(`park`·`shutdown`·`interrupt`·`refused`)다. `settled_answer_result`는 런타임이 답을 어떻게 받았는지(`applied`·`stale`·`unknown`)다. 사람이 거절한 요청은 `answered`이고 `answer`의 `decision`이 `deny`라서 취소와 구분된다.
-- **상태 전이.** 복구·재개·일시정지·interrupt 같은 제어 단계가 `recordStatus`·`recordEvent`(`packages/db/src/session-events.ts`)로 상태와 함께 커밋된다.
+- **SSE와 재연결.** API가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [API 유즈케이스 가이드](/reference/api-guide)의 5절에 있다.
+- **turn 종료 판정.** 앞 sequence가 비어 있으면 `sequence_gap`, finalize할 때 이벤트가 덜 저장됐으면 `events_incomplete`로 거절한다.
+- **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다. 답은 `pending_requests` 표에 남는다. worker가 요청을 어떻게 닫았는지도 같은 행에 남는다. `settled_outcome`은 `answered`·`expired`·`cancelled`다. `settled_reason`은 worker가 취소한 이유(`park`·`shutdown`·`interrupt`·`refused`)다. `settled_answer_result`는 런타임이 답을 어떻게 받았는지(`applied`·`stale`·`unknown`)다. 사람이 거절한 요청은 `answered`이고 `answer`의 `decision`이 `deny`라서 취소와 구분된다.
+- **상태 전이.** 복구·재개·일시정지·interrupt 같은 제어 단계가 상태와 함께 커밋된다.
 - **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([API 유즈케이스 가이드](/reference/api-guide)).
 
-비용과 사용량의 정본은 이벤트가 아니라 `provider_usage` 표다. egress proxy가 Messages 응답에서 사용량을 읽고(`apps/egress-proxy/src/usage.ts`), API가 이 표에 쓴다(`packages/db/src/worker-unit-of-work.ts`).
+비용과 사용량의 정본은 이벤트가 아니라 `provider_usage` 표다. egress proxy가 Messages 응답에서 사용량을 읽고, API가 이 표에 쓴다.
 
 ## 내용 수집과 비밀값 마스킹
 
 ### 무엇을 담나
 
-이벤트는 내용을 담는다. assistant 텍스트, 도구 입력(`tool_use`), 도구 결과 본문(`tool_result`), 질문과 권한 요청의 입력이 들어간다(`packages/adapters/runtimes/claude/src/mapper.ts`의 `projectPublicEvents`·`approvalView`).
+이벤트는 내용을 담는다. assistant 텍스트, 도구 입력(`tool_use`), 도구 결과 본문(`tool_result`), 질문과 권한 요청의 입력이 들어간다.
 
-엔진(Claude Code CLI) 자체의 telemetry는 켜지 않는다. 엔진에 넘기는 환경 변수는 allowlist이고(`packages/adapters/runtimes/claude/src/profile.ts`), OTel 변수는 하나도 넘기지 않는다.
+엔진(Claude Code CLI) 자체의 telemetry는 켜지 않는다. 엔진에 넘기는 환경 변수는 allowlist이고, OTel 변수는 하나도 넘기지 않는다.
 
 ### 비밀값을 어디서 가리나
 
 지금 규칙은 세 겹이다.
 
-1. **엔진 메시지.** Claude adapter의 `sanitizeNativeMessage`(`packages/adapters/runtimes/claude/src/mapper.ts`)가 엔진 메시지마다 민감한 키의 값, `Bearer …` 같은 비밀 모양의 값, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다. 이벤트는 이 결과로 만든다.
-2. **claim이 준 비밀값.** worker의 `SecretScrubber`(`apps/worker/src/secret-scrubber.ts`)가 이 attempt에 받은 비밀값 자체를 찾아 `<redacted>`로 바꾼다. `scrubbingGateway`가 `appendEvents`와 `registerPending`에 이 처리를 건다. 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다.
-3. **프로세스 로그.** `packages/observability/src/redaction.ts`의 `sanitizeText`·`sanitizeFields`가 API·worker의 stdout 로그를 가린다. egress proxy는 같은 파일의 사본 `apps/egress-proxy/src/redaction.ts`를 쓴다. 규칙 목록은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 'provider 키와 저장소 자격 증명은 worker에 가지 않는다' 절에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
+1. **엔진 메시지.** Claude adapter의 메시지 정리 단계가 엔진 메시지마다 민감한 키의 값, `Bearer …` 같은 비밀 모양의 값, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다. 이벤트는 이 결과로 만든다.
+2. **claim이 준 비밀값.** worker의 비밀값 가리기 단계가 이 attempt에 받은 비밀값 자체를 찾아 `<redacted>`로 바꾼다. 이 처리는 이벤트 전송과 대기 요청 등록에 걸린다. 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다.
+3. **프로세스 로그.** 로그 가리기 규칙이 API·worker의 stdout 로그를 가린다. egress proxy는 같은 규칙의 사본을 쓴다. 규칙 목록은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 'provider 키와 저장소 자격 증명은 worker에 가지 않는다' 절에 있다. 이 규칙은 로그용이고 이벤트에는 걸리지 않는다.
 
 1과 3의 패턴 규칙은 가리는 범위가 다르다. 로그 규칙 `sanitizeText`는 비밀 모양이나 `token=` 같은 조각을 하나라도 보면 문자열 전체를 `[REDACTED]`로 바꾼다. mapper는 대부분 일치한 구간만 바꾸고, `name=value` 꼴에서 값의 끝이 분명하면 값만 가린다. 그러나 mapper의 `hideNamedValues`도 `password: …`처럼 콜론으로 이어지는 값이나 끝을 가를 수 없는 값을 보면 텍스트 전체를 가린다. 그래서 `password:`가 든 YAML 파일을 Read한 도구 결과는 이벤트에서 통째로 사라진다. 두 파일의 패턴 목록도 서로 다르다.
 
 ## 누가 내용을 보나
 
-세션 이벤트는 `sessions:read` scope를 가진 주체가 그 세션을 볼 수 있을 때만 읽는다(`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). 먼저 세션이 주체와 같은 범위에 있어야 한다. 사람은 자기 workspace, API key는 그 key의 owner다(`packages/contracts/src/musterrolle/authorization.ts`의 `ownerScopeOf`). 그 안에서 세션의 공유 범위가 `workspace`(한 번도 바꾸지 않은 세션의 기본값)이면 workspace 구성원 모두가 읽고, `people`·`team`이면 만든 사람과 지정된 사람·팀 구성원만 읽는다. 개인 key는 그 key를 만든 사람으로 판정한다. 에이전트 key는 구성원이 아니라서 key 자신으로 판정하고(그 에이전트의 세션으로 한정된다), 자기가 만든 세션(만든 사람이 없는 세션)에서는 만든 사람 자리에 선다(`packages/platform/src/musterrolle/policy.ts`의 `viewerOf`, `packages/db/src/session-shares.ts`의 `sessionVisibleTo`). 볼 수 없는 세션은 404다. 공유 범위를 바꾸는 법과 owner·admin의 감사 열람은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 '세션 공유 범위와 감사 열람' 절에 있다. scope는 HTTP 경계에서 `apps/control-host/src/api/scope-policy.ts`가 검사한다.
+세션 이벤트는 `sessions:read` scope를 가진 주체가 그 세션을 볼 수 있을 때만 읽는다. 먼저 세션이 주체와 같은 범위에 있어야 한다. 사람은 자기 workspace, API key는 그 key의 owner다. 그 안에서 세션의 공유 범위가 `workspace`(한 번도 바꾸지 않은 세션의 기본값)이면 workspace 구성원 모두가 읽고, `people`·`team`이면 만든 사람과 지정된 사람·팀 구성원만 읽는다. 개인 key는 그 key를 만든 사람으로 판정한다. 에이전트 key는 구성원이 아니라서 key 자신으로 판정하고(그 에이전트의 세션으로 한정된다), 자기가 만든 세션(만든 사람이 없는 세션)에서는 만든 사람 자리에 선다. 볼 수 없는 세션은 404다. 공유 범위를 바꾸는 법과 owner·admin의 감사 열람은 [API 서버](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)의 '세션 공유 범위와 감사 열람' 절에 있다. scope는 HTTP 경계에서 검사한다.
 
 ## 보존 기간
 
@@ -115,7 +114,7 @@ Langfuse 예제는 처음 뜰 때 `LANGFUSE_INIT_*` 설정으로 조직 `Werft l
 
 다른 키를 쓰려면 다음과 같이 한다.
 
-1. `http://localhost:25000`에 로그인하고 Settings → API Keys → Create new API keys로 키 쌍을 만든다.
+1. `http://localhost:25000`에 로그인하고 Settings > API Keys > Create new API keys로 키 쌍을 만든다.
 2. 두 값을 환경 변수로 넘겨 collector만 다시 만든다. 값을 파일에 적지 않는다.
 
 ```sh

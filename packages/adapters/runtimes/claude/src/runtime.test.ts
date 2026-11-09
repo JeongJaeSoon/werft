@@ -838,12 +838,13 @@ describe("Claude SDK adapter options", () => {
         buildSdkOptions({ ...withTools, permissionMode }, allow).settings,
       ).not.toHaveProperty("permissions");
     }
-    // A tool the profile does not list gets no rule.
+    // The rules do not depend on the tool list: a deny is what narrows the
+    // surface, so a profile listing only Read gets the same pre-approvals.
     const readOnly = buildSdkOptions(
       { ...config, tools: ["Read"], permissionMode: "default" },
       allow,
     );
-    expect(readOnly.settings).not.toHaveProperty("permissions");
+    expect(readOnly.settings).toHaveProperty("permissions");
   });
 
   test("the pre-approval settings stay well under one Linux argument", () => {

@@ -477,7 +477,10 @@ describe("the worker's checkpoints against the control plane's service", () => {
       index === 0
         ? toolReply(
             "Bash",
-            { command: "printf 'edited\\n' > README.md" },
+            // `tee` is not a redirect: the platform's own rules pre-approve a
+            // redirect into the workspace, and this test needs the approval
+            // wait that the capture before it hangs on.
+            { command: "printf 'edited\\n' | tee README.md" },
             "toolu_edit",
           )
         : textReply("done"),

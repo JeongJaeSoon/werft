@@ -16,6 +16,7 @@ export type RuntimeProfileInput = {
   config: Omit<
     RuntimeStart["config"],
     | "correlationId"
+    | "disallowedTools"
     | "gitEnvironment"
     | "localTranscriptResume"
     | "maxBudgetUsd"

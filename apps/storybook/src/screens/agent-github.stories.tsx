@@ -79,7 +79,7 @@ const FEATURE_REASON: Record<FeatureReason, string> = {
   app_permission_missing:
     "App에 이 권한이 없습니다. GitHub App 설정에서 더한 뒤 설치를 다시 승인하세요.",
   over_workspace_ceiling:
-    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 › GitHub에서 켭니다.",
+    "워크스페이스 상한 밖입니다. 소유자·관리자가 연동 > GitHub에서 켭니다.",
   no_reviewer_app:
     "워크스페이스에 리뷰용 App이 없습니다. PR을 만드는 App은 자기 PR을 승인할 수 없습니다.",
   github_host_unsupported:
@@ -288,7 +288,7 @@ function On({ on }: { readonly on: boolean }) {
 }
 
 function SettingsLink() {
-  return <Link href="#settings-workspace-github">연동 › GitHub</Link>;
+  return <Link href="#settings-workspace-github">연동 &gt; GitHub</Link>;
 }
 
 function SectionHead({
@@ -730,7 +730,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
               </Alert>
             ) : null}
             <Text as="span" variant="meta">
-              워크스페이스 상한은 소유자·관리자가 연동 › GitHub에서 정합니다.{" "}
+              워크스페이스 상한은 소유자·관리자가 연동 &gt; GitHub에서 정합니다.{" "}
               <SettingsLink />
             </Text>
           </Box>
