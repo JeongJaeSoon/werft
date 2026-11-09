@@ -66,7 +66,7 @@ jobs:
       - id: read
         env:
           TAG: ${{ github.event.inputs.release_tag || 'latest' }}
-          OVERRIDE: ${{ github.event.inputs.control_host_digest || 'sha256:0000000000000000000000000000000000000000000000000000000000000000' }}
+          OVERRIDE: ${{ github.event.inputs.control_host_digest }}
           REHEARSAL_REPOSITORY: ${{ github.repository }}
         run: |
           .github/scripts/rehearsal-release.sh "$TAG" "$RUNNER_TEMP/manifest" "$OVERRIDE" | tee -a "$GITHUB_OUTPUT"
