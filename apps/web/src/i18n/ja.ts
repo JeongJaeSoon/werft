@@ -91,7 +91,7 @@ export const slackJa = {
     "ワークスペースに App Configuration Token が登録されていないため、アプリを作成できません。",
   "slack.configToken.needs_reentry":
     "ワークスペースに保存されたトークンを使用できないため、アプリを作成できません。",
-  "slack.configToken.settings": "Slack 接続設定でトークンを登録",
+  "slack.configToken.settings": "連携 › Slack でトークンを登録",
   "slack.configToken.askAdmin":
     "オーナーか管理者にトークンの登録を依頼してください。",
   "slack.install": "Slack アプリをインストール",

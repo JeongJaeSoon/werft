@@ -17,6 +17,7 @@ export * from "./musterrolle/agent-admin-service.ts";
 export * from "./musterrolle/agent-identity-service.ts";
 export * from "./musterrolle/api-key-service.ts";
 export * from "./musterrolle/credential-binding-service.ts";
+export * from "./musterrolle/env-variable-service.ts";
 export * from "./musterrolle/github-app-service.ts";
 export * from "./musterrolle/github-packages-service.ts";
 export * from "./musterrolle/github-repository-service.ts";

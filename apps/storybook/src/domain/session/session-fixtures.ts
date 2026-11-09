@@ -36,6 +36,8 @@ const COPY: Record<TurnEventMessageKey, string> = {
     "Model requests for this session were blocked because {model} is no longer allowed by its profile",
   "session.event.error.modelProfileRemoved":
     "Model requests for this session were blocked because the profile that served {model} is gone",
+  "session.event.modelMigrated":
+    "{from} left the allowed list, so the session moved to {to}",
   "session.event.init": "Session started",
   "session.event.vcsChanged": "Working tree changed",
   "session.event.thinkingTokens": "Thinking ({count})",

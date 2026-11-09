@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -263,7 +263,7 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(`ARG GIT_LFS_COMPRESS=${GIT_LFS_COMPRESS}\n`);
     expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
     expect(source).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
+      /bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/git-lfs-src\.tar\.gz \\\n {2}https:\/\/api\.github\.com\/repos\/git-lfs\/git-lfs\/releases\/assets\/666389036/m,
     );
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
@@ -313,14 +313,23 @@ describe("app Dockerfiles", () => {
   test("the worker carries gh from the pinned release", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GH_VERSION=${GH_VERSION}\n`);
-    for (const arch of ["amd64", "arm64"]) {
-      expect(source).toMatch(
-        new RegExp(
-          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/cli/cli/releases/download/v\\$\\{GH_VERSION\\}/gh_\\$\\{GH_VERSION\\}_linux_${arch}\\.tar\\.gz \\\\$`,
-          "m",
-        ),
+    for (const [arch, asset] of [
+      ["amd64", "679195621"],
+      ["arm64", "679195636"],
+    ]) {
+      const lines = source.split("\n");
+      const url = `https://github.com/cli/cli/releases/download/v\${GH_VERSION}/gh_\${GH_VERSION}_linux_${arch}.tar.gz`;
+      const input = lines.findIndex((line) => line.trim() === `${url} \\`);
+      expect(input).toBeGreaterThan(-1);
+      expect(lines[input - 1]?.trim()).toBe("bun /tmp/fetch-pinned.ts \\");
+      expect(lines[input + 1]?.trim()).toMatch(/^[0-9a-f]{64} \\$/);
+      expect(lines[input + 2]?.trim()).toBe(`/tmp/gh-${arch}.tar.gz \\`);
+      expect(lines[input + 3]?.trim()).toBe(
+        `https://api.github.com/repos/cli/cli/releases/assets/${asset}`,
       );
     }
+    expect(source).not.toMatch(/ADD --checksum[^\n]*\n[^\n]*github\.com/);
+    expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(4);
     expect(source.match(/^COPY --from=gh .*$/gm)).toEqual([
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
@@ -902,7 +911,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       permissions?: Record<string, string>;
       "runs-on"?: string;
       "timeout-minutes"?: number;
-      strategy?: { matrix: { app: string[]; arch: string[] } };
+      strategy?: { matrix: { app: string[]; arch: string[] | string } };
       steps: Step[];
     };
     const text = read(".github/workflows/images.yml");
@@ -956,7 +965,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(".github/scripts/image-smoke.sh");
     });
 
-    test("every image builds and publishes on a runner of each arch", () => {
+    test("PRs build amd64 while main and release keep both native architectures", () => {
       const runner = expression(
         "matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'",
       );
@@ -964,7 +973,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         const job = jobs[name];
         expect(job?.strategy?.matrix).toEqual({
           app: ["control-host", "worker", "egress-proxy"],
-          arch: ["amd64", "arm64"],
+          arch: expression(
+            `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
+          ),
         });
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
@@ -1622,7 +1633,7 @@ esac
         );
         writeFileSync(
           join(directory, "bin/curl"),
-          '#!/usr/bin/env bash\necho "$*" >"$FAKE/curl"\nexit 22\n',
+          '#!/usr/bin/env bash\necho "$*" >>"$FAKE/curl"\nexit 22\n',
           { mode: 0o755 },
         );
         const result = Bun.spawnSync(
@@ -1639,15 +1650,108 @@ esac
         expect(readFileSync(join(directory, "out/app-amd64.txt"), "utf8")).toBe(
           "error\n",
         );
-        // A 504 from the release host is transient: retry every kind of
-        // failure, and wait longer than curl's default one-second backoff.
+        // A persistent browser failure switches to the independently pinned API.
+        // Its bounded retries do not turn a missing scanner into a clean scan.
         const args = readFileSync(join(directory, "curl"), "utf8");
         expect(args).toContain("--retry-all-errors");
-        expect(args).toMatch(/--retry-delay [1-9]\d/);
+        expect(args).toContain(
+          "https://api.github.com/repos/anchore/grype/releases/assets/570620608",
+        );
+        expect(args).toContain("Accept: application/octet-stream");
+        expect(args).toMatch(/--retry-delay [1-9]\d*/);
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }
     });
+
+    test.each(["http-error", "wrong-primary", "wrong-fallback"])(
+      "the scanner pins both download routes for %s",
+      (mode) => {
+        const directory = mkdtempSync(join(tmpdir(), "scanner-route-"));
+        try {
+          for (const path of ["bin", "fixture", "work"])
+            mkdirSync(join(directory, path));
+          writeFileSync(
+            join(directory, "fixture/grype"),
+            "verified scanner archive",
+          );
+          const archive = join(directory, "archive.tgz");
+          expect(
+            Bun.spawnSync([
+              "tar",
+              "-czf",
+              archive,
+              "-C",
+              join(directory, "fixture"),
+              "grype",
+            ]).exitCode,
+          ).toBe(0);
+          const pin = createHash("sha256")
+            .update(readFileSync(archive))
+            .digest("hex");
+          writeFileSync(
+            join(directory, "bin/curl"),
+            `#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FAKE/calls"
+url="\${!#}"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then out="$2"; shift 2; else shift; fi
+done
+if [[ "$url" == https://api.github.com/* ]] && [ "$FAKE_MODE" != wrong-fallback ]; then
+  cp "$FAKE/archive.tgz" "$out"
+elif [ "$FAKE_MODE" = http-error ]; then
+  exit 22
+else
+  printf 'wrong bytes' >"$out"
+fi
+`,
+            { mode: 0o755 },
+          );
+          if (!Bun.which("sha256sum"))
+            writeFileSync(
+              join(directory, "bin/sha256sum"),
+              '#!/usr/bin/env bash\nexec shasum -a 256 "$@"\n',
+              { mode: 0o755 },
+            );
+          const source = readFileSync(script, "utf8");
+          const start = source.indexOf("if ! curl");
+          const end = source.indexOf("# Grype refuses", start);
+          expect(start).toBeGreaterThan(-1);
+          expect(end).toBeGreaterThan(start);
+          const run = Bun.spawnSync(
+            ["bash", "-euo", "pipefail", "-c", source.slice(start, end)],
+            {
+              env: {
+                ...process["env"],
+                PATH: `${join(directory, "bin")}:${process["env"].PATH ?? ""}`,
+                FAKE: directory,
+                FAKE_MODE: mode,
+                work: join(directory, "work"),
+                GRYPE_VERSION: "0.119.0",
+                GRYPE_ARCH: "amd64",
+                GRYPE_ASSET: "570620608",
+                GRYPE_SHA256: pin,
+              },
+            },
+          );
+          expect(run.exitCode === 0).toBe(mode !== "wrong-fallback");
+          const dest = join(directory, "work/grype");
+          if (mode === "wrong-fallback") expect(existsSync(dest)).toBe(false);
+          else
+            expect(readFileSync(dest, "utf8")).toBe("verified scanner archive");
+          const calls = readFileSync(join(directory, "calls"), "utf8");
+          expect(calls).toContain(
+            "https://github.com/anchore/grype/releases/download/",
+          );
+          expect(calls).toContain(
+            "https://api.github.com/repos/anchore/grype/releases/assets/570620608",
+          );
+          expect(calls).toContain("Accept: application/octet-stream");
+        } finally {
+          rmSync(directory, { recursive: true, force: true });
+        }
+      },
+    );
   });
 
   describe("image-sources.sh", () => {

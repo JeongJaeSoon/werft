@@ -231,6 +231,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}",
     "GET /v1/administered-agents",
   ],
+  "routes/env-variables.test.ts": [
+    "GET /v1/workspace/variables",
+    "PUT /v1/workspace/variables/{name}",
+    "DELETE /v1/workspace/variables/{name}",
+    "PUT /v1/workspace/variables/{name}/grants",
+    "GET /v1/agents/{id}/variables",
+    "PUT /v1/agents/{id}/variables/{name}",
+    "DELETE /v1/agents/{id}/variables/{name}",
+  ],
   "routes/credential-bindings.test.ts": [
     "GET /v1/agents/{id}/credential-bindings",
     "POST /v1/agents/{id}/credential-bindings",

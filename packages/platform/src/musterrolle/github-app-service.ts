@@ -126,9 +126,9 @@ export function githubAppManifest(input: {
   return {
     name: `werft-${owner}-${input.suffix}`,
     url: origin,
-    redirect_url: `${origin}/settings/workspace/github/new-app`,
+    redirect_url: `${origin}/settings/workspace/integrations/github/new-app`,
     callback_urls: [input.callbackUrl],
-    setup_url: `${origin}/settings/workspace/github`,
+    setup_url: `${origin}/settings/workspace/integrations/github`,
     public: input.public,
     default_permissions: {
       contents: "write",

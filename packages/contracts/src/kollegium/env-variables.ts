@@ -186,9 +186,14 @@ export type EnvVariable = z.infer<typeof envVariableSchema>;
 export const envVariableListSchema = z
   .object({ items: z.array(envVariableSchema) })
   .strict();
+export type EnvVariableList = z.infer<typeof envVariableListSchema>;
 
-/** PUT body; `If-None-Match: *` creates, `If-Match: <version>` replaces. */
-export const putEnvVariableRequestSchema = z
+/**
+ * PUT body's shape, without the value check: the route parses with this so the
+ * service can answer a bad value with its own code (`VARIABLE_VALUE_INVALID`,
+ * `VARIABLE_VALUE_TOO_LARGE`) instead of a generic 400.
+ */
+export const putEnvVariableFieldsSchema = z
   .object({
     kind: envVariableKindSchema,
     value: z.string(),
@@ -198,8 +203,13 @@ export const putEnvVariableRequestSchema = z
     /** Agent-level secrets only; a workspace secret keeps it on the grant. */
     allow_automation: z.boolean().optional(),
   })
-  .strict()
-  .superRefine((body, ctx) => {
+  .strict();
+
+export type PutEnvVariableFields = z.infer<typeof putEnvVariableFieldsSchema>;
+
+/** PUT body; `If-None-Match: *` creates, `If-Match: <version>` replaces. */
+export const putEnvVariableRequestSchema =
+  putEnvVariableFieldsSchema.superRefine((body, ctx) => {
     const problem = envValueProblem(body.value, body.kind);
     if (problem !== null) {
       ctx.addIssue({ code: "custom", path: ["value"], message: problem });
@@ -214,6 +224,32 @@ export const putEnvVariableResponseSchema = z
     grant_version: z.number().int().positive(),
   })
   .strict();
+export type PutEnvVariableResponse = z.infer<
+  typeof putEnvVariableResponseSchema
+>;
+
+/**
+ * Path names stay free text here: the service judges them, so a lower-case or
+ * reserved name answers `VARIABLE_NAME_INVALID` / `VARIABLE_NAME_RESERVED`.
+ */
+const variableNameParam = z.string().min(1);
+export const workspaceVariableParamsSchema = z.object({
+  name: variableNameParam,
+});
+export const agentVariableParamsSchema = z.object({
+  id: agentIdSchema,
+  name: variableNameParam,
+});
+
+export const putEnvVariableGrantsResponseSchema = z
+  .object({
+    name: envVariableNameSchema,
+    grant_version: z.number().int().positive(),
+  })
+  .strict();
+export type PutEnvVariableGrantsResponse = z.infer<
+  typeof putEnvVariableGrantsResponseSchema
+>;
 
 export const deleteEnvVariableResponseSchema = z
   .object({
@@ -222,6 +258,9 @@ export const deleteEnvVariableResponseSchema = z
     open_sessions: z.number().int().nonnegative(),
   })
   .strict();
+export type DeleteEnvVariableResponse = z.infer<
+  typeof deleteEnvVariableResponseSchema
+>;
 
 /** PUT body of `/grants`, the whole set replaced; `If-Match: <grant_version>`. */
 export const putEnvVariableGrantsRequestSchema = z
@@ -271,6 +310,7 @@ export const agentEnvVariablesSchema = z
     ),
   })
   .strict();
+export type AgentEnvVariables = z.infer<typeof agentEnvVariablesSchema>;
 
 // ---- Session start -------------------------------------------------------
 

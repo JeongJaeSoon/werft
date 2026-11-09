@@ -15,7 +15,13 @@ const parse = (file: string) =>
         needs?: string | string[];
         permissions?: Record<string, string>;
         environment?: { name: string };
-        steps?: { run?: string; uses?: string }[];
+        steps?: {
+          run?: string;
+          uses?: string;
+          id?: string;
+          if?: string;
+          with?: Record<string, string>;
+        }[];
       }
     >;
   };
@@ -99,11 +105,31 @@ describe("ci.yml and the Pages deploy", () => {
     expect(ci.jobs.pages?.needs).toEqual(["docs", "storybook"]);
   });
 
-  test("no required aggregate waits on a site job", () => {
-    for (const name of ["check", "integration", "e2e", "quickstart"]) {
+  test("the check verdict consumes planned PR site proofs; main builds stay delegated", () => {
+    expect(ci.jobs.check?.needs).toEqual(
+      expect.arrayContaining(["docs", "storybook", "pages"]),
+    );
+    for (const name of ["integration", "e2e", "quickstart"]) {
       const needs = [ci.jobs[name]?.needs ?? []].flat();
       for (const site of ["docs", "storybook", "pages"])
         expect(needs).not.toContain(site);
     }
   });
+});
+
+test("only the main Pages build writes the shared Next cache", () => {
+  const ciSteps = ci.jobs.docs?.steps ?? [];
+  const pageSteps = pages.jobs.docs?.steps ?? [];
+  const restore = (steps: typeof ciSteps) =>
+    steps.find((s) => s.id === "docs-cache");
+  expect(restore(ciSteps)?.with?.path).toBe("apps/docs/.next/cache");
+  expect(restore(pageSteps)?.with).toEqual(restore(ciSteps)?.with);
+  const saves = (steps: typeof ciSteps) =>
+    steps.filter((s) => s.uses?.startsWith("actions/cache/save@"));
+  expect(saves(ciSteps)).toEqual([]);
+  expect(saves(pageSteps)).toHaveLength(1);
+  expect(saves(pageSteps)[0]?.if).toBe(
+    "github.ref == 'refs/heads/main' && steps.docs-cache.outputs.cache-hit != 'true'",
+  );
+  expect(saves(pageSteps)[0]?.with?.path).toBe("apps/docs/.next/cache");
 });
