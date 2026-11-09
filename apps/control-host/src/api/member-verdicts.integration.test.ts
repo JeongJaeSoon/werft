@@ -66,10 +66,8 @@ function verdictOf(row: MemberRow, action: Action): MemberVerdict {
     : row.actions[action.kind];
 }
 
-// What the member list offers is what the write accepts, for every manager
-// role, target role, way of being off and action: an allowed action changes
-// the row, `unchanged` answers 200 and changes nothing, and any other reason
-// is the write's error code, lower-cased.
+// Policy combinations live in policy-members.test.ts. These representatives
+// pin the real list/write wiring, pagination, error mapping and stored state.
 integration("the member list offers what the writes accept", () => {
   let database: TempDatabase;
   let pool: Pool;
@@ -260,46 +258,59 @@ integration("the member list offers what the writes accept", () => {
     return row;
   }
 
-  const targets: ({ role: WorkspaceRole; state: State } | "self")[] = [
-    "self",
-    ...ROLES.flatMap((role) =>
-      (Object.keys(STATES) as State[]).map((state) => ({ role, state })),
-    ),
+  const cases: readonly {
+    actorRole: "owner" | "admin";
+    target: { role: WorkspaceRole; state: State } | "self";
+  }[] = [
+    { actorRole: "owner", target: "self" },
+    { actorRole: "owner", target: { role: "owner", state: "live" } },
+    { actorRole: "owner", target: { role: "member", state: "live" } },
+    { actorRole: "admin", target: { role: "owner", state: "live" } },
+    { actorRole: "admin", target: { role: "member", state: "membership off" } },
+    { actorRole: "admin", target: { role: "member", state: "account off" } },
   ];
 
-  for (const actorRole of ["owner", "admin"] as const) {
-    for (const target of targets) {
-      const name =
-        target === "self" ? "self" : `${target.role} (${target.state})`;
-      test(`${actorRole} → ${name}`, async () => {
-        for (const action of ACTIONS) {
-          // A workspace per action: each write starts from the listed state.
-          const { workspaceId, actor, subject } = await workspaceWith(
-            actorRole,
-            target,
-          );
-          const cookie = await cookieOf(actor.email);
-          const verdict = verdictOf(
-            await rowOf(cookie, subject.id, subject.email),
-            action,
-          );
-          const before = await stateOf(workspaceId, subject.id);
-          const answer = await write(cookie, subject.id, action);
-          const after = await stateOf(workspaceId, subject.id);
-          const label = `${JSON.stringify(action)} offered ${JSON.stringify(verdict)}`;
-          if (verdict.allowed) {
-            expect(answer, label).toEqual({ status: 200, code: undefined });
-            expect(after, label).not.toEqual(before);
-          } else if (verdict.reason === "unchanged") {
-            expect(answer, label).toEqual({ status: 200, code: undefined });
-            expect(after, label).toEqual(before);
-          } else {
-            expect(answer.code, label).toBe(verdict.reason.toUpperCase());
-            expect(after, label).toEqual(before);
-          }
+  for (const { actorRole, target } of cases) {
+    const name =
+      target === "self" ? "self" : `${target.role} (${target.state})`;
+    test(`${actorRole} → ${name}`, async () => {
+      for (const action of ACTIONS) {
+        // A workspace per action: each write starts from the listed state.
+        const { workspaceId, actor, subject } = await workspaceWith(
+          actorRole,
+          target,
+        );
+        const cookie = await cookieOf(actor.email);
+        const verdict = verdictOf(
+          await rowOf(cookie, subject.id, subject.email),
+          action,
+        );
+        const before = await stateOf(workspaceId, subject.id);
+        const answer = await write(cookie, subject.id, action);
+        const after = await stateOf(workspaceId, subject.id);
+        const label = `${JSON.stringify(action)} offered ${JSON.stringify(verdict)}`;
+        if (verdict.allowed) {
+          expect(answer, label).toEqual({ status: 200, code: undefined });
+          expect(after, label).not.toEqual(before);
+        } else if (verdict.reason === "unchanged") {
+          expect(answer, label).toEqual({ status: 200, code: undefined });
+          expect(after, label).toEqual(before);
+        } else {
+          const statuses = {
+            self_protected: 403,
+            owner_protected: 403,
+            member_disabled: 409,
+            account_disabled: 409,
+            last_owner: 409,
+          } as const;
+          expect(answer, label).toEqual({
+            status: statuses[verdict.reason],
+            code: verdict.reason.toUpperCase(),
+          });
+          expect(after, label).toEqual(before);
         }
-      }, 60_000);
-    }
+      }
+    }, 60_000);
   }
 
   // The roles the list says an invite may carry are the ones POST /v1/invites
