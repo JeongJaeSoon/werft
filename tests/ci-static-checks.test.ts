@@ -50,9 +50,68 @@ test("bun-setup skips both cache steps for restore-cache false and refuses it wi
   expect(guard?.run).toContain("exit 1");
   const caches = steps.filter((s) => s.uses?.startsWith("actions/cache"));
   expect(caches.map((s) => s.if)).toEqual([
-    "inputs.restore-cache != 'false' && inputs.save-cache == 'true'",
-    "inputs.restore-cache != 'false' && inputs.save-cache != 'true'",
+    "inputs.restore-cache != 'false' && inputs.save-cache == 'true' && github.event_name != 'pull_request'",
+    "inputs.restore-cache != 'false' && (inputs.save-cache != 'true' || github.event_name == 'pull_request')",
   ]);
+});
+
+test("Bun cache restores on PRs but only saves outside PR events", () => {
+  const action = Bun.YAML.parse(
+    readFileSync(
+      join(import.meta.dir, "../.github/actions/bun-setup/action.yml"),
+      "utf8",
+    ),
+  ) as { runs: { steps: Step[] } };
+  const caches = action.runs.steps.filter((s) =>
+    s.uses?.startsWith("actions/cache"),
+  );
+  expect(
+    action.runs.steps.find((s) => s.id === "bun")?.with?.["no-cache"],
+  ).toBe(
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow expression
+    "${{ github.event_name == 'pull_request' }}",
+  );
+  for (const event of [
+    "pull_request",
+    "push",
+    "workflow_dispatch",
+    "schedule",
+  ]) {
+    for (const restore of ["true", "false"])
+      for (const save of ["true", "false"]) {
+        const selected = caches.filter((s) =>
+          Boolean(
+            new Function(
+              `return (${s.if
+                ?.replaceAll("inputs.restore-cache", JSON.stringify(restore))
+                .replaceAll("inputs.save-cache", JSON.stringify(save))
+                .replaceAll("github.event_name", JSON.stringify(event))});`,
+            )(),
+          ),
+        );
+        expect(selected.length).toBe(restore === "false" ? 0 : 1);
+        expect(selected.some((s) => s.uses?.startsWith("actions/cache@"))).toBe(
+          restore === "true" && save === "true" && event !== "pull_request",
+        );
+      }
+  }
+  const log = action.runs.steps.find((s) => s.name === "Cache restore result");
+  expect(log?.if).toBe("inputs.restore-cache != 'false'");
+  expect(log?.env?.CACHE_HIT).toContain("steps.writer.outputs.cache-hit");
+  expect(log?.env?.CACHE_HIT).toContain("steps.reader.outputs.cache-hit");
+  for (const hit of ["true", "false"]) {
+    const result = Bun.spawnSync(["bash", "-c", log?.run as string], {
+      env: {
+        ...process.env,
+        CACHE_KEY: "bun-root-test",
+        CACHE_HIT: hit,
+        EVENT: "pull_request",
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain(`exact-hit=${hit}`);
+    expect(result.stdout.toString()).toContain("bun-root-test");
+  }
 });
 
 test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
