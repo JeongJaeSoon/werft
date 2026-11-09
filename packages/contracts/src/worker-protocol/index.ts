@@ -349,7 +349,6 @@ export const runtimeConfigSchema = z
     extensions: z
       .array(runtimeExtensionSchema)
       .min(1)
-      .max(32)
       .refine(
         (bundles) =>
           new Set(bundles.map((b) => b.name)).size === bundles.length,

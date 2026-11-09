@@ -33,6 +33,16 @@ describe("runtime_config.extensions", () => {
     );
   });
 
+  test("a list longer than any fixed cap still parses: session creation sets no cap, so the claim must not", () => {
+    const many = Array.from({ length: 33 }, (_, i) => ({
+      ...bundle,
+      name: `ext-${i}`,
+    }));
+    expect(
+      runtimeConfigSchema.safeParse({ ...base, extensions: many }).success,
+    ).toBe(true);
+  });
+
   test("an empty list, a repeated name, a bad digest, an unknown key and an unknown scope are refused", () => {
     for (const extensions of [
       [],
