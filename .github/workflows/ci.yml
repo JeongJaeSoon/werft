@@ -1,1 +1,808 @@
-{name: CI,"on": {push: {branches: [main]},workflow_dispatch: {inputs: {only: {description: "Which job to run. Anything but `all` skips the rest — use it when a manual run only needs one of them.",type: choice,required: false,default: all,options: [all,check,integration,workspace-quota,e2e,quickstart,helm-chart,k8s-smoke,agent-sdk-compat,storybook,docs,demo,ui-pack,sdk-pack-smoke]},allow_parallel: {description: Allow independent parallel manual runs for deliberate flake testing (uses extra minutes),type: boolean,required: false,default: false}}}},permissions: {contents: read},concurrency: {group: "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && (github.event.inputs.allow_parallel == 'true' && github.run_id || format('{0}-{1}-{2}', github.ref, github.sha, github.event.inputs.only))) || github.sha }}",cancel-in-progress: "${{ github.event_name != 'push' }}"},jobs: {changes: {runs-on: ubuntu-24.04-arm,timeout-minutes: 3,outputs: {tests: "${{ steps.plan.outputs.tests }}",product: "${{ steps.plan.outputs.product }}",site: "${{ steps.plan.outputs.site }}",quickstart: "${{ steps.plan.outputs.quickstart }}",docs_only: "${{ steps.plan.outputs.docs_only }}",helm: "${{ steps.plan.outputs.helm }}",k8s: "${{ steps.plan.outputs.k8s }}",domains: "${{ steps.plan.outputs.domains }}",sdk_pack: "${{ steps.sdk.outputs.run }}",unit_parts: "${{ steps.units.outputs.matrix }}"},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {fetch-depth: 2}},{id: plan,env: {BASE_SHA: "${{ github.event.pull_request.base.sha }}",BASE_REF: "${{ github.event.pull_request.base.ref }}",BEFORE_SHA: "${{ github.event.before }}"},run: bash .github/scripts/ci-plan.sh},{id: sdk,name: Plan SDK consumer check,env: {BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.before }}"},run: "run=true\nif [[ \"$BASE_SHA\" =~ ^[0-9a-f]{40}$ ]] && [ \"$BASE_SHA\" != 0000000000000000000000000000000000000000 ]; then\n  git fetch --no-tags --depth=1 origin \"$BASE_SHA\"\n  git diff --name-only --no-renames -z \"$BASE_SHA\" HEAD >\"$RUNNER_TEMP/sdk-pack-paths\"\n  run=false\n  while IFS= read -r -d '' path; do\n    case \"$path\" in\n      packages/sdk/*|packages/client/*|packages/contracts/*|examples/*|scripts/sdk-pack-smoke.ts|LICENSE|bun.lock|.github/actions/bun-setup/*|.github/workflows/sdk-release.yml|.github/workflows/ci.yml)\n        run=true ;;\n    esac\n  done <\"$RUNNER_TEMP/sdk-pack-paths\"\nfi\necho \"run=$run\" >>\"$GITHUB_OUTPUT\"\n"},{if: "github.event.inputs.only == 'check' || steps.plan.outputs.domains == '[\"surface\"]'",uses: ./.github/actions/bun-setup,with: {restore-cache: "false"}},{id: units,if: "github.event.inputs.only == 'check' || steps.plan.outputs.domains == '[\"surface\"]'",env: {DOMAINS: "${{ steps.plan.outputs.domains }}",ONLY: "${{ github.event.inputs.only || 'all' }}"},run: "args=()\nif [ \"$ONLY\" != check ] && [ \"$DOMAINS\" = '[\"surface\"]' ]; then\n  args+=(--exclude-surface)\nfi\nmatrix=$(bun .github/scripts/unit-part.ts matrix \"${args[@]}\")\necho \"matrix=$matrix\" >>\"$GITHUB_OUTPUT\"\n"}]},static: {name: check (static),if: "contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 9,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup,with: {save-cache: "true"}},{id: install,run: bun install --frozen-lockfile},{run: bun run typecheck},{if: "!cancelled() && steps.install.outcome == 'success'",run: bun run lint},{if: "!cancelled() && steps.install.outcome == 'success'",run: bun scripts/third-party-notices.ts --check}]},docs-checks: {needs: changes,if: "needs.changes.outputs.docs_only == 'true' && contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 12,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{run: bun install --frozen-lockfile},{name: Repository policy and documentation tests,run: bun test ./tests}]},check-part: {name: "check (${{ matrix.part }})",needs: changes,if: "needs.changes.outputs.tests == 'true' && ((github.event_name == 'workflow_dispatch' && github.event.inputs.only == 'check')\n  || needs.changes.outputs.domains == '[\"surface\"]')\n&& contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 12,strategy: {fail-fast: false,matrix: {include: "${{ fromJSON(needs.changes.outputs.unit_parts) }}"}},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{run: bun install --frozen-lockfile},{name: Tests of this part,env: {UNIT: "${{ matrix.unit }}",DOMAINS: "${{ needs.changes.outputs.domains }}",ONLY: "${{ github.event.inputs.only || 'all' }}"},run: "args=()\nif [ \"$ONLY\" != check ] && [ \"$DOMAINS\" = '[\"surface\"]' ]; then\n  args+=(--exclude-surface)\nfi\nfiles=$(bun .github/scripts/unit-part.ts \"$UNIT\" \"${args[@]}\")\nmapfile -t files <<<\"$files\"\nbun test \"${files[@]}\"\n"}]},check: {needs: [changes,static,check-part,integration-domain,docs-checks,storybook,docs,demo,ui-pack,workspace-quota,helm-chart,k8s-smoke,pages],if: "always() && contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 2,steps: [{id: verdict,if: "!cancelled()",env: {RESULT: "${{ (github.event.inputs.only == 'check' || needs.changes.outputs.domains == '[\"surface\"]') && needs.check-part.result || needs.integration-domain.result }}",PLAN: "${{ needs.changes.result }}",STATIC: "${{ needs.static.result }}",DOCS: "${{ needs.docs-checks.result }}",TESTS: "${{ needs.changes.outputs.tests }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"},run: "[ \"$PLAN\" = success ] && [ \"$STATIC\" = success ] || exit 1\ncase \"$TESTS:$DOCS_ONLY:$RESULT:$DOCS\" in\n  true:false:success:skipped) echo \"check: all planned tests passed\" ;;\n  false:true:skipped:success) echo \"check: documentation policy tests passed; product tests are not needed\" ;;\n  *) echo \"::error::invalid or failed check plan/results\"; exit 1 ;;\nesac\n"},{id: product-results,if: "!cancelled()",env: {RESULTS: "${{ toJSON(needs) }}",ONLY: "${{ github.event.inputs.only || 'all' }}"},run: "[ -n \"$RESULTS\" ] || exit 1\nif ! jq -e --arg only \"$ONLY\" '\n  . as $needs\n  | .changes.outputs as $plan\n  | ($plan.domains | fromjson) as $domains\n  | {\n      \"helm-chart\": ($plan.helm == \"true\"),\n      \"k8s-smoke\": ($plan.k8s == \"true\"),\n      \"storybook\": ($plan.site == \"true\"),\n      \"docs\": ($plan.site == \"true\"),\n      \"pages\": ($plan.site == \"true\"),\n      \"demo\": ($plan.product == \"true\"),\n      \"ui-pack\": ($plan.product == \"true\"),\n      \"workspace-quota\": ($plan.product == \"true\" and ($domains | index(\"docker\") != null))\n    } as $expected\n  | ([\"all\", \"check\"] | index($only) != null)\n    and (.changes.result == \"success\")\n    and all(.[]; .result == \"success\" or .result == \"skipped\")\n    and ([\"helm\", \"k8s\", \"site\", \"product\"] | all(.[]; $plan[.] == \"true\" or $plan[.] == \"false\"))\n    and ($domains | type == \"array\" and all(.[]; type == \"string\"))\n    and ($expected | to_entries | all(.[];\n      $needs[.[\"key\"]].result == (if $only == \"all\" and .value then \"success\" else \"skipped\" end)))\n' <<<\"$RESULTS\" >/dev/null; then\n  echo \"::error::invalid product plan or job results; planned jobs must succeed and omitted jobs must be skipped\"\n  exit 1\nfi\n"},{id: cancelled,if: cancelled(),run: "echo \"::error::workflow was cancelled\"\nexit 1\n"}]},integration-domain: {name: "integration (${{ matrix.domain }})",needs: changes,if: "needs.changes.outputs.tests == 'true' && contains(fromJSON('[\"all\",\"integration\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 15,strategy: {fail-fast: false,matrix: {include: [{domain: db,postgres: true,localstack: false,docker: false,paths: [packages/db/,packages/testkit/src/postgres.,tests/repository-migration-report.]},{domain: api,postgres: true,localstack: true,docker: false,paths: [apps/control-host/src/api/,apps/control-host/src/main,apps/control-host/src/metrics/,apps/control-host/src/pass-loop/,apps/control-host/src/reconciler/,tests/catalog-mismatch.,tests/context-gap-flow.,tests/drain-park-flow.,tests/feature-gate-flow.,tests/interrupt-flow.,tests/lease-clock.,tests/park-resume-flow.]},{domain: surface,postgres: true,localstack: true,docker: false,paths: [apps/control-host/src/slack/,packages/contracts/,packages/client/,packages/sdk/,examples/,packages/core/,packages/react/,apps/web/,apps/storybook/]},{domain: storage,postgres: false,localstack: true,docker: false,paths: [packages/storage/,packages/testkit/src/localstack.,tests/checkpoint-flow.,tests/checkpoint-pins.,tests/object-store-cli.,tests/object-store-route.,tests/test-ops-bundle.,tests/test-ops.,tests/worker-checkpoint-publish.],skips: [{file: packages/storage/src/git-runner.test.ts,test: "where limits cannot be enforced git still runs, and says so once"}]},{domain: docker,postgres: true,localstack: false,docker: true,paths: [apps/control-host/src/scheduler/,packages/adapters/execution/local-docker/src/backend.,packages/adapters/execution/local-docker/src/config.,packages/adapters/execution/local-docker/src/docker-client.,packages/adapters/execution/local-docker/src/workspace,tests/backup-restore.,tests/images.,tests/scheduler-launch-claim.]},{domain: egress,postgres: false,localstack: false,docker: true,paths: [apps/egress-proxy/,packages/adapters/execution/local-docker/src/egress.,tests/credential-routes.,tests/sdk-egress-proxy.]},{domain: worker,postgres: false,localstack: false,docker: false,paths: [apps/worker/,packages/adapters/execution/kubernetes/,packages/adapters/runtimes/,packages/observability/,packages/platform/,packages/runtime-core/,packages/system/,packages/ui/,packages/testkit/src/fake-anthropic.,packages/testkit/src/fake-git.,packages/testkit/src/fake-github.,packages/testkit/src/scripted-messages.,packages/testkit/src/workspace.,tests/agent-sdk-compat/,tests/architecture.,tests/ci-images.,tests/ci-services.,tests/ci-plan.,tests/ci-static-checks.,tests/install-rehearsal.,tests/d2-gate/,tests/dev/,tests/docs-i18n-code.,tests/docs-links.,tests/docs-meta-pairs.,tests/docs-reader-contract.,tests/docs-self-hosting-commands.,tests/docs-self-hosting-facts.,tests/docs-self-hosting-urls.,tests/docs-site-links.,tests/e2e/local-model.,tests/e2e/real-model.,tests/fetch-pinned.,tests/forbidden-terms.,tests/soak/,tests/ci-issue-scripts.,tests/integration-jobs.,tests/local-sh.,tests/pages-workflow.,tests/preview-reap.,tests/release-auto.,tests/sdk-release.,tests/supply-chain.,tests/test-files.,tests/third-party-notices.,tests/ui-release.,tests/unit-part.,tests/verify-stack.],skips: [{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: (unnamed)},{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"},{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: "a failed worker reports its exit, reason and log tail"},{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: "terminating one generation leaves the next generation's Pod untouched"},{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: "the nonce is in the Pod's own Secret only, never in the Pod"},{file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts,test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: (unnamed)},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "ensureExecution twice → one resource, adopted without a new nonce"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "inspect: found:false for nothing launched, running for a launch"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: listManaged returns what was launched and drops what was terminated},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "terminate: generation_mismatch, terminated, absent — only the matching generation"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: a resource launched with another spec is refused with LaunchSpecMismatchError and left in place},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "workspace pair, when present: lists the session's workspace and removes it only once unused"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"},{file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts,test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"},{file: tests/d2-gate/gate.e2e.test.ts,test: (unnamed)},{file: tests/d2-gate/gate.e2e.test.ts,test: "A: two turns on one engine, checkpoint, restore onto a clean worker"},{file: tests/d2-gate/gate.e2e.test.ts,test: "B: a publish that fails at the manifest is never promoted"},{file: tests/d2-gate/gate.e2e.test.ts,test: "C: a transcript mirror error blocks the checkpoint and new input"},{file: tests/d2-gate/gate.e2e.test.ts,test: "D: a worker that loses its lease mid-turn promotes nothing"},{file: tests/d2-gate/gate.e2e.test.ts,test: "E: an accepted interrupt stops its turn, however early it lands"},{file: tests/d2-gate/reconciler-sweep.e2e.test.ts,test: (unnamed)},{file: tests/d2-gate/reconciler-sweep.e2e.test.ts,test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"},{file: tests/d2-gate/reconciler-sweep.e2e.test.ts,test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: (unnamed)},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: "H1: one image runs the three roles and only the scheduler holds the Docker socket"},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: "H2: a scheduler restarted mid-turn ends no worker and launches none twice"},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: "H3: the api and reconciler come back from a restart and the session takes its next turn"},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"},{file: tests/d2-gate/control-host-roles.e2e.test.ts,test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"}]}]}},env: {BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4,DOCKER_BACKEND_TEST_HELPER_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662,DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662,EGRESS_CURL_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69,EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4,EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662,LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7},steps: [{id: gate,env: {PLANNED: "${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}"},run: "echo \"run=$PLANNED\" >>\"$GITHUB_OUTPUT\""},{if: "steps.gate.outputs.run == 'true'",uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{if: "steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)",env: {POSTGRES: "${{ matrix.postgres }}",LOCALSTACK: "${{ matrix.localstack }}",POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6,LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7},run: .github/scripts/ci-services.sh start},{if: "steps.gate.outputs.run == 'true'",uses: ./.github/actions/bun-setup},{if: "steps.gate.outputs.run == 'true'",run: bun install --frozen-lockfile},{if: "steps.gate.outputs.run == 'true'",name: "Opt-in variables of this job's services",env: {POSTGRES: "${{ matrix.postgres }}",LOCALSTACK: "${{ matrix.localstack }}",DOCKER: "${{ matrix.docker }}"},run: "{\n  if [ \"$POSTGRES\" = true ]; then\n    echo \"QUEUE_DATABASE_URL=postgresql://postgres:dev@127.0.0.1:5432/sessions\"\n  fi\n  if [ \"$LOCALSTACK\" = true ]; then\n    echo \"AWS_ACCESS_KEY_ID=test\"\n    echo \"AWS_ENDPOINT_URL=http://127.0.0.1:4566\"\n    echo \"AWS_REGION=ap-northeast-1\"\n    echo \"AWS_SECRET_ACCESS_KEY=test\"\n    echo \"S3_BUCKET=claude-sessions\"\n    echo \"STORAGE_LOCALSTACK_TEST=1\"\n  fi\n  # ubuntu runners ship a Docker daemon: run the LocalDockerBackend\n  # integration tests against it (busybox) instead of skipping them.\n  if [ \"$DOCKER\" = true ]; then\n    echo \"DOCKER_BACKEND_TEST=1\"\n  fi\n} >>\"$GITHUB_ENV\"\n"},{if: "steps.gate.outputs.run == 'true' && matrix.docker",name: "Record the daemon's events",run: "echo \"DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')\" >>\"$GITHUB_ENV\"\nnohup docker events --format '{{json .}}' >\"$RUNNER_TEMP/docker-events.jsonl\" 2>&1 &\n"},{if: "steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)",env: {POSTGRES: "${{ matrix.postgres }}",LOCALSTACK: "${{ matrix.localstack }}"},run: .github/scripts/ci-services.sh wait},{if: "steps.gate.outputs.run == 'true'",name: Tests of this domain,env: {DOMAIN: "${{ matrix.domain }}"},run: "files=$(bun .github/scripts/integration-jobs.ts files \"$DOMAIN\")\nmapfile -t files <<<\"$files\"\nbun test --reporter=junit --reporter-outfile=\"$RUNNER_TEMP/junit.xml\" \"${files[@]}\"\nbun .github/scripts/integration-jobs.ts verify \"$DOMAIN\" \"$RUNNER_TEMP/junit.xml\"\n"},{if: "steps.gate.outputs.run == 'true' && !cancelled()",name: Nothing pulled from Docker Hub,run: .github/scripts/assert-no-docker-hub-images.sh docker},{if: failure() && matrix.docker,name: "Keep the daemon's record of a failed run",run: "sudo kill -USR1 \"$(pidof dockerd)\" || true\nsleep 2\nsudo journalctl -u docker -u containerd --since \"$DOCKER_EVENTS_SINCE\" --no-pager -o short-iso-precise >\"$RUNNER_TEMP/docker-daemon.log\" || true\nsudo sh -c \"cp /var/run/docker/goroutine-stacks-*.log '$RUNNER_TEMP/' 2>/dev/null\" || true\nsudo chmod a+r \"$RUNNER_TEMP\"/docker-* \"$RUNNER_TEMP\"/goroutine-stacks-*.log 2>/dev/null || true\n"},{if: failure() && matrix.docker,uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "docker-daemon-${{ matrix.domain }}-${{ github.run_attempt }}",path: "${{ runner.temp }}/docker-events.jsonl\n${{ runner.temp }}/docker-daemon.log\n${{ runner.temp }}/goroutine-stacks-*.log\n",if-no-files-found: ignore,retention-days: 14}},{if: "always() && steps.gate.outputs.run == 'true'",run: .github/scripts/ci-services.sh stop}]},integration: {needs: [changes,integration-domain,e2e,quickstart],if: "always() && contains(fromJSON('[\"all\",\"integration\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 2,steps: [{id: verdict,if: "!cancelled()",env: {RESULT: "${{ needs.integration-domain.result }}",E2E: "${{ needs.e2e.result }}",QUICKSTART: "${{ needs.quickstart.result }}",EVENT: "${{ github.event_name }}",ONLY: "${{ github.event.inputs.only || 'all' }}",PLAN: "${{ needs.changes.result }}",TESTS: "${{ needs.changes.outputs.tests }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"},run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$EVENT:$ONLY:$E2E:$QUICKSTART\" in\n  pull_request:all:success:success | push:all:success:success | workflow_dispatch:all:success:success) ;;\n  workflow_dispatch:integration:skipped:skipped) ;;\n  *) echo \"::error::required scenario or guide jobs did not pass\"; exit 1 ;;\nesac\ncase \"$TESTS:$DOCS_ONLY:$RESULT\" in\n  true:false:success) echo \"integration: all domains passed\" ;;\n  false:true:skipped) echo \"integration: documentation-only PR; no product test inputs changed\" ;;\n  *) echo \"::error::invalid or failed integration plan/results\"; exit 1 ;;\nesac\n"},{id: cancelled,if: cancelled(),run: "echo \"::error::workflow was cancelled\"\nexit 1\n"}]},storybook: {needs: changes,if: "needs.changes.outputs.site == 'true' && github.event_name != 'push' && contains(fromJSON('[\"all\",\"storybook\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1,with: {node-version: 24}},{run: bun install --frozen-lockfile},{name: Static build,run: bun run --cwd apps/storybook build},{name: "Every file the pages and chunks reference, relative to /storybook/",run: scripts/storybook-pages.sh check apps/storybook/dist},{name: "Every story, with the a11y check",run: bun run --cwd apps/storybook test:stories},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: storybook-dist,path: apps/storybook/dist,retention-days: 1}}]},docs: {needs: changes,if: "needs.changes.outputs.site == 'true' && github.event_name != 'push' && contains(fromJSON('[\"all\",\"docs\",\"storybook\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1,with: {node-version: 24}},{run: bun install --frozen-lockfile},{id: docs-cache,uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9,with: {path: apps/docs/.next/cache,key: "next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/docs/src/**', 'apps/docs/content/**', 'apps/docs/*.ts', 'apps/docs/*.json', 'apps/docs/*.mjs', 'docs/openapi.json') }}",restore-keys: "next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-"}},{name: Static build,run: bun run --cwd apps/docs build},{name: Self-hosting public URL and fallback contract,run: bun run scripts/check-docs-self-hosting-export.ts},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: docs-out,path: apps/docs/out,retention-days: 1}}]},demo: {needs: changes,if: "needs.changes.outputs.product == 'true' && contains(fromJSON('[\"all\",\"demo\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{run: bun install --frozen-lockfile},{name: "No credential, outside address or machine name in the fixtures",run: bun apps/web/scripts/demo-scan.ts},{name: Static build,run: bun run --cwd apps/web build:demo}]},ui-pack: {needs: changes,if: "needs.changes.outputs.product == 'true' && contains(fromJSON('[\"all\",\"ui-pack\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1,with: {node-version: 24}},{uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9,with: {path: ~/.npm,key: "ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ui-pack-smoke.ts') }}",restore-keys: "ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-"}},{run: bun install --frozen-lockfile},{name: Build the package,run: bun run --cwd packages/ui build:package},{name: Files the tarball would carry,run: npm pack --dry-run ./packages/ui/dist},{name: "Install, type-check, build and render in an empty app",run: "bun scripts/ui-pack-smoke.ts --screenshot \"$RUNNER_TEMP/ui-pack-button.png\""},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: ui-pack-button,path: "${{ runner.temp }}/ui-pack-button.png",retention-days: 7}}]},sdk-pack-smoke: {needs: changes,if: "needs.changes.outputs.sdk_pack == 'true' && contains(fromJSON('[\"all\",\"sdk-pack-smoke\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 15,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1,with: {node-version: 24}},{run: bun install --frozen-lockfile},{run: bun test packages/sdk examples},{name: SDK_VERSION matches package.json,run: "version=$(node -p 'require(\"./packages/sdk/package.json\").version')\ngrep -qx \"export const SDK_VERSION = \\\"${version}\\\";\" packages/sdk/src/version.ts \\\n  || { echo \"::error::SDK_VERSION does not match packages/sdk/package.json\"; exit 1; }\n"},{run: bun run --cwd packages/sdk build:package},{name: The bundle reports the version it is published as,run: "version=$(node -p 'require(\"./packages/sdk/dist/package.json\").version')\ngrep -qF \"\\\"${version}\\\"\" packages/sdk/dist/index.js \\\n  || { echo \"::error::SDK bundle does not carry its package version\"; exit 1; }\n"},{name: "Install, type-check and run the sample in an empty project",run: bun scripts/sdk-pack-smoke.ts}]},pages: {needs: [docs,storybook],runs-on: ubuntu-24.04,timeout-minutes: 5,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: docs-out,path: docs-out}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: storybook-dist,path: storybook-dist}},{name: Pages site layout,run: scripts/pages-site.sh docs-out storybook-dist _site}]},workspace-quota: {needs: changes,if: "!cancelled() && needs.changes.outputs.product == 'true' && contains(fromJSON(needs.changes.outputs.domains), 'docker') && contains(fromJSON('[\"all\",\"workspace-quota\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 15,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{run: bun install --frozen-lockfile},{name: Project-quota filesystem,run: "command -v mkfs.xfs >/dev/null || {\n  sudo apt-get update && sudo apt-get install -y xfsprogs\n}\nsudo truncate -s 8G /xfs.img\nsudo mkfs.xfs -q /xfs.img\nsudo mkdir -p /mnt/xfs\nsudo mount -o loop,prjquota /xfs.img /mnt/xfs\n# Fail here rather than three steps later with a confusing 400.\nmount | grep -q 'on /mnt/xfs .*prjquota'\n"},{name: Daemon on that filesystem,run: "mkdir -p /tmp/apq\ndocker run -d --privileged --name apq \\\n  -e DOCKER_TLS_CERTDIR= \\\n  -v /mnt/xfs:/var/lib/docker \\\n  -v /tmp/apq:/sock \\\n  ghcr.io/jeongjaesoon/werft-ci/docker@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac \\\n  --host=unix:///sock/docker.sock\nfor _ in $(seq 1 60); do\n  docker exec apq docker version >/dev/null 2>&1 && break\n  sleep 2\ndone\nsudo chmod 666 /tmp/apq/docker.sock\ndocker exec apq docker info --format 'driver={{.Driver}} root={{.DockerRootDir}}'\n# Prove the capability before any test claims to have used it.\ndocker exec apq docker volume create --driver local --opt size=64m apq-probe\ndocker exec apq docker volume rm apq-probe\n"},{name: Inode helper image on that daemon,run: "printf '%s\\n' \\\n  \"FROM ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4\" \\\n  \"RUN apt-get update && apt-get install -y --no-install-recommends xfsprogs && rm -rf /var/lib/apt/lists/*\" \\\n  'VOLUME [\"/workspace\"]' \\\n  | docker exec -i apq docker build -q -t ap-inode-helper:ci -\n"},{name: Workspace suite against a quota-capable daemon,env: {DOCKER_BACKEND_TEST: "1",DOCKER_BACKEND_TEST_HELPER_IMAGE: ap-inode-helper:ci,DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662,DOCKER_HOST: unix:///tmp/apq/docker.sock,EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662},run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts},{if: "!cancelled()",name: Nothing pulled from Docker Hub,run: ".github/scripts/assert-no-docker-hub-images.sh docker\n.github/scripts/assert-no-docker-hub-images.sh env DOCKER_HOST=unix:///tmp/apq/docker.sock docker\n"},{if: always(),run: "docker logs apq 2>&1 | tail -40 || true\ndocker rm -f apq || true\n"}]},e2e: {needs: changes,if: "!cancelled() && contains(fromJSON('[\"all\",\"e2e\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 30,steps: [{name: Validate product test plan,if: "!cancelled()",env: {PLAN: "${{ needs.changes.result }}",PRODUCT: "${{ needs.changes.outputs.product }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"},run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$PRODUCT:$DOCS_ONLY\" in\n  true:false) echo \"e2e: product inputs changed; running the complete scenario\" ;;\n  false:true) echo \"e2e: documentation-only PR; product inputs unchanged\" ;;\n  *) echo \"::error::invalid product test plan\"; exit 1 ;;\nesac\n"},{if: "success() && !cancelled() && needs.changes.outputs.product == 'true'",uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{if: "success() && !cancelled() && needs.changes.outputs.product == 'true'",uses: ./.github/actions/bun-setup},{if: "success() && !cancelled() && needs.changes.outputs.product == 'true'",run: bun install --frozen-lockfile},{if: "success() && !cancelled() && needs.changes.outputs.product == 'true'",id: scenario,name: Alpha path against the compose stack,env: {E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml,E2E_OUT: "${{ runner.temp }}/e2e"},run: tests/e2e/run.sh},{if: "!cancelled() && needs.changes.outputs.product == 'true'",name: Nothing pulled from Docker Hub,run: .github/scripts/assert-no-docker-hub-images.sh docker},{if: "always() && needs.changes.outputs.product == 'true'",uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: e2e-record,path: "${{ runner.temp }}/e2e",if-no-files-found: ignore,retention-days: 14}},{id: verdict,name: Required scenario verdict,if: always() && !cancelled(),env: {PLAN: "${{ needs.changes.result }}",PRODUCT: "${{ needs.changes.outputs.product }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}",SCENARIO: "${{ steps.scenario.outcome }}"},run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$PRODUCT:$DOCS_ONLY:$SCENARIO\" in\n  true:false:success) echo \"e2e: scenario passed\" ;;\n  false:true:skipped) echo \"e2e: intentionally omitted for documentation-only inputs\" ;;\n  *) echo \"::error::required e2e scenario did not pass\"; exit 1 ;;\nesac\n"},{id: cancelled,if: cancelled(),run: "echo \"::error::workflow was cancelled\"\nexit 1\n"}]},quickstart: {needs: changes,if: "!cancelled() && contains(fromJSON('[\"all\",\"quickstart\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 30,steps: [{name: Validate executable guide plan,if: "!cancelled()",env: {PLAN: "${{ needs.changes.result }}",QUICKSTART: "${{ needs.changes.outputs.quickstart }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"},run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$QUICKSTART:$DOCS_ONLY\" in\n  true:true | true:false) echo \"quickstart: product or guide inputs changed; running both guides\" ;;\n  false:true) echo \"quickstart: documentation-only PR; executable guides unchanged\" ;;\n  false:false) echo \"quickstart: changed paths reach neither the images nor the guides\" ;;\n  *) echo \"::error::invalid executable guide plan\"; exit 1 ;;\nesac\n"},{if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'",uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'",id: guide,name: docs/quickstart.md,env: {COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml,QUICKSTART_OUT: "${{ runner.temp }}/quickstart"},run: tests/e2e/quickstart.sh},{if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'",id: api-guide,name: reference/api-guide.mdx,env: {COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml,QUICKSTART_OUT: "${{ runner.temp }}/api-guide"},run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx},{if: "!cancelled() && needs.changes.outputs.quickstart == 'true'",name: Nothing pulled from Docker Hub,run: .github/scripts/assert-no-docker-hub-images.sh docker},{if: "always() && needs.changes.outputs.quickstart == 'true'",uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: quickstart-record,path: "${{ runner.temp }}/quickstart\n${{ runner.temp }}/api-guide\n",if-no-files-found: ignore,retention-days: 14}},{id: verdict,name: Required guide verdict,if: always() && !cancelled(),env: {PLAN: "${{ needs.changes.result }}",QUICKSTART: "${{ needs.changes.outputs.quickstart }}",DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}",GUIDE: "${{ steps.guide.outcome }}",API_GUIDE: "${{ steps.api-guide.outcome }}"},run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE\" in\n  true:false:success:success | true:true:success:success) echo \"quickstart: both guides passed\" ;;\n  false:true:skipped:skipped | false:false:skipped:skipped) echo \"quickstart: intentionally omitted; executable guides unchanged\" ;;\n  *) echo \"::error::required executable guide did not pass\"; exit 1 ;;\nesac\n"},{id: cancelled,if: cancelled(),run: "echo \"::error::workflow was cancelled\"\nexit 1\n"}]},helm-chart: {needs: changes,if: "needs.changes.outputs.helm == 'true' && contains(fromJSON('[\"all\",\"helm-chart\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 10,env: {HELM_VERSION: v4.3.0,HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb,KUBECONFORM_VERSION: v0.8.0,KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883,K8S_SCHEMAS: "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/817113f21a2643311cbc3e992bb44ffe1c416c54/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json",CRD_SCHEMAS: "https://raw.githubusercontent.com/datreeio/CRDs-catalog/63669a570e231d4f1f8396d229a1de512bcf0a34/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup,with: {restore-cache: "false"}},{name: helm and kubeconform,run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\nbun \"$GITHUB_WORKSPACE/scripts/fetch-pinned.ts\" \\\n  \"https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz\" \\\n  \"$KUBECONFORM_SHA256\" kubeconform.tgz \\\n  https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666\ntar -xzf kubeconform.tgz -C bin kubeconform\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"},{name: helm lint,run: "helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml\nhelm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml \\\n  -f deploy/helm/werft/values-aws.example.yaml\n"},{name: Render check,run: bun deploy/helm/render-check.ts},{name: kubeconform,run: "set -o pipefail\nfor values in deploy/helm/ci-digests.yaml deploy/helm/werft/values-aws.example.yaml; do\n  echo \"== $values\"\n  helm template ap deploy/helm/werft -f deploy/helm/ci-digests.yaml -f \"$values\" \\\n    | kubeconform -strict -summary -kubernetes-version 1.33.0 \\\n        -schema-location \"$K8S_SCHEMAS\" -schema-location \"$CRD_SCHEMAS\"\ndone\n"}]},k8s-smoke: {needs: changes,if: "needs.changes.outputs.k8s == 'true' && contains(fromJSON('[\"all\",\"k8s-smoke\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 30,env: {HELM_VERSION: v4.3.0,HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb,KIND_VERSION: v0.33.0,KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d,KUBECTL_VERSION: v1.37.0,KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{run: bun install --frozen-lockfile},{name: "kind, kubectl and helm",run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo bin/kind \"https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64\"\necho \"${KIND_SHA256}  bin/kind\" | sha256sum -c -\ncurl -fsSLo bin/kubectl \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"\necho \"${KUBECTL_SHA256}  bin/kubectl\" | sha256sum -c -\nchmod +x bin/kind bin/kubectl\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"},{name: deploy/kind/smoke.sh,env: {CLUSTER_NAME: k8s-smoke,STATE_DIR: "${{ runner.temp }}/kind",KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5,REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373,BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4,BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e,PROBE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662,K8S_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662},run: "KIND_IMAGE_MIRROR=\"${BUN_IMAGE%/*}\" deploy/kind/smoke.sh"},{if: "!cancelled()",name: Nothing pulled from Docker Hub,run: .github/scripts/assert-no-docker-hub-images.sh docker}]},agent-sdk-compat: {needs: [changes,static],permissions: {contents: read,issues: write},if: "!cancelled() && needs.static.result != 'failure' && needs.changes.outputs.product == 'true' && github.event_name != 'pull_request' && contains(fromJSON('[\"all\",\"agent-sdk-compat\"]'), github.event.inputs.only || 'all')",runs-on: ubuntu-24.04,timeout-minutes: 15,continue-on-error: true,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup,with: {cache-scope: agent-sdk-compat,save-cache: "true"}},{uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97,with: {python-version: "3.13"}},{uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4},{run: bun install --frozen-lockfile},{run: bun install --cwd scripts/agent-sdk-compat --frozen-lockfile},{run: "uv tool install 'litellm[proxy]==1.100.1'"},{run: bun run --cwd scripts/agent-sdk-compat probe:version},{id: harness,name: agent-sdk-compat check,run: bun run --cwd scripts/agent-sdk-compat check},{if: "!cancelled()",name: Report harness outcome,env: {HARNESS: "${{ steps.harness.outcome }}"},run: "{\n  echo \"### agent-sdk-compat (non-blocking)\"\n  echo\n  echo \"| suite | outcome |\"\n  echo \"| --- | --- |\"\n  echo \"| scripts/agent-sdk-compat | ${HARNESS} |\"\n  echo\n  echo \"This job never fails the run. A \\`failure\\` above still needs a look.\"\n} >>\"$GITHUB_STEP_SUMMARY\"\n"},{if: "!cancelled() && steps.harness.outcome != 'success'",name: Open or update the agent-sdk-compat failure issue,env: {GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}",HARNESS: "${{ steps.harness.outcome }}",RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"},run: "{\n  echo \"<!-- ci-agent-sdk-compat-failure -->\"\n  echo \"\\`agent-sdk-compat\\` failed on \\`${GITHUB_REF_NAME}\\` @ \\`${GITHUB_SHA}\\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL})).\"\n  echo\n  echo \"| suite | outcome |\"\n  echo \"| --- | --- |\"\n  echo \"| scripts/agent-sdk-compat | ${HARNESS} |\"\n  echo\n  echo \"The run itself is green (\\`continue-on-error\\`). Close this issue once the failure is understood; the next failure reopens a new one.\"\n} >body.md\n.github/scripts/upsert-ci-issue.sh ci-agent-sdk-compat-failure \\\n  \"CI: agent-sdk-compat failed (non-blocking job)\" body.md\n"}]}}}
+name: CI
+"on": 
+  push: 
+    branches: 
+      - main
+  workflow_dispatch: 
+    inputs: 
+      only: 
+        description: "Which job to run. Anything but `all` skips the rest — use it when a manual run only needs one of them."
+        type: choice
+        required: false
+        default: all
+        options: 
+          - all
+          - check
+          - integration
+          - workspace-quota
+          - e2e
+          - quickstart
+          - helm-chart
+          - k8s-smoke
+          - agent-sdk-compat
+          - storybook
+          - docs
+          - demo
+          - ui-pack
+          - sdk-pack-smoke
+      allow_parallel: 
+        description: Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)
+        type: boolean
+        required: false
+        default: false
+permissions: 
+  contents: read
+concurrency: 
+  group: "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && (github.event.inputs.allow_parallel == 'true' && github.run_id || format('{0}-{1}-{2}', github.ref, github.sha, github.event.inputs.only))) || github.sha }}"
+  cancel-in-progress: "${{ github.event_name != 'push' }}"
+jobs: 
+  changes: 
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 3
+    outputs: 
+      tests: "${{ steps.plan.outputs.tests }}"
+      product: "${{ steps.plan.outputs.product }}"
+      site: "${{ steps.plan.outputs.site }}"
+      quickstart: "${{ steps.plan.outputs.quickstart }}"
+      docs_only: "${{ steps.plan.outputs.docs_only }}"
+      helm: "${{ steps.plan.outputs.helm }}"
+      k8s: "${{ steps.plan.outputs.k8s }}"
+      domains: "${{ steps.plan.outputs.domains }}"
+      sdk_pack: "${{ steps.sdk.outputs.run }}"
+      unit_parts: "${{ steps.units.outputs.matrix }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          fetch-depth: 2
+      - id: plan
+        env: 
+          BASE_SHA: "${{ github.event.pull_request.base.sha }}"
+          BASE_REF: "${{ github.event.pull_request.base.ref }}"
+          BEFORE_SHA: "${{ github.event.before }}"
+        run: bash .github/scripts/ci-plan.sh
+      - id: sdk
+        name: Plan SDK consumer check
+        env: 
+          BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.before }}"
+        run: "run=true\nif [[ \"$BASE_SHA\" =~ ^[0-9a-f]{40}$ ]] && [ \"$BASE_SHA\" != 0000000000000000000000000000000000000000 ]; then\n  git fetch --no-tags --depth=1 origin \"$BASE_SHA\"\n  git diff --name-only --no-renames -z \"$BASE_SHA\" HEAD >\"$RUNNER_TEMP/sdk-pack-paths\"\n  run=false\n  while IFS= read -r -d '' path; do\n    case \"$path\" in\n      packages/sdk/*|packages/client/*|packages/contracts/*|examples/*|scripts/sdk-pack-smoke.ts|LICENSE|bun.lock|.github/actions/bun-setup/*|.github/workflows/sdk-release.yml|.github/workflows/ci.yml)\n        run=true ;;\n    esac\n  done <\"$RUNNER_TEMP/sdk-pack-paths\"\nfi\necho \"run=$run\" >>\"$GITHUB_OUTPUT\"\n"
+      - if: "github.event.inputs.only == 'check' || steps.plan.outputs.domains == '[\"surface\"]'"
+        uses: ./.github/actions/bun-setup
+        with: 
+          restore-cache: "false"
+      - id: units
+        if: "github.event.inputs.only == 'check' || steps.plan.outputs.domains == '[\"surface\"]'"
+        env: 
+          DOMAINS: "${{ steps.plan.outputs.domains }}"
+          ONLY: "${{ github.event.inputs.only || 'all' }}"
+        run: "args=()\nif [ \"$ONLY\" != check ] && [ \"$DOMAINS\" = '[\"surface\"]' ]; then\n  args+=(--exclude-surface)\nfi\nmatrix=$(bun .github/scripts/unit-part.ts matrix \"${args[@]}\")\necho \"matrix=$matrix\" >>\"$GITHUB_OUTPUT\"\n"
+  static: 
+    name: check (static)
+    if: "contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+        with: 
+          save-cache: "true"
+      - id: install
+        run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - if: "!cancelled() && steps.install.outcome == 'success'"
+        run: bun run lint
+      - if: "!cancelled() && steps.install.outcome == 'success'"
+        run: bun scripts/third-party-notices.ts --check
+  docs-checks: 
+    needs: changes
+    if: "needs.changes.outputs.docs_only == 'true' && contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Repository policy and documentation tests
+        run: bun test ./tests
+  check-part: 
+    name: "check (${{ matrix.part }})"
+    needs: changes
+    if: "needs.changes.outputs.tests == 'true' && ((github.event_name == 'workflow_dispatch' && github.event.inputs.only == 'check')\n  || needs.changes.outputs.domains == '[\"surface\"]')\n&& contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy: 
+      fail-fast: false
+      matrix: 
+        include: "${{ fromJSON(needs.changes.outputs.unit_parts) }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Tests of this part
+        env: 
+          UNIT: "${{ matrix.unit }}"
+          DOMAINS: "${{ needs.changes.outputs.domains }}"
+          ONLY: "${{ github.event.inputs.only || 'all' }}"
+        run: "args=()\nif [ \"$ONLY\" != check ] && [ \"$DOMAINS\" = '[\"surface\"]' ]; then\n  args+=(--exclude-surface)\nfi\nfiles=$(bun .github/scripts/unit-part.ts \"$UNIT\" \"${args[@]}\")\nmapfile -t files <<<\"$files\"\nbun test \"${files[@]}\"\n"
+  check: 
+    needs: 
+      - changes
+      - static
+      - check-part
+      - integration-domain
+      - docs-checks
+      - storybook
+      - docs
+      - demo
+      - ui-pack
+      - workspace-quota
+      - helm-chart
+      - k8s-smoke
+      - pages
+    if: "always() && contains(fromJSON('[\"all\",\"check\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps: 
+      - id: verdict
+        if: "!cancelled()"
+        env: 
+          RESULT: "${{ (github.event.inputs.only == 'check' || needs.changes.outputs.domains == '[\"surface\"]') && needs.check-part.result || needs.integration-domain.result }}"
+          PLAN: "${{ needs.changes.result }}"
+          STATIC: "${{ needs.static.result }}"
+          DOCS: "${{ needs.docs-checks.result }}"
+          TESTS: "${{ needs.changes.outputs.tests }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+        run: "[ \"$PLAN\" = success ] && [ \"$STATIC\" = success ] || exit 1\ncase \"$TESTS:$DOCS_ONLY:$RESULT:$DOCS\" in\n  true:false:success:skipped) echo \"check: all planned tests passed\" ;;\n  false:true:skipped:success) echo \"check: documentation policy tests passed; product tests are not needed\" ;;\n  *) echo \"::error::invalid or failed check plan/results\"; exit 1 ;;\nesac\n"
+      - id: product-results
+        if: "!cancelled()"
+        env: 
+          RESULTS: "${{ toJSON(needs) }}"
+          ONLY: "${{ github.event.inputs.only || 'all' }}"
+        run: "[ -n \"$RESULTS\" ] || exit 1\nif ! jq -e --arg only \"$ONLY\" '\n  . as $needs\n  | .changes.outputs as $plan\n  | ($plan.domains | fromjson) as $domains\n  | {\n      \"helm-chart\": ($plan.helm == \"true\"),\n      \"k8s-smoke\": ($plan.k8s == \"true\"),\n      \"storybook\": ($plan.site == \"true\"),\n      \"docs\": ($plan.site == \"true\"),\n      \"pages\": ($plan.site == \"true\"),\n      \"demo\": ($plan.product == \"true\"),\n      \"ui-pack\": ($plan.product == \"true\"),\n      \"workspace-quota\": ($plan.product == \"true\" and ($domains | index(\"docker\") != null))\n    } as $expected\n  | ([\"all\", \"check\"] | index($only) != null)\n    and (.changes.result == \"success\")\n    and all(.[]; .result == \"success\" or .result == \"skipped\")\n    and ([\"helm\", \"k8s\", \"site\", \"product\"] | all(.[]; $plan[.] == \"true\" or $plan[.] == \"false\"))\n    and ($domains | type == \"array\" and all(.[]; type == \"string\"))\n    and ($expected | to_entries | all(.[];\n      $needs[.[\"key\"]].result == (if $only == \"all\" and .value then \"success\" else \"skipped\" end)))\n' <<<\"$RESULTS\" >/dev/null; then\n  echo \"::error::invalid product plan or job results; planned jobs must succeed and omitted jobs must be skipped\"\n  exit 1\nfi\n"
+      - id: cancelled
+        if: cancelled()
+        run: "echo \"::error::workflow was cancelled\"\nexit 1\n"
+  integration-domain: 
+    name: "integration (${{ matrix.domain }})"
+    needs: changes
+    if: "needs.changes.outputs.tests == 'true' && contains(fromJSON('[\"all\",\"integration\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy: 
+      fail-fast: false
+      matrix: 
+        include: 
+          - domain: db
+            postgres: true
+            localstack: false
+            docker: false
+            paths: 
+              - packages/db/
+              - packages/testkit/src/postgres.
+              - tests/repository-migration-report.
+          - domain: api
+            postgres: true
+            localstack: true
+            docker: false
+            paths: 
+              - apps/control-host/src/api/
+              - apps/control-host/src/main
+              - apps/control-host/src/metrics/
+              - apps/control-host/src/pass-loop/
+              - apps/control-host/src/reconciler/
+              - tests/catalog-mismatch.
+              - tests/context-gap-flow.
+              - tests/drain-park-flow.
+              - tests/feature-gate-flow.
+              - tests/interrupt-flow.
+              - tests/lease-clock.
+              - tests/park-resume-flow.
+          - domain: surface
+            postgres: true
+            localstack: true
+            docker: false
+            paths: 
+              - apps/control-host/src/slack/
+              - packages/contracts/
+              - packages/client/
+              - packages/sdk/
+              - examples/
+              - packages/core/
+              - packages/react/
+              - apps/web/
+              - apps/storybook/
+          - domain: storage
+            postgres: false
+            localstack: true
+            docker: false
+            paths: 
+              - packages/storage/
+              - packages/testkit/src/localstack.
+              - tests/checkpoint-flow.
+              - tests/checkpoint-pins.
+              - tests/object-store-cli.
+              - tests/object-store-route.
+              - tests/test-ops-bundle.
+              - tests/test-ops.
+              - tests/worker-checkpoint-publish.
+            skips: 
+              - file: packages/storage/src/git-runner.test.ts
+                test: "where limits cannot be enforced git still runs, and says so once"
+          - domain: docker
+            postgres: true
+            localstack: false
+            docker: true
+            paths: 
+              - apps/control-host/src/scheduler/
+              - packages/adapters/execution/local-docker/src/backend.
+              - packages/adapters/execution/local-docker/src/config.
+              - packages/adapters/execution/local-docker/src/docker-client.
+              - packages/adapters/execution/local-docker/src/workspace
+              - tests/backup-restore.
+              - tests/images.
+              - tests/scheduler-launch-claim.
+          - domain: egress
+            postgres: false
+            localstack: false
+            docker: true
+            paths: 
+              - apps/egress-proxy/
+              - packages/adapters/execution/local-docker/src/egress.
+              - tests/credential-routes.
+              - tests/sdk-egress-proxy.
+          - domain: worker
+            postgres: false
+            localstack: false
+            docker: false
+            paths: 
+              - apps/worker/
+              - packages/adapters/execution/kubernetes/
+              - packages/adapters/runtimes/
+              - packages/observability/
+              - packages/platform/
+              - packages/runtime-core/
+              - packages/system/
+              - packages/ui/
+              - packages/testkit/src/fake-anthropic.
+              - packages/testkit/src/fake-git.
+              - packages/testkit/src/fake-github.
+              - packages/testkit/src/scripted-messages.
+              - packages/testkit/src/workspace.
+              - tests/agent-sdk-compat/
+              - tests/architecture.
+              - tests/ci-images.
+              - tests/ci-services.
+              - tests/ci-plan.
+              - tests/ci-static-checks.
+              - tests/install-rehearsal.
+              - tests/d2-gate/
+              - tests/dev/
+              - tests/docs-i18n-code.
+              - tests/docs-links.
+              - tests/docs-meta-pairs.
+              - tests/docs-reader-contract.
+              - tests/docs-self-hosting-commands.
+              - tests/docs-self-hosting-facts.
+              - tests/docs-self-hosting-urls.
+              - tests/docs-site-links.
+              - tests/e2e/local-model.
+              - tests/e2e/real-model.
+              - tests/fetch-pinned.
+              - tests/forbidden-terms.
+              - tests/soak/
+              - tests/ci-issue-scripts.
+              - tests/integration-jobs.
+              - tests/local-sh.
+              - tests/pages-workflow.
+              - tests/preview-reap.
+              - tests/release-auto.
+              - tests/sdk-release.
+              - tests/supply-chain.
+              - tests/test-files.
+              - tests/third-party-notices.
+              - tests/ui-release.
+              - tests/unit-part.
+              - tests/verify-stack.
+            skips: 
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: (unnamed)
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "a failed worker reports its exit, reason and log tail"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminating one generation leaves the next generation's Pod untouched"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "the nonce is in the Pod's own Secret only, never in the Pod"
+              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+                test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: (unnamed)
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "ensureExecution twice → one resource, adopted without a new nonce"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "inspect: found:false for nothing launched, running for a launch"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: listManaged returns what was launched and drops what was terminated
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "terminate: generation_mismatch, terminated, absent — only the matching generation"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: a resource launched with another spec is refused with LaunchSpecMismatchError and left in place
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "workspace pair, when present: lists the session's workspace and removes it only once unused"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"
+              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+                test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: (unnamed)
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: "B: a publish that fails at the manifest is never promoted"
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: "C: a transcript mirror error blocks the checkpoint and new input"
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: "D: a worker that loses its lease mid-turn promotes nothing"
+              - file: tests/d2-gate/gate.e2e.test.ts
+                test: "E: an accepted interrupt stops its turn, however early it lands"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: (unnamed)
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
+              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+                test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: (unnamed)
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H1: one image runs the three roles and only the scheduler holds the Docker socket"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H2: a scheduler restarted mid-turn ends no worker and launches none twice"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H3: the api and reconciler come back from a restart and the session takes its next turn"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"
+              - file: tests/d2-gate/control-host-roles.e2e.test.ts
+                test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
+    env: 
+      BUN_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+      DOCKER_BACKEND_TEST_HELPER_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      EGRESS_CURL_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/curl@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+      EGRESS_PROXY_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+      EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+      LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+    steps: 
+      - id: gate
+        env: 
+          PLANNED: "${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}"
+        run: "echo \"run=$PLANNED\" >>\"$GITHUB_OUTPUT\""
+      - if: "steps.gate.outputs.run == 'true'"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: "steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)"
+        env: 
+          POSTGRES: "${{ matrix.postgres }}"
+          LOCALSTACK: "${{ matrix.localstack }}"
+          POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+          LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
+        run: .github/scripts/ci-services.sh start
+      - if: "steps.gate.outputs.run == 'true'"
+        uses: ./.github/actions/bun-setup
+      - if: "steps.gate.outputs.run == 'true'"
+        run: bun install --frozen-lockfile
+      - if: "steps.gate.outputs.run == 'true'"
+        name: "Opt-in variables of this job's services"
+        env: 
+          POSTGRES: "${{ matrix.postgres }}"
+          LOCALSTACK: "${{ matrix.localstack }}"
+          DOCKER: "${{ matrix.docker }}"
+        run: "{\n  if [ \"$POSTGRES\" = true ]; then\n    echo \"QUEUE_DATABASE_URL=postgresql://postgres:dev@127.0.0.1:5432/sessions\"\n  fi\n  if [ \"$LOCALSTACK\" = true ]; then\n    echo \"AWS_ACCESS_KEY_ID=test\"\n    echo \"AWS_ENDPOINT_URL=http://127.0.0.1:4566\"\n    echo \"AWS_REGION=ap-northeast-1\"\n    echo \"AWS_SECRET_ACCESS_KEY=test\"\n    echo \"S3_BUCKET=claude-sessions\"\n    echo \"STORAGE_LOCALSTACK_TEST=1\"\n  fi\n  # ubuntu runners ship a Docker daemon: run the LocalDockerBackend\n  # integration tests against it (busybox) instead of skipping them.\n  if [ \"$DOCKER\" = true ]; then\n    echo \"DOCKER_BACKEND_TEST=1\"\n  fi\n} >>\"$GITHUB_ENV\"\n"
+      - if: "steps.gate.outputs.run == 'true' && matrix.docker"
+        name: "Record the daemon's events"
+        run: "echo \"DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')\" >>\"$GITHUB_ENV\"\nnohup docker events --format '{{json .}}' >\"$RUNNER_TEMP/docker-events.jsonl\" 2>&1 &\n"
+      - if: "steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)"
+        env: 
+          POSTGRES: "${{ matrix.postgres }}"
+          LOCALSTACK: "${{ matrix.localstack }}"
+        run: .github/scripts/ci-services.sh wait
+      - if: "steps.gate.outputs.run == 'true'"
+        name: Tests of this domain
+        env: 
+          DOMAIN: "${{ matrix.domain }}"
+        run: "files=$(bun .github/scripts/integration-jobs.ts files \"$DOMAIN\")\nmapfile -t files <<<\"$files\"\nbun test --reporter=junit --reporter-outfile=\"$RUNNER_TEMP/junit.xml\" \"${files[@]}\"\nbun .github/scripts/integration-jobs.ts verify \"$DOMAIN\" \"$RUNNER_TEMP/junit.xml\"\n"
+      - if: "steps.gate.outputs.run == 'true' && !cancelled()"
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - if: failure() && matrix.docker
+        name: "Keep the daemon's record of a failed run"
+        run: "sudo kill -USR1 \"$(pidof dockerd)\" || true\nsleep 2\nsudo journalctl -u docker -u containerd --since \"$DOCKER_EVENTS_SINCE\" --no-pager -o short-iso-precise >\"$RUNNER_TEMP/docker-daemon.log\" || true\nsudo sh -c \"cp /var/run/docker/goroutine-stacks-*.log '$RUNNER_TEMP/' 2>/dev/null\" || true\nsudo chmod a+r \"$RUNNER_TEMP\"/docker-* \"$RUNNER_TEMP\"/goroutine-stacks-*.log 2>/dev/null || true\n"
+      - if: failure() && matrix.docker
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "docker-daemon-${{ matrix.domain }}-${{ github.run_attempt }}"
+          path: "${{ runner.temp }}/docker-events.jsonl\n${{ runner.temp }}/docker-daemon.log\n${{ runner.temp }}/goroutine-stacks-*.log\n"
+          if-no-files-found: ignore
+          retention-days: 14
+      - if: "always() && steps.gate.outputs.run == 'true'"
+        run: .github/scripts/ci-services.sh stop
+  integration: 
+    needs: 
+      - changes
+      - integration-domain
+      - e2e
+      - quickstart
+    if: "always() && contains(fromJSON('[\"all\",\"integration\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps: 
+      - id: verdict
+        if: "!cancelled()"
+        env: 
+          RESULT: "${{ needs.integration-domain.result }}"
+          E2E: "${{ needs.e2e.result }}"
+          QUICKSTART: "${{ needs.quickstart.result }}"
+          EVENT: "${{ github.event_name }}"
+          ONLY: "${{ github.event.inputs.only || 'all' }}"
+          PLAN: "${{ needs.changes.result }}"
+          TESTS: "${{ needs.changes.outputs.tests }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+        run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$EVENT:$ONLY:$E2E:$QUICKSTART\" in\n  pull_request:all:success:success | push:all:success:success | workflow_dispatch:all:success:success) ;;\n  workflow_dispatch:integration:skipped:skipped) ;;\n  *) echo \"::error::required scenario or guide jobs did not pass\"; exit 1 ;;\nesac\ncase \"$TESTS:$DOCS_ONLY:$RESULT\" in\n  true:false:success) echo \"integration: all domains passed\" ;;\n  false:true:skipped) echo \"integration: documentation-only PR; no product test inputs changed\" ;;\n  *) echo \"::error::invalid or failed integration plan/results\"; exit 1 ;;\nesac\n"
+      - id: cancelled
+        if: cancelled()
+        run: "echo \"::error::workflow was cancelled\"\nexit 1\n"
+  storybook: 
+    needs: changes
+    if: "needs.changes.outputs.site == 'true' && github.event_name != 'push' && contains(fromJSON('[\"all\",\"storybook\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with: 
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Static build
+        run: bun run --cwd apps/storybook build
+      - name: "Every file the pages and chunks reference, relative to /storybook/"
+        run: scripts/storybook-pages.sh check apps/storybook/dist
+      - name: "Every story, with the a11y check"
+        run: bun run --cwd apps/storybook test:stories
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: storybook-dist
+          path: apps/storybook/dist
+          retention-days: 1
+  docs: 
+    needs: changes
+    if: "needs.changes.outputs.site == 'true' && github.event_name != 'push' && contains(fromJSON('[\"all\",\"docs\",\"storybook\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with: 
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - id: docs-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with: 
+          path: apps/docs/.next/cache
+          key: "next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/docs/src/**', 'apps/docs/content/**', 'apps/docs/*.ts', 'apps/docs/*.json', 'apps/docs/*.mjs', 'docs/openapi.json') }}"
+          restore-keys: "next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-"
+      - name: Static build
+        run: bun run --cwd apps/docs build
+      - name: Self-hosting public URL and fallback contract
+        run: bun run scripts/check-docs-self-hosting-export.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: docs-out
+          path: apps/docs/out
+          retention-days: 1
+  demo: 
+    needs: changes
+    if: "needs.changes.outputs.product == 'true' && contains(fromJSON('[\"all\",\"demo\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: "No credential, outside address or machine name in the fixtures"
+        run: bun apps/web/scripts/demo-scan.ts
+      - name: Static build
+        run: bun run --cwd apps/web build:demo
+  ui-pack: 
+    needs: changes
+    if: "needs.changes.outputs.product == 'true' && contains(fromJSON('[\"all\",\"ui-pack\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with: 
+          node-version: 24
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with: 
+          path: ~/.npm
+          key: "ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ui-pack-smoke.ts') }}"
+          restore-keys: "ui-pack-npm-${{ runner.os }}-${{ runner.arch }}-"
+      - run: bun install --frozen-lockfile
+      - name: Build the package
+        run: bun run --cwd packages/ui build:package
+      - name: Files the tarball would carry
+        run: npm pack --dry-run ./packages/ui/dist
+      - name: "Install, type-check, build and render in an empty app"
+        run: "bun scripts/ui-pack-smoke.ts --screenshot \"$RUNNER_TEMP/ui-pack-button.png\""
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: ui-pack-button
+          path: "${{ runner.temp }}/ui-pack-button.png"
+          retention-days: 7
+  sdk-pack-smoke: 
+    needs: changes
+    if: "needs.changes.outputs.sdk_pack == 'true' && contains(fromJSON('[\"all\",\"sdk-pack-smoke\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with: 
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/sdk examples
+      - name: SDK_VERSION matches package.json
+        run: "version=$(node -p 'require(\"./packages/sdk/package.json\").version')\ngrep -qx \"export const SDK_VERSION = \\\"${version}\\\";\" packages/sdk/src/version.ts \\\n  || { echo \"::error::SDK_VERSION does not match packages/sdk/package.json\"; exit 1; }\n"
+      - run: bun run --cwd packages/sdk build:package
+      - name: The bundle reports the version it is published as
+        run: "version=$(node -p 'require(\"./packages/sdk/dist/package.json\").version')\ngrep -qF \"\\\"${version}\\\"\" packages/sdk/dist/index.js \\\n  || { echo \"::error::SDK bundle does not carry its package version\"; exit 1; }\n"
+      - name: "Install, type-check and run the sample in an empty project"
+        run: bun scripts/sdk-pack-smoke.ts
+  pages: 
+    needs: 
+      - docs
+      - storybook
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: docs-out
+          path: docs-out
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: storybook-dist
+          path: storybook-dist
+      - name: Pages site layout
+        run: scripts/pages-site.sh docs-out storybook-dist _site
+  workspace-quota: 
+    needs: changes
+    if: "!cancelled() && needs.changes.outputs.product == 'true' && contains(fromJSON(needs.changes.outputs.domains), 'docker') && contains(fromJSON('[\"all\",\"workspace-quota\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Project-quota filesystem
+        run: "command -v mkfs.xfs >/dev/null || {\n  sudo apt-get update && sudo apt-get install -y xfsprogs\n}\nsudo truncate -s 8G /xfs.img\nsudo mkfs.xfs -q /xfs.img\nsudo mkdir -p /mnt/xfs\nsudo mount -o loop,prjquota /xfs.img /mnt/xfs\n# Fail here rather than three steps later with a confusing 400.\nmount | grep -q 'on /mnt/xfs .*prjquota'\n"
+      - name: Daemon on that filesystem
+        run: "mkdir -p /tmp/apq\ndocker run -d --privileged --name apq \\\n  -e DOCKER_TLS_CERTDIR= \\\n  -v /mnt/xfs:/var/lib/docker \\\n  -v /tmp/apq:/sock \\\n  ghcr.io/jeongjaesoon/werft-ci/docker@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac \\\n  --host=unix:///sock/docker.sock\nfor _ in $(seq 1 60); do\n  docker exec apq docker version >/dev/null 2>&1 && break\n  sleep 2\ndone\nsudo chmod 666 /tmp/apq/docker.sock\ndocker exec apq docker info --format 'driver={{.Driver}} root={{.DockerRootDir}}'\n# Prove the capability before any test claims to have used it.\ndocker exec apq docker volume create --driver local --opt size=64m apq-probe\ndocker exec apq docker volume rm apq-probe\n"
+      - name: Inode helper image on that daemon
+        run: "printf '%s\\n' \\\n  \"FROM ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4\" \\\n  \"RUN apt-get update && apt-get install -y --no-install-recommends xfsprogs && rm -rf /var/lib/apt/lists/*\" \\\n  'VOLUME [\"/workspace\"]' \\\n  | docker exec -i apq docker build -q -t ap-inode-helper:ci -\n"
+      - name: Workspace suite against a quota-capable daemon
+        env: 
+          DOCKER_BACKEND_TEST: "1"
+          DOCKER_BACKEND_TEST_HELPER_IMAGE: ap-inode-helper:ci
+          DOCKER_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          DOCKER_HOST: unix:///tmp/apq/docker.sock
+          EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+        run: bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts packages/adapters/execution/local-docker/src/workspace-migration.integration.test.ts
+      - if: "!cancelled()"
+        name: Nothing pulled from Docker Hub
+        run: ".github/scripts/assert-no-docker-hub-images.sh docker\n.github/scripts/assert-no-docker-hub-images.sh env DOCKER_HOST=unix:///tmp/apq/docker.sock docker\n"
+      - if: always()
+        run: "docker logs apq 2>&1 | tail -40 || true\ndocker rm -f apq || true\n"
+  e2e: 
+    needs: changes
+    if: "!cancelled() && contains(fromJSON('[\"all\",\"e2e\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: 
+      - name: Validate product test plan
+        if: "!cancelled()"
+        env: 
+          PLAN: "${{ needs.changes.result }}"
+          PRODUCT: "${{ needs.changes.outputs.product }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+        run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$PRODUCT:$DOCS_ONLY\" in\n  true:false) echo \"e2e: product inputs changed; running the complete scenario\" ;;\n  false:true) echo \"e2e: documentation-only PR; product inputs unchanged\" ;;\n  *) echo \"::error::invalid product test plan\"; exit 1 ;;\nesac\n"
+      - if: "success() && !cancelled() && needs.changes.outputs.product == 'true'"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: "success() && !cancelled() && needs.changes.outputs.product == 'true'"
+        uses: ./.github/actions/bun-setup
+      - if: "success() && !cancelled() && needs.changes.outputs.product == 'true'"
+        run: bun install --frozen-lockfile
+      - if: "success() && !cancelled() && needs.changes.outputs.product == 'true'"
+        id: scenario
+        name: Alpha path against the compose stack
+        env: 
+          E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
+          E2E_OUT: "${{ runner.temp }}/e2e"
+        run: tests/e2e/run.sh
+      - if: "!cancelled() && needs.changes.outputs.product == 'true'"
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - if: "always() && needs.changes.outputs.product == 'true'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: e2e-record
+          path: "${{ runner.temp }}/e2e"
+          if-no-files-found: ignore
+          retention-days: 14
+      - id: verdict
+        name: Required scenario verdict
+        if: always() && !cancelled()
+        env: 
+          PLAN: "${{ needs.changes.result }}"
+          PRODUCT: "${{ needs.changes.outputs.product }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+          SCENARIO: "${{ steps.scenario.outcome }}"
+        run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$PRODUCT:$DOCS_ONLY:$SCENARIO\" in\n  true:false:success) echo \"e2e: scenario passed\" ;;\n  false:true:skipped) echo \"e2e: intentionally omitted for documentation-only inputs\" ;;\n  *) echo \"::error::required e2e scenario did not pass\"; exit 1 ;;\nesac\n"
+      - id: cancelled
+        if: cancelled()
+        run: "echo \"::error::workflow was cancelled\"\nexit 1\n"
+  quickstart: 
+    needs: changes
+    if: "!cancelled() && contains(fromJSON('[\"all\",\"quickstart\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: 
+      - name: Validate executable guide plan
+        if: "!cancelled()"
+        env: 
+          PLAN: "${{ needs.changes.result }}"
+          QUICKSTART: "${{ needs.changes.outputs.quickstart }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+        run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$QUICKSTART:$DOCS_ONLY\" in\n  true:true | true:false) echo \"quickstart: product or guide inputs changed; running both guides\" ;;\n  false:true) echo \"quickstart: documentation-only PR; executable guides unchanged\" ;;\n  false:false) echo \"quickstart: changed paths reach neither the images nor the guides\" ;;\n  *) echo \"::error::invalid executable guide plan\"; exit 1 ;;\nesac\n"
+      - if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'"
+        id: guide
+        name: docs/quickstart.md
+        env: 
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+          QUICKSTART_OUT: "${{ runner.temp }}/quickstart"
+        run: tests/e2e/quickstart.sh
+      - if: "success() && !cancelled() && needs.changes.outputs.quickstart == 'true'"
+        id: api-guide
+        name: reference/api-guide.mdx
+        env: 
+          COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
+          QUICKSTART_OUT: "${{ runner.temp }}/api-guide"
+        run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx
+      - if: "!cancelled() && needs.changes.outputs.quickstart == 'true'"
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - if: "always() && needs.changes.outputs.quickstart == 'true'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: quickstart-record
+          path: "${{ runner.temp }}/quickstart\n${{ runner.temp }}/api-guide\n"
+          if-no-files-found: ignore
+          retention-days: 14
+      - id: verdict
+        name: Required guide verdict
+        if: always() && !cancelled()
+        env: 
+          PLAN: "${{ needs.changes.result }}"
+          QUICKSTART: "${{ needs.changes.outputs.quickstart }}"
+          DOCS_ONLY: "${{ needs.changes.outputs.docs_only }}"
+          GUIDE: "${{ steps.guide.outcome }}"
+          API_GUIDE: "${{ steps.api-guide.outcome }}"
+        run: "[ \"$PLAN\" = success ] || exit 1\ncase \"$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE\" in\n  true:false:success:success | true:true:success:success) echo \"quickstart: both guides passed\" ;;\n  false:true:skipped:skipped | false:false:skipped:skipped) echo \"quickstart: intentionally omitted; executable guides unchanged\" ;;\n  *) echo \"::error::required executable guide did not pass\"; exit 1 ;;\nesac\n"
+      - id: cancelled
+        if: cancelled()
+        run: "echo \"::error::workflow was cancelled\"\nexit 1\n"
+  helm-chart: 
+    needs: changes
+    if: "needs.changes.outputs.helm == 'true' && contains(fromJSON('[\"all\",\"helm-chart\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env: 
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      K8S_SCHEMAS: "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/817113f21a2643311cbc3e992bb44ffe1c416c54/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
+      CRD_SCHEMAS: "https://raw.githubusercontent.com/datreeio/CRDs-catalog/63669a570e231d4f1f8396d229a1de512bcf0a34/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+        with: 
+          restore-cache: "false"
+      - name: helm and kubeconform
+        run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\nbun \"$GITHUB_WORKSPACE/scripts/fetch-pinned.ts\" \\\n  \"https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz\" \\\n  \"$KUBECONFORM_SHA256\" kubeconform.tgz \\\n  https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666\ntar -xzf kubeconform.tgz -C bin kubeconform\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"
+      - name: helm lint
+        run: "helm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml\nhelm lint --strict deploy/helm/werft -f deploy/helm/ci-digests.yaml \\\n  -f deploy/helm/werft/values-aws.example.yaml\n"
+      - name: Render check
+        run: bun deploy/helm/render-check.ts
+      - name: kubeconform
+        run: "set -o pipefail\nfor values in deploy/helm/ci-digests.yaml deploy/helm/werft/values-aws.example.yaml; do\n  echo \"== $values\"\n  helm template ap deploy/helm/werft -f deploy/helm/ci-digests.yaml -f \"$values\" \\\n    | kubeconform -strict -summary -kubernetes-version 1.33.0 \\\n        -schema-location \"$K8S_SCHEMAS\" -schema-location \"$CRD_SCHEMAS\"\ndone\n"
+  k8s-smoke: 
+    needs: changes
+    if: "needs.changes.outputs.k8s == 'true' && contains(fromJSON('[\"all\",\"k8s-smoke\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env: 
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      KIND_VERSION: v0.33.0
+      KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+      KUBECTL_VERSION: v1.37.0
+      KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: "kind, kubectl and helm"
+        run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo bin/kind \"https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64\"\necho \"${KIND_SHA256}  bin/kind\" | sha256sum -c -\ncurl -fsSLo bin/kubectl \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"\necho \"${KUBECTL_SHA256}  bin/kubectl\" | sha256sum -c -\nchmod +x bin/kind bin/kubectl\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"
+      - name: deploy/kind/smoke.sh
+        env: 
+          CLUSTER_NAME: k8s-smoke
+          STATE_DIR: "${{ runner.temp }}/kind"
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+          BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+          PROBE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+          K8S_BACKEND_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+        run: "KIND_IMAGE_MIRROR=\"${BUN_IMAGE%/*}\" deploy/kind/smoke.sh"
+      - if: "!cancelled()"
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+  agent-sdk-compat: 
+    needs: 
+      - changes
+      - static
+    permissions: 
+      contents: read
+      issues: write
+    if: "!cancelled() && needs.static.result != 'failure' && needs.changes.outputs.product == 'true' && github.event_name != 'pull_request' && contains(fromJSON('[\"all\",\"agent-sdk-compat\"]'), github.event.inputs.only || 'all')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+        with: 
+          cache-scope: agent-sdk-compat
+          save-cache: "true"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: 
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+      - run: bun install --frozen-lockfile
+      - run: bun install --cwd scripts/agent-sdk-compat --frozen-lockfile
+      - run: "uv tool install 'litellm[proxy]==1.100.1'"
+      - run: bun run --cwd scripts/agent-sdk-compat probe:version
+      - id: harness
+        name: agent-sdk-compat check
+        run: bun run --cwd scripts/agent-sdk-compat check
+      - if: "!cancelled()"
+        name: Report harness outcome
+        env: 
+          HARNESS: "${{ steps.harness.outcome }}"
+        run: "{\n  echo \"### agent-sdk-compat (non-blocking)\"\n  echo\n  echo \"| suite | outcome |\"\n  echo \"| --- | --- |\"\n  echo \"| scripts/agent-sdk-compat | ${HARNESS} |\"\n  echo\n  echo \"This job never fails the run. A \\`failure\\` above still needs a look.\"\n} >>\"$GITHUB_STEP_SUMMARY\"\n"
+      - if: "!cancelled() && steps.harness.outcome != 'success'"
+        name: Open or update the agent-sdk-compat failure issue
+        env: 
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+          HARNESS: "${{ steps.harness.outcome }}"
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: "{\n  echo \"<!-- ci-agent-sdk-compat-failure -->\"\n  echo \"\\`agent-sdk-compat\\` failed on \\`${GITHUB_REF_NAME}\\` @ \\`${GITHUB_SHA}\\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL})).\"\n  echo\n  echo \"| suite | outcome |\"\n  echo \"| --- | --- |\"\n  echo \"| scripts/agent-sdk-compat | ${HARNESS} |\"\n  echo\n  echo \"The run itself is green (\\`continue-on-error\\`). Close this issue once the failure is understood; the next failure reopens a new one.\"\n} >body.md\n.github/scripts/upsert-ci-issue.sh ci-agent-sdk-compat-failure \\\n  \"CI: agent-sdk-compat failed (non-blocking job)\" body.md\n"

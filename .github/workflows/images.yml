@@ -1,1 +1,724 @@
-{name: Images,"on": {push: {branches: [main],tags: [v*]},schedule: [{cron: 17 3 * * *}],workflow_dispatch: null},permissions: {contents: read},concurrency: {group: "images-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha) || github.ref }}",cancel-in-progress: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}"},env: {REGISTRY: ghcr.io,IMAGE_PREFIX: "${{ github.repository_owner }}/werft",BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4,BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/werft-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8,DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e,HELM_VERSION: v4.3.0,HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb,KIND_VERSION: v0.33.0,KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d,KUBECTL_VERSION: v1.37.0,KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f},jobs: {plan: {runs-on: ubuntu-24.04-arm,timeout-minutes: 3,outputs: {images: "${{ steps.images.outputs.images }}"},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {fetch-depth: 2}},{id: plan,env: {BASE_SHA: "${{ github.event.pull_request.base.sha }}",BASE_REF: "${{ github.event.pull_request.base.ref }}",BEFORE_SHA: "${{ github.event.before }}"},run: bash .github/scripts/ci-plan.sh},{id: images,env: {DOCS_ONLY: "${{ steps.plan.outputs.docs_only }}"},run: "case \"$DOCS_ONLY\" in\n  true) echo \"images=skip\" >>\"$GITHUB_OUTPUT\" ;;\n  false) echo \"images=build\" >>\"$GITHUB_OUTPUT\" ;;\n  *) echo \"::error::ci-plan.sh gave no docs_only value\" >&2; exit 1 ;;\nesac\n"}]},build: {needs: plan,if: "needs.plan.outputs.images == 'build'",runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}",timeout-minutes: 30,strategy: {fail-fast: false,matrix: &matrix {app: [control-host,worker,egress-proxy],arch: "${{ github.event_name == 'pull_request' && fromJSON('[\"amd64\"]') || fromJSON('[\"amd64\",\"arm64\"]') }}"}},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069,with: {driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"}},{id: meta,name: Image name and tags,env: {APP: "${{ matrix.app }}",PREFIX: "${{ env.IMAGE_PREFIX }}"},run: "name=\"${REGISTRY}/$(echo \"$PREFIX\" | tr '[:upper:]' '[:lower:]')-${APP}\"\necho \"name=${name}\" >>\"$GITHUB_OUTPUT\"\necho \"tags=${name}:sha-${GITHUB_SHA::12}\" >>\"$GITHUB_OUTPUT\"\n# The Dockerfiles' APT_UPGRADE_KEY: a new day misses the\n# cached `apt-get upgrade` layer, so the daily run scans that day's\n# Debian fixes rather than the first build's.\necho \"apt-upgrade-key=$(date -u +%F)\" >>\"$GITHUB_OUTPUT\"\n"},{id: build,uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc,with: {context: ".",file: "apps/${{ matrix.app }}/Dockerfile",target: release,platforms: "linux/${{ matrix.arch }}",tags: "${{ steps.meta.outputs.tags }}",load: true,push: false,provenance: false,cache-from: "type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}",cache-to: "${{ github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || '' }}",build-args: "BUN_IMAGE=${{ env.BUN_IMAGE }}\nBUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}\nAPT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}\n"}},{name: Smoke,env: {APP: "${{ matrix.app }}",NAME: "${{ steps.meta.outputs.name }}"},run: ".github/scripts/image-smoke.sh \"$APP\" \"${NAME}:sha-${GITHUB_SHA::12}\""},{name: Licenses of what the image ships,env: {APP: "${{ matrix.app }}",NAME: "${{ steps.meta.outputs.name }}"},run: ".github/scripts/image-licenses.sh \"$APP\" \"${NAME}:sha-${GITHUB_SHA::12}\""},{name: Vulnerability scan,timeout-minutes: 10,env: {APP: "${{ matrix.app }}",ARCH: "${{ matrix.arch }}",NAME: "${{ steps.meta.outputs.name }}"},run: ".github/scripts/image-scan.sh \"${APP}-${ARCH}\" \"${NAME}:sha-${GITHUB_SHA::12}\" vulnerabilities"},{if: always(),uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}",path: "vulnerabilities/${{ matrix.app }}-${{ matrix.arch }}.*",if-no-files-found: ignore}},{name: Record digests,env: {APP: "${{ matrix.app }}",ARCH: "${{ matrix.arch }}",NAME: "${{ steps.meta.outputs.name }}",PUSHED: "false",DIGEST: "${{ steps.build.outputs.digest }}",IMAGE_ID: "${{ steps.build.outputs.imageid }}"},run: "base=\"$(sed -n 's/^ARG BUN_IMAGE=//p' \"apps/${APP}/Dockerfile\")\"\nruntime=null\nif [ \"$APP\" = worker ]; then\n  runtime=\"$(docker run --rm -i --network none --entrypoint bun \\\n    \"${NAME}:sha-${GITHUB_SHA::12}\" run apps/worker/src/image-runtime.ts \\\n    <<<'{}' | jq -c 'del(.profiles)')\"\nfi\nmkdir -p digests\njq -n \\\n  --arg app \"$APP\" --arg arch \"$ARCH\" --arg name \"$NAME\" --arg base \"$base\" \\\n  --arg digest \"$DIGEST\" --arg imageId \"$IMAGE_ID\" \\\n  --arg sha \"$GITHUB_SHA\" --arg ref \"$GITHUB_REF\" \\\n  --argjson pushed \"$PUSHED\" --argjson runtime \"$runtime\" \\\n  '{app: $app, arch: $arch, image: $name, base: $base, pushed: $pushed,\n    digest: (if $digest == \"\" then null else $digest end),\n    imageId: $imageId, commit: $sha, ref: $ref, runtime: $runtime}' \\\n  | tee \"digests/${APP}-${ARCH}.json\"\n{\n  echo \"### ${APP} (${ARCH})\"\n  echo\n  echo '```json'\n  cat \"digests/${APP}-${ARCH}.json\"\n  echo '```'\n} >>\"$GITHUB_STEP_SUMMARY\"\n"},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "image-digest-${{ matrix.app }}-${{ matrix.arch }}",path: "digests/${{ matrix.app }}-${{ matrix.arch }}.json",if-no-files-found: error}}]},supply-chain: {needs: [plan,build],if: always(),runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup,with: {restore-cache: "false"}},{if: "needs.plan.outputs.images == 'build'",uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {pattern: vulnerabilities-*,path: vulnerabilities,merge-multiple: true},continue-on-error: true},{name: bun audit,continue-on-error: true,env: {GH_TOKEN: "${{ github.token }}"},run: bun .github/scripts/npm-audit.ts vulnerabilities},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: supply-chain-results,path: vulnerabilities/,if-no-files-found: ignore}},{name: Verdict (fails on a fixable high or critical),env: {NO_VERDICT: "${{ contains(fromJSON('[\"pull_request\",\"push\"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && 'warn' || 'fail' }}",IMAGES_PLAN: "${{ needs.plan.outputs.images }}",IMAGES_PLAN_RESULT: "${{ needs.plan.result }}",IMAGES_BUILD_RESULT: "${{ needs.build.result }}",SCAN_SCOPE: "${{ needs.plan.outputs.images == 'skip' && 'dependencies' || (github.event_name == 'pull_request' && 'amd64' || 'all') }}"},run: ".github/scripts/supply-chain-verdict.sh vulnerabilities \"$NO_VERDICT\" \"$SCAN_SCOPE\""}]},publish: {needs: [build,supply-chain],if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}",timeout-minutes: 20,environment: release,permissions: {contents: read,packages: write},strategy: {fail-fast: false,matrix: *matrix},steps: &steps [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {fetch-depth: 0}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: supply-chain-results,path: supply-chain-results}},{name: Every scan answered,run: .github/scripts/supply-chain-verdict.sh supply-chain-results fail},{name: Commit must be on main,run: "git fetch --no-tags origin main\nif ! git merge-base --is-ancestor \"$GITHUB_SHA\" origin/main; then\n  echo \"::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main\"\n  exit 1\nfi\n"},{uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069,with: {driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"}},{id: meta,env: {APP: "${{ matrix.app }}",ARCH: "${{ matrix.arch }}",PREFIX: "${{ env.IMAGE_PREFIX }}"},run: "name=\"${REGISTRY}/$(echo \"$PREFIX\" | tr '[:upper:]' '[:lower:]')-${APP}\"\necho \"name=${name}\" >>\"$GITHUB_OUTPUT\"\necho \"staging=${name}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}\" >>\"$GITHUB_OUTPUT\"\necho \"apt-upgrade-key=$(date -u +%F)\" >>\"$GITHUB_OUTPUT\"\n"},{uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f,with: {registry: "${{ env.REGISTRY }}",username: "${{ github.actor }}",password: "${{ secrets.GITHUB_TOKEN }}"}},{id: push,uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc,with: {context: ".",file: "apps/${{ matrix.app }}/Dockerfile",target: release,platforms: "linux/${{ matrix.arch }}",tags: "${{ steps.meta.outputs.staging }}",push: true,provenance: false,cache-from: "type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}",build-args: "BUN_IMAGE=${{ env.BUN_IMAGE }}\nBUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}\nAPT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}\n"}},{name: Smoke the pushed digest,env: {APP: "${{ matrix.app }}",NAME: "${{ steps.meta.outputs.name }}",DIGEST: "${{ steps.push.outputs.digest }}"},run: "docker pull \"${NAME}@${DIGEST}\"\n.github/scripts/image-smoke.sh \"$APP\" \"${NAME}@${DIGEST}\"\n"},{name: Licenses and vulnerabilities of the pushed digest,timeout-minutes: 10,env: {APP: "${{ matrix.app }}",ARCH: "${{ matrix.arch }}",NAME: "${{ steps.meta.outputs.name }}",DIGEST: "${{ steps.push.outputs.digest }}"},run: ".github/scripts/image-licenses.sh \"$APP\" \"${NAME}@${DIGEST}\"\n.github/scripts/image-scan.sh \"${APP}-${ARCH}\" \"${NAME}@${DIGEST}\" vulnerabilities\nresult=\"$(cat \"vulnerabilities/${APP}-${ARCH}.txt\")\"\nif [ \"$result\" != clean ]; then\n  echo \"::error::${APP}-${ARCH}@${DIGEST}: ${result#found } high or critical with a fix available\"\n  exit 1\nfi\n"},{name: Record staged digest,env: {APP: "${{ matrix.app }}",ARCH: "${{ matrix.arch }}",NAME: "${{ steps.meta.outputs.name }}",DIGEST: "${{ steps.push.outputs.digest }}",IMAGE_ID: "${{ steps.push.outputs.imageid }}"},run: "base=\"$(sed -n 's/^ARG BUN_IMAGE=//p' \"apps/${APP}/Dockerfile\")\"\nruntime=null\nif [ \"$APP\" = worker ]; then\n  runtime=\"$(docker run --rm -i --network none --entrypoint bun \\\n    \"${NAME}@${DIGEST}\" run apps/worker/src/image-runtime.ts \\\n    <<<'{}' | jq -c 'del(.profiles)')\"\nfi\nmkdir -p arch-staged debian-sources\ndocker run --rm --entrypoint cat \"${NAME}@${DIGEST}\" /app/DEBIAN_SOURCES.md \\\n  >\"debian-sources/${APP}-${ARCH}.md\"\njq -n \\\n  --arg app \"$APP\" --arg arch \"$ARCH\" --arg name \"$NAME\" --arg base \"$base\" \\\n  --arg digest \"$DIGEST\" --arg imageId \"$IMAGE_ID\" \\\n  --arg sha \"$GITHUB_SHA\" --arg ref \"$GITHUB_REF\" \\\n  --argjson runtime \"$runtime\" \\\n  '{app: $app, arch: $arch, image: $name, base: $base, pushed: true,\n    promoted: false, digest: $digest, imageId: $imageId, commit: $sha,\n    ref: $ref, runtime: $runtime}' \\\n  | tee \"arch-staged/${APP}-${ARCH}.json\"\n"},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "arch-digest-${{ matrix.app }}-${{ matrix.arch }}",path: "arch-staged/${{ matrix.app }}-${{ matrix.arch }}.json",if-no-files-found: error}},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "debian-sources-${{ matrix.app }}-${{ matrix.arch }}",path: "debian-sources/${{ matrix.app }}-${{ matrix.arch }}.md",if-no-files-found: error}}]},sources: {needs: publish,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",runs-on: ubuntu-24.04,timeout-minutes: 40,steps: &steps1 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {pattern: debian-sources-*,path: debian-sources,merge-multiple: true}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,if: github.run_attempt > 1,continue-on-error: true,with: {pattern: "held-sources-${{ github.job }}-*",path: held-sources-prior}},{name: snapshot.debian.org holds what the images list,env: {SOURCES_MODE: "${{ env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release' }}"},run: ".github/scripts/image-sources.sh debian-sources unverified-sources \"$SOURCES_MODE\" held-sources-prior held-sources"},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,if: always(),with: {name: "held-sources-${{ github.job }}-${{ github.run_attempt }}",path: held-sources/held.txt,if-no-files-found: ignore}},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "unverified-sources${{ env.ARTIFACT_SUFFIX }}",path: unverified-sources/*.json,if-no-files-found: error}}]},index: {needs: sources,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: &steps2 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {pattern: arch-digest-*,path: arch-staged,merge-multiple: true}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: unverified-sources,path: unverified-sources}},{uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069,with: {driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"}},{uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f,with: {registry: "${{ env.REGISTRY }}",username: "${{ github.actor }}",password: "${{ secrets.GITHUB_TOKEN }}"}},{name: "Join each image's two digests",run: .github/scripts/image-index.sh arch-staged unverified-sources staged},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: staged-digests,path: staged/*.json,if-no-files-found: error}}]},promote: {needs: index,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",concurrency: {group: images-promote,cancel-in-progress: false},runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: &steps3 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: staged-digests,path: staged}},{uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069,with: {driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"}},{uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f,with: {registry: "${{ env.REGISTRY }}",username: "${{ github.actor }}",password: "${{ secrets.GITHUB_TOKEN }}"}},{name: Promote staged digests,run: .github/scripts/image-promote.sh staged digests},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: image-digests-published,path: digests/*.json,if-no-files-found: error}}]},publish-main: {needs: [build,supply-chain],if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}",timeout-minutes: 20,permissions: {contents: read,packages: write},strategy: {fail-fast: false,matrix: *matrix},steps: *steps},sources-main: {needs: publish-main,if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 15,steps: *steps1},index-main: {needs: sources-main,if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: *steps2},promote-main: {needs: index-main,if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: *steps3},chart: {needs: promote,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",runs-on: ubuntu-24.04,timeout-minutes: 30,steps: &steps4 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: ./.github/actions/bun-setup},&item0 {name: helm,run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"},{name: kind and kubectl,run: "cd \"$RUNNER_TEMP\"\ncurl -fsSLo bin/kind \"https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64\"\necho \"${KIND_SHA256}  bin/kind\" | sha256sum -c -\ncurl -fsSLo bin/kubectl \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"\necho \"${KUBECTL_SHA256}  bin/kubectl\" | sha256sum -c -\nchmod +x bin/kind bin/kubectl\n"},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: "image-digests-published${{ env.ARTIFACT_SUFFIX }}",path: published}},{name: "Package the chart with this run's images",run: bun .github/scripts/chart-package.ts published chart-out},{name: Every image reads without a login,run: "for file in published/*.json; do\n  for ref in $(jq -r '.image as $name | .digest, .platforms[].digest | \"\\($name)@\\(.)\"' \"$file\"); do\n    docker manifest inspect \"$ref\" >/dev/null\n    echo \"read ${ref}\"\n  done\ndone\n"},{name: Install the package on kind,env: {CLUSTER_NAME: chart-check,STATE_DIR: "${{ runner.temp }}/kind",KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5,REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373},run: "CHART_PACKAGE=\"$(ls \"$PWD\"/chart-out/werft-*.tgz)\" KIND_IMAGE_MIRROR=\"${BUN_IMAGE%/*}\" deploy/kind/up.sh\n"},{if: failure(),name: Why the install stopped,env: {KUBECONFIG: "${{ runner.temp }}/kind/kubeconfig"},run: "kubectl -n werft get jobs,deploy,pods -o wide || true\nkubectl -n werft get events --sort-by=.lastTimestamp || true\n"},{if: "!cancelled()",name: Nothing pulled from Docker Hub,run: .github/scripts/assert-no-docker-hub-images.sh docker},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: "chart${{ env.ARTIFACT_SUFFIX }}",path: chart-out/,if-no-files-found: error}}]},chart-main: {needs: promote-main,if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 30,steps: *steps4},chart-publish: {needs: chart,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: &steps5 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},*item0,{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: "chart${{ env.ARTIFACT_SUFFIX }}",path: chart-out}},{name: Push the chart and read it back without a login,env: {REGISTRY_TOKEN: "${{ secrets.GITHUB_TOKEN }}",OWNER: "${{ github.repository_owner }}"},run: ".github/scripts/chart-push.sh chart-out/werft-*.tgz \\\n  \"${REGISTRY}/$(echo \"$OWNER\" | tr '[:upper:]' '[:lower:]')\"\n"}]},test-ops-bundle: {needs: plan,if: "needs.plan.outputs.images == 'build'",runs-on: ubuntu-24.04,timeout-minutes: 10,steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {persist-credentials: false}},{name: Build the bundle twice,run: "fixture=tests/fixtures/test-ops-release-manifest.json\ntag=\"$(jq -r .tag \"$fixture\")\"\n.github/scripts/test-ops-bundle.sh \"$tag\" \"$fixture\" bundle-a\n.github/scripts/test-ops-bundle.sh \"$tag\" \"$fixture\" bundle-b\ncmp \"bundle-a/werft-test-ops-${tag}.tar.gz\" \"bundle-b/werft-test-ops-${tag}.tar.gz\"\ntar -tzf \"bundle-a/werft-test-ops-${tag}.tar.gz\"\n"},{name: "Run the bundle's scripts without a checkout",run: "tag=\"$(jq -r .tag tests/fixtures/test-ops-release-manifest.json)\"\ntar -xzf \"bundle-a/werft-test-ops-${tag}.tar.gz\" -C \"$RUNNER_TEMP\"\ncd \"$RUNNER_TEMP/werft-test-ops-${tag}\"\nsha256sum -c --quiet SHA256SUMS\nbash scripts/test-ops.sh manifest release-manifest.json infra/test-ops.env.example | jq -e '.images.control_host'\nif bash scripts/test-ops.sh upgrade release-manifest.json; then echo \"upgrade must be refused in a bundle\" >&2; exit 1; fi\n"}]},release: {needs: chart-publish,if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",concurrency: {group: images-release,cancel-in-progress: false},runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: write},steps: &steps6 [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {persist-credentials: false}},{uses: ./.github/actions/bun-setup},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: "image-digests-published${{ env.ARTIFACT_SUFFIX }}",path: published}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: "chart${{ env.ARTIFACT_SUFFIX }}",path: chart-out}},{name: Write the manifest,run: bun .github/scripts/release-manifest.ts published chart-out release-manifest.json},{name: Build the single-server bundle,run: "ref=\"${RELEASE_REF:-$GITHUB_REF}\"\n.github/scripts/test-ops-bundle.sh \"${ref#refs/tags/}\" release-manifest.json bundle-out\n"},{name: Publish the release,env: {GH_TOKEN: "${{ github.token }}",GH_REPO: "${{ github.repository }}"},run: "ref=\"${RELEASE_REF:-$GITHUB_REF}\"\ntag=\"${ref#refs/tags/}\"\n.github/scripts/release-publish.sh \"$tag\" release-manifest.json \\\n  \"bundle-out/werft-test-ops-${tag}.tar.gz\" \\\n  \"bundle-out/werft-test-ops-${tag}.tar.gz.sha256\"\n"},{name: Show the manifest,run: "{\n  echo '```json'\n  cat release-manifest.json\n  echo '```'\n} >>\"$GITHUB_STEP_SUMMARY\"\n"}]},chart-publish-main: {needs: chart-main,if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},steps: *steps5},release-detect: {if: "github.event_name == 'push' && github.ref == 'refs/heads/main'",runs-on: ubuntu-24.04,timeout-minutes: 5,outputs: {tag: "${{ steps.detect.outputs.tag }}"},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {fetch-depth: 0,persist-credentials: false}},{id: detect,env: {BEFORE: "${{ github.event.before }}",AFTER: "${{ github.sha }}",GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}"},run: .github/scripts/release-auto.sh detect}]},release-gate: {needs: [release-detect,chart-publish-main],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 100,permissions: {contents: read,actions: read},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {persist-credentials: false}},{name: ci.yml is green on this commit,env: {GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}"},run: .github/scripts/release-auto.sh ci},{name: The version is still free,env: {TAG: "${{ needs.release-detect.outputs.tag }}",GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}"},run: .github/scripts/release-auto.sh free}]},sources-release: {needs: [release-detect,publish-main],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 40,env: {RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}",ARTIFACT_SUFFIX: "-release"},steps: *steps1},release-approve: {needs: [release-detect,release-gate,sources-release],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 5,environment: release,steps: [{name: Approved,env: {TAG: "${{ needs.release-detect.outputs.tag }}"},run: "echo \"release ${TAG} of ${GITHUB_SHA} is approved; no tag exists yet\""}]},promote-release: {needs: [release-detect,release-approve,index-main],if: "needs.release-detect.outputs.tag != ''",concurrency: {group: images-promote,cancel-in-progress: false},runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},env: {RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}"},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {persist-credentials: false}},{name: The version is still free,env: {TAG: "${{ needs.release-detect.outputs.tag }}",GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}"},run: .github/scripts/release-auto.sh free},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: staged-digests,path: staged-main}},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: unverified-sources-release,path: unverified-release}},{name: "Stage main's digests as the release's",run: .github/scripts/release-stage.sh staged-main unverified-release staged},{uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069,with: {driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"}},{uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f,with: {registry: "${{ env.REGISTRY }}",username: "${{ github.actor }}",password: "${{ secrets.GITHUB_TOKEN }}"}},{name: Promote the staged digests under the release tag,run: .github/scripts/image-promote.sh staged digests},{uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a,with: {name: image-digests-published-release,path: digests/*.json,if-no-files-found: error}}]},chart-release: {needs: [release-detect,promote-release],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 30,env: {RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}",ARTIFACT_SUFFIX: "-release"},steps: *steps4},chart-publish-release: {needs: [release-detect,chart-release],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: read,packages: write},env: {ARTIFACT_SUFFIX: "-release"},steps: *steps5},release-tag: {needs: [release-detect,chart-publish-release],if: "needs.release-detect.outputs.tag != ''",runs-on: ubuntu-24.04,timeout-minutes: 5,permissions: {contents: write},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1,with: {persist-credentials: false}},{name: Annotated tag at the approved commit,env: {TAG: "${{ needs.release-detect.outputs.tag }}",GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}"},run: .github/scripts/release-auto.sh tag}]},release-publish: {needs: [release-detect,release-tag],if: "needs.release-detect.outputs.tag != ''",concurrency: {group: images-release,cancel-in-progress: false},runs-on: ubuntu-24.04,timeout-minutes: 10,permissions: {contents: write},env: {RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}",ARTIFACT_SUFFIX: "-release"},steps: *steps6},vulnerability-report: {needs: [build,supply-chain],if: "always() && contains(fromJSON('[\"schedule\",\"workflow_dispatch\"]'), github.event_name) && needs.supply-chain.result != 'success'",runs-on: ubuntu-24.04,timeout-minutes: 5,permissions: {contents: read,issues: write},steps: [{uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1},{uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c,with: {name: supply-chain-results,path: vulnerabilities},continue-on-error: true},{env: {GH_REPO: "${{ github.repository }}",GH_TOKEN: "${{ github.token }}",RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"},run: "{\n  echo \"<!-- ci-supply-chain -->\"\n  echo \"The daily supply-chain check on \\`${GITHUB_SHA}\\` ([run ${GITHUB_RUN_ID}](${RUN_URL})) found high or critical vulnerabilities with a fix available, or could not scan.\"\n  echo\n  echo \"| scan | result |\"\n  echo \"| --- | --- |\"\n  for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do\n    echo \"| ${scan} | $(cat \"vulnerabilities/${scan}.txt\" 2>/dev/null || echo \"no result\") |\"\n  done\n  echo\n  echo \"Each finding is in the run summary and the \\`supply-chain-results\\` artifact. Update the package or base image, or record an exception with its reason and expiry in \\`.github/vulnerability-exceptions.json\\` (site page run-server/self-hosting/operate/images-and-supply-chain § 공급망 취약점 정책). Until then every pull request's \\`supply-chain\\` check fails too. Close this issue once handled; the next finding opens a new one.\"\n} >body.md\n.github/scripts/upsert-ci-issue.sh ci-supply-chain \\\n  \"Supply chain: fixable high or critical vulnerabilities\" body.md\n"}]}}}
+name: Images
+"on": 
+  push: 
+    branches: 
+      - main
+    tags: 
+      - v*
+  schedule: 
+    - cron: 17 3 * * *
+  workflow_dispatch: null
+permissions: 
+  contents: read
+concurrency: 
+  group: "images-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha) || github.ref }}"
+  cancel-in-progress: "${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+env: 
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: "${{ github.repository_owner }}/werft"
+  BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+  BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/werft-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+  DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+  HELM_VERSION: v4.3.0
+  HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  KUBECTL_VERSION: v1.37.0
+  KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+jobs: 
+  plan: 
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 3
+    outputs: 
+      images: "${{ steps.images.outputs.images }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          fetch-depth: 2
+      - id: plan
+        env: 
+          BASE_SHA: "${{ github.event.pull_request.base.sha }}"
+          BASE_REF: "${{ github.event.pull_request.base.ref }}"
+          BEFORE_SHA: "${{ github.event.before }}"
+        run: bash .github/scripts/ci-plan.sh
+      - id: images
+        env: 
+          DOCS_ONLY: "${{ steps.plan.outputs.docs_only }}"
+        run: "case \"$DOCS_ONLY\" in\n  true) echo \"images=skip\" >>\"$GITHUB_OUTPUT\" ;;\n  false) echo \"images=build\" >>\"$GITHUB_OUTPUT\" ;;\n  *) echo \"::error::ci-plan.sh gave no docs_only value\" >&2; exit 1 ;;\nesac\n"
+  build: 
+    needs: plan
+    if: "needs.plan.outputs.images == 'build'"
+    runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
+    timeout-minutes: 30
+    strategy: 
+      fail-fast: false
+      matrix: 
+        &matrix
+        app: 
+          - control-host
+          - worker
+          - egress-proxy
+        arch: "${{ github.event_name == 'pull_request' && fromJSON('[\"amd64\"]') || fromJSON('[\"amd64\",\"arm64\"]') }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with: 
+          driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"
+      - id: meta
+        name: Image name and tags
+        env: 
+          APP: "${{ matrix.app }}"
+          PREFIX: "${{ env.IMAGE_PREFIX }}"
+        run: "name=\"${REGISTRY}/$(echo \"$PREFIX\" | tr '[:upper:]' '[:lower:]')-${APP}\"\necho \"name=${name}\" >>\"$GITHUB_OUTPUT\"\necho \"tags=${name}:sha-${GITHUB_SHA::12}\" >>\"$GITHUB_OUTPUT\"\n# The Dockerfiles' APT_UPGRADE_KEY: a new day misses the\n# cached `apt-get upgrade` layer, so the daily run scans that day's\n# Debian fixes rather than the first build's.\necho \"apt-upgrade-key=$(date -u +%F)\" >>\"$GITHUB_OUTPUT\"\n"
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with: 
+          context: "."
+          file: "apps/${{ matrix.app }}/Dockerfile"
+          target: release
+          platforms: "linux/${{ matrix.arch }}"
+          tags: "${{ steps.meta.outputs.tags }}"
+          load: true
+          push: false
+          provenance: false
+          cache-from: "type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}"
+          cache-to: "${{ github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || '' }}"
+          build-args: "BUN_IMAGE=${{ env.BUN_IMAGE }}\nBUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}\nAPT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}\n"
+      - name: Smoke
+        env: 
+          APP: "${{ matrix.app }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+        run: ".github/scripts/image-smoke.sh \"$APP\" \"${NAME}:sha-${GITHUB_SHA::12}\""
+      - name: Licenses of what the image ships
+        env: 
+          APP: "${{ matrix.app }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+        run: ".github/scripts/image-licenses.sh \"$APP\" \"${NAME}:sha-${GITHUB_SHA::12}\""
+      - name: Vulnerability scan
+        timeout-minutes: 10
+        env: 
+          APP: "${{ matrix.app }}"
+          ARCH: "${{ matrix.arch }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+        run: ".github/scripts/image-scan.sh \"${APP}-${ARCH}\" \"${NAME}:sha-${GITHUB_SHA::12}\" vulnerabilities"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}"
+          path: "vulnerabilities/${{ matrix.app }}-${{ matrix.arch }}.*"
+          if-no-files-found: ignore
+      - name: Record digests
+        env: 
+          APP: "${{ matrix.app }}"
+          ARCH: "${{ matrix.arch }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+          PUSHED: "false"
+          DIGEST: "${{ steps.build.outputs.digest }}"
+          IMAGE_ID: "${{ steps.build.outputs.imageid }}"
+        run: "base=\"$(sed -n 's/^ARG BUN_IMAGE=//p' \"apps/${APP}/Dockerfile\")\"\nruntime=null\nif [ \"$APP\" = worker ]; then\n  runtime=\"$(docker run --rm -i --network none --entrypoint bun \\\n    \"${NAME}:sha-${GITHUB_SHA::12}\" run apps/worker/src/image-runtime.ts \\\n    <<<'{}' | jq -c 'del(.profiles)')\"\nfi\nmkdir -p digests\njq -n \\\n  --arg app \"$APP\" --arg arch \"$ARCH\" --arg name \"$NAME\" --arg base \"$base\" \\\n  --arg digest \"$DIGEST\" --arg imageId \"$IMAGE_ID\" \\\n  --arg sha \"$GITHUB_SHA\" --arg ref \"$GITHUB_REF\" \\\n  --argjson pushed \"$PUSHED\" --argjson runtime \"$runtime\" \\\n  '{app: $app, arch: $arch, image: $name, base: $base, pushed: $pushed,\n    digest: (if $digest == \"\" then null else $digest end),\n    imageId: $imageId, commit: $sha, ref: $ref, runtime: $runtime}' \\\n  | tee \"digests/${APP}-${ARCH}.json\"\n{\n  echo \"### ${APP} (${ARCH})\"\n  echo\n  echo '```json'\n  cat \"digests/${APP}-${ARCH}.json\"\n  echo '```'\n} >>\"$GITHUB_STEP_SUMMARY\"\n"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "image-digest-${{ matrix.app }}-${{ matrix.arch }}"
+          path: "digests/${{ matrix.app }}-${{ matrix.arch }}.json"
+          if-no-files-found: error
+  supply-chain: 
+    needs: 
+      - plan
+      - build
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+        with: 
+          restore-cache: "false"
+      - if: "needs.plan.outputs.images == 'build'"
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          pattern: vulnerabilities-*
+          path: vulnerabilities
+          merge-multiple: true
+        continue-on-error: true
+      - name: bun audit
+        continue-on-error: true
+        env: 
+          GH_TOKEN: "${{ github.token }}"
+        run: bun .github/scripts/npm-audit.ts vulnerabilities
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: supply-chain-results
+          path: vulnerabilities/
+          if-no-files-found: ignore
+      - name: Verdict (fails on a fixable high or critical)
+        env: 
+          NO_VERDICT: "${{ contains(fromJSON('[\"pull_request\",\"push\"]'), github.event_name) && !startsWith(github.ref, 'refs/tags/') && 'warn' || 'fail' }}"
+          IMAGES_PLAN: "${{ needs.plan.outputs.images }}"
+          IMAGES_PLAN_RESULT: "${{ needs.plan.result }}"
+          IMAGES_BUILD_RESULT: "${{ needs.build.result }}"
+          SCAN_SCOPE: "${{ needs.plan.outputs.images == 'skip' && 'dependencies' || (github.event_name == 'pull_request' && 'amd64' || 'all') }}"
+        run: ".github/scripts/supply-chain-verdict.sh vulnerabilities \"$NO_VERDICT\" \"$SCAN_SCOPE\""
+  publish: 
+    needs: 
+      - build
+      - supply-chain
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
+    timeout-minutes: 20
+    environment: release
+    permissions: 
+      contents: read
+      packages: write
+    strategy: 
+      fail-fast: false
+      matrix: 
+        *matrix
+    steps: 
+      &steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: supply-chain-results
+          path: supply-chain-results
+      - name: Every scan answered
+        run: .github/scripts/supply-chain-verdict.sh supply-chain-results fail
+      - name: Commit must be on main
+        run: "git fetch --no-tags origin main\nif ! git merge-base --is-ancestor \"$GITHUB_SHA\" origin/main; then\n  echo \"::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main\"\n  exit 1\nfi\n"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with: 
+          driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"
+      - id: meta
+        env: 
+          APP: "${{ matrix.app }}"
+          ARCH: "${{ matrix.arch }}"
+          PREFIX: "${{ env.IMAGE_PREFIX }}"
+        run: "name=\"${REGISTRY}/$(echo \"$PREFIX\" | tr '[:upper:]' '[:lower:]')-${APP}\"\necho \"name=${name}\" >>\"$GITHUB_OUTPUT\"\necho \"staging=${name}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}\" >>\"$GITHUB_OUTPUT\"\necho \"apt-upgrade-key=$(date -u +%F)\" >>\"$GITHUB_OUTPUT\"\n"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with: 
+          registry: "${{ env.REGISTRY }}"
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+      - id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with: 
+          context: "."
+          file: "apps/${{ matrix.app }}/Dockerfile"
+          target: release
+          platforms: "linux/${{ matrix.arch }}"
+          tags: "${{ steps.meta.outputs.staging }}"
+          push: true
+          provenance: false
+          cache-from: "type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}"
+          build-args: "BUN_IMAGE=${{ env.BUN_IMAGE }}\nBUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}\nAPT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}\n"
+      - name: Smoke the pushed digest
+        env: 
+          APP: "${{ matrix.app }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+        run: "docker pull \"${NAME}@${DIGEST}\"\n.github/scripts/image-smoke.sh \"$APP\" \"${NAME}@${DIGEST}\"\n"
+      - name: Licenses and vulnerabilities of the pushed digest
+        timeout-minutes: 10
+        env: 
+          APP: "${{ matrix.app }}"
+          ARCH: "${{ matrix.arch }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+        run: ".github/scripts/image-licenses.sh \"$APP\" \"${NAME}@${DIGEST}\"\n.github/scripts/image-scan.sh \"${APP}-${ARCH}\" \"${NAME}@${DIGEST}\" vulnerabilities\nresult=\"$(cat \"vulnerabilities/${APP}-${ARCH}.txt\")\"\nif [ \"$result\" != clean ]; then\n  echo \"::error::${APP}-${ARCH}@${DIGEST}: ${result#found } high or critical with a fix available\"\n  exit 1\nfi\n"
+      - name: Record staged digest
+        env: 
+          APP: "${{ matrix.app }}"
+          ARCH: "${{ matrix.arch }}"
+          NAME: "${{ steps.meta.outputs.name }}"
+          DIGEST: "${{ steps.push.outputs.digest }}"
+          IMAGE_ID: "${{ steps.push.outputs.imageid }}"
+        run: "base=\"$(sed -n 's/^ARG BUN_IMAGE=//p' \"apps/${APP}/Dockerfile\")\"\nruntime=null\nif [ \"$APP\" = worker ]; then\n  runtime=\"$(docker run --rm -i --network none --entrypoint bun \\\n    \"${NAME}@${DIGEST}\" run apps/worker/src/image-runtime.ts \\\n    <<<'{}' | jq -c 'del(.profiles)')\"\nfi\nmkdir -p arch-staged debian-sources\ndocker run --rm --entrypoint cat \"${NAME}@${DIGEST}\" /app/DEBIAN_SOURCES.md \\\n  >\"debian-sources/${APP}-${ARCH}.md\"\njq -n \\\n  --arg app \"$APP\" --arg arch \"$ARCH\" --arg name \"$NAME\" --arg base \"$base\" \\\n  --arg digest \"$DIGEST\" --arg imageId \"$IMAGE_ID\" \\\n  --arg sha \"$GITHUB_SHA\" --arg ref \"$GITHUB_REF\" \\\n  --argjson runtime \"$runtime\" \\\n  '{app: $app, arch: $arch, image: $name, base: $base, pushed: true,\n    promoted: false, digest: $digest, imageId: $imageId, commit: $sha,\n    ref: $ref, runtime: $runtime}' \\\n  | tee \"arch-staged/${APP}-${ARCH}.json\"\n"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "arch-digest-${{ matrix.app }}-${{ matrix.arch }}"
+          path: "arch-staged/${{ matrix.app }}-${{ matrix.arch }}.json"
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "debian-sources-${{ matrix.app }}-${{ matrix.arch }}"
+          path: "debian-sources/${{ matrix.app }}-${{ matrix.arch }}.md"
+          if-no-files-found: error
+  sources: 
+    needs: publish
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps: 
+      &steps1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          pattern: debian-sources-*
+          path: debian-sources
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        if: github.run_attempt > 1
+        continue-on-error: true
+        with: 
+          pattern: "held-sources-${{ github.job }}-*"
+          path: held-sources-prior
+      - name: snapshot.debian.org holds what the images list
+        env: 
+          SOURCES_MODE: "${{ env.RELEASE_REF == '' && github.ref == 'refs/heads/main' && 'main' || 'release' }}"
+        run: ".github/scripts/image-sources.sh debian-sources unverified-sources \"$SOURCES_MODE\" held-sources-prior held-sources"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with: 
+          name: "held-sources-${{ github.job }}-${{ github.run_attempt }}"
+          path: held-sources/held.txt
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "unverified-sources${{ env.ARTIFACT_SUFFIX }}"
+          path: unverified-sources/*.json
+          if-no-files-found: error
+  index: 
+    needs: sources
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      &steps2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          pattern: arch-digest-*
+          path: arch-staged
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: unverified-sources
+          path: unverified-sources
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with: 
+          driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with: 
+          registry: "${{ env.REGISTRY }}"
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+      - name: "Join each image's two digests"
+        run: .github/scripts/image-index.sh arch-staged unverified-sources staged
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: staged-digests
+          path: staged/*.json
+          if-no-files-found: error
+  promote: 
+    needs: index
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    concurrency: 
+      group: images-promote
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      &steps3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: staged-digests
+          path: staged
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with: 
+          driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with: 
+          registry: "${{ env.REGISTRY }}"
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Promote staged digests
+        run: .github/scripts/image-promote.sh staged digests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: image-digests-published
+          path: digests/*.json
+          if-no-files-found: error
+  publish-main: 
+    needs: 
+      - build
+      - supply-chain
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}"
+    timeout-minutes: 20
+    permissions: 
+      contents: read
+      packages: write
+    strategy: 
+      fail-fast: false
+      matrix: 
+        *matrix
+    steps: 
+      *steps
+  sources-main: 
+    needs: publish-main
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps: 
+      *steps1
+  index-main: 
+    needs: sources-main
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      *steps2
+  promote-main: 
+    needs: index-main
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      *steps3
+  chart: 
+    needs: promote
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: 
+      &steps4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/bun-setup
+      - &item0
+        name: helm
+        run: "mkdir -p \"$RUNNER_TEMP/bin\"\ncd \"$RUNNER_TEMP\"\ncurl -fsSLo helm.tgz \"https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz\"\necho \"${HELM_SHA256}  helm.tgz\" | sha256sum -c -\ntar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm\necho \"$RUNNER_TEMP/bin\" >>\"$GITHUB_PATH\"\n"
+      - name: kind and kubectl
+        run: "cd \"$RUNNER_TEMP\"\ncurl -fsSLo bin/kind \"https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64\"\necho \"${KIND_SHA256}  bin/kind\" | sha256sum -c -\ncurl -fsSLo bin/kubectl \"https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl\"\necho \"${KUBECTL_SHA256}  bin/kubectl\" | sha256sum -c -\nchmod +x bin/kind bin/kubectl\n"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: "image-digests-published${{ env.ARTIFACT_SUFFIX }}"
+          path: published
+      - name: "Package the chart with this run's images"
+        run: bun .github/scripts/chart-package.ts published chart-out
+      - name: Every image reads without a login
+        run: "for file in published/*.json; do\n  for ref in $(jq -r '.image as $name | .digest, .platforms[].digest | \"\\($name)@\\(.)\"' \"$file\"); do\n    docker manifest inspect \"$ref\" >/dev/null\n    echo \"read ${ref}\"\n  done\ndone\n"
+      - name: Install the package on kind
+        env: 
+          CLUSTER_NAME: chart-check
+          STATE_DIR: "${{ runner.temp }}/kind"
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+        run: "CHART_PACKAGE=\"$(ls \"$PWD\"/chart-out/werft-*.tgz)\" KIND_IMAGE_MIRROR=\"${BUN_IMAGE%/*}\" deploy/kind/up.sh\n"
+      - if: failure()
+        name: Why the install stopped
+        env: 
+          KUBECONFIG: "${{ runner.temp }}/kind/kubeconfig"
+        run: "kubectl -n werft get jobs,deploy,pods -o wide || true\nkubectl -n werft get events --sort-by=.lastTimestamp || true\n"
+      - if: "!cancelled()"
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: "chart${{ env.ARTIFACT_SUFFIX }}"
+          path: chart-out/
+          if-no-files-found: error
+  chart-main: 
+    needs: promote-main
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: 
+      *steps4
+  chart-publish: 
+    needs: chart
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      &steps5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - *item0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: "chart${{ env.ARTIFACT_SUFFIX }}"
+          path: chart-out
+      - name: Push the chart and read it back without a login
+        env: 
+          REGISTRY_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          OWNER: "${{ github.repository_owner }}"
+        run: ".github/scripts/chart-push.sh chart-out/werft-*.tgz \\\n  \"${REGISTRY}/$(echo \"$OWNER\" | tr '[:upper:]' '[:lower:]')\"\n"
+  test-ops-bundle: 
+    needs: plan
+    if: "needs.plan.outputs.images == 'build'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          persist-credentials: false
+      - name: Build the bundle twice
+        run: "fixture=tests/fixtures/test-ops-release-manifest.json\ntag=\"$(jq -r .tag \"$fixture\")\"\n.github/scripts/test-ops-bundle.sh \"$tag\" \"$fixture\" bundle-a\n.github/scripts/test-ops-bundle.sh \"$tag\" \"$fixture\" bundle-b\ncmp \"bundle-a/werft-test-ops-${tag}.tar.gz\" \"bundle-b/werft-test-ops-${tag}.tar.gz\"\ntar -tzf \"bundle-a/werft-test-ops-${tag}.tar.gz\"\n"
+      - name: "Run the bundle's scripts without a checkout"
+        run: "tag=\"$(jq -r .tag tests/fixtures/test-ops-release-manifest.json)\"\ntar -xzf \"bundle-a/werft-test-ops-${tag}.tar.gz\" -C \"$RUNNER_TEMP\"\ncd \"$RUNNER_TEMP/werft-test-ops-${tag}\"\nsha256sum -c --quiet SHA256SUMS\nbash scripts/test-ops.sh manifest release-manifest.json infra/test-ops.env.example | jq -e '.images.control_host'\nif bash scripts/test-ops.sh upgrade release-manifest.json; then echo \"upgrade must be refused in a bundle\" >&2; exit 1; fi\n"
+  release: 
+    needs: chart-publish
+    if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    concurrency: 
+      group: images-release
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: write
+    steps: 
+      &steps6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: "image-digests-published${{ env.ARTIFACT_SUFFIX }}"
+          path: published
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: "chart${{ env.ARTIFACT_SUFFIX }}"
+          path: chart-out
+      - name: Write the manifest
+        run: bun .github/scripts/release-manifest.ts published chart-out release-manifest.json
+      - name: Build the single-server bundle
+        run: "ref=\"${RELEASE_REF:-$GITHUB_REF}\"\n.github/scripts/test-ops-bundle.sh \"${ref#refs/tags/}\" release-manifest.json bundle-out\n"
+      - name: Publish the release
+        env: 
+          GH_TOKEN: "${{ github.token }}"
+          GH_REPO: "${{ github.repository }}"
+        run: "ref=\"${RELEASE_REF:-$GITHUB_REF}\"\ntag=\"${ref#refs/tags/}\"\n.github/scripts/release-publish.sh \"$tag\" release-manifest.json \\\n  \"bundle-out/werft-test-ops-${tag}.tar.gz\" \\\n  \"bundle-out/werft-test-ops-${tag}.tar.gz.sha256\"\n"
+      - name: Show the manifest
+        run: "{\n  echo '```json'\n  cat release-manifest.json\n  echo '```'\n} >>\"$GITHUB_STEP_SUMMARY\"\n"
+  chart-publish-main: 
+    needs: chart-main
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    steps: 
+      *steps5
+  release-detect: 
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs: 
+      tag: "${{ steps.detect.outputs.tag }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          fetch-depth: 0
+          persist-credentials: false
+      - id: detect
+        env: 
+          BEFORE: "${{ github.event.before }}"
+          AFTER: "${{ github.sha }}"
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+        run: .github/scripts/release-auto.sh detect
+  release-gate: 
+    needs: 
+      - release-detect
+      - chart-publish-main
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions: 
+      contents: read
+      actions: read
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          persist-credentials: false
+      - name: ci.yml is green on this commit
+        env: 
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+        run: .github/scripts/release-auto.sh ci
+      - name: The version is still free
+        env: 
+          TAG: "${{ needs.release-detect.outputs.tag }}"
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+        run: .github/scripts/release-auto.sh free
+  sources-release: 
+    needs: 
+      - release-detect
+      - publish-main
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env: 
+      RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}"
+      ARTIFACT_SUFFIX: "-release"
+    steps: 
+      *steps1
+  release-approve: 
+    needs: 
+      - release-detect
+      - release-gate
+      - sources-release
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    steps: 
+      - name: Approved
+        env: 
+          TAG: "${{ needs.release-detect.outputs.tag }}"
+        run: "echo \"release ${TAG} of ${GITHUB_SHA} is approved; no tag exists yet\""
+  promote-release: 
+    needs: 
+      - release-detect
+      - release-approve
+      - index-main
+    if: "needs.release-detect.outputs.tag != ''"
+    concurrency: 
+      group: images-promote
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    env: 
+      RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}"
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          persist-credentials: false
+      - name: The version is still free
+        env: 
+          TAG: "${{ needs.release-detect.outputs.tag }}"
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+        run: .github/scripts/release-auto.sh free
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: staged-digests
+          path: staged-main
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: unverified-sources-release
+          path: unverified-release
+      - name: "Stage main's digests as the release's"
+        run: .github/scripts/release-stage.sh staged-main unverified-release staged
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with: 
+          driver-opts: "image=${{ env.BUILDKIT_IMAGE }}"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with: 
+          registry: "${{ env.REGISTRY }}"
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Promote the staged digests under the release tag
+        run: .github/scripts/image-promote.sh staged digests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: 
+          name: image-digests-published-release
+          path: digests/*.json
+          if-no-files-found: error
+  chart-release: 
+    needs: 
+      - release-detect
+      - promote-release
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env: 
+      RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}"
+      ARTIFACT_SUFFIX: "-release"
+    steps: 
+      *steps4
+  chart-publish-release: 
+    needs: 
+      - release-detect
+      - chart-release
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: read
+      packages: write
+    env: 
+      ARTIFACT_SUFFIX: "-release"
+    steps: 
+      *steps5
+  release-tag: 
+    needs: 
+      - release-detect
+      - chart-publish-release
+    if: "needs.release-detect.outputs.tag != ''"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: 
+      contents: write
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: 
+          persist-credentials: false
+      - name: Annotated tag at the approved commit
+        env: 
+          TAG: "${{ needs.release-detect.outputs.tag }}"
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+        run: .github/scripts/release-auto.sh tag
+  release-publish: 
+    needs: 
+      - release-detect
+      - release-tag
+    if: "needs.release-detect.outputs.tag != ''"
+    concurrency: 
+      group: images-release
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: 
+      contents: write
+    env: 
+      RELEASE_REF: "refs/tags/${{ needs.release-detect.outputs.tag }}"
+      ARTIFACT_SUFFIX: "-release"
+    steps: 
+      *steps6
+  vulnerability-report: 
+    needs: 
+      - build
+      - supply-chain
+    if: "always() && contains(fromJSON('[\"schedule\",\"workflow_dispatch\"]'), github.event_name) && needs.supply-chain.result != 'success'"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: 
+      contents: read
+      issues: write
+    steps: 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: 
+          name: supply-chain-results
+          path: vulnerabilities
+        continue-on-error: true
+      - env: 
+          GH_REPO: "${{ github.repository }}"
+          GH_TOKEN: "${{ github.token }}"
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: "{\n  echo \"<!-- ci-supply-chain -->\"\n  echo \"The daily supply-chain check on \\`${GITHUB_SHA}\\` ([run ${GITHUB_RUN_ID}](${RUN_URL})) found high or critical vulnerabilities with a fix available, or could not scan.\"\n  echo\n  echo \"| scan | result |\"\n  echo \"| --- | --- |\"\n  for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do\n    echo \"| ${scan} | $(cat \"vulnerabilities/${scan}.txt\" 2>/dev/null || echo \"no result\") |\"\n  done\n  echo\n  echo \"Each finding is in the run summary and the \\`supply-chain-results\\` artifact. Update the package or base image, or record an exception with its reason and expiry in \\`.github/vulnerability-exceptions.json\\` (site page run-server/self-hosting/operate/images-and-supply-chain § 공급망 취약점 정책). Until then every pull request's \\`supply-chain\\` check fails too. Close this issue once handled; the next finding opens a new one.\"\n} >body.md\n.github/scripts/upsert-ci-issue.sh ci-supply-chain \\\n  \"Supply chain: fixable high or critical vulnerabilities\" body.md\n"
