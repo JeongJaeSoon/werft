@@ -77,6 +77,34 @@ describe("parsePermissionRule", () => {
     expect(refusedAs("WebFetch(domain:a b)")).toBe("rule_syntax");
   });
 
+  test("a rule the engine would split or read as another rule is refused", () => {
+    // Round 1 (Codex): the engine's list splitter turns this into two rules.
+    expect(refusedAs("Bash(echo (x) hello)")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a(b))")).toBe("rule_syntax");
+    // An empty prefix is read as the literal `:*`, which matches nothing.
+    expect(refusedAs("Bash(:*)")).toBe("rule_syntax");
+    // `:*` is the Bash prefix form; on a path it is not a rule.
+    expect(refusedAs("Read(./secret:*)")).toBe("rule_syntax");
+    expect(refusedAs("Edit(./secret:*)")).toBe("rule_syntax");
+    // A glob before `:*` makes the engine take the argument literally.
+    expect(refusedAs("Bash(git *:*)")).toBe("rule_syntax");
+    expect(refusedAs("Bash(git *)")).toBe("accepted");
+    expect(refusedAs("Bash(git push:*)")).toBe("accepted");
+  });
+
+  test("a WebFetch host that a URL would rewrite is refused, a dotted quad is kept", () => {
+    // `127.1` and `2130706433` reach the engine as `127.0.0.1`, so a rule
+    // spelled either way never matches.
+    expect(refusedAs("WebFetch(domain:127.1)")).toBe("rule_syntax");
+    expect(refusedAs("WebFetch(domain:2130706433)")).toBe("rule_syntax");
+    expect(refusedAs("WebFetch(domain:0x7f.1)")).toBe("rule_syntax");
+    expect(refusedAs("WebFetch(domain:127.0.0.01)")).toBe("rule_syntax");
+    expect(refusedAs("WebFetch(domain:300.0.0.1)")).toBe("rule_syntax");
+    expect(refusedAs("WebFetch(domain:127.0.0.1)")).toBe("accepted");
+    expect(refusedAs("WebFetch(domain:example.com)")).toBe("accepted");
+    expect(refusedAs("WebFetch(domain:v2.example.io)")).toBe("accepted");
+  });
+
   test("an MCP tool is a whole name or nothing", () => {
     expect(parsed("mcp__docs__read")).toEqual({
       rule: "mcp__docs__read",

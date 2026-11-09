@@ -52,6 +52,24 @@ const HOST = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are the point
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
+/**
+ * A host the engine compares by the spelling a URL parser leaves. A URL reads
+ * a host whose last label is a number or `0x…` as an IPv4 address and writes it
+ * as a dotted quad, so `127.1` or `2130706433` would never match the request
+ * to `127.0.0.1`; only the dotted quad itself is a rule that can match.
+ */
+function isPlainHost(host: string): boolean {
+  const labels = host.split(".");
+  const last = labels[labels.length - 1] ?? "";
+  if (!/^(?:[0-9]+|0[xX][0-9A-Fa-f]*)$/.test(last)) return true;
+  return (
+    labels.length === 4 &&
+    labels.every(
+      (label) => /^(?:0|[1-9][0-9]{0,2})$/.test(label) && Number(label) <= 255,
+    )
+  );
+}
+
 function refuse(
   reason_code: PermissionRuleRefusalCode,
   rule: string,
@@ -126,22 +144,52 @@ export function parsePermissionRule(
       `${tool}(…) has no effect: a rule with an argument is taken for ${SCOPED_TOOLS.join(", ")} only`,
     );
   }
-  if (argument.trim() === "" || argument.trim() === "*") {
+  const bare = argument.trim();
+  if (bare === "" || bare === "*" || bare === ":*") {
     return refuse(
       "rule_syntax",
       rule,
       `${rule} blocks the whole tool: write ${tool} without an argument`,
     );
   }
+  // The engine splits a rule list on commas outside parentheses and reads a
+  // nested pair as the end of the rule, so a rule holding one is stored as two
+  // other rules and the original deny is lost.
+  if (/[()]/.test(argument)) {
+    return refuse(
+      "rule_syntax",
+      rule,
+      `${rule} holds a parenthesis, which the engine reads as the end of the rule`,
+    );
+  }
+  if (tool === "Bash") {
+    // `:*` ends a prefix rule; a `*` before it makes the engine take the whole
+    // argument as a literal.
+    if (bare.endsWith(":*") && bare.slice(0, -2).includes("*")) {
+      return refuse(
+        "rule_syntax",
+        rule,
+        `${rule} mixes a * glob with the :* prefix form; use one of them`,
+      );
+    }
+  } else if (tool === "Read" || tool === "Edit") {
+    if (bare.endsWith(":*")) {
+      return refuse(
+        "rule_syntax",
+        rule,
+        `${tool}(path:*) is not a path rule; the :* prefix form is for Bash only`,
+      );
+    }
+  }
   if (tool === "WebFetch") {
     const host = argument.startsWith("domain:")
       ? argument.slice("domain:".length)
       : null;
-    if (host === null || !HOST.test(host)) {
+    if (host === null || !HOST.test(host) || !isPlainHost(host)) {
       return refuse(
         "rule_syntax",
         rule,
-        "WebFetch takes WebFetch(domain:<host>) with a plain host name",
+        "WebFetch takes WebFetch(domain:<host>) with a plain host name or a dotted-quad IPv4 address",
       );
     }
   }

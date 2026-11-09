@@ -152,7 +152,9 @@ async function run(permissionMode: PermissionMode) {
     uuid: crypto.randomUUID(),
   });
   const timer = setTimeout(() => abortController.abort(), 50_000);
-  await consume.catch(() => undefined).finally(() => clearTimeout(timer));
+  // A run that throws or is aborted fails the test: only a deny may explain
+  // the missing file.
+  await consume.finally(() => clearTimeout(timer));
   return {
     offered,
     denied: await exists(denied),
@@ -178,6 +180,7 @@ describe("disallowedTools against the pinned engine", () => {
       // The named call is refused and has no effect, whatever the mode.
       expect(seen.denied).toBe(false);
       expect(seen.result?.isError).toBe(true);
+      expect(seen.result?.text).toMatch(/permission|denied|deny/i);
     },
     60_000,
   );
