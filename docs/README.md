@@ -51,6 +51,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: Agent SDK 버전](contributing/decisions/agent-sdk.md) | SDK·LiteLLM 버전 고정 방식, 운영 제약, 호환 harness가 지키는 계약과 실행 방법 |
 | [결정: 에이전트 GitHub 설정과 기능별 권한](contributing/decisions/github-agent.md) | 기능별 권한의 교집합, 토큰 발급 게이트, 리뷰 승인용 App, 같은 역할에 App 여럿과 저장소에 고정된 연결, 세션 성과물 |
 | [결정(설계): 에이전트 행동 도구 카탈로그](contributing/decisions/action-broker.md) | 에이전트가 부르는 정형 도구(Slack 메시지·mrkdwn·의사결정 폼, commit, push, PR, `gh` 입구)의 입력·결과 봉투·실패 코드·멱등성, 그 뒤에서 일하는 control-host 모듈 action-broker의 실행 경로와 자격 증명 위치, 행동 부류 정책, 호출자 매핑, Slack 경계와 `pushApprovability` |
+| [결정(설계안): 에이전트의 PR 본문 읽기](contributing/decisions/pull-request-read.md) | 에이전트가 PR 본문을 읽는 도구(`get_pull_request`), 덮어쓰기 막기(`expected_body_sha256`), 기존 PR 꼬리 교체의 실제 GitHub 확인 절차. 오너 결정 전 |
 | [결정: 워크스페이스 성과 규칙과 판정](contributing/decisions/achievement-rules.md) | 근거 사실과 성과 두 층, 구분·성과 type·규칙(1:1:1), 바로 인정과 Luna(OpenAI Decisions API) 판정, 판정 비용 원장, 성과당 비용 |
 | [결정: GitHub Packages bot token](contributing/decisions/github-packages-bot-token.md) | 조직 bot classic PAT를 proxy가 붙이는 방식: 저장·scope 확인, 경로 기반 허용 목록, 실패하면 닫히는 감사, npm·Bundler 설정 |
 | [결정: GitHub Packages와 App token](contributing/decisions/github-packages-app-token.md) | App installation token으로 사설 npm·gem을 읽을 수 없다는 실측과 근거, 대신 고른 bot PAT 주입 방식과 나머지 대안 |
