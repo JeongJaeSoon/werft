@@ -28,8 +28,8 @@ import {
   IconTile,
   Input,
   Link,
-  RowList,
   RowListItem,
+  SettingsSection,
   Skeleton,
   Steps,
   Text,
@@ -59,6 +59,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { IntegrationsLayout } from "./integrations.tsx";
 import {
   type OnOutcome,
+  SECTIONS,
   SETTINGS_CARD,
   SlackGuest,
 } from "./workspace-settings.tsx";
@@ -177,7 +178,6 @@ function SlackCard({
   const canManage = useHasPermission("workspace.manage");
   const apps = useWorkspaceSlackApps();
   const titleId = useId();
-  const tokenTitleId = useId();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -340,7 +340,7 @@ function SlackCard({
   };
 
   const body = !canManage ? null : start ? (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
       <Text weight="medium">{t("workspace.slackEmpty")}</Text>
       <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
       {form ?? (
@@ -351,18 +351,18 @@ function SlackCard({
     </div>
   ) : (
     <>
-      <section aria-labelledby={tokenTitleId} className="flex flex-col gap-2">
-        <Heading
-          id={tokenTitleId}
-          ref={tokenHeadingRef}
-          level={3}
-          tabIndex={-1}
-          className="focus-visible:outline-none"
-        >
-          {t("workspace.tokenSection")}
-        </Heading>
-        <RowList variant="joined" framed={false} aria-labelledby={tokenTitleId}>
-          {token.isPending || deciding ? (
+      <SettingsSection
+        titleAs="h3"
+        titleRef={tokenHeadingRef}
+        title={t("workspace.tokenSection")}
+        foot={
+          // Says what the row's "last token check" means; no token, no check.
+          summary?.updated_at ? (
+            <Text variant="meta">{t("workspace.tokenHint")}</Text>
+          ) : undefined
+        }
+        rows={
+          token.isPending || deciding ? (
             <RowListItem>
               <Skeleton width="50%" />
             </RowListItem>
@@ -405,13 +405,9 @@ function SlackCard({
               form={form}
               locale={locale}
             />
-          )}
-        </RowList>
-        {/* Says what the row's "last token check" means; no token, no check. */}
-        {summary?.updated_at ? (
-          <Text variant="meta">{t("workspace.tokenHint")}</Text>
-        ) : null}
-      </section>
+          )
+        }
+      />
       {summary ? (
         <SlackAddresses urls={summary.urls} onOutcome={onOutcome} />
       ) : null}
@@ -420,19 +416,19 @@ function SlackCard({
   );
 
   return (
-    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex items-center gap-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Heading id={titleId} level={2}>
-            Slack
-          </Heading>
-          <Text variant="sub">{status}</Text>
+    <section aria-labelledby={titleId} className={SECTIONS}>
+      <div className={SETTINGS_CARD}>
+        <div className="flex items-center gap-3">
+          <IconTile icon={TileMark} hue="slate" size="two-line" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Heading id={titleId} level={2}>
+              Slack
+            </Heading>
+            <Text variant="sub">{status}</Text>
+          </div>
         </div>
+        <Text variant="sub">{t("workspace.slackCardHint")}</Text>
       </div>
-      <Text variant="sub" className="border-b pb-2">
-        {t("workspace.slackCardHint")}
-      </Text>
       {body}
       <ConfirmDialog
         open={deleting}
@@ -460,13 +456,13 @@ function SlackAddresses({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3">
-      <Heading id={titleId} level={3}>
-        {t("workspace.addressesTitle")}
-      </Heading>
-      <Text variant="sub">{t("workspace.addressesHint")}</Text>
+    <SettingsSection
+      titleAs="h3"
+      title={t("workspace.addressesTitle")}
+      description={t("workspace.addressesHint")}
+      box
+    >
       <AddressField
         label={t("workspace.addressRedirect")}
         value={urls.redirect_url}
@@ -484,7 +480,7 @@ function SlackAddresses({
         hint={t("workspace.addressEventsHint")}
         onOutcome={onOutcome}
       />
-    </section>
+    </SettingsSection>
   );
 }
 
