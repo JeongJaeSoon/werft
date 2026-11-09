@@ -1,0 +1,14 @@
+{
+  "response_mock": true,
+  "target": "/agents/b914a026-aca6-4b43-962c-6583c465bbd7?tab=github",
+  "fixture_file": "/tmp/claude-0/-home-user-werft/eaadcfaf-5b7b-513d-ad90-8fa76a22cd1e/scratchpad/mock-after.json",
+  "mocked_routes": [
+    "/v1/agents/b914a026-aca6-4b43-962c-6583c465bbd7/github",
+    "/v1/agents/b914a026-aca6-4b43-962c-6583c465bbd7/github/activity",
+    "/v1/agents/b914a026-aca6-4b43-962c-6583c465bbd7/github/repositories"
+  ],
+  "width": 1280,
+  "theme": "light",
+  "screenshot": "/tmp/claude-0/-home-user-werft/eaadcfaf-5b7b-513d-ad90-8fa76a22cd1e/scratchpad/verify/20261109-150701-7171/evidence/mock-after-1280.png",
+  "overflow": false
+}
