@@ -34,7 +34,8 @@ images:
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
     # {engine: claude, sdkVersion: 0.3.280, cliVersion: 2.1.280,
-    # profileDigestScheme: 1}. Empty launches every session on this image, and
+    # profileDigestScheme: 1}; an image that also resumes older checkpoints
+    # adds restorableSchemes: [1, 2] (it must include profileDigestScheme). Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
     runtime: {}
