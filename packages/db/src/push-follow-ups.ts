@@ -45,22 +45,19 @@ async function pullRequestRecorded(
   return found !== undefined;
 }
 
-/**
- * Decides, under the session lock finalize also takes, what becomes of an
- * approved push's follow-up turn: `pull_request` when the push's branch
- * already has one recorded (nothing to ask for), `held` when a turn is
- * running (it may open the pull request itself; the next turn end decides),
- * `now` when the caller should queue it at once.
- */
-// The two wordings the Slack decision wrote, both versions of the approved
-// one, matched whole: a person's own message that merely starts like this
-// (or follows it with more text) is not ours to rewrite.
+// The three wordings the Slack decision wrote (two versions of the approved
+// one), matched whole and nothing looser: a person's own message that merely
+// starts like one of them, or differs by a sentence, is not ours to rewrite.
 const LEGACY_SUBJECT = "push request \\S+ \\(repository [^,]+, branch [^)]+\\)";
+const LEGACY_APPROVED_TAILS = [
+  "wait a few seconds and call it again\\.",
+  "with push_request_state approved or pushing, wait a few seconds and call it again\\. In any other state, calling it again will not change the answer: say what it answered instead\\.",
+];
 const LEGACY_APPROVED = new RegExp(
-  `^Platform note: a person approved (${LEGACY_SUBJECT}) in Slack\\. The push runs in the background: call open_pull_request now, and if it answers not_pushed(?: with push_request_state approved or pushing)?, wait a few seconds and call it again\\.(?: In any other state, calling it again will not change the answer: say what it answered instead\\.)? Then finish what you were asked to do\\.$`,
+  `^Platform note: a person approved (${LEGACY_SUBJECT}) in Slack\\. The push runs in the background: call open_pull_request now, and if it answers not_pushed(?:, ${LEGACY_APPROVED_TAILS[0]}| ${LEGACY_APPROVED_TAILS[1]}) Then finish what you were asked to do\\.$`,
 );
 const LEGACY_REJECTED = new RegExp(
-  `^Platform note: a person rejected (${LEGACY_SUBJECT}) in Slack, so nothing was pushed\\. Do not ask to push it again unless you are asked to\\.(?: Say in one short reply that the push was rejected\\.)?$`,
+  `^Platform note: a person rejected (${LEGACY_SUBJECT}) in Slack, so nothing was pushed\\. Do not ask to push it again unless you are asked to\\. Say in one short reply that the push was rejected\\.$`,
 );
 
 /**
@@ -80,6 +77,13 @@ export function followUpFact(message: string): string {
   return message;
 }
 
+/**
+ * Decides, under the session lock finalize also takes, what becomes of an
+ * approved push's follow-up turn: `pull_request` when the push's branch
+ * already has one recorded (nothing to ask for), `held` when a turn is
+ * running (it may open the pull request itself; the next turn end decides),
+ * `now` when the caller should queue it at once.
+ */
 export function holdPushFollowUp(
   db: Database,
   input: { sessionId: string; pushRequestId: string; message: string },

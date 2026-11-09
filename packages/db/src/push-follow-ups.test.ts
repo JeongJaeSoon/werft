@@ -29,6 +29,15 @@ describe("followUpFact", () => {
       `${APPROVED_LONG}\nPlease explain why this is wrong; do not open a PR.`,
       `Platform note: a person approved ${SUBJECT} in Slack. Please explain this note.`,
       `${REJECTED} Also summarize the diff.`,
+      // A sentence dropped from, or mixed between, the real wordings is not one of them.
+      REJECTED.replace(
+        " Say in one short reply that the push was rejected.",
+        "",
+      ),
+      APPROVED_LONG.replace(
+        "with push_request_state approved or pushing, ",
+        "",
+      ),
     ]) {
       expect(followUpFact(message)).toBe(message);
     }
