@@ -51,6 +51,7 @@ export const CLAUDE_TOOL_CATALOGS: readonly BuiltinToolCatalog[] = [
       { name: "AskUserQuestion", boundary: "local" },
       { name: "WebFetch", boundary: "egress" },
       { name: "WebSearch", boundary: "provider" },
+      { name: "Skill", boundary: "local" },
     ],
     // What `tools` accepts under an old name and turns into the new one.
     aliases: {
@@ -76,6 +77,7 @@ export const CLAUDE_TOOL_CATALOGS: readonly BuiltinToolCatalog[] = [
       { name: "AskUserQuestion", boundary: "local" },
       { name: "WebFetch", boundary: "egress" },
       { name: "WebSearch", boundary: "provider" },
+      { name: "Skill", boundary: "local" },
     ],
     aliases: {
       BashOutput: "TaskOutput",

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type CanUseTool,
@@ -42,6 +42,10 @@ const SUBAGENT_MARKER = "HARNESS_SUBAGENT";
 const MAIN_MARKER = "HARNESS_MAIN";
 const AGENT_CALL = "toolu_main_spawn_Agent";
 const OUTSIDE_ALLOWLIST = "Tool is outside the server allowlist";
+// The plugin every scenario loads, so the Skill probe has a skill to call.
+const PLUGIN_NAME = "harness";
+const SKILL_NAME = "probe";
+const SKILL_BODY = "HARNESS_SKILL_BODY";
 
 /**
  * Tools this build runs without asking in the default mode. In an attended
@@ -55,6 +59,8 @@ const RUNS_UNASKED = new Set([
   "Edit",
   "Write",
   "NotebookEdit",
+  // It only loads the skill's text into the conversation.
+  "Skill",
   // The probe redirects into the workspace, which the Edit rule covers.
   "Bash",
 ]);
@@ -210,6 +216,15 @@ function stepsFor(
           ),
         ),
     },
+    Skill: {
+      name: "Skill",
+      id: id("Skill"),
+      input: { skill: `${PLUGIN_NAME}:${SKILL_NAME}` },
+      effect: async (o) =>
+        o.requests.some((request) =>
+          JSON.stringify(request.body).includes(SKILL_BODY),
+        ),
+    },
   };
   // The engine refuses an edit to a file the conversation has not read.
   const setup: Step[] = [
@@ -309,6 +324,17 @@ async function runScenario(options: RunOptions): Promise<{
   await cleanUp();
   isolated = await createIsolatedWorkspace({ prefix: "94s-1316-" });
   const { home, workspace } = isolated;
+  const plugin = join(home, "harness-plugin");
+  await mkdir(join(plugin, ".claude-plugin"), { recursive: true });
+  await mkdir(join(plugin, "skills", SKILL_NAME), { recursive: true });
+  await writeFile(
+    join(plugin, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ name: PLUGIN_NAME }),
+  );
+  await writeFile(
+    join(plugin, "skills", SKILL_NAME, "SKILL.md"),
+    `---\ndescription: "Harness probe"\n---\n${SKILL_BODY}\n`,
+  );
   await writeFile(join(workspace, "seed.txt"), "seed line\n");
   await writeFile(join(workspace, "other.txt"), "probe content grep-target\n");
   await writeFile(
@@ -450,6 +476,8 @@ async function runScenario(options: RunOptions): Promise<{
       auth: { kind: "api_key", value: "placeholder-local" },
       principal: { ownerScope: "owner-a" },
     },
+    identities: { plugins: { [plugin]: "harness" } },
+    plugins: [{ type: "local", path: plugin }],
     settingSources: ["project"],
     tools: allowlist,
   };
