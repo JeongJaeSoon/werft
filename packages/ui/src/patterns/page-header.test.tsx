@@ -99,10 +99,14 @@ describe("PageHeader", () => {
     expect(head).toContain("flex-row");
     expect(head).toContain("flex-wrap");
     expect(head.some((name) => name.startsWith("md:"))).toBe(false);
+    expect(title).toContain("grow-[999]");
     expect(title).toContain("basis-80");
     expect(title).toContain("min-w-[min(100%,20rem)]");
     // Never fixed at its content width: wider than the row, it wraps inside.
     expect(actions).toContain("max-w-full");
+    // Alone on their line they fill it, so a trailing ms-auto item ends at
+    // the right edge.
+    expect(actions).toContain("grow");
     expect(actions).not.toContain("md:flex-none");
     expect(actions).not.toContain("md:flex-nowrap");
   });

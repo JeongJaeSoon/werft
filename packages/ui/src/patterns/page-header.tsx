@@ -54,11 +54,14 @@ const STACK = {
   },
   // The title grows from a 20rem basis and never gives that up, so the
   // actions wrap to the next line instead of squeezing it; a row of actions
-  // wider than the page then wraps inside itself.
+  // wider than the page then wraps inside itself. Beside the title the
+  // actions take almost none of the spare width (1 to the title's 999);
+  // alone on their line they fill it, so an `ms-auto` item still reaches
+  // the right edge as it did in the stacked column.
   wrap: {
     head: "flex-row flex-wrap items-start justify-between gap-x-4",
-    title: "grow basis-80 min-w-[min(100%,20rem)]",
-    actions: "max-w-full",
+    title: "grow-[999] basis-80 min-w-[min(100%,20rem)]",
+    actions: "grow max-w-full",
   },
 } as const;
 
