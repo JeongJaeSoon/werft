@@ -11,10 +11,12 @@ import { type NavItem, useSettingsNavGroups } from "./app-sidebar.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
 
 // A page's own sub-paths (a key's new page, the Slack link callback) keep
-// their item current; 일반 alone has a sibling under its path.
+// their item current; 일반 alone has a sibling under its path. An item that
+// spans several addresses names its base in `match`.
 function isCurrent(item: NavItem, pathname: string): boolean {
   if (item.to === "/settings/workspace") return pathname === item.to;
-  return pathname === item.to || pathname.startsWith(`${item.to}/`);
+  const base = item.match ?? item.to;
+  return pathname === base || pathname.startsWith(`${base}/`);
 }
 
 /**

@@ -55,6 +55,7 @@ import {
   type Shortfall,
   unapproved,
 } from "./github-permission-table.ts";
+import { IntegrationsLayout } from "./integrations.tsx";
 import {
   FeatureList,
   featureName,
@@ -81,7 +82,6 @@ import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
 import {
   SETTINGS_CARD as CARD,
   type OnOutcome,
-  WorkspacePage,
 } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
@@ -163,12 +163,11 @@ export function WorkspaceGitHubScreen() {
   );
 }
 
-/** Kept apart from the body so a tab layout can host the body without this frame. */
 export function WorkspaceGitHubRoute() {
   return (
-    <WorkspacePage page="github">
+    <IntegrationsLayout tab="github">
       <WorkspaceGitHubScreen />
-    </WorkspacePage>
+    </IntegrationsLayout>
   );
 }
 
@@ -178,7 +177,9 @@ export function WorkspaceGitHubRoute() {
  * address bar.
  */
 function useSetupReturn(onOutcome: OnOutcome) {
-  const search = useSearch({ from: "/authed/settings/workspace/github" });
+  const search = useSearch({
+    from: "/authed/settings/workspace/integrations/github",
+  });
   const [sent] = useState(() => search);
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -191,7 +192,7 @@ function useSetupReturn(onOutcome: OnOutcome) {
     if (sent.installation_id === undefined || sent.state === undefined) return;
     started.current = true;
     void navigate({
-      to: "/settings/workspace/github",
+      to: "/settings/workspace/integrations/github",
       search: {},
       replace: true,
     });

@@ -140,7 +140,7 @@ export const LINK_MESSAGES = {
     "이 GitHub 계정은 다른 사용자에게 연결돼 있어요. owner·admin에게 문의하세요",
   githubExists: "이미 연결된 GitHub 계정이 있어요. 해제한 뒤 다시 연결하세요",
   githubUnset:
-    "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 GitHub 계정을 연결할 수 있어요",
+    "owner·admin이 연동 › GitHub에서 사용자 연결을 켜야 GitHub 계정을 연결할 수 있어요",
 } as const;
 
 export type LinkedAccountProvider = z.infer<typeof linkedAccountProviderSchema>;

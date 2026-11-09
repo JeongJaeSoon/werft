@@ -21,7 +21,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * beside the page only once both it and the sidebar leave the body room.
  */
 
-const SETTINGS_PAGES = ["일반", "Slack 연결 설정", "조직 관리 key", "멤버"];
+const SETTINGS_PAGES = ["일반", "연동", "조직 관리 key", "멤버"];
 
 function SettingsFrame() {
   return (

@@ -86,7 +86,6 @@ import {
 } from "./routes/workspace-github-new-app.tsx";
 import { WorkspaceSettingsScreen } from "./routes/workspace-settings.tsx";
 import { WorkspaceSlackRoute } from "./routes/workspace-slack.tsx";
-import { SLACK_APPS_ANCHOR } from "./routes/workspace-slack-apps.tsx";
 import type { Services } from "./services.tsx";
 
 /*
@@ -335,28 +334,17 @@ const achievementRules = createRoute({
   component: AchievementRulesScreen,
 });
 
+// There is no route at /settings/workspace/integrations itself: each tab has
+// its own address, and the bare one is a 404.
 const workspaceSlack = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/workspace/slack",
+  path: "/settings/workspace/integrations/slack",
   component: WorkspaceSlackRoute,
-});
-
-// Where the list of apps the console made lived before it joined the Slack page.
-const oldWorkspaceSlackApps = createRoute({
-  getParentRoute: () => authed,
-  path: "/settings/workspace/slack-apps",
-  beforeLoad: () => {
-    throw redirect({
-      to: "/settings/workspace/slack",
-      hash: SLACK_APPS_ANCHOR,
-      replace: true,
-    });
-  },
 });
 
 const workspaceGitHub = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/workspace/github",
+  path: "/settings/workspace/integrations/github",
   // GitHub's setup URL comes back here with what an install started here carries.
   validateSearch: gitHubSetupSearch,
   component: WorkspaceGitHubRoute,
@@ -365,7 +353,7 @@ const workspaceGitHub = createRoute({
 // GitHub sends the browser back here once a manifest's App is created.
 const workspaceGitHubNewApp = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/workspace/github/new-app",
+  path: "/settings/workspace/integrations/github/new-app",
   validateSearch: gitHubNewAppSearch,
   component: GitHubNewAppRoute,
 });
@@ -508,7 +496,6 @@ const routeTree = root.addChildren([
     workspaceSettings,
     achievementRules,
     workspaceSlack,
-    oldWorkspaceSlackApps,
     workspaceGitHub,
     workspaceGitHubNewApp,
     orgKeys,

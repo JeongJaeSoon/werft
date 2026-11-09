@@ -54,11 +54,11 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { IntegrationsLayout } from "./integrations.tsx";
 import {
   type OnOutcome,
   SETTINGS_CARD,
   SlackGuest,
-  WorkspacePage,
 } from "./workspace-settings.tsx";
 import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 
@@ -119,12 +119,11 @@ export function WorkspaceSlackScreen() {
   );
 }
 
-/** Kept apart from the body so a tab layout can host the body without this frame. */
 export function WorkspaceSlackRoute() {
   return (
-    <WorkspacePage page="slack">
+    <IntegrationsLayout tab="slack">
       <WorkspaceSlackScreen />
-    </WorkspacePage>
+    </IntegrationsLayout>
   );
 }
 

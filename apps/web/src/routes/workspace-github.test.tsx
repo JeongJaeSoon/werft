@@ -17,7 +17,7 @@ import { appHarness } from "../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 
-const PATH = "/settings/workspace/github";
+const PATH = "/settings/workspace/integrations/github";
 const APPS = `/v1/workspaces/${WORKSPACE_ID}/github-apps`;
 const REPOSITORIES = `/v1/workspaces/${WORKSPACE_ID}/github-repositories`;
 const PERMISSIONS_URL =

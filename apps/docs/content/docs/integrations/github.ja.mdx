@@ -7,7 +7,7 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 
 ## 運用者がやること
 
-認証情報は GitHub App で、owner か admin がコンソールの **設定 → ワークスペース → GitHub 連携設定** で扱う。
+認証情報は GitHub App で、owner か admin がコンソールの **設定 → 連携 → GitHub** で扱う。
 
 - **App を追加**: GitHub で新しい App を作成する(コンソールが App ID と鍵を受け取って保存する)か、既存の App を App ID と private key(PEM ファイル)で接続する。作成用 App とレビュー承認用 App を複数置けて、一覧では役割のバッジで見分ける。鍵は暗号化して保存し、画面にも API の応答にも二度と出ない。鍵を替えるときは App の行の ⋯ メニューの **新しい鍵を登録** を使う。
 - **組織を追加**: App を組織か個人アカウントにインストールする。インストールの表にアカウントごとの種類・リポジトリの範囲・App・接続した人・状態が出て、行の ⋯ メニューの **GitHub で管理** がそのインストールの設定画面を開く。
@@ -130,7 +130,7 @@ PR の段階は push リクエストごとに 1 つで、状態は次のよう�
 
 コミットの作成者は常に GitHub App の bot アカウント(`<App slug>[bot]`)だ。自分の GitHub アカウントを連携しておくと、自分が開始したセッションのコミットに `Co-authored-by:` トレーラーで自分の名前も入り、GitHub でそのコミットが自分の貢献としても表示される。
 
-1. owner か admin が **設定 → ワークスペース → GitHub 連携設定** の「メンバーの GitHub アカウント連携」の行で、連携に使う作成用 App を選び(App が複数あるとき)、⋯ メニューの callback URL をその App の Callback URL に入れ、その App で作った client secret を入力する。この準備がないと連携ボタンは無効になっている。
+1. owner か admin が **設定 → 連携 → GitHub** の「メンバーの GitHub アカウント連携」の行で、連携に使う作成用 App を選び(App が複数あるとき)、⋯ メニューの callback URL をその App の Callback URL に入れ、その App で作った client secret を入力する。この準備がないと連携ボタンは無効になっている。
 2. **設定 → 連携アカウント** の GitHub の行で「連携」を押し、GitHub の同意画面で承認する。プラットフォームは GitHub アカウントの id と login だけを読み、GitHub のトークンは保管しない。
 3. 連携した行に、コミットに入る行(`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`)が表示される。連携を解除すると、それ以降に開始するセッションからは入らない。
 

@@ -15,7 +15,7 @@ const COPY = {
     settings: "설정",
     workspace: "워크스페이스",
     mine: "내 설정",
-    pages: ["일반", "Slack 연결 설정", "조직 관리 key"],
+    pages: ["일반", "연동", "조직 관리 key"],
     myPages: ["연동 계정", "API key", "언어·테마"],
     slack: "Slack",
     manage: "관리",
@@ -37,7 +37,7 @@ const COPY = {
     settings: "Settings",
     workspace: "Workspace",
     mine: "My settings",
-    pages: ["General", "Slack connection", "Organization admin keys"],
+    pages: ["General", "Integrations", "Organization admin keys"],
     myPages: ["Linked accounts", "API keys", "Language & theme"],
     slack: "Slack",
     manage: "Manage",
@@ -171,7 +171,7 @@ export const Default: Story = {
     expect(link.getAttribute("aria-current")).toBe("page");
     expect(
       within(nav)
-        .getByRole("link", { name: "Slack 연결 설정" })
+        .getByRole("link", { name: "연동" })
         .getAttribute("aria-current"),
     ).toBeNull();
     // A group's heading must not read as one more link.
@@ -179,7 +179,7 @@ export const Default: Story = {
     const heading = canvasElement.ownerDocument.getElementById(
       group?.getAttribute("aria-labelledby") ?? "",
     );
-    const other = within(nav).getByRole("link", { name: "Slack 연결 설정" });
+    const other = within(nav).getByRole("link", { name: "연동" });
     expect(heading).not.toBeNull();
     expect(getComputedStyle(heading as Element).color).not.toBe(
       getComputedStyle(other).color,

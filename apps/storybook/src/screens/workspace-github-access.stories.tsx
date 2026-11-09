@@ -9,6 +9,8 @@ import {
   GridTableRow,
   Heading,
   IconTile,
+  LinkTab,
+  LinkTabs,
   Page,
   RowList,
   RowListItem,
@@ -466,13 +468,19 @@ function GitHubScreen({
   return (
     <ScreenShell
       current="settings"
-      crumb={["워크스페이스", "GitHub 연결 설정"]}
+      crumb={["워크스페이스", "연동"]}
       role={viewer}
     >
       <Page
-        title="GitHub 연결 설정"
+        title="연동"
         description="에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub 연결입니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다."
       >
+        <LinkTabs aria-label="연동 종류">
+          <LinkTab href="#slack">Slack</LinkTab>
+          <LinkTab href="#github" current>
+            GitHub
+          </LinkTab>
+        </LinkTabs>
         <div className="flex flex-col gap-10">
           <GitHubCard manage={manage} state={state} />
           {state === "empty" ? null : (
