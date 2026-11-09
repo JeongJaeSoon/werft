@@ -153,7 +153,6 @@ export const slackEn = {
   "slack.private": "Private",
   "slack.off": "Off",
   "slack.on": "On",
-  "slack.inUse": "Use in this channel",
   "slack.inUseOf": "Use in {channel}",
   "slack.mentionOnly": "Respond only when mentioned",
   "slack.search": "Find channels",

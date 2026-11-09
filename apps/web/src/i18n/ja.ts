@@ -154,7 +154,6 @@ export const slackJa = {
   "slack.private": "非公開",
   "slack.off": "オフ",
   "slack.on": "オン",
-  "slack.inUse": "このチャンネルで使用",
   "slack.inUseOf": "{channel} で使用",
   "slack.mentionOnly": "メンション時のみ応答",
   "slack.search": "チャンネルを検索",
