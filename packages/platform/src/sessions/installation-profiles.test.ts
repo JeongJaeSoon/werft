@@ -21,6 +21,7 @@ import {
   type CatalogProfile,
   type CatalogProfileConfig,
   resolveSessionCatalog,
+  type WorkspaceProfileRecord,
 } from "./catalog.ts";
 import { ProfileFeatureGate } from "./feature-gate.ts";
 import { createInstallationProfileService } from "./installation-profiles.ts";
@@ -235,6 +236,7 @@ function setup(
     rows?: InstallationProfileRecord[];
     fileConnections?: Connections;
     settings?: InstallationSettings;
+    workspaceRows?: WorkspaceProfileRecord[];
   } = {},
 ) {
   const rows = options.rows ?? catalogRows({ seed: SEED }, REPOSITORIES);
@@ -244,7 +246,7 @@ function setup(
   const catalog = profileCatalog(
     { repositories: REPOSITORIES },
     createProfileRegistry({
-      workspaces: { listAll: async () => [] },
+      workspaces: { listAll: async () => options.workspaceRows ?? [] },
       installations: store,
       ...(settings === undefined
         ? {}
@@ -807,6 +809,93 @@ describe("connections the installation settings hold", () => {
       auth: { value: "a-stored-provider-key" },
     });
     expect(JSON.stringify(options)).not.toContain("a-stored-provider-key");
+  });
+
+  test("tell the catalog whether the classifier works over a ceiling's connection, found by the stored definition", async () => {
+    const modes: Array<
+      InstallationSettings["connections"][number]["auto_mode"]
+    > = ["supported", "unsupported", "unknown", undefined];
+    for (const auto_mode of modes) {
+      const { service, catalog } = setup({
+        fileConnections: {},
+        settings: {
+          ...SETTINGS,
+          connections: [
+            {
+              id: "console_main",
+              provider: STORED,
+              ...(auto_mode === undefined ? {} : { auto_mode }),
+            },
+          ],
+        },
+      });
+      await catalog.workspace_profiles.refresh();
+      await service.create(caller("owner"), {
+        ...REQUEST,
+        connection_id: "console_main",
+      });
+      expect(catalog.connection_auto_mode("op_coding_v1")).toBe(
+        auto_mode ?? "unknown",
+      );
+    }
+  });
+
+  test("follow a workspace version to its base's connection", async () => {
+    const { service, catalog } = setup({
+      fileConnections: {},
+      settings: {
+        ...SETTINGS,
+        connections: [
+          { id: "console_main", provider: STORED, auto_mode: "supported" },
+        ],
+      },
+      workspaceRows: [
+        {
+          id: "ws_narrow_v1",
+          workspace_id: "019a0000-0000-7000-8000-0000000000a1",
+          name: "narrow",
+          version: 1,
+          base_profile_id: "op_coding_v1",
+          base_fingerprint: "unused",
+          model: "claude-sonnet-5",
+          models: ["claude-sonnet-5"],
+          tools: ["Read"],
+          permission_mode: "default",
+          base_runtime_version: "0.3.270",
+          base_billing: "metered",
+          base_repository_mode: "required",
+          created_by: "019a0000-0000-7000-8000-0000000000a2",
+          created_at: new Date(0),
+          retired_by: null,
+          retired_at: null,
+        },
+      ],
+    });
+    await catalog.workspace_profiles.refresh();
+    await service.create(caller("owner"), {
+      ...REQUEST,
+      connection_id: "console_main",
+    });
+    await catalog.workspace_profiles.refresh();
+    expect(catalog.connection_auto_mode("op_coding_v1")).toBe("supported");
+    // The version has no provider of its own; it asks its base's.
+    expect(catalog.connection_auto_mode("ws_narrow_v1")).toBe("supported");
+  });
+
+  test("are unknown for a profile the catalog does not hold, and before any settings are read", async () => {
+    const { catalog } = setup({ fileConnections: {} });
+    expect(catalog.connection_auto_mode("nobody")).toBe("unknown");
+    const withSettings = setup({
+      fileConnections: {},
+      settings: {
+        ...SETTINGS,
+        connections: [
+          { id: "console_main", provider: STORED, auto_mode: "supported" },
+        ],
+      },
+    });
+    await withSettings.catalog.workspace_profiles.refresh();
+    expect(withSettings.catalog.connection_auto_mode("nobody")).toBe("unknown");
   });
 });
 

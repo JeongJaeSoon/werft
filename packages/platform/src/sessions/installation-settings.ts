@@ -3,6 +3,7 @@ import {
   type CatalogMcpServer,
   type CatalogProfileConfig,
   type CatalogRepository,
+  type ConnectionAutoMode,
   type CredentialRef,
   catalogCredentialRefs,
   credentialRefOf,
@@ -28,6 +29,8 @@ export type SettingsSnapshot = {
    * that provider and still belongs to the connection.
    */
   connection_aliases: Readonly<Record<string, Provider>>;
+  /** Whether the classifier works over each connection; beside, never in, the provider. */
+  connection_auto_modes: Readonly<Record<string, ConnectionAutoMode>>;
   repositories: Readonly<Record<string, CatalogRepository>>;
   mcp_servers: Readonly<Record<string, CatalogMcpServer>>;
   /** What a ceiling over one of these connections resolves through. */
@@ -88,7 +91,8 @@ export function settingsSnapshot(
   const unavailable = invalidRepositoryIds(settings);
   const connections: Record<string, Provider> = {};
   const connection_aliases: Record<string, Provider> = {};
-  for (const { id, provider, replaces } of settings.connections) {
+  const connection_auto_modes: Record<string, ConnectionAutoMode> = {};
+  for (const { id, provider, replaces, auto_mode } of settings.connections) {
     const { kind: _kind, ...fields } = provider.auth;
     try {
       resolveCredential(
@@ -97,6 +101,7 @@ export function settingsSnapshot(
         lookup,
       );
       connections[id] = provider;
+      connection_auto_modes[id] = auto_mode ?? "unknown";
       if (replaces) connection_aliases[id] = replaces;
     } catch (error) {
       left_out.push({
@@ -137,6 +142,7 @@ export function settingsSnapshot(
     generation: settings.generation,
     connections,
     connection_aliases,
+    connection_auto_modes,
     repositories,
     mcp_servers,
     lookup,
@@ -181,6 +187,12 @@ export function settingsView(
       settings.connections.flatMap(({ id, replaces }) =>
         replaces ? [[id, replaces]] : [],
       ),
+    ),
+    connection_auto_modes: Object.fromEntries(
+      settings.connections.map(({ id, auto_mode }) => [
+        id,
+        auto_mode ?? "unknown",
+      ]),
     ),
     repositories,
     mcp_servers: Object.fromEntries(

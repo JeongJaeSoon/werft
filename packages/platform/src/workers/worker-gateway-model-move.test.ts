@@ -43,6 +43,16 @@ import {
   storableLegacyConfig,
 } from "./legacy-runtime-configs.ts";
 
+// A claim that resumes also offers the `auto` variants of the modes a profile
+// may have run converted; these tests are about the stored-mode candidates, and
+// the variants have their own tests in worker-gateway.test.ts.
+function withoutAuto<T extends { permission_mode?: string }>(
+  configs: T[] | undefined,
+): T[] | undefined {
+  const kept = configs?.filter((config) => config.permission_mode !== "auto");
+  return kept?.length ? kept : undefined;
+}
+
 /** Every unit-of-work call these tests do not expect throws. */
 function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   return new Proxy(overrides, {
@@ -160,7 +170,7 @@ describe("run configs kept on the session row, at claim", () => {
       ],
       legacyRuntimeConfigs: [{ ...stored, permission_mode: "default" }],
     });
-    const models = (await claimed).restore_runtime_configs?.map(
+    const models = withoutAuto((await claimed).restore_runtime_configs)?.map(
       (c) => `${c.model}/${c.permission_mode}`,
     );
     expect(models).toEqual(["sonnet-5-0/default"]);
@@ -173,7 +183,9 @@ describe("run configs kept on the session row, at claim", () => {
         restoreProfiles: [],
         legacyRuntimeConfigs,
       });
-      expect((await claimed).restore_runtime_configs).toBeUndefined();
+      expect(
+        withoutAuto((await claimed).restore_runtime_configs),
+      ).toBeUndefined();
     }
   });
 });
@@ -238,9 +250,9 @@ describe("a model that left the list, at claim", () => {
     });
     const response = await claimed;
     expect(response.runtime_config.model).toBe("sonnet-5-1");
-    expect(response.restore_runtime_configs?.map((c) => c.model)).toEqual([
-      "sonnet-5-0",
-    ]);
+    expect(
+      withoutAuto(response.restore_runtime_configs)?.map((c) => c.model),
+    ).toEqual(["sonnet-5-0"]);
     expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
   });
 
@@ -261,7 +273,7 @@ describe("a model that left the list, at claim", () => {
       ],
     });
     expect(
-      (await claimed).restore_runtime_configs?.map((c) => c.model),
+      withoutAuto((await claimed).restore_runtime_configs)?.map((c) => c.model),
     ).toEqual(["sonnet-5-0"]);
   });
 
@@ -276,7 +288,9 @@ describe("a model that left the list, at claim", () => {
         },
       ],
     });
-    expect((await claimed).restore_runtime_configs).toBeUndefined();
+    expect(
+      withoutAuto((await claimed).restore_runtime_configs),
+    ).toBeUndefined();
   });
 
   test("a checkpoint from a model with no successor is still refused", async () => {
@@ -290,7 +304,9 @@ describe("a model that left the list, at claim", () => {
         },
       ],
     });
-    expect((await claimed).restore_runtime_configs).toBeUndefined();
+    expect(
+      withoutAuto((await claimed).restore_runtime_configs),
+    ).toBeUndefined();
   });
 
   test("a checkpoint from another family's removed model is not accepted either", async () => {
@@ -304,6 +320,8 @@ describe("a model that left the list, at claim", () => {
         },
       ],
     });
-    expect((await claimed).restore_runtime_configs).toBeUndefined();
+    expect(
+      withoutAuto((await claimed).restore_runtime_configs),
+    ).toBeUndefined();
   });
 });

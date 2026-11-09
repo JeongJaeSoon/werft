@@ -126,6 +126,16 @@ function gateway(
   return { instance, slept };
 }
 
+// A claim that resumes also offers the `auto` variants of the modes a profile
+// may have run converted; tests about the stored-mode candidates leave them
+// out, and the variants have their own describe below.
+function withoutAuto(
+  configs: RuntimeConfig[] | undefined,
+): RuntimeConfig[] | undefined {
+  const kept = configs?.filter((config) => config.permission_mode !== "auto");
+  return kept?.length ? kept : undefined;
+}
+
 describe("WorkerGateway", () => {
   test("nextInput polls until input arrives and caps wait_ms at maxWaitMs", async () => {
     let calls = 0;
@@ -1805,10 +1815,10 @@ describe("WorkerGateway", () => {
     expect(repository_access?.token).toStartWith("wer_");
     expect(JSON.stringify(rest)).not.toContain("wer_");
     expect(claimed.runtime_config.tools).toEqual(["Write"]);
-    expect(claimed.restore_runtime_configs).toHaveLength(1);
-    expect(claimed.restore_runtime_configs?.[0]).not.toHaveProperty(
-      "project_settings",
-    );
+    expect(withoutAuto(claimed.restore_runtime_configs)).toHaveLength(1);
+    expect(
+      withoutAuto(claimed.restore_runtime_configs)?.[0],
+    ).not.toHaveProperty("project_settings");
     expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
     expect(withoutPolicyPairs(runnable[0] ?? [])).toEqual([
       ...["required", "optional"].flatMap((profileId) =>
@@ -1907,7 +1917,7 @@ describe("WorkerGateway", () => {
       ],
     });
     expect(legacy.runtime_config.model).toBe("claude-opus-5-5");
-    expect(legacy.restore_runtime_configs).toBeUndefined();
+    expect(withoutAuto(legacy.restore_runtime_configs)).toBeUndefined();
     expect(
       issued.at(-1)?.bindingsOf({
         id: "s-1",
@@ -1937,7 +1947,7 @@ describe("WorkerGateway", () => {
     const restored = (await claimWith(withGitHub)).restore_runtime_configs;
     expect(restored).toHaveLength(16);
     expect(
-      restored
+      withoutAuto(restored)
         ?.slice(0, 3)
         .map((config) => [
           config.mcp_servers?.map((server) => server.name),
@@ -2172,7 +2182,7 @@ describe("WorkerGateway", () => {
     // Newest first, every profile list before the release's: the current
     // profile's (with and before the built-in server), the earlier
     // profile's, then the release's as checkpoints from before the server.
-    expect(claimed.restore_runtime_configs?.map(shape)).toEqual([
+    expect(withoutAuto(claimed.restore_runtime_configs)?.map(shape)).toEqual([
       {
         model: "claude-sonnet-5",
         tools: ["Read", "Edit", "Bash", github],
@@ -2195,7 +2205,7 @@ describe("WorkerGateway", () => {
     expect(shape(off.runtime_config)).toEqual(
       shape(withoutRelease.runtime_config),
     );
-    expect(off.restore_runtime_configs?.map(shape)).toEqual([
+    expect(withoutAuto(off.restore_runtime_configs)?.map(shape)).toEqual([
       { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
       {
         model: "claude-sonnet-5",
@@ -2211,7 +2221,9 @@ describe("WorkerGateway", () => {
       { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
     ]);
     // The earlier profile allows only the release's tools: one list.
-    expect(withoutRelease.restore_runtime_configs?.map(shape)).toEqual([
+    expect(
+      withoutAuto(withoutRelease.restore_runtime_configs)?.map(shape),
+    ).toEqual([
       { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
       {
         model: "claude-sonnet-5",
@@ -2292,15 +2304,25 @@ describe("WorkerGateway", () => {
     const full = ["Read", "Edit", "Bash"];
     const narrow = ["Read", "Bash"];
     const crowded = (await claimWith(many, false)).restore_runtime_configs;
+    // The current profile's own `auto` variant (a checkpoint made while its
+    // connection converted the mode) takes the first profile-list slot and
+    // one release-list slot; the eight earlier profile lists all stay.
     expect(crowded?.map((config) => config.tools)).toEqual([
-      ...Array.from({ length: 8 }, () => full),
-      ...Array.from({ length: 8 }, () => narrow),
-    ]);
-    expect(crowded?.[8]?.model).toBe("claude-sonnet-5");
-    const crowdedOn = (await claimWith(many)).restore_runtime_configs;
-    expect(crowdedOn?.map((config) => config.tools)).toEqual([
       ...Array.from({ length: 9 }, () => full),
       ...Array.from({ length: 7 }, () => narrow),
+    ]);
+    expect(
+      crowded?.filter((config) => config.model === "claude-opus-5-5"),
+    ).toHaveLength(13);
+    expect(
+      withoutAuto(crowded)?.filter((c) => c.tools.length === 3),
+    ).toHaveLength(8);
+    const crowdedOn = (await claimWith(many)).restore_runtime_configs;
+    // The release's tools run, so the current profile's list is offered in
+    // its stored mode and its `auto` variant: two slots before the eight.
+    expect(crowdedOn?.map((config) => config.tools)).toEqual([
+      ...Array.from({ length: 10 }, () => full),
+      ...Array.from({ length: 6 }, () => narrow),
     ]);
   });
 

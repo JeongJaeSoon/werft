@@ -126,8 +126,10 @@ import {
   catalogProfile,
   claimToolLists,
   type EgressUpstream,
+  effectiveExecutionMode,
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
+  isConvertibleMode,
   mcpBinding,
   modelMovePins,
   type ProfilePin,
@@ -263,6 +265,10 @@ type ToolConfigs = {
   profile: RuntimeConfig;
   release: RuntimeConfig | null;
   runs: ToolList;
+  // The mode the profile stores. The configs above carry the mode the claim
+  // runs, which is `auto` for a convertible stored mode on a connection whose
+  // classifier works; a scheme 1 checkpoint hashed whichever one ran then.
+  storedMode: RuntimeConfig["permission_mode"];
 };
 
 export type WorkerGatewayOptions = {
@@ -683,6 +689,7 @@ export function createWorkerGateway(deps: {
     release: ReleaseRun,
     providerToken: string,
     hasRepository: boolean,
+    mode: RuntimeConfig["permission_mode"] = profile.permission_mode,
   ): ToolConfigs {
     const lists = claimToolLists(
       profile,
@@ -699,6 +706,7 @@ export function createWorkerGateway(deps: {
       );
       return {
         ...config,
+        permission_mode: mode,
         ...(prompt ? { platform_prompt: prompt } : {}),
       };
     };
@@ -706,6 +714,7 @@ export function createWorkerGateway(deps: {
       profile: configOf(lists.profile),
       release: lists.release === null ? null : configOf(lists.release),
       runs: lists.runs,
+      storedMode: profile.permission_mode,
     };
   }
 
@@ -1244,6 +1253,10 @@ export function createWorkerGateway(deps: {
       release,
       providerToken,
       hasRepository,
+      effectiveExecutionMode(
+        profile.permission_mode,
+        catalog.connection_auto_mode?.(profileId) ?? "unknown",
+      ),
     );
     const runtime_config =
       tool_configs.runs === "release" && tool_configs.release !== null
@@ -1304,22 +1317,79 @@ export function createWorkerGateway(deps: {
     // cap would otherwise give the oldest earlier profile.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
     const attached = legacy.length !== mcp.length;
-    const configs = (["profile", "release"] as const).flatMap((list) =>
-      [current, ...alternates].flatMap((configs, index) => {
-        const config = configs[list];
-        if (config === null) return [];
-        const running = index === 0 && current.runs === list;
-        return [
-          ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
-          ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
-        ];
-      }),
-    );
-    const stored = kept.flatMap((config) => [
-      withMcp(config, mcp, mcpToken),
+    const lists = ["profile", "release"] as const;
+    const offerings = (config: RuntimeConfig, running: boolean) => [
+      ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
       ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
-    ]);
-    const offered = appendNew(configs, stored).slice(0, MAX_RESTORE_PROFILES);
+    ];
+    const inMode = (
+      config: RuntimeConfig,
+      mode: RuntimeConfig["permission_mode"],
+    ): RuntimeConfig => ({ ...config, permission_mode: mode });
+    // A scheme 1 digest hashes the mode, so a checkpoint made under a
+    // converted mode carries `auto` whatever the profile stores, and the
+    // connection's judgement may have changed since. The order is what the
+    // cap keeps: the current profile in every mode it could have run, then
+    // earlier profiles as they store their mode, then the rows' configs, and
+    // last the `auto` variants of those.
+    const runsAs = current.profile.permission_mode;
+    // `restoreProfiles` is empty unless the session has a checkpoint to resume
+    // (withRestoreProfiles), and a candidate that no checkpoint can match is
+    // only weight on the claim.
+    const resuming = binding.restoreProfiles.length > 0;
+    const currentModes = [
+      ...new Set([
+        runsAs,
+        ...(resuming
+          ? [
+              current.storedMode,
+              ...(isConvertibleMode(current.storedMode)
+                ? (["auto"] as const)
+                : []),
+            ]
+          : []),
+      ]),
+    ];
+    // List by list, as the cap has always kept them: every profile list
+    // before any release list. Within one list the current profile goes first.
+    const ofLists = lists.flatMap((list) => {
+      const config = current[list];
+      return [
+        ...(config === null
+          ? []
+          : currentModes.flatMap((mode) =>
+              offerings(
+                inMode(config, mode),
+                current.runs === list && mode === runsAs,
+              ),
+            )),
+        ...alternates.flatMap((configs) => {
+          const earlier = configs[list];
+          return earlier === null ? [] : offerings(earlier, false);
+        }),
+      ];
+    });
+    const stored = kept.flatMap((config) => offerings(config, false));
+    // Earlier profiles and kept rows exist only for a session that resumes.
+    const converted = [
+      ...lists.flatMap((list) =>
+        alternates.flatMap((configs) => {
+          const config = configs[list];
+          return config === null || !isConvertibleMode(configs.storedMode)
+            ? []
+            : offerings(inMode(config, "auto"), false);
+        }),
+      ),
+      ...kept.flatMap((config) =>
+        isConvertibleMode(config.permission_mode)
+          ? offerings(inMode(config, "auto"), false)
+          : [],
+      ),
+    ];
+    const offered = appendNew(appendNew(ofLists, stored), converted).slice(
+      0,
+      MAX_RESTORE_PROFILES,
+    );
     return offered.length === 0 ? {} : { restore_runtime_configs: offered };
   }
 

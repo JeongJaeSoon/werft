@@ -158,6 +158,14 @@ function changeProfile(sessionId: string, profileId: string, revision: number) {
   });
 }
 
+// A resuming claim also offers each candidate run as `auto`, for a checkpoint
+// made under a converted mode; these tests are about which profiles are offered.
+function storedModes<T extends { permission_mode?: string }>(
+  configs: T[] | undefined,
+): T[] | undefined {
+  return configs?.filter((config) => config.permission_mode !== "auto");
+}
+
 async function claim(g: WorkerGateway, sessionId: string) {
   const { executionId, generation, nonce } = await launchSession(db, {
     sessionId,
@@ -354,11 +362,10 @@ describe("changing a session's profile", () => {
     expect(next.runtime.profile_id).toBe("haiku");
     expect(next.runtime_config.model).toBe("claude-haiku-5");
     expect(next.restore?.revision).toBe(0);
-    expect(next.restore_runtime_configs).toHaveLength(1);
-    expect(next.restore_runtime_configs?.[0]?.model).toBe("claude-sonnet-5");
-    expect(next.restore_runtime_configs?.[0]?.provider.endpoint).toBe(
-      "https://sonnet.invalid",
-    );
+    const offered = storedModes(next.restore_runtime_configs);
+    expect(offered).toHaveLength(1);
+    expect(offered?.[0]?.model).toBe("claude-sonnet-5");
+    expect(offered?.[0]?.provider.endpoint).toBe("https://sonnet.invalid");
     const grant = await g.authorizeEgress({
       token: providerTokenOf(next),
       purpose: "provider",
@@ -378,7 +385,7 @@ describe("changing a session's profile", () => {
     const next = await claim(g, sessionId);
     expect(next.runtime_config.model).toBe("claude-haiku-5");
     expect(
-      next.restore_runtime_configs?.map((config) => [
+      storedModes(next.restore_runtime_configs)?.map((config) => [
         config.model,
         config.provider.endpoint,
       ]),
@@ -405,9 +412,9 @@ describe("changing a session's profile", () => {
       .where(eq(checkpoints.sessionId, sessionId));
     expect(checkpoint?.profileFingerprint).toBe(profileFingerprint(SONNET));
     const next = await claim(g, sessionId);
-    expect(next.restore_runtime_configs?.map((config) => config.model)).toEqual(
-      ["claude-sonnet-5"],
-    );
+    expect(
+      storedModes(next.restore_runtime_configs)?.map((config) => config.model),
+    ).toEqual(["claude-sonnet-5"]);
   });
 
   test("offers every earlier profile the restorable checkpoints were made under, newest first", async () => {
@@ -426,7 +433,7 @@ describe("changing a session's profile", () => {
     expect(third.runtime_config.model).toBe("claude-opus-5");
     expect(third.restore?.revision).toBe(1);
     expect(
-      third.restore_runtime_configs?.map((config) => config.model),
+      storedModes(third.restore_runtime_configs)?.map((config) => config.model),
     ).toEqual(["claude-haiku-5", "claude-sonnet-5"]);
   });
 

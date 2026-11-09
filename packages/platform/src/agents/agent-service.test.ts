@@ -1039,28 +1039,18 @@ describe("activation and the agent's extension bundles", () => {
       extensions,
     });
 
-  test("a release on an unattended profile is refused while the agent offers a scripted bundle", async () => {
+  test("a release on an unattended profile is activated while the agent offers a scripted bundle: the bundle's review, not the mode, lets it run", async () => {
     const memory = memoryStore();
     const auto: CatalogProfile = { ...WITH_SKILL, permission_mode: "auto" };
     const { release: made } = await serviceOver(
       memory.store,
       auto,
     ).createRelease(owner, AGENT, release);
-    const error = await overWith(memory.store, auto)
-      .activateAgent(owner, AGENT, {
-        release_id: made.id,
-        expected_revision: -1,
-      })
-      .then(
-        () => null,
-        (thrown: unknown) => thrown,
-      );
-    expect(error).toBeInstanceOf(SessionServiceError);
-    expect((error as SessionServiceError).details).toMatchObject({
-      reason_code: "scripts_need_default_mode",
-      bundle: "tools",
+    await overWith(memory.store, auto).activateAgent(owner, AGENT, {
+      release_id: made.id,
+      expected_revision: -1,
     });
-    expect(memory.activations()).toBe(0);
+    expect(memory.activations()).toBe(1);
   });
 
   test("a release on a profile whose tools lack Skill is refused, and nothing is activated", async () => {
@@ -1132,10 +1122,9 @@ describe("activation and the agent's extension bundles", () => {
 
   test("returning to an earlier release is refused on the same ground as an activation", async () => {
     const memory = memoryStore();
-    const auto: CatalogProfile = { ...WITH_SKILL, permission_mode: "auto" };
     const { release: made } = await serviceOver(
       memory.store,
-      auto,
+      WITH_SKILL,
     ).createRelease(owner, AGENT, release);
     const revert = (service: ReturnType<typeof overWith>) =>
       service.revertMigration({
@@ -1153,7 +1142,8 @@ describe("activation and the agent's extension bundles", () => {
         },
         tracking: "follow",
       });
-    expect(await revert(overWith(memory.store, auto))).toEqual({
+    // The profile it would return to lacks Skill, which the bundles need.
+    expect(await revert(overWith(memory.store, PROFILE))).toEqual({
       status: "failed",
       reason: "release_refused",
     });
@@ -1161,7 +1151,7 @@ describe("activation and the agent's extension bundles", () => {
     const bare = createAgentService({
       authorization: createAuthorizationPolicy(),
       store: memory.store,
-      catalog: catalogOf(auto),
+      catalog: catalogOf(PROFILE),
       credentials: { unboundRefs: async () => [] },
     });
     expect((await revert(bare)).status).not.toBe("failed");

@@ -32,7 +32,6 @@ const entry = (mode: ExtensionMode, r: ExtensionRef): ScopeEntry => ({
 });
 
 const base = {
-  permissionMode: "default",
   runtimeOffersSkills: true,
   tools: ["Read", "Skill"],
 } as const;
@@ -258,27 +257,16 @@ describe("resolveExtensions: what the profile can run", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("scripts pass in default mode and are refused in every other", () => {
-    expect(resolveExtensions({ ...base, scopes: scripted }).ok).toBe(true);
-    for (const permissionMode of [
-      "auto",
-      "bypassPermissions",
-      "acceptEdits",
-      "plan",
-    ]) {
-      const result = resolveExtensions({
-        ...base,
-        permissionMode,
-        scopes: scripted,
-      });
-      expect(refusalOf(result).code).toBe("scripts_need_default_mode");
-    }
+  // The review that approved the bundle is what lets its scripts run; the
+  // profile's permission mode no longer decides it.
+  test("a scripted bundle resolves, whatever mode the profile stores", () => {
+    const result = resolveExtensions({ ...base, scopes: scripted });
+    expect(result.ok).toBe(true);
   });
 
   test("an optional scripted bundle that stays off does not block a session", () => {
     const result = resolveExtensions({
       ...base,
-      permissionMode: "auto",
       scopes: {
         agent: [entry("optional", ref("tools", "a", { scripts: true }))],
       },
@@ -289,12 +277,21 @@ describe("resolveExtensions: what the profile can run", () => {
   test("activation judges the optional ones too", () => {
     const result = resolveExtensions({
       ...base,
-      permissionMode: "auto",
       includeOptional: true,
       scopes: {
         agent: [entry("optional", ref("tools", "a", { scripts: true }))],
       },
     });
-    expect(refusalOf(result).code).toBe("scripts_need_default_mode");
+    expect(result.ok).toBe(true);
+    // The other activation checks still apply to an optional bundle.
+    const withoutSkillTool = resolveExtensions({
+      ...base,
+      tools: ["Read"],
+      includeOptional: true,
+      scopes: {
+        agent: [entry("optional", ref("tools", "a", { scripts: true }))],
+      },
+    });
+    expect(refusalOf(withoutSkillTool).code).toBe("skill_tool_not_allowed");
   });
 });

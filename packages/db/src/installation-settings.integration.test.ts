@@ -306,6 +306,7 @@ integration("installation settings", () => {
         },
         credentialSource: "stored",
         origin: "console",
+        autoMode: "supported",
       },
       {
         id: "borrower",
@@ -331,6 +332,11 @@ integration("installation settings", () => {
     );
     const snapshot = settingsSnapshot(opened, () => undefined);
     expect(Object.keys(snapshot.connections)).toEqual(["console_main"]);
+    // Whether the classifier works over a connection is read beside, never
+    // inside, its definition: the profile fingerprint hashes the provider.
+    expect(snapshot.connection_auto_modes).toEqual({
+      console_main: "supported",
+    });
 
     expect((await store.read()).stored.size).toBe(0);
     const keyless = await createPostgresInstallationSettingsStore(

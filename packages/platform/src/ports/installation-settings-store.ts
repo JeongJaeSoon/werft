@@ -23,6 +23,8 @@ export interface InstallationSettings {
      * when the console has since moved it to a stored value.
      */
     replaces?: CatalogProfileConfig["provider"];
+    /** Absent reads as `unknown`. */
+    auto_mode?: "supported" | "unsupported" | "unknown";
   }>;
   repositories: ReadonlyArray<{
     id: string;

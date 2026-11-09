@@ -48,6 +48,8 @@ export type ExtensionRefusalCode =
   | "skill_name_collision"
   | "feature_unsupported"
   | "skill_tool_not_allowed"
+  // No longer refused: a scripts bundle runs on its review, not the profile's
+  // mode. The public contract names the code until the profile API is removed.
   | "scripts_need_default_mode";
 
 export type ExtensionRefusal = {
@@ -91,7 +93,6 @@ const refuse = (
 export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
   session?: SessionSelection;
-  permissionMode: string;
   runtimeOffersSkills: boolean;
   tools: readonly string[];
   includeOptional?: boolean;
@@ -226,16 +227,6 @@ export function resolveExtensions(input: {
         "skill_tool_not_allowed",
         state.ref.name,
         `"${state.ref.name}" carries skills, which the model uses only through the "${SKILL_TOOL}" tool, and this runtime profile's tools do not list it. Add "${SKILL_TOOL}" to the profile's \`tools\` list.`,
-      );
-    }
-    if (
-      skills.some((skill) => skill.has_scripts) &&
-      input.permissionMode !== "default"
-    ) {
-      return refuse(
-        "scripts_need_default_mode",
-        state.ref.name,
-        `"${state.ref.name}" carries skills with scripts, which run only on a profile in permission mode "default"`,
       );
     }
     for (const skill of skills) {
