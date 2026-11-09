@@ -24,7 +24,7 @@
 |---|---|
 | 입력 | `push_request_id` (다른 PR 도구와 같은 식별자. 이 세션이 연 PR만 읽는다) |
 | 출력 | `number`, `url`, `state`, `title`, `body`, `body_truncated`, `body_sha256`, `head_sha`, `base` |
-| `body` | 플랫폼 꼬리(`<!-- werft:pr-tail -->` … `<!-- /werft:pr-tail -->`)를 뺀 사람·에이전트 부분. 길이 상한 64 KiB, 넘으면 앞부분과 `body_truncated: true` |
+| `body` | 플랫폼 꼬리(`<!-- werft:pr-tail -->` … `<!-- /werft:pr-tail -->`)를 뺀 사람·에이전트 부분. 길이 상한 64 KiB, 넘으면 앞부분과 `body_truncated: true`. 잘린 응답에는 `body_sha256`을 주지 않는다(null). 그래서 잘린 내용을 바탕으로 한 갱신은 B의 잠금을 지날 수 없다 |
 | `body_sha256` | GitHub가 돌려준 본문 전체(꼬리 포함)의 해시. 아래 B의 낙관적 잠금에 쓴다 |
 | 권한 | 행동 부류(`GITHUB_MCP_TOOL_CLASSES`, `github-mcp.ts:372`)는 `get_push_request`가 push의 부류를 따르듯 PR의 부류 `pull_request.write`를 따른다. 새 부류는 만들지 않는다. GitHub 토큰은 읽기 권한만 받아야 하는데, 지금 있는 목적(`GitHubPurpose`, `packages/contracts/src/musterrolle/github-settings.ts:151`)으로는 안 된다. `pull_request`는 `pull_requests: write`를 받고(`:197-201`), 읽기 전용인 `outcome_refresh`(`:222-226`)는 게이트가 플랫폼 읽기로 보고 에이전트 GitHub 설정·상한을 건너뛴다(`packages/platform/src/sessions/github-gate.ts:171`). 그래서 새 목적 `pull_request_read`(`pull_requests: read`만. `outcome_refresh`와 같은 PR 읽기 호출만 쓰므로 `contents`는 받지 않는다)를 더하고, 게이트에서는 `pull_request`와 같이 에이전트 설정을 거치게 하며, 붙인 저장소에도 허용되는 목적 목록(`ANOTHER_REPOSITORY_PURPOSES`)에 넣는다 |
 | receipt | 남기지 않는다(읽기). 실패는 다른 PR 도구와 같은 봉투(`by`, `retryable`) |
@@ -34,7 +34,8 @@
 
 ### B. `update_pull_request`의 덮어쓰기 막기 (선택)
 
-- 입력에 `expected_body_sha256`(선택)을 더한다. 주어지면 플랫폼이 쓰기 직전에 다시 읽은 본문의 해시와 비교한다. 다르면 `body_changed`(platform, `retryable: true`)로 거절한다.
+- 입력에 `expected_body_sha256`(선택)을 더한다. 주어지면 플랫폼이 쓰기 직전에 다시 읽은 본문의 해시와 비교한다. 다르면 `body_changed`(platform, `retryable: false`)로 거절한다. 같은 해시로 다시 불러도 성공하지 않으므로 재시도 가능으로 두지 않는다(봉투의 `retryable` 정의, `packages/contracts/src/api/action-broker.ts:25`). 에이전트는 `get_pull_request`로 다시 읽은 해시로 새로 부른다.
+- 잘린 본문 보호: 지금 PR 본문 크기 상한(GitHub 65536자)은 64 KiB 읽기 상한과 같은 차수라 실제로 잘리는 일은 드물다. 그래도 잘린 읽기로 본문을 다시 쓰면 뒷부분이 조용히 지워진다. 그래서 `get_pull_request`가 잘린 응답을 준 PR에는 B를 쓰도록 강제한다. 본문을 쓰는 `update_pull_request`는 `expected_body_sha256` 없이는 `body_unverified`(platform, `retryable: false`)로 거절하고, 잘린 응답에는 해시가 없으므로 그 PR의 본문은 에이전트가 고칠 수 없다(제목만 고칠 수 있다). 사람이 줄인 뒤에 다시 읽으면 고칠 수 있다.
 - 주지 않으면 지금 동작 그대로다. 그래서 기존 세션과 호환된다.
 - 비교 자리는 `updatePullRequestBody`(`github-gate.ts:141-145`)의 콜백이지만 지금 모양으로는 막을 수 없다. 콜백이 본문을 그대로 돌려줘도 어댑터(`apps/control-host/src/api/forge-github.ts:456-476`)는 함께 받은 `title`을 PATCH하고, 콜백이 throw하면 `ForgeCredentialError`로 감싸여 `forge_failed`가 된다(`pull-request-service.ts:1048-1051`). 그래서 포트에 "쓰지 않고 멈춤"을 뜻하는 타입 있는 결과(예: 콜백이 `{ abort: "body_changed" }`를 돌려주면 어떤 PATCH도 보내지 않고 그 결과를 돌려준다)를 더하고, 해시가 다르면 제목 PATCH도 나가지 않는 시험을 둔다.
 - GitHub 쪽 조건부 쓰기가 없어 비교와 쓰기 사이의 경쟁은 남는다. 이 한계는 문서에 적는다.
@@ -58,10 +59,10 @@ verify-werft의 GitHub sandbox 절차([github-sandbox.md](../../../.claude/skill
 | 1 | C의 절차만 먼저(코드 변경 없음). 지금 main의 꼬리 교체를 실제 GitHub로 확인한다 | sandbox E2E |
 | 2 | A: 계약(`GITHUB_MCP_TOOL_ARGUMENTS`·응답 스키마·OpenAPI), MCP 서버, forge `body`, 꼬리 분리, 새 목적 `pull_request_read`(권한표·게이트 경로·붙인 저장소·`GITHUB_PURPOSE_VALUES`를 읽는 receipt 집계) | 단위(게이트가 설정이 꺼진 에이전트를 거절하는지, 토큰 권한이 `pull_requests: read` 하나뿐인지) + fake forge + sandbox |
 | 3 | 플랫폼 프롬프트 리비전: 도구 목록과 "읽고 나서 고쳐라" 한 줄 | 프롬프트 골든 시험 |
-| 4 | B(선택): 포트의 타입 있는 중단 결과, 어댑터가 중단 때 PATCH를 보내지 않음, `body_changed` 거절 | 단위(해시 불일치 때 제목·본문 PATCH 0건) + sandbox |
+| 4 | B(선택): 포트의 타입 있는 중단 결과, 어댑터가 중단 때 PATCH를 보내지 않음, `body_changed`·`body_unverified` 거절(둘 다 `retryable: false`) | 단위(해시 불일치 때 제목·본문 PATCH 0건, 잘린 읽기 뒤 본문 갱신 거절) + sandbox |
 
 ## 오너가 정할 것
 
 1. A를 새 도구로 둘지, `get_push_request` 결과에 `pull_request.body`를 더할지. 새 도구는 설명과 권한이 분명하다. 기존 도구 확장은 도구 수가 늘지 않지만 push 상태를 볼 때마다 GitHub 호출이 붙는다.
-2. B를 만들지. 만들지 않으면 에이전트는 읽은 뒤 바로 쓰는 것으로 충분하다고 본다.
+2. B를 만들지. 만들지 않으면 에이전트는 읽은 뒤 바로 쓰는 것으로 충분하다고 본다. 이 경우에도 잘린 읽기로 본문이 지워지는 위험은 남으므로, B 없이 A만 만든다면 본문 길이 상한을 GitHub 상한 이상으로 두어 잘리지 않게 해야 한다.
 3. 본문 길이 상한(제안 64 KiB, GitHub 본문 상한 65536자와 같은 차수).
