@@ -12,7 +12,7 @@ import {
 import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
-import { modeSettings } from "./engine-settings.ts";
+import { modeSettings, withEngineSettings } from "./engine-settings.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import { expectedPluginSkills } from "./plugin-skills.ts";
@@ -149,11 +149,15 @@ export function buildSdkOptions(
   const unattended = bypass || config.permissionMode === "auto";
   const settings = {
     attribution: ENGINE_ATTRIBUTION_OFF,
-    ...modeSettings({
-      cwd: config.cwd,
-      permissionMode: config.permissionMode,
-      trusted: trustedTools.size > 0,
-    }),
+    ...withEngineSettings(
+      modeSettings({
+        cwd: config.cwd,
+        permissionMode: config.permissionMode,
+        trusted: trustedTools.size > 0,
+      }),
+      config.permissionMode,
+      config.engineSettings,
+    ),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
   assertEngineArgumentBudget(settings, disallowed);
