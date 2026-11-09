@@ -1121,6 +1121,13 @@
       "when": 1794199622069,
       "tag": "0250_slack_channel_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 251,
+      "version": "7",
+      "when": 1794203378517,
+      "tag": "0251_extension_attachments",
+      "breakpoints": true
     }
   ]
 }
