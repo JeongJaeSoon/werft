@@ -77,6 +77,8 @@ The provider address and credentials do not appear in the list. Those values do 
 
 Choose with `profile_id` when you create a session. If the profile allows several models, choose one of them with `model`; if you leave it out, the session runs with the default model.
 
+If the model of a running session leaves the allow-list, its model requests are cut shortly after. The session's events get one `error` event (`code: MODEL_NOT_ALLOWED`, `model`), and the session detail timeline reads "Model requests for this session were blocked because … is no longer allowed by its profile". Restore the model to the list, or start a new session on another model.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 

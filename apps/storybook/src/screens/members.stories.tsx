@@ -15,12 +15,8 @@ import { ListToolbar } from "@werft-ai/react/components";
 import {
   Alert,
   AlertDescription,
-  Avatar,
-  avatarInitials,
-  avatarTone,
   Badge,
   Button,
-  buttonVariants,
   Combobox,
   ConfirmDialog,
   DangerZone,
@@ -239,7 +235,7 @@ function rowsFor(viewer: "owner" | "admin"): readonly MemberRow[] {
 }
 
 const TEAMS: readonly TeamView[] = [
-  ["a1d2c3b4-0000-4000-8000-000000000001", "플랫폼팀", 2, "2026-10-15"],
+  ["a1d2c3b4-0000-4000-8000-000000000001", "플랫폼팀", 3, "2026-10-15"],
   ["a1d2c3b4-0000-4000-8000-000000000002", "리서치", 1, "2026-10-16"],
   ["a1d2c3b4-0000-4000-8000-000000000003", "디자인", 0, "2026-10-20"],
 ].map(([id, name, count, day]) => ({
@@ -273,6 +269,16 @@ const TEAM: TeamDetailView = {
       added_by: ID.owner,
       added_at: "2026-10-17T02:30:00Z",
       disabled_at: null,
+    },
+    {
+      // Switched off in the workspace: the team keeps the row, shown inactive.
+      user_id: ID.sora,
+      email: "sora@example.test",
+      display_name: "Verify Sora",
+      role: "member",
+      added_by: ID.owner,
+      added_at: "2026-10-18T03:00:00Z",
+      disabled_at: "2026-10-28T00:00:00Z",
     },
   ],
 };
@@ -1047,8 +1053,14 @@ function TeamRowLink({ name }: { readonly name: string }) {
   );
 }
 
-function TeamsTab({ teams }: { readonly teams: readonly TeamView[] }) {
-  const [query, setQuery] = useState("");
+function TeamsTab({
+  teams,
+  initialQuery = "",
+}: {
+  readonly teams: readonly TeamView[];
+  readonly initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const items = teams.filter((team) => matches(query, team.name));
   return (
     <div className="flex flex-col gap-[var(--werft-space-block)]">
@@ -1066,7 +1078,8 @@ function TeamsTab({ teams }: { readonly teams: readonly TeamView[] }) {
       {items.length === 0 && query.trim() !== "" ? (
         <EmptyState
           className="w-full"
-          title="검색어에 맞는 팀이 없습니다."
+          title="검색어에 맞는 팀이 없습니다"
+          description="다른 이름으로 찾아 보세요."
           action={<ClearSearch onClick={() => setQuery("")} />}
         />
       ) : items.length === 0 ? (
@@ -1076,6 +1089,8 @@ function TeamsTab({ teams }: { readonly teams: readonly TeamView[] }) {
           <GridTable
             aria-label="팀 표"
             columns="minmax(0,1fr) 9rem"
+            narrowAt={640}
+            narrowColumns="minmax(0,1fr) 7rem"
             framed={true}
           >
             <GridTableHeader>
@@ -1150,16 +1165,19 @@ function TeamPage({
   team,
   manages,
   initialDelete = false,
-  initialAdd = false,
-  initialRole,
+  initialPromote,
+  initialRemove,
+  initialQuery = "",
   manages409 = false,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialDelete?: boolean;
-  readonly initialAdd?: boolean;
-  /** Whose 팀 역할 바꾸기 dialog starts open. */
-  readonly initialRole?: string | undefined;
+  /** Whose promotion to lead starts at its confirmation. */
+  readonly initialPromote?: string | undefined;
+  /** Whose removal starts at its confirmation. */
+  readonly initialRemove?: string | undefined;
+  readonly initialQuery?: string;
   /** The delete was refused: the team manages agents (409). */
   readonly manages409?: boolean;
 }) {
@@ -1167,16 +1185,16 @@ function TeamPage({
   const [name, setName] = useState(team.name);
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-2">
+        <TextLink
+          href="#teams"
+          className="inline-flex w-fit items-center gap-1"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />팀 목록
+        </TextLink>
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.name}
         </Heading>
-        <a
-          href="#teams"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          <ArrowLeft className="size-3.5" aria-hidden="true" />팀 목록
-        </a>
       </div>
       {manages ? (
         <Section title="팀 설정" titleAs="h3">
@@ -1207,8 +1225,9 @@ function TeamPage({
       <TeamMembers
         team={team}
         manages={manages}
-        initialAdd={initialAdd}
-        initialRole={initialRole}
+        initialPromote={initialPromote}
+        initialRemove={initialRemove}
+        initialQuery={initialQuery}
       />
       {manages ? (
         <>
@@ -1258,18 +1277,20 @@ function TeamPage({
 function TeamMembers({
   team,
   manages,
-  initialAdd,
-  initialRole,
+  initialPromote,
+  initialRemove,
+  initialQuery,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
-  readonly initialAdd: boolean;
-  readonly initialRole: string | undefined;
+  readonly initialPromote: string | undefined;
+  readonly initialRemove: string | undefined;
+  readonly initialQuery: string;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [removing, setRemoving] = useState<
     TeamDetailView["members"][number] | null
-  >(null);
+  >(team.members.find((member) => member.user_id === initialRemove) ?? null);
   // Managers read the workspace roles of the team's people; its own members
   // do not. The team role comes with the team.
   const roles = manages
@@ -1278,16 +1299,18 @@ function TeamMembers({
   const shown = team.members.filter((member) =>
     matches(query, member.display_name, member.email),
   );
+  const roleColumn = manages ? "7.5rem" : "96px";
+  const actionsColumn = "var(--werft-row-action-min-width)";
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
-    "96px",
+    roleColumn,
     "minmax(9.5rem,0.5fr)",
-    manages && "12rem",
+    manages && actionsColumn,
   ]
     .filter(Boolean)
     .join(" ");
-  const narrowColumns = ["minmax(0,1fr)", "96px", manages && "12rem"]
+  const narrowColumns = ["minmax(0,1fr)", roleColumn, manages && actionsColumn]
     .filter(Boolean)
     .join(" ");
   return (
@@ -1295,11 +1318,6 @@ function TeamMembers({
       title="팀 구성원"
       titleAs="h3"
       badge={<Badge variant="gray">{`${team.members.length}명`}</Badge>}
-      actions={
-        manages ? (
-          <AddMembers team={team} initialOpen={initialAdd} />
-        ) : undefined
-      }
     >
       {team.members.length === 0 ? (
         <EmptyState title="아직 구성원이 없습니다." />
@@ -1319,7 +1337,8 @@ function TeamMembers({
           {shown.length === 0 ? (
             <EmptyState
               className="w-full"
-              title="찾는 구성원이 이 팀에 없습니다."
+              title="검색어에 맞는 구성원이 없습니다"
+              description="다른 이름이나 이메일로 찾아 보세요."
               action={<ClearSearch onClick={() => setQuery("")} />}
             />
           ) : (
@@ -1330,7 +1349,6 @@ function TeamMembers({
                 narrowAt={820}
                 narrowColumns={narrowColumns}
                 framed={true}
-                className={manages ? "min-w-[480px]" : undefined}
               >
                 <GridTableHeader>
                   <GridTableColumnHeader>구성원</GridTableColumnHeader>
@@ -1352,28 +1370,38 @@ function TeamMembers({
                 {shown.map((member) => {
                   const name = member.display_name ?? member.email;
                   const role = roles?.get(member.user_id);
+                  const inactive = member.disabled_at !== null;
                   return (
-                    <GridTableRow key={member.user_id}>
-                      <GridTableCell>
-                        <Avatar
-                          initials={avatarInitials(name)}
-                          tone={avatarTone(member.user_id)}
-                        />
-                        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
+                    <GridTableRow
+                      key={member.user_id}
+                      inactive={inactive}
+                      className={inactive ? INACTIVE_ROW : undefined}
+                      data-disabled={inactive}
+                    >
+                      <GridTableCell lines={true}>
+                        <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
                           <Text as="span" weight="medium" truncate>
                             {name}
                           </Text>
-                          {member.display_name !== null && (
-                            <Text
-                              as="span"
-                              variant="meta"
-                              truncate
-                              title={member.email}
+                          {inactive ? (
+                            <Badge
+                              variant="gray"
+                              className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
                             >
-                              {member.email}
-                            </Text>
-                          )}
-                        </div>
+                              비활성
+                            </Badge>
+                          ) : null}
+                        </span>
+                        {member.display_name !== null && (
+                          <Text
+                            as="span"
+                            variant="meta"
+                            truncate
+                            title={member.email}
+                          >
+                            {member.email}
+                          </Text>
+                        )}
                       </GridTableCell>
                       {roles && (
                         <GridTableCell hideNarrow={true}>
@@ -1387,11 +1415,18 @@ function TeamMembers({
                         </GridTableCell>
                       )}
                       <GridTableCell>
-                        <Badge
-                          variant={member.role === "lead" ? "blue" : "gray"}
-                        >
-                          {TEAM_ROLE[member.role].label}
-                        </Badge>
+                        {manages ? (
+                          <TeamRoleSelect
+                            member={member}
+                            initialPromote={initialPromote === member.user_id}
+                          />
+                        ) : (
+                          <Badge
+                            variant={member.role === "lead" ? "blue" : "gray"}
+                          >
+                            {TEAM_ROLE[member.role].label}
+                          </Badge>
+                        )}
                       </GridTableCell>
                       <GridTableCell
                         hideNarrow={true}
@@ -1400,17 +1435,12 @@ function TeamMembers({
                         {formatTimestamp(member.added_at, "ko")}
                       </GridTableCell>
                       {manages && (
-                        <GridTableCell align="end">
-                          <TeamRoleDialog
-                            member={member}
-                            initialOpen={initialRole === member.user_id}
-                          />
+                        <GridTableCell raised={true} align="end">
                           <RowAction
-                            variant="danger"
-                            aria-label={`${name}님을 팀에서 빼기`}
+                            aria-label={`${name}님을 팀에서 제외`}
                             onClick={() => setRemoving(member)}
                           >
-                            빼기
+                            제외
                           </RowAction>
                         </GridTableCell>
                       )}
@@ -1427,9 +1457,9 @@ function TeamMembers({
         onOpenChange={(open) => {
           if (!open) setRemoving(null);
         }}
-        title={`${removing?.display_name ?? removing?.email ?? ""}님을 ${team.name}에서 뺄까요?`}
+        title={`${removing?.display_name ?? removing?.email ?? ""}님을 ${team.name} 팀에서 제외할까요?`}
         consequence="워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다."
-        confirmLabel="빼기"
+        confirmLabel="제외"
         cancelLabel="취소"
         tone="danger"
         onConfirm={() => setRemoving(null)}
@@ -1438,74 +1468,48 @@ function TeamMembers({
   );
 }
 
-function TeamRoleDialog({
+/** The role applies at once; only promotion to lead asks first. */
+function TeamRoleSelect({
   member,
-  initialOpen,
+  initialPromote,
 }: {
   readonly member: TeamDetailView["members"][number];
-  readonly initialOpen: boolean;
+  readonly initialPromote: boolean;
 }) {
-  const [open, setOpen] = useState(initialOpen);
-  const [picked, setPicked] = useState<TeamMemberRole | null>(null);
-  const chosen = picked ?? member.role;
-  const legendId = useId();
+  const [role, setRole] = useState<TeamMemberRole>(member.role);
+  const [promoting, setPromoting] = useState(initialPromote);
   const name = member.display_name ?? member.email;
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setPicked(null);
-        setOpen(next);
-      }}
-    >
-      <DialogTrigger asChild>
-        <RowAction aria-label={`${name}님의 팀 역할 바꾸기`}>
-          역할 바꾸기
-        </RowAction>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>팀 역할 바꾸기</DialogTitle>
-          <DialogDescription>
-            {member.display_name === null
-              ? member.email
-              : `${member.display_name} · ${member.email}`}
-          </DialogDescription>
-        </DialogHeader>
-        <FieldSet>
-          <FieldLegend id={legendId} variant="label">
-            팀 역할
-          </FieldLegend>
-          <RadioGroup
-            value={chosen}
-            onValueChange={(value) => setPicked(value as TeamMemberRole)}
-            aria-labelledby={legendId}
-          >
-            {TEAM_ROLES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{TEAM_ROLE[value].label}</FieldLabel>
-                <FieldDescription>{TEAM_ROLE[value].help}</FieldDescription>
-              </Field>
-            ))}
-          </RadioGroup>
-        </FieldSet>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="outline">
-              취소
-            </Button>
-          </DialogClose>
-          <Button
-            type="button"
-            disabled={chosen === member.role}
-            onClick={() => setOpen(false)}
-          >
-            저장
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <NativeSelect
+        className="w-auto ps-2 pe-8"
+        aria-label={`${name}님의 팀 역할`}
+        value={role}
+        onChange={(event) => {
+          const next = event.target.value as TeamMemberRole;
+          if (next === "lead") setPromoting(true);
+          else setRole(next);
+        }}
+      >
+        {TEAM_ROLES.map((value) => (
+          <NativeSelectOption key={value} value={value}>
+            {TEAM_ROLE[value].label}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <ConfirmDialog
+        open={promoting}
+        onOpenChange={setPromoting}
+        title={`${name}님을 팀 관리자로 바꿀까요?`}
+        consequence="팀 관리자는 이 팀이 담당 팀인 에이전트를 모두 관리합니다. 바꾸면 바로 적용됩니다."
+        confirmLabel="팀 관리자로 바꾸기"
+        cancelLabel="취소"
+        onConfirm={() => {
+          setRole("lead");
+          setPromoting(false);
+        }}
+      />
+    </>
   );
 }
 
@@ -1537,7 +1541,7 @@ function AddMembers({
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        <Button type="button">
           <Plus aria-hidden="true" />
           구성원 추가
         </Button>
@@ -1650,6 +1654,7 @@ type Screen =
   | "invite-admin"
   | "teams"
   | "teams-empty"
+  | "teams-no-match"
   | "team-create"
   | "team-create-taken"
   | "team"
@@ -1657,7 +1662,9 @@ type Screen =
   | "team-delete"
   | "team-delete-manages"
   | "team-add"
-  | "team-role"
+  | "team-promote"
+  | "team-remove"
+  | "team-no-match"
   | "team-as-member"
   | "invites"
   | "invites-empty"
@@ -1686,7 +1693,11 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
     "team",
     "team-empty",
     "team-delete",
+    "team-delete-manages",
     "team-add",
+    "team-promote",
+    "team-remove",
+    "team-no-match",
     "team-as-member",
   ].includes(screen);
 
@@ -1700,10 +1711,18 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
       />
     );
   } else if (manager && tab === "teams" && !onTeamPage) {
+    // First-time and empty lists keep the head button too: it is the only way in.
     action = (
       <TeamCreateAction
         initialOpen={screen.startsWith("team-create")}
         taken={screen === "team-create-taken"}
+      />
+    );
+  } else if (manager && onTeamPage) {
+    action = (
+      <AddMembers
+        team={screen === "team-empty" ? EMPTY_TEAM : TEAM}
+        initialOpen={screen === "team-add"}
       />
     );
   }
@@ -1758,13 +1777,19 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         team={screen === "team-empty" ? EMPTY_TEAM : TEAM}
         manages={manager !== null}
         initialDelete={screen === "team-delete"}
-        initialAdd={screen === "team-add"}
-        initialRole={screen === "team-role" ? ID.minji : undefined}
+        initialPromote={screen === "team-promote" ? ID.minji : undefined}
+        initialRemove={screen === "team-remove" ? ID.minji : undefined}
+        initialQuery={screen === "team-no-match" ? "없는 사람" : ""}
         manages409={screen === "team-delete-manages"}
       />
     );
   } else if (manager) {
-    content = <TeamsTab teams={screen === "teams-empty" ? [] : TEAMS} />;
+    content = (
+      <TeamsTab
+        teams={screen === "teams-empty" ? [] : TEAMS}
+        initialQuery={screen === "teams-no-match" ? "없는 팀" : ""}
+      />
+    );
   } else {
     content = <MyTeams teams={MY_TEAMS} />;
   }
@@ -1877,9 +1902,41 @@ export const TeamDeleteManagesAgents: Story = {
   name: "Team delete refused (managing team, 409)",
   args: { screen: "team-delete-manages" },
 };
-export const TeamRoleChange: Story = {
-  name: "Team detail (팀 역할 바꾸기)",
-  args: { screen: "team-role" },
+export const TeamRolePromote: Story = {
+  name: "Team detail (팀 관리자로 올리기: 확인)",
+  args: { screen: "team-promote" },
+};
+export const TeamMemberRemove: Story = {
+  name: "Team detail (제외: 확인)",
+  args: { screen: "team-remove" },
+};
+export const TeamDetailNoMatch: Story = {
+  name: "Team detail (search: no match)",
+  args: { screen: "team-no-match" },
+};
+export const TeamsNoMatch: Story = {
+  name: "Teams (search: no match)",
+  args: { screen: "teams-no-match" },
+};
+export const TeamsEmptyMobile: Story = {
+  name: "Teams (empty, 390px)",
+  args: { screen: "teams-empty" },
+  globals: MOBILE,
+};
+export const TeamsMobile: Story = {
+  name: "Teams (390px)",
+  args: { screen: "teams" },
+  globals: MOBILE,
+};
+export const TeamsDark: Story = {
+  name: "Teams (dark)",
+  args: { screen: "teams" },
+  globals: { theme: "dark" },
+};
+export const TeamDetailDark: Story = {
+  name: "Team detail (dark)",
+  args: { screen: "team" },
+  globals: { theme: "dark" },
 };
 export const TeamDetailMobile: Story = {
   name: "Team detail (390px)",

@@ -298,4 +298,29 @@ describe("presentTurnEvent", () => {
       presentTurnEvent({ event: "system", data: PAYLOADS.system[4] }),
     ).toMatchObject({ fold: "debug" });
   });
+
+  test("an attempt cut for a removed model says so by key, other errors keep their text", () => {
+    const cut = {
+      code: contracts.MODEL_NOT_ALLOWED_EVENT_CODE,
+      message: "cut",
+      model: "claude-old",
+    };
+    expect(presentTurnEvent({ event: "error", data: cut })).toEqual({
+      label: { key: "session.event.kind.error" },
+      summary: [
+        {
+          key: "session.event.error.modelNotAllowed",
+          params: { model: "claude-old" },
+        },
+      ],
+      error: true,
+    });
+    // Without the model there is no sentence to build: the stored text shows.
+    expect(
+      presentTurnEvent({
+        event: "error",
+        data: { code: cut.code, message: "cut" },
+      }),
+    ).toMatchObject({ summary: [{ text: "cut" }], error: true });
+  });
 });

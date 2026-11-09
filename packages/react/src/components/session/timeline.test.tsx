@@ -691,4 +691,29 @@ describe("Timeline 잡음 접기", () => {
     ).toBeTruthy();
     expect(document.querySelector("ul[aria-label='options']")).toBeNull();
   });
+
+  test("a session cut for a removed model shows the reason as an error row", () => {
+    const { getByRole } = render(
+      <Timeline
+        entries={[
+          entry(
+            "error",
+            {
+              code: "MODEL_NOT_ALLOWED",
+              message: "cut",
+              model: "claude-old",
+            },
+            { turnId: null },
+          ),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+      />,
+    );
+    const row = getByRole("list", { name: "events" }).firstElementChild;
+    expect(row?.textContent).toContain(
+      'session.event.error.modelNotAllowed{"model":"claude-old"}',
+    );
+    expect((row as HTMLElement).dataset.kind).toBe("error");
+  });
 });
