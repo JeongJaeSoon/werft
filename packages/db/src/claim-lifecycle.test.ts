@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import type { PlatformPrompt } from "@werft-ai/contracts";
 import {
   type EnsureExecutionResult,
@@ -11,10 +11,10 @@ import {
   runScheduler,
   type SchedulerLogger,
 } from "@werft-ai/platform";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { enqueueWithin } from "./enqueue.ts";
-import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -259,9 +259,8 @@ async function launchesOf(sessionId: string) {
 }
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   store = createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,
     sessionTokenLimit: null,
@@ -300,34 +299,6 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
     expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
-  });
-
-  test("the binding carries the release card's agent instructions as stored, and none for a card without them, an empty one, or no release", async () => {
-    const instructionsBound = async (agentReleaseId: string | null) => {
-      const backend = new NonceHoldingBackend();
-      await queuedSession("default", agentReleaseId);
-      const [ref] = (await pass(backend)).launched;
-      if (!ref) throw new Error("nothing launched");
-      const bound = await claim(ref, backend.nonceOf(ref));
-      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
-      return bound.binding.agentInstructions;
-    };
-    const text = "  Answer in Korean.\n";
-    expect(await instructionsBound(null)).toBeNull();
-    expect(
-      await instructionsBound(
-        await releaseWith({ tools: [] }, { agent_instructions: text }),
-      ),
-    ).toBe(text);
-    // The card's earlier `instructions` never reach a run.
-    expect(
-      await instructionsBound(await releaseWith({ tools: [] })),
-    ).toBeNull();
-    expect(
-      await instructionsBound(
-        await releaseWith({ tools: [] }, { agent_instructions: "" }),
-      ),
-    ).toBeNull();
   });
 
   test("the binding carries the session row's platform prompt as stored, and none for a revision 0 row", async () => {

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { githubFeaturesSchema } from "../musterrolle/github-settings.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
-  AGENT_INSTRUCTIONS_MAX_LENGTH,
+  CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH,
 } from "../shared/agent-card.ts";
 import {
   agentIdSchema,
@@ -25,7 +25,7 @@ import { cardEnvDeclarationSchema } from "./env-variables.ts";
 
 export {
   AGENT_DESCRIPTION_MAX_LENGTH,
-  AGENT_INSTRUCTIONS_MAX_LENGTH,
+  CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH,
 } from "../shared/agent-card.ts";
 
 export const AGENT_STATUS_VALUES = ["active", "paused", "archived"] as const;
@@ -161,8 +161,8 @@ export const agentCapabilitiesSchema = z
  * mint a new immutable version.
  *
  * `role` and `instructions` never reach a run: new cards leave them out and
- * older ones keep theirs. `agent_instructions` is what a run appends to its
- * system prompt (agent-wizard-rework.md, item 2).
+ * older ones keep theirs. What steers an agent is the repository's
+ * CLAUDE.md / AGENTS.md, never a card field.
  *
  * `.strict()` is what enforces "a card holds no secrets": there is
  * structurally nowhere to put one, and a credential field is rejected rather
@@ -174,11 +174,7 @@ export const agentCardSchema = z
     instructions: z
       .string()
       .min(1)
-      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
-      .optional(),
-    agent_instructions: z
-      .string()
-      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
+      .max(CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH)
       .optional(),
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("ko"),
     /** Must sit inside the runtime profile's model allowlist. */
@@ -243,9 +239,13 @@ function withoutRetiredPolicy(policy: unknown): { tool_policy?: unknown } {
   return Object.keys(kept).length === 0 ? {} : { tool_policy: kept };
 }
 
+// The card's `agent_instructions` key is retired: cards saved while it existed
+// still hold it, and an older client may still send it. It is dropped, never
+// refused, and never reaches a run.
 function withoutRetiredCardFields(card: unknown): unknown {
   if (!isRecord(card)) return card;
-  return { ...card, capabilities: withoutRetiredToolFields(card.capabilities) };
+  const { agent_instructions: _retired, ...rest } = card;
+  return { ...rest, capabilities: withoutRetiredToolFields(card.capabilities) };
 }
 
 /**
@@ -955,8 +955,6 @@ export const behaviorValuesSchema = z
     model_source: modelSourceSchema,
     /** The profile's, for sessions' titles only; null when it has none. */
     title_model: z.string().min(1).max(128).nullable(),
-    /** The card's own instructions, appended to the run's prompt. */
-    agent_instructions: z.string().nullable(),
   })
   .strict();
 

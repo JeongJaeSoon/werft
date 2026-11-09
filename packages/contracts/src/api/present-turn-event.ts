@@ -35,6 +35,7 @@ export type TurnEventMessageKey =
   | "session.event.kind.question"
   | "session.event.kind.result"
   | "session.event.kind.error"
+  | "session.event.error.modelNotAllowed"
   | "session.event.init"
   | "session.event.vcsChanged"
   | "session.event.thinkingTokens"
@@ -324,6 +325,18 @@ function present(
         : GENERIC;
     }
     case "error":
+      // Kept as a literal: this file stays free of the zod-bearing event.ts.
+      if (data.code === "MODEL_NOT_ALLOWED" && typeof data.model === "string") {
+        return {
+          label: message("session.event.kind.error"),
+          summary: [
+            message("session.event.error.modelNotAllowed", {
+              model: clip(data.model),
+            }),
+          ],
+          error: true,
+        };
+      }
       return typeof data.message === "string"
         ? {
             label: message("session.event.kind.error"),

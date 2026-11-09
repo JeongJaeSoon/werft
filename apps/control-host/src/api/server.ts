@@ -691,6 +691,7 @@ const slackEvents = createSlackEventsService({
   apps: slackAppStore ?? { setEventsUnlessVerified: async () => {} },
   identities: slackIdentityStore,
   installs: slackInstallStore,
+  bindings: surfaceBindingStore,
 });
 const slackInstall = createSlackInstallService({
   authorization,
@@ -1112,6 +1113,12 @@ const workers = createWorkerGateway({
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
+      error: error instanceof Error ? error.name : "error",
+    }),
+  onModelCutError: (error, cut) =>
+    logger.error("Model cut note not recorded", {
+      session_id: cut.sessionId,
+      attempt_id: cut.attemptId,
       error: error instanceof Error ? error.name : "error",
     }),
   ...(githubMcpGrantKey === null

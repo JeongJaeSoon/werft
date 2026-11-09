@@ -16,7 +16,11 @@ import {
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor } = await appHarness();
+const { act, renderAt, screen, waitFor, within } = await appHarness();
+
+// The words of the floating toast, once it has any.
+const toast = () =>
+  document.querySelector('[data-slot="toast"]')?.textContent || undefined;
 
 const DETAIL = `/agents/${AGENT_ID}`;
 const ADMINS_TAB = `${DETAIL}?tab=admins`;
@@ -34,6 +38,16 @@ const adminsOf = (over: Partial<AgentAdminsView> = {}): AgentAdminsView => ({
 const myTeams = (role: "lead" | "member" | null) =>
   json(200, {
     items: role === null ? [] : [{ id: TEAM_ID, name: TEAM.name, role }],
+    next_cursor: null,
+  });
+
+// Lead of the current team, so the viewer manages; "영업" is another team they are in.
+const leadOfBoth = () =>
+  json(200, {
+    items: [
+      { id: TEAM_ID, name: TEAM.name, role: "lead" },
+      { id: OTHER_TEAM.id, name: OTHER_TEAM.name, role: "member" },
+    ],
     next_cursor: null,
   });
 
@@ -67,12 +81,154 @@ describe("관리자 탭의 담당 팀", () => {
       "담당 팀으로 정할 팀",
     )) as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual([
-      "팀 고르기",
+      "바꾸기",
       "영업",
     ]);
+    // One control: no second button waits beside the select.
+    expect(screen.queryByRole("button", { name: "바꾸기" })).toBeNull();
+  });
+
+  test("담당 팀 이름은 팀 상세로 가는 링크다", async () => {
+    const server = await managedServer();
+    renderAt(ADMINS_TAB, {
+      ...meAs(me()),
+      ...server.routes,
+    });
     expect(
-      screen.getByRole("button", { name: "바꾸기" }).hasAttribute("disabled"),
-    ).toBe(true);
+      (await screen.findByRole("link", { name: "재무" })).getAttribute("href"),
+    ).toBe(`/members/teams/${TEAM_ID}`);
+  });
+
+  test("고르면 바로 반영하고, 반영하는 동안 잠그고, 토스트로 알린다", async () => {
+    const server = await managedServer();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let current: { id: string; name: string } = TEAM;
+    const agentNow = () => ({
+      ...server.detail().agent,
+      managing_team_id: current.id,
+      managing_team_name: current.name,
+    });
+    const { api } = renderAt(ADMINS_TAB, {
+      ...meAs(memberMe()),
+      ...server.routes,
+      "GET /v1/my-teams": leadOfBoth,
+      [`GET /v1/agents/${AGENT_ID}`]: () =>
+        json(200, { ...server.detail(), agent: agentNow() }),
+      [`PUT /v1/agents/${AGENT_ID}/managing-team`]: async () => {
+        await held;
+        current = OTHER_TEAM;
+        return json(200, {
+          agent: agentNow(),
+          receipt_id: crypto.randomUUID(),
+        });
+      },
+    });
+    const user = await setupUser();
+    const select = (await screen.findByLabelText(
+      "담당 팀으로 정할 팀",
+    )) as HTMLSelectElement;
+    await user.selectOptions(select, OTHER_TEAM.id);
+    // Locked while the request is out, and it says so.
+    await waitFor(() => expect(select.disabled).toBe(true));
+    expect(select.options[0]?.textContent).toBe("저장하는 중…");
+    expect(toast()).toBeUndefined();
+    act(() => release());
+    await waitFor(() =>
+      expect(toast()).toBe("담당 팀을 영업(으)로 정했습니다."),
+    );
+    expect(
+      (await screen.findByRole("link", { name: "영업" })).getAttribute("href"),
+    ).toBe(`/members/teams/${OTHER_TEAM.id}`);
+    await waitFor(() => expect(select.disabled).toBe(false));
+    expect(
+      api.calls.find((c) => c.method === "PUT" && c.path.endsWith("team"))
+        ?.body,
+    ).toEqual({ team_id: OTHER_TEAM.id });
+  });
+
+  test("거절되면 선택은 되돌아가고 이유는 화면에 남으며 토스트는 뜨지 않는다", async () => {
+    const server = await managedServer();
+    renderAt(ADMINS_TAB, {
+      ...meAs(memberMe()),
+      ...server.routes,
+      "GET /v1/my-teams": leadOfBoth,
+      [`PUT /v1/agents/${AGENT_ID}/managing-team`]: () =>
+        json(403, {
+          error: {
+            code: "FORBIDDEN",
+            message: "This team cannot hold the agent",
+            retryable: false,
+            request_id: "req-1",
+            details: { reason_code: "team_holding" },
+          },
+        }),
+    });
+    const user = await setupUser();
+    const select = (await screen.findByLabelText(
+      "담당 팀으로 정할 팀",
+    )) as HTMLSelectElement;
+    await user.selectOptions(select, OTHER_TEAM.id);
+    expect(
+      await screen.findByText(
+        "보관용으로 만들어진 팀이라 담당 팀으로 고를 수 없습니다. 다른 팀을 고르세요.",
+      ),
+    ).toBeDefined();
+    // Back to the label, not left showing a team that was not applied.
+    expect(select.value).toBe("");
+    expect(select.disabled).toBe(false);
+    expect(toast()).toBeUndefined();
+    expect(screen.getByRole("link", { name: "재무" })).toBeDefined();
+  });
+
+  test("담당 팀이 관리자 팀이기도 하면 그 행만 구성원 모두가 관리자라고 알린다", async () => {
+    const server = await managedServer();
+    renderAt(ADMINS_TAB, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          adminsOf({
+            users: [
+              {
+                user_id: USER_ID,
+                email: "owner@example.com",
+                display_name: "Owner",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+            teams: [
+              {
+                team_id: TEAM_ID,
+                name: TEAM.name,
+                created_by: USER_ID,
+                created_at: AT,
+              },
+              {
+                team_id: OTHER_TEAM.id,
+                name: OTHER_TEAM.name,
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
+    });
+    const list = await screen.findByRole("list", { name: "에이전트 관리자" });
+    const row = (name: string) =>
+      within(list).getByText(name).closest("li") as HTMLElement;
+    // The same kind label on every row, person or team.
+    expect(row("Owner").textContent).toContain("사람");
+    expect(row("영업").textContent).toContain("팀");
+    expect(row("재무").textContent).toContain(
+      "담당 팀이기도 합니다. 팀 관리자만이 아니라 구성원 모두가 관리자입니다",
+    );
+    expect(row("영업").textContent).not.toContain("담당 팀이기도 합니다");
+    expect(row("Owner").textContent).not.toContain("담당 팀이기도 합니다");
   });
 
   test("담당 팀에 팀 관리자가 없으면 그렇다고 알린다", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   type CatalogProfile,
   createAuthorizationPolicy,
@@ -13,16 +13,17 @@ import {
   withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
-import { eq } from "drizzle-orm";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { migrate } from "./migrate.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  events,
   sessions,
   turns,
   unassignedSessions,
@@ -91,9 +92,8 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
 });
 
 afterEach(async () => {
@@ -494,6 +494,13 @@ describe("a model named at create", () => {
       if (auth.kind !== "egress_token") throw new Error(auth.kind);
       return { token: auth.token, purpose: "provider" as const };
     };
+    const modelCuts = async (sessionId: string) =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(and(eq(events.sessionId, sessionId), eq(events.type, "error")))
+      ).map((row) => row.payload);
     const opusRun = await providerAuth("claude-opus-5-5");
     const defaultRun = await providerAuth();
     expect((await gateway.authorizeEgress(opusRun)).upstream.url).toBe(
@@ -505,8 +512,30 @@ describe("a model named at create", () => {
       status: 409,
       code: "CATALOG_MISMATCH",
     });
+    // Every refused exchange of the attempt repeats this; the stream says it once.
+    expect(await refusal(narrowed.authorizeEgress(opusRun))).toEqual({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+    });
+    // Created in this order, so the order names them.
+    const [opusSession, defaultSession] = (
+      await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .orderBy(sessions.createdAt)
+    ).map((row) => row.id);
+    if (opusSession === undefined || defaultSession === undefined) {
+      throw new Error("the two sessions were not stored");
+    }
+    expect(await modelCuts(opusSession)).toEqual([
+      expect.objectContaining({
+        code: "MODEL_NOT_ALLOWED",
+        model: "claude-opus-5-5",
+      }),
+    ]);
     expect((await narrowed.authorizeEgress(defaultRun)).upstream.url).toBe(
       "https://litellm.invalid",
     );
+    expect(await modelCuts(defaultSession)).toEqual([]);
   });
 });

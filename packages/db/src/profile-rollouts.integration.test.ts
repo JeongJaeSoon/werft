@@ -110,9 +110,10 @@ const snapshotModel = (
   release: { runtimeConfigSnapshot: unknown } | undefined,
 ) => (release?.runtimeConfigSnapshot as { model?: string } | undefined)?.model;
 
-function card(instructions: string, model = "claude-sonnet-5") {
+// `tag` only tells two cards apart: it is the text of the card's one rule.
+function card(tag: string, model = "claude-sonnet-5") {
   return agentCardRequestSchema.parse({
-    agent_instructions: instructions,
+    rules: [{ id: "r1", text: tag, source: "user" }],
     model,
     capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
   });

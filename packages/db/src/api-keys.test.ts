@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresWorkspaceKeyStore } from "./api-keys.ts";
-import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
 import { agents, apiKeys, memberships, users, workspaces } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
@@ -12,13 +12,12 @@ let db: PgliteDatabase<typeof schema>;
 let statements: string[];
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   statements = [];
   db = drizzle(client, {
     schema,
     logger: { logQuery: (query) => statements.push(query) },
   });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
 });
 
 afterEach(async () => {

@@ -3,6 +3,7 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  MODEL_NOT_ALLOWED_EVENT_CODE,
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
@@ -153,7 +154,6 @@ import {
 import {
   achievementJudgments,
   agentReleases,
-  agentVersions,
   approvalCheckpoints,
   attempts,
   checkpointOutputs,
@@ -1479,29 +1479,19 @@ async function bindingOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseTools" | "agentInstructions">> {
-  if (session.agentReleaseId === null)
-    return { releaseTools: null, agentInstructions: null };
+): Promise<Pick<WorkerBinding, "releaseTools">> {
+  if (session.agentReleaseId === null) return { releaseTools: null };
   const [release] = await tx
-    .select({
-      snapshot: agentReleases.runtimeConfigSnapshot,
-      instructions: sql<unknown>`${agentVersions.card}->'agent_instructions'`,
-    })
+    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
     .from(agentReleases)
-    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
   const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
-  const instructions = release?.instructions;
   return {
     releaseTools:
       Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
         ? tools
         : [],
-    agentInstructions:
-      typeof instructions === "string" && instructions !== ""
-        ? instructions
-        : null,
   };
 }
 
@@ -2174,6 +2164,62 @@ export function createPostgresWorkerUnitOfWork(
       });
     },
 
+    recordModelCutAtomic(input: {
+      sessionId: string;
+      attemptId: string;
+      model: string;
+    }): Promise<{ recorded: boolean }> {
+      return db.transaction(async (tx) => {
+        // The session first, as every stream write does: a later event id
+        // must not commit before an earlier one a reader already passed.
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, input.sessionId))
+          .for("update");
+        // Then the attempt row, which serializes the exchanges the proxy
+        // refuses at once, so the check below and the insert see each other.
+        const [attempt] = await tx
+          .select({ id: attempts.id })
+          .from(attempts)
+          .where(
+            and(
+              eq(attempts.id, input.attemptId),
+              eq(attempts.sessionId, input.sessionId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!attempt) return { recorded: false };
+        const [seen] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, input.sessionId),
+              eq(events.attemptId, input.attemptId),
+              eq(events.type, "error"),
+              sql`${events.payload}->>'code' = ${MODEL_NOT_ALLOWED_EVENT_CODE}`,
+            ),
+          )
+          .limit(1);
+        if (seen) return { recorded: false };
+        await recordEvent(tx, {
+          sessionId: input.sessionId,
+          type: "error",
+          payload: {
+            code: MODEL_NOT_ALLOWED_EVENT_CODE,
+            message: `The model ${input.model} is no longer on the profile's allowed list, so its model requests were blocked`,
+            model: input.model,
+          },
+          turnRowId: null,
+          attemptId: input.attemptId,
+          now: await dbNow(tx),
+        });
+        return { recorded: true };
+      });
+    },
+
     recordProviderUsageAtomic(
       input: ProviderUsageInput,
     ): Promise<ProviderUsageResult> {
@@ -2444,10 +2490,9 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            // A turn the platform queued itself has no actor; a person's
-            // message is delivered as written.
-            message:
-              turn.actorId === null ? followUpFact(turn.message) : turn.message,
+            // Turns queued before the follow-up wording became facts still
+            // hold the old text; only a message equal to it is rewritten.
+            message: followUpFact(turn.message),
             deliveryStartedAt,
           },
         };

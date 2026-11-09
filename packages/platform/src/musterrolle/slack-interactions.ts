@@ -87,7 +87,10 @@ export type SlackInteractionDeps = {
   authorization: AuthorizationPolicy;
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
-  bindings: Pick<SurfaceBindingStore, "resolveSlackChannel">;
+  bindings: Pick<
+    SurfaceBindingStore,
+    "resolveSlackChannel" | "findPendingApproval"
+  >;
   pending: Pick<
     PendingRequestService,
     "answer" | "listPendingRequests" | "outcome"

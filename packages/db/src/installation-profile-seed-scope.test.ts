@@ -1,16 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { createPostgresInstallationProfileStore } from "./installation-profiles.ts";
-import { migrate } from "./migrate.ts";
-import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
 import type { Database } from "./queries.ts";
 
 let client: PGlite;
 
 beforeEach(async () => {
-  client = new PGlite();
-  await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+  client = await migratedPGlite();
 });
 
 afterEach(async () => {

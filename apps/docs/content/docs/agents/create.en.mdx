@@ -3,10 +3,10 @@ title: "Create"
 description: Define an agent, create and activate a release, and bind it to a session
 ---
 
-An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (agent instructions, model, tools). Every edit to the card adds a new version. A release binds one version to a profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
+An agent is a named definition in a workspace. Name and description are values for people; the definition a run uses is a card (model, tools). Every edit to the card adds a new version. A release binds one version to a profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
 
 <Callout type="warn">
-Sessions run with the profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. The agent instructions on the release's card are added to that session's system prompt; name and description are not passed to the model. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+Sessions run with the profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. Name and description are not passed to the model; how the agent should work is told by the repository's `AGENTS.md` or `CLAUDE.md`. See [Instructions and description](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
 </Callout>
 
 ## In the web console
@@ -16,7 +16,7 @@ The web console of the local stack is at `http://127.0.0.1:3000/`.
 1. The first time only, create the first owner and workspace at `/bootstrap`. The API logs the bootstrap token once when it first starts: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
 2. After logging in, open "Agents" in the left sidebar and click "New agent" at the top right. The "New agent" screen opens with five steps: Name → What it does → Release → Turn on → Connect channels.
 3. In the "Name" step, enter a name. The identifier (slug) is filled in from the name, and you can change it. If you like, write a short introduction for people in "Description (optional)". Click "Next".
-4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in "Agent instructions" under "Settings" on the agent's page after you create it.
+4. In the "What it does" step, choose the model, check the profile's tools under "Tools it may use" ([Instructions and description](/agents/instructions-and-roles#choosing-tools-in-the-web-console)), set the reply language, then click "Save draft and continue". The agent is saved as a draft and version 1 is created. Instructions for how it should work go in the repository's `AGENTS.md` or `CLAUDE.md`.
 5. In the "Release" step, choose a profile and click "Create release". The card's model must be one the profile can run.
 6. In the "Turn on" step, click "Turn the agent on". New sessions now start with this release. "Do this later" leaves the agent as a draft and opens its detail screen.
 
@@ -55,7 +55,6 @@ agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "description": "Reads the repository and answers questions",
   "managing_team_id": "'"$TEAM"'",
   "card": {
-    "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
   }
@@ -77,7 +76,7 @@ If the same workspace already has the same slug, the response is 409 `ALREADY_EX
 
 The team in `managing_team_id` becomes the responsible team. Leaving it out is 400 `BAD_REQUEST`, with `{"path": "managing_team_id", "message": "managing_team_id is required"}` in `error.details.issues`. An owner or admin who names a team that does not exist gets 404. Anyone else who names a team they are not in gets 403 (`details.reason_code: team_not_allowed`), even when the team does not exist. So a member who is in no team cannot create an agent. The response's `agent.managing_team_name` is that team's name.
 
-Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace. That team is an ordinary team: rename it, or move its agents to another team.
+Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace (if a team with that name already exists, an 8-character id follows, as in `Unassigned agents (1a2b3c4d)`). That team is an ordinary team: rename it, or move its agents to another team.
 
 ### Create a release
 
@@ -149,7 +148,7 @@ The responsible team is the team an agent belongs to. Its team leads manage the 
 
 - **New agent**: the first step requires a responsible team. Owners and admins pick from every team, members from the teams they are in. With a single team it is picked for you. A member in no team sees only “You are in no team, so you cannot make an agent. Ask a workspace admin to add you to a team.” and cannot go on.
 - **Agent list**: the table and the cards show the responsible team. The card of an agent whose settings you cannot read shows only its name, state and responsible team.
-- **Admins tab**: the `Responsible team` group at the top shows the current team. Whoever manages the agent sets or changes it there. A responsible team with no team lead is pointed out.
+- **Admins tab**: the `Responsible team` group at the top shows the current team's name as a link to the team page. Whoever manages the agent picks a team in `Change` beside it and it applies at once; it cannot be cleared. A responsible team with no team lead is pointed out. The `Agent admins` list below shows people and teams as the same one-line rows, and choosing from the search results adds at once. When the responsible team is also an admin team, its row says that every member is an admin.
 - **Responsible team members**: they read every setting on the detail page but get no edit, release or connect buttons, and a notice at the top says they can only read.
 - **Outside members**: opening the detail address shows the name, state and responsible team with “Only the responsible team's members and the agent's admins see its settings.” instead of the settings.
 
@@ -208,6 +207,6 @@ Sending with a key that is not in the workspace (for example `scripts/local.sh k
 
 ## Next steps
 
-- [Instructions and description](/agents/instructions-and-roles): name, description and agent instructions; card fields and versions
+- [Instructions and description](/agents/instructions-and-roles): name, description and the repository's `AGENTS.md` and `CLAUDE.md`; card fields and versions
 - [Choose a profile](/agents/run-profiles): profiles and models
 - [Permissions](/agents/permissions): tool permissions and agent administrators

@@ -575,28 +575,6 @@ export function CardSummary({
             ...(card
               ? [
                   {
-                    label: t("agentCard.agentInstructions"),
-                    value: card.agent_instructions ? (
-                      <span className={`${VALUE} line-clamp-3`}>
-                        {card.agent_instructions}
-                      </span>
-                    ) : (
-                      none
-                    ),
-                  },
-                  ...(card.instructions
-                    ? [
-                        {
-                          label: t("agentCard.earlierInstructions"),
-                          value: (
-                            <span className={`${VALUE} line-clamp-3`}>
-                              {card.instructions}
-                            </span>
-                          ),
-                        },
-                      ]
-                    : []),
-                  {
                     label: t("agents.cards.credentials"),
                     value: names(card.capabilities.credential_refs ?? []),
                   },

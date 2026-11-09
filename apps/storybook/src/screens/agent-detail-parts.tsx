@@ -102,11 +102,7 @@ const LEGACY_CARD: AgentDetail["versions"][number]["card"] = {
 };
 
 /** Edited in 상세 설정: the earlier fields ride along on the base. */
-const CARD: AgentDetail["versions"][number]["card"] = {
-  ...LEGACY_CARD,
-  agent_instructions:
-    "결제 실패와 환불 문의에 답한다. 원인을 모르면 추측하지 말고 결제팀 담당자에게 넘긴다.",
-};
+const CARD: AgentDetail["versions"][number]["card"] = { ...LEGACY_CARD };
 
 const AGENT_ID = "9b1c2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e";
 
@@ -934,22 +930,6 @@ export function CardSummary({
                   "없음"
                 ),
               },
-              {
-                label: "에이전트 지시문",
-                value: card.agent_instructions ? (
-                  <Value clamp={true}>{card.agent_instructions}</Value>
-                ) : (
-                  "없음"
-                ),
-              },
-              ...(card.instructions
-                ? [
-                    {
-                      label: "이전 지시 사항 (적용된 적 없음)",
-                      value: <Value clamp={true}>{card.instructions}</Value>,
-                    },
-                  ]
-                : []),
               {
                 label: "자격 증명",
                 value: (

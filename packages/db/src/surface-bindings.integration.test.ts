@@ -400,6 +400,8 @@ integration("surface bindings on PostgreSQL", () => {
       agentId,
       channelId: "G0INVITE",
       channelKind: "private_channel",
+      status: "pending_approval",
+      approvedAt: null,
       mode: "on",
       home: false,
       ceiling: DEFAULT_SURFACE_CEILING,
@@ -442,6 +444,436 @@ integration("surface bindings on PostgreSQL", () => {
         "public_channel",
       ),
     ).toBeNull();
+  });
+
+  describe("a private channel waits for an owner or admin", () => {
+    const approve = (
+      caller: Caller,
+      agentId: string,
+      bindingId: string,
+      revision: number,
+    ) =>
+      store().approve({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId,
+        bindingId,
+        revision,
+        approverRoles: ["owner", "admin"],
+      });
+    const reject = (
+      caller: Caller,
+      agentId: string,
+      bindingId: string,
+      revision: number,
+    ) =>
+      store().reject({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId,
+        bindingId,
+        revision,
+        approverRoles: ["owner", "admin"],
+      });
+
+    async function waiting() {
+      const owner = await person(await workspace(), "owner");
+      const world = await slackAgent(owner);
+      const saved = await setAs(owner, world.agentId, {
+        channelId: "G0SECRET",
+        channelKind: "private_channel",
+      });
+      if (saved.outcome !== "set") throw new Error(saved.outcome);
+      return { owner, ...world, binding: saved.binding };
+    }
+
+    const operations = async (bindingId: string) =>
+      (await db.select().from(receipts))
+        .filter(
+          (receipt) =>
+            (receipt.targetRef as { resource?: { id?: string } }).resource
+              ?.id === bindingId,
+        )
+        .map((receipt) => receipt.operation)
+        .sort();
+
+    test("a new private channel is saved waiting, with a set and a request receipt, and input does not resolve it", async () => {
+      const { installationId, binding } = await waiting();
+      expect(binding).toMatchObject({
+        status: "pending_approval",
+        approvedAt: null,
+        channelKind: "private_channel",
+        home: false,
+        revision: 1,
+      });
+      expect(await operations(binding.id)).toEqual([
+        "request_surface_binding",
+        "set_surface_binding",
+      ]);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toBeNull();
+      expect(
+        await store().findPendingApproval(installationId, "G0SECRET"),
+      ).toEqual({ id: binding.id, revision: 1 });
+      expect(
+        await store().findLiveSlackChannel(installationId, "G0SECRET"),
+      ).toEqual(binding);
+    });
+
+    test("saving a public channel stays ready; a pending one stays pending when edited", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      const open = await setAs(owner, agentId, { channelId: "C0OPEN" });
+      expect(open).toMatchObject({
+        outcome: "set",
+        binding: { status: "ready" },
+      });
+      const edited = await setAs(owner, agentId, {
+        channelId: "G0SECRET",
+        channelKind: "private_channel",
+        mode: "off",
+      });
+      expect(edited).toMatchObject({
+        outcome: "set",
+        binding: { id: binding.id, status: "pending_approval", revision: 2 },
+      });
+      expect(await operations(binding.id)).toEqual([
+        "request_surface_binding",
+        "set_surface_binding",
+        "set_surface_binding",
+      ]);
+      expect(
+        await store().resolveSlackChannel(installationId, "C0OPEN"),
+      ).not.toBeNull();
+    });
+
+    test("a waiting channel cannot be the home, and the refusal leaves the old home alone", async () => {
+      const { owner, agentId } = await waiting();
+      await setAs(owner, agentId, { channelId: "C0HOME", home: true });
+      expect(
+        await setAs(owner, agentId, {
+          channelId: "G0SECRET",
+          channelKind: "private_channel",
+          home: true,
+        }),
+      ).toEqual({ outcome: "pending_home" });
+      expect((await store().list(owner.ownerId, agentId, 10))[0]).toMatchObject(
+        { channelId: "C0HOME", home: true },
+      );
+      expect(
+        await refusal(
+          db
+            .update(surfaceBindings)
+            .set({ home: true })
+            .where(eq(surfaceBindings.externalSurfaceId, "G0SECRET")),
+        ),
+      ).toContain("surface_bindings_pending_check");
+    });
+
+    test("approving makes it ready, stamps approved_at, bumps the revision and receipts the decision", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      const done = await approve(owner, agentId, binding.id, 1);
+      expect(done).toMatchObject({
+        outcome: "resolved",
+        binding: { status: "ready", revision: 2 },
+      });
+      if (done.outcome !== "resolved") return;
+      expect(done.binding.approvedAt).toBeInstanceOf(Date);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toEqual(done.binding);
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, done.receiptId));
+      expect(receipt).toMatchObject({
+        operation: "resolve_surface_binding",
+        result: {
+          decision: "approve",
+          requested_by_user_id: owner.actor?.userId,
+          revision: 2,
+        },
+      });
+    });
+
+    test("rejecting revokes it, frees the slot, and the bot is not asked to leave", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      const done = await reject(owner, agentId, binding.id, 1);
+      expect(done).toMatchObject({
+        outcome: "resolved",
+        binding: { status: "revoked", revision: 2 },
+      });
+      expect(
+        await store().findLiveSlackChannel(installationId, "G0SECRET"),
+      ).toBeNull();
+      const again = await setAs(owner, agentId, {
+        channelId: "G0SECRET",
+        channelKind: "private_channel",
+      });
+      expect(again).toMatchObject({
+        outcome: "set",
+        binding: { status: "pending_approval", revision: 1 },
+      });
+      if (again.outcome === "set") {
+        expect(again.binding.id).not.toBe(binding.id);
+      }
+    });
+
+    test("the same decision again replays with no new receipt; the other one, or a stale revision, is a conflict", async () => {
+      const { owner, agentId, binding } = await waiting();
+      const first = await approve(owner, agentId, binding.id, 1);
+      expect(first.outcome).toBe("resolved");
+      const before = await operations(binding.id);
+      expect(await approve(owner, agentId, binding.id, 1)).toMatchObject({
+        outcome: "replayed",
+        binding: { status: "ready", revision: 2 },
+      });
+      expect(await operations(binding.id)).toEqual(before);
+      expect(await reject(owner, agentId, binding.id, 1)).toEqual({
+        outcome: "conflict",
+      });
+      expect(await approve(owner, agentId, binding.id, 0)).toEqual({
+        outcome: "conflict",
+      });
+
+      const other = await waiting();
+      expect(
+        await approve(other.owner, other.agentId, other.binding.id, 7),
+      ).toEqual({ outcome: "conflict" });
+    });
+
+    test("approve and reject racing take exactly one decision", async () => {
+      const { owner, agentId, binding } = await waiting();
+      const results = await Promise.all([
+        approve(owner, agentId, binding.id, 1),
+        reject(owner, agentId, binding.id, 1),
+      ]);
+      expect(results.map((result) => result.outcome).sort()).toEqual([
+        "conflict",
+        "resolved",
+      ]);
+      expect(
+        (await operations(binding.id)).filter(
+          (operation) => operation === "resolve_surface_binding",
+        ),
+      ).toHaveLength(1);
+    });
+
+    test("only a workspace owner or admin decides: an agent admin who asked, a member and a stranger cannot", async () => {
+      const { owner, agentId, binding } = await waiting();
+      const workspaceId = owner.ownerId;
+      const member = await person(workspaceId, "member");
+      await db
+        .insert(schema.agentAdmins)
+        .values({ workspaceId, agentId, userId: member.actor?.userId ?? "" });
+      expect(await approve(member, agentId, binding.id, 1)).toEqual({
+        outcome: "outranked",
+      });
+      const stranger = await person(await workspace(), "owner");
+      expect(
+        await store().approve({
+          principal: stranger,
+          workspaceId,
+          agentId,
+          bindingId: binding.id,
+          revision: 1,
+          approverRoles: ["owner", "admin"],
+        }),
+      ).toEqual({ outcome: "actor_inactive" });
+      const admin = await person(workspaceId, "admin");
+      expect(await approve(admin, agentId, binding.id, 1)).toMatchObject({
+        outcome: "resolved",
+      });
+    });
+
+    test("an approver demoted after the policy decided is refused when the transaction reads the role", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      const admin = await person(owner.ownerId, "admin");
+      await db
+        .update(memberships)
+        .set({ role: "member" })
+        .where(eq(memberships.userId, admin.actor?.userId ?? ""));
+      expect(await approve(admin, agentId, binding.id, 1)).toEqual({
+        outcome: "outranked",
+      });
+      expect(
+        await store().findPendingApproval(installationId, "G0SECRET"),
+      ).not.toBeNull();
+    });
+
+    test("a binding of another agent or workspace, or an unknown id, is not found", async () => {
+      const { owner, agentId, binding } = await waiting();
+      const elsewhere = await waiting();
+      expect(await approve(owner, elsewhere.agentId, binding.id, 1)).toEqual({
+        outcome: "not_found",
+      });
+      expect(await approve(owner, agentId, randomUUID(), 1)).toEqual({
+        outcome: "not_found",
+      });
+      expect(await approve(owner, "not-a-uuid", binding.id, 1)).toEqual({
+        outcome: "not_found",
+      });
+    });
+
+    test("an invite makes a private channel wait, once, with an installation receipt; a bound channel is returned as it is", async () => {
+      const owner = await person(await workspace(), "owner");
+      const { installationId } = await slackAgent(owner);
+      const first = await store().ensureInvitedChannel(
+        installationId,
+        "G0INVITED",
+        "private_channel",
+      );
+      expect(first).toMatchObject({ status: "pending_approval" });
+      const again = await store().ensureInvitedChannel(
+        installationId,
+        "G0INVITED",
+        "private_channel",
+      );
+      expect(again).toEqual(first);
+      const [request] = (await db.select().from(receipts)).filter(
+        (receipt) =>
+          receipt.operation === "request_surface_binding" &&
+          (receipt.targetRef as { resource?: { id?: string } }).resource?.id ===
+            first?.id,
+      );
+      expect(request).toMatchObject({
+        actor: { principal: { kind: "installation", id: installationId } },
+      });
+      expect(await operations(first?.id ?? "")).toEqual([
+        "request_surface_binding",
+      ]);
+      const open = await store().ensureInvitedChannel(
+        installationId,
+        "C0INVITED",
+        "public_channel",
+      );
+      expect(open).toMatchObject({ status: "ready" });
+    });
+
+    test("a ready public channel that Slack calls private waits again, loses its home, and an approved private one is left alone", async () => {
+      const owner = await person(await workspace(), "owner");
+      const { agentId, installationId } = await slackAgent(owner);
+      const open = await setAs(owner, agentId, {
+        channelId: "C0TURNED",
+        home: true,
+      });
+      if (open.outcome !== "set") throw new Error(open.outcome);
+      const turned = await store().requireApproval(open.binding.id);
+      expect(turned).toMatchObject({
+        status: "pending_approval",
+        channelKind: "private_channel",
+        home: false,
+        revision: 2,
+      });
+      expect(
+        await store().resolveSlackChannel(installationId, "C0TURNED"),
+      ).toBeNull();
+      expect(await store().requireApproval(open.binding.id)).toBeNull();
+      expect(await operations(open.binding.id)).toContain(
+        "request_surface_binding",
+      );
+    });
+
+    test("saving a channel bound as public with Slack's private kind waits again, whatever the old kind", async () => {
+      const owner = await person(await workspace(), "owner");
+      const { agentId } = await slackAgent(owner);
+      await setAs(owner, agentId, { channelId: "G0KIND" });
+      const redo = await setAs(owner, agentId, {
+        channelId: "G0KIND",
+        channelKind: "private_channel",
+      });
+      expect(redo).toMatchObject({
+        outcome: "set",
+        binding: { status: "pending_approval", channelKind: "private_channel" },
+      });
+    });
+
+    test("an approved private channel keeps its approval through edits and an invite", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      await approve(owner, agentId, binding.id, 1);
+      const edited = await setAs(owner, agentId, {
+        channelId: "G0SECRET",
+        channelKind: "private_channel",
+        home: true,
+      });
+      expect(edited).toMatchObject({
+        outcome: "set",
+        binding: { status: "ready", home: true, revision: 3 },
+      });
+      expect(
+        await store().ensureInvitedChannel(
+          installationId,
+          "G0SECRET",
+          "private_channel",
+        ),
+      ).toMatchObject({ status: "ready", home: true });
+    });
+  });
+
+  test("migration 0245 puts every live private binding to wait and leaves the others", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId, installationId } = await slackAgent(owner);
+    const migrationSql = (
+      await Bun.file(
+        `${import.meta.dir}/../migrations/0245_slack_private_approval.sql`,
+      ).text()
+    )
+      .split("--> statement-breakpoint")
+      .map((statement) => statement.trim())
+      .find((statement) => statement.includes('UPDATE "surface_bindings"'));
+    expect(migrationSql).toBeDefined();
+    await db
+      .update(surfaceBindings)
+      .set({ status: "ready" })
+      .where(eq(surfaceBindings.agentId, agentId));
+    const rows = [
+      ["G0OLDHOME", "private_channel", true, null],
+      ["C0OLDOPEN", "public_channel", false, null],
+      ["G0OLDGONE", "private_channel", false, new Date()],
+    ] as const;
+    await pool.query(
+      "ALTER TABLE surface_bindings DROP CONSTRAINT surface_bindings_pending_check",
+    );
+    try {
+      for (const [channelId, kind, home, revokedAt] of rows) {
+        await db.insert(surfaceBindings).values({
+          id: randomUUID(),
+          workspaceId: owner.ownerId,
+          agentId,
+          surface: "slack",
+          installationId,
+          externalSurfaceId: channelId,
+          surfaceKind: kind,
+          mode: "on",
+          ceilingActions: [...DEFAULT_SURFACE_CEILING.actions],
+          ceilingDisclosure: "full",
+          home,
+          status: revokedAt === null ? "ready" : "revoked",
+          revokedAt,
+        });
+      }
+      await pool.query(migrationSql ?? "");
+      const after = Object.fromEntries(
+        (await db.select().from(surfaceBindings))
+          .filter((row) => row.agentId === agentId)
+          .map((row) => [row.externalSurfaceId, row]),
+      );
+      expect(after.G0OLDHOME).toMatchObject({
+        status: "pending_approval",
+        home: false,
+        revision: 2,
+      });
+      expect(after.C0OLDOPEN).toMatchObject({ status: "ready", revision: 1 });
+      expect(after.G0OLDGONE).toMatchObject({ status: "revoked", revision: 1 });
+    } finally {
+      await pool.query(
+        "DELETE FROM surface_bindings WHERE agent_id = $1 AND external_surface_id IN ('G0OLDHOME','C0OLDOPEN','G0OLDGONE')",
+        [agentId],
+      );
+      await pool.query(
+        `ALTER TABLE surface_bindings ADD CONSTRAINT surface_bindings_pending_check CHECK ("status" <> 'pending_approval' OR ("surface" = 'slack' AND "installation_id" IS NOT NULL AND "external_surface_id" IS NOT NULL AND "surface_kind" = 'private_channel' AND NOT "home"))`,
+      );
+    }
   });
 
   test("a revoked or off binding is not what a channel resolves to", async () => {

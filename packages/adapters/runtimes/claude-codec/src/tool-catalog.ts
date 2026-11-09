@@ -113,6 +113,41 @@ export function toolCatalogFor(
   );
 }
 
+// Tools as sorted [name, boundary] pairs and aliases as sorted pairs, so
+// neither list order nor key order decides.
+const shape = (catalog: BuiltinToolCatalog): string =>
+  JSON.stringify([
+    catalog.tools.map((tool) => [tool.name, tool.boundary]).sort(),
+    Object.entries(catalog.aliases).sort(),
+  ]);
+
+const sameTools = (a: BuiltinToolCatalog, b: BuiltinToolCatalog): boolean =>
+  shape(a) === shape(b);
+
+/**
+ * Every SDK and engine version, other than the one asked about, of a catalog
+ * that lists the same tools (with their boundaries) and aliases as the catalog
+ * of `runtimeVersion`. A profile row left at such a version holds the same
+ * tool list on this build, so it may run here. A checkpoint is never judged by
+ * this: its own fingerprint names the build that wrote it.
+ */
+export function equivalentToolCatalogVersions(
+  catalogs: readonly BuiltinToolCatalog[],
+  runtimeKind: string,
+  runtimeVersion: string,
+): string[] {
+  const own = toolCatalogFor(catalogs, runtimeKind, runtimeVersion);
+  if (own === undefined) return [];
+  return catalogs
+    .filter(
+      (catalog) =>
+        catalog !== own &&
+        catalog.runtimeKind === runtimeKind &&
+        sameTools(catalog, own),
+    )
+    .flatMap((catalog) => [catalog.sdkVersion, catalog.engineVersion]);
+}
+
 /** A name as this build knows it: an old name maps to its new one, any other passes through. */
 export function canonicalToolName(
   catalog: BuiltinToolCatalog,

@@ -111,9 +111,7 @@ describe("i18n", () => {
       const catalog = catalogs[locale];
       expect(catalog["agent.card.identityHint"]).toContain(condition[locale]);
       expect(catalog["agents.descriptionHint"]).toContain(condition[locale]);
-      expect(catalog["agent.card.identityHint"]).toContain(
-        catalog["agentCard.agentInstructions"],
-      );
+      expect(catalog["agent.card.identityHint"]).toContain("CLAUDE.md");
     }
   });
 
@@ -152,14 +150,9 @@ describe("i18n", () => {
       "agent.releases.changesTitle",
       "agent.releases.changesAgainst",
       "agent.releases.byUnknown",
-      ...[
-        "repositories",
-        "model",
-        "tools",
-        "prompt",
-        "settings",
-        "secrets",
-      ].map((area) => `agent.releases.area.${area}`),
+      ...["repositories", "model", "tools", "settings", "secrets"].map(
+        (area) => `agent.releases.area.${area}`,
+      ),
       "agent.releases.absent.profileRepositories",
       "agent.releases.changed",
       "agent.releases.secretsHidden",

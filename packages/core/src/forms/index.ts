@@ -77,8 +77,6 @@ export const acceptInviteStep = z.object({
 
 /** The card as its form holds it. */
 const agentCardDraftSchema = z.object({
-  /** Absent from a form without the field (the new-agent flow). */
-  agentInstructions: z.string().optional(),
   language: agentCardSchema.shape.language.unwrap(),
   model: z.string(),
 });
@@ -91,24 +89,6 @@ export function draftCapabilities(
 }
 
 /**
- * `card` with the agent instructions a form holds, kept as typed. Blank
- * leaves the field out, as the claim does; a form without the field
- * (`undefined`) keeps what `card` has.
- */
-export function withAgentInstructions<T extends object>(
-  card: T,
-  text: string | undefined,
-): T & { agent_instructions?: string } {
-  if (text === undefined) return card;
-  const { agent_instructions: _replaced, ...rest } = card as T & {
-    agent_instructions?: string;
-  };
-  return (
-    text.trim() === "" ? rest : { ...rest, agent_instructions: text }
-  ) as T;
-}
-
-/**
  * The card step. An edit passes the card it started from: the result keeps
  * every field the form has no input for (rules, tool_policy,
  * credential_refs, the MCP server, a card's earlier role and instructions,
@@ -117,16 +97,12 @@ export function withAgentInstructions<T extends object>(
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
     .transform(
-      (draft): z.input<typeof agentCardSchema> =>
-        withAgentInstructions(
-          {
-            ...base,
-            language: draft.language,
-            model: draft.model.trim(),
-            capabilities: draftCapabilities(base?.capabilities),
-          },
-          draft.agentInstructions,
-        ),
+      (draft): z.input<typeof agentCardSchema> => ({
+        ...base,
+        language: draft.language,
+        model: draft.model.trim(),
+        capabilities: draftCapabilities(base?.capabilities),
+      }),
     )
     .pipe(agentCardSchema);
 }

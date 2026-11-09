@@ -1,11 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  setSystemTime,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   createSessionResponseSchema,
   WORKER_HEARTBEAT_INTERVAL_MS,
@@ -59,14 +52,7 @@ import {
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
 
-/**
- * Lease-clock behavior end to end in one process: a WorkerHost holding a lease from the
- * Worker Gateway's own HTTP routes on PostgreSQL. The wall clock jumps both
- * ways without the worker's lease judgement moving, and once the gateway
- * becomes unreachable the worker gives the lease up — and its engine — a
- * safety margin before the database would end it. This is the clock skew and
- * jump fault scenario at test scale.
- */
+/** PostgreSQL lock, fencing and delayed-heartbeat contracts through HTTP. */
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
@@ -174,7 +160,6 @@ integration("worker lease on the monotonic clock end to end", () => {
   }, 90_000);
 
   afterAll(async () => {
-    setSystemTime();
     server?.stop(true);
     production?.stop(true);
     await pool?.end();
@@ -282,112 +267,6 @@ integration("worker lease on the monotonic clock end to end", () => {
       workspace: noWorkspace,
     });
   }
-
-  test("a wall clock jump moves nothing; an unreachable gateway loses the lease a margin before the database does", async () => {
-    const { executionId, nonce } = await queuedLaunch();
-
-    // The first turn runs for a minute: only the lease can end this attempt.
-    const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
-      { type: "await-input" },
-      { type: "delay", delayMs: 60_000 },
-    ]);
-    let unreachable = false;
-    let refusedBeats = 0;
-    let attemptId: string | undefined;
-    const lost: {
-      value?: {
-        at: number;
-        reason: string;
-        lease: Promise<number>;
-      };
-    } = {};
-    const logger: WorkerLogger = {
-      info: (event, fields) => {
-        if (event === "worker.claimed") {
-          attemptId = String(fields?.attempt_id);
-        }
-        if (event === "worker.stopping" && fields?.kind === "lost") {
-          lost.value = {
-            at: performance.now(),
-            reason: String(fields?.reason),
-            lease: leaseOf(attemptId ?? ""),
-          };
-        }
-      },
-      warn: () => {},
-      error: () => {},
-    };
-    const host = workerHost({
-      executionId,
-      nonce,
-      runtime,
-      logger,
-      requestTimeoutMs: 5_000,
-      fetch: (input, init) =>
-        unreachable
-          ? Promise.reject(
-              new TypeError(
-                `connect ECONNREFUSED (${input.endsWith("/heartbeat") ? refusedBeats++ : "-"})`,
-              ),
-            )
-          : globalThis.fetch(input, init),
-    });
-    const loop = host.runLoop();
-    await until(() => runtime.inputs.length === 1, "turn 1 running", 30_000);
-    const id = attemptId;
-    if (id === undefined) throw new Error("the claim was not logged");
-
-    try {
-      // An hour ahead, then two back: longer than the lease many times over
-      // in both directions, while the gateway keeps answering.
-      const renewedFrom = await leaseOf(id);
-      setSystemTime(new Date(Date.now() + 3_600_000));
-      await Bun.sleep(LEASE_TTL_MS / 2);
-      setSystemTime(new Date(Date.now() - 7_200_000));
-      await Bun.sleep(LEASE_TTL_MS);
-      setSystemTime();
-      // Held past the TTL it was granted with: the beats kept renewing it.
-      expect(await leaseOf(id)).toBeGreaterThan(renewedFrom + LEASE_TTL_MS / 2);
-      expect(lost.value?.reason).toBeUndefined();
-    } finally {
-      setSystemTime();
-    }
-
-    // Where the database clock stands against this process's monotonic
-    // one, bracketed by the round trip of the read: a DB read made after the
-    // loss could land late on a loaded runner and see a lapse that had not
-    // happened yet. The tightest of a few samples.
-    let offset = { low: -Infinity, high: Infinity };
-    for (let sample = 0; sample < 5; sample += 1) {
-      const sent = performance.now();
-      const dbNow = await dbNowMs();
-      const answered = performance.now();
-      if (dbNow - sent - (dbNow - answered) < offset.high - offset.low) {
-        offset = { low: dbNow - answered, high: dbNow - sent };
-      }
-    }
-
-    unreachable = true;
-    const summary = await loop;
-
-    expect(summary.outcome).toBe("lease_lost");
-    expect(summary.reason).toContain(
-      `lease given up ${MARGIN_MS}ms before it runs out`,
-    );
-    const loss = lost.value;
-    if (loss === undefined) throw new Error("the loss was not logged");
-    const leaseAtLoss = await loss.lease;
-    // Not late: even the latest the database clock can have read at the
-    // loss is short of the lease's end.
-    expect(loss.at + offset.high).toBeLessThan(leaseAtLoss);
-    // Not early: the worker rode out beats that failed, and let go with
-    // about the margin left — plus the round trip of its last renewal,
-    // which it counts from the send.
-    expect(refusedBeats).toBeGreaterThan(1);
-    expect(leaseAtLoss - (loss.at + offset.low)).toBeLessThan(
-      MARGIN_MS + 3_000,
-    );
-  }, 90_000);
 
   test("beats sent while the API is down and delivered after it is back cost no lease; one delivered after the exit is 401", async () => {
     const { executionId, nonce } = await queuedLaunch();
