@@ -1,19 +1,28 @@
 // The agent detail's GitHub tab (design github-agent.md §7). Kept apart from
 // github.ts, which the workspace connection screen owns.
 export const agentGitHubKo = {
+  "agentGitHub.section.github": "GitHub",
+  "agentGitHub.overviewHint":
+    "이 에이전트가 GitHub에서 쓰는 저장소와 기능입니다. 워크스페이스가 정한 상한 안에서 고릅니다. App과 설치는 워크스페이스의 연동 › GitHub에서 관리합니다.",
+  "agentGitHub.turnOn": "GitHub 켜기",
+  "agentGitHub.danger": "위험 구역",
+  "agentGitHub.disableRow": "GitHub 사용 끄기",
+  "agentGitHub.pushHint":
+    "이 에이전트가 만든 commit을 push하기 전에 사람 승인을 받을지 정합니다. 바꾼 것은 위의 저장 상자에서 함께 저장합니다.",
+  "agentGitHub.addSubmit": "추가",
+  "agentGitHub.table.repository": "저장소",
+  "agentGitHub.table.use": "사용",
+  "agentGitHub.table.workflow": "워크플로",
+  "agentGitHub.table.ref": "ref",
+  "agentGitHub.table.remove": "빼기",
+  "agentGitHub.table.receipt": "기록",
+  "agentGitHub.table.at": "시각",
   "agent.tabs.github": "GitHub",
   "agentGitHub.sectionNav": "GitHub 구역",
   "agentGitHub.manage": "관리",
-  "agentGitHub.section.use": "사용",
-  "agentGitHub.section.repositories": "저장소",
-  "agentGitHub.section.details": "세부 설정",
-  "agentGitHub.detailsHint":
-    "기능 권한, Actions 허용 목록, push 승인입니다. 대부분은 기본값으로 충분합니다.",
-  "agentGitHub.section.permissions": "권한",
   "agentGitHub.section.allowlist": "Actions 허용 목록",
   "agentGitHub.section.push": "push 승인",
   "agentGitHub.section.activity": "최근 기록",
-  "agentGitHub.status": "상태",
   "agentGitHub.state.on": "사용 중",
   "agentGitHub.state.off": "꺼짐",
   "agentGitHub.status.repositories": "저장소 {count}개",
@@ -21,10 +30,8 @@ export const agentGitHubKo = {
   "agentGitHub.status.pushApproval": "push 전 승인",
   "agentGitHub.on": "켜짐",
   "agentGitHub.off": "꺼짐",
-  "agentGitHub.badge.now": "즉시 반영",
   "agentGitHub.badge.default": "기본",
   "agentGitHub.badge.unsaved": "저장 전",
-  "agentGitHub.enabled": "GitHub 사용",
   "agentGitHub.enabledHint":
     "끄면 이 에이전트에 새 GitHub 토큰을 내주지 않습니다. 진행 중인 세션도 다음 GitHub 요청부터 거절됩니다. 릴리스를 거치지 않고 바로 반영됩니다.",
   "agentGitHub.disableTitle": "GitHub 사용을 끌까요?",
@@ -68,7 +75,7 @@ export const agentGitHubKo = {
   "agentGitHub.repositoriesFoot":
     "목록에 없는 저장소는 GitHub에서 App 설치에 더하면 나타납니다.",
   "agentGitHub.permissionsHint":
-    "기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 › GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다.",
+    "이 에이전트가 쓰는 기능입니다. 기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 › GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다.",
   "agentGitHub.base": "PR 작성·수정",
   "agentGitHub.baseHint":
     "agent/<세션> 브랜치로 push하고, PR을 열고 고치고, 코멘트를 남깁니다. 필요한 권한: contents·pull requests 쓰기",
@@ -101,14 +108,11 @@ export const agentGitHubKo = {
   "agentGitHub.allowlistHint":
     "Actions 실행이 켜져 있을 때 이 목록의 워크플로만 실행하거나 다시 실행합니다. 목록 밖의 workflow_dispatch와 다시 실행은 거절합니다.",
   "agentGitHub.allowlistEmpty": "목록에 없는 워크플로는 실행하지 않습니다.",
-  "agentGitHub.allowlistOff":
-    "Actions 실행을 켜면 실행할 워크플로를 고를 수 있습니다.",
   "agentGitHub.refDefault": "기본 브랜치만",
   "agentGitHub.refPattern": "ref 패턴 {ref}",
   "agentGitHub.remove": "빼기",
   "agentGitHub.removeLabel": "{workflow} 빼기",
   "agentGitHub.workflow": "워크플로 파일",
-  "agentGitHub.workflowHint": ".github/workflows 아래의 파일 이름",
   "agentGitHub.ref": "ref 패턴(선택)",
   "agentGitHub.refHint": "비우면 기본 브랜치만. * 는 / 를 넘지 않습니다.",
   "agentGitHub.add": "워크플로 추가",
@@ -187,9 +191,8 @@ export const agentGitHubKo = {
     "설정 › 연동 › GitHub › 저장소 관리에서 이 저장소를 맡을 다른 App을 고르세요",
   "agentGitHub.saveRefused": "저장하지 못했습니다: {reason}",
   "agentGitHub.refused": "거절",
-  "agentPullRequest.title": "Pull request 서식",
   "agentPullRequest.hint":
-    "이 에이전트가 여는 Pull request의 본문을 워크스페이스 설정 위에 덮어씁니다. GitHub 세부 설정과 따로 저장하며, 릴리스를 만들지 않습니다. 이후에 여는·갱신하는 PR부터 적용됩니다.",
+    "이 에이전트가 여는 Pull request의 본문을 워크스페이스 설정 위에 덮어씁니다. 위의 기능 설정과 따로 저장하며, 릴리스를 만들지 않습니다. 이후에 여는·갱신하는 PR부터 적용됩니다.",
   "agentPullRequest.formatting": "서식",
   "agentPullRequest.formatting.inherit": "워크스페이스 설정을 따름",
   "agentPullRequest.formatting.on": "템플릿 사용",
@@ -214,19 +217,28 @@ export const agentGitHubKo = {
 };
 
 export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
+  "agentGitHub.section.github": "GitHub",
+  "agentGitHub.overviewHint":
+    "The repositories and features this agent uses on GitHub, chosen within the workspace's ceiling. The Apps and installations are managed in the workspace's Settings › Integrations › GitHub.",
+  "agentGitHub.turnOn": "Turn GitHub on",
+  "agentGitHub.danger": "Danger zone",
+  "agentGitHub.disableRow": "Turn GitHub off",
+  "agentGitHub.pushHint":
+    "Whether a person approves the commits this agent makes before they are pushed. Changes are saved together in the save box above.",
+  "agentGitHub.addSubmit": "Add",
+  "agentGitHub.table.repository": "Repository",
+  "agentGitHub.table.use": "Use",
+  "agentGitHub.table.workflow": "Workflow",
+  "agentGitHub.table.ref": "Ref",
+  "agentGitHub.table.remove": "Remove",
+  "agentGitHub.table.receipt": "Record",
+  "agentGitHub.table.at": "When",
   "agent.tabs.github": "GitHub",
   "agentGitHub.sectionNav": "GitHub sections",
   "agentGitHub.manage": "Manage",
-  "agentGitHub.section.use": "Use",
-  "agentGitHub.section.repositories": "Repositories",
-  "agentGitHub.section.details": "Advanced settings",
-  "agentGitHub.detailsHint":
-    "Optional permissions, the Actions allow-list and push approval. The defaults suit most agents.",
-  "agentGitHub.section.permissions": "Permissions",
   "agentGitHub.section.allowlist": "Actions allow list",
   "agentGitHub.section.push": "Push approval",
   "agentGitHub.section.activity": "Recent activity",
-  "agentGitHub.status": "Status",
   "agentGitHub.state.on": "In use",
   "agentGitHub.state.off": "Off",
   "agentGitHub.status.repositories": "{count} repositories",
@@ -234,10 +246,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.status.pushApproval": "Approval before push",
   "agentGitHub.on": "On",
   "agentGitHub.off": "Off",
-  "agentGitHub.badge.now": "Applies now",
   "agentGitHub.badge.default": "Default",
   "agentGitHub.badge.unsaved": "Unsaved",
-  "agentGitHub.enabled": "Use GitHub",
   "agentGitHub.enabledHint":
     "When off, this agent gets no new GitHub token. Running sessions are refused from their next GitHub request. Applies at once, without a release.",
   "agentGitHub.disableTitle": "Turn GitHub off?",
@@ -280,7 +290,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "A repository missing here appears once you add it to the App's installation on GitHub.",
   "agentGitHub.permissionsHint":
-    "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Settings › Integrations › GitHub.",
+    "The features this agent uses. By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Settings › Integrations › GitHub.",
   "agentGitHub.base": "Write pull requests",
   "agentGitHub.baseHint":
     "Pushes to agent/<session> branches, opens and updates pull requests, comments. Needs: contents and pull requests write",
@@ -313,14 +323,11 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.allowlistHint":
     "With Run Actions on, only workflows on this list run or rerun. Any other workflow_dispatch or rerun is refused.",
   "agentGitHub.allowlistEmpty": "No workflow outside the list runs.",
-  "agentGitHub.allowlistOff":
-    "Turn Run Actions on to pick the workflows it may run.",
   "agentGitHub.refDefault": "Default branch only",
   "agentGitHub.refPattern": "ref pattern {ref}",
   "agentGitHub.remove": "Remove",
   "agentGitHub.removeLabel": "Remove {workflow}",
   "agentGitHub.workflow": "Workflow file",
-  "agentGitHub.workflowHint": "A file name under .github/workflows",
   "agentGitHub.ref": "ref pattern (optional)",
   "agentGitHub.refHint": "Empty: the default branch only. * does not cross /.",
   "agentGitHub.add": "Add workflow",
@@ -402,9 +409,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Choose another App to handle this repository under Settings › Integrations › GitHub › Manage repositories",
   "agentGitHub.saveRefused": "Not saved: {reason}",
   "agentGitHub.refused": "Refused",
-  "agentPullRequest.title": "Pull request layout",
   "agentPullRequest.hint":
-    "Overrides the workspace's settings for the pull request bodies this agent opens. Saved apart from the GitHub details and makes no release. It applies to pull requests opened or updated afterwards.",
+    "Overrides the workspace's settings for the pull request bodies this agent opens. Saved apart from the feature settings above and makes no release. It applies to pull requests opened or updated afterwards.",
   "agentPullRequest.formatting": "Layout",
   "agentPullRequest.formatting.inherit": "Follow the workspace",
   "agentPullRequest.formatting.on": "Use templates",
@@ -429,19 +435,28 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
 };
 
 export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
+  "agentGitHub.section.github": "GitHub",
+  "agentGitHub.overviewHint":
+    "このエージェントが GitHub で使うリポジトリと機能です。ワークスペースが決めた上限の中で選びます。App とインストールはワークスペースの 連携 › GitHub で管理します。",
+  "agentGitHub.turnOn": "GitHub をオンにする",
+  "agentGitHub.danger": "危険な操作",
+  "agentGitHub.disableRow": "GitHub をオフにする",
+  "agentGitHub.pushHint":
+    "このエージェントが作った commit を push する前に人の承認を受けるかを決めます。変更は上の保存ボックスでまとめて保存します。",
+  "agentGitHub.addSubmit": "追加",
+  "agentGitHub.table.repository": "リポジトリ",
+  "agentGitHub.table.use": "使用",
+  "agentGitHub.table.workflow": "ワークフロー",
+  "agentGitHub.table.ref": "ref",
+  "agentGitHub.table.remove": "外す",
+  "agentGitHub.table.receipt": "記録",
+  "agentGitHub.table.at": "日時",
   "agent.tabs.github": "GitHub",
   "agentGitHub.sectionNav": "GitHub の項目",
   "agentGitHub.manage": "管理",
-  "agentGitHub.section.use": "利用",
-  "agentGitHub.section.repositories": "リポジトリ",
-  "agentGitHub.section.details": "詳細設定",
-  "agentGitHub.detailsHint":
-    "任意の権限、Actions 許可リスト、push の承認。多くのエージェントでは既定のままで十分です。",
-  "agentGitHub.section.permissions": "権限",
   "agentGitHub.section.allowlist": "Actions 許可リスト",
   "agentGitHub.section.push": "push の承認",
   "agentGitHub.section.activity": "最近の記録",
-  "agentGitHub.status": "状態",
   "agentGitHub.state.on": "利用中",
   "agentGitHub.state.off": "オフ",
   "agentGitHub.status.repositories": "リポジトリ {count} 件",
@@ -449,10 +464,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.status.pushApproval": "push 前の承認",
   "agentGitHub.on": "オン",
   "agentGitHub.off": "オフ",
-  "agentGitHub.badge.now": "すぐ反映",
   "agentGitHub.badge.default": "既定",
   "agentGitHub.badge.unsaved": "未保存",
-  "agentGitHub.enabled": "GitHub を使う",
   "agentGitHub.enabledHint":
     "オフにすると、このエージェントに新しい GitHub トークンを出しません。実行中のセッションも次の GitHub リクエストから拒否されます。リリースを経ずにすぐ反映されます。",
   "agentGitHub.disableTitle": "GitHub をオフにしますか?",
@@ -495,7 +508,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "一覧にないリポジトリは、GitHub で App のインストールに加えると表示されます。",
   "agentGitHub.permissionsHint":
-    "既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。マージはエージェントの設定にはなく、ワークスペースの 連携 › GitHub でマージを許可したときだけ、エージェントが PR をマージします。",
+    "このエージェントが使う機能です。既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。マージはエージェントの設定にはなく、ワークスペースの 連携 › GitHub でマージを許可したときだけ、エージェントが PR をマージします。",
   "agentGitHub.base": "PR の作成・修正",
   "agentGitHub.baseHint":
     "agent/<セッション> ブランチに push し、PR を開いて直し、コメントを残します。必要な権限: contents・pull requests の書き込み",
@@ -528,14 +541,11 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.allowlistHint":
     "Actions の実行がオンのとき、このリストのワークフローだけを実行・再実行します。リスト外の workflow_dispatch と再実行は拒否します。",
   "agentGitHub.allowlistEmpty": "リストにないワークフローは実行しません。",
-  "agentGitHub.allowlistOff":
-    "Actions の実行をオンにすると、実行するワークフローを選べます。",
   "agentGitHub.refDefault": "既定のブランチのみ",
   "agentGitHub.refPattern": "ref パターン {ref}",
   "agentGitHub.remove": "外す",
   "agentGitHub.removeLabel": "{workflow} を外す",
   "agentGitHub.workflow": "ワークフローファイル",
-  "agentGitHub.workflowHint": ".github/workflows 以下のファイル名",
   "agentGitHub.ref": "ref パターン(任意)",
   "agentGitHub.refHint": "空なら既定のブランチのみ。* は / をまたぎません。",
   "agentGitHub.add": "ワークフローを追加",
@@ -616,9 +626,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "設定 › 連携 › GitHub › リポジトリを管理 で、このリポジトリを担当する別の App を選んでください",
   "agentGitHub.saveRefused": "保存できませんでした: {reason}",
   "agentGitHub.refused": "拒否",
-  "agentPullRequest.title": "Pull request の書式",
   "agentPullRequest.hint":
-    "このエージェントが開く Pull request の本文について、ワークスペースの設定を上書きします。GitHub の詳細設定とは別に保存され、リリースは作りません。以降に開く・更新する PR から適用されます。",
+    "このエージェントが開く Pull request の本文について、ワークスペースの設定を上書きします。上の機能設定とは別に保存され、リリースは作りません。以降に開く・更新する PR から適用されます。",
   "agentPullRequest.formatting": "書式",
   "agentPullRequest.formatting.inherit": "ワークスペースの設定に従う",
   "agentPullRequest.formatting.on": "テンプレートを使う",
