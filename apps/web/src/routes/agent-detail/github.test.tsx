@@ -1115,7 +1115,7 @@ describe("에이전트 GitHub 탭", () => {
     );
     const viewOf = (rows: typeof before) =>
       rows.find((row) => row.name === "acme/api")?.view;
-    expect(viewOf(before)).toBe("acme/api");
+    expect(viewOf(before)).toBe("gh:12");
     expect(viewOf(after)).toBe(viewOf(before));
 
     // A dropped row and a re-registered one with the same name stay apart.
@@ -1140,6 +1140,23 @@ describe("에이전트 GitHub 탭", () => {
       (row) => row.name === "acme/api",
     );
     expect(views).toContain(kept?.view ?? "");
+
+    // A dropped row the catalog lists again under the same id keeps its view,
+    // and one repository under two catalog ids never shares a view.
+    const relisted = structuredClone(taken);
+    relisted.options.repositories.push({
+      ...taken.options.repositories[2],
+      id: "api-old",
+      ref: "r1.api-old",
+    } as (typeof taken.options.repositories)[number]);
+    const first = repositoryRows(twins, ["api-old"], [], null).find(
+      (row) => row.key === "api-old",
+    );
+    const second = repositoryRows(relisted, ["api-old"], [], null);
+    expect(second.find((row) => row.key === "api-old")?.view).toBe(first?.view);
+    const sameName = second.filter((row) => row.name === "acme/api");
+    expect(sameName).toHaveLength(2);
+    expect(new Set(sameName.map((row) => row.view)).size).toBe(2);
   });
 
   test("세부 설정 초안이 있어도 켠 저장소는 켜진 채로 보인다", async () => {

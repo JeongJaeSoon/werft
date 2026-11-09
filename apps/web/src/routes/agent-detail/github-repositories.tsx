@@ -34,7 +34,11 @@ type Option = GitHubTabData["options"]["repositories"][number];
 export type RepositoryRow = {
   /** Stable across a toggle: the catalog id once there is one. */
   readonly key: string;
-  /** Keys the row's React element and its switch state; see `repositoryRows`. */
+  /**
+   * Keys the row's React element and its switch state. Unique per row, and
+   * the same before and after the catalog takes a repository the installation
+   * lists: `gh:<GitHub id>` when an installation page lists it, else `key`.
+   */
   readonly view: string;
   /** `owner/repo`. */
   readonly name: string;
@@ -77,7 +81,7 @@ export function repositoryRows(
     const name = option.repository ?? option.full_name ?? option.url;
     rows.set(option.id, {
       key: option.id,
-      view: name.toLowerCase(),
+      view: option.id,
       name,
       href: pageOf(option.url, name),
       private: option.private === true,
@@ -92,9 +96,7 @@ export function repositoryRows(
     const name = held.repository ?? held.id;
     rows.set(held.id, {
       key: held.id,
-      // Its own id too: a repository registered again under this name gets
-      // the plain name, and must keep it when this dropped row goes away.
-      view: `${name.toLowerCase()}#${held.id}`,
+      view: held.id,
       name,
       href: `${GITHUB}${name}`,
       private: held.private === true,
@@ -119,6 +121,9 @@ export function repositoryRows(
     if (known) {
       rows.set(known.key, {
         ...known,
+        // The installation's id is what the row had while only it listed the
+        // repository, so a pending switch survives the catalog taking it.
+        view: `gh:${listed.github_repository_id}`,
         private: known.private || listed.private,
         target:
           known.target ??
@@ -139,7 +144,7 @@ export function repositoryRows(
     const key = listed.catalog_id ?? `gh:${listed.github_repository_id}`;
     rows.set(key, {
       key,
-      view: listed.full_name.toLowerCase(),
+      view: `gh:${listed.github_repository_id}`,
       name: listed.full_name,
       href: `${GITHUB}${listed.full_name}`,
       private: listed.private,
