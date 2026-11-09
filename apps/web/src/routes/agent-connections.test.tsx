@@ -7,6 +7,7 @@ const { renderAt, screen, within } = await appHarness();
 const MODEL = "/settings/workspace/model-connections";
 const MCP = "/settings/workspace/mcp-servers";
 const OLD = "/settings/workspace/connections";
+const INTEGRATIONS = "/settings/workspace/integrations/slack";
 const GROUP = "에이전트 연결";
 
 const owner = { "GET /v1/auth/me": () => json(200, me()) };
@@ -31,7 +32,7 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     ).toBe(MCP);
     expect(
       items.getAllByRole("link").map((link) => link.getAttribute("href")),
-    ).toEqual([MODEL, MCP]);
+    ).toEqual([INTEGRATIONS, MODEL, MCP]);
     expect(
       (await sidebar())
         .getAllByRole("group")
@@ -74,15 +75,24 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     ).toBe(true);
   });
 
-  test.each([
-    ["관리자", as("admin")],
-    ["구성원", { "GET /v1/auth/me": () => json(200, memberMe()) }],
-  ])("%s 메뉴에는 그룹이 통째로 없다", async (_role, routes) => {
-    renderAt("/settings/workspace/achievement-rules", routes);
+  test("관리자 메뉴에는 연동만 있고 모델 연결과 MCP 서버는 없다", async () => {
+    renderAt("/settings/workspace/achievement-rules", as("admin"));
+    const items = await group();
+    expect(
+      items.getAllByRole("link").map((link) => link.getAttribute("href")),
+    ).toEqual([INTEGRATIONS]);
     const nav = await sidebar();
-    expect(nav.queryByRole("group", { name: GROUP }) === null).toBe(true);
     expect(nav.queryByRole("link", { name: "모델 연결" }) === null).toBe(true);
     expect(nav.queryByRole("link", { name: "MCP 서버" }) === null).toBe(true);
+  });
+
+  test("구성원 메뉴에는 그룹이 통째로 없다", async () => {
+    renderAt("/settings/workspace/achievement-rules", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const nav = await sidebar();
+    expect(nav.queryByRole("group", { name: GROUP }) === null).toBe(true);
+    expect(nav.queryByRole("link", { name: "연동" }) === null).toBe(true);
   });
 });
 

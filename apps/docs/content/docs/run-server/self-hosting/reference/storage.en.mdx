@@ -33,9 +33,9 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-Use `kubectl get storageclass` to check whether the chosen provisioner creates capacity-enforcing volumes (EBS gp3, for example, creates a block device of the requested size). PVC `REQUEST` is Werft's request; `CAPACITY` is provisioned size. Filesystem overhead can change `df -h` totals, so do not require exact equality. Verify `CAPACITY` is at least `REQUEST` and that a test PVC using the same StorageClass returns `ENOSPC` when writes exceed `REQUEST`. Check inode totals with `df -i`. These Kubernetes commands, capacity enforcement, and AZ reattachment have not been verified by execution. Values come from code (`specs.ts`, `config.ts`) and the chart.
+Use `kubectl get storageclass` to check whether the chosen provisioner creates capacity-enforcing volumes (EBS gp3, for example, creates a block device of the requested size). PVC `REQUEST` is Werft's request; `CAPACITY` is provisioned size. Filesystem overhead can change `df -h` totals, so do not require exact equality. Verify `CAPACITY` is at least `REQUEST` and that a test PVC using the same StorageClass returns `ENOSPC` when writes exceed `REQUEST`. Check inode totals with `df -i`. These Kubernetes commands, capacity enforcement, and AZ reattachment have not been verified by execution. Values come from the code and the chart.
 
-- **PVCs are mandatory.** Worker workspace volumes are always PVCs (`specs.ts`), with no emptyDir/hostPath option. Session PVCs outlive Pods and reattach under the same name after replacement. The scheduler creates Pods and PVCs per session.
+- **PVCs are mandatory.** Worker workspace volumes are always PVCs, with no emptyDir/hostPath option. Session PVCs outlive Pods and reattach under the same name after replacement. The scheduler creates Pods and PVCs per session.
 - **Werft does not verify StorageClass hard enforcement.** It requests `requests.storage`, records it in `werft.workspace-size`, and compares configuration. It reads PVC `status.capacity` and passes it to the worker, which observes workspace usage and filesystem totals/inodes. These observations do not verify enforcement. Confirm CSI/filesystem enforcement with infrastructure operators before installation.
 - kind's default local-path-style StorageClass is known not to enforce PVC size. Bound status does not establish a hard limit.
 - **Known limits:** no inode limit; capacity enforcement is delegated to StorageClass. The chart does not reject non-enforcing classes. Code changes addressing this are outside this page's scope.
@@ -81,7 +81,7 @@ Size means the entire JSONL remaining after compaction. Claude Code CLI resume s
 <a id="성과물out-색인-상한" />
 ## Output (`out/`) index limits
 
-At each checkpoint, workers index regular files under working-directory `out/` regardless of git status, add manifest `outputs`, and upload one object/file. Limits are `DEFAULT_OUTPUT_LIMITS` in `apps/worker/src/workspace-outputs.ts`.
+At each checkpoint, workers index regular files under working-directory `out/` regardless of git status, add manifest `outputs`, and upload one object/file. Limits are the worker's default output limits.
 
 | Value | Default | When exceeded |
 |---|---|---|
@@ -142,7 +142,7 @@ The tradeoff: subsequent incremental capture excludes only chain tips still pres
 
 **Inode limits apply to the same project.** Byte limits alone permit millions of empty files to exhaust inodes even within 4GiB: xfs does not charge inodes to project block usage. Other sessions and Postgres on the daemon can then fail to create files. The local driver lacks inode options, and per-session filesystems through `o=loop` are unavailable because it calls the mount syscall, not `mount(8)` (`data: loop: invalid argument`). Werft directly sets `ihard`/`isoft` (`EXECUTION_WORKSPACE_QUOTA_INODES`, default 1,000,000) on the xfs project created by Docker `size`.
 
-- A short-lived helper (`workspace-inodes.ts`) applies limits with `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs; it is not privileged.
+- A short-lived helper container applies limits with `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs; it is not privileged.
 - It reads the project id and rejects project 0 (= none), since limiting 0 would limit the whole filesystem.
 - It creates the mount source's block device node in its private `/dev` with `mknod`, then runs `xfs_quota`.
 - `xfs_quota` exits 0 even on failure; success is determined only from reported hard/soft limits and statfs `f_files`.
@@ -182,7 +182,7 @@ Reclamation and resume serialize in the database. After identifying a volume can
 * Mounted (409)/foreign: clear only the claim.
 * Deletion exceptions, including timeout: retain the claim because deletion is uncertain. Next pass processes unfinished claims independently of volume listings, since deleted volumes no longer appear.
 
-While claimed, resume returns **503 `BACKEND_UNAVAILABLE` (`retryable: true`)** without receipt/idempotency records; retry the same request after completion. If resume commits first, admission becomes `active` and `updated_at` changes, preventing the claim; the next launch uses the volume. Successful resumption clears `workspace_reclaimed_at`. `packages/db/src/workspace-reclaim.integration.test.ts` pins these orderings against real PostgreSQL.
+While claimed, resume returns **503 `BACKEND_UNAVAILABLE` (`retryable: true`)** without receipt/idempotency records; retry the same request after completion. If resume commits first, admission becomes `active` and `updated_at` changes, preventing the claim; the next launch uses the volume. Successful resumption clears `workspace_reclaimed_at`. An integration test pins these orderings against real PostgreSQL.
 
 <a id="공통-object-store-보호" />
 ## Shared object store protection

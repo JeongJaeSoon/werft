@@ -118,7 +118,7 @@ function AccountCard() {
     ["preferences.workspace", me?.workspace?.name],
   ];
   return (
-    <SettingsSection title={t("preferences.account")}>
+    <SettingsSection title={t("preferences.account")} box>
       <dl className="m-0 grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">

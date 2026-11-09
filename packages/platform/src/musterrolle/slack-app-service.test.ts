@@ -133,7 +133,10 @@ test("a recheck sends the Request URL to Slack again and needs the public events
   });
   expect(
     await refusal(unset.service.recheckAgentAppEvents(user("owner"), AGENT)),
-  ).toMatchObject({ code: "BACKEND_UNAVAILABLE" });
+  ).toMatchObject({
+    code: "BACKEND_UNAVAILABLE",
+    details: { reason_code: "events_url_unset" },
+  });
 
   const { service, slack } = await setup({
     eventsPublicUrl: "https://events.example.test/",
@@ -437,7 +440,10 @@ describe("Slack app service", () => {
       ),
     ).toMatchObject({
       code: "BACKEND_UNAVAILABLE",
-      details: { slack_error: "invalid_manifest" },
+      details: {
+        reason_code: "slack_refused",
+        slack_error: "invalid_manifest",
+      },
     });
     expect([...apps.rows.values()].map((row) => row.state)).toEqual(["failed"]);
     const out = await service.createAgentApp(user("owner"), AGENT, {
@@ -487,14 +493,15 @@ describe("Slack app service", () => {
   test("without the console origin no app is made", async () => {
     const { service, creates } = await setup({ consoleOrigin: null });
     expect(
-      (
-        await refusal(
-          service.createAgentApp(user("owner"), AGENT, {
-            replace_uncertain: false,
-          }),
-        )
-      ).code,
-    ).toBe("BACKEND_UNAVAILABLE");
+      await refusal(
+        service.createAgentApp(user("owner"), AGENT, {
+          replace_uncertain: false,
+        }),
+      ),
+    ).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { reason_code: "console_origin_unset" },
+    });
     expect(creates()).toBe(0);
   });
 

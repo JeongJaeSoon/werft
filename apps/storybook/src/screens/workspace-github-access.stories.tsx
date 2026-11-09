@@ -29,7 +29,8 @@ import { useId } from "react";
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * Workspace › GitHub connection (docs/contributing/decisions/github-agent.md
+ * Settings > Workspace > Integrations > GitHub
+ * (docs/contributing/decisions/github-agent.md
  * §7): one GitHub card with the App list, the installation table and the
  * repositories line, then the features agents may use and the member account
  * link. Values are what GET /v1/workspaces/{id}/github-settings returns.

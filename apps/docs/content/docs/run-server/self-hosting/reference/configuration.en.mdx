@@ -17,7 +17,7 @@ This reference covers formats, requirements, and when settings apply. Read [Comp
 <a id="설치-상한" />
 ## Installation limits
 
-API and scheduler refuse startup if any of the six required values below (all except SESSION_TOKEN_LIMIT) is missing, or any value has an invalid format. They log all problems on one line using the same parser (`packages/platform/src/limits/installation-limits.ts`). Missing SESSION_TOKEN_LIMIT means 0 (unlimited). Apart from that 0, code has no defaults; Compose x-installation-limits provides local defaults. Running API readyz repeats the same validation as its config check.
+API and scheduler refuse startup if any of the six required values below (all except SESSION_TOKEN_LIMIT) is missing, or any value has an invalid format. They log all problems on one line using the same parser. Missing SESSION_TOKEN_LIMIT means 0 (unlimited). Apart from that 0, code has no defaults; Compose x-installation-limits provides local defaults. Running API readyz repeats the same validation as its config check.
 
 | Variable | Meaning | When exceeded |
 |---|---|---|
@@ -32,7 +32,7 @@ API and scheduler refuse startup if any of the six required values below (all ex
 <a id="api-설정" />
 ## API settings
 
-At startup, API reads these through `apps/control-host/src/api/api-settings.ts`. Unset values use defaults; invalid configured values (including empty strings) never silently fall back. API/scheduler/reconciler/worker numeric settings and installation limits share this rule (`packages/contracts/src/shared/settings.ts`). Missing required settings return `X is required`; invalid values describe the expected range, such as `X must be a positive integer`, without echoing the value, which could be a misplaced secret. All problems appear in one `Refusing to start: API settings are invalid` log line; startup stops. Running readyz repeats config validation.
+At startup, API reads these through one parser. Unset values use defaults; invalid configured values (including empty strings) never silently fall back. API/scheduler/reconciler/worker numeric settings and installation limits share this rule. Missing required settings return `X is required`; invalid values describe the expected range, such as `X must be a positive integer`, without echoing the value, which could be a misplaced secret. All problems appear in one `Refusing to start: API settings are invalid` log line; startup stops. Running readyz repeats config validation.
 
 | Variable | Default | Allowed range |
 |---|---|---|
@@ -118,7 +118,7 @@ Proxy and API authorizer use these settings. Lists **replace**, rather than exte
 | `EGRESS_AUTHORIZER_URL` | Proxy code unset; Compose: `http://api:3100`; chart: API authorizer Service | Generated | http/https, paired with token or both omitted; must match API listener port |
 | `EGRESS_AUTHORIZER_TOKEN` | No production default | Same-name Secret key | Shared API/proxy secret, minimum 32 characters. Required with PORT in API and URL in proxy. Generate per installation; do not use local test values |
 
-Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together. tests/images.test.ts compares both URL ports with all three listeners in `docker compose config`.
+Compose's three ports/two internal URLs come from x-egress-ports at the top of infra/compose.core.yml. Proxy EGRESS_PROXY_PORT/EGRESS_CREDENTIAL_PORT/EGRESS_AUTHORIZER_URL, API EGRESS_AUTHORIZER_PORT, and scheduler EXECUTION_EGRESS_PROXY_URL/EXECUTION_EGRESS_CREDENTIAL_PORT all use it. Change listener/URL pairs together. A test compares both URL ports with all three listeners in `docker compose config`.
 
 API memory is determined by checkpoint bundle validation: at most two validations concurrently, each running git fetch and index-pack together under individual CHECKPOINT_GIT_MEMORY_MB address-space limits. Change both settings together; raising only the limit leaves OOM victim selection to the kernel. See the api service comment in infra/compose.core.yml.
 
@@ -179,7 +179,7 @@ Kubernetes-only settings:
 | `EXECUTION_K8S_WORKER_TOLERATIONS` | Optional JSON array |
 | `EXECUTION_K8S_WORKER_EPHEMERAL_STORAGE_MB` | Ephemeral-storage requests/limits MiB, default 1024; exceeding it causes kubelet eviction |
 
-Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. See storage/retention in repository packages/adapters/execution/kubernetes/README.md.
+Scheduler logs failed-worker termination reasons and last 8 KiB under `Execution resource failed; log tail kept`. See storage/retention in the repository's Kubernetes execution adapter README.
 
 <a id="chart가-넣는-값" />
 ## Chart-generated values
@@ -271,7 +271,7 @@ For static S3 credentials, set secrets.objectStoreKeys: true and supply both AWS
   - Engine calls and tool calls made directly with engine tokens are metered equally.
   - Proxy assigns exchange ids. Failed authorizer reports retry after 1, 5, and 15 seconds; ids count once. Final failure logs Provider usage went unreported and leaves that exchange uncounted.
 - SDK turn-end total_cost_usd increments appear only in turn result cost_usd, not session cost. Engine maxBudgetUsd still uses SDK values. Pre-proxy-metering sessions retain costs previously accumulated from SDK values.
-- Platform code packages/platform/src/limits/model-prices.ts owns prices by model: input/output/cache write (5-minute 1.25×, 1-hour 2×)/cache read. New models/prices require release updates.
+- Platform code owns prices by model: input/output/cache write (5-minute 1.25×, 1-hour 2×)/cache read. New models/prices require release updates.
   - Fast prices currently cover Opus 5.5 ($8/$40) and Opus 5/Opus 4.8 ($10/$50). Cache multipliers apply to fast prices. speed uses response usage.speed, then request speed, then standard.
   - Unknown models, fast responses without fast prices, or unknown speed values use per-item highest rates across both tables. Authorizer warns Provider usage priced at the fallback rate; ledger priced_by=fallback.
   - Response usage.server_tool_use web searches add $0.01 each ($10/1,000). Web fetch has no charge beyond tokens. Code execution is excluded: free with web search/fetch, otherwise billed by container time with organizational free allowances, not invocation count. All three counts and speed are recorded in provider_usage.

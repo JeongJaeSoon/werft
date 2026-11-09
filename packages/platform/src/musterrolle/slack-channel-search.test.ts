@@ -702,6 +702,14 @@ describe("searching an agent's Slack channels", () => {
     expect(listCalls()).toBe(0);
   });
 
+  test("a Slack call that fails without an answer is retryable, so the console says to try again", async () => {
+    const { slack, search } = world();
+    slack.failures.set("conversations.list", "internal_error");
+    const failed = await refusal(search("de"));
+    expect(failed.code).toBe("BACKEND_UNAVAILABLE");
+    expect(failed.retry).toEqual({ afterSeconds: 5 });
+  });
+
   test("the bot token appears in no answer or refusal", async () => {
     const seen: unknown[] = [];
     const { slack, search, botToken, advance } = world();

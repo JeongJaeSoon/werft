@@ -531,6 +531,46 @@ describe("GitHub 연결 › App 연결 해제", () => {
   });
 });
 
+describe("GitHub 연결 › 구역의 추가 버튼 위치", () => {
+  // The heading's row holds the section's main action; a button elsewhere
+  // would read as belonging to another list.
+  const titleRowOf = (name: string) =>
+    screen.getByRole("heading", { level: 3, name }).parentElement
+      ?.parentElement as HTMLElement;
+
+  test("App 추가와 조직 추가는 각 목록의 제목 줄에 있다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    await screen.findByRole("table", {
+      name: "GitHub App을 설치한 조직과 개인 계정",
+    });
+    expect(
+      within(titleRowOf("GitHub App")).getByRole("button", {
+        name: "App 추가",
+      }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).getByRole("button", { name: "조직 추가" }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).queryByRole("button", { name: "App 추가" }),
+    ).toBeNull();
+  });
+
+  test("설치가 없으면 조직 추가는 빈 상자 안에 있다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection()])));
+    const empty = await screen.findByText(
+      "아직 GitHub App을 설치한 계정이 없습니다.",
+    );
+    const box = empty.parentElement as HTMLElement;
+    expect(
+      within(box).getByRole("button", { name: "조직 추가" }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).queryByRole("button", { name: "조직 추가" }),
+    ).toBeNull();
+  });
+});
+
 describe("GitHub 연결 › 저장소 관리", () => {
   test("설치가 모두 사라져도 저장소 관리로 들어갈 수 있다", async () => {
     renderAt(

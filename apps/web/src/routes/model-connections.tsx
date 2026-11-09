@@ -104,15 +104,19 @@ export function ModelConnections({
             onRetry={() => void connections.refetch()}
           />
         ) : connections.data.items.length === 0 ? (
-          <EmptyState title={t("settings.connections.empty")} />
+          <EmptyState
+            className="rounded-card border bg-card"
+            title={t("settings.connections.empty")}
+          />
         ) : (
           <GridTable
-            className="[--werft-row-padding-x:0px]"
+            // The settings layout zeroes the row inset; a framed table needs it.
+            className="[--werft-row-padding-x:var(--werft-space-4)]"
             aria-label={t("settings.connections.title")}
             columns={COLUMNS[0]}
             narrowAt={860}
             narrowColumns={COLUMNS[1]}
-            framed={false}
+            framed
           >
             <GridTableHeader>
               <GridTableColumnHeader>

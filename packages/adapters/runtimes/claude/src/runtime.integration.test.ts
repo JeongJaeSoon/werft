@@ -189,7 +189,7 @@ describe("actual Claude SDK adapter with local Messages API", () => {
         ? toolReply(
             "Bash",
             {
-              command: `printf denied > ${JSON.stringify(join(workspace, "permission-denied.txt"))}`,
+              command: `printf denied > ${JSON.stringify(join(home, "permission-denied.txt"))}`,
             },
             "toolu_permission",
           )
@@ -248,7 +248,9 @@ describe("actual Claude SDK adapter with local Messages API", () => {
   test("a turn parked at its permission prompt ends without running the tool or asking the model again", async () => {
     isolated = await createIsolatedWorkspace({ prefix: "94s-858-" });
     const { home, workspace } = isolated;
-    const marker = join(workspace, "parked-tool-ran.txt");
+    // Outside the workspace: a write inside it is pre-approved by the platform's
+    // own rules and would never reach the prompt this test parks at.
+    const marker = join(home, "parked-tool-ran.txt");
     server = startFakeAnthropicServer((_request, index) =>
       index === 0
         ? toolReply(

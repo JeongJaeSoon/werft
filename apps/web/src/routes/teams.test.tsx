@@ -433,13 +433,20 @@ describe("팀 화면", () => {
     );
   });
 
-  test("팀 상세의 뒤로가기는 버튼이 아니라 팀 목록으로 가는 링크다", async () => {
+  test("팀 상세에는 팀 목록으로 가는 뒤로가기가 없고, 돌아가는 길은 팀 탭이다", async () => {
     const server = teamServer();
-    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const { history } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     await screen.findByRole("heading", { level: 2, name: "결제팀" });
-    const back = screen.getByRole("link", { name: "팀 목록" });
-    expect(back.getAttribute("href")).toBe("/members/teams");
+    expect(screen.queryByRole("link", { name: "팀 목록" })).toBeNull();
     expect(screen.queryByRole("button", { name: "팀 목록" })).toBeNull();
+    // The 팀 tab stays current on a team's address and leads back to the list.
+    const tab = screen.getByRole("link", { name: "팀" });
+    expect(tab.getAttribute("aria-current")).toBe("page");
+    expect(tab.getAttribute("href")).toBe("/members/teams");
+    await (await setupUser()).click(tab);
+    await waitFor(() =>
+      expect(history.location.pathname).toBe("/members/teams"),
+    );
   });
 
   test("Esc로 닫으면 포커스가 헤더의 팀 만들기로 돌아오고 아무것도 보내지 않는다", async () => {
@@ -666,7 +673,7 @@ describe("팀 화면", () => {
       screen.getByRole("heading", { level: 1, name: "구성원" }),
     ).toBeDefined();
     expect(screen.getByRole("heading", { level: 2, name: "팀" })).toBeDefined();
-    expect(screen.getByRole("link", { name: "팀 목록" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: "팀 목록" })).toBeNull();
   });
 
   test("팀을 관리하는 사람의 팀 화면에는 전체 목록만 있다", async () => {
@@ -1196,6 +1203,19 @@ describe("팀 화면", () => {
     // Still two lines, no avatar: the name beside its badge, then the email.
     expect(within(inactiveRow).getByText("owner@example.com")).toBeDefined();
     expect(table.querySelector('[data-slot="avatar"]')).toBeNull();
+    // The server refuses both changes on a disabled member, so the row offers
+    // neither: its team role reads as a badge, and no 제외 button is there.
+    expect(within(activeRow).queryByRole("combobox")).not.toBeNull();
+    expect(
+      within(activeRow).queryByRole("button", { name: /제외/ }),
+    ).not.toBeNull();
+    expect(within(inactiveRow).queryByRole("combobox")).toBeNull();
+    expect(within(inactiveRow).queryByRole("button")).toBeNull();
+    expect(
+      within(inactiveRow).getAllByText("구성원", {
+        selector: "[data-slot=badge]",
+      }).length,
+    ).toBeGreaterThan(0);
   });
 
   test("팀 상세 표의 이름과 이메일은 말줄임이 나도 전체 글이 title에 남고, 이름은 두 줄까지 접힌다", async () => {

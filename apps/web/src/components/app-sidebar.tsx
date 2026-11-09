@@ -84,6 +84,12 @@ export interface NavItem {
   readonly hue?: TileHue;
   /** The path prefix the item stands for when it is wider than `to`. */
   readonly match?: string;
+  /**
+   * The item stands for its own address only, not for what sits under it.
+   * An address with no screen then reads as the wider item (the settings
+   * root), not as this one.
+   */
+  readonly exact?: boolean;
 }
 
 // Console v4 draws the rail with Lucide 0.468; Lucide has since redrawn these
@@ -206,6 +212,8 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       to: "/settings/workspace",
       label: "workspace.general",
       icon: SettingsIcon,
+      // Its siblings sit under this address; an unknown one is not "General".
+      exact: true,
     });
   }
   // Every member reads the rules; only owners and admins change them.
@@ -214,16 +222,18 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     label: "achievementRules.nav",
     icon: SettingsIcon,
   });
+  // What agents connect to: Slack and GitHub for the workspace managers, the
+  // model connections and MCP servers for the installation owner. One group,
+  // a page each.
+  const agentConnections: NavItem[] = [];
   if (workspaceManage) {
-    workspace.push({
+    agentConnections.push({
       to: "/settings/workspace/integrations/slack",
       match: "/settings/workspace/integrations",
       label: "integrations.nav",
       icon: SettingsIcon,
     });
   }
-  // What an agent picks from: only the installation owner registers it.
-  const agentConnections: NavItem[] = [];
   if (useHasPermission("installation.settings.manage")) {
     agentConnections.push({
       to: "/settings/workspace/model-connections",
@@ -275,7 +285,10 @@ export function navItemFor(
       const match =
         base === "/"
           ? pathname === "/"
-          : pathname === base || pathname.startsWith(`${base}/`);
+          : pathname === base ||
+            (item.exact
+              ? pathname === `${base}/`
+              : pathname.startsWith(`${base}/`));
       if (match && base.length > (found?.base.length ?? -1)) {
         found = { group, item, base };
       }

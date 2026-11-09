@@ -197,8 +197,14 @@ export {
   type TimelineKind,
   type TimelineMessages,
   type TimelineProps,
+  type TimelineView,
   timelineKind,
 } from "./session/timeline.tsx";
+export {
+  WORK_KINDS,
+  type WorkCounts,
+  type WorkKind,
+} from "./session/timeline-focus.ts";
 export {
   type FormatTurnMessage,
   turnPreviewText,

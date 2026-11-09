@@ -7,6 +7,10 @@ import { sessionEventVariants } from "../api/event.ts";
 import { repositoryAttachFailureSchema } from "../api/github-mcp.ts";
 import { pendingQuestionSchema } from "../api/pending.ts";
 import {
+  PERMISSION_RULE_MAX_LENGTH,
+  PERMISSION_RULES_MAX,
+} from "../api/permission-rules.ts";
+import {
   attemptStateSchema,
   permissionModeSchema,
   sessionRuntimeSchema,
@@ -79,6 +83,8 @@ export const checkpointRefSchema = z.object({
 //     permission stage
 //   user_env: `runtime_config` may carry `env`, the user variables the engine
 //     process is started with
+//   permission_rules: `runtime_config` may carry `disallowed_tools`, the deny
+//     rules the engine is started with in every permission mode
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -87,6 +93,7 @@ export const workerCapabilitiesSchema = z
     approval_remember: z.literal(true).optional(),
     platform_tool_trust: z.literal(true).optional(),
     user_env: z.literal(true).optional(),
+    permission_rules: z.literal(true).optional(),
   })
   .strict();
 
@@ -320,6 +327,17 @@ export const runtimeConfigSchema = z
     // With an MCP server, also its `mcp__<name>__<tool>` names the release
     // allows.
     tools: z.array(z.string().min(1)),
+    // Deny rules in the engine's spelling, organization and profile merged
+    // by the platform. The engine gets them as `disallowedTools`, which holds
+    // in every permission mode. Absent when nothing is denied, so a claim
+    // without rules stays what it was. In the strict claim config, so a
+    // worker that does not know the field refuses the claim instead of
+    // running without the rules. Not part of any fingerprint.
+    disallowed_tools: z
+      .array(z.string().min(1).max(PERMISSION_RULE_MAX_LENGTH))
+      .min(1)
+      .max(PERMISSION_RULES_MAX)
+      .optional(),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),

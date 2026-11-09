@@ -717,3 +717,75 @@ describe("Timeline 잡음 접기", () => {
     expect((row as HTMLElement).dataset.kind).toBe("error");
   });
 });
+
+describe("Timeline focus 보기", () => {
+  const work = (counts: Record<string, number>) =>
+    Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([kind, count]) => `${kind} ${count}`)
+      .join(", ");
+  const tokens = entry("result", {
+    turn: {
+      outcome: "success",
+      is_error: false,
+      terminal_reason: null,
+      tokens: 1540,
+    },
+  });
+  const entries = () => [
+    call("c1"),
+    result("c1"),
+    call("c2"),
+    result("c2"),
+    reply("done"),
+    tokens,
+    status("idle"),
+  ];
+
+  test("일한 줄은 버튼 하나로 접고 Enter로 펼치며, 접힌 turn 끝의 토큰도 머리에 쓴다", async () => {
+    const user = await setupUser();
+    const { getByRole, container } = render(
+      <Timeline
+        entries={entries().map((item) =>
+          item.toolCallId ? { ...item, toolName: "Bash" } : item,
+        )}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, work }}
+        view="focus"
+        now={START}
+      />,
+    );
+    const fold = getByRole("button", { name: "command 2" });
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(rows(container).map((row) => row.dataset.kind)).toEqual([
+      "agent",
+      "system",
+    ]);
+    expect(container.textContent).toContain(
+      'session.event.result.tokens{"count":1540}',
+    );
+    fold.focus();
+    await user.keyboard("{Enter}");
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(rows(container).map((row) => row.dataset.kind)).toEqual([
+      "tool",
+      "tool",
+      "agent",
+      "system",
+    ]);
+  });
+
+  test("전체 보기는 아무것도 접지 않는다", () => {
+    const { container, queryByRole } = render(
+      <Timeline
+        entries={[status("running"), status("needs_input"), ...entries()]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, work }}
+        view="all"
+        now={START}
+      />,
+    );
+    expect(queryByRole("button", { expanded: false })).toBeNull();
+    expect(rows(container)).toHaveLength(7);
+  });
+});

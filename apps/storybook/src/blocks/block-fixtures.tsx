@@ -138,16 +138,31 @@ export const USAGE: SessionUsageResponse = {
 };
 
 export function eventStream(): Response {
+  return eventStreamOf(TURN_EVENTS);
+}
+
+/**
+ * These events as the API streams them, in turn `turn_1` unless an event
+ * names its own; each `stepMs` after the one before, ending at the session's
+ * last update.
+ */
+export function eventStreamOf(
+  events: readonly (readonly [string, unknown, (string | null)?])[],
+  stepMs = 0,
+): Response {
   const encoder = new TextEncoder();
+  const end = Date.parse(SESSION.updated_at);
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      TURN_EVENTS.forEach(([event, data], index) => {
+      events.forEach(([event, data, turnId = "turn_1"], index) => {
         const envelope = {
           schema_version: 1,
           session_id: SESSION.id,
-          turn_id: "turn_1",
+          turn_id: turnId,
           attempt_id: null,
-          occurred_at: SESSION.updated_at,
+          occurred_at: new Date(
+            end - (events.length - 1 - index) * stepMs,
+          ).toISOString(),
           data,
         };
         controller.enqueue(

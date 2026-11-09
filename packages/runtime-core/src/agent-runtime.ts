@@ -57,6 +57,14 @@ export type RuntimeStartConfig = RuntimeMode & {
    * session has none. Never part of a checkpoint's fingerprint.
    */
   userEnvironment?: UserEnvironment;
+  /**
+   * Deny rules in the engine's rule spelling, from the claim's
+   * `runtime_config.disallowed_tools`, that hold in every permission mode.
+   * An adapter that cannot enforce them in every mode must refuse to start
+   * instead of dropping them. Absent when nothing is denied. Never part of a
+   * checkpoint's fingerprint.
+   */
+  disallowedTools?: readonly string[];
   tools: readonly string[];
 };
 
