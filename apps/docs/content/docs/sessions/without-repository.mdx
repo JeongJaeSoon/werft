@@ -132,7 +132,7 @@ curl -sS "$API/v1/sessions" \
 </Tab>
 </Tabs>
 
-저장소가 없으니 push할 곳도 없다. 이 세션의 [push 요청](/approvals/request)은 409 `PUSH_SOURCE_MISSING`이다. 진행 중에 프로필을 바꿀 때는 저장소를 쓰지 않는 프로필(`optional`, `none`)로만 바꿀 수 있다([프로필 바꾸기](/agents/run-profiles#진행-중인-세션의-프로필-바꾸기)).
+저장소가 없으니 push할 곳도 없다. 이 세션의 [push 요청](/approvals/request)은 409 `PUSH_SOURCE_MISSING`이다. 진행 중에 프로필을 바꿀 때는 저장소를 쓰지 않는 프로필(`optional`, `none`)로만 바꿀 수 있다. 워크스페이스 상한이 정하는 프로필은 `required`로도 바꿀 수 있고, 에이전트 release에 묶인 세션은 프로필을 바꿀 수 없다([프로필 바꾸기](/agents/run-profiles#진행-중인-세션의-프로필-바꾸기)).
 
 ## 에이전트 세션은 저장소 없이 시작한다
 

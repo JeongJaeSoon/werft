@@ -3,7 +3,7 @@ title: "Sessions without a repository"
 description: A session that runs in an empty workspace without cloning a repository
 ---
 
-The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id` (a session of an agent with GitHub settings and a profile the workspace ceiling decides may leave it out, as the section below says); if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id` (a session of an agent with GitHub settings, or a profile the workspace ceiling decides, may leave it out, as the section below says); if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
 ## Check the profile
 
@@ -87,7 +87,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 
 ## When it does not match the profile
 
-Sending `repository_id` to a `none` profile, or leaving it out of a `required` profile, is 422 `UNSUPPORTED_CAPABILITY`. The exception is a session of an agent with GitHub settings and a profile the workspace ceiling decides: they start without a repository even on a `required` profile.
+Sending `repository_id` to a `none` profile, or leaving it out of a `required` profile, is 422 `UNSUPPORTED_CAPABILITY`. The exception is a session of an agent with GitHub settings, or a profile the workspace ceiling decides: either starts without a repository even on a `required` profile.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -132,7 +132,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 </Tab>
 </Tabs>
 
-With no repository there is nowhere to push. A [push request](/approvals/request) for this session is 409 `PUSH_SOURCE_MISSING`. When you change the profile of a session in progress, you can change it only to a profile that does not use a repository (`optional`, `none`) ([Change the profile of a running session](/agents/run-profiles#change-the-profile-of-a-running-session)).
+With no repository there is nowhere to push. A [push request](/approvals/request) for this session is 409 `PUSH_SOURCE_MISSING`. When you change the profile of a session in progress, you can change it only to a profile that does not use a repository (`optional`, `none`). A profile the workspace ceiling decides may also be `required`, and a session bound to an agent release cannot change its profile ([Change the profile of a running session](/agents/run-profiles#change-the-profile-of-a-running-session)).
 
 ## An agent session starts without a repository
 
