@@ -3,6 +3,8 @@ import type { WorkspaceLimitMode } from "@werft-ai/contracts";
 import { I18nProvider } from "../../../web/src/i18n/i18n.tsx";
 import { SessionWorkspaceLimit } from "../../../web/src/routes/session-workspace-limit.tsx";
 
+import { MOBILE } from "./screen-kit.tsx";
+
 const meta = {
   title: "Screens/Session workspace limits",
   component: SessionWorkspaceLimit,
@@ -54,3 +56,6 @@ export const Soft: Story = {
     } satisfies WorkspaceLimitMode,
   },
 };
+export const SoftMobile: Story = { ...Soft, globals: MOBILE };
+export const SoftDark: Story = { ...Soft, globals: { theme: "dark" } };
+export const UnverifiedMobile: Story = { ...Unverified, globals: MOBILE };

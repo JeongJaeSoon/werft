@@ -1,16 +1,28 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { SessionDetail } from "@werft-ai/contracts";
+import type {
+  ListPushRequestsResponse,
+  ListSessionAchievementsResponse,
+  ListSessionOutcomesResponse,
+  ListSessionOutputsResponse,
+  SessionDetail,
+} from "@werft-ai/contracts";
 import { I18nProvider } from "../../../web/src/i18n/i18n.tsx";
 import { SessionOutputsTab } from "../../../web/src/routes/session-outputs.tsx";
 import { me } from "../../../web/src/test-support/fake-api.ts";
 
-import { type FakeRoutes, json } from "../../.storybook/fake-client.ts";
+import {
+  apiError,
+  type FakeRoutes,
+  json,
+} from "../../.storybook/fake-client.ts";
+import { pending } from "../blocks/block-fixtures.tsx";
 import { MOBILE } from "./screen-kit.tsx";
 
 /*
  * The session detail's 성과물 tab as apps/web mounts it: achievements with
  * the judgment under the section head, the evidence, the out/ files, the
- * GitHub work grouped by branch, then one meta line.
+ * GitHub work grouped by branch, then one meta line. Beside the filled
+ * tab: nothing left yet, the reads still on their way, and a failed read.
  */
 
 const ID = "4acf4597-3d1e-4c7a-9b2f-5e6d7c8a9b01";
@@ -200,3 +212,60 @@ type Story = StoryObj<typeof meta>;
 export const Filled: Story = {};
 export const FilledMobile: Story = { globals: MOBILE };
 export const FilledDark: Story = { globals: { theme: "dark" } };
+
+// A session that has run but left nothing: no file under out/, no pull
+// request, no achievement and no judgment yet.
+const NO_OUTPUTS: ListSessionOutputsResponse = {
+  session_id: ID,
+  checkpoint_revision: 2,
+  items: [],
+};
+const NO_OUTCOMES: ListSessionOutcomesResponse = { items: [] };
+const NO_ACHIEVEMENTS: ListSessionAchievementsResponse = {
+  items: [],
+  judgment: null,
+  judgment_count: 0,
+  judge_cost_usd: 0,
+};
+const NO_PUSH_REQUESTS: ListPushRequestsResponse = { items: [], intents: [] };
+
+const EMPTY: FakeRoutes = {
+  ...FILLED,
+  [`${base}/outputs`]: () => json(200, NO_OUTPUTS),
+  [`${base}/outcomes`]: () => json(200, NO_OUTCOMES),
+  [`${base}/achievements`]: () => json(200, NO_ACHIEVEMENTS),
+  [`${base}/push-requests`]: () => json(200, NO_PUSH_REQUESTS),
+};
+
+// The files and pull requests are still being read.
+const LOADING: FakeRoutes = {
+  ...FILLED,
+  [`${base}/outputs`]: pending,
+  [`${base}/outcomes`]: pending,
+  [`${base}/achievements`]: pending,
+  [`${base}/push-requests`]: pending,
+};
+
+// Reading the files fails; the pull requests read empty, so the failure is
+// the only thing the tab has to say about files.
+const FAILED: FakeRoutes = {
+  ...EMPTY,
+  [`${base}/outputs`]: () =>
+    apiError(500, "INTERNAL_ERROR", "Storybook: the outputs read failed"),
+};
+
+export const Empty: Story = { parameters: { api: EMPTY } };
+export const EmptyMobile: Story = {
+  parameters: { api: EMPTY },
+  globals: MOBILE,
+};
+export const EmptyDark: Story = {
+  parameters: { api: EMPTY },
+  globals: { theme: "dark" },
+};
+export const Loading: Story = { parameters: { api: LOADING } };
+export const LoadFailed: Story = { parameters: { api: FAILED } };
+export const LoadFailedDark: Story = {
+  parameters: { api: FAILED },
+  globals: { theme: "dark" },
+};

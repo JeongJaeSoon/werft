@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { WaitingSessions } from "@werft-ai/react/blocks";
 
 import { apiError, type FakeRoutes } from "../../.storybook/fake-client.ts";
+import { MOBILE } from "../screens/screen-kit.tsx";
 import {
   type Globals,
   hostFor,
@@ -59,3 +60,8 @@ export const DefaultJapanese: Story = {
   name: "Default (日本語)",
   globals: { locale: "ja" },
 };
+
+// The row at 390px and in the dark theme.
+export const DefaultMobile: Story = { ...Default, globals: MOBILE };
+
+export const DefaultDark: Story = { ...Default, globals: { theme: "dark" } };
