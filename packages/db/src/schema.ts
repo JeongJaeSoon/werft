@@ -2630,8 +2630,10 @@ export const checkpoints = pgTable(
 // to the manifest it read (`manifest_sha256`), the candidate digests it
 // matched against, and the worker image it asked, so a re-pinned manifest or
 // another image set is a checkpoint nobody has verified.
-// `assert_checkpoint_restore_verified()` is what the deleting migration
-// calls: every live checkpoint's latest check must be `ok`.
+// `assert_checkpoint_restore_verified(retained)` is what the deleting migration
+// calls with the content ids of the images that stay: every live checkpoint
+// needs an `ok` as the latest check of one of them. It locks `checkpoints`
+// until the calling transaction ends.
 export const checkpointRestoreChecks = pgTable(
   "checkpoint_restore_check",
   {

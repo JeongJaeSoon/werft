@@ -66,17 +66,21 @@ integration("the gate before the profile tables are deleted", () => {
     revision: number,
     outcome: "ok" | "mismatch" | "error",
     sha = "a",
+    image = "sha256:image",
   ) =>
     withoutForeignKeys((client) =>
       client.query(
         `INSERT INTO checkpoint_restore_check
            (session_id, revision, manifest_sha256, candidates_digest, image_digest, image_runtime, outcome)
-         VALUES ($1, $2, $3, $4, 'sha256:image', '{}'::jsonb, $5)`,
-        [SESSION, revision, sha.repeat(64), "c".repeat(64), outcome],
+         VALUES ($1, $2, $3, $4, $6, '{}'::jsonb, $5)`,
+        [SESSION, revision, sha.repeat(64), "c".repeat(64), outcome, image],
       ),
     );
 
-  const gate = () => pool.query("SELECT assert_checkpoint_restore_verified()");
+  const gate = (retained: string[] = ["sha256:image"]) =>
+    pool.query("SELECT assert_checkpoint_restore_verified($1::text[])", [
+      retained,
+    ]);
 
   test("passes when there is nothing to restore", async () => {
     await expect(gate()).resolves.toBeDefined();
@@ -123,6 +127,65 @@ integration("the gate before the profile tables are deleted", () => {
     await record(1, "ok");
     await checkpoint(2);
     await expect(gate()).rejects.toThrow(/1 checkpoint\(s\) without a check/);
+  });
+
+  test("only the images that stay can vouch: a check by a removed image proves nothing", async () => {
+    await checkpoint(1);
+    await record(1, "ok", "a", "sha256:removed");
+    await expect(gate(["sha256:kept"])).rejects.toThrow(
+      /1 checkpoint\(s\) without a check/,
+    );
+    await record(1, "mismatch", "a", "sha256:kept");
+    await expect(gate(["sha256:kept"])).rejects.toThrow(/1 with a failed one/);
+    await expect(
+      gate(["sha256:kept", "sha256:removed"]),
+    ).resolves.toBeDefined();
+  });
+
+  test("one retained image that restores it is enough, whatever another says", async () => {
+    await checkpoint(1);
+    await record(1, "mismatch", "a", "sha256:old");
+    await record(1, "ok", "a", "sha256:new");
+    await expect(gate(["sha256:old", "sha256:new"])).resolves.toBeDefined();
+  });
+
+  test("it refuses to run without naming the images that stay", async () => {
+    await expect(gate([])).rejects.toThrow(/images that stay/);
+    await expect(
+      pool.query("SELECT assert_checkpoint_restore_verified(NULL)"),
+    ).rejects.toThrow(/images that stay/);
+  });
+
+  test("no checkpoint can commit between the gate and the end of the deleting transaction", async () => {
+    await checkpoint(1);
+    await record(1, "ok");
+    const holder = await pool.connect();
+    const writer = new Pool({ connectionString: database.url, max: 1 });
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "SELECT assert_checkpoint_restore_verified($1::text[])",
+        [["sha256:image"]],
+      );
+      const blocked = await writer.connect();
+      try {
+        await blocked.query("SET lock_timeout = '300ms'");
+        await blocked.query("SET session_replication_role = replica");
+        await expect(
+          blocked.query(
+            `INSERT INTO checkpoints (session_id, revision, manifest_ref, manifest_sha256)
+             VALUES ($1, 2, 'k', $2)`,
+            [SESSION, "d".repeat(64)],
+          ),
+        ).rejects.toThrow(/lock timeout/);
+      } finally {
+        blocked.release();
+      }
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+      await writer.end();
+    }
   });
 
   test("the sessions row can carry the reconstructed run configs, empty until then", async () => {

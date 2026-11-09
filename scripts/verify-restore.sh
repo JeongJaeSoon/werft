@@ -28,9 +28,9 @@
 # names is judged by its restore plan; the others by whether their digest is
 # one the image offers for the session. One sealed on another engine build is
 # left for the image of that build, so run once per retained image.
-# assert_checkpoint_restore_verified() (migration 0255) then passes only when
-# every live checkpoint's latest check is ok; the migration that deletes the
-# profile tables calls it.
+# assert_checkpoint_restore_verified(retained) (migration 0255) then passes only
+# when every live checkpoint's latest check by one of the retained images is ok;
+# the migration that deletes the profile tables calls it with their content ids.
 #
 # Exit 0 when every row passes, 5 when any fails. A database with no
 # checkpoints passes with a warning: there was nothing to disagree.

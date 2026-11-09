@@ -51,6 +51,7 @@ import {
   claimedSessionOf,
   describeMismatches,
   type ImageRuntime,
+  manifestBindingProblem,
   parseImageRuntime,
   pinnedObjectsOf,
   planArchiveRepin,
@@ -397,6 +398,10 @@ async function plans(image: { name: string } | undefined): Promise<number> {
         outcome: "error",
         detail: `no manifest at ${row.manifestRef}`,
       };
+    }
+    const unbound = manifestBindingProblem(bytes, row.manifestSha256);
+    if (unbound !== null) {
+      return { ok: false, outcome: "error", detail: unbound };
     }
     try {
       const sealed = claudeCheckpointCodec.decode(bytes).runtime;

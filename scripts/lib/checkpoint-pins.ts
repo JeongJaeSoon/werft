@@ -547,6 +547,21 @@ export function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * Why the bytes read for a checkpoint are not the manifest its row records,
+ * or null. A restore check is kept against the row's hash, so it must have
+ * been made on bytes with that hash.
+ */
+export function manifestBindingProblem(
+  bytes: Uint8Array,
+  recordedSha256: string,
+): string | null {
+  const actual = sha256Hex(bytes);
+  return actual === recordedSha256
+    ? null
+    : `manifest bytes hash to ${actual}, the row records ${recordedSha256}`;
+}
+
 /** Every object a manifest pins besides itself, in restore-plan order. */
 export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
   return [

@@ -57,6 +57,7 @@ import {
   describeMismatches,
   earlierProfileClaims,
   earlierProfileKey,
+  manifestBindingProblem,
   ownToolsKey,
   parseImageRuntime,
   pinnedObjectsOf,
@@ -1752,5 +1753,20 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ),
     ).toThrow("has no profiles");
     expect(() => parseImageRuntime("null")).toThrow("has no cliVersion");
+  });
+});
+
+describe("the manifest a restore check is recorded against", () => {
+  const bytes = new TextEncoder().encode("manifest");
+
+  test("bytes that hash to the recorded value are bound to it", () => {
+    expect(manifestBindingProblem(bytes, sha256Hex(bytes))).toBeNull();
+  });
+
+  test("other bytes under the same key are named, so no ok is kept for the row", () => {
+    const other = new TextEncoder().encode("another manifest");
+    expect(manifestBindingProblem(other, sha256Hex(bytes))).toBe(
+      `manifest bytes hash to ${sha256Hex(other)}, the row records ${sha256Hex(bytes)}`,
+    );
   });
 });
