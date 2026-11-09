@@ -756,6 +756,7 @@ function AgentView({
             <SlackTab
               agentId={agent.id}
               slug={agent.slug}
+              name={agent.name}
               active={agent.active_release_id !== null}
             />
           </Suspense>

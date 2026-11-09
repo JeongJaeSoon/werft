@@ -1,7 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
-import { unwrap } from "@werft-ai/client";
-import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -10,12 +7,10 @@ import {
   Button,
   Code,
   ConfirmDialog,
-  CopyButton,
   DangerZone,
   DangerZoneRow,
   FieldError,
   Heading,
-  Input,
   Link,
   RowAction,
   RowList,
@@ -26,10 +21,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useProfileDisplay } from "../../../components/profile-options.tsx";
-import type { Notify } from "../../../components/toast.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import { useAppServices } from "../../../services.tsx";
-import { useSlackState } from "./queries.ts";
+import { useSlackApp } from "./actions.ts";
 import {
   EVENTS_BADGE,
   RECHECK_ID,
@@ -54,136 +47,46 @@ export function SlackSkeleton() {
 export function SlackConnect({
   agentId,
   active = true,
-  manage = true,
-  inPage = false,
-  notify,
-  invite,
 }: {
   readonly agentId: string;
-  /** The `/invite` line a user pastes into a channel to add the bot. */
-  readonly invite?: string;
   readonly active?: boolean;
-  readonly manage?: boolean;
-  /** Rendered as the side list's Advanced section, below the status strip. */
-  readonly inPage?: boolean;
-  /** Offers app ID copy and open actions, reporting the copy through it. */
-  readonly notify?: Notify;
 }) {
   const { t } = useI18n();
   const profile = useProfileDisplay();
-  const { client } = useWerft();
-  const cache = useQueryClient();
   const me = useMe();
   // The workspace Slack screen is the workspace managers' (app-sidebar).
   const manageWorkspace = useHasPermission("workspace.manage");
   const tokenBlockId = useId();
-  const { leave } = useAppServices();
-  const { app, identities, key } = useSlackState(agentId);
-  const [notice, setNotice] = useState("");
+  const slack = useSlackApp(agentId);
+  const {
+    app,
+    identities,
+    identity,
+    record,
+    refresh,
+    connect,
+    remove,
+    revoke,
+    recheck,
+    busy,
+    pending,
+    notice,
+  } = slack;
   const outcome = useRef<HTMLOutputElement>(null);
   useEffect(() => {
     if (notice) outcome.current?.focus();
   }, [notice]);
-  const [inviteManual, setInviteManual] = useState(false);
-  const inviteField = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (inviteManual) inviteField.current?.focus();
-  }, [inviteManual]);
   const [deleting, setDeleting] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  const identity = identities.data?.items.find(
-    (item) => item.provider === "slack_bot" && item.status === "active",
-  );
-  const record = app.data?.slack_app;
   const appTarget = record?.app_id
     ? `${t("slack.appId")} ${record.app_id}`
     : undefined;
   // At most one reason sessions would fail, after any token issuer change.
   const warnings = app.data?.warnings ?? [];
-  const refresh = () => cache.invalidateQueries({ queryKey: key });
-  const connect = useMutation({
-    mutationFn: async () => {
-      if (!record)
-        await unwrap(
-          client.POST("/v1/agents/{id}/slack/app", {
-            params: { path: { id: agentId } },
-            body: { replace_uncertain: false },
-          }),
-        );
-      await refresh();
-      return unwrap(
-        client.POST("/v1/agents/{id}/slack/install/start", {
-          params: { path: { id: agentId } },
-        }),
-      );
-    },
-    onSuccess: ({ authorize_url }) => {
-      leave(authorize_url);
-    },
-  });
-  const remove = useMutation({
-    onMutate: () => setNotice(""),
-    mutationFn: async () => {
-      if (!record || !me?.workspace) return;
-      await unwrap(
-        client.DELETE("/v1/workspaces/{id}/slack/apps/{app_id}", {
-          params: { path: { id: me.workspace.id, app_id: record.id } },
-        }),
-      );
-    },
-    onSuccess: async () => {
-      setDeleting(false);
-      setNotice(t("slack.deleted"));
-      await refresh();
-    },
-  });
-  const revoke = useMutation({
-    onMutate: () => setNotice(""),
-    mutationFn: async () => {
-      if (!identity) return;
-      await unwrap(
-        client.DELETE("/v1/agents/{id}/identities/{identity_id}", {
-          params: { path: { id: agentId, identity_id: identity.id } },
-        }),
-      );
-    },
-    onSuccess: async () => {
-      setRevoking(false);
-      setNotice(t("slack.revoked"));
-      await refresh();
-    },
-  });
-  const recheck = useMutation({
-    onMutate: () => setNotice(""),
-    mutationFn: () =>
-      unwrap(
-        client.POST("/v1/agents/{id}/slack/app/events/recheck", {
-          params: { path: { id: agentId } },
-        }),
-      ),
-    onSuccess: async (read) => {
-      setNotice(
-        t(
-          read.events.state === "verified"
-            ? "slack.eventsUrl.done"
-            : "slack.eventsUrl.sent",
-        ),
-      );
-      await refresh();
-    },
-  });
-  const readError = app.error ?? identities.error;
-  const saveError =
-    connect.error ?? remove.error ?? revoke.error ?? recheck.error;
+  const { readError, saveError } = slack;
   const errorText = saveError ? slackFailure(saveError, t) : "";
   if (app.isPending || identities.isPending) return <SlackSkeleton />;
-  const busy =
-    connect.isPending ||
-    remove.isPending ||
-    revoke.isPending ||
-    recheck.isPending;
   const events = app.data?.events;
-  const pending = record?.state === "creating" || record?.state === "deleting";
   const status = slackState(readError ?? saveError, identity, record);
   // An older API sends no state; leave the create error to say why.
   const configToken = app.data?.config_token;
@@ -201,27 +104,19 @@ export function SlackConnect({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Heading id={`${SECTION.advanced}-title`}>
-            {t(
-              inPage || (record && identity)
-                ? manage
-                  ? "slack.advanced"
-                  : "slack.connection"
-                : "slack.app",
-            )}
+            {t(record && identity ? "slack.advanced" : "slack.app")}
           </Heading>
-          {inPage ? null : (
-            <Badge
-              variant={
-                status === "connected"
-                  ? "green"
-                  : status === "error"
-                    ? "red"
-                    : "gray"
-              }
-            >
-              {t(`slack.state.${status}`)}
-            </Badge>
-          )}
+          <Badge
+            variant={
+              status === "connected"
+                ? "green"
+                : status === "error"
+                  ? "red"
+                  : "gray"
+            }
+          >
+            {t(`slack.state.${status}`)}
+          </Badge>
         </div>
         {warnings.map((warning) => (
           <Alert key={warning.code} variant="amber">
@@ -239,102 +134,47 @@ export function SlackConnect({
             </AlertDescription>
           </Alert>
         ))}
-        {record && (record.app_id || manage) ? (
+        {record ? (
           <RowList variant="joined" framed={false}>
             {record.app_id ? (
               <SettingRow
                 title={t("slack.appId")}
                 meta={<Code>{record.app_id}</Code>}
-                actions={
-                  notify ? (
-                    <RowAction asChild>
-                      <Link
-                        href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
-                        target="_blank"
-                        newTabLabel={t("slack.newTab")}
-                        className="text-inherit hover:no-underline"
-                      >
-                        {t("slack.openInSlack")}
-                      </Link>
-                    </RowAction>
-                  ) : null
-                }
               />
             ) : null}
-            {invite && notify && identity ? (
-              <SettingRow
-                title={t("slack.inviteTitle")}
-                description={t("slack.inviteHint")}
-                meta={<Code>{invite}</Code>}
-                actions={
-                  <>
-                    <CopyButton
-                      value={invite}
-                      variant="outline"
-                      size="sm"
-                      aria-label={t("slack.copyInvite")}
-                      label={t("slack.copy")}
-                      icon="copy"
-                      iconClassName="stroke-[1.5]"
-                      fallbackField={inviteField}
-                      onResult={(ok) => {
-                        setInviteManual(!ok);
-                        notify(t(ok ? "slack.copied" : "slack.copyFailed"));
-                      }}
-                    />
-                    {inviteManual ? (
-                      <Input
-                        ref={inviteField}
-                        readOnly
-                        value={invite}
-                        size={invite.length}
-                        aria-label={t("slack.inviteCommand")}
-                        className="h-8 w-auto px-2 font-mono text-caption"
-                        onFocus={(event) => event.currentTarget.select()}
-                      />
-                    ) : null}
-                  </>
-                }
-              />
-            ) : null}
-            {!inPage && record.app_id && identity ? (
+            {record.app_id && identity ? (
               <SettingRow
                 title={t("slack.botId")}
                 meta={<Code>{identity.bot_user_id}</Code>}
               />
             ) : null}
-            {manage ? (
-              <SettingRow
-                title={t(identity ? "slack.reinstallTitle" : "slack.install")}
-                description={t(
-                  identity ? "slack.reinstallHint" : "slack.installHint",
-                )}
-                actions={
-                  <>
-                    <RowAction
-                      disabled={
-                        busy ||
-                        pending ||
-                        Boolean(app.error || identities.error)
-                      }
-                      onClick={() => connect.mutate()}
-                    >
-                      {connect.isPending
-                        ? t("slack.working")
-                        : t(identity ? "slack.reinstall" : "slack.install")}
-                    </RowAction>
-                    <RowAction
-                      disabled={busy || app.isFetching || identities.isFetching}
-                      onClick={() => void refresh()}
-                    >
-                      {t("slack.refresh")}
-                    </RowAction>
-                  </>
-                }
-              />
-            ) : null}
-            {manage &&
-            identity &&
+            <SettingRow
+              title={t(identity ? "slack.reinstallTitle" : "slack.install")}
+              description={t(
+                identity ? "slack.reinstallHint" : "slack.installHint",
+              )}
+              actions={
+                <>
+                  <RowAction
+                    disabled={
+                      busy || pending || Boolean(app.error || identities.error)
+                    }
+                    onClick={() => connect.mutate()}
+                  >
+                    {connect.isPending
+                      ? t("slack.working")
+                      : t(identity ? "slack.reinstall" : "slack.install")}
+                  </RowAction>
+                  <RowAction
+                    disabled={busy || app.isFetching || identities.isFetching}
+                    onClick={() => void refresh()}
+                  >
+                    {t("slack.refresh")}
+                  </RowAction>
+                </>
+              }
+            />
+            {identity &&
             record.state === "created" &&
             events &&
             app.data?.event_url ? (
@@ -374,8 +214,7 @@ export function SlackConnect({
         >
           {notice}
         </output>
-        {/* In the page, the status section above reports a failed read. */}
-        {readError && !inPage ? (
+        {readError ? (
           <LoadFailure
             error={readError}
             guidance={slackReason(readError, t)}
@@ -446,7 +285,9 @@ export function SlackConnect({
           cancelLabel={t("common.cancel")}
           tone="danger"
           busy={remove.isPending}
-          onConfirm={() => remove.mutate()}
+          onConfirm={() =>
+            remove.mutate(undefined, { onSuccess: () => setDeleting(false) })
+          }
         >
           {remove.error ? (
             <FieldError>{slackFailure(remove.error, t)}</FieldError>
@@ -462,14 +303,16 @@ export function SlackConnect({
           cancelLabel={t("common.cancel")}
           tone="danger"
           busy={revoke.isPending}
-          onConfirm={() => revoke.mutate()}
+          onConfirm={() =>
+            revoke.mutate(undefined, { onSuccess: () => setRevoking(false) })
+          }
         >
           {revoke.error ? (
             <FieldError>{slackFailure(revoke.error, t)}</FieldError>
           ) : null}
         </ConfirmDialog>
       </section>
-      {manage && record ? (
+      {record ? (
         <DangerZone
           id={SECTION.danger}
           tabIndex={-1}

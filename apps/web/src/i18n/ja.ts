@@ -66,11 +66,11 @@ export const slackJa = {
   "slack.state.reinstall": "再インストールが必要",
   "slack.eventsPending.title": "Slack が Request URL をまだ確認していません",
   "slack.eventsPending.body":
-    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の Event Subscriptions で Request URL の Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
+    "Slack がこのアプリの Request URL を確認するまで、招待・メンション・DM のイベントは届きません。「Slack アプリに入れるアドレス」の「再確認」で URL をもう一度送ってください。それでも残る場合は、アプリ設定の Event Subscriptions で Request URL の Verify(または Retry)を押してください。確認が届くとこの案内は消えます。",
   "slack.eventsPending.open": "Event Subscriptions を開く",
   "slack.channelsLocked.title": "Request URL の確認前はチャンネルを選べません",
   "slack.channelsLocked.body":
-    "Slack がこのアプリの Request URL を確認するまで、チャンネルのイベントは届きません。詳細の「再確認」で URL をもう一度送ってください。確認されるとすぐに解除されます。",
+    "Slack がこのアプリの Request URL を確認するまで、チャンネルのイベントは届きません。「Slack アプリに入れるアドレス」の「再確認」で URL をもう一度送ってください。確認されるとすぐに解除されます。",
   "slack.channelsLocked.action": "再確認へ移動",
   "slack.eventsUrl.title": "イベントの Request URL",
   "slack.eventsUrl.hint":
@@ -144,6 +144,23 @@ export const slackJa = {
   "slack.addChannelHint":
     "「チャンネルを追加」から、このエージェントが応答するチャンネルを選んでください。",
   "slack.addChannel": "チャンネルを追加",
+  "slack.cardHint":
+    "このエージェントが Slack で使うアプリ、アドレス、チャンネルです。アプリを作るトークンはワークスペースの連携 > Slack で登録します。",
+  "slack.tokenHint":
+    "このエージェントの Slack アプリを作るときに使うワークスペースのトークンです。登録と差し替えは連携 > Slack で行います。",
+  "slack.tokenManage": "連携 > Slack で管理",
+  "slack.addressesHint":
+    "このエージェントのアプリが使うイベントリクエスト URL です。コンソールがアプリを作るときに自動で設定し、Slack がこのアドレスを確認するとチャンネルの投稿を受け取れます。",
+  "slack.addressesNone":
+    "アプリを作ると、このエージェントのアドレスが決まります。",
+  "slack.appsHint":
+    "このコンソールがこのエージェントのために作った Slack アプリです。インストールと再インストールはここで、接続解除と削除は危険な操作で行います。",
+  "slack.appsEmpty": "このエージェントの Slack アプリはまだありません。",
+  "slack.appName": "{name} アプリ",
+  "slack.appMenu": "Slack アプリのメニュー",
+  "slack.basicHint": "このエージェントが DM とメンションにどう反応するかです。",
+  "slack.channelColumn": "チャンネル",
+  "slack.useColumn": "使用",
   "slack.basic": "基本",
   "slack.advanced": "詳細",
   "slack.connection": "接続",

@@ -66,12 +66,12 @@ export const slackEn = {
   "slack.state.reinstall": "Reinstall required",
   "slack.eventsPending.title": "Slack has not checked the Request URL yet",
   "slack.eventsPending.body":
-    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
   "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.channelsLocked.title":
     "Channels can't be picked until Slack checks the Request URL",
   "slack.channelsLocked.body":
-    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Advanced. This unlocks as soon as Slack checks it.",
+    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. This unlocks as soon as Slack checks it.",
   "slack.channelsLocked.action": "Go to Recheck",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":
@@ -143,6 +143,22 @@ export const slackEn = {
   "slack.addChannelHint":
     "Choose Add channel to select where this agent responds.",
   "slack.addChannel": "Add channel",
+  "slack.cardHint":
+    "The app, address and channels this agent uses in Slack. The token that makes the app is registered in the workspace's Integrations > Slack.",
+  "slack.tokenHint":
+    "The workspace token this agent's Slack app is made with. Register or replace it in Integrations > Slack.",
+  "slack.tokenManage": "Manage in Integrations > Slack",
+  "slack.addressesHint":
+    "The Events Request URL this agent's app uses. The console puts it in the app it makes; Slack must check it before channel messages reach the agent.",
+  "slack.addressesNone": "This agent gets its address once its app is made.",
+  "slack.appsHint":
+    "The Slack app this console made for this agent. Install and reinstall it here; disconnect and delete it in the danger zone.",
+  "slack.appsEmpty": "This agent has no Slack app yet.",
+  "slack.appName": "{name} app",
+  "slack.appMenu": "Slack app menu",
+  "slack.basicHint": "How this agent answers direct messages and mentions.",
+  "slack.channelColumn": "Channel",
+  "slack.useColumn": "In use",
   "slack.basic": "Basic",
   "slack.advanced": "Advanced",
   "slack.connection": "Connection",

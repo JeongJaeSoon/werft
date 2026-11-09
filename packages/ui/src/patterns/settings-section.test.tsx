@@ -105,6 +105,19 @@ describe("SettingsSection", () => {
     );
     expect(plain.container.querySelector(".rounded-card")).toBeNull();
   });
+
+  test("tabIndex -1이면 섹션이 포커스를 받고 className을 더한다", () => {
+    const { getByRole } = render(
+      <SettingsSection title="채널" tabIndex={-1} className="scroll-mt-4">
+        <p>본문</p>
+      </SettingsSection>,
+    );
+    const section = getByRole("region", { name: "채널" });
+    section.focus();
+    expect(document.activeElement === section).toBe(true);
+    expect(section.className).toContain("scroll-mt-4");
+    expect(section.className).toContain("outline-none");
+  });
 });
 
 describe("Section titleProps", () => {

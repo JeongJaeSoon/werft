@@ -6,11 +6,19 @@ import {
   useId,
 } from "react";
 
+import { cn } from "../foundations/cn.ts";
 import { RowList } from "../primitives/row-list.tsx";
 
 export interface SettingsSectionProps {
   /** A fragment others link to. */
   readonly id?: string | undefined;
+  /**
+   * -1 for a page whose section list moves focus to the section itself, so
+   * a screen reader starts at its name.
+   */
+  readonly tabIndex?: -1 | undefined;
+  /** Added to the section, e.g. a scroll margin under a sticky header. */
+  readonly className?: string | undefined;
   readonly title: string;
   /** `h3` under a page whose own sections are `h2`. */
   readonly titleAs?: "h2" | "h3" | undefined;
@@ -43,6 +51,8 @@ export interface SettingsSectionProps {
  */
 export function SettingsSection({
   id,
+  tabIndex,
+  className,
   title,
   titleAs: Heading = "h2",
   badge,
@@ -81,10 +91,15 @@ export function SettingsSection({
   return (
     <section
       id={id}
+      tabIndex={tabIndex}
       aria-labelledby={titleId}
       // A page may zero the row padding so unframed rows sit on its edge;
       // the section's rows and tables are in a box, which needs it back.
-      className="flex min-w-0 flex-col gap-4 [--werft-row-padding-x:var(--werft-space-4)]"
+      className={cn(
+        "flex min-w-0 flex-col gap-4 [--werft-row-padding-x:var(--werft-space-4)]",
+        tabIndex === -1 && "outline-none",
+        className,
+      )}
     >
       <div className="flex flex-col gap-1 border-b pb-2">
         {/* Wraps so a wide action (a select, several buttons) drops under the

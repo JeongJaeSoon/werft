@@ -1,8 +1,7 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   EmptyState,
-  Heading,
-  RowList,
+  SettingsSection,
   SideNav,
   SideNavGroup,
   SideNavLayout,
@@ -12,21 +11,24 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { useToast } from "../../components/toast.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
+import { useSlackApp } from "./slack/actions.ts";
+import {
+  SlackAddressSection,
+  SlackAppSection,
+  SlackDangerSection,
+  SlackTokenSection,
+} from "./slack/app.tsx";
 import { SlackDmSetting, SlackMentionOnly } from "./slack/basic.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
-import { SlackConnect } from "./slack/connect.tsx";
-import {
-  unverifiedApp,
-  useSlackBindings,
-  useSlackState,
-} from "./slack/queries.ts";
+import { SlackSkeleton } from "./slack/connect.tsx";
+import { unverifiedApp, useSlackBindings } from "./slack/queries.ts";
 import {
   SECTION,
-  SECTION_BOX,
   SECTION_LABEL,
+  SECTION_TARGET,
   type SectionKey,
 } from "./slack/shared.ts";
-import { SlackStatus } from "./slack/status.tsx";
+import { SlackHeader } from "./slack/status.tsx";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 
@@ -34,14 +36,24 @@ export { SlackConnect, SlackSkeleton } from "./slack/connect.tsx";
 export { slackKey } from "./slack/queries.ts";
 export { slackFailure } from "./slack/shared.ts";
 
+/**
+ * An agent's Slack tab, built like Integrations > Slack: the Slack card,
+ * then what this agent does in Slack (its channels and basic settings), then
+ * for its managers the sections the workspace screen has, under the same
+ * names and in the same order, saying what this agent uses, and last the
+ * danger zone.
+ */
 export default function SlackTab({
   agentId,
   slug,
+  name,
   active,
 }: {
   readonly agentId: string;
   /** The app manifest names the bot after it. */
   readonly slug: string;
+  /** The agent's name, which its app is listed under. */
+  readonly name: string;
   readonly active: boolean;
 }) {
   const { t } = useI18n();
@@ -61,7 +73,8 @@ export default function SlackTab({
       state: ({ slackInstalled: _, ...rest }) => rest,
     });
   }, [justInstalled, notify, navigate, t]);
-  const { app, identities } = useSlackState(agentId);
+  const slack = useSlackApp(agentId);
+  const { app, identities } = slack;
   const bindings = useSlackBindings(agentId);
   const unverified = unverifiedApp(app.data) !== null;
   const installed =
@@ -77,7 +90,7 @@ export default function SlackTab({
   const keys: readonly SectionKey[] = [
     "channels",
     ...(homeStep ? [] : (["basic"] as const)),
-    ...(manages ? (["advanced"] as const) : []),
+    ...(manages ? (["token", "addresses", "app"] as const) : []),
     ...(manages && app.data?.slack_app ? (["danger"] as const) : []),
   ];
   const [current, setCurrent] = useCurrentSection(
@@ -102,14 +115,33 @@ export default function SlackTab({
   useEffect(() => {
     if (installed) setWasConnected(true);
   }, [installed]);
+  const header = (
+    <SlackHeader
+      agentId={agentId}
+      slack={slack}
+      manages={manages}
+      connected={installed || wasConnected}
+    />
+  );
+  // What the workspace screen also has, then the danger zone.
+  const appSections = manages ? (
+    <>
+      <SlackTokenSection slack={slack} />
+      <SlackAddressSection slack={slack} />
+      <SlackAppSection slack={slack} name={name} active={active} />
+      <SlackDangerSection slack={slack} />
+    </>
+  ) : null;
   if (!installed && !wasConnected) {
     if (!manages)
       return identities.isPending ? null : (
         <EmptyState title={t("slack.notConnectedReadOnly")} />
       );
+    if (app.isPending || identities.isPending) return <SlackSkeleton />;
     return (
-      <div className="flex flex-col gap-8">
-        <SlackConnect agentId={agentId} active={active} />
+      <div className="flex flex-col gap-[var(--werft-space-section)]">
+        {header}
+        {appSections}
         {toast}
       </div>
     );
@@ -160,47 +192,45 @@ export default function SlackTab({
             </SideNavGroup>
             {manages ? (
               <SideNavGroup label={t("slack.manage")}>
-                {link("advanced")}
+                {link("token")}
+                {link("addresses")}
+                {link("app")}
                 {keys.includes("danger") ? link("danger") : null}
               </SideNavGroup>
             ) : null}
           </SideNav>
         }
       >
-        <div ref={watchPage} className="flex flex-col gap-8">
-          <SlackStatus agentId={agentId} />
+        <div
+          ref={watchPage}
+          className="flex flex-col gap-[var(--werft-space-section)]"
+        >
+          {header}
           <SlackChannels
             agentId={agentId}
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
             locked={unverified && manages}
+            installed={installed}
           />
           {homeStep ? null : (
-            <section
+            <SettingsSection
               id={SECTION.basic}
               tabIndex={-1}
-              className={SECTION_BOX}
-              aria-labelledby={`${SECTION.basic}-title`}
-            >
-              <Heading id={`${SECTION.basic}-title`}>
-                {t("slack.basic")}
-              </Heading>
-              <RowList variant="joined" framed={false}>
-                <SlackDmSetting agentId={agentId} />
-                <SlackMentionOnly agentId={agentId} notify={notify} />
-              </RowList>
-            </section>
-          )}
-          {manages ? (
-            <SlackConnect
-              agentId={agentId}
-              active={active}
-              inPage
-              invite={`/invite @${slug}`}
-              notify={notify}
+              className={SECTION_TARGET}
+              titleAs="h3"
+              title={t("slack.basic")}
+              description={t("slack.basicHint")}
+              rows={
+                <>
+                  <SlackDmSetting agentId={agentId} />
+                  <SlackMentionOnly agentId={agentId} notify={notify} />
+                </>
+              }
             />
-          ) : null}
+          )}
+          {appSections}
         </div>
       </SideNavLayout>
       {toast}
