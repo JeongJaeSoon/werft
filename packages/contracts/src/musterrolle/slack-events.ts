@@ -40,6 +40,8 @@ export const SLACK_INBOUND_MAX_ATTEMPTS = 5;
  * - `user_tokens_only`: `tokens_revoked` named no bot token.
  * - `channel_pending_approval`: a message in a private channel that waits for
  *   approval and does not mention the bot; its text is not kept.
+ * - `channel_left`: an event of a private channel the bot left (binding
+ *   `left`); its text is not kept and nobody is answered.
  */
 export const SLACK_INBOUND_DROP_REASON_VALUES = [
   ...SLACK_EVENT_DROP_REASON_VALUES,
@@ -50,6 +52,7 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   "unsupported_event",
   "user_tokens_only",
   "channel_pending_approval",
+  "channel_left",
 ] as const;
 
 /** Message subtypes kept besides a plain message (no subtype). */

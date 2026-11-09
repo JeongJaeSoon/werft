@@ -163,6 +163,12 @@ const deps = () => ({
         ? { id: binding.id, revision: binding.revision }
         : null;
     },
+    async findLiveSlackChannel(installationId: string, channelId: string) {
+      return (
+        (installationId === INSTALLATION ? stored.get(channelId) : undefined) ??
+        null
+      );
+    },
   },
   links: {
     async resolveLinkedSubject(ref: {
@@ -429,6 +435,32 @@ describe("the channel's stored binding (94S-177)", () => {
       status: "ready",
     });
     expect((await judge(input(slackUser("U0B")))).pending).toBeNull();
+  });
+
+  test("a channel the bot left is dropped: nobody is told, a press or a follow-up included, and no decision is recorded", async () => {
+    link("U0B", 1);
+    const before = recorded.length;
+    for (const resource of [
+      { kind: "surface_binding" as const },
+      { kind: "session" as const, id: SESSION },
+    ]) {
+      const left = input(slackUser("U0B"), {
+        binding: { channelKind: "private_channel", status: "left" },
+        resource,
+      });
+      expect(await authorizeSlackInput(deps(), left)).toEqual({
+        status: "dropped",
+        reason: "channel_left",
+      });
+    }
+    expect(recorded).toHaveLength(before);
+    // A channel that is simply not bound is still refused out loud.
+    const unbound = input(slackUser("U0B"), {
+      channel: { id: "C0ELSEWHERE", dm: false },
+    });
+    expect((await judge(unbound)).notice).toMatchObject({
+      message: "noRequestRight",
+    });
   });
 
   test("an unbound, switched-off or other agent's channel is refused, not dropped", async () => {

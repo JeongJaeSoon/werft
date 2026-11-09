@@ -46,7 +46,8 @@ const NO_CEILING: SurfaceCeiling = { actions: [], disclosure: "summary" };
 
 export type SlackDecision =
   // Not this agent's app, or the app is gone: nothing runs and nobody is told.
-  | { status: "dropped"; reason: SlackEventDropReason }
+  // `channel_left`: the bot is out of the channel, so nobody is told either.
+  | { status: "dropped"; reason: SlackEventDropReason | "channel_left" }
   | {
       status: "decided";
       workspaceId: string;
@@ -102,7 +103,7 @@ export async function authorizeSlackInput(
     links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
     bindings: Pick<
       SurfaceBindingStore,
-      "resolveSlackChannel" | "findPendingApproval"
+      "resolveSlackChannel" | "findPendingApproval" | "findLiveSlackChannel"
     >;
   },
   input: SlackInput,
@@ -116,6 +117,17 @@ export async function authorizeSlackInput(
     agent.installationId,
     input.channel.dm ? null : input.channel.id,
   );
+  // A channel the bot left is not told anything: the bot is not in it, and
+  // a refusal posted there would be a reply from a channel it was removed from.
+  if (stored === null && !input.channel.dm) {
+    const live = await deps.bindings.findLiveSlackChannel(
+      agent.installationId,
+      input.channel.id,
+    );
+    if (live?.status === "left") {
+      return { status: "dropped", reason: "channel_left" };
+    }
+  }
   // An unbound, switched-off or other agent's channel takes nothing. It is
   // still decided, so the refusal is recorded and the person told.
   const binding =

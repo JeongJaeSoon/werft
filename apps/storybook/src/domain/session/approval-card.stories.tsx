@@ -75,6 +75,36 @@ export const WithSubject: Story = {
   },
 };
 
+/** The input is open: it takes the card's full width above the buttons. */
+export const InputOpen: Story = {
+  name: "Input open",
+  args: {
+    request: {
+      ...REQUEST,
+      input: {
+        command:
+          "git remote -v | sed 's/\\(https\\?:\\/\\/\\)[^ ]*/<url>/' ; git branch -a",
+        description: "List remotes and branches",
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    canvasElement.querySelector("summary")?.click();
+  },
+};
+
+export const InputOpenMobile: Story = {
+  ...InputOpen,
+  name: "Input open (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+export const InputOpenDark: Story = {
+  ...InputOpen,
+  name: "Input open (dark)",
+  globals: { theme: "dark" },
+};
+
 /** Every state above in one column, so dark and 390px cover them all. */
 export const States: Story = {
   render: (args) => (

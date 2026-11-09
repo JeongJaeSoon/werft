@@ -10,6 +10,7 @@ import { exists, type SQL, sql } from "drizzle-orm";
 import { actionableOfSession } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { sessions } from "./schema.ts";
+import { channelLeft } from "./slack-channel-left.ts";
 
 type Raw = Record<string, unknown>;
 
@@ -22,11 +23,12 @@ const dateOf = (value: unknown) =>
 const ms = (value: number) => sql`make_interval(secs => ${value / 1000})`;
 
 // A link the status may still go to: its session attached, the link and its
-// installation live, the thread not muted.
+// installation live, the thread not muted, and the bot still in its channel.
 const LIVE_LINK = sql`
   l.session_id IS NOT NULL
   AND l.revoked_at IS NULL
   AND NOT l.muted
+  AND NOT ${channelLeft(sql`l.installation_id`, sql`l.channel_id`)}
   AND EXISTS (
     SELECT 1 FROM slack_installations i
     WHERE i.id = l.installation_id AND i.status <> 'revoked'
@@ -207,6 +209,11 @@ export function createPostgresSlackThreadStatusStore(
         sql`
           UPDATE slack_thread_status SET inflight_at = now()
           WHERE ${fenced(fence)}
+            AND NOT EXISTS (
+              SELECT 1 FROM session_links ll
+              WHERE ll.id = slack_thread_status.session_link_id
+                AND ${channelLeft(sql`ll.installation_id`, sql`ll.channel_id`)}
+            )
             AND lease_expires_at > now() + ${ms(minLeaseLeftMs)}
           RETURNING inflight_at`,
       );
