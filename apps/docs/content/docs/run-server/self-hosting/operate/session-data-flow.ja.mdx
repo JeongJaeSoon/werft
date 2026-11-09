@@ -3,9 +3,8 @@ title: "セッションデータが流れる経路"
 description: セッションイベントの保存先、秘密値を隠す場所、内容を読める人、Langfuseのサンプルコレクター
 ---
 
-workerがエンジンから受け取ったセッションデータ(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態の変化)は、DBの`events`テーブルに入ります。このテーブルが、機能が頼る正本です。このページでは、テーブルが何を持つか、途切れると何が壊れるか、秘密値をどこで隠すか、誰が内容を読めるかを説明し、Langfuseコレクターのサンプルを起動する方法を示します。内容ごとに、根拠となるファイルも書いています。
-
-現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。アプリにはOpenTelemetry(OTel)の依存もtrace exporterもありません。ログの`trace_id`は、`packages/observability/src/index.ts`の`ObservabilityContext`にフィールドがあるだけで、値を入れる場所はありません。
+workerがエンジンから受け取ったセッションデータ(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態の変化)は、DBの`events`テーブルに入ります。このテーブルが、機能が頼る正本です。このページでは、テーブルが何を持つか、途切れると何が壊れるか、秘密値をどこで隠すか、誰が内容を読めるかを説明し、Langfuseコレクターのサンプルを起動する方法を示します。
+現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。アプリにはOpenTelemetry(OTel)の依存もtrace exporterもありません。ログの`trace_id`は、観測コンテキストにフィールドがあるだけで、値を入れる場所はありません。
 
 ## 全体像
 
@@ -29,41 +28,41 @@ engine (Claude Agent SDK)
 | 内容の長さ | workerは切り詰めない |
 | 届く先 | インストールしたPostgreSQL |
 
-イベントの種類とpayloadの契約は、`packages/contracts/src/api/event.ts`の`SESSION_EVENT_NAMES`と`sessionEventVariants`です。workerのClaude adapterが、エンジンのメッセージをこのイベントに変換します(`packages/adapters/runtimes/claude/src/mapper.ts`の`projectPublicEvents`)。assistantメッセージはブロックごとに1つのイベントになり、ツール結果ブロックは受け取ったまま`tool_result`イベントになります。
+イベントの種類とpayloadの契約は、公開APIスキーマのセッションイベント定義です。workerのClaude adapterが、エンジンのメッセージをこのイベントに変換します。assistantメッセージはブロックごとに1つのイベントになり、ツール結果ブロックは受け取ったまま`tool_result`イベントになります。
 
-workerの`EventPublisher`(`apps/worker/src/event-publisher.ts`)が、イベントにattempt単位の`source_sequence`を付け、Worker Gatewayの`/append-events`へ順番に送ります。gatewayが受け取ったと答えるまでは、キューから消しません。APIはイベントを`events`テーブル(`packages/db/src/schema.ts`の`events`)に書きます。同じattemptの同じsequenceは、ユニークインデックス`events_attempt_sequence_uniq`が1回だけ受け付けます。
+workerのイベント送信の段階が、イベントにattempt単位の`source_sequence`を付け、Worker Gatewayの`/append-events`へ順番に送ります。gatewayが受け取ったと答えるまでは、キューから消しません。APIはイベントを`events`テーブルに書きます。同じattemptの同じsequenceは、ユニークインデックス`events_attempt_sequence_uniq`が1回だけ受け付けます。
 
 このテーブルに頼る機能は次のとおりです。
 
-- **SSEと再接続。** `apps/control-host/src/api/routes/events.ts`が、`Last-Event-ID`の次からこのテーブルを読み、ストリームとして送ります。使い方は[APIユースケースガイド](/reference/api-guide)の5節にあります。
-- **turn終了の判定。** 前のsequenceが欠けていれば`sequence_gap`、finalizeのときにイベントの保存が足りなければ`events_incomplete`で拒否します(`packages/db/src/worker-unit-of-work.ts`、`packages/platform/src/workers/worker-gateway.ts`)。
-- **待機リクエストの通知。** 質問・権限リクエストの`question`イベントと、セッションの`needs_input`状態は、同じトランザクションでコミットされます。そのため、クライアントは質問を見る前に`needs_input`を受け取りません(`packages/db/src/pending-control.ts`)。答えは`pending_requests`テーブルに残ります。workerがリクエストをどう閉じたかも、同じ行に残ります。`settled_outcome`は`answered`・`expired`・`cancelled`です。`settled_reason`は、workerが取り消した理由(`park`・`shutdown`・`interrupt`・`refused`)です。`settled_answer_result`は、ランタイムが答えをどう受け取ったか(`applied`・`stale`・`unknown`)です。人が拒否したリクエストは`answered`で、`answer`の`decision`が`deny`なので、取り消しと区別できます。
-- **状態遷移。** 復旧・再開・一時停止・interruptのような制御の段階が、`recordStatus`・`recordEvent`(`packages/db/src/session-events.ts`)で状態と一緒にコミットされます。
+- **SSEと再接続。** APIが、`Last-Event-ID`の次からこのテーブルを読み、ストリームとして送ります。使い方は[APIユースケースガイド](/reference/api-guide)の5節にあります。
+- **turn終了の判定。** 前のsequenceが欠けていれば`sequence_gap`、finalizeのときにイベントの保存が足りなければ`events_incomplete`で拒否します。
+- **待機リクエストの通知。** 質問・権限リクエストの`question`イベントと、セッションの`needs_input`状態は、同じトランザクションでコミットされます。そのため、クライアントは質問を見る前に`needs_input`を受け取りません。答えは`pending_requests`テーブルに残ります。workerがリクエストをどう閉じたかも、同じ行に残ります。`settled_outcome`は`answered`・`expired`・`cancelled`です。`settled_reason`は、workerが取り消した理由(`park`・`shutdown`・`interrupt`・`refused`)です。`settled_answer_result`は、ランタイムが答えをどう受け取ったか(`applied`・`stale`・`unknown`)です。人が拒否したリクエストは`answered`で、`answer`の`decision`が`deny`なので、取り消しと区別できます。
+- **状態遷移。** 復旧・再開・一時停止・interruptのような制御の段階が、状態と一緒にコミットされます。
 - **クライアントによる作業完了の判断。** 公開APIのクライアントは、`assistant`・`tool_use`・`tool_result`イベントを読んで、仕事が終わったかを判断します([APIユースケースガイド](/reference/api-guide))。
 
-コストと使用量の正本は、イベントではなく`provider_usage`テーブルです。egress proxyがMessages応答から使用量を読み(`apps/egress-proxy/src/usage.ts`)、APIがこのテーブルに書きます(`packages/db/src/worker-unit-of-work.ts`)。
+コストと使用量の正本は、イベントではなく`provider_usage`テーブルです。egress proxyがMessages応答から使用量を読み、APIがこのテーブルに書きます。
 
 ## 内容の収集と秘密値のマスキング
 
 ### 何を持つか
 
-イベントは内容を持ちます。assistantのテキスト、ツール入力(`tool_use`)、ツール結果の本文(`tool_result`)、質問と権限リクエストの入力が入ります(`packages/adapters/runtimes/claude/src/mapper.ts`の`projectPublicEvents`・`approvalView`)。
+イベントは内容を持ちます。assistantのテキスト、ツール入力(`tool_use`)、ツール結果の本文(`tool_result`)、質問と権限リクエストの入力が入ります。
 
-エンジン(Claude Code CLI)自体のtelemetryは有効にしません。エンジンに渡す環境変数はallowlistで(`packages/adapters/runtimes/claude/src/profile.ts`)、OTelの変数は1つも渡しません。
+エンジン(Claude Code CLI)自体のtelemetryは有効にしません。エンジンに渡す環境変数はallowlistで、OTelの変数は1つも渡しません。
 
 ### 秘密値をどこで隠すか
 
 現在の規則は3層です。
 
-1. **エンジンのメッセージ。** Claude adapterの`sanitizeNativeMessage`(`packages/adapters/runtimes/claude/src/mapper.ts`)が、エンジンのメッセージごとに、機密性の高いキーの値、`Bearer …`のような秘密の形の値、`password=…`のような名前付きの値を`[REDACTED]`に置き換えます。イベントはこの結果から作ります。
-2. **claimが渡した秘密値。** workerの`SecretScrubber`(`apps/worker/src/secret-scrubber.ts`)が、このattemptが受け取った秘密値そのものを探して`<redacted>`に置き換えます。`scrubbingGateway`が`appendEvents`と`registerPending`にこの処理を掛けます。エンジンがbase64のように再エンコードした値は捕まえられません。
-3. **プロセスのログ。** `packages/observability/src/redaction.ts`の`sanitizeText`・`sanitizeFields`が、APIとworkerのstdoutログを隠します。egress proxyは同じファイルのコピー`apps/egress-proxy/src/redaction.ts`を使います。規則の一覧は[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「providerキーとリポジトリの認証情報はworkerに渡らない」の節にあります。この規則はログ用で、イベントには掛かりません。
+1. **エンジンのメッセージ。** Claude adapterのメッセージ整形の段階が、エンジンのメッセージごとに、機密性の高いキーの値、`Bearer …`のような秘密の形の値、`password=…`のような名前付きの値を`[REDACTED]`に置き換えます。イベントはこの結果から作ります。
+2. **claimが渡した秘密値。** workerの秘密値を隠す段階が、このattemptが受け取った秘密値そのものを探して`<redacted>`に置き換えます。この処理は、イベントの送信と待機リクエストの登録に掛かります。エンジンがbase64のように再エンコードした値は捕まえられません。
+3. **プロセスのログ。** ログのマスキング規則が、APIとworkerのstdoutログを隠します。egress proxyは同じ規則のコピーを使います。規則の一覧は[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「providerキーとリポジトリの認証情報はworkerに渡らない」の節にあります。この規則はログ用で、イベントには掛かりません。
 
 1と3のパターン規則は、隠す範囲が違います。ログの規則`sanitizeText`は、秘密の形の値や`token=`のような断片を1つでも見つけると、文字列全体を`[REDACTED]`に置き換えます。mapperは多くの場合、一致した部分だけを置き換え、`name=value`の形で値の終わりが明確なら、値だけを隠します。ただし、mapperの`hideNamedValues`も、`password: …`のようにコロンでつながる値や、終わりを区切れない値を見つけると、テキスト全体を隠します。そのため、`password:`を含むYAMLファイルをReadしたツール結果は、イベントから丸ごと消えます。2つのファイルのパターン一覧も、互いに異なります。
 
 ## 誰が内容を読めるか
 
-セッションイベントは、`sessions:read` scopeを持つ主体がそのセッションを見られるときだけ読めます(`apps/control-host/src/api/routes/events.ts`、`packages/platform/src/musterrolle/policy.ts`)。まず、セッションが主体と同じ範囲にある必要があります。人は自分のworkspace、API keyはそのkeyのownerです(`packages/contracts/src/musterrolle/authorization.ts`の`ownerScopeOf`)。その中で、セッションの共有範囲が`workspace`(一度も変えていないセッションの既定)ならworkspaceの全メンバーが読め、`people`や`team`なら作成者と、指定された人・チームのメンバーだけが読めます。個人keyは、そのkeyを作った人として判定します。エージェントkeyはメンバーではないので、key自身として判定し(そのエージェントのセッションに限られます)、自分が作ったセッション(作成者のいないセッション)では、作成者の位置に立ちます(`packages/platform/src/musterrolle/policy.ts`の`viewerOf`、`packages/db/src/session-shares.ts`の`sessionVisibleTo`)。見られないセッションは404です。共有範囲の変え方と、ownerやadminによる監査閲覧は、[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「セッションの共有範囲と監査閲覧」の節にあります。scopeはHTTPの境界で、`apps/control-host/src/api/scope-policy.ts`が検査します。
+セッションイベントは、`sessions:read` scopeを持つ主体がそのセッションを見られるときだけ読めます。まず、セッションが主体と同じ範囲にある必要があります。人は自分のworkspace、API keyはそのkeyのownerです。その中で、セッションの共有範囲が`workspace`(一度も変えていないセッションの既定)ならworkspaceの全メンバーが読め、`people`や`team`なら作成者と、指定された人・チームのメンバーだけが読めます。個人keyは、そのkeyを作った人として判定します。エージェントkeyはメンバーではないので、key自身として判定し(そのエージェントのセッションに限られます)、自分が作ったセッション(作成者のいないセッション)では、作成者の位置に立ちます。見られないセッションは404です。共有範囲の変え方と、ownerやadminによる監査閲覧は、[APIサーバー](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)の「セッションの共有範囲と監査閲覧」の節にあります。scopeはHTTPの境界で検査します。
 
 ## 保存期間
 
