@@ -1322,7 +1322,7 @@ describe("Slack management", () => {
       reason.closest("[id]")?.id ?? "missing",
     );
     const link = screen.getByRole("link", {
-      name: "연동 › Slack에서 토큰 등록",
+      name: "연동 > Slack에서 토큰 등록",
     });
     expect(link.getAttribute("href")).toBe(
       "/settings/workspace/integrations/slack",
@@ -1364,7 +1364,7 @@ describe("Slack management", () => {
     );
     expect(create.getAttribute("aria-describedby")).toBe(reason?.id ?? "");
     expect(
-      screen.queryByRole("link", { name: "연동 › Slack에서 토큰 등록" }),
+      screen.queryByRole("link", { name: "연동 > Slack에서 토큰 등록" }),
     ).toBeNull();
   });
 

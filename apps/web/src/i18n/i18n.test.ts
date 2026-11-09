@@ -132,9 +132,9 @@ describe("i18n", () => {
       ja: "エージェント接続",
     };
     const guidance = {
-      ko: "설정 › 에이전트 연결 › 모델 연결",
-      en: "Settings › Agent connections › Model connections",
-      ja: "設定 › エージェント接続 › モデル接続",
+      ko: "설정 > 에이전트 연결 > 모델 연결",
+      en: "Settings > Agent connections > Model connections",
+      ja: "設定 > エージェント接続 > モデル接続",
     };
     for (const locale of LOCALES) {
       const catalog = catalogs[locale];
@@ -143,6 +143,17 @@ describe("i18n", () => {
         guidance[locale],
       );
     }
+  });
+
+  test("menu paths use one separator, '>', in every locale", () => {
+    // The public docs write menu paths with ">"; a "›" here reads as a
+    // different menu.
+    const withChevron = LOCALES.flatMap((locale) =>
+      Object.entries(catalogs[locale])
+        .filter(([, value]) => String(value).includes("›"))
+        .map(([key]) => `${locale}:${key}`),
+    );
+    expect(withChevron).toEqual([]);
   });
 
   test("no message sends people to the Release tab to make or turn on a release", () => {
@@ -426,9 +437,14 @@ describe("profile naming", () => {
   // Merging is set per workspace, not on the agent; the hint must say where
   // and must not claim there is no merge at all.
   test.each([
-    ["ko", agentGitHubKo, /연동 › GitHub/, /머지는 이 에이전트 설정에 없고/],
-    ["en", agentGitHubEn, /Settings › Integrations › GitHub/, /allows it/],
-    ["ja", agentGitHubJa, /連携 › GitHub/, /マージを許可したときだけ/],
+    ["ko", agentGitHubKo, /연동 > GitHub/, /머지는 이 에이전트 설정에 없고/],
+    [
+      "en",
+      agentGitHubEn,
+      /Settings > Workspace > Integrations > GitHub/,
+      /allows it/,
+    ],
+    ["ja", agentGitHubJa, /連携 > GitHub/, /マージを許可したときだけ/],
   ] as const)(
     "%s agent GitHub hint points merging at the workspace setting",
     (_locale, table, where, allowed) => {
