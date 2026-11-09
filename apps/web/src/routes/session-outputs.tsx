@@ -19,20 +19,19 @@ import {
   Badge,
   Code,
   EmptyState,
-  Heading,
   Link,
   RelativeTime,
   RowAction,
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
 import { Download } from "lucide-react";
-import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -284,7 +283,6 @@ function SessionPullRequests({
   readonly outcomes: ReturnType<typeof useSessionOutcomes>;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   if (outcomes.error && !isApiError(outcomes.error, "NOT_FOUND")) {
     return (
       <LoadFailure
@@ -296,14 +294,11 @@ function SessionPullRequests({
   const items = outcomes.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <Heading id={titleId}>
-        {t("session.outcomes.title")}{" "}
-        <Text as="span" variant="sub">
-          {items.length}
-        </Text>
-      </Heading>
-      <Text variant="sub">{t("session.outcomes.description")}</Text>
+    <Section
+      title={t("session.outcomes.title")}
+      badge={<Badge>{items.length}</Badge>}
+      description={t("session.outcomes.description")}
+    >
       <RowList variant="joined">
         {items.map((outcome) =>
           outcome.type === "github_review" ? (
@@ -313,7 +308,7 @@ function SessionPullRequests({
           ),
         )}
       </RowList>
-    </section>
+    </Section>
   );
 }
 
@@ -325,7 +320,6 @@ function SessionGitHubRefusals({
 }) {
   const { t, locale } = useI18n();
   const { client } = useWerft();
-  const titleId = useId();
   const refusals = useQuery({
     queryKey: [...queryKeysOf(client).session(session.id), "github-refusals"],
     queryFn: () =>
@@ -341,8 +335,7 @@ function SessionGitHubRefusals({
   const items = refusals.data?.items ?? [];
   if (!hasRepository(session) || items.length === 0) return null;
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <Heading id={titleId}>{t("session.refusals.title")}</Heading>
+    <Section title={t("session.refusals.title")}>
       <RowList variant="joined">
         {items.map((refusal) => (
           <RowListItem key={refusal.receipt_id}>
@@ -359,7 +352,7 @@ function SessionGitHubRefusals({
           </RowListItem>
         ))}
       </RowList>
-    </section>
+    </Section>
   );
 }
 
@@ -470,7 +463,6 @@ export function SessionAttribution({
  */
 function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const { t, locale } = useI18n();
-  const titleId = useId();
   const outputs = useSessionOutputs(session);
 
   // A session gone from view is the detail screen's to report.
@@ -488,17 +480,11 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const items = outputs.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section
+    <Section
       id={OUT_FILES_ID}
-      className="flex flex-col gap-2"
-      aria-labelledby={titleId}
+      title={t("session.outputs.files")}
+      badge={<Badge>{items.length}</Badge>}
     >
-      <Heading id={titleId}>
-        {t("session.outputs.files")}{" "}
-        <Text as="span" variant="sub">
-          {items.length}
-        </Text>
-      </Heading>
       <RowList variant="joined">
         {items.map((item) => {
           const name = item.path.replace(/^out\//, "");
@@ -536,6 +522,6 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
           );
         })}
       </RowList>
-    </section>
+    </Section>
   );
 }
