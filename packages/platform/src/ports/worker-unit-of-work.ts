@@ -8,6 +8,7 @@ import type {
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
+  SessionExtension,
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
@@ -75,6 +76,9 @@ export type WorkerBinding = {
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;
+  // The bundles the session row pinned at create, never the workspace's or
+  // the agent's current ones. Null, empty or absent: none.
+  extensions?: readonly SessionExtension[] | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];
@@ -436,6 +440,15 @@ export type CheckpointStateInput = {
   // blocking one. Only a committed checkpoint clears it (finalizeAtomic).
   pendingReason?: CheckpointBlockReason;
 };
+export type ExtensionsStateInput = { fence: WorkerFence; now: Date };
+export type ExtensionsStateResult =
+  | {
+      outcome: "ok";
+      // The partition the session's bundles are stored under.
+      ownerScope: string;
+      extensions: readonly SessionExtension[];
+    }
+  | FenceRejection;
 export type CheckpointStateResult =
   | {
       outcome: "ok";
@@ -605,6 +618,11 @@ export interface WorkerUnitOfWork {
   checkpointStateAtomic(
     input: CheckpointStateInput,
   ): Promise<CheckpointStateResult>;
+  // What the bundle route is held to: the caller still owns the session, and
+  // these are the bundles its row pinned.
+  extensionsStateAtomic(
+    input: ExtensionsStateInput,
+  ): Promise<ExtensionsStateResult>;
   // Records which revision a restore plan hands the attempt, before the
   // plan is returned: a fallback is written to the session and announced on
   // its event stream, and a plan on the pointer clears an earlier fallback.

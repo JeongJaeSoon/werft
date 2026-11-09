@@ -11,6 +11,7 @@ import {
   nextInputResponseSchema,
   releaseResponseSchema,
   restorePlanResponseSchema,
+  type SessionExtension,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -44,13 +45,20 @@ let db: PgliteDatabase<typeof schema>;
 let app: ReturnType<typeof createApiApp>;
 let gateway: ReturnType<typeof createWorkerGateway>;
 let clock: Date;
+// What the bundle route reads, by `<workspace>/<digest>`.
+const archives = new Map<string, Uint8Array>();
 
 beforeEach(async () => {
   client = await migratedPGlite();
   db = drizzle(client, { schema });
   clock = new Date("2026-09-22T00:00:00.000Z");
+  archives.clear();
   gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
+    extensions: {
+      archive: async (workspaceId, digest) =>
+        archives.get(`${workspaceId}/${digest}`) ?? null,
+    },
     catalog: withSeededInstallation({
       profiles: {
         "claude-coding-v1": {
@@ -98,7 +106,7 @@ afterEach(async () => {
   await client.close();
 });
 
-async function seedSession() {
+async function seedSession(extensions?: SessionExtension[]) {
   const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
     limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
     principal: { ownerId: "owner-a" },
@@ -111,6 +119,7 @@ async function seedSession() {
       branch: "main",
     },
     message: "hello worker",
+    ...(extensions === undefined ? {} : { extensions }),
   });
   if (result.outcome !== "accepted") throw new Error(result.outcome);
   return result.response;
@@ -730,5 +739,114 @@ describe("/internal/worker", () => {
       status: 409,
       code: "CHECKPOINT_UNAVAILABLE",
     });
+  });
+});
+
+describe("/internal/worker bundles", () => {
+  const LINT = {
+    name: "lint",
+    digest: "ab".repeat(32),
+    scope: "agent",
+  } as const;
+  const OTHER = {
+    name: "docs",
+    digest: "cd".repeat(32),
+    scope: "workspace",
+  } as const;
+  const pinned = (
+    ...bundles: (typeof LINT | typeof OTHER)[]
+  ): SessionExtension[] =>
+    bundles.map((b, i) => ({
+      bundle_id: `019a0000-0000-7000-8000-0000000e000${i + 1}`,
+      ...b,
+    }));
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+
+  function get(attemptId: string, digest: string, token: string | null) {
+    return app.request(
+      `/internal/worker/attempts/${attemptId}/extensions/${digest}`,
+      { headers: token ? { authorization: `Bearer ${token}` } : {} },
+    );
+  }
+
+  test("a session without bundles claims without the field", async () => {
+    const { binding } = await claimed((await seedSession()).session_id);
+    expect(Object.keys(binding.runtime_config)).not.toContain("extensions");
+  });
+
+  test("a session accepted with bundles claims them, a replayed claim names the same list, and the holder fetches the bytes", async () => {
+    const seeded = await seedSession(pinned(LINT));
+    const { binding, launch, nonce } = await claimed(seeded.session_id);
+    expect(binding.runtime_config.extensions).toEqual([LINT]);
+    const replay = await post("bootstrap-claim", nonce, {
+      execution_id: launch.executionId,
+      execution_generation: launch.generation,
+      credential: { kind: "launch_nonce", nonce },
+    });
+    // A replay issues a new credential and revokes the first.
+    const again = bootstrapClaimResponseSchema.parse(await replay.json());
+    expect(again.runtime_config.extensions).toEqual([LINT]);
+    archives.set(`owner-a/${LINT.digest}`, bytes);
+    const served = await get(
+      binding.attempt_id,
+      LINT.digest,
+      again.session_credential,
+    );
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("application/x-tar");
+    expect(served.headers.get("x-bundle-digest")).toBe(LINT.digest);
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(bytes);
+  });
+
+  test("a digest the session's row did not pin is 404, even when the workspace holds it", async () => {
+    const { binding } = await claimed(
+      (await seedSession(pinned(LINT))).session_id,
+    );
+    archives.set(`owner-a/${OTHER.digest}`, bytes);
+    const response = await get(
+      binding.attempt_id,
+      OTHER.digest,
+      binding.session_credential,
+    );
+    expect(await errorOf(response)).toEqual({ status: 404, code: "NOT_FOUND" });
+  });
+
+  test("another session's token, another attempt's path, no token and an unknown token are refused", async () => {
+    const mine = await claimed((await seedSession(pinned(LINT))).session_id);
+    const theirs = await claimed((await seedSession(pinned(LINT))).session_id);
+    archives.set(`owner-a/${LINT.digest}`, bytes);
+    expect(
+      await errorOf(
+        await get(
+          mine.binding.attempt_id,
+          LINT.digest,
+          theirs.binding.session_credential,
+        ),
+      ),
+    ).toEqual({ status: 403, code: "FORBIDDEN" });
+    expect(
+      (await errorOf(await get(mine.binding.attempt_id, LINT.digest, null)))
+        .status,
+    ).toBe(401);
+    expect(
+      (
+        await errorOf(
+          await get(mine.binding.attempt_id, LINT.digest, "wsc_nope"),
+        )
+      ).status,
+    ).toBe(401);
+  });
+
+  test("a token whose lease ran out gets 409 LEASE_EXPIRED", async () => {
+    const { binding } = await claimed(
+      (await seedSession(pinned(LINT))).session_id,
+    );
+    archives.set(`owner-a/${LINT.digest}`, bytes);
+    await new Promise((resolve) => setTimeout(resolve, LEASE_TTL_MS + 50));
+    expect(
+      await errorOf(
+        await get(binding.attempt_id, LINT.digest, binding.session_credential),
+      ),
+    ).toEqual({ status: 409, code: "LEASE_EXPIRED" });
   });
 });

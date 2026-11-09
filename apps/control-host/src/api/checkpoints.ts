@@ -3,12 +3,16 @@ import type {
   Database,
   LostCheckpoints,
 } from "@werft-ai/db";
-import { createPostgresCheckpointStore } from "@werft-ai/db";
+import {
+  createPostgresCheckpointStore,
+  createPostgresExtensionBundleStore,
+} from "@werft-ai/db";
 import {
   type CheckpointProtocol,
   type CheckpointServiceDependencies,
   type CheckpointVerifier,
   createCheckpointService,
+  createExtensionBundleService,
   type ObjectProtection,
   type PushBundleSource,
   type PushSource,
@@ -303,6 +307,30 @@ export function archivedEventSource(
     client: checkpointS3Client(config),
   });
   return { get: (key, version) => objects.get(key, version) };
+}
+
+/**
+ * Where the worker route reads a pinned bundle from: the registered bundle's
+ * object, under the same bucket and checks `register` wrote it with. Absent
+ * without a store, and the route then answers 404.
+ */
+export function extensionBundleSource(
+  config: CheckpointStorageConfig | "disabled",
+  db: Database,
+):
+  | { archive(workspaceId: string, digest: string): Promise<Uint8Array | null> }
+  | undefined {
+  if (config === "disabled") return undefined;
+  const bundles = createExtensionBundleService({
+    store: createPostgresExtensionBundleStore(db),
+    objects: createCheckpointObjectStore({
+      bucket: config.bucket,
+      client: checkpointS3Client(config),
+    }),
+  });
+  return {
+    archive: (workspaceId, digest) => bundles.archive(workspaceId, digest),
+  };
 }
 
 function checkpointS3Client(config: CheckpointStorageConfig) {

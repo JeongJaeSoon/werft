@@ -64,6 +64,7 @@ import {
 } from "../checkpoints/checkpoint-service.ts";
 import { own } from "../checkpoints/checkpoint-support.ts";
 import { checkpointPendingReason } from "../checkpoints/durability.ts";
+import { BundleIntegrityError } from "../extensions/bundle-service.ts";
 import { budgetExceeded } from "../limits/installation-limits.ts";
 import {
   type PricedBy,
@@ -340,6 +341,40 @@ export type JudgmentEgressGrant = {
   upstream: EgressUpstream;
 };
 
+// What the session row pinned, as the claim names it. The gateway never asks
+// the workspace's or the agent's current bundles: a session claims the list it
+// was created with, however many times it is claimed again.
+function claimedExtensionsOf(
+  binding: Pick<WorkerBinding, "extensions">,
+): RuntimeConfig["extensions"] {
+  const pinned = binding.extensions ?? [];
+  return pinned.length === 0
+    ? undefined
+    : pinned.map(({ name, digest, scope }) => ({ name, digest, scope }));
+}
+
+function withExtensions(
+  config: RuntimeConfig,
+  extensions: RuntimeConfig["extensions"],
+): RuntimeConfig {
+  return extensions === undefined ? config : { ...config, extensions };
+}
+
+// The configs an earlier profile's checkpoints are accepted under run with the
+// same bundles, or a resume would fail the fingerprint it just passed.
+function withRestoreExtensions(
+  restore: { restore_runtime_configs?: RuntimeConfig[] },
+  extensions: RuntimeConfig["extensions"],
+): { restore_runtime_configs?: RuntimeConfig[] } {
+  return restore.restore_runtime_configs === undefined
+    ? restore
+    : {
+        restore_runtime_configs: restore.restore_runtime_configs.map((config) =>
+          withExtensions(config, extensions),
+        ),
+      };
+}
+
 function fenceOf(scope: WorkerScope): WorkerFence {
   return {
     sessionId: scope.session_id,
@@ -573,6 +608,11 @@ export function createWorkerGateway(deps: {
     error: unknown,
     cut: { sessionId: string; attemptId: string },
   ) => void;
+  // Absent, the extension bundle route answers 404.
+  extensions?: {
+    // The validated, re-packed bundle, or null for a digest nobody stored.
+    archive(workspaceId: string, digest: string): Promise<Uint8Array | null>;
+  };
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, no attachment reaches a worker and its reports are dropped.
@@ -1675,9 +1715,13 @@ export function createWorkerGateway(deps: {
                     version: binding.launchRuntime.sdkVersion,
                   },
                 };
+          const extensions = claimedExtensionsOf(binding);
           const resolved = {
             ...profile,
-            runtime_config: withMcp(profile.runtime_config, mcp, mcpToken),
+            runtime_config: withExtensions(
+              withMcp(profile.runtime_config, mcp, mcpToken),
+              extensions,
+            ),
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);
           const attribution = deps.attribution;
@@ -1717,12 +1761,15 @@ export function createWorkerGateway(deps: {
             lease_expires_at: binding.leaseExpiresAt.toISOString(),
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
-            ...restoreRuntimesOf(
-              binding,
-              toolConfigs,
-              providerToken,
-              mcp,
-              mcpToken,
+            ...withRestoreExtensions(
+              restoreRuntimesOf(
+                binding,
+                toolConfigs,
+                providerToken,
+                mcp,
+                mcpToken,
+              ),
+              extensions,
             ),
             packages: {
               access: { kind: "egress_token", token: packagesToken },
@@ -1776,6 +1823,76 @@ export function createWorkerGateway(deps: {
           };
         }
       }
+    },
+
+    // A bundle's bytes for the attempt that holds the session. The digest has
+    // to be one the session's row pinned: the workspace's other bundles, and
+    // what the egress object store route reaches, stay out of this path.
+    async extensionBundle(
+      principal: WorkerPrincipal,
+      request: { attemptId: string; digest: string },
+    ): Promise<{ digest: string; tar: Uint8Array }> {
+      if (principal.kind !== "session") {
+        throw new WorkerGatewayError(
+          403,
+          "FORBIDDEN",
+          "Bootstrap credentials may only call bootstrapClaim",
+        );
+      }
+      if (principal.attemptId !== request.attemptId) {
+        throw new WorkerGatewayError(
+          403,
+          "FORBIDDEN",
+          "Token does not match the requested attempt",
+        );
+      }
+      const bundles = deps.extensions;
+      if (bundles === undefined) {
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "Extension bundles are not served here",
+        );
+      }
+      const state = await work.extensionsStateAtomic({
+        fence: {
+          sessionId: principal.sessionId,
+          attemptId: principal.attemptId,
+          leaseEpoch: principal.leaseEpoch,
+          executionGeneration: principal.executionGeneration,
+          authRevision: principal.authRevision,
+        },
+        now: now(),
+      });
+      if (state.outcome !== "ok") rejected(state);
+      if (!state.extensions.some((e) => e.digest === request.digest)) {
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "The session does not run with that bundle",
+        );
+      }
+      let tar: Uint8Array | null;
+      try {
+        tar = await bundles.archive(state.ownerScope, request.digest);
+      } catch (error) {
+        if (error instanceof BundleIntegrityError) {
+          throw new WorkerGatewayError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "The stored bundle failed its integrity check",
+          );
+        }
+        throw error;
+      }
+      if (tar === null) {
+        throw new WorkerGatewayError(
+          404,
+          "NOT_FOUND",
+          "The session does not run with that bundle",
+        );
+      }
+      return { digest: request.digest, tar };
     },
 
     // The object store route's question, asked on every request
