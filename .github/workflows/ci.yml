@@ -106,7 +106,9 @@ jobs:
     runs-on: ubuntu-24.04
     # A hang ceiling, not a runtime target: slow runners pushed the longest
     # part past 6m without a failing test, so this sits well above that.
-    timeout-minutes: 9
+    # "other apps, tests" ran 7m24s to 8m41s on main and hit 9m with no
+    # failing test (run 42546931446), so the ceiling is 12.
+    timeout-minutes: 12
     strategy:
       # Each part's failures are its own; a cancelled part would hide them
       # until the next push.

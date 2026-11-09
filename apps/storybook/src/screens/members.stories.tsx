@@ -34,6 +34,7 @@ import {
   ErrorState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   FieldLegend,
   FieldSet,
@@ -999,13 +1000,6 @@ function TeamCreateAction({
               이름을 정해 팀을 만듭니다. 구성원은 만든 뒤 팀 화면에서 넣습니다.
             </DialogDescription>
           </DialogHeader>
-          {taken ? (
-            <Alert variant="red" role="alert">
-              <AlertDescription>
-                같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.
-              </AlertDescription>
-            </Alert>
-          ) : null}
           <Field>
             <FieldLabel>팀 이름</FieldLabel>
             <Input
@@ -1016,6 +1010,11 @@ function TeamCreateAction({
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
+            <FieldError>
+              {taken
+                ? "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요."
+                : undefined}
+            </FieldError>
           </Field>
           <DialogFooter>
             <DialogClose asChild>

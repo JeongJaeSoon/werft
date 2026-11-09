@@ -22,6 +22,7 @@ import {
   transactionWithBindingRetry,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
+import { pauseCoverageBlocker, pausedReceiptResult } from "./pause-policy.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -114,17 +115,12 @@ export async function pauseBlocker(
   }
   // After a fallback restore it is the earlier revision the session runs
   // on that has to cover the last turn, not the damaged pointer.
-  const { lastRanTurn, checkpointedTurn } = await contextCoverage(
+  const coverage = await contextCoverage(
     tx,
     session,
     restoreBaseRevision(session),
   );
-  if (lastRanTurn === null) return null;
-  // A checkpoint row with no turn records no turn it was taken after, so it
-  // is not counted as covering one.
-  return checkpointedTurn !== null && checkpointedTurn >= lastRanTurn
-    ? null
-    : "checkpoint_unavailable";
+  return pauseCoverageBlocker(coverage);
 }
 
 export async function pauseReceiptResult(
@@ -138,12 +134,7 @@ export async function pauseReceiptResult(
     .select({ count: count() })
     .from(turns)
     .where(and(eq(turns.sessionId, session.id), eq(turns.status, "queued")));
-  return {
-    resulting_admission_state: "paused",
-    // What the pause was judged safe on, and what a resume restores.
-    checkpoint_revision: restoreBaseRevision(session),
-    queued_turn_count: queued?.count ?? 0,
-  };
+  return pausedReceiptResult(session, queued?.count ?? 0);
 }
 
 /**

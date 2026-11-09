@@ -79,6 +79,8 @@ Choose with `profile_id` when you create a session. If the profile allows severa
 
 If the model of a running session leaves the allow-list, its model requests are cut shortly after. The session's events get one `error` event (`code: MODEL_NOT_ALLOWED`, `model`), and the session detail timeline reads "Model requests for this session were blocked because … is no longer allowed by its profile". Restore the model to the list, or start a new session on another model.
 
+The first block also sends one Slack DM. It goes to the person who created the session and to the agent's administrators (the administrators set directly, members of an administrator team, and the managing team's leads), each only if they have linked a Slack account in the team where this agent's Slack app is installed. Each person gets one per session, so a later attempt of the same session being blocked sends nothing more. Sessions that ended for other reasons send none.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 

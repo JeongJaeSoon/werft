@@ -298,13 +298,37 @@ describe("팀 화면", () => {
       (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
     ).toBe("");
     await user.keyboard("결제팀{Enter}");
-    expect((await within(again).findByRole("alert")).textContent).toBe(
+    // A taken name belongs to its box, not to a banner above the form.
+    const taken = await within(again).findByText(
+      "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
+    );
+    const nameBox = within(again).getByLabelText("팀 이름");
+    expect(nameBox.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      nameBox.getAttribute("aria-describedby")?.split(" ").includes(taken.id),
+    ).toBe(true);
+    expect(taken.closest("[data-slot=alert]")).toBeNull();
+    // Editing the name drops the mark; the refusal was about the old one.
+    await user.type(nameBox, "2");
+    expect(nameBox.getAttribute("aria-invalid")).toBeNull();
+    await user.keyboard("{Backspace}");
+    expect(nameBox.getAttribute("aria-invalid")).toBe("true");
+    // Closing and reopening starts clean.
+    await user.click(within(again).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(open);
+    const reopened = await screen.findByRole("dialog", { name: "팀 만들기" });
+    expect(
+      within(reopened).getByLabelText("팀 이름").getAttribute("aria-invalid"),
+    ).toBeNull();
+    await user.keyboard("결제팀{Enter}");
+    await within(reopened).findByText(
       "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
     );
     // Refused, the dialog stays with the name to fix.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(
-      (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
+      (within(reopened).getByLabelText("팀 이름") as HTMLInputElement).value,
     ).toBe("결제팀");
   });
 
@@ -883,6 +907,7 @@ describe("팀 화면", () => {
     for (const name of ["Mate", "Owner"]) await pick(user, picker, name);
     await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
     const alert = await within(dialog).findByRole("alert");
+    expect(alert.getAttribute("data-slot")).toBe("alert");
     // Who joined is the toast's to say; the dialog keeps only who was refused.
     expect(alert.textContent).toStartWith("Owner님을 추가하지 못했습니다.");
     expect(await toastSaid()).toBe("Mate님을 팀에 추가했습니다.");
