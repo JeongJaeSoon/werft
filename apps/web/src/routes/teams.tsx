@@ -216,6 +216,11 @@ const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
 const TEAM_ACTIONS_COLUMN = "var(--werft-row-action-min-width)";
 // The inline team role select: "Team lead" and its arrow in the longest language.
 const TEAM_ROLE_COLUMN = "7.5rem";
+// Narrow tables: the select drops its inner padding (see TeamRoleSelect), so
+// the longest language (ja, 110px) fits without clipping.
+const TEAM_ROLE_NARROW_COLUMN = "7rem";
+// The button in the longest language (en "Remove", 67px).
+const TEAM_ACTIONS_NARROW_COLUMN = "4.5rem";
 
 function TeamTable({
   items,
@@ -604,8 +609,8 @@ function TeamMembers({
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    teamRoleColumn,
-    manages && TEAM_ACTIONS_COLUMN,
+    manages ? TEAM_ROLE_NARROW_COLUMN : teamRoleColumn,
+    manages && TEAM_ACTIONS_NARROW_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -702,7 +707,13 @@ function TeamMembers({
                     <GridTableCell lines={true}>
                       {/* Below md the badge drops under the name, so the name keeps the column. */}
                       <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
-                        <Text as="span" weight="medium" truncate>
+                        {/* Two lines at most: the track left at 390px holds about 63px. */}
+                        <Text
+                          as="span"
+                          weight="medium"
+                          title={name}
+                          className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
+                        >
                           {name}
                         </Text>
                         {inactive ? (
@@ -845,7 +856,7 @@ function TeamRoleSelect({
     <>
       <NativeSelect
         // w-auto, not fit: a select in a table cell collapses at 390px.
-        className="w-auto ps-2 pe-8"
+        className="w-auto ps-2 pe-8 @max-md:ps-1.5 @max-md:pe-6"
         aria-label={t("teams.changeRoleFor", { name })}
         value={shown}
         disabled={save.isPending}

@@ -640,16 +640,16 @@ describe("팀 화면", () => {
     );
     // Each row is its own grid: a max-content track would size to that
     // row's buttons (the header has none) and shift the columns before it.
-    for (const name of [
-      "--grid-table-columns",
-      "--grid-table-narrow-columns",
-    ]) {
+    // The narrow tracks are 4.5rem for the button and 7rem for the select:
+    // the longest language of each, so the name keeps the rest at 390px.
+    for (const [name, last] of [
+      ["--grid-table-columns", "var(--werft-row-action-min-width)"],
+      ["--grid-table-narrow-columns", "4.5rem"],
+    ] as const) {
       const template = (table as HTMLElement).style.getPropertyValue(name);
       expect(template, name).not.toBe("");
       expect(template, name).not.toContain("max-content");
-      expect(template.split(" ").at(-1), name).toBe(
-        "var(--werft-row-action-min-width)",
-      );
+      expect(template.split(" ").at(-1), name).toBe(last);
     }
   });
 
@@ -1196,6 +1196,19 @@ describe("팀 화면", () => {
     // Still two lines, no avatar: the name beside its badge, then the email.
     expect(within(inactiveRow).getByText("owner@example.com")).toBeDefined();
     expect(table.querySelector('[data-slot="avatar"]')).toBeNull();
+  });
+
+  test("팀 상세 표의 이름과 이메일은 말줄임이 나도 전체 글이 title에 남고, 이름은 두 줄까지 접힌다", async () => {
+    const server = teamServer({ members: [mateMember] });
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const table = await screen.findByRole("table", { name: "팀 구성원" });
+    const name = within(table).getByText("Mate");
+    expect(name.getAttribute("title")).toBe("Mate");
+    expect(name.className.split(" ")).toContain("line-clamp-2");
+    expect(name.className.split(" ")).not.toContain("truncate");
+    expect(
+      within(table).getByText("mate@example.com").getAttribute("title"),
+    ).toBe("mate@example.com");
   });
 
   test("담당 팀인 팀을 지우려 하면 지우지 않고 그 에이전트 이름을 링크로 알린다", async () => {
