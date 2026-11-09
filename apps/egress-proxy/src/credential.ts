@@ -905,6 +905,12 @@ export type CredentialProxyOptions = {
   authorizer: AuthorizerClient;
   /** How long one exchange may take, admission to last response byte. */
   exchangeTimeoutMs?: number;
+  /**
+   * Starts one exchange's deadline; `AbortSignal.timeout` when absent.
+   * Tests pass their own signal so a deadline fires when they say, not when
+   * a loaded runner gets round to it.
+   */
+  exchangeDeadline?: (timeoutMs: number) => AbortSignal;
   hostname?: string;
   logger?: ProxyLogger;
   maxExchanges?: number;
@@ -966,6 +972,8 @@ export function startCredentialProxy(
   const resolve = options.resolve ?? systemResolver;
   const exchangeTimeoutMs =
     options.exchangeTimeoutMs ?? DEFAULT_EXCHANGE_TIMEOUT_MS;
+  const exchangeDeadline =
+    options.exchangeDeadline ?? ((ms: number) => AbortSignal.timeout(ms));
   const maxExchanges = options.maxExchanges ?? DEFAULT_MAX_EXCHANGES;
   const regrantIntervalMs =
     options.regrantIntervalMs ?? DEFAULT_REGRANT_INTERVAL_MS;
@@ -1888,7 +1896,7 @@ export function startCredentialProxy(
       const ends = AbortSignal.any([
         request.signal,
         revocation.signal,
-        AbortSignal.timeout(exchangeTimeoutMs),
+        exchangeDeadline(exchangeTimeoutMs),
       ]);
       let regrant: ReturnType<typeof setTimeout> | undefined;
       let ended = false;
