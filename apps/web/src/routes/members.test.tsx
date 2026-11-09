@@ -1541,7 +1541,16 @@ describe("구성원 페이지와 서버 검색", () => {
   });
 
   test("편집을 연 채 계정이 정지되면 닫을 때 포커스가 막힌 버튼의 이유 상자로 간다", async () => {
-    let mate: MemberView = teammate;
+    const suspended = {
+      ...teammate,
+      disabled_at: "2026-10-11T00:00:00.000Z",
+      actions: {
+        change_role: refusedActions("account_disabled").change_role,
+        disable: { allowed: true },
+        enable: { allowed: false, reason: "account_disabled" },
+      },
+    } as const;
+    let mate: MemberView | typeof suspended = teammate;
     const { services } = renderAt("/members", {
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
@@ -1550,15 +1559,7 @@ describe("구성원 페이지와 서버 검색", () => {
     });
     const user = await setupUser();
     await openEdit(user, "Mate");
-    mate = {
-      ...teammate,
-      disabled_at: "2026-10-11T00:00:00.000Z",
-      actions: {
-        change_role: refusedActions("account_disabled").change_role,
-        disable: { allowed: true },
-        enable: { allowed: false, reason: "account_disabled" },
-      },
-    };
+    mate = suspended;
     await act(() => services.queryClient.refetchQueries());
     const enable = await screen.findByRole("button", {
       name: "Mate 다시 활성화",
