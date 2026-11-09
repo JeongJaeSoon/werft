@@ -225,13 +225,7 @@ function AgentStateBadge({
   );
 }
 
-function NewSessionButton({
-  reason,
-  repository,
-}: {
-  readonly reason: string | undefined;
-  readonly repository: string | null | undefined;
-}) {
+function NewSessionButton({ reason }: { readonly reason: string | undefined }) {
   const label = "이 에이전트로 새 세션";
   const fieldId = useId();
   if (reason !== undefined) {
@@ -263,14 +257,6 @@ function NewSessionButton({
               활성 릴리스로 세션을 시작하고 세션 화면으로 이동합니다.
             </DialogDescription>
           </DialogHeader>
-          <Text variant="sub" className="wrap-anywhere">
-            저장소:{" "}
-            {repository ? (
-              <Code className="wrap-anywhere">{repository}</Code>
-            ) : (
-              "저장소 없음"
-            )}
-          </Text>
           <Field>
             <FieldLabel htmlFor={fieldId}>첫 메시지</FieldLabel>
             <Textarea id={fieldId} rows={5} />
@@ -339,10 +325,7 @@ export function AgentPage({
       }
       actions={
         <div className="flex flex-1 flex-wrap items-start gap-2">
-          <NewSessionButton
-            reason={newSessionReason}
-            repository={detail.active_release?.repository_id}
-          />
+          <NewSessionButton reason={newSessionReason} />
           <a
             href="#agents"
             className={buttonVariants({
