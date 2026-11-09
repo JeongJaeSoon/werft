@@ -1040,6 +1040,26 @@ integration("surface bindings on PostgreSQL", () => {
       ).toBeNull();
     });
 
+    test("a join with no time is still a join seen: the next join voids", async () => {
+      const { installationId, binding } = await approved();
+      await store().setMembership(binding.id, {
+        state: "awaiting_invite",
+        error: null,
+      });
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", null),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).not.toBeNull();
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(8)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toBeNull();
+    });
+
     test("one join handled twice at once, or again after a re-approval, voids once", async () => {
       const { owner, agentId, installationId, binding } = await approved();
       await store().setMembership(binding.id, { state: "joined", error: null });
