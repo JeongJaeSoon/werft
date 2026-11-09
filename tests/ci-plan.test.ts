@@ -70,6 +70,8 @@ function plan(
       GITHUB_EVENT_NAME: event,
       BASE_SHA: base,
       BASE_REF: baseRef,
+      BEFORE_SHA: base,
+      GITHUB_REF: "refs/heads/main",
       RUNNER_TEMP: f.temporary,
       GITHUB_OUTPUT: f.output,
     },
@@ -171,6 +173,7 @@ test("repository metadata and agent notes count as prose", () => {
 test("generated, executable and workflow files next to prose are not prose", () => {
   for (const path of [
     "THIRD_PARTY_NOTICES.md",
+    "CHANGELOG.md",
     ".claude/skills/verify-werft/github-sandbox/settings.json",
     ".github/workflows/ci.yml",
     ".github/actions/setup/README.md",
@@ -263,11 +266,13 @@ test("mixed, unknown, workflow and dependency changes always use the full plan",
   }
 });
 
-test("main, manual and empty PR diffs use the full plan", () => {
+test("manual and empty PR diffs use the full plan; main delegates the site", () => {
   for (const event of ["push", "workflow_dispatch", "pull_request"]) {
     const result = plan(fixture(), event);
     expect(result.exitCode).toBe(0);
-    expect(result.output).toEqual(full);
+    expect(result.output).toEqual(
+      event === "push" ? { ...full, site: "false" } : full,
+    );
   }
 });
 
@@ -342,4 +347,34 @@ test("invalid bases and failed fetches fail before publishing any plan", () => {
   const failed = plan(missing);
   expect(failed.exitCode).not.toBe(0);
   expect(failed.output).toEqual({});
+});
+
+test("main push plans the entire before-to-head range, including multiple commits", () => {
+  const docs = fixture(undefined, ["docs/first.md"]);
+  put(docs.repo, "docs/second.md", "prose\n");
+  commit(docs.repo);
+  expect(plan(docs, "push").output.docs_only).toBe("true");
+  const mixed = fixture(undefined, ["packages/core/src/a.ts"]);
+  put(mixed.repo, "docs/second.md", "prose\n");
+  commit(mixed.repo);
+  expect(plan(mixed, "push").output).toEqual({ ...full, site: "false" });
+});
+
+test("new main branch and manual runs retain full validation", () => {
+  const f = fixture(undefined, ["docs/intro.md"]);
+  expect(plan(f, "push", "0".repeat(40)).output).toEqual({
+    ...full,
+    site: "false",
+  });
+  expect(plan(f, "workflow_dispatch").output).toEqual(full);
+  expect(plan(f, "schedule").output).toEqual(full);
+});
+
+test("main site content stays delegated while PR and manual site validation remain planned", () => {
+  const paths = ["apps/docs/content/docs/intro.mdx"];
+  expect(plan(fixture(undefined, paths), "push").output.site).toBe("false");
+  expect(plan(fixture(undefined, paths)).output.site).toBe("true");
+  expect(plan(fixture(undefined, paths), "workflow_dispatch").output.site).toBe(
+    "true",
+  );
 });

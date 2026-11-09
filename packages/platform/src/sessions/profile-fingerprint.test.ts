@@ -44,6 +44,12 @@ describe("profile fingerprints without storage", () => {
     },
     { name: "an expanded model menu", change: { models: ["claude-opus-5-5"] } },
     { name: "another selected model", change: { model: "claude-opus-5-5" } },
+    {
+      name: "a model family table",
+      change: {
+        model_families: { "claude-sonnet-5": { family: "sonnet", rank: 5 } },
+      },
+    },
   ])("$name keeps the literal pin", ({ change }) => {
     expect(profileFingerprint({ ...profile, ...change })).toBe(PIN);
   });

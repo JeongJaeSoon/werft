@@ -9,9 +9,10 @@ const bad = new TextEncoder().encode("bytes of another hash");
 const pin = createHash("sha256").update(good).digest("hex");
 
 // Each route answers from a queue, then repeats its last entry.
-type Answer = Uint8Array | number | "stall";
+type Answer = Uint8Array | number | "stall" | { location: string };
 const queues = new Map<string, Answer[]>();
 const hits = new Map<string, number>();
+const accepts = new Map<string, string | null>();
 let server: ReturnType<typeof Bun.serve>;
 let dir: string;
 
@@ -21,6 +22,7 @@ beforeAll(() => {
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
+      accepts.set(path, request.headers.get("accept"));
       const queue = queues.get(path) ?? [];
       const n = hits.get(path) ?? 0;
       hits.set(path, n + 1);
@@ -33,6 +35,12 @@ beforeAll(() => {
               controller.enqueue(good.slice(0, 4));
             },
           }),
+        );
+      }
+      if (typeof answer === "object" && "location" in answer) {
+        return Response.redirect(
+          new URL(answer.location, request.url).href,
+          302,
         );
       }
       return typeof answer === "number"
@@ -51,6 +59,7 @@ async function run(
   path: string,
   answers: Answer[],
   env: Record<string, string> = {},
+  fallback?: string,
 ) {
   queues.set(path, answers);
   const dest = join(dir, path.slice(1));
@@ -61,6 +70,7 @@ async function run(
       `http://127.0.0.1:${server.port}${path}`,
       pin,
       dest,
+      ...(fallback ? [`http://127.0.0.1:${server.port}${fallback}`] : []),
     ],
     {
       env: {
@@ -130,6 +140,41 @@ describe("scripts/fetch-pinned.ts", () => {
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("body over 4 bytes");
     expect(existsSync(r.dest)).toBe(false);
+  });
+
+  test("a persistent 504 uses the independent asset API route and follows its redirect", async () => {
+    queues.set("/asset-api", [{ location: "/asset-content" }]);
+    queues.set("/asset-content", [good]);
+    const r = await run("/persistent-504", [504], {}, "/asset-api");
+    expect(r.code).toBe(0);
+    expect(r.hits).toBe(1);
+    expect(hits.get("/asset-api")).toBe(1);
+    expect(accepts.get("/asset-api")).toBe("application/octet-stream");
+    expect(readFileSync(r.dest)).toEqual(Buffer.from(good));
+  });
+
+  test("a wrong 200 response also switches routes and still verifies the pin", async () => {
+    queues.set("/good-alternate", [good]);
+    const r = await run("/wrong-primary", [bad], {}, "/good-alternate");
+    expect(r.code).toBe(0);
+    expect(r.hits).toBe(1);
+    expect(readFileSync(r.dest)).toEqual(Buffer.from(good));
+  });
+
+  test("neither route can install a body of another hash", async () => {
+    queues.set("/bad-alternate", [bad]);
+    const r = await run("/both-wrong", [bad], {}, "/bad-alternate");
+    expect(r.code).toBe(1);
+    expect(r.hits).toBe(1);
+    expect(hits.get("/bad-alternate")).toBe(2);
+    expect(existsSync(r.dest)).toBe(false);
+  });
+
+  test("a valid primary never requests the fallback", async () => {
+    queues.set("/unused-alternate", [504]);
+    const r = await run("/primary-valid", [good], {}, "/unused-alternate");
+    expect(r.code).toBe(0);
+    expect(hits.get("/unused-alternate")).toBeUndefined();
   });
 
   test("rejects a malformed pin before any request", async () => {

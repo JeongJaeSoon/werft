@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import { AGENT_ID, agentServer, TEAM } from "../../test-support/fake-agents.ts";
 import { json, me } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
@@ -246,14 +246,16 @@ describe("접근 탭", () => {
     expect(await within(mcp).findByText(new RegExp(text))).toBeDefined();
   });
 
-  test("에이전트 관리자가 아니면 읽기만 되고 고치는 단추가 없다", async () => {
+  test("a managing-team member without admin grants can only read MCP settings", async () => {
     const server = agentServer({ mcpSettings: saved });
-    renderAt(ACCESS, {
-      "GET /v1/auth/me": () => json(200, me([], "member")),
+    const { api } = renderAt(ACCESS, {
       ...server.routes,
-      // Every agent has a managing team now, and the fixture's default viewer
-      // leads it, which makes them an agent admin. This viewer is in no team.
-      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+      "GET /v1/auth/me": () => json(200, me([], "member")),
+      "GET /v1/my-teams": () =>
+        json(200, {
+          items: [{ id: TEAM.id, name: TEAM.name, role: "member" }],
+          next_cursor: null,
+        }),
     });
     const mcp = await section();
     expect(
@@ -261,6 +263,7 @@ describe("접근 탭", () => {
     ).toBeDefined();
     expect(within(mcp).queryByRole("button")).toBeNull();
     expect(within(mcp).queryByRole("textbox")).toBeNull();
+    expect(puts(api)).toHaveLength(0);
     expect(
       within(mcp)
         .getByRole("combobox", { name: "MCP 서버" })

@@ -162,6 +162,14 @@ export const profileSummarySchema = z
     // The default; `models` lists every model a session may name, it first.
     model: z.string().min(1),
     models: z.array(z.string().min(1)).min(1),
+    // Optional so a reader ahead of its server reads a profile without it.
+    model_successors: z
+      .record(z.string().min(1), z.string().min(1))
+      .optional()
+      .meta({
+        description:
+          "Each model the profile dropped that has a successor, with the listed model of the same series a session on it moves to at its next turn. Absent when none does.",
+      }),
     tools: z.array(z.string().min(1)),
     // Optional so a reader ahead of its server reads a profile without it;
     // `tools` stays what a session gets.
