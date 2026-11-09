@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SessionDetail } from "@werft-ai/react/blocks";
+import { PANEL_STORAGE_KEY, SessionDetail } from "@werft-ai/react/blocks";
 import { Button, EmptyState, Section, Text } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { expect } from "storybook/test";
@@ -27,8 +27,9 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * the design's icons, the commands top right with the way back at the end
  * of their row, the
  * composer under the timeline and, from 1280px, the right rail (V4-RAIL)
- * from the top bar to the bottom of the screen; narrower, the rail follows
- * the body. What the API does not carry yet (agent, who started it, branch)
+ * from the top bar to the bottom of the screen, which the head's panel
+ * button folds away; narrower, the same button opens it as a sheet over the
+ * body. What the API does not carry yet (agent, who started it, branch)
  * says so.
  */
 
@@ -269,6 +270,97 @@ export const MemberMobile: Story = {
   ...Member,
   name: "공유받은 구성원 (390px)",
   globals: MOBILE,
+};
+
+/*
+ * The panel button. From 1280px it folds the rail (remembered in this
+ * browser); narrower it opens the rail as a sheet. Either way the requests
+ * waiting for an answer show as a count on the button.
+ */
+
+const folded = () => {
+  localStorage.setItem(PANEL_STORAGE_KEY, "folded");
+  return () => localStorage.removeItem(PANEL_STORAGE_KEY);
+};
+
+type Canvas = Parameters<NonNullable<Story["play"]>>[0]["canvas"];
+const panelButton = (canvas: Canvas) =>
+  canvas.findByRole("button", { name: /^세션 요약/ });
+
+/** Folded with one request waiting: the count stays on the button. */
+export const PanelFoldedWaiting: Story = {
+  name: "패널 접힘: 답변 대기 1건",
+  beforeEach: folded,
+  play: async ({ canvas }) => {
+    const button = await panelButton(canvas);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await expect(
+      await canvas.findByRole("button", { name: /답변 대기 1건/ }),
+    ).toBe(button);
+    await expect(canvas.queryByRole("button", { name: "허용" })).toBeNull();
+  },
+};
+
+/** Folded with nothing waiting: the button carries no count. */
+export const PanelFoldedIdle: Story = {
+  ...OwnerIdle,
+  name: "패널 접힘: 기다리는 요청 없음",
+  beforeEach: folded,
+  play: async ({ canvas }) => {
+    const button = await panelButton(canvas);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await expect(button).toHaveAccessibleName("세션 요약");
+  },
+};
+
+/** Open again from the folded state: one click brings back the answer. */
+export const PanelReopened: Story = {
+  name: "패널 접힘에서 다시 펼침: 허용까지 두 번",
+  beforeEach: folded,
+  play: async ({ canvas, userEvent }) => {
+    const button = await panelButton(canvas);
+    await userEvent.click(button);
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      await canvas.findByRole("button", { name: "허용" }),
+    ).toBeVisible();
+  },
+};
+
+/** 390px: the rail opens as a sheet over the body and takes focus. */
+export const PanelSheetMobile: Story = {
+  name: "패널 시트 열림 (390px)",
+  globals: MOBILE,
+  play: async ({ canvas, userEvent }) => {
+    const button = await panelButton(canvas);
+    if (button.getAttribute("aria-expanded") === "false") {
+      await userEvent.click(button);
+    }
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      await canvas.findByRole("button", { name: "허용" }),
+    ).toBeVisible();
+  },
+};
+
+export const PanelSheetMobileDark: Story = {
+  ...PanelSheetMobile,
+  name: "패널 시트 열림 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
+};
+
+export const PanelSheetIdleMobile: Story = {
+  ...PanelSheetMobile,
+  ...OwnerIdle,
+  name: "패널 시트 열림: 기다리는 요청 없음 (390px)",
+  play: async ({ canvas, userEvent }) => {
+    const button = await panelButton(canvas);
+    if (button.getAttribute("aria-expanded") === "false") {
+      await userEvent.click(button);
+    }
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    await expect(await canvas.findByText("기다리는 요청 없음")).toBeVisible();
+  },
 };
 
 const PUSHED_AT = "2026-10-21T01:00:00.000Z";
