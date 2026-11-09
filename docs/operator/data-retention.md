@@ -179,7 +179,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 ## 세션 하나 따라가기
 
-세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 그 에이전트의 `agent_release_id`를 넣고, `profile_id`·`repository_id`는 빼면 release의 값을 쓴다([api-server.md](api-server.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
+세션 하나를 만들고 끝낼 때까지, 무엇이 어디에 남는지 순서대로 읽는다. API는 `sessions:read`·`sessions:write`·`sessions:control` scope를 가진 개인 key 또는 에이전트 key로 부른다. 아래 1의 본문은 개인 key의 것이고, 에이전트 key는 그 에이전트의 `agent_release_id`를 넣고, `profile_id`는 빼면 release의 프로필을 쓰고, `repository_id`는 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고 행이 없는 에이전트는 release의 저장소를 쓴다([api-server.md](api-server.md)). `$API`는 API 주소, `$KEY`는 key다. DB는 읽기만 한다. 로컬 compose 스택이면 `docker compose exec -T postgres psql -U postgres -d sessions`로 붙는다.
 
 1. **세션을 만든다.** `POST /v1/sessions`에 `Idempotency-Key`를 붙여 보낸다. 응답의 `session_id`, `turn_id`, `receipt_id`를 적어 둔다.
 
