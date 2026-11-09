@@ -221,6 +221,87 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     return this.post("/release", request, releaseResponseSchema);
   }
 
+  async extensionBundle(
+    attemptId: string,
+    digest: string,
+    options: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<Uint8Array> {
+    const path = `/attempts/${encodeURIComponent(attemptId)}/extensions/${encodeURIComponent(digest)}`;
+    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
+    let response: Response;
+    try {
+      response = await this.call(`${this.baseUrl}/internal/worker${path}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${this.credential}` },
+        signal:
+          options.signal === undefined
+            ? timeout
+            : AbortSignal.any([timeout, options.signal]),
+      });
+    } catch (error) {
+      throw new WorkerGatewayRequestError(
+        0,
+        null,
+        `GET ${path} did not reach the gateway: ${message(error)}`,
+        true,
+      );
+    }
+    if (!response.ok) {
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        // An unreadable error body falls back to the status alone.
+      }
+      throw failure(path, response.status, payload, "GET");
+    }
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > options.maxBytes) {
+      await response.body?.cancel();
+      throw new WorkerGatewayRequestError(
+        response.status,
+        null,
+        `GET ${path} announces ${declared} bytes, over the ${options.maxBytes} byte limit`,
+        false,
+      );
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      const reader = response.body?.getReader();
+      for (;;) {
+        const part = await reader?.read();
+        if (part === undefined || part.done) break;
+        total += part.value.byteLength;
+        if (total > options.maxBytes) {
+          await reader?.cancel();
+          throw new WorkerGatewayRequestError(
+            response.status,
+            null,
+            `GET ${path} sent more than the ${options.maxBytes} byte limit`,
+            false,
+          );
+        }
+        chunks.push(part.value);
+      }
+    } catch (error) {
+      if (error instanceof WorkerGatewayRequestError) throw error;
+      throw new WorkerGatewayRequestError(
+        response.status,
+        null,
+        `GET ${path} broke off: ${message(error)}`,
+        true,
+      );
+    }
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, at);
+      at += chunk.byteLength;
+    }
+    return out;
+  }
+
   private async post<T>(
     path: string,
     body: unknown,
@@ -280,6 +361,7 @@ function failure(
   path: string,
   status: number,
   payload: unknown,
+  method = "POST",
 ): WorkerGatewayRequestError {
   const parsed = apiErrorResponseSchema.safeParse(payload);
   if (!parsed.success) {
@@ -288,7 +370,7 @@ function failure(
     return new WorkerGatewayRequestError(
       status,
       null,
-      `POST ${path} failed with HTTP ${status}`,
+      `${method} ${path} failed with HTTP ${status}`,
       status >= 500 || status === 429,
     );
   }
@@ -296,7 +378,7 @@ function failure(
   return new WorkerGatewayRequestError(
     status,
     code,
-    `POST ${path} failed with ${code}: ${detail}`,
+    `${method} ${path} failed with ${code}: ${detail}`,
     retryable,
     details ?? undefined,
   );
