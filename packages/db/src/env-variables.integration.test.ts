@@ -822,9 +822,11 @@ integration("user variables on PostgreSQL", () => {
   describe("the claim", () => {
     type Launch = Awaited<ReturnType<typeof launchSession>>;
     // A given launch is a worker retrying the claim it already made.
-    async function claim(sessionId: string, again?: Launch) {
+    // A worker that announced `user_env`, unless it says it did not.
+    async function claim(sessionId: string, again?: Launch, userEnv = true) {
       const launch = again ?? (await launchSession(db, { sessionId }));
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
+        ...(userEnv ? { userEnv: true as const } : {}),
         settingsGeneration: Number.MAX_SAFE_INTEGER,
         unsettledRepositoryIds: new Set(),
         settledProfileIds: new Set(["claude-coding-v1"]),
@@ -865,6 +867,64 @@ integration("user variables on PostgreSQL", () => {
       const sessionId = await accepted(workspaceId, releaseId, undefined);
       expect((await claim(sessionId)).outcome).toBe("claimed");
     });
+
+    test("the claim carries the snapshot's plain values, only to a worker that announced user_env", async () => {
+      const workspaceId = await workspace();
+      const { agentId, releaseId } = await agentOn(workspaceId);
+      await saved(workspaceId, agentId, "CARRIED_ONE", "carried");
+      const sessionId = await accepted(workspaceId, releaseId, ["CARRIED_ONE"]);
+      const launch = await launchSession(db, { sessionId });
+      // An old worker is told so, and nothing is bound or written.
+      const before = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect((await claim(sessionId, launch, false)).outcome).toBe(
+        "user_env_unsupported",
+      );
+      const after = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      expect(after).toEqual(before);
+      expect(after[0]?.podId).toBeNull();
+      // The same launch, now by a worker that carries them.
+      const claimed = await claim(sessionId, launch);
+      expect(claimed.outcome).toBe("claimed");
+      if (claimed.outcome === "claimed") {
+        expect(claimed.binding.env).toEqual({ CARRIED_ONE: "carried" });
+      }
+    }, 60_000);
+
+    test("a session without variables binds with no env, and an old worker may claim it", async () => {
+      const workspaceId = await workspace();
+      const { releaseId } = await agentOn(workspaceId);
+      const sessionId = await accepted(workspaceId, releaseId, undefined);
+      const claimed = await claim(sessionId, undefined, false);
+      expect(claimed.outcome).toBe("claimed");
+      if (claimed.outcome === "claimed") {
+        expect(Object.keys(claimed.binding)).not.toContain("env");
+      }
+    }, 60_000);
+
+    test("a retry of a claim is judged the same way: an old worker is refused before anything rotates", async () => {
+      const workspaceId = await workspace();
+      const { agentId, releaseId } = await agentOn(workspaceId);
+      await saved(workspaceId, agentId, "REPLAYED_ONE", "again");
+      const sessionId = await accepted(workspaceId, releaseId, [
+        "REPLAYED_ONE",
+      ]);
+      const launch = await launchSession(db, { sessionId });
+      expect((await claim(sessionId, launch)).outcome).toBe("claimed");
+      expect((await claim(sessionId, launch, false)).outcome).toBe(
+        "user_env_unsupported",
+      );
+      const replayed = await claim(sessionId, launch);
+      expect(replayed.outcome).toBe("replayed");
+      if (replayed.outcome === "replayed") {
+        expect(replayed.binding.env).toEqual({ REPLAYED_ONE: "again" });
+      }
+    }, 60_000);
 
     test("a snapshot of allowed names claims", async () => {
       const workspaceId = await workspace();

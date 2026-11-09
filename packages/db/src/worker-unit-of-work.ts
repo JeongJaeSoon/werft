@@ -120,7 +120,11 @@ import {
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
-import { envStartRefusal, recordEnvRefusal } from "./env-variables.ts";
+import {
+  envStartRefusal,
+  plainEnvOf,
+  recordEnvRefusal,
+} from "./env-variables.ts";
 import {
   type AttemptRow,
   acquireFence,
@@ -1595,6 +1599,12 @@ async function refuseWorkerImage(
 
 // `at` is a database instant read after the worker sent its request, which
 // is what lets the worker count the remainder from its own send time.
+// The binding's `env`, or nothing: a session without variables binds as before.
+function envOf(session: SessionRow): { env?: Record<string, string> } {
+  const env = plainEnvOf(session.envStart);
+  return env === undefined ? {} : { env };
+}
+
 async function bindingOf(
   tx: Database,
   session: SessionRow,
@@ -1627,6 +1637,7 @@ async function bindingOf(
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
     platformPrompt: session.platformPrompt,
+    ...envOf(session),
     ...(pinnedExtensionsOf(session).length === 0
       ? {}
       : { extensions: pinnedExtensionsOf(session) }),
@@ -2036,6 +2047,14 @@ export function createPostgresWorkerUnitOfWork(
             );
             return { outcome: "variables_refused" };
           }
+          // Before anything rotates: a worker that cannot carry the variables
+          // changes nothing and is told so.
+          if (
+            input.userEnv !== true &&
+            plainEnvOf(bound.session.envStart) !== undefined
+          ) {
+            return { outcome: "user_env_unsupported" };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -2211,6 +2230,15 @@ export function createPostgresWorkerUnitOfWork(
         if (envRefusal !== null) {
           await refuseSessionVariables(tx, launch, locked, envRefusal);
           return { outcome: "variables_refused" };
+        }
+        // A worker that did not announce `user_env` cannot carry them. Nothing
+        // is bound or written, so another worker claims the session later; it
+        // never runs without the values it was accepted with.
+        if (
+          input.userEnv !== true &&
+          plainEnvOf(locked.envStart) !== undefined
+        ) {
+          return { outcome: "user_env_unsupported" };
         }
 
         // Read once: the binding hands the worker exactly the restore the
