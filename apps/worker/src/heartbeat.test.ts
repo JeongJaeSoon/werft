@@ -1,4 +1,4 @@
-import { describe, expect, setSystemTime, test } from "bun:test";
+import { beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   type HeartbeatRequest,
   type HeartbeatResponse,
@@ -9,7 +9,56 @@ import {
 } from "@werft-ai/contracts";
 import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
 
-import { Heartbeat, type HeartbeatOptions } from "./heartbeat.ts";
+import {
+  Heartbeat,
+  type HeartbeatOptions,
+  type HeartbeatTimer,
+  leaseTimeLeft,
+  nextHeartbeatDelay,
+  renewedLeaseDeadline,
+} from "./heartbeat.ts";
+
+class FakeClock {
+  private time = 0;
+  private nextId = 0;
+  private readonly timers = new Map<number, { at: number; run: () => void }>();
+
+  now = () => this.time;
+  schedule: HeartbeatTimer = (run, ms) => {
+    const id = this.nextId++;
+    this.timers.set(id, { at: this.time + Math.max(1, ms), run });
+    return () => {
+      this.timers.delete(id);
+    };
+  };
+
+  async advance(ms: number): Promise<void> {
+    const end = this.time + ms;
+    for (;;) {
+      // Drain promise continuations before looking for the next timer.
+      for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+      const next = [...this.timers.entries()]
+        .filter(([, timer]) => timer.at <= end)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (next === undefined) break;
+      this.time = next[1].at;
+      this.timers.delete(next[0]);
+      next[1].run();
+    }
+    this.time = end;
+  }
+
+  sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.schedule(resolve, ms);
+    });
+  }
+}
+
+let timer: FakeClock;
+beforeEach(() => {
+  timer = new FakeClock();
+});
 
 const scope: WorkerScope = {
   session_id: "11111111-1111-4111-8111-111111111111",
@@ -31,7 +80,7 @@ function heartbeat(
 ) {
   const lost: string[] = [];
   const beats: HeartbeatRequest[] = [];
-  const monotonicNow = options.monotonicNow ?? (() => performance.now());
+  const monotonicNow = options.monotonicNow ?? timer.now;
   const instance = new Heartbeat({
     gateway: {
       heartbeat: (request) => {
@@ -49,6 +98,7 @@ function heartbeat(
     safetyMarginMs: options.safetyMarginMs ?? 1_000,
     onLost: (reason) => lost.push(reason),
     monotonicNow,
+    scheduleTimer: timer.schedule,
     ...(options.transcript === undefined
       ? {}
       : { transcript: options.transcript }),
@@ -66,18 +116,135 @@ function answer(remainingMs: number) {
 }
 
 async function settle(): Promise<void> {
-  await Bun.sleep(30);
+  await timer.advance(30);
+}
+
+async function stop(beat: Heartbeat): Promise<void> {
+  const stopped = beat.stop();
+  await timer.advance(60_000);
+  await stopped;
 }
 
 async function until(done: () => boolean, withinMs = 2_000): Promise<void> {
-  const started = performance.now();
+  const started = timer.now();
   while (!done()) {
-    if (performance.now() - started > withinMs) throw new Error("timed out");
-    await Bun.sleep(5);
+    if (timer.now() - started > withinMs) throw new Error("timed out");
+    await timer.advance(5);
   }
 }
 
 describe("Heartbeat", () => {
+  test.each([
+    [6_999, 1],
+    [7_000, 0],
+    [10_000, 0],
+    [11_000, 0],
+  ])("lease budget at %ims is %ims before the safety margin", (now, left) => {
+    expect(leaseTimeLeft(10_000, 3_000, now)).toBe(left);
+  });
+
+  test.each([
+    [30_000, 1_000, 5_000, 30_000],
+    [10_000, 4_000, 30_000, 34_000],
+    [30_000, 0, 30_000, 30_000],
+  ])(
+    "renewal keeps deadline %i with send %i and remainder %i at %i",
+    (deadline, sentAt, remainingMs, expected) => {
+      expect(renewedLeaseDeadline(deadline, { sentAt, remainingMs })).toBe(
+        expected,
+      );
+    },
+  );
+
+  test.each([
+    [10_000, 50, 25],
+    [300, 10_000, 300],
+    [300, 1, 0],
+    [300, 0, 0],
+  ])(
+    "next beat with interval %i and budget %i is due in %i",
+    (interval, left, delay) => {
+      expect(nextHeartbeatDelay(interval, left)).toBe(delay);
+    },
+  );
+
+  test("injected clock renews across wall jumps beyond the original TTL, then loses exactly at the safety margin", async () => {
+    let unreachable = false;
+    let refused = 0;
+    let lastGrantSentAt = 0;
+    const losses: { at: number; reason: string }[] = [];
+    const beat = new Heartbeat({
+      gateway: {
+        heartbeat: async () => {
+          if (unreachable) {
+            refused += 1;
+            throw new WorkerGatewayRequestError(0, null, "socket closed", true);
+          }
+          lastGrantSentAt = timer.now();
+          return answer(10_000);
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 300,
+      lease: { remainingMs: 10_000, sentAt: timer.now() },
+      safetyMarginMs: 3_000,
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
+      onLost: (reason) => losses.push({ at: timer.now(), reason }),
+    });
+    beat.start();
+    try {
+      setSystemTime(new Date(Date.now() + 3_600_000));
+      await timer.advance(5_000);
+      setSystemTime(new Date(Date.now() - 7_200_000));
+      await timer.advance(10_000);
+      expect(lastGrantSentAt + 10_000).toBeGreaterThan(15_000);
+      expect(losses).toEqual([]);
+
+      const deadline = lastGrantSentAt + 10_000;
+      const cutoff = deadline - 3_000;
+      unreachable = true;
+      await timer.advance(cutoff - timer.now() - 1);
+      expect(losses).toEqual([]);
+      await timer.advance(1);
+      expect(losses).toHaveLength(1);
+      expect(losses[0]?.reason).toContain(
+        "lease given up 3000ms before it runs out",
+      );
+      expect(losses[0]?.at).toBe(cutoff);
+      expect(losses[0]?.at).toBeLessThan(deadline);
+      expect(refused).toBeGreaterThan(1);
+      expect(deadline - (losses[0]?.at ?? 0)).toBe(3_000);
+    } finally {
+      setSystemTime();
+      await beat.stop();
+    }
+  });
+
+  test("default clock and timer wake an immediate beat and accept its renewal", async () => {
+    const recorded = Promise.withResolvers<void>();
+    const beat = new Heartbeat({
+      gateway: {
+        heartbeat: async () => ({ ...answer(60_000), control_pending: true }),
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: 10_000,
+      lease: { remainingMs: 30_000, sentAt: performance.now() },
+      safetyMarginMs: 1_000,
+      onLost: () => {
+        throw new Error("unexpected ownership loss");
+      },
+      onControlPending: recorded.resolve,
+    });
+    beat.start();
+    beat.beatNow();
+    await recorded.promise;
+    await beat.stop();
+    expect(beat.leaseLeftMs).toBeGreaterThan(30_000);
+  });
+
   test("reports the attempt alive and carries the lease forward", async () => {
     const { beats, heartbeat: beat } = heartbeat(async () => answer(60_000), {
       remainingMs: 5_000,
@@ -229,9 +396,9 @@ describe("Heartbeat", () => {
       { remainingMs: 1_000, safetyMarginMs: 300, monotonicNow: () => clock },
     );
     beat.start();
-    await Bun.sleep(10);
+    await timer.advance(10);
     clock = 650;
-    await Bun.sleep(10);
+    await timer.advance(10);
     expect(lost).toEqual([]);
     expect(beats.length).toBeGreaterThan(0);
 
@@ -245,23 +412,20 @@ describe("Heartbeat", () => {
   });
 
   test("on the default lease clock, rides out a 12s session lock taken as a beat goes out: two 503s, then a renewal", async () => {
-    // Production timings divided by SCALE: a 30s lease, the default margin
-    // and interval, the gateway's 2s heartbeat lock_timeout, a 12s lock.
-    const SCALE = 4;
-    const leaseMs = 30_000 / SCALE;
-    const lockTimeoutMs = 2_000 / SCALE;
-    const holdMs = 12_000 / SCALE;
+    const leaseMs = 30_000;
+    const lockTimeoutMs = 2_000;
+    const holdMs = 12_000;
     let holdEnd: number | undefined;
     const answers: string[] = [];
     const lost: string[] = [];
     const instance = new Heartbeat({
       gateway: {
         heartbeat: async () => {
-          holdEnd ??= performance.now() + holdMs;
-          await Bun.sleep(
-            Math.max(0, Math.min(lockTimeoutMs, holdEnd - performance.now())),
+          holdEnd ??= timer.now() + holdMs;
+          await timer.sleep(
+            Math.max(0, Math.min(lockTimeoutMs, holdEnd - timer.now())),
           );
-          if (performance.now() < holdEnd) {
+          if (timer.now() < holdEnd) {
             answers.push("503");
             throw new WorkerGatewayRequestError(
               503,
@@ -276,13 +440,15 @@ describe("Heartbeat", () => {
       },
       scope: () => scope,
       attemptState: () => "running",
-      intervalMs: WORKER_HEARTBEAT_INTERVAL_MS / SCALE,
-      lease: { remainingMs: leaseMs, sentAt: performance.now() },
-      safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS / SCALE,
+      intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+      lease: { remainingMs: leaseMs, sentAt: timer.now() },
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
+      safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS,
       onLost: (reason) => lost.push(reason),
     });
     instance.start();
-    await until(() => answers.includes("200") || lost.length > 0, 10_000);
+    await timer.advance(30_000);
     await instance.stop();
 
     expect(lost).toEqual([]);
@@ -290,7 +456,7 @@ describe("Heartbeat", () => {
     expect(
       answers.filter((status) => status === "503").length,
     ).toBeGreaterThanOrEqual(2);
-  }, 15_000);
+  });
 
   test("a lease given up behind refused beats says what the gateway answered", async () => {
     let clock = 0;
@@ -306,7 +472,7 @@ describe("Heartbeat", () => {
       { remainingMs: 1_000, safetyMarginMs: 300, monotonicNow: () => clock },
     );
     beat.start();
-    await Bun.sleep(10);
+    await timer.advance(10);
     clock = 700;
     await settle();
     await beat.stop();
@@ -323,9 +489,9 @@ describe("Heartbeat", () => {
       remainingMs: 4_000,
       safetyMarginMs: 2_000,
     });
-    const started = performance.now();
+    const started = timer.now();
     beat.start();
-    await Bun.sleep(100);
+    await timer.advance(100);
     expect(lost).toEqual([]);
 
     await until(() => lost.length > 0, 6_000);
@@ -335,7 +501,7 @@ describe("Heartbeat", () => {
     // hanging one may be the one to say so.
     expect(lost[0]).toContain("lease given up 2000ms before it runs out");
     // Given up at the margin (~2s), not at the lease's end (4s).
-    expect(performance.now() - started).toBeLessThan(4_000);
+    expect(timer.now() - started).toBeLessThan(4_000);
     await beat.stop();
   });
 
@@ -375,7 +541,7 @@ describe("Heartbeat", () => {
     await until(() => calls >= 1);
     await beat.beatOnce();
     // Past the hanging beat's 100ms race.
-    await Bun.sleep(250);
+    await timer.advance(250);
 
     expect(lost).toEqual([]);
     expect(beat.leaseLeftMs).toBe(30_000 - 100);
@@ -399,7 +565,9 @@ describe("Heartbeat", () => {
       scope: () => scope,
       attemptState: () => "running",
       intervalMs: 400,
-      lease: { remainingMs: 1_000, sentAt: performance.now() },
+      lease: { remainingMs: 1_000, sentAt: timer.now() },
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
       safetyMarginMs: 200,
       onLost: (reason) => lost.push(reason),
     });
@@ -430,7 +598,7 @@ describe("Heartbeat", () => {
     await until(() => calls >= 2);
     release(answer(30_000));
     await settle();
-    await beat.stop();
+    await stop(beat);
 
     expect(lost).toEqual([]);
     expect(beat.leaseLeftMs).toBe(30_000 - 500);
@@ -463,12 +631,12 @@ describe("Heartbeat", () => {
     expect(live.lost).toEqual([
       "UNAUTHORIZED: Worker token is missing, expired or revoked",
     ]);
-    await live.heartbeat.stop();
+    await stop(live.heartbeat);
 
     rejects.length = 0;
     const stopped = run();
     await until(() => rejects.length >= 2);
-    await stopped.heartbeat.stop();
+    await stop(stopped.heartbeat);
     for (const reject of rejects) reject(revoked);
     await settle();
     expect(stopped.lost).toEqual([]);
@@ -510,9 +678,10 @@ describe("Heartbeat", () => {
       onLost: (reason) => lost.push(reason),
       // Frozen, so a loaded machine's late timers cannot run the lease out.
       monotonicNow: () => 0,
+      scheduleTimer: timer.schedule,
     });
     instance.start();
-    await Bun.sleep(150);
+    await timer.advance(150);
     await instance.stop();
 
     expect(beats.length).toBeGreaterThan(0);
@@ -537,14 +706,16 @@ describe("Heartbeat", () => {
       scope: () => scope,
       attemptState: () => state,
       intervalMs: 1,
-      lease: { remainingMs: 30_000, sentAt: performance.now() },
+      lease: { remainingMs: 30_000, sentAt: timer.now() },
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
       safetyMarginMs: 1_000,
       onLost: () => {},
     };
     const beat = new Heartbeat(options);
     beat.start();
     for (let waited = 0; beats.length === 0 && waited < 1_000; waited += 1) {
-      await Bun.sleep(1);
+      await timer.advance(1);
     }
     // Now slow the loop down: only an owed beat can arrive in time.
     options.intervalMs = 60_000;
@@ -578,7 +749,9 @@ describe("Heartbeat", () => {
       scope: () => scope,
       attemptState: () => "running",
       intervalMs: 60_000,
-      lease: { remainingMs: 30_000, sentAt: performance.now() },
+      lease: { remainingMs: 30_000, sentAt: timer.now() },
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
       safetyMarginMs: 1_000,
       onLost: () => {},
       transcript: () => ({ persisted_at: null, mirror_error: mirrorError }),
@@ -586,7 +759,7 @@ describe("Heartbeat", () => {
     beat.beatNow();
     beat.start();
     for (let waited = 0; beats.length === 0 && waited < 1_000; waited += 1) {
-      await Bun.sleep(1);
+      await timer.advance(1);
     }
     // The beat in flight carries no error; the drain starts before it lands.
     mirrorError = "Transcript mirror dropped a batch";
