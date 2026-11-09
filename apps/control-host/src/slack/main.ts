@@ -10,6 +10,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresExtensionBundleStore,
   createPostgresInstallationProfileStore,
   createPostgresInstallationSettingsStore,
   createPostgresLinkedAccountStore,
@@ -70,6 +71,7 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
+  installedRuntimes,
   loadSecretKey,
   profileViewSources,
   refuseFileCatalog,
@@ -213,6 +215,10 @@ export function slackSessionHandler(deps: {
           releaseId,
         ),
       ...newSessionGitHubReaders(db),
+    },
+    extensions: {
+      store: createPostgresExtensionBundleStore(db),
+      offersSkills: (kind) => installedRuntimes.offers(kind, "skills"),
     },
     credentials,
     limits: installationLimitsFromEnv(environment),

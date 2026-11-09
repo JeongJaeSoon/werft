@@ -27,6 +27,10 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
+  checkAgentExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
+import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
@@ -167,6 +171,8 @@ export function createAgentService(deps: {
   outsideAgents?: OutsideAgentAccessSetting;
   /** Where a profile's newest version is read; absent: no agent is pinned. */
   profileLineage?: Pick<ProfileRolloutStore, "inspect">;
+  /** Checks an agent's bundles against the profile it is released on; absent: none checked. */
+  extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
   const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
@@ -427,6 +433,17 @@ export function createAgentService(deps: {
       const reason = refusalCode(error);
       if (reason === null) throw error;
       return failed(reason);
+    }
+    // Every bundle a session of this agent could turn on has to run on the
+    // profile it is released on; found here rather than at the first session.
+    if (deps.extensions) {
+      const extensions = await checkAgentExtensions(deps.extensions, {
+        workspaceId: caller.ownerId,
+        agentId: input.agentId,
+        permissionMode: profile.permission_mode,
+        runtimeKind: profile.runtime_kind,
+      });
+      if (!extensions.ok) return failed("release_refused");
     }
     // An agent with a settings row has the row decide, and its release has
     // no GitHub pin or repository. One without keeps the active release's,
@@ -1580,6 +1597,29 @@ export function createAgentService(deps: {
           undefined,
           details,
         );
+      }
+      const releaseProfile = catalogProfile(
+        catalog,
+        release.runtime_profile_id,
+      );
+      if (deps.extensions && releaseProfile) {
+        const extensions = await checkAgentExtensions(deps.extensions, {
+          workspaceId: caller.ownerId,
+          agentId: release.agent_id,
+          permissionMode: releaseProfile.permission_mode,
+          runtimeKind: releaseProfile.runtime_kind,
+        });
+        if (!extensions.ok) {
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            extensions.refusal.message,
+            undefined,
+            {
+              reason_code: extensions.refusal.code,
+              bundle: extensions.refusal.name,
+            },
+          );
+        }
       }
       const result = await store.activate({
         principal: caller,

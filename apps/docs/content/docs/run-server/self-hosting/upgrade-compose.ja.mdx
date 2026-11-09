@@ -90,6 +90,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |
 | manifest の `outputs` | API 全部 → worker | api・worker の両方が outputs を知るビルドまでだけ rollback 可能 |
 | モデルブロックの Slack DM（migration 0248） | migration を含む API をすべて更新し、その後 slack ロール | 0248 の後にイメージを戻しても安全です。古い slack ロールは `model_notice` 行を送るスレッドがないため `not_addressed` で閉じ、DM は送りません。スキーマを 0248 より下げるには、先に `model_notice` 行を削除し、`slack_outbox_kind_check` を以前の一覧に戻します |
+| 拡張バンドルの attach とセッション解決（migration 0249） | migration を含む API をすべて更新 | 0249 の後にイメージを戻しても安全です。古いイメージは `extension_attachments` テーブルも `sessions.extensions` 列も読まないため、セッションに固定されたバンドル一覧は無視されます。スキーマを 0249 より下げるには、`extension_attachments` テーブルを削除し、`sessions.extensions` 列を外します。セッションに固定済みのバンドル一覧は元に戻りません |
 | 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
 | Slack 非公開チャンネルの退出処理（migration 0250） | migration を含む API をすべて更新 → slack ロールを更新 → 作成済みのエージェントアプリごとに events の再確認で manifest を再送 | 古いイメージは新しい `slack_channel_lifecycle` テーブルを無視するので、戻してもデータは残る。ただし `member_left_channel` を処理しないイメージへ戻すと、bot が非公開チャンネルから出て再招待されたときに古い承認がそのまま復活する |
 

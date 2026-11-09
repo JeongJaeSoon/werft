@@ -28,6 +28,7 @@ import type {
   ResumeSessionRequest,
   SessionCredentialUnboundDetails,
   SessionDetail,
+  SessionExtension,
   SessionRuntimeView,
   SlackMessageRef,
   TerminateSessionRequest,
@@ -43,6 +44,11 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
+import type { ExtensionRefusal } from "../extensions/resolve.ts";
+import {
+  resolveSessionExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -102,6 +108,15 @@ export class SessionServiceError extends Error {
   ) {
     super(message);
   }
+}
+
+function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
+  return new SessionServiceError(
+    "UNSUPPORTED_CAPABILITY",
+    refusal.message,
+    undefined,
+    { reason_code: refusal.code, bundle: refusal.name },
+  );
 }
 
 export function selfApproval(error: unknown): boolean {
@@ -398,6 +413,9 @@ export function createSessionService(deps: {
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
+  // Resolves the extension bundles a new session runs with; absent, none
+  // run and a request that names bundles is refused.
+  extensions?: SessionExtensionsDeps;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -830,10 +848,45 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
+      // Resolved once here and kept on the row: a claim or resume of this
+      // session never asks the workspace's or the agent's bundles again.
+      // Like the checks above, a refusal still lets a replay through.
+      const selection = input.body.extensions;
+      let extensions: SessionExtension[] | undefined;
+      let extensionRefusal: SessionServiceError | null = null;
+      if (deps.extensions && profile) {
+        const resolved = await resolveSessionExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          agentId: release?.agent_id ?? null,
+          ...(selection === undefined ? {} : { selection }),
+          permissionMode: profile.permission_mode,
+          runtimeKind: profile.runtime_kind,
+        });
+        if (resolved.ok) {
+          extensions = resolved.extensions.map((e) => ({
+            bundle_id: e.bundleId,
+            name: e.name,
+            digest: e.digest,
+            scope: e.scope,
+          }));
+        } else {
+          extensionRefusal = extensionRefusalError(resolved.refusal);
+        }
+      } else if (selection !== undefined) {
+        extensionRefusal = extensionRefusalError({
+          code: "feature_unsupported",
+          name: "",
+          message: "This server does not offer extension bundles",
+        });
+      }
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
+        ...(extensions === undefined ? {} : { extensions }),
+        ...(extensionRefusal === null
+          ? {}
+          : { extensionsRefused: true as const }),
         profileId,
         channel: actor.subject.surface.kind,
         title:
@@ -900,6 +953,7 @@ export function createSessionService(deps: {
           throw limitError(result);
         case "unsupported":
           throw (
+            extensionRefusal ??
             profileBlockedError(profileId, workspaceRefusal) ??
             new SessionServiceError(
               "UNSUPPORTED_CAPABILITY",

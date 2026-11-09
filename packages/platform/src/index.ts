@@ -165,6 +165,8 @@ export * from "./workers/worker-gateway.ts";
 export * from "./extensions/bundle-archive.ts";
 export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
+export * from "./extensions/resolve.ts";
+export * from "./extensions/session-extensions.ts";
 
 export * from "./sessions/achievements/achievement-judge.ts";
 export * from "./sessions/achievements/achievement-judgment-store.ts";

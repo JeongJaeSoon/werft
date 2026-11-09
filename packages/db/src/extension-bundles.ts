@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { WorkspaceRole } from "@werft-ai/contracts";
 import type {
   BundleManifest,
@@ -5,14 +6,20 @@ import type {
   ExtensionBundleReview,
   ExtensionBundleSource,
   ExtensionBundleStore,
+  ExtensionMode,
   Principal,
 } from "@werft-ai/platform";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { lockedRole } from "./api-keys.ts";
 import { receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { agents, extensionBundles, receipts } from "./schema.ts";
+import {
+  agents,
+  extensionAttachments,
+  extensionBundles,
+  receipts,
+} from "./schema.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -257,28 +264,103 @@ export function createPostgresExtensionBundleStore(
         if (typeof actor === "string") return { outcome: actor };
         const bundle = await byId(tx, input.workspaceId, input.bundleId);
         if (!bundle) return { outcome: "bundle_not_found" };
-        if (!UUID.test(input.agentId)) return { outcome: "agent_not_found" };
-        const [agent] = await tx
-          .select({ id: agents.id })
-          .from(agents)
-          .where(
-            and(
-              eq(agents.id, input.agentId.toLowerCase()),
-              eq(agents.workspaceId, input.workspaceId),
-            ),
-          )
-          .limit(1)
-          .for("key share");
-        if (!agent) return { outcome: "agent_not_found" };
+        const scope = input.scope ?? "agent";
+        let agentId: string | null = null;
+        if (scope === "agent") {
+          if (!input.agentId || !UUID.test(input.agentId)) {
+            return { outcome: "agent_not_found" };
+          }
+          const [agent] = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(
+              and(
+                eq(agents.id, input.agentId.toLowerCase()),
+                eq(agents.workspaceId, input.workspaceId),
+              ),
+            )
+            .limit(1)
+            .for("key share");
+          if (!agent) return { outcome: "agent_not_found" };
+          agentId = agent.id;
+        }
+        const target = and(
+          eq(extensionAttachments.workspaceId, input.workspaceId),
+          eq(extensionAttachments.scope, scope),
+          agentId === null
+            ? isNull(extensionAttachments.agentId)
+            : eq(extensionAttachments.agentId, agentId),
+          eq(extensionAttachments.name, bundle.name),
+        );
+        if (input.kind === "attach") {
+          await tx.delete(extensionAttachments).where(target);
+          await tx.insert(extensionAttachments).values({
+            id: randomUUID(),
+            workspaceId: input.workspaceId,
+            scope,
+            agentId,
+            bundleId: bundle.id,
+            name: bundle.name,
+            mode: input.mode ?? "optional",
+            createdBy: actor.userId,
+          });
+        } else {
+          // Only the version named: a detach of an older version must not
+          // take back the newer one attached since.
+          await tx
+            .delete(extensionAttachments)
+            .where(and(target, eq(extensionAttachments.bundleId, bundle.id)));
+        }
         await writeReceipt(tx, input.principal, {
           id: input.receiptId,
           operation:
             input.kind === "attach" ? "attach_extension" : "detach_extension",
-          target: { kind: "agent", id: agent.id },
-          result: { bundle_id: bundle.id, digest: bundle.digest },
+          target:
+            agentId === null
+              ? { kind: "extension_bundle", id: bundle.id }
+              : { kind: "agent", id: agentId },
+          result: {
+            bundle_id: bundle.id,
+            digest: bundle.digest,
+            scope,
+            ...(input.kind === "attach"
+              ? { mode: input.mode ?? "optional" }
+              : {}),
+          },
         });
         return { outcome: "recorded", receiptId: input.receiptId };
       });
+    },
+
+    async listAttachments(input) {
+      const rows = await db
+        .select({
+          scope: extensionAttachments.scope,
+          mode: extensionAttachments.mode,
+          bundle: extensionBundles,
+        })
+        .from(extensionAttachments)
+        .innerJoin(
+          extensionBundles,
+          eq(extensionBundles.id, extensionAttachments.bundleId),
+        )
+        .where(
+          and(
+            eq(extensionAttachments.workspaceId, input.workspaceId),
+            or(
+              eq(extensionAttachments.scope, "workspace"),
+              input.agentId === undefined
+                ? undefined
+                : eq(extensionAttachments.agentId, input.agentId),
+            ),
+          ),
+        )
+        .orderBy(asc(extensionAttachments.name));
+      return rows.map((row) => ({
+        scope: row.scope as "workspace" | "agent",
+        mode: row.mode as ExtensionMode,
+        bundle: bundleOf(row.bundle),
+      }));
     },
   };
 }

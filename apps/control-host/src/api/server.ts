@@ -18,6 +18,7 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresExtensionBundleStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -150,6 +151,7 @@ import {
   profileCatalog,
   releaseStartable,
   resolveAgentRelease,
+  type SessionExtensionsDeps,
   SessionServiceError,
   slackBotToken,
   unrunnableProfiles,
@@ -510,6 +512,12 @@ const slackWelcome =
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
+// Resolves which bundles a session runs with, and checks an agent's bundles
+// against the profile it is released on.
+const extensionDeps: SessionExtensionsDeps = {
+  store: createPostgresExtensionBundleStore(db),
+  offersSkills: (kind) => installedRuntimes.offers(kind, "skills"),
+};
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -520,6 +528,7 @@ const agents = createAgentService({
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
   profileLineage: profileRollouts,
+  extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -536,6 +545,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
+  extensions: extensionDeps,
   credentials: credentialBindings,
   limits,
 });

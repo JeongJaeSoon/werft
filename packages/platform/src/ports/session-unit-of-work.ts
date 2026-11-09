@@ -12,6 +12,7 @@ import type {
   PostSessionMessageResponse,
   Receipt,
   SessionDetail,
+  SessionExtension,
   SessionSummary,
   SlackMessageRef,
   SseEvent,
@@ -56,6 +57,13 @@ export type AcceptSessionInput = {
   repository: { id: string; url: string; branch: string } | "none" | null;
   // Already checked against the release; left out, the column stays null.
   attachedRepositoryIds?: string[];
+  // The bundles the session runs with, resolved once for this request and
+  // stored as given. Left out, the column stays null: the session runs with
+  // none, as rows from before it do.
+  extensions?: SessionExtension[];
+  // The resolution refused: only a replay of an earlier acceptance goes
+  // through, which only the stored acceptance can tell.
+  extensionsRefused?: true;
   /** Absent: `release`. */
   githubPolicySource?: GitHubPolicySource;
   /**

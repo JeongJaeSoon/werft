@@ -196,6 +196,31 @@
               "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
             }
           },
+          "extensions": {
+            "description": "Turns extension bundles on or off for this session, by the bundle ids the workspace registered. Only a bundle its agent or workspace left `optional` can be named; a `required` one is always on and a `forbidden` one cannot be turned on, else `UNSUPPORTED_CAPABILITY` with `details.reason_code` naming why (`required_removed`, `required_replaced`, `forbidden_revived`, `not_optional`, `bundle_not_found`, `bundle_not_approved`, `skill_name_collision`, `feature_unsupported`, `scripts_need_default_mode`) and `details.bundle` the bundle name. An `optional` bundle not named in `enable` stays off. The resolved list is fixed at create and returned as `extensions`.",
+            "type": "object",
+            "properties": {
+              "enable": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "disable": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -4284,6 +4309,46 @@
               "failed",
               "stopped"
             ]
+          },
+          "extensions": {
+            "description": "The extension bundles the new session runs with. Absent when the session runs with none.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bundle_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "profile",
+                    "workspace",
+                    "agent",
+                    "session"
+                  ],
+                  "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                }
+              },
+              "required": [
+                "bundle_id",
+                "name",
+                "digest",
+                "scope"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -4705,6 +4770,53 @@
               ],
               "additionalProperties": false
             }
+          },
+          "extensions": {
+            "description": "The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bundle_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "profile",
+                        "workspace",
+                        "agent",
+                        "session"
+                      ],
+                      "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                    }
+                  },
+                  "required": [
+                    "bundle_id",
+                    "name",
+                    "digest",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [
@@ -5385,6 +5497,53 @@
               ],
               "additionalProperties": false
             }
+          },
+          "extensions": {
+            "description": "The extension bundles the session runs with, resolved once when it was created: later changes to the workspace's or agent's bundles do not reach it. `[]` is a session that runs with none. Null on a session created before extensions; absent from a server older than the field.",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bundle_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The bundle's plugin slug. Its skills reach the session as `\u003cname>:\u003cskill>`."
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "profile",
+                        "workspace",
+                        "agent",
+                        "session"
+                      ],
+                      "description": "The scope that put the bundle on the session: `profile`, `workspace` or `agent` required it, or the session's own request turned an `optional` one on."
+                    }
+                  },
+                  "required": [
+                    "bundle_id",
+                    "name",
+                    "digest",
+                    "scope"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "current_turn_id": {
             "anyOf": [
