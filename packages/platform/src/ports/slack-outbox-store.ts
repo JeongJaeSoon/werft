@@ -17,7 +17,9 @@ import type { PushRequestDisplay } from "./push-requests.ts";
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").
  * `instruction`: an input sent from the web or the API, shown in the thread
- * ahead of its answer.
+ * ahead of its answer. `model_notice`: a direct message to one person (their
+ * Slack user id is the `channelId`, `threadTs` is "") that a session's model
+ * left the agent's allowed list.
  */
 export type SlackOutboxKind =
   | "instruction"
@@ -26,7 +28,8 @@ export type SlackOutboxKind =
   | "failure_notice"
   | "input_notice"
   | "welcome"
-  | "action_notice";
+  | "action_notice"
+  | "model_notice";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer

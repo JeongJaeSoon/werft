@@ -1079,6 +1079,13 @@
       "when": 1794174792510,
       "tag": "0244_push_intent_source_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1794187314151,
+      "tag": "0245_model_notice_kind",
+      "breakpoints": true
     }
   ]
 }

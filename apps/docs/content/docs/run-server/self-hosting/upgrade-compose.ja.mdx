@@ -90,6 +90,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | transcript 上限/reason | migration → API 全部 → worker。API finalize と worker capture/restore 上限を同じ release に揃える | transcript reason を知らないビルドへの rollback 禁止 |
 | manifest の `outputs` | API 全部 → worker | api・worker の両方が outputs を知るビルドまでだけ rollback 可能 |
 | `AGENT_ACTION_FLOWS` | GC・セッション保管 CronJob まで全コンポーネントを更新してから有効化 | 進行中 intent は無効化後も処理します |
+| モデルブロックの Slack DM（migration 0245） | migration を含む API をすべて更新し、その後 slack ロール | 0245 の後にイメージを戻しても安全です。古い slack ロールは `model_notice` 行を送るスレッドがないため `not_addressed` で閉じ、DM は送りません。スキーマを 0245 より下げるには、先に `model_notice` 行を削除し、`slack_outbox_kind_check` を以前の一覧に戻します |
 | 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
 
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
@@ -97,7 +98,7 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### v0.1.0 以降の変更を初めて適用する場合
 
-- `v0.1.0` より後、対象バージョンまでの全 migration（現在 `0244` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
+- `v0.1.0` より後、対象バージョンまでの全 migration（現在 `0245` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
 - `v0.1.0` タグの compose は `ANTHROPIC_API_KEY` が空だと描画を拒否します。`v0.1.0` から上げるとき、env ファイルに残ったキーはそのままで構いません。`a486f20d2` 以降のソースはキーの有無を問いません。`v0.1.0` のソースを再適用するときだけ、キーを空にしないでください。
 - control-host を先、worker を後に更新します。`platform_tool_trust` fallback があっても、更新の間は以前の権限経路を使うため順序を守ります。
 - `AGENT_ACTION_FLOWS` 有効化前に API、Compose maintenance、Kubernetes の checkpointGc・sessionArchive CronJob、worker をすべて対象イメージにし、**以前のイメージで開始した Job が終了したこと**を確認します。以前の GC は固定 revision を削除する場合があります。
