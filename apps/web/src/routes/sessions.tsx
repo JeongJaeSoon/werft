@@ -45,6 +45,7 @@ import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { SessionGitHubWork } from "./session-github-work.tsx";
 import { SessionOutputsCount, SessionOutputsTab } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
 import { SessionReleaseBlock } from "./session-release.tsx";
@@ -426,6 +427,11 @@ export function SessionDetailScreen() {
             content: <SessionOutputsTab session={session} />,
           },
         ]}
+        timelineExtra={(session) => (
+          <div className="px-4 pb-4">
+            <SessionGitHubWork session={session} />
+          </div>
+        )}
         unavailable={unavailable}
         refusal={(error) => t(errorKey(error.code))}
       />
