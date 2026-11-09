@@ -55,7 +55,6 @@ import {
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
-import { runtimeConfigFromSpec } from "../agents/release-spec.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -252,10 +251,7 @@ export type CheckpointProtocol = {
 
 // What every config of a session's claim carries from its release and its
 // row, whichever profile and tool list it is for.
-type ReleaseRun = Pick<
-  WorkerBinding,
-  "releaseTools" | "platformPrompt" | "releaseSpec"
->;
+type ReleaseRun = Pick<WorkerBinding, "releaseTools" | "platformPrompt">;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
@@ -1229,38 +1225,6 @@ export function createWorkerGateway(deps: {
     const profile = listed
       ? sessionProfile(listed, pin, acceptedRuntimeVersions(catalog))
       : null;
-    // A profile the catalog no longer has at all: the release's own spec runs
-    // the session, under the fingerprint the row pinned. A profile that is
-    // there but changed is refused below, as before.
-    const spec = release.releaseSpec;
-    if (
-      listed === undefined &&
-      profileId &&
-      spec !== null &&
-      spec !== undefined &&
-      pin.fingerprint !== null
-    ) {
-      const config: RuntimeConfig = {
-        ...runtimeConfigFromSpec(
-          { ...spec, model: pin.model ?? spec.model },
-          providerToken,
-          hasRepository,
-        ),
-        ...(release.platformPrompt
-          ? { platform_prompt: release.platformPrompt }
-          : {}),
-      };
-      return {
-        runtime: {
-          kind: spec.runtime.kind,
-          version: spec.runtime.version,
-          profile_id: profileId,
-        },
-        profile_fingerprint: pin.fingerprint,
-        runtime_config: config,
-        tool_configs: { profile: config, release: null, runs: "profile" },
-      };
-    }
     if (!profile || !profileId) {
       throw new WorkerGatewayError(
         503,
