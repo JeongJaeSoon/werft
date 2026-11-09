@@ -127,24 +127,8 @@
     ]
   },
   "secretRead": {
-    "readers": [
-      "cat",
-      "head",
-      "tail",
-      "grep",
-      "rg",
-      "sed",
-      "git grep",
-      "git * grep",
-      "git show",
-      "git * show",
-      "git diff",
-      "git * diff",
-      "git log",
-      "git * log",
-      "git cat-file",
-      "git * cat-file"
-    ],
+    "readers": ["cat", "head", "tail", "grep", "rg", "sed"],
+    "gitReaders": ["grep", "show", "diff", "log", "cat-file"],
     "nameStarts": [" ", "/", "\"", "'", "=", ":", "r", "R", "-f"],
     "clusterLetters": "nHiswNlcoF",
     "extensions": [".pem", ".key", ".p12", ".pfx", ".keystore"],

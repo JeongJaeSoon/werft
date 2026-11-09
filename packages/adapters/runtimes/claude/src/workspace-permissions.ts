@@ -117,6 +117,8 @@ const policySchema = z
     secretRead: z
       .object({
         readers: patterns,
+        /** Git verbs that print file content: `git show HEAD:.env`. */
+        gitReaders: patterns,
         /**
          * Where a file name begins in a command line: the first operand, or
          * after one of these. Matching them anywhere would ask for
@@ -164,11 +166,19 @@ const policySchema = z
 
 const policy = policySchema.parse(defaultSettings);
 
-/** The ask patterns for one reader and every spelling of a secret's name. */
-function secretReadPatterns(command: string): string[] {
+/**
+ * The ask patterns for one reader and every spelling of a secret's name.
+ * `lean` is for a git verb, matched as `git *<verb>*` so a global option may
+ * come first: it drops the `-<letter>f` starts, which only `grep` and `rg`
+ * have. The engine gets the whole settings payload as one argument and Linux
+ * caps one argument at 128 KiB, so a rule family that multiplies must stay lean.
+ */
+function secretReadPatterns(command: string, lean = false): string[] {
   const read = policy.secretRead;
   const letters = [...read.clusterLetters];
-  const starts = [...read.nameStarts, ...letters.map((l) => `-${l}f`)];
+  const starts = lean
+    ? read.nameStarts
+    : [...read.nameStarts, ...letters.map((l) => `-${l}f`)];
   const names = [
     ...policy.secretNameParts.filter(
       (part) =>
@@ -176,7 +186,7 @@ function secretReadPatterns(command: string): string[] {
     ),
     ...read.extraNames,
   ].flatMap((name) => [
-    `${command} ${name}*`,
+    ...(lean ? [] : [`${command} ${name}*`]),
     ...starts.map((start) => `${command} *${start}${name}*`),
   ]);
   const extensions = read.extensions.flatMap((extension) => [
@@ -292,6 +302,11 @@ export function workspaceRules(
     ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
     for (const command of policy.secretRead.readers) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
+    }
+    for (const verb of policy.secretRead.gitReaders) {
+      ask.push(
+        ...secretReadPatterns(`git *${verb}*`, true).map((p) => `Bash(${p})`),
+      );
     }
     ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
     for (const command of policy.dev.commands) {
