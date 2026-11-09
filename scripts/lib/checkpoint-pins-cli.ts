@@ -92,7 +92,12 @@ if (
   );
   process.exit(2);
 }
-const image = imageName === undefined ? undefined : { name: imageName };
+// The content id is fixed once, before the image runs: a tag moved while the
+// check is under way must not leave one image's verdict under another's id.
+const image =
+  imageName === undefined
+    ? undefined
+    : { name: imageName, id: await imageDigestOf(imageName) };
 
 const s3 = s3SettingsFromEnv();
 const bucket = env("S3_BUCKET");
@@ -256,7 +261,9 @@ async function repin(dir: string) {
  * for as a worker of that image would ask: its engine build, and the profile
  * digest its code computes from the claim the database's settings give.
  */
-async function plans(image: { name: string } | undefined): Promise<number> {
+async function plans(
+  image: { name: string; id: string } | undefined,
+): Promise<number> {
   const config = {
     ...s3,
     bucket,
@@ -363,7 +370,7 @@ async function plans(image: { name: string } | undefined): Promise<number> {
         claimErrors.set(pointer.id, (error as Error).message);
       }
     }
-    imageRuntime = await readImageRuntime(image.name, claims);
+    imageRuntime = await readImageRuntime(image.id, claims);
   }
   // The checkpoints a restore may fall back to carry no plan of their own:
   // the digest they were sealed with must be one the image offers for the
@@ -602,7 +609,7 @@ async function plans(image: { name: string } | undefined): Promise<number> {
     }
   }
   if (record && image !== undefined && imageRuntime !== undefined) {
-    await recordChecks(checks, image.name, imageRuntime);
+    await recordChecks(checks, image.id, imageRuntime);
   }
   if (pointers.length === 0) {
     console.error("plans: warning — no session has a checkpoint pointer");
@@ -671,11 +678,10 @@ async function imageDigestOf(name: string): Promise<string> {
  */
 async function recordChecks(
   checks: readonly RestoreCheck[],
-  imageName: string,
+  imageDigest: string,
   runtime: ImageRuntime,
 ) {
   if (checks.length === 0) return;
-  const imageDigest = await imageDigestOf(imageName);
   const { profiles: _profiles, ...printed } = runtime;
   const db = await pool.connect();
   try {
