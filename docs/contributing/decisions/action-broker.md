@@ -297,6 +297,8 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 | `repository.read` | `list_repositories`, `attach_repository`, `get_push_request` | 지금 판정 그대로 | - | 뺀다(D8) |
 | `review`, `workflow`, `administration` | `submit_review`, workflow 도구 | 지금 판정 그대로 | - | 남긴다 |
 
+> **대체됨(2026-11-09).** 위 표의 `push.primary`·`push.attached` 구분은 현재 규칙이 아니다. push는 모든 저장소에 `push_approval`과 `push_attached` 중 더 엄격한 쪽 하나로 판정한다. 저장된 분류 값은 감사용으로만 읽는다. 현재 규칙은 [API 서버 운영 문서](../../operator/api-server.md)의 "push 규칙: 모든 저장소에 하나"다.
+
 - T8 `gh`는 명령이 부르는 도구의 부류를 그대로 쓴다(`pr create`는 `push.*` + `pull_request.write`, `pr edit`·`pr comment`는 `pull_request.write`, 나머지는 `repository.read`).
 - "엔진 권한 단계에서 뺀다"(D8, L2)는 오너가 (a)를 골랐다. L2는 **PR 8이 `uncommitted_changes` 거절을 고른 경우에만** 시작한다. PR 8이 작업 트리 snapshot을 commit으로 받기로 하면 D8을 다시 묻는다. 엔진을 빼면 auto 분류기가 PR 글의 비밀값을 막던 판단을 잃는다. 대신 같은 push에 허용 요청이 두 번 뜨는 일과 첨부 저장소 판정 불일치가 사라진다.
 

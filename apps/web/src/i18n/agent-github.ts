@@ -125,7 +125,7 @@ export const agentGitHubKo = {
   "agentGitHub.pushApprovalHint":
     "켜면 에이전트가 만든 commit을 sessions:approve 권한이 있는 사람이 승인해야 push합니다. 기존 에이전트는 켜진 채로 옮겨졌습니다.",
   "agentGitHub.pushApprovalOff":
-    "이 설정만으로는 승인 없이 agent/<세션> 브랜치로 push하고 PR을 엽니다. 아래 push 규칙이 사람 승인이면 그쪽을 따릅니다.",
+    "이 설정만으로는 승인 없이 agent/<세션> 브랜치로 push하고 PR을 엽니다. 아래 push 규칙이 사람 승인이거나 허용하지 않음이면 그쪽을 따릅니다.",
   "agentGitHub.pushAttached": "첨부 저장소 push",
   "agentGitHub.pushAttachedHint":
     "모든 저장소의 agent/<세션> 브랜치로 push할 때의 한도입니다. 위의 승인 설정과 이 값 중 더 엄격한 쪽을 따릅니다.",
@@ -133,7 +133,7 @@ export const agentGitHubKo = {
   "agentGitHub.pushAttached.ask": "사람 승인 필요",
   "agentGitHub.pushAttached.deny": "허용하지 않음",
   "agentGitHub.pushAttachedAllowNote":
-    "첨부 저장소는 사람 승인 없이 붙으므로, 허용하면 붙이기와 push가 사람 없이 이어집니다. 대상은 agent/<세션> 브랜치뿐이고 force push는 하지 않습니다.",
+    "첨부 저장소는 사람 승인 없이 붙으므로, 허용하고 위의 push 전 승인도 꺼 두면 붙이기와 push가 사람 없이 이어집니다. 대상은 agent/<세션> 브랜치뿐이고 force push는 하지 않습니다.",
   "agentGitHub.activityHint":
     "토큰 발급과 거절, 설정 변경, 워크플로 실행은 감사 기록(receipt)에 남습니다. 볼 수 있는 세션의 기록만 보입니다.",
   "agentGitHub.activityEmpty": "아직 GitHub 기록이 없습니다.",
@@ -337,7 +337,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushApprovalHint":
     "When on, someone with sessions:approve approves the agent's commits before they are pushed. Existing agents moved over with it on.",
   "agentGitHub.pushApprovalOff":
-    "On its own, this pushes to agent/<session> branches and opens pull requests without approval. If the push rule below asks a person, that rule wins.",
+    "On its own, this pushes to agent/<session> branches and opens pull requests without approval. If the push rule below asks a person or does not allow the push, that rule wins.",
   "agentGitHub.pushAttached": "Push to attached repositories",
   "agentGitHub.pushAttachedHint":
     "The limit for pushing to agent/<session> branches of every repository. The stricter of the approval setting above and this value applies.",
@@ -345,7 +345,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushAttached.ask": "Ask a person",
   "agentGitHub.pushAttached.deny": "Do not allow",
   "agentGitHub.pushAttachedAllowNote":
-    "A repository is attached without a person's approval, so allowing this lets attaching and pushing run with no person involved. It reaches only agent/<session> branches and never force-pushes.",
+    "A repository is attached without a person's approval, so allowing this, with the approval before push above also off, lets attaching and pushing run with no person involved. It reaches only agent/<session> branches and never force-pushes.",
   "agentGitHub.activityHint":
     "Tokens issued or refused, setting changes and workflow runs are kept as receipts. Only sessions you can see are shown.",
   "agentGitHub.activityEmpty": "No GitHub activity yet.",
@@ -552,7 +552,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushApprovalHint":
     "オンにすると、エージェントが作った commit を sessions:approve 権限のある人が承認してから push します。既存のエージェントはオンのまま移行しました。",
   "agentGitHub.pushApprovalOff":
-    "この設定だけなら、承認なしで agent/<セッション> ブランチに push し、PR を開きます。下の push ルールが人の承認なら、そちらに従います。",
+    "この設定だけなら、承認なしで agent/<セッション> ブランチに push し、PR を開きます。下の push ルールが人の承認、または許可しないなら、そちらに従います。",
   "agentGitHub.pushAttached": "追加リポジトリへの push",
   "agentGitHub.pushAttachedHint":
     "すべてのリポジトリの agent/<セッション> ブランチへ push するときの上限です。上の承認設定とこの値のうち、より厳しい方に従います。",
@@ -560,7 +560,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.pushAttached.ask": "人の承認が必要",
   "agentGitHub.pushAttached.deny": "許可しない",
   "agentGitHub.pushAttachedAllowNote":
-    "追加リポジトリは人の承認なしで追加されるため、許可すると追加と push が人を介さず続きます。対象は agent/<セッション> ブランチだけで、force push は行いません。",
+    "追加リポジトリは人の承認なしで追加されるため、許可し、上の push 前の承認もオフにすると、追加と push が人を介さず続きます。対象は agent/<セッション> ブランチだけで、force push は行いません。",
   "agentGitHub.activityHint":
     "トークンの発行と拒否、設定の変更、ワークフローの実行は監査記録(receipt)に残ります。見られるセッションの記録だけを表示します。",
   "agentGitHub.activityEmpty": "まだ GitHub の記録がありません。",
