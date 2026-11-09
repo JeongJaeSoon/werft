@@ -31,6 +31,7 @@ import {
   revokeExecutionAtomic,
 } from "./execution-revocation.ts";
 import { createPostgresTurnInterrupts } from "./interrupt-control.ts";
+import { launchFailedCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import { expireParkedGroups } from "./parked-group.ts";
 import { pauseBlocker } from "./pause-control.ts";
@@ -2088,24 +2089,76 @@ integration("parked pending requests on PostgreSQL", () => {
     });
   });
 
-  test("a carrying turn failed before it started (launch given up) ends the push with a reason, as its group is carried on and cannot reopen", async () => {
+  /** The parked turn carried on by an answer, its worker gone. */
+  async function carriedPush(paused = false) {
     const { owner, sessionId, worker } = await runningSession();
     const requestId = await register(worker);
     const parkedRowId = await deferPush(owner, sessionId, worker);
     await parkRows(worker, [requestId]);
     await executionGone(worker);
+    if (paused) {
+      // Paused while it waited, as a drain park leaves it: the answer then
+      // resumes the session.
+      await db
+        .update(sessions)
+        .set({
+          admissionState: "paused",
+          status: "idle",
+          pauseReason: "awaiting_input",
+        })
+        .where(eq(sessions.id, sessionId));
+    }
     await answer(owner, sessionId, requestId);
     const [carried] = await continuations(parkedRowId);
-    // What quarantineLaunch does to the queued turns of a session.
-    await db
-      .update(turns)
-      .set({ status: "failed", endedAt: sql`now()`, terminalReason: "launch" })
-      .where(eq(turns.id, carried?.id ?? -1));
+    if (carried === undefined) throw new Error("not carried on");
+    return { sessionId, worker, carriedId: carried.id };
+  }
+
+  const giveUpLaunch = (worker: Worker, sessionId: string) =>
+    db.transaction((tx) =>
+      quarantineLaunch(
+        tx,
+        { executionId: worker.executionId, generation: 0 },
+        sessionId,
+        launchFailedCause("no worker could start"),
+      ),
+    );
+
+  test("a launch given up on fails the carrying turn, and the push ends with a reason, as its group is carried on and cannot reopen", async () => {
+    const { sessionId, worker, carriedId } = await carriedPush();
+    expect((await sessionRow(sessionId)).admissionState).toBe("active");
+    await giveUpLaunch(worker, sessionId);
+    const [carried] = await db
+      .select({ status: turns.status, reason: turns.terminalReason })
+      .from(turns)
+      .where(eq(turns.id, carriedId));
+    expect(carried).toEqual({ status: "failed", reason: "launch_failed" });
 
     expect(await createPostgresPushIntents(db).settleStale()).toBe(1);
     expect(await intentOf(sessionId)).toMatchObject({
       status: "cancelled",
       refusalCode: "turn_finalized_without_pin",
+    });
+  });
+
+  test("a resume whose launch is given up keeps the carrying turn queued, and the push waits with it", async () => {
+    const { sessionId, worker, carriedId } = await carriedPush(true);
+    expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
+    await giveUpLaunch(worker, sessionId);
+    // The resume failed for an operator to decide; the input it would run
+    // is kept for whatever that decision resumes.
+    expect((await sessionRow(sessionId)).admissionState).not.toBe("resuming");
+    const [carried] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(eq(turns.id, carriedId));
+    expect(carried?.status).toBe("queued");
+
+    expect(await createPostgresPushIntents(db).settleStale()).toBe(0);
+    expect(await intentOf(sessionId)).toMatchObject({
+      status: "deferred",
+      turnId: carriedId,
+      refusalCode: null,
     });
   });
 
