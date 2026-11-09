@@ -8,6 +8,7 @@ import type {
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
+  RuntimeSpec,
   SessionExtension,
   WorkerEvent,
   WorkspaceRepository,
@@ -73,6 +74,11 @@ export type WorkerBinding = {
   // (runtime_config_snapshot.tools); `[]` is a release that allows none.
   // Null, or absent, for a session without a release.
   releaseTools?: readonly string[] | null;
+  // The release's runtime spec, only when it is stored and verifies against
+  // its source and digests (`verifyReleaseSpec`). Null, or absent, for a
+  // session without a release, a release not yet backfilled, or a stored pair
+  // that does not hold; the claim then reads the profile as before.
+  releaseSpec?: RuntimeSpec | null;
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;
