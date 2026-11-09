@@ -156,6 +156,8 @@ The responsible team is the team an agent belongs to. Its team leads manage the 
 
 Put `agent_release_id` in the session create request. `profile_id` must be that release's profile (otherwise 409 `RELEASE_PROFILE_MISMATCH`). Use an agent key of that agent. Issue an agent key in the web console, or with the web login cookie by sending `kind: "agent"` and `agent_id` to `POST /v1/api-keys` ([API key](/api-keys)). The SDK has no method for issuing it. Keep the secret in a variable only.
 
+`repository_id` is optional. If you omit it, an agent with GitHub settings starts without a repository and attaches only what it needs ([Sessions without a repository](/sessions/without-repository)), and an older agent with no settings starts on its release's repository. The example below names `sample-app` directly and starts on that repository.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 

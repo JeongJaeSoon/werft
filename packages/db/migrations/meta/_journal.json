@@ -1158,10 +1158,10 @@
       "breakpoints": true
     },
     {
-      "idx": 257,
+      "idx": 256,
       "version": "7",
-      "when": 1794253523069,
-      "tag": "0257_sessions_spec_pin",
+      "when": 1794252317449,
+      "tag": "0256_checkpoint_restore_gate",
       "breakpoints": true
     }
   ]

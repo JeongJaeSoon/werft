@@ -23,8 +23,10 @@ import {
 // was taken from, so the composition entry points are bound to that form.
 const runtimeProfile: typeof runtimeProfileOf = (a, b, c, d) =>
   runtimeProfileOf(a, b, c, d, true);
+// The digests pinned below were stamped under digest scheme 1 with the frozen
+// paragraph; a scheme 2 image still computes them for the checkpoints made so.
 const claimFingerprint = (cfg: Parameters<typeof claimFingerprintOf>[0]) =>
-  claimFingerprintOf(cfg, true);
+  claimFingerprintOf(cfg, true, 1);
 
 const claude = realRuntimeFor("claude_agent_sdk");
 
@@ -450,26 +452,40 @@ describe("runtimeProfile with a platform prompt", () => {
           () => null,
         ),
       ).profileSha256;
-      expect(claimFingerprint(config)(claim).profileSha256).toBe(launched);
+      const legacy = claimFingerprintOf(config, true);
+      expect(legacy(claim).profileSha256).toBe(launched);
       // The image probe stamps what a new launch runs, which no longer
-      // carries the paragraph; the legacy digest is only an alternate.
+      // carries the paragraph; the legacy digest is only an alternate, and
+      // so is what the earlier digest scheme computes.
       const current = claimFingerprintOf(config)(claim).profileSha256;
       expect(imageRuntimeOf({ s1: claim }).profiles).toEqual({
-        s1: { profileSha256: current, legacyProfileSha256: launched },
+        s1: {
+          profileSha256: current,
+          legacyProfileSha256: launched,
+          earlierSchemeProfileSha256s: [
+            claimFingerprintOf(config, false, 1)(claim).profileSha256,
+            claimFingerprint(config)(claim).profileSha256,
+          ],
+        },
       });
       expect(current).not.toBe(launched);
       expect(launched).not.toBe(
-        claimFingerprint(config)({ principal, runtime_config: base })
-          .profileSha256,
+        legacy({ principal, runtime_config: base }).profileSha256,
       );
     }
     expect(
-      claimFingerprint(config)({
+      claimFingerprintOf(
+        config,
+        true,
+      )({
         principal,
         runtime_config: { ...base, platform_prompt: withRepository },
       }).profileSha256,
     ).not.toBe(
-      claimFingerprint(config)({
+      claimFingerprintOf(
+        config,
+        true,
+      )({
         principal,
         runtime_config: { ...base, platform_prompt: withoutRepository },
       }).profileSha256,
@@ -543,11 +559,19 @@ describe("runtimeProfile with a platform prompt", () => {
       () => null,
     );
     expect(profile.bundle.instructions).toEqual([]);
-    expect(claude.fingerprint(profile).profileSha256).toBe(before);
+    expect(claude.fingerprint(profile, 1).profileSha256).toBe(before);
+    const current = claimFingerprintOf(config)({
+      principal,
+      runtime_config: base,
+    }).profileSha256;
     expect(imageRuntimeOf({ s0: { principal, runtime_config: base } })).toEqual(
       expect.objectContaining({
         profiles: {
-          s0: { profileSha256: before, legacyProfileSha256: before },
+          s0: {
+            profileSha256: current,
+            legacyProfileSha256: current,
+            earlierSchemeProfileSha256s: [before, before],
+          },
         },
       }),
     );

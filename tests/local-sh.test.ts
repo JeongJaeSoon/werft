@@ -877,8 +877,8 @@ esac
   const composeDowns = (calls: string[]) =>
     calls.filter((call) => / down( |$)/.test(call));
 
-  test("--keep-volumes deletes the workers and their networks, keeps every volume and the run", async () => {
-    const { exitCode, calls } = await down(["--keep-volumes"]);
+  test("deletes the workers and their networks, keeps every volume and the run", async () => {
+    const { exitCode, calls } = await down([]);
 
     expect(exitCode).toBe(0);
     expect(composeDowns(calls)).toEqual([
@@ -894,27 +894,15 @@ esac
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 
-  test("without it the volumes go too, and so does the run's ports.yml", async () => {
-    const { exitCode, calls } = await down([]);
-
-    expect(exitCode).toBe(0);
-    expect(composeDowns(calls)).toEqual([
-      "compose --profile apps --profile fake-model down -v --remove-orphans",
-      `compose --profile apps --profile fake-model -f compose.yaml -f ${runDir}/ports.yml -f infra/compose.fake-model.yml down --remove-orphans --rmi local -v`,
-    ]);
-    expect(calls).toContain("volume rm ws-1");
-    expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(false);
-  });
-
   test("a network left behind fails the teardown and keeps the run", async () => {
     const left = `ap-net-${project}-exec-1-g1`;
-    const { exitCode, stderr } = await down(["--keep-volumes"], {
+    const { exitCode, stderr } = await down([], {
       STUB_LEFT_NETWORK: left,
     });
 
     expect(exitCode).toBe(1);
     expect(stderr).toContain(
-      `containers, networks or volumes left (above); ports.yml kept, rerun down.sh ${runDir} --keep-volumes`,
+      `containers or networks left (above); ports.yml kept, rerun down.sh ${runDir}\n`,
     );
     expect(
       await readFile(join(runDir, "evidence/leftovers.txt"), "utf8"),
@@ -922,18 +910,18 @@ esac
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 
-  test("a failed leftover check keeps the run and asks for the same mode again", async () => {
-    const { exitCode, stderr } = await down(["--keep-volumes"], {
+  test("a failed leftover check keeps the run and asks for a rerun", async () => {
+    const { exitCode, stderr } = await down([], {
       STUB_LEFT_EXIT: "1",
     });
 
     expect(exitCode).toBe(1);
-    expect(stderr).toContain(`rerun down.sh ${runDir} --keep-volumes\n`);
+    expect(stderr).toContain(`rerun down.sh ${runDir}\n`);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
   });
 
   test("refuses any other or extra argument without calling docker", async () => {
-    for (const args of [["-v"], ["--keep-volumes", "-v"]]) {
+    for (const args of [["-v"], ["--keep-volumes"], ["--keep-volumes", "-v"]]) {
       const { exitCode, calls } = await down(args);
 
       expect(exitCode).toBe(2);

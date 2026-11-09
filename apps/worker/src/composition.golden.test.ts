@@ -67,8 +67,23 @@ const claims: Record<string, RuntimeConfig> = {
   },
 };
 
-test("claim fingerprints match main (golden)", async () => {
-  const fingerprint = claudeClaimFingerprint(config);
+// Scheme 1 is what main stamped; an image of scheme 2 still computes it to
+// recognise those checkpoints. Scheme 2 is what this build stamps.
+const GOLDEN_SCHEME_2 = join(
+  import.meta.dir,
+  "../../../tests/fixtures/golden/worker/claim-fingerprint-scheme-2.json",
+);
+
+test("claim fingerprints match main (golden, scheme 1)", async () => {
+  await expectGolden(GOLDEN, 1);
+});
+
+test("claim fingerprints of this build (golden, scheme 2)", async () => {
+  await expectGolden(GOLDEN_SCHEME_2, 2);
+});
+
+async function expectGolden(path: string, scheme: number) {
+  const fingerprint = claudeClaimFingerprint(config, false, scheme);
   const principal = { owner_scope: "owner-a" };
   const repository = {
     id: "sample-app",
@@ -94,8 +109,8 @@ test("claim fingerprints match main (golden)", async () => {
   );
   const text = `${JSON.stringify(actual, null, 2)}\n`;
   if (process.env.UPDATE_GOLDEN === "1") {
-    await Bun.write(GOLDEN, text);
+    await Bun.write(path, text);
     return;
   }
-  expect(text).toBe(await Bun.file(GOLDEN).text());
-});
+  expect(text).toBe(await Bun.file(path).text());
+}

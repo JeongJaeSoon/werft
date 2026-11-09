@@ -134,6 +134,14 @@ export type SessionCheckpointsOptions = {
    * restorable; the ones this run takes carry `fingerprint`.
    */
   legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
+  /**
+   * What an image of each earlier digest scheme this one resumes stamped its
+   * checkpoints with, for one config. Those checkpoints stay restorable; the
+   * ones this run takes carry `fingerprint`.
+   */
+  earlierSchemeFingerprints?: (
+    claim: BootstrapClaimResponse,
+  ) => RuntimeFingerprint[];
   /** The provisioned root the engine runs in, and the manifest's `cwd`. */
   workspaceRoot: string;
   /**
@@ -309,12 +317,16 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       ...(claim.restore_runtime_configs ?? []),
     ];
     const legacy = this.#options.legacyFingerprint;
+    const earlier = this.#options.earlierSchemeFingerprints;
     const alternates = [
       ...new Set(
         configs.flatMap((config, index) => {
           const next = { ...claim, runtime_config: config };
           return [
             ...(legacy === undefined ? [] : [legacy(next).profileSha256]),
+            ...(earlier === undefined
+              ? []
+              : earlier(next).map((found) => found.profileSha256)),
             ...(index === 0
               ? []
               : [this.#options.fingerprint(next).profileSha256]),

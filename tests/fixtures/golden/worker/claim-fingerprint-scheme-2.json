@@ -1,0 +1,72 @@
+{
+  "default": {
+    "repository": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "08bd96ec34d7819ec909c3c90a727d711d3c51ad6720eb0bd20b36bc4623efa5"
+    },
+    "repositoryless": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "c01071cef67fdb1866b63f9e574278aaff1bfc0a91377e370fceef59c9583106"
+    }
+  },
+  "claude-md": {
+    "repository": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "bedcd08f682590f0c8aa61d5bc9d7af0be66095e8b18665765a418bed6a5ff8b"
+    },
+    "repositoryless": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "369f0f510c21db84ba2019800c76626bc4b95de22d6660c4ea340cb6252c6b63"
+    }
+  },
+  "claude-md-off": {
+    "repository": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "08bd96ec34d7819ec909c3c90a727d711d3c51ad6720eb0bd20b36bc4623efa5"
+    },
+    "repositoryless": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "c01071cef67fdb1866b63f9e574278aaff1bfc0a91377e370fceef59c9583106"
+    }
+  },
+  "mcp": {
+    "repository": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "f9c9275a8261a579e6854eb671e03d4913d47231410f128228ce831a84e6fe77"
+    },
+    "repositoryless": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "66ef3b9d8f71bf5ed1b6ac2551017e56ccac748ffab412be69a3184125ed88ba"
+    }
+  },
+  "litellm": {
+    "repository": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "6866080110773cabc6d27deb1e3c6e10cadb120563fc2efaa31a090db5092979"
+    },
+    "repositoryless": {
+      "cliVersion": "2.1.319",
+      "engine": "claude",
+      "sdkVersion": "0.3.319",
+      "profileSha256": "7bc235ea07d747ab6ba6e1d9ee27eaf309e25395436276f0a78153c42b2f5ced"
+    }
+  }
+}

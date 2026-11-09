@@ -156,6 +156,8 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 セッションを作成するときに `agent_release_id` を指定する。`profile_id` はそのリリースのプロファイルでなければならない (そうでなければ 409 `RELEASE_PROFILE_MISMATCH`)。キーはそのエージェントのエージェントキーを使う。エージェントキーは Web コンソールか Web ログインの cookie で `POST /v1/api-keys` に `kind: "agent"` と `agent_id` を渡して発行する([API キー](/api-keys))。この発行には SDK のメソッドがない。秘密値は変数にだけ入れる。
 
+`repository_id` は任意である。省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付ける([リポジトリなしのセッション](/sessions/without-repository))。設定がない古いエージェントはリリースのリポジトリで始まる。下の例は `sample-app` を直接指定して、そのリポジトリで始める。
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 

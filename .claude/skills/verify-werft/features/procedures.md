@@ -6,7 +6,7 @@
 
 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 중첩 command substitution 안의 GATE-SPEC JSON 인용을 깨뜨려 `unterminated GATE-SPEC`·`api_error`를 만들 수 있다.
 
-`up.sh` 기본 모드로 시작한다. 출력된 id를 아래 `RUN`에 넣는다. 이후 셸 호출마다 아래 doctor 앞의 prelude를 다시 실행한다. ID는 설정 직후 run의 `ids.sh`에 추가하고, 새 셸에서 복원한다. 각 절차의 `ap_as <who>`는 cookie와 개인 key를 다시 로드한다. 각 `sh` 블록은 앞 절차의 서버·브라우저 상태와 `ids.sh`만 이어받으며, 새 셸에서 prelude만 실행한 뒤 그대로 실행할 수 있다. 인증 API를 호출하는 블록은 블록 안에서 해당 사용자의 `ap_as`를 실행한다. 원시 key와 요청 직전 revision은 사용하는 블록 안에서 준비한다. 자격 파일 내용은 출력하지 않는다.
+`up.sh` 기본 모드로 시작한다. 출력된 id를 아래 `RUN`에 넣는다. 이후 셸 호출마다 아래 doctor 앞의 prelude를 다시 실행한다. ID는 설정 직후 `NAME=값` 줄로 출력되고, 그 줄을 Write 도구로 run의 `ids.sh`에 적는다(Bash의 `>>`·heredoc으로 파일을 만들지 않는다). Write는 파일 전체를 덮어쓰므로 지금까지 출력된 줄을 모두 적는다. 새 셸에서는 이 파일을 복원한다. 각 절차의 `ap_as <who>`는 cookie와 개인 key를 다시 로드한다. 각 `sh` 블록은 앞 절차의 서버·브라우저 상태와 `ids.sh`만 이어받으며, 새 셸에서 prelude만 실행한 뒤 그대로 실행할 수 있다. 인증 API를 호출하는 블록은 블록 안에서 해당 사용자의 `ap_as`를 실행한다. 원시 key와 요청 직전 revision은 사용하는 블록 안에서 준비한다. 자격 파일 내용은 출력하지 않는다.
 
 ```sh
 RUN='<run-id>'
@@ -17,7 +17,7 @@ B=.claude/skills/verify-werft/scripts/browser.mjs
 .claude/skills/verify-werft/scripts/doctor.sh "$RUN"
 ```
 
-ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
+`ids.sh` 경로는 `echo "$VERIFY_RUN/ids.sh"`로 읽는다. ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
 
 기대: doctor exit 0. 출력 SHA가 검사할 checkout이다. 이후 JSON은 `head -1` 뒤 jq, 상태는 원래 출력 마지막 줄로 판정한다. POST에는 `ap_post`·`ap_web`이 Idempotency-Key를 붙인다.
 
@@ -65,7 +65,7 @@ ap_web POST /v1/auth/google/start '{}'
 # Actor: owner.
 ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id)
-printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
+printf 'WS=%s\n' "$WS"   # ids.sh에 적는다(P-SETUP)
 node "$B" "$RUN" open /auth/google/callback
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 node "$B" "$RUN" open /login
@@ -94,7 +94,7 @@ ap_as owner
 ap_web GET /v1/members
 ap_web GET /v1/invites
 MID=$(ap_web GET /v1/members | head -1 | jq -r '.items[] | select(.email=="member@example.test") | .user_id')
-printf 'MID=%s\n' "$MID" >> "$VERIFY_RUN/ids.sh"
+printf 'MID=%s\n' "$MID"
 ```
 
 기대: invite 201 `invite_id`·`expires_at`(token은 helper가 저장). 브라우저 수락 `/`. member me의 역할 `member`, member 목록 API 403, owner 목록 200 `items`, API `/v1/invites`에는 수락한 초대도 `status:"accepted"`·`accepted_at`과 함께 남는다. UI “대기 중인 초대”는 pending만 표시한다. `MID`가 비어 있으면 다음으로 가지 말고 실제 목록 키를 보고 실패로 보고한다.
@@ -152,7 +152,7 @@ ap_as owner
 TEAM=$(ap_web POST /v1/teams '{"name":"Verify team"}')
 printf '%s\n' "$TEAM"
 TID=$(printf '%s\n' "$TEAM" | head -1 | jq -r .team.id)
-printf 'TID=%s\n' "$TID" >> "$VERIFY_RUN/ids.sh"
+printf 'TID=%s\n' "$TID"
 ap_web POST "/v1/teams/$TID/members" "$(jq -nc --arg u "$MID" '{user_id:$u}')"
 ap_web GET "/v1/teams/$TID"
 ap_web PATCH "/v1/teams/$TID" '{"name":"Verify renamed"}'
@@ -178,13 +178,13 @@ TEAM=$(ap_web POST /v1/teams '{"name":"verify"}' | head -1 | jq -r .team.id)
 AGENT=$(ap_web POST /v1/agents "$(jq -nc --argjson c "$CARD" --arg t "$TEAM" '{slug:"verify-helper",name:"Verify Helper",managing_team_id:$t,card:$c}')")
 printf '%s\n' "$AGENT"
 AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
-printf 'AID=%s\n' "$AID" >> "$VERIFY_RUN/ids.sh"
+printf 'AID=%s\n' "$AID"
 VID=$(printf '%s\n' "$AGENT" | head -1 | jq -r '.versions[0].id')
-printf 'VID=%s\n' "$VID" >> "$VERIFY_RUN/ids.sh"
+printf 'VID=%s\n' "$VID"
 RELEASE=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" '{version_id:$v,runtime_profile_id:"claude-coding-local",repository_id:"sample-app"}')")
 printf '%s\n' "$RELEASE"
 REL=$(printf '%s\n' "$RELEASE" | head -1 | jq -r .release.id)
-printf 'REL=%s\n' "$REL" >> "$VERIFY_RUN/ids.sh"
+printf 'REL=%s\n' "$REL"
 ap_web POST "/v1/agents/$AID/activate" "$(jq -nc --arg r "$REL" '{release_id:$r,expected_revision:-1}')"
 ap_web GET "/v1/agents/$AID"
 ap_web GET /v1/agents
@@ -247,7 +247,7 @@ ap_as owner
 BOUND=$(ap_web POST "/v1/agents/$AID/credential-bindings" '{"credential_ref":"verify-reference"}')
 printf '%s\n' "$BOUND"
 BINDING=$(printf '%s\n' "$BOUND" | head -1 | jq -r .binding.id)
-printf 'BINDING=%s\n' "$BINDING" >> "$VERIFY_RUN/ids.sh"
+printf 'BINDING=%s\n' "$BINDING"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ap_web POST "/v1/agents/$AID/credential-bindings" '{"credential_ref":"verify-reference"}'
 ap_web DELETE "/v1/agents/$AID/credential-bindings/$BINDING"
@@ -274,7 +274,7 @@ KEY=$OPKEY
 ap_get /v1
 ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"scope probe"}'
 OKID=$(sed -n 's/.*key_id \([^ ]*\).*/\1/p' "$VERIFY_RUN/operator-id.txt" | head -1)
-printf 'OKID=%s\n' "$OKID" >> "$VERIFY_RUN/ids.sh"
+printf 'OKID=%s\n' "$OKID"
 ap_revoke "$OKID"
 KEY=$OPKEY
 ap_get /v1
@@ -294,9 +294,9 @@ ap_as owner
 CREATED=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" '{profile_id:"claude-coding-local",repository_id:"sample-app",agent_release_id:$r,model:"claude-sonnet-5",title:"Verify list target",message:"GATE-SPEC {\"id\":\"verify-list\",\"steps\":[],\"final\":\"hello from verify\"}"}')")
 printf '%s\n' "$CREATED"
 SID=$(printf '%s\n' "$CREATED" | head -1 | jq -r .session_id)
-printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
+printf 'SID=%s\n' "$SID"
 RCPT=$(printf '%s\n' "$CREATED" | head -1 | jq -r .receipt_id)
-printf 'RCPT=%s\n' "$RCPT" >> "$VERIFY_RUN/ids.sh"
+printf 'RCPT=%s\n' "$RCPT"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break
   sleep 2
@@ -425,7 +425,7 @@ ap_as owner
 Q=$(ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","message":"GATE-SPEC {\"id\":\"verify-permission\",\"steps\":[{\"tool\":\"Bash\",\"input\":{\"command\":\"echo alpha | tee hello.txt\",\"description\":\"write hello.txt\"}}],\"final\":\"wrote hello.txt\"}"}')
 printf '%s\n' "$Q"
 QSID=$(printf '%s\n' "$Q" | head -1 | jq -r .session_id)
-printf 'QSID=%s\n' "$QSID" >> "$VERIFY_RUN/ids.sh"
+printf 'QSID=%s\n' "$QSID"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/sessions/$QSID" | head -1 | jq -r .status)" = needs_input ] && break
   sleep 2
@@ -434,7 +434,7 @@ ap_get "/v1/sessions/$QSID/pending-requests"
 node "$B" "$RUN" open /
 node "$B" "$RUN" shot home-request
 REQ=$(ap_get "/v1/sessions/$QSID/pending-requests" | head -1 | jq -r '.items[0].request_id')
-printf 'REQ=%s\n' "$REQ" >> "$VERIFY_RUN/ids.sh"
+printf 'REQ=%s\n' "$REQ"
 ap_post "/v1/sessions/$QSID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r,kind:"permission",action:"allow"}')"
 ap_curl key -N --max-time 5 "$API/v1/sessions/$QSID/events" > "$EVIDENCE/pending-events.txt" || test "$?" = 28
 ```
@@ -643,7 +643,7 @@ REV=$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .revision)
 DECISION=$(ap_post "/v1/sessions/$SID/recovery-decisions" "$(jq -nc --argjson r "$REV" '{expected_revision:$r,decision:"abandon",target_turn_id:"3",reason:"slow fake call had no effect"}')")
 printf '%s\n' "$DECISION"
 DRCPT=$(printf '%s\n' "$DECISION" | head -1 | jq -r .receipt_id)
-printf 'DRCPT=%s\n' "$DRCPT" >> "$VERIFY_RUN/ids.sh"
+printf 'DRCPT=%s\n' "$DRCPT"
 for i in $(seq 1 90); do
   [ "$(ap_get "/v1/receipts/$DRCPT" | head -1 | jq -r .status)" = succeeded ] && break
   sleep 2
@@ -717,7 +717,7 @@ REVOKED_KEY=$KEY
 KEY_ME=$(ap_get /v1/auth/me)
 printf '%s\n' "$KEY_ME"
 KID=$(printf '%s\n' "$KEY_ME" | head -1 | jq -er '.principal | select(.kind=="api_key") | .id')
-printf 'KID=%s\n' "$KID" >> "$VERIFY_RUN/ids.sh"
+printf 'KID=%s\n' "$KID"
 ap_web DELETE "/v1/api-keys/$KID"
 KEY=$REVOKED_KEY
 ap_get /v1/auth/me
@@ -861,7 +861,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
-전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh --keep-volumes`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
+전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
 
 ## P-DEMO-SEED — 데모 별도 run
 
@@ -883,7 +883,7 @@ ap_web GET /v1/agents
 ap_web GET /v1/sessions
 ap_web GET /v1/sessions | head -1 | jq -r '.items[] | [.status, (.title//"null")] | @tsv'
 RS=$(ap_web GET /v1/sessions | head -1 | jq -r '.items[] | select(.title=="결제 모듈 릴리스 노트 초안") | .id')
-printf 'RS=%s\n' "$RS" >> "$VERIFY_RUN/ids.sh"
+printf 'RS=%s\n' "$RS"
 ap_web GET "/v1/sessions/$RS/outputs"
 ap_web GET "/v1/sessions/$RS/outputs/out%2Frelease-notes.md"
 node "$U" "$RUN" demo-login member

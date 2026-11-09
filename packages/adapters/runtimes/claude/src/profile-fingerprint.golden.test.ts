@@ -88,6 +88,7 @@ const profiles: Record<string, FingerprintInput> = {
 // and bumps CLAUDE_PROFILE_DIGEST_SCHEME, which UPDATE_GOLDEN does not do.
 const DEFAULT_DIGEST_BY_SCHEME: Readonly<Record<number, string>> = {
   1: "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce",
+  2: "08bd96ec34d7819ec909c3c90a727d711d3c51ad6720eb0bd20b36bc4623efa5",
 };
 
 test("a digest moves only with the scheme", () => {
@@ -97,15 +98,20 @@ test("a digest moves only with the scheme", () => {
 });
 
 test("checkpoint fingerprints match main (golden)", async () => {
+  const digests = (scheme: number) =>
+    Object.fromEntries(
+      Object.entries(profiles).map(([name, input]) => [
+        name,
+        claudeProfileFingerprint(input, scheme),
+      ]),
+    );
   const actual = {
     runtime: CLAUDE_RUNTIME_FINGERPRINT,
     profileDigestScheme: CLAUDE_PROFILE_DIGEST_SCHEME,
-    profileSha256: Object.fromEntries(
-      Object.entries(profiles).map(([name, input]) => [
-        name,
-        claudeProfileFingerprint(input),
-      ]),
-    ),
+    profileSha256: digests(CLAUDE_PROFILE_DIGEST_SCHEME),
+    // What scheme 1 images stamped checkpoints with: a restore on this image
+    // computes them as alternates, so they never move.
+    profileSha256Scheme1: digests(1),
   };
   const text = `${JSON.stringify(actual, null, 2)}\n`;
   if (process.env.UPDATE_GOLDEN === "1") {

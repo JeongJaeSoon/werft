@@ -98,6 +98,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "env_start",
     // 0251
     "extensions",
+    // 0255
+    "legacy_runtime_configs",
     // 0257
     "runtime_spec",
     "spec_source",

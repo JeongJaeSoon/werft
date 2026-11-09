@@ -4,6 +4,7 @@ import {
   imageRuntimeVersions,
   parseImageRuntime,
   type RuntimeFingerprint,
+  restorableSchemesOf,
 } from "@werft-ai/runtime-core";
 import type { RuntimeVersions } from "../sessions/catalog.ts";
 
@@ -117,7 +118,7 @@ export function selectWorkerImage<I>(
     return { kind: "selected", image: newest.image, runtime: newest.runtime };
   }
   const match = images.find((candidate) =>
-    sameCombination(candidate.runtime, pointer.runtime),
+    canRestoreCheckpoint(candidate.runtime, pointer.runtime),
   );
   if (match !== undefined) {
     return { kind: "selected", image: match.image, runtime: match.runtime };
@@ -127,6 +128,26 @@ export function selectWorkerImage<I>(
     reason: "incompatible_checkpoint",
     detail: `the checkpoint was sealed on ${describe(pointer.runtime)}; the configured worker images run ${images.map((candidate) => describe(candidate.runtime)).join(" and ")}`,
   };
+}
+
+/**
+ * Whether an image can resume a checkpoint sealed on `pointer`: the same
+ * engine build, and a digest scheme the image lists as one it still computes.
+ * Directional (an image resumes the scheme before its own, never the reverse),
+ * so it serves image choice, the upgrade pre-check and verify-restore only.
+ * What a launch is reserved under and a worker's claim is held to stays the
+ * strict `sameCombination`.
+ */
+export function canRestoreCheckpoint(
+  image: ImageRuntime,
+  pointer: ImageRuntime,
+): boolean {
+  return (
+    image.engine === pointer.engine &&
+    image.sdkVersion === pointer.sdkVersion &&
+    image.cliVersion === pointer.cliVersion &&
+    restorableSchemesOf(image).includes(pointer.profileDigestScheme)
+  );
 }
 
 export function sameCombination(a: ImageRuntime, b: ImageRuntime): boolean {

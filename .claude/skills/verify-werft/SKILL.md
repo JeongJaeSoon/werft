@@ -60,7 +60,7 @@ Claude Code의 Bash 호출은 매번 새 셸이다. 그래서 `up.sh`가 run 디
 
 - run 디렉터리: `${VERIFY_AP_ROOT:-$TMPDIR/verify-werft}/<run id>/`
 - `state.env`: `COMPOSE_PROJECT_NAME`, `EXECUTION_INSTALLATION_ID`, `COMPOSE_FILE`(compose.yaml + 이 run의 ports overlay), `API_IMAGE`·`WORKER_IMAGE`·`EGRESS_PROXY_IMAGE`(run별 태그), `VERIFY_API`, `VERIFY_BOOTSTRAP_TOKEN`
-- `users/<who>`(이메일·무작위 비밀번호), `users/<who>.invite`(초대 token), `keys/<who>`(웹에서 발급한 key secret), `cookie.<who>`: `web-user.mjs`가 쓴다. 모두 0600이고 `down.sh`가 지운다
+- `users/<who>`(이메일·무작위 비밀번호), `users/<who>.invite`(초대 token), `keys/<who>`(웹에서 발급한 key secret), `cookie.<who>`: `web-user.mjs`가 쓴다. 모두 0600이고 `rm-volumes.sh`가 지운다
 - `browser/`: `browser.mjs`의 Chrome profile과 `pid`. `stop`(또는 `down.sh`)이 그 PID만 끝내고 profile을 지운다
 - `evidence/`: 증거. 내린 뒤에도 남는다
 
@@ -135,21 +135,29 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 ## Cleanup
 
 ```sh
-.claude/skills/verify-werft/scripts/down.sh <run id>
-.claude/skills/verify-werft/scripts/down.sh <run id> --keep-volumes   # volume은 남긴다
+.claude/skills/verify-werft/scripts/down.sh <run id>         # 컨테이너·네트워크·이미지. volume은 남긴다
+.claude/skills/verify-werft/scripts/rm-volumes.sh <run id>   # 별도 단계: 이 run의 volume을 정확한 이름으로 rm
 ```
 
 - run id는 필수다. 인자 없이, 또는 없는 run으로 부르면 사용법과 살아 있는 run 목록(run id, project, 실행 중인 컨테이너 수)을 stderr에 보이고 exit 2로 끝난다. 이때 compose는 하나도 부르지 않는다.
 
-- `scripts/local.sh down`을 같은 env로 돌린다(volume까지 지우고, installation label이 붙은 worker 컨테이너·네트워크·volume도 지운다).
-- 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down -v --remove-orphans --rmi local`(compose가 이름 붙인 `<project>-migrate` 이미지까지)을 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
+- `down.sh`는 volume을 지우지 않는다(`-v`도 `docker volume rm`도 없다). volume을 지우는 일은 `rm-volumes.sh`가 따로 맡는다.
+- `scripts/local.sh down --keep-volumes`를 같은 env로 돌린다(installation label이 붙은 worker 컨테이너·네트워크는 지우고 volume은 남긴다).
+- 이어서 `--profile apps --profile fake-model`과 `-f compose.yaml -f ports.yml -f infra/compose.fake-model.yml`로 `down --remove-orphans --rmi local`(`-v` 없음. compose가 이름 붙인 `<project>-migrate` 이미지까지)을 한 번 더 한다. profile이나 fake-model overlay가 빠지면 api·scheduler·reconciler와 `fake-messages`, `<project>_default` 네트워크가 남는 일이 있었다.
 - 지우기 전에 대상(컨테이너 수, 네트워크, 볼륨, 이미지)을 출력하고 `evidence/teardown-targets.txt`에 남긴다. 대상은 label 값이나 태그가 이 run과 정확히 같은 것뿐이다. 접두어·glob은 쓰지 않는다. 장기 실행 스택의 project 이름도 `verify-ap-`로 시작하기 때문이다. `COMPOSE_PROJECT_NAME`과 installation id가 `verify-ap-<run id>`와 정확히 같지 않으면 `down.sh`는 아무것도 지우지 않고 exit 1이다.
-- 컴포즈가 모르는 것도 지운다. worker의 익명 볼륨(`local.sh`가 worker를 `rm -f`로 지워 남는다)은 컨테이너의 마운트에서 미리 읽어 두었다가 지우고, `werft-ws-*` 작업공간 볼륨과 `werft-net-*-exec-*` 네트워크는 installation label로 지운다. 이미지는 `docker image rm`을 `-f` 없이 쓰므로 다른 곳에서 쓰는 이미지는 실패하고 건너뛴다. 레이어를 공유하는 다른 태그는 남는다.
-- `up.sh`가 스택을 못 띄우고 실패하면 같은 `down.sh`로 그 run만 정리한다(`evidence/up.log`는 남는다).
-- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 그리고 같은 두 label로 남은 네트워크와 볼륨, 이 run의 이미지 태그를 보여 주고 `evidence/leftovers.txt`에 쓴다. 컨테이너·네트워크·볼륨이 남았으면 exit 1.
-- volume을 남기려면 `down.sh <run id> --keep-volumes`를 쓴다. `local.sh down --keep-volumes`와 `-v` 없는 두 번째 compose down을 돌려 컨테이너·네트워크(worker의 `ap-net-*` 포함)는 지우고 volume은 남긴다. `ports.yml`과 run 목록의 항목도 남으므로 나중에 `down.sh <run id>`로 volume까지 지운다. 스택을 `docker compose -p <project> down`으로 직접 내리지 않는다. scheduler가 만든 worker 컨테이너와 `ap-net-*` 네트워크는 compose label이 없어 그대로 남고, 네트워크마다 Docker 주소 풀 하나를 계속 쥔다.
+- 컴포즈가 모르는 것도 지운다. `werft-net-*-exec-*` 네트워크는 installation label로 지운다. worker의 익명 볼륨(`local.sh`가 worker를 `rm -f`로 지워 남는다)은 컨테이너의 마운트에서 미리 읽어 `teardown-targets.txt`에 남겨 둔다. 이미지는 `docker image rm`을 `-f` 없이 쓰므로 다른 곳에서 쓰는 이미지는 실패하고 건너뛴다. 레이어를 공유하는 다른 태그는 남는다.
+- `up.sh`가 스택을 못 띄우고 실패하면 같은 `down.sh`로 그 run의 컨테이너·네트워크를 정리한다(`evidence/up.log`는 남는다). volume은 남으므로 이어서 `rm-volumes.sh <run id>`를 돌린다.
+- 마지막에 `docker ps -a --filter label=com.docker.compose.project=<project>`와 installation label로 남은 컨테이너, 같은 두 label로 남은 네트워크, 일부러 남긴 volume 목록, 이 run의 이미지 태그를 보여 주고 `evidence/leftovers.txt`에 쓴다. 컨테이너·네트워크가 남았으면 exit 1.
+- `ports.yml`과 run 목록의 항목은 `rm-volumes.sh`가 끝날 때까지 남는다. 스택을 `docker compose -p <project> down`으로 직접 내리지 않는다. scheduler가 만든 worker 컨테이너와 `ap-net-*` 네트워크는 compose label이 없어 그대로 남고, 네트워크마다 Docker 주소 풀 하나를 계속 쥔다.
 - 처음에 `browser/pid`가 있으면 `browser.mjs stop`으로 그 Chrome만 끝낸다.
-- 다 성공하면 `ports.yml`(token이 든 파일), cookie, `users/`·`keys/`를 지우고, `evidence/`는 남긴다. 정리 명령이나 남은 컨테이너 조회가 하나라도 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. `--keep-volumes`로 내리던 중이었으면 그 옵션을 붙여 다시 돌린다(빼면 volume까지 지운다). 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+- `down.sh`가 실패하면(Docker daemon 응답 없음 등) `ports.yml`을 남기고 exit 1이다. Docker를 살린 뒤 `down.sh <run id>`를 다시 돌린다. 실패한 시도 뒤에도 매번 `down.sh`를 돌린다.
+
+### rm-volumes.sh — volume 정리 단계
+
+- `down.sh` 뒤에 돌린다. 컨테이너가 아직 떠 있으면 아무것도 지우지 않고 exit 1이다.
+- 같은 가드(`COMPOSE_PROJECT_NAME`·installation id가 `verify-ap-<run id>`와 정확히 같음)를 통과해야 한다.
+- 대상은 `evidence/teardown-targets.txt`의 volume과 project label이 붙은 volume 중 이름이 `verify-ap-<run id>_`로 시작하는 것뿐이다. 하나씩 `docker volume rm <정확한 이름>`을 한다. `-f`, glob, prune은 쓰지 않는다. 이름이 다른 volume(worker의 익명 volume, `werft-ws-*`)은 `left (…)`로 출력하고 지우지 않는다.
+- 출력은 `evidence/rm-volumes.txt`에 남는다. 다 지워졌으면 `ports.yml`, cookie, `users/`·`keys/`를 지운다. 하나라도 실패하면 `ports.yml`을 남기고 exit 1이다. 성공하면 run은 목록에서 사라지므로 `left (…)`로 출력된 volume은 이 스킬이 더 추적하지 않는다. 그 이름은 `evidence/teardown-targets.txt`에만 남는다. `janitor.sh --apply`는 별도 도구라 오래된 run의 volume을 정확한 이름으로 `docker volume rm` 한다.
 - `lib.sh`와 `down.sh`는 run 상태(`state.env`, `verify-ap-*` project)를 읽지 못하면 아무 helper도 정의하지 않거나 아무것도 지우지 않고 멈춘다. 기본 project나 다른 세션의 run으로 넘어가지 않게 하려는 것이다.
 - 예전 판의 스킬은 공유 `latest` 파일을 따라가 인자 없는 `down.sh`가 다른 세션의 스택을 volume까지 지웠다. 지금 스크립트는 `latest`를 쓰지도 읽지도 않는다. root에 남은 `latest` 파일은 예전 판이 쓴 것이다.
 

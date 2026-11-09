@@ -50,6 +50,8 @@ const MIGRATIONS_ONLY = [
   // insert-only; a release takes its first approval and its first spec.
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 db737d5f3eaabc9ffd18e671ab6bd4da",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
+  // 0255: the gate the migration that deletes the profile tables calls.
+  "function assert_checkpoint_restore_verified(retained text[]) void language plpgsql volatility=v parallel=u body md5 64da19d35e4bc31cabef612fb0cf91cf",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0225: every installation settings write raises the one generation.
   "function bump_settings_generation() trigger language plpgsql volatility=v parallel=u body md5 ac57fd6125a65fb817be211cdd37b454",

@@ -4,8 +4,17 @@
     "engine": "claude",
     "sdkVersion": "0.3.319"
   },
-  "profileDigestScheme": 1,
+  "profileDigestScheme": 2,
   "profileSha256": {
+    "default": "08bd96ec34d7819ec909c3c90a727d711d3c51ad6720eb0bd20b36bc4623efa5",
+    "default-unset-fields": "257c02160486592571554601a3becd72b37819668ec96fcb25fc1c171bea8cea",
+    "claude-md": "bedcd08f682590f0c8aa61d5bc9d7af0be66095e8b18665765a418bed6a5ff8b",
+    "remote-mcp": "9efa2fa9b9c87ad3c0d06d91d57840d544796a2ae30fd200b1e432581bd97376",
+    "stdio-mcp-and-plugin": "22e53ddba17dc8901d124224a928f5cda8586f7e5c1b91e0e2bdee27cdbd8dec",
+    "repositoryless-accept-edits": "163693741508739ef089d8ba051076f61d8edfb1c51e07074beccbf37583e8de",
+    "litellm": "04b0f0b4f85e256676b2e60019e5fb085f0ddac79f599d5e36bf5d359537c443"
+  },
+  "profileSha256Scheme1": {
     "default": "574cab6e9d2c3df9ede2ef6ca103503eaf4fa2f391e444b742110816bcf771ce",
     "default-unset-fields": "9b78a36aae443ad0108e4621a867169a879a0abcfe1b0391ceb3d209ca4b723a",
     "claude-md": "11264a133b88785aea552a70fe41191476cde610102801b3af6f0c421b9908a0",

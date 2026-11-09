@@ -1389,6 +1389,13 @@ export const sessions = pgTable(
     // Null on a session that declared no variable.
     envStart: jsonb("env_start").$type<unknown>(),
     extensions: jsonb("extensions").$type<unknown>(),
+    // The run configs (`RuntimeConfig[]`, newest first, at most
+    // MAX_RESTORE_PROFILES) the session's checkpoints were made under, taken
+    // before the profile tables go. A claim offers them as
+    // restore_runtime_configs, so an older checkpoint still hashes to a
+    // digest a worker can match once no profile can rebuild them. Null until
+    // reconstructed; the permission mode inside is the original one.
+    legacyRuntimeConfigs: jsonb("legacy_runtime_configs").$type<unknown>(),
   },
   (table) => [
     check(
@@ -2629,6 +2636,52 @@ export const checkpoints = pgTable(
       .where(
         sql`${table.objectsPurgedAt} IS NULL AND NOT ${table.outputsRecorded}`,
       ),
+  ],
+);
+
+// What `verify-restore` found when it asked, for one checkpoint, whether the
+// image set that stays after the profile removal can restore it. A row binds
+// to the manifest it read (`manifest_sha256`), the candidate digests it
+// matched against, and the worker image it asked, so a re-pinned manifest or
+// another image set is a checkpoint nobody has verified.
+// `assert_checkpoint_restore_verified(retained)` is what the deleting migration
+// calls with the content ids of the images that stay: every live checkpoint
+// needs an `ok` as the latest check of one of them. It locks `checkpoints`
+// until the calling transaction ends.
+export const checkpointRestoreChecks = pgTable(
+  "checkpoint_restore_check",
+  {
+    id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    sessionId: uuid("session_id").notNull(),
+    revision: integer().notNull(),
+    manifestSha256: text("manifest_sha256").notNull(),
+    // sha256 over the candidate digests offered to the restore, sorted.
+    candidatesDigest: text("candidates_digest").notNull(),
+    imageDigest: text("image_digest").notNull(),
+    // The image's own runtime (engine, sdk, cli, digest scheme, restorable
+    // schemes) as it printed it.
+    imageRuntime: jsonb("image_runtime").$type<unknown>().notNull(),
+    outcome: text().$type<"ok" | "mismatch" | "error">().notNull(),
+    detail: text(),
+    checkedAt: timestamp("checked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "checkpoint_restore_check_checkpoint_fk",
+      columns: [table.sessionId, table.revision],
+      foreignColumns: [checkpoints.sessionId, checkpoints.revision],
+    }),
+    check(
+      "checkpoint_restore_check_outcome_check",
+      sql`${table.outcome} IN ('ok', 'mismatch', 'error')`,
+    ),
+    index("checkpoint_restore_check_latest_idx").on(
+      table.sessionId,
+      table.revision,
+      table.checkedAt,
+    ),
   ],
 );
 

@@ -4,21 +4,22 @@
 # and the fake-model overlay (without both, app containers, fake-messages and
 # the default network can survive), then the leftover check: no container
 # and no network of the project or its installation.
-# Then the run's own images, volumes (anonymous ones of its workers too) and
-# networks, by exact name (teardown-lib.sh); the targets are printed first.
-# Evidence in <run>/evidence stays. Any failure keeps ports.yml so the same
-# run can be torn down again once Docker answers.
+# Then the run's own images and networks, by exact name (teardown-lib.sh); the
+# targets, volumes included, are printed first.
+# Volumes are never deleted here (no -v, no docker volume rm): rm-volumes.sh
+# is the separate step that removes them by exact name. Evidence in
+# <run>/evidence stays, and so does ports.yml until rm-volumes.sh runs. Any
+# failure keeps ports.yml so the same run can be torn down again once Docker
+# answers.
 #
 #   down.sh <run id | run dir>    the run id up.sh printed; no default run,
 #                                  without one it lists the runs and deletes nothing
-#   down.sh <run> --keep-volumes  the same, but the volumes stay and so does the
-#                                  run; a later down.sh <run> deletes them
 set -uo pipefail
 
-keep=${2:-}
-case "$#:$keep" in
-  [01]: | 2:--keep-volumes) ;;
-  *) echo "usage: down.sh <run id | run dir> [--keep-volumes]" >&2; exit 2 ;;
+keep=--keep-volumes
+case "$#" in
+  [01]) ;;
+  *) echo "usage: down.sh <run id | run dir>   (volumes stay; rm-volumes.sh removes them)" >&2; exit 2 ;;
 esac
 
 # shellcheck disable=SC1091
@@ -46,24 +47,21 @@ if [ -f "$run/browser/pid" ]; then
 fi
 # Listed before anything goes: once the containers are gone, nothing links
 # their anonymous volumes to this run.
-# A --keep-volumes pass already removed the containers, so the anonymous
-# volumes it recorded come from its own list.
+# A rerun finds the containers already removed, so the anonymous volumes an
+# earlier pass recorded come from its own list.
 targets=$run/evidence/teardown-targets.txt
 prior=
 [ ! -f "$targets" ] || prior=$(sed -n 's/^  volume  \([0-9a-f]\{64\}\)$/\1/p' "$targets")
 if ! teardown_snapshot "$COMPOSE_PROJECT_NAME"; then
-  echo "down.sh: Docker could not list this run's resources; nothing was deleted, rerun down.sh $run${keep:+ $keep}" >&2
+  echo "down.sh: Docker could not list this run's resources; nothing was deleted, rerun down.sh $run" >&2
   exit 1
 fi
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$TEARDOWN_VOLUMES" "$prior" | sed '/^$/d' | sort -u)
 teardown_print "$COMPOSE_PROJECT_NAME" | tee "$targets" >&2
-# shellcheck disable=SC2086 # no argument when volumes go
-"$VERIFY_REPO/scripts/local.sh" down $keep 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
-down_args=(--remove-orphans --rmi local)
-[ -n "$keep" ] || down_args+=(-v)
+"$VERIFY_REPO/scripts/local.sh" down "$keep" 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
 docker compose --profile apps --profile fake-model \
   -f compose.yaml -f "$run/ports.yml" -f infra/compose.fake-model.yml \
-  down "${down_args[@]}" >>"$run/evidence/down.log" 2>&1 || failed=1
+  down --remove-orphans --rmi local >>"$run/evidence/down.log" 2>&1 || failed=1
 # By the names listed above, without -f: what another run still uses refuses
 # and stays. Images go here, not after the leftover check, so a failed check
 # does not leave a finished run's images behind.
@@ -75,16 +73,8 @@ networks=$(
   docker network ls --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" --format '{{.Name}}' &&
     docker network ls --filter "label=werft.installation=$EXECUTION_INSTALLATION_ID" --format '{{.Name}}'
 ) || failed=1
-volumes=
-if [ -z "$keep" ]; then
-  # By the snapshot's names too: an anonymous volume whose container is gone
-  # can only be found that way.
-  labelled=$(teardown_volumes "$COMPOSE_PROJECT_NAME") || failed=1
-  named=$(teardown_volumes_left) || failed=1
-  volumes=$(printf '%s\n%s\n' "$labelled" "$named" | sed '/^$/d' | sort -u)
-fi
 if [ "$failed" = 1 ]; then
-  echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2
+  echo "down.sh: a teardown or leftover check failed (see $run/evidence/down.log); ports.yml kept, rerun down.sh $run" >&2
   exit 1
 fi
 {
@@ -94,18 +84,13 @@ fi
   echo "${workers:-(none)}"
   echo "\$ docker network ls --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME, then label=werft.installation=$EXECUTION_INSTALLATION_ID"
   echo "${networks:-(none)}"
-  echo "\$ volumes labelled for the project or installation, and anonymous volumes of their containers${keep:+ (kept: --keep-volumes)}"
-  echo "${volumes:-(none)}"
+  echo "\$ volumes of the run, kept on purpose (rm-volumes.sh removes them)"
+  teardown_volumes "$COMPOSE_PROJECT_NAME" | sed 's/^/  /'
   echo "\$ docker images, this run's tags"
   echo "$(teardown_images "$COMPOSE_PROJECT_NAME")"
 } | tee "$run/evidence/leftovers.txt"
-if [ -n "$left$workers$networks$volumes" ]; then
-  echo "down.sh: containers, networks or volumes left (above); ports.yml kept, rerun down.sh $run${keep:+ $keep}" >&2
+if [ -n "$left$workers$networks" ]; then
+  echo "down.sh: containers or networks left (above); ports.yml kept, rerun down.sh $run" >&2
   exit 1
 fi
-if [ -n "$keep" ]; then
-  echo "down.sh: volumes kept; the run stays listed until down.sh $run deletes them" >&2
-  exit 0
-fi
-rm -f "$run/ports.yml" "$run/cookie" "$run"/cookie.*
-rm -rf "$run/users" "$run/keys"
+echo "down.sh: volumes kept; the run stays listed until rm-volumes.sh $run removes them" >&2

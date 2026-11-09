@@ -5,7 +5,7 @@
 
 verify_root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-werft}
 
-# Read-only: runs not yet torn down (down.sh removes ports.yml) or with containers up.
+# Read-only: runs not yet torn down (rm-volumes.sh removes ports.yml) or with containers up.
 verify_list_runs() {
   local state project up
   echo "live runs under $verify_root (run id, project, running containers):"

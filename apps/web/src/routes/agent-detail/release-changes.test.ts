@@ -312,6 +312,18 @@ describe("releaseChanges", () => {
 });
 
 describe("previousRelease", () => {
+  test("a release's own repository_id is not a change: sessions start without a repository", () => {
+    const moved = release({ id: "sha256:b", repository_id: "other-app" });
+    expect(releaseChanges(release(), moved, () => undefined)).toEqual([]);
+    expect(
+      releaseChanges(
+        release({ repository_id: null }),
+        release(),
+        () => undefined,
+      ),
+    ).toEqual([]);
+  });
+
   test("is the release made just before, whatever order the list is in", () => {
     const middle = release({
       id: "sha256:m",

@@ -48,7 +48,7 @@ Reference: [`POST /v1/sessions/{id}/messages`](/reference/http-api/messages-and-
 </Tab>
 </Tabs>
 
-Commit the files the agent needs to read to the repository the session uses, and point to them by path in the message. The session clones that repository when it starts.
+Commit the files the agent needs to read to the repository the session uses, and point to them by path in the message. A session that starts with a repository clones it when it starts. An agent session that starts without one can read the files only after the agent attaches that repository.
 
 ## Next steps
 
