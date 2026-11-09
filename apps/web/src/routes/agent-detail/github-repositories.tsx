@@ -34,6 +34,8 @@ type Option = GitHubTabData["options"]["repositories"][number];
 export type RepositoryRow = {
   /** Stable across a toggle: the catalog id once there is one. */
   readonly key: string;
+  /** Keys the row's React element and its switch state; see `repositoryRows`. */
+  readonly view: string;
   /** `owner/repo`. */
   readonly name: string;
   readonly href: string;
@@ -65,7 +67,7 @@ export function repositoryRows(
   installed: readonly InstalledRepository[],
   installationId: number | null,
 ): RepositoryRow[] {
-  const rows = new Map<string, RepositoryRow>();
+  const rows = new Map<string, Omit<RepositoryRow, "view">>();
   const refs = new Map<string, string>();
   for (const held of data.selected_repositories ?? [])
     refs.set(held.id, held.ref);
@@ -145,9 +147,23 @@ export function repositoryRows(
             },
     });
   }
-  return [...rows.values()].sort((a, b) =>
+  const sorted = [...rows.values()].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
   );
+  // The name is what stays put while a row moves from "installed only" to a
+  // catalog id; the id is added only for two rows that share a name.
+  const seen = new Map<string, number>();
+  for (const row of sorted) {
+    const name = row.name.toLowerCase();
+    seen.set(name, (seen.get(name) ?? 0) + 1);
+  }
+  return sorted.map((row) => {
+    const name = row.name.toLowerCase();
+    return {
+      ...row,
+      view: (seen.get(name) ?? 0) > 1 ? `${name}#${row.key}` : name,
+    };
+  });
 }
 
 /**
@@ -254,14 +270,15 @@ export function RepositoryList({
           aria-label={t("agentGitHub.section.repositories")}
         >
           {rows.map((row) => {
-            const on = toggles.wanted[row.key] ?? row.on;
+            const on = toggles.wanted[row.view] ?? row.on;
             const disabled =
               !editable || row.blocked !== null || row.target === null;
             return (
               <SettingRow
-                // The name, not `row.key`: that changes once the catalog takes
-                // the repository, and a new key would drop the switch's focus.
-                key={row.name.toLowerCase()}
+                // The view key, not the catalog id: that changes once the
+                // catalog takes the repository, and a new key would drop the
+                // switch's focus and the row's pending state.
+                key={row.view}
                 title={
                   <Link
                     href={row.href}
@@ -291,8 +308,8 @@ export function RepositoryList({
                     : undefined
                 }
                 meta={
-                  toggles.errors[row.key] ? (
-                    <FieldError>{toggles.errors[row.key]}</FieldError>
+                  toggles.errors[row.view] ? (
+                    <FieldError>{toggles.errors[row.view]}</FieldError>
                   ) : undefined
                 }
                 actions={
@@ -305,7 +322,7 @@ export function RepositoryList({
                       disabled={disabled}
                       onCheckedChange={(checked) => {
                         if (row.target) {
-                          toggles.toggle(row.key, row.target, checked);
+                          toggles.toggle(row.view, row.target, checked);
                         }
                       }}
                     />

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import { useWerft } from "@werft-ai/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorKey, type MessageKey, useI18n } from "../../i18n/i18n.tsx";
 import { githubKey } from "./github-activity.ts";
 
@@ -52,6 +52,20 @@ export function useRepositoryToggles(agentId: string) {
   // The newest click per row: an older request finishing must not clear it.
   const newest = useRef(new Map<string, number>());
   const clicks = useRef(0);
+  // Rows shown from a save whose re-read failed, until a re-read succeeds.
+  const kept = useRef(new Set<string>());
+
+  useEffect(() => {
+    const own = JSON.stringify(githubKey(client, agentId));
+    return cache.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || event.action.type !== "success") return;
+      if (JSON.stringify(event.query.queryKey) !== own) return;
+      if (kept.current.size === 0) return;
+      const done = [...kept.current];
+      kept.current.clear();
+      setWanted((held) => done.reduce((rest, key) => without(rest, key), held));
+    });
+  }, [cache, client, agentId]);
 
   const refuse = (error: ApiError): string => {
     const reason = (error.details as { reason_code?: string } | null)
@@ -69,6 +83,7 @@ export function useRepositoryToggles(agentId: string) {
   ) => {
     const click = ++clicks.current;
     newest.current.set(key, click);
+    kept.current.delete(key);
     setWanted((held) => ({ ...held, [key]: enabled }));
     setErrors((held) => without(held, key));
     setPending((count) => count + 1);
@@ -89,8 +104,9 @@ export function useRepositoryToggles(agentId: string) {
         // The save went through: while the re-read failed the cache still
         // holds the old value, so keep showing what was saved.
         const reread = cache.getQueryState(githubKey(client, agentId));
-        if (latest() && reread?.status !== "error") {
-          setWanted((held) => without(held, key));
+        if (latest()) {
+          if (reread?.status === "error") kept.current.add(key);
+          else setWanted((held) => without(held, key));
         }
       } catch (error) {
         const message = refuse(error as ApiError);

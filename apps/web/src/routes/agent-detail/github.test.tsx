@@ -1072,6 +1072,67 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByText(/저장소를 바꾸지 못했습니다/)).toBeNull();
     // The cache still says off, but the save went through.
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
+    // Once a re-read succeeds the server's answer wins again (here: someone
+    // else turned it off), instead of the kept click showing forever.
+    saved = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe(
+        "false",
+      ),
+    );
+  });
+
+  test("행의 키는 카탈로그가 받아도 그대로고, 이름이 같은 두 행만 id로 가른다", async () => {
+    const { repositoryRows } = await import("./github-repositories.tsx");
+    const listed = {
+      github_repository_id: 12,
+      full_name: "acme/api",
+      default_branch: "main",
+      private: false,
+    };
+    const before = repositoryRows(
+      TAB,
+      [],
+      [{ ...listed, catalog_id: null }],
+      77,
+    );
+    const taken = structuredClone(TAB);
+    taken.options.repositories.push({
+      id: "api",
+      url: "https://github.com/acme/api.git",
+      repository: "acme/api",
+      ref: "r1.api",
+      available: true,
+      reason: null,
+      installed: UNKNOWN,
+    });
+    const after = repositoryRows(
+      taken,
+      [],
+      [{ ...listed, catalog_id: "api" }],
+      77,
+    );
+    const viewOf = (rows: typeof before) =>
+      rows.find((row) => row.name === "acme/api")?.view;
+    expect(viewOf(before)).toBe("acme/api");
+    expect(viewOf(after)).toBe(viewOf(before));
+
+    // A dropped row and a re-registered one with the same name stay apart.
+    const twins = structuredClone(taken);
+    twins.selected_repositories = [
+      {
+        id: "api-old",
+        repository: "acme/api",
+        private: null,
+        ref: "r1.api-old",
+      },
+    ];
+    const views = repositoryRows(twins, ["api-old"], [], null)
+      .filter((row) => row.name === "acme/api")
+      .map((row) => row.view);
+    expect(views).toHaveLength(2);
+    expect(new Set(views).size).toBe(2);
   });
 
   test("세부 설정 초안이 있어도 켠 저장소는 켜진 채로 보인다", async () => {
