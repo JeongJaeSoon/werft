@@ -155,6 +155,7 @@ export function SlackChannels({
   notify,
   homeStep = false,
   locked = false,
+  installed = true,
 }: {
   readonly agentId: string;
   /** The line to paste in a channel to add the bot. */
@@ -164,6 +165,11 @@ export function SlackChannels({
   readonly homeStep?: boolean;
   /** Slack has not checked the Request URL, so no channel would hear the bot. */
   readonly locked?: boolean;
+  /**
+   * An active bot to invite. After a disconnect the tab keeps its layout,
+   * but `/invite` would add a bot that hears nothing.
+   */
+  readonly installed?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -332,7 +338,9 @@ export function SlackChannels({
         actions={actions}
         box={empty && !locked}
         rows={
-          manages ? <InviteRow command={invite} notify={notify} /> : undefined
+          manages && installed ? (
+            <InviteRow command={invite} notify={notify} />
+          ) : undefined
         }
       >
         <div className="grid">

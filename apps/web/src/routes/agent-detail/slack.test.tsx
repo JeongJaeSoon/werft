@@ -1733,6 +1733,8 @@ describe("Slack management", () => {
     );
     const result = await screen.findByText("Slack 연결을 해제했습니다.");
     await waitFor(() => expect(document.activeElement === result).toBe(true));
+    // No active bot is left to invite into a channel.
+    await waitFor(() => expect(screen.queryByText("채널에 초대")).toBeNull());
     // The side list's app link still lands on a section of that name.
     const nav = screen.getByRole("navigation", { name: "Slack 구역" });
     const link = within(nav).getByRole("link", {

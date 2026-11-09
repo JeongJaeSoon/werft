@@ -212,6 +212,7 @@ export default function SlackTab({
             notify={notify}
             homeStep={homeStep}
             locked={unverified && manages}
+            installed={installed}
           />
           {homeStep ? null : (
             <SettingsSection
