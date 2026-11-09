@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { RuntimeStart } from "@werft-ai/runtime-core";
 
 import type { ClaudeRuntimeConfig } from "./config.ts";
+import { claudeStartConfig } from "./contract.ts";
 import { buildSdkOptions } from "./runtime.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
@@ -103,6 +105,58 @@ describe("the Skill tool is the profile's to name, never added for a bundle", ()
     expect(await ask(options, "Skill")).toMatchObject({ behavior: "allow" });
     expect(await ask(options, "Bash")).toMatchObject({ behavior: "deny" });
     expect(options).not.toHaveProperty("allowedTools");
+  });
+
+  const DIGEST = "ab".repeat(32);
+  const startWith = (tools: string[], bundle: boolean): ClaudeRuntimeConfig =>
+    claudeStartConfig(
+      {
+        config: {
+          correlationId: "skill-tool",
+          cwd: "/workspace",
+          home: "/home/agent",
+          model: "claude-sonnet-5",
+          permissionMode: "default",
+          tools,
+          mode: "new",
+        },
+        bindings: {
+          principal: { ownerScope: "owner-a" },
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.com",
+            auth: { kind: "api_key", value: "placeholder" },
+          },
+        },
+        bundle: {
+          instructions: [],
+          repoInstructions: null,
+          mcpServers: [],
+          ...(bundle
+            ? {
+                extensions: [
+                  {
+                    name: "demo",
+                    digest: DIGEST,
+                    path: `/home/agent/.ext/${DIGEST}`,
+                  },
+                ],
+              }
+            : {}),
+        },
+      } as RuntimeStart,
+      { stateDir: "/tenant/config" },
+    );
+
+  test("the engine's tools are the profile's list, with a bundle or without, Skill listed or not", () => {
+    for (const bundle of [true, false]) {
+      for (const tools of [["Read"], ["Read", "Skill"]]) {
+        const config = startWith(tools, bundle);
+        expect(config.tools).toEqual(tools);
+        expect(buildSdkOptions(config, deps).tools).toEqual(tools);
+        expect("plugins" in config).toBe(bundle);
+      }
+    }
   });
 
   test("a profile that does not list Skill gets none, bundle or not", async () => {
