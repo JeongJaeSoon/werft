@@ -146,6 +146,12 @@ async function supervise(role: PassLoopRoleName): Promise<number> {
     reconcilerSettings(process.env);
   }
   const logger = createLogger({ level });
+  if (role === "slack") {
+    const { slackApiUrlWarnings } = await import("./api/slack-config.ts");
+    for (const warning of slackApiUrlWarnings(process.env)) {
+      logger.warn(warning, {});
+    }
+  }
   const shutdown = new AbortController();
   for (const name of ["SIGTERM", "SIGINT"] as const) {
     process.on(name, () => {

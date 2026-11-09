@@ -148,21 +148,35 @@ export function slackEnvWarnings(env: Env): string[] {
     }
   }
 
-  const api = parsed(env.SLACK_API_URL);
-  const issuer = parsed(env.SLACK_OIDC_ISSUER);
-  for (const [name, url, standard] of [
-    ["SLACK_API_URL", api, SLACK_API_URL],
-    ["SLACK_OIDC_ISSUER", issuer, SLACK_ISSUER],
-  ] as const) {
-    if (
-      url !== null &&
-      url.toString().replace(/\/+$/, "") !== standard &&
-      !PLAIN_HTTP_HOSTS.has(url.hostname)
-    ) {
-      warnings.push(
-        `${name} points away from Slack: it is for the mock Slack test stack only. Remove it from operational config`,
-      );
-    }
-  }
+  warnings.push(
+    ...slackApiUrlWarnings(env),
+    ...awayFromSlack("SLACK_OIDC_ISSUER", env.SLACK_OIDC_ISSUER, SLACK_ISSUER),
+  );
   return warnings;
+}
+
+function awayFromSlack(
+  name: string,
+  value: string | undefined,
+  standard: string,
+): string[] {
+  const url = parsed(value);
+  if (
+    url === null ||
+    url.toString().replace(/\/+$/, "") === standard ||
+    PLAIN_HTTP_HOSTS.has(url.hostname)
+  ) {
+    return [];
+  }
+  return [
+    `${name} points away from Slack: it is for the mock Slack test stack only. Remove it from operational config`,
+  ];
+}
+
+/**
+ * The API address alone: the Slack role sends bot tokens to it as well, so it
+ * warns on its own start, where the API's warnings are not seen.
+ */
+export function slackApiUrlWarnings(env: Env): string[] {
+  return awayFromSlack("SLACK_API_URL", env.SLACK_API_URL, SLACK_API_URL);
 }

@@ -3,6 +3,7 @@ import { slackEventsUrl, slackLinkRedirectUrl } from "@werft-ai/platform";
 import {
   consoleOriginFrom,
   SlackConfigError,
+  slackApiUrlWarnings,
   slackEnvWarnings,
   slackEventsPublicUrlFrom,
   slackIssuerFrom,
@@ -167,6 +168,20 @@ describe("slackEnvWarnings", () => {
         SLACK_OIDC_ISSUER: "https://slack.com",
       }),
     ).toEqual([]);
+  });
+
+  test("the Slack role's API warning names SLACK_API_URL only", () => {
+    const warnings = slackApiUrlWarnings({
+      SLACK_API_URL: "https://slack-proxy.example/api",
+      SLACK_OIDC_ISSUER: "https://slack-proxy.example",
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("SLACK_API_URL");
+    expect(warnings[0]).not.toContain("slack-proxy.example");
+    expect(
+      slackApiUrlWarnings({ SLACK_API_URL: "http://mock-slack:4020/api" }),
+    ).toEqual([]);
+    expect(slackApiUrlWarnings({})).toEqual([]);
   });
 
   test("no warning carries a value", () => {
