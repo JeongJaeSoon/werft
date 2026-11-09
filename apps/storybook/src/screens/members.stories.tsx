@@ -1639,7 +1639,6 @@ type Screen =
   | "member-edit"
   | "member-edit-admin"
   | "member-edit-admin-owner"
-  | "member-edit-disabled"
   | "member-role-change"
   | "member-disable"
   | "invite"
@@ -1737,9 +1736,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
             ? ID.minji
             : screen === "member-edit-admin-owner"
               ? ID.dana
-              : screen === "member-edit-disabled"
-                ? ID.sora
-                : undefined
+              : undefined
         }
         initialDisable={screen === "member-disable" ? ID.hoon : undefined}
         initialRoleChange={
@@ -1847,10 +1844,6 @@ export const MemberEditAsAdmin: Story = {
 export const MemberEditOwnerAsAdmin: Story = {
   name: "Member edit (admin on an owner: locked)",
   args: { screen: "member-edit-admin-owner" },
-};
-export const MemberEditDisabled: Story = {
-  name: "Member edit (disabled member: locked)",
-  args: { screen: "member-edit-disabled" },
 };
 export const MemberRoleChange: Story = {
   name: "Member role change (confirm)",
