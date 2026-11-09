@@ -39578,7 +39578,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61136,7 +61136,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61428,7 +61428,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.\n- `LINK_TAKEN`: The Slack account is already linked to another person.\n- `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.\n- `LINK_TAKEN`: The Slack account is already linked to another person.\n- `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -78762,7 +78762,7 @@
           "Teams"
         ],
         "summary": "Take a member out of a team",
-        "description": "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "What the person held through the team ends from their next request. A disabled member is not changed: 409 MEMBER_DISABLED, nothing written; reactivate them first. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -78970,6 +78970,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "MEMBER_DISABLED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -79019,7 +79054,7 @@
           "Teams"
         ],
         "summary": "Make a team member a lead or a member",
-        "description": "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404; a disabled member is 409 MEMBER_DISABLED with nothing written. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -79264,6 +79299,41 @@
                               "type": "string",
                               "enum": [
                                 "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "MEMBER_DISABLED"
                               ]
                             }
                           }

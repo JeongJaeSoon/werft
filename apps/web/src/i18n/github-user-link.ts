@@ -22,7 +22,7 @@ export const githubUserLinkKo = {
   "githubUserLink.copied": "복사했습니다",
   "githubUserLink.secret": "Client secret",
   "githubUserLink.secretHint":
-    "GitHub App 설정 › Client secrets에서 새로 만든 값을 넣습니다. 저장한 뒤에는 다시 보여 주지 않습니다.",
+    "GitHub App 설정 > Client secrets에서 새로 만든 값을 넣습니다. 저장한 뒤에는 다시 보여 주지 않습니다.",
   "githubUserLink.secretInputHint": "GitHub는 만들 때 한 번만 보여 줍니다.",
   "githubUserLink.secretMissing": "client secret을 넣어 주세요.",
   "githubUserLink.save": "저장",
@@ -57,7 +57,7 @@ export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.copied": "Copied",
   "githubUserLink.secret": "Client secret",
   "githubUserLink.secretHint":
-    "Enter one generated under the GitHub App's settings › Client secrets. It is never shown again once saved.",
+    "Enter one generated under the GitHub App's settings > Client secrets. It is never shown again once saved.",
   "githubUserLink.secretInputHint":
     "GitHub shows it only once, when generated.",
   "githubUserLink.secretMissing": "Enter the client secret.",
@@ -93,7 +93,7 @@ export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
   "githubUserLink.copied": "コピーしました",
   "githubUserLink.secret": "Client secret",
   "githubUserLink.secretHint":
-    "GitHub App 設定 › Client secrets で新しく作成した値を入力します。保存後は二度と表示しません。",
+    "GitHub App 設定 > Client secrets で新しく作成した値を入力します。保存後は二度と表示しません。",
   "githubUserLink.secretInputHint": "GitHub は作成時に一度だけ表示します。",
   "githubUserLink.secretMissing": "client secret を入力してください。",
   "githubUserLink.save": "保存",

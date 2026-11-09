@@ -71,9 +71,9 @@ import {
 import { MOBILE, type Role, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
- * apps/web routes/workspace-settings.tsx (설정 › 일반) and
- * routes/workspace-slack.tsx with workspace-slack-apps.tsx (설정 › 연동 ›
- * Slack). Owners hold workspace.manage and audit_retention.manage, admins only
+ * apps/web routes/workspace-settings.tsx (설정 > 워크스페이스 > 일반) and
+ * routes/workspace-slack.tsx with workspace-slack-apps.tsx (설정 >
+ * 워크스페이스 > 연동 > Slack). Owners hold workspace.manage and audit_retention.manage, admins only
  * workspace.manage, members neither (packages/platform musterrolle/policy.ts).
  */
 

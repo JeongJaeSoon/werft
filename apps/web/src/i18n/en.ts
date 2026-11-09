@@ -28,6 +28,16 @@ import { workspaceEn } from "./workspace.ts";
 export const slackEn = {
   "slack.error.config":
     "Slack app creation needs workspace configuration. Ask an administrator to configure it.",
+  "slack.error.refused":
+    "Slack refused the request (code: {code}). Give the code to an administrator.",
+  "slack.error.noAnswer":
+    "Slack did not answer, so the install could not finish. Start the install again from the Slack tab.",
+  "slack.error.unknown":
+    "The request could not be processed, and trying again may not help (code: {code}). Give the code to an administrator.",
+  "slack.error.consoleOrigin":
+    "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
+  "slack.error.eventsUrl":
+    "No https address is known for Slack to send events to. Ask an administrator to set CONSOLE_ORIGIN (or SLACK_EVENTS_PUBLIC_URL when events enter apart from the console).",
   "slack.error.creating":
     "App creation is still being checked. Ask an administrator to check Slack for the app, then refresh.",
   "slack.error.notInstalled":
@@ -92,7 +102,7 @@ export const slackEn = {
     "No App Configuration Token is registered for the workspace, so no app can be made.",
   "slack.configToken.needs_reentry":
     "The workspace's stored token can no longer be used, so no app can be made.",
-  "slack.configToken.settings": "Register the token in Integrations › Slack",
+  "slack.configToken.settings": "Register the token in Integrations > Slack",
   "slack.configToken.askAdmin": "Ask an owner or admin to register the token.",
   "slack.install": "Install Slack app",
   "slack.reinstall": "Reinstall",

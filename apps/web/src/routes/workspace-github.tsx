@@ -124,7 +124,7 @@ const dateOf = (iso: string, locale: TimestampLocale) =>
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
 
-/** Integrations › GitHub: the Apps agents reach GitHub with and where they are installed. */
+/** Integrations > GitHub: the Apps agents reach GitHub with and where they are installed. */
 export function WorkspaceGitHubScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const settings = useGitHubSettings();

@@ -925,6 +925,8 @@ export function createGitHubRepositoryService(deps: {
         throw new SessionServiceError(
           "BACKEND_UNAVAILABLE",
           "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+          undefined,
+          { reason_code: "secret_store_off" },
         );
       }
       const connectionId = body.connection_id.toLowerCase();
