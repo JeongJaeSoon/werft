@@ -206,6 +206,7 @@ describe("database schema", () => {
       "sessions",
       "settings_generation",
       "slack_apps",
+      "slack_channel_lifecycle",
       "slack_config_tokens",
       "slack_inbound_events",
       "slack_install_states",

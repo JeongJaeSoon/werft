@@ -83,6 +83,8 @@ function service(
     requireApproval: async () => null,
     approve: async () => ({ outcome: "not_found" }),
     reject: async () => ({ outcome: "not_found" }),
+    observeLifecycle: async () => true,
+    botLeft: async () => true,
     ...overrides,
     list: async () => [],
     resolveSlackChannel: async () => null,

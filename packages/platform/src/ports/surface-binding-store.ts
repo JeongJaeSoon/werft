@@ -144,6 +144,32 @@ export interface SurfaceBindingStore {
    * the binding is no longer ready.
    */
   requireApproval(bindingId: string): Promise<SurfaceBindingRecord | null>;
+  /**
+   * Notes that Slack reported a join of the bot to a channel at `at`.
+   * False when a later join or leave of that channel was already noted, so
+   * the event is old news and must change nothing. An equal time passes,
+   * since a retried event runs its effect again. A null `at` (no time in
+   * the event) cannot be ordered and passes without being noted.
+   */
+  observeLifecycle(
+    installationId: string,
+    channelId: string,
+    at: Date | null,
+  ): Promise<boolean>;
+  /**
+   * The bot left a channel, or was removed from it, at `at`. In one
+   * transaction with the order check of `observeLifecycle`, a private
+   * channel's binding goes back to `pending_approval` (no longer home, its
+   * approval cleared, membership `awaiting_invite`, a
+   * `request_surface_binding` receipt for the installation) and keeps its
+   * mode and ceiling, so an invite after this needs a new approval. A
+   * public channel's binding is left alone. False when the event is old.
+   */
+  botLeft(
+    installationId: string,
+    channelId: string,
+    at: Date | null,
+  ): Promise<boolean>;
   approve(
     input: ResolveSurfaceBindingInput,
   ): Promise<ResolveSurfaceBindingResult>;

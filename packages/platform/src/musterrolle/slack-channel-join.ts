@@ -1,6 +1,7 @@
 import type { SurfaceMembership } from "@werft-ai/contracts";
 import { z } from "zod";
 import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
+import type { SlackInboundClaim } from "../ports/slack-inbound-event-store.ts";
 import type {
   SurfaceBindingRecord,
   SurfaceBindingStore,
@@ -91,7 +92,10 @@ export function createSlackMemberJoinedHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   bindings: Pick<
     SurfaceBindingStore,
-    "ensureInvitedChannel" | "requireApproval" | "setMembership"
+    | "ensureInvitedChannel"
+    | "observeLifecycle"
+    | "requireApproval"
+    | "setMembership"
   >;
   welcome: Pick<SlackWelcome, "welcome">;
   slack: Pick<SlackBotApi, "channelKind">;
@@ -112,6 +116,16 @@ export function createSlackMemberJoinedHandler(deps: {
       return;
     }
     const { channel } = parsed.data;
+    // A join that a later leave already overtook must not revive the channel.
+    if (
+      !(await deps.bindings.observeLifecycle(
+        agent.installationId,
+        channel,
+        lifecycleTime(claim),
+      ))
+    ) {
+      return;
+    }
     const botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);
     if (botToken === null) {
       throw new Error("The Slack app has no bot token stored");
@@ -142,6 +156,55 @@ export function createSlackMemberJoinedHandler(deps: {
         ask: false,
       });
     }
+  };
+}
+
+const memberLeftSchema = z.object({
+  type: z.literal("member_left_channel"),
+  user: z.string().min(1),
+  channel: z.string().min(1),
+});
+
+// join and leave events carry no `ts`; `event_ts` (microseconds) is the
+// time Slack stamped them, and the envelope's seconds are the fallback.
+function lifecycleTime(claim: SlackInboundClaim): Date | null {
+  const stamp = (claim.payload.event as { event_ts?: unknown } | undefined)
+    ?.event_ts;
+  if (typeof stamp === "string" && /^\d{1,12}(\.\d{1,6})?$/.test(stamp)) {
+    return new Date(Number(stamp) * 1000);
+  }
+  return claim.eventTime;
+}
+
+/**
+ * The `slack` role's handler for `member_left_channel`: when the one who
+ * left is this app's bot (it was removed, or left), a private channel's
+ * binding waits for approval again, so a later invite does not bring back
+ * the old approval. Every other event goes to `next`.
+ */
+export function createSlackMemberLeftHandler(deps: {
+  agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
+  bindings: Pick<SurfaceBindingStore, "botLeft">;
+  next: SlackInboundHandler;
+}): SlackInboundHandler {
+  return async (claim) => {
+    const parsed = memberLeftSchema.safeParse(
+      (claim.payload as { event?: unknown }).event,
+    );
+    if (!parsed.success) return deps.next(claim);
+    const agent = await agentForSlackEvent(deps.agents, {
+      appId: claim.appId,
+      teamId: claim.teamId,
+      agentId: claim.agentId,
+    });
+    if (agent.status === "dropped" || parsed.data.user !== agent.botUserId) {
+      return;
+    }
+    await deps.bindings.botLeft(
+      agent.installationId,
+      parsed.data.channel,
+      lifecycleTime(claim),
+    );
   };
 }
 

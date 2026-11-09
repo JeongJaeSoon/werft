@@ -23,6 +23,7 @@ import {
   agentIdentities,
   agents,
   receipts,
+  slackChannelLifecycle,
   surfaceBindings,
 } from "./schema.ts";
 
@@ -410,6 +411,12 @@ export function createPostgresSurfaceBindingStore(
         : null;
     },
     requireApproval: (bindingId) => requireApproval(db, bindingId),
+    observeLifecycle: (installationId, channelId, at) =>
+      db.transaction((tx) =>
+        advanceLifecycle(tx, installationId, channelId, at),
+      ),
+    botLeft: (installationId, channelId, at) =>
+      botLeft(db, installationId, channelId, at),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
     async setMembership(bindingId, membership, expected) {
@@ -503,6 +510,90 @@ async function requireApproval(
       reason: "channel_now_private",
     });
     return binding;
+  });
+}
+
+// The upsert's row lock holds until the caller's transaction ends, so a
+// leave and a join of one channel apply in the order their times say.
+async function advanceLifecycle(
+  tx: Database,
+  installationId: string,
+  channelId: string,
+  at: Date | null,
+): Promise<boolean> {
+  if (at === null) return true;
+  if (!UUID.test(installationId)) return false;
+  const rows = rowsOf<{ installation_id: string }>(
+    await tx.execute(sql`
+      INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
+        last_event_at)
+      VALUES (${installationId.toLowerCase()}, ${channelId},
+        ${at.toISOString()}::timestamptz)
+      ON CONFLICT (installation_id, channel_id) DO UPDATE
+        SET last_event_at = EXCLUDED.last_event_at
+        WHERE ${slackChannelLifecycle.lastEventAt} <= EXCLUDED.last_event_at
+      RETURNING installation_id`),
+  );
+  return rows.length > 0;
+}
+
+async function botLeft(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  at: Date | null,
+): Promise<boolean> {
+  if (!UUID.test(installationId)) return false;
+  const installation = installationId.toLowerCase();
+  return db.transaction(async (tx) => {
+    if (!(await advanceLifecycle(tx, installation, channelId, at))) {
+      return false;
+    }
+    const [current] = await tx
+      .select(columns)
+      .from(surfaceBindings)
+      .where(channelOf(installation, channelId))
+      .limit(1)
+      .for("update");
+    if (
+      !current ||
+      current.channelKind !== "private_channel" ||
+      (current.status !== "ready" && current.status !== "pending_approval")
+    ) {
+      return true;
+    }
+    const waited = current.status === "pending_approval";
+    await tx
+      .update(surfaceBindings)
+      .set({
+        membership: "awaiting_invite",
+        membershipError: null,
+        updatedAt: DB_NOW,
+        // Already waiting: nothing about the wait changes, so the notice
+        // keyed on the revision is not sent again.
+        ...(waited
+          ? {}
+          : {
+              status: "pending_approval" as const,
+              home: false,
+              approvedAt: null,
+              revision: sql`${surfaceBindings.revision} + 1`,
+            }),
+      })
+      .where(eq(surfaceBindings.id, current.id));
+    if (!waited) {
+      const [after] = await tx
+        .select(columns)
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, current.id));
+      if (!after) {
+        throw new Error(`surface binding ${current.id} vanished in its tx`);
+      }
+      await writeReceipt(tx, null, recordOf(after), "request_surface_binding", {
+        reason: "bot_left_channel",
+      });
+    }
+    return true;
   });
 }
 

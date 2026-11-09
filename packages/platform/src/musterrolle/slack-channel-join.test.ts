@@ -8,6 +8,7 @@ import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import {
   createSlackChannelJoiner,
   createSlackMemberJoinedHandler,
+  createSlackMemberLeftHandler,
   joinSlackChannel,
 } from "./slack-channel-join.ts";
 import {
@@ -188,7 +189,9 @@ describe("the bot's invite", () => {
       C3: "public_channel",
     },
     botToken: string | null = "xoxb-test",
+    fresh = true,
   ) {
+    const lifecycle: [string, Date | null][] = [];
     const asked: string[] = [];
     const demoted: string[] = [];
     const recorded: [string, SurfaceMembership][] = [];
@@ -233,6 +236,10 @@ describe("the bot's invite", () => {
         setMembership: async (id, membership) => {
           recorded.push([id, membership]);
         },
+        observeLifecycle: async (_installation, channelId, at) => {
+          lifecycle.push([channelId, at]);
+          return fresh;
+        },
       },
       slack: {
         channelKind: async (_token, channelId) => {
@@ -252,7 +259,16 @@ describe("the bot's invite", () => {
         passed.push(claim.eventType);
       },
     });
-    return { handle, recorded, welcomed, passed, invited, asked, demoted };
+    return {
+      handle,
+      recorded,
+      welcomed,
+      passed,
+      invited,
+      asked,
+      demoted,
+      lifecycle,
+    };
   }
 
   const claim = (event: Record<string, unknown>) =>
@@ -263,6 +279,7 @@ describe("the bot's invite", () => {
       appId: "A1",
       teamId: "T1",
       eventType: String(event.type),
+      eventTime: null,
       payload: { event },
     }) as unknown as SlackInboundClaim;
 
@@ -369,5 +386,124 @@ describe("the bot's invite", () => {
     expect(h.recorded).toEqual([]);
     expect(h.welcomed).toEqual([]);
     expect(h.passed).toEqual(["app_mention"]);
+  });
+
+  test("a join that a later leave overtook changes nothing and asks Slack nothing", async () => {
+    const h = handler({ home: true }, undefined, undefined, false);
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.asked).toEqual([]);
+    expect(h.invited).toEqual([]);
+    expect(h.recorded).toEqual([]);
+    expect(h.welcomed).toEqual([]);
+  });
+
+  test("the join is ordered by event_ts, else by the envelope's time", async () => {
+    const h = handler({ home: false });
+    await h.handle(
+      claim({
+        type: "member_joined_channel",
+        user: BOT,
+        channel: "G1",
+        event_ts: "1700000000.000250",
+      }),
+    );
+    await h.handle({
+      ...claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+      eventTime: new Date(1_700_000_005_000),
+    });
+    await h.handle(
+      claim({
+        type: "member_joined_channel",
+        user: BOT,
+        channel: "G1",
+        event_ts: "not-a-time",
+      }),
+    );
+    expect(h.lifecycle).toEqual([
+      ["G1", new Date(1_700_000_000_000)],
+      ["G1", new Date(1_700_000_005_000)],
+      ["G1", null],
+    ]);
+  });
+});
+
+describe("the bot's removal", () => {
+  function handler(user = BOT, fresh = true) {
+    const left: [string, string, Date | null][] = [];
+    const passed: string[] = [];
+    const handle = createSlackMemberLeftHandler({
+      agents: {
+        resolveSlackEvent: async () => ({
+          status: "resolved",
+          workspaceId: WORKSPACE,
+          agentId: AGENT,
+          installationId: INSTALLATION,
+          identityId: "identity-1",
+          botUserId: user,
+        }),
+      } as never,
+      bindings: {
+        botLeft: async (installation, channelId, at) => {
+          left.push([installation, channelId, at]);
+          return fresh;
+        },
+      },
+      next: async (claim) => {
+        passed.push(claim.eventType);
+      },
+    });
+    return { handle, left, passed };
+  }
+
+  const claim = (
+    event: Record<string, unknown>,
+    eventTime: Date | null = null,
+  ) =>
+    ({
+      id: "e1",
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      appId: "A1",
+      teamId: "T1",
+      eventType: String(event.type),
+      eventTime,
+      payload: { event },
+    }) as unknown as SlackInboundClaim;
+
+  test("the bot leaving a channel sends the binding back to approval", async () => {
+    const h = handler();
+    await h.handle(
+      claim({
+        type: "member_left_channel",
+        user: BOT,
+        channel: "G1",
+        event_ts: "1700000100.000000",
+      }),
+    );
+    expect(h.left).toEqual([[INSTALLATION, "G1", new Date(1_700_000_100_000)]]);
+    expect(h.passed).toEqual([]);
+  });
+
+  test("another member leaving, or an event of another type, is not the bot's removal", async () => {
+    const h = handler();
+    await h.handle(
+      claim({ type: "member_left_channel", user: "U0PERSON", channel: "G1" }),
+    );
+    await h.handle(claim({ type: "app_mention", user: "U0PERSON" }));
+    expect(h.left).toEqual([]);
+    expect(h.passed).toEqual(["app_mention"]);
+  });
+
+  test("without event_ts the envelope's time orders the leave", async () => {
+    const h = handler();
+    await h.handle(
+      claim(
+        { type: "member_left_channel", user: BOT, channel: "G1" },
+        new Date(1_700_000_200_000),
+      ),
+    );
+    expect(h.left[0]?.[2]).toEqual(new Date(1_700_000_200_000));
   });
 });

@@ -49,6 +49,7 @@ import {
   createSessionService,
   createSlackBotApi,
   createSlackMemberJoinedHandler,
+  createSlackMemberLeftHandler,
   createSlackSessionHandler,
   createSlackWelcome,
   drainSlackInbox,
@@ -274,7 +275,7 @@ export function slackSessionHandler(deps: {
         ? ""
         : new URL("/settings/linked-accounts", consoleOrigin).toString(),
   });
-  return createSlackMemberJoinedHandler({
+  const memberJoined = createSlackMemberJoinedHandler({
     agents: identities,
     bindings,
     welcome: createSlackWelcome({
@@ -289,6 +290,11 @@ export function slackSessionHandler(deps: {
     botToken: (workspaceId, slackAppId) =>
       slackBotToken(secrets, workspaceId, slackAppId),
     next: sessionHandler,
+  });
+  return createSlackMemberLeftHandler({
+    agents: identities,
+    bindings,
+    next: memberJoined,
   });
 }
 
