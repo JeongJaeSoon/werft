@@ -133,7 +133,10 @@ test("a recheck sends the Request URL to Slack again and needs the public events
   });
   expect(
     await refusal(unset.service.recheckAgentAppEvents(user("owner"), AGENT)),
-  ).toMatchObject({ code: "BACKEND_UNAVAILABLE" });
+  ).toMatchObject({
+    code: "BACKEND_UNAVAILABLE",
+    details: { reason_code: "events_url_unset" },
+  });
 
   const { service, slack } = await setup({
     eventsPublicUrl: "https://events.example.test/",

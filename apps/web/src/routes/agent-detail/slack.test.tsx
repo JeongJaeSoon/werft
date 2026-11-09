@@ -2050,7 +2050,7 @@ describe("Slack management", () => {
     });
     expect(
       await screen.findByText(
-        "Slack이 앱 만들기를 거절했습니다(코드: invalid_manifest). 코드를 관리자에게 알려 주세요.",
+        "Slack이 요청을 거절했습니다(코드: invalid_manifest). 코드를 관리자에게 알려 주세요.",
       ),
     ).toBeDefined();
     expect(document.body.textContent).not.toContain("비밀 저장소");
@@ -2070,6 +2070,24 @@ describe("Slack management", () => {
     expect(
       await screen.findByText(
         "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
+      ),
+    ).toBeDefined();
+  });
+  test("names the unset events address in Japanese", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
+            reason_code: "events_url_unset",
+          }),
+      },
+      "ja",
+    );
+    expect(
+      await screen.findByText(
+        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN(イベントをコンソールと別に受ける場合は SLACK_EVENTS_PUBLIC_URL)の設定を依頼してください。",
       ),
     ).toBeDefined();
   });

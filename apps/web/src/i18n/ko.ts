@@ -37,11 +37,11 @@ export const slackKo = {
   "slack.error.config":
     "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 관리자에게 설정을 요청하세요.",
   "slack.error.refused":
-    "Slack이 앱 만들기를 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
+    "Slack이 요청을 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
   "slack.error.consoleOrigin":
     "콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 Slack 앱을 만들 수 없습니다. 관리자에게 설정을 요청하세요.",
   "slack.error.eventsUrl":
-    "Slack이 이벤트를 보낼 https 주소를 알 수 없어 앱을 만들 수 없습니다. 관리자에게 콘솔 공개 주소 설정을 요청하세요.",
+    "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN(이벤트를 콘솔과 따로 받으면 SLACK_EVENTS_PUBLIC_URL) 설정을 요청하세요.",
   "slack.error.creating":
     "앱 생성 결과를 확인 중입니다. Slack에 앱이 있는지 관리자에게 확인한 뒤 새로고침하세요.",
   "slack.error.notInstalled": "Slack 앱을 설치한 뒤 채널을 연결하세요.",
