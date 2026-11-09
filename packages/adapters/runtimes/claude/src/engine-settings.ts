@@ -8,8 +8,9 @@ const plan = z.object({}).strict().parse(planSettings);
 
 /**
  * The rules the engine gets for a permission mode, next to its attribution:
- * `settings/default.json` for the modes that ask a person, `settings/auto.json`
- * for auto, `settings/plan.json` (nothing) for plan.
+ * `settings/default.json` for every mode but auto and plan (default,
+ * acceptEdits, dontAsk and bypassPermissions too, as before),
+ * `settings/auto.json` for auto, `settings/plan.json` (nothing) for plan.
  *
  * Auto mode leaves these calls to its classifier, whose rules know what a
  * secret is; a rule here would settle a commit before the classifier saw it.

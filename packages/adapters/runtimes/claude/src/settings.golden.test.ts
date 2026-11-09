@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeRuntimeConfig } from "./config.ts";
@@ -39,6 +45,11 @@ const TOOLS = [
 
 function workspaces(): { cases: [string, string][]; root: string } {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "settings-golden-")));
+  // A root the rule syntax cannot carry literally drops the Edit rules and
+  // would make the hashes depend on where the test runs.
+  if (!/^\/[\w./-]+$/.test(root)) {
+    throw new Error(`temporary directory ${root} is not a literal path`);
+  }
   const real = join(root, "ws");
   mkdirSync(real);
   symlinkSync(real, join(root, "link"));
@@ -101,6 +112,7 @@ function compute(): Record<string, string> {
       }
     }
   }
+  rmSync(root, { recursive: true, force: true });
   return out;
 }
 
@@ -108,8 +120,12 @@ describe("engine settings golden", () => {
   test("every mode, trusted set, tool surface and workspace path keeps its payload", async () => {
     const actual = compute();
     if (process.env.WRITE_SETTINGS_GOLDEN === "1") {
-      await Bun.write(GOLDEN, `${JSON.stringify(actual, null, 1)}\n`);
-      return;
+      // A run that rewrites the baseline never counts as a pass, so the
+      // variable cannot be set to make a changed payload green.
+      await Bun.write(GOLDEN, `${JSON.stringify(actual, null, 2)}\n`);
+      throw new Error(
+        "settings.golden.json was rewritten: review its diff, then run again without WRITE_SETTINGS_GOLDEN",
+      );
     }
     const golden = (await Bun.file(GOLDEN).json()) as Record<string, string>;
     expect(Object.keys(actual).sort()).toEqual(Object.keys(golden).sort());

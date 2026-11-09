@@ -26,7 +26,8 @@ import defaultSettings from "./settings/default.json" with { type: "json" };
  * proxy are what hold that.
  */
 
-const patterns = z.array(z.string().min(1));
+/** A list that guards something is never empty: an emptied one is an error. */
+const patterns = z.array(z.string().min(1)).min(1);
 
 const policySchema = z
   .object({
@@ -48,7 +49,9 @@ const policySchema = z
          * `git clean`, ...) is not allowed and so asks, however its flags are
          * spelled. A listed shape is followed by an ask pattern for any
          * further option, so an abbreviated or bundled flag (`--forc`, `-fA`,
-         * `-df`) cannot slip past.
+         * `-df`) cannot slip past. `git restore --staged` only unstages;
+         * restoring the working tree discards edits that no object or reflog
+         * keeps, so it is not listed.
          */
         allow: patterns,
         /** Bare forms that must not also take the `*` of the shapes above. */
@@ -107,7 +110,11 @@ const policySchema = z
         extensionEnds: patterns,
         /** Name parts that are code as often as secrets; see `extraNames`. */
         notAReadName: patterns,
-        /** Names matched from where they begin, beside the secret parts. */
+        /**
+         * Names matched from where they begin, beside the secret parts. Only
+         * the JSON key files, as in `sensitiveEditPaths`: `service-account.ts`
+         * is code.
+         */
         extraNames: patterns,
       })
       .strict(),
