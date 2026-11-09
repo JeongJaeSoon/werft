@@ -62,10 +62,14 @@ export const memoryWritePolicySchema = z.enum(MEMORY_WRITE_POLICY_VALUES);
 /**
  * `pending_approval`: a private channel nobody with `binding.approve` has
  * let the agent use yet. Input reads only `ready`, so it takes nothing.
+ * `left`: a private channel the bot was removed from or left. Inactive: no
+ * input is taken and nothing is sent there. The mode and ceiling are kept,
+ * the approval is not; the bot coming back makes it `pending_approval`.
  */
 export const SURFACE_BINDING_STATUS_VALUES = [
   "ready",
   "pending_approval",
+  "left",
   "partial",
   "failed",
   "revoked",
@@ -204,9 +208,34 @@ export const surfaceBindingSchema = z
         message: "only a private channel waits for approval",
       });
     }
+    if (binding.status === "left") {
+      if (binding.surface_kind !== "private_channel") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["surface_kind"],
+          message: "only a private channel is left by the bot",
+        });
+      }
+      if (binding.home) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["home"],
+          message: "a channel the bot left is never home",
+        });
+      }
+      if (binding.approved_at != null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["approved_at"],
+          message: "a channel the bot left holds no approval",
+        });
+      }
+    }
     if (
       binding.surface !== "slack" ||
-      (binding.status !== "ready" && binding.status !== "pending_approval")
+      (binding.status !== "ready" &&
+        binding.status !== "pending_approval" &&
+        binding.status !== "left")
     ) {
       return;
     }

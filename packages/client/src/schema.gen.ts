@@ -2592,14 +2592,14 @@ export interface paths {
         };
         /**
          * The agent's Slack channel bindings
-         * @description Live bindings of the channels of the agent's Slack app, and its DM binding (`surface_kind: dm`, no `external_surface_id`): the home channel first, then oldest first; up to 500. Channel ids only; the console resolves names. Owners, admins, the agent's admins and the live members of its managing team.
+         * @description Live bindings of the channels of the agent's Slack app, and its DM binding (`surface_kind: dm`, no `external_surface_id`): the home channel first, then oldest first; up to 500. Channel ids only; the console resolves names. A binding's `status` is `ready` (in use), `pending_approval` (a private channel waiting for an owner or admin) or `left` (the bot was removed from or left the private channel: inactive, no input is taken and nothing is sent there, `membership.state` is `awaiting_invite`, `approved_at` is null; its `mode` and `ceiling` are kept). Owners, admins, the agent's admins and the live members of its managing team.
          *
          *     **Auth:** cookie session only; no scope.
          */
         get: operations["listSlackBindings"];
         /**
          * Set how the agent answers in one Slack channel or its DMs
-         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention).`home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
+         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention).`home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2622,7 +2622,7 @@ export interface paths {
         put?: never;
         /**
          * Approve a private Slack channel
-         * @description A binding of a private channel starts as `pending_approval` and takes no input until an owner or admin approves it here: it becomes `ready` and `approved_at` is set, and a message sent before `approved_at` is not answered. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same approval again, after it landed, answers the binding as it is with a null `receipt_id`. Owners and admins only, not the agent's admins; API keys are refused. Writes a `resolve_surface_binding` receipt.
+         * @description A binding of a private channel starts as `pending_approval` and takes no input until an owner or admin approves it here: it becomes `ready` and `approved_at` is set, and a message sent before `approved_at` is not answered. `revision` is the revision the caller read; a binding that is not waiting (a `left` one included: the bot is not in the channel, and is invited again first, which makes it wait), or changed since, answers 409 REVISION_CONFLICT. The same approval again, after it landed, answers the binding as it is with a null `receipt_id`. Owners and admins only, not the agent's admins; API keys are refused. Writes a `resolve_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2644,7 +2644,7 @@ export interface paths {
         put?: never;
         /**
          * Reject a private Slack channel
-         * @description Revokes a binding that waits for approval, so its channel slot is free again. The bot stays in the channel and takes no input; remove it in Slack to make it leave. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same rejection again answers the binding as it is with a null `receipt_id`. Owners and admins only; API keys are refused. Writes a `resolve_surface_binding` receipt.
+         * @description Revokes a binding that waits for approval, so its channel slot is free again. The bot stays in the channel and takes no input; remove it in Slack to make it leave. `revision` is the revision the caller read; a binding that is not waiting (a `left` one included), or changed since, answers 409 REVISION_CONFLICT. The same rejection again answers the binding as it is with a null `receipt_id`. Owners and admins only; API keys are refused. Writes a `resolve_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -9958,7 +9958,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -9997,7 +9997,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */
@@ -10038,7 +10038,7 @@ export interface components {
                 /** @enum {string} */
                 memory_write_policy: "deny" | "allow_explicit";
                 /** @enum {string} */
-                status: "ready" | "pending_approval" | "partial" | "failed" | "revoked";
+                status: "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked";
                 approved_at?: string | null;
                 membership?: {
                     /** @enum {string} */

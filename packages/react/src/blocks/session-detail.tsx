@@ -85,6 +85,11 @@ export interface SessionDetailProps extends SessionActionProps {
   readonly controls?: (session: SessionDetailData) => ReactNode;
   /** The host's own tabs, such as the session's outputs. */
   readonly tabs?: (session: SessionDetailData) => readonly SessionDetailTab[];
+  /**
+   * Drawn under the events inside the timeline's own scroll, for work that
+   * arrives after a turn ends and has no event of its own, such as a push.
+   */
+  readonly timelineExtra?: (session: SessionDetailData) => ReactNode;
 }
 
 export function SessionDetail({
@@ -94,6 +99,7 @@ export function SessionDetail({
   renderError,
   controls,
   tabs,
+  timelineExtra,
   unavailable,
   refusal,
 }: SessionDetailProps) {
@@ -213,6 +219,7 @@ export function SessionDetail({
               pending={listedRequests(pending)}
               turns={turns.data?.items}
             />
+            {timelineExtra?.(detail)}
           </div>
           {follow.behind ? (
             <Button

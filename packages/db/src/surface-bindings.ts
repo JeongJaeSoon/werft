@@ -218,13 +218,19 @@ async function set(
       if (current && current.agentId !== agentId) {
         return { outcome: "conflict" };
       }
+      const isLeft = current?.status === "left";
+      // A channel the bot left stays inactive through a save of its private
+      // kind; found public, the bot can join it itself, so it is in use.
+      const reopens = isLeft && input.channelKind === "public_channel";
       const waits =
         input.channelKind === "private_channel" &&
         (!current ||
           current.status === "pending_approval" ||
           current.surfaceKind !== "private_channel");
       const startsWaiting = waits && current?.status !== "pending_approval";
-      if (waits && input.home) return { outcome: "pending_home" };
+      if ((waits || (isLeft && !reopens)) && input.home) {
+        return { outcome: "pending_home" };
+      }
       if (input.home) {
         await tx
           .update(surfaceBindings)
@@ -249,6 +255,7 @@ async function set(
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,
         ...(waits ? { status: "pending_approval" as const } : {}),
+        ...(reopens ? { status: "ready" as const } : {}),
         updatedAt: DB_NOW,
       };
       const id = current?.id ?? randomUUID();
@@ -432,6 +439,9 @@ export function createPostgresSurfaceBindingStore(
           and(
             eq(surfaceBindings.id, bindingId.toLowerCase()),
             isNull(surfaceBindings.revokedAt),
+            // A channel the bot left is known to hold no bot; a Slack answer
+            // that was in flight when it left must not write over that.
+            ne(surfaceBindings.status, "left"),
             expected === undefined
               ? undefined
               : and(
@@ -668,14 +678,38 @@ async function recordJoin(
     if (!(await advanceLifecycle(tx, installationId, channelId, at))) {
       return false;
     }
+    const id = bindingId.toLowerCase();
+    const current = await lockBinding(
+      tx,
+      and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
+    );
+    if (current?.status === "left") {
+      // Back in: only a join stamped strictly after the last leave brings the
+      // channel back, and then it waits for approval. A tie or a join with no
+      // time cannot be told from the leave's own retry, so the channel stays
+      // `left` until a join that can be ordered arrives.
+      const [noted] = await tx
+        .select({ leave: slackChannelLifecycle.lastLeaveUs })
+        .from(slackChannelLifecycle)
+        .where(
+          and(
+            eq(
+              slackChannelLifecycle.installationId,
+              installationId.toLowerCase(),
+            ),
+            eq(slackChannelLifecycle.channelId, channelId),
+          ),
+        );
+      if (at === null || (noted?.leave != null && at <= noted.leave)) {
+        return false;
+      }
+      await sendBackToApproval(tx, id, "rejoined_channel");
+    }
     await tx
       .update(surfaceBindings)
       .set({ membership: "joined", membershipError: null, updatedAt: DB_NOW })
       .where(
-        and(
-          eq(surfaceBindings.id, bindingId.toLowerCase()),
-          isNull(surfaceBindings.revokedAt),
-        ),
+        and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
       );
     return true;
   });
@@ -708,27 +742,63 @@ async function botLeft(
     if (
       !current ||
       current.channelKind !== "private_channel" ||
-      (current.status !== "ready" && current.status !== "pending_approval")
+      (current.status !== "ready" &&
+        current.status !== "pending_approval" &&
+        current.status !== "left")
     ) {
       return latest;
     }
-    // The approval voids unless it already knew of this leave: only Slack's
-    // own times are compared, never the database clock against Slack's.
+    // An approval stands against a leave it already knew of; only Slack's own
+    // times are compared, never the database clock against Slack's.
     const known = at !== null && at <= (current.approvedLifecycleUs ?? 0);
-    if (current.status === "ready" && !known) {
+    if (current.status === "ready" && known) return latest;
+    if (latest) {
+      // The newest word of the channel: the bot is out. A binding already
+      // `left` has nothing to change, so a retried leave writes no receipt.
+      if (current.status !== "left") {
+        await markLeft(tx, current, at);
+      }
+      return latest;
+    }
+    // A leave older than a join already noted: the bot is back in, so the
+    // binding is not `left`, and the approval it held voids.
+    if (current.status === "ready") {
       await sendBackToApproval(tx, current.id, "bot_left_channel");
     }
-    if (latest) {
-      await tx
-        .update(surfaceBindings)
-        .set({
-          membership: "awaiting_invite",
-          membershipError: null,
-          updatedAt: DB_NOW,
-        })
-        .where(eq(surfaceBindings.id, current.id));
-    }
     return latest;
+  });
+}
+
+// The bot is out of a private channel: inactive, no home, no approval. The
+// mode and ceiling stay, so a channel approved again behaves as it did.
+async function markLeft(
+  tx: Database,
+  current: LockedBinding,
+  at: number | null,
+): Promise<void> {
+  await tx
+    .update(surfaceBindings)
+    .set({
+      status: "left",
+      home: false,
+      approvedAt: null,
+      approvedLifecycleUs: null,
+      membership: "awaiting_invite",
+      membershipError: null,
+      revision: sql`${surfaceBindings.revision} + 1`,
+      updatedAt: DB_NOW,
+    })
+    .where(eq(surfaceBindings.id, current.id));
+  const [after] = await tx
+    .select(columns)
+    .from(surfaceBindings)
+    .where(eq(surfaceBindings.id, current.id));
+  if (!after)
+    throw new Error(`surface binding ${current.id} vanished in its tx`);
+  await writeReceipt(tx, null, recordOf(after), "set_surface_binding", {
+    reason: "bot_left_channel",
+    previous_status: current.status,
+    lifecycle_us: at,
   });
 }
 

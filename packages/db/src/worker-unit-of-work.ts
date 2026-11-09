@@ -9,6 +9,7 @@ import {
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
+  type SessionExtension,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
@@ -33,6 +34,8 @@ import {
   checkpointReasonHoldsWork,
   type EgressAuthorization,
   type EgressPurpose,
+  type ExtensionsStateInput,
+  type ExtensionsStateResult,
   type FailResumeInput,
   type FailResumeResult,
   type FinalizeInput,
@@ -1635,8 +1638,18 @@ async function bindingOf(
     ...(await releaseRunOf(tx, session)),
     platformPrompt: session.platformPrompt,
     ...envOf(session),
+    ...(pinnedExtensionsOf(session).length === 0
+      ? {}
+      : { extensions: pinnedExtensionsOf(session) }),
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
+}
+
+// A row from before extensions holds null; one created with none holds `[]`.
+function pinnedExtensionsOf(
+  session: Pick<SessionRow, "extensions">,
+): SessionExtension[] {
+  return (session.extensions as SessionExtension[] | null) ?? [];
 }
 
 // A snapshot this image cannot read allows no tool rather than guessing.
@@ -3350,6 +3363,20 @@ export function createPostgresWorkerUnitOfWork(
             checkpointPendingReason: pendingReason,
           }),
           pendingReason,
+        };
+      });
+    },
+
+    extensionsStateAtomic(
+      input: ExtensionsStateInput,
+    ): Promise<ExtensionsStateResult> {
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, input.fence);
+        if (fenced.outcome !== "ok") return fenced;
+        return {
+          outcome: "ok",
+          ownerScope: fenced.session.ownerId,
+          extensions: pinnedExtensionsOf(fenced.session),
         };
       });
     },

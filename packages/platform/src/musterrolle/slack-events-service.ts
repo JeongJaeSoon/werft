@@ -226,6 +226,11 @@ export function createSlackEventsService(deps: {
           resolved.installationId,
           event.channel,
         );
+        // The bot left this channel: whatever arrives (a late event, a
+        // mention) takes no text and no answer, since the bot is not there.
+        if (bound?.status === "left") {
+          return { status: "dropped", dropReason: "channel_left" };
+        }
         // A private channel without an approved, ready binding keeps no
         // text: waiting, rejected, or flipped from public since it was bound.
         const unapproved =

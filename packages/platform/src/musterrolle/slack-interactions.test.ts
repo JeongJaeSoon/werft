@@ -64,6 +64,7 @@ let hold: "now" | "held" | "pull_request" | Error;
 // The flow the stored push request was made under; an Error: it cannot be read.
 let flow: "legacy" | "actions" | Error | null;
 let viewUpdateError: Error | null;
+let channelLeft: boolean;
 // null: derived from the request id; undefined: no card row found.
 let posted: SlackPromptCard["display"] | null | undefined;
 
@@ -72,6 +73,7 @@ beforeEach(() => {
   role = "owner";
   answerError = null;
   viewUpdateError = null;
+  channelLeft = false;
   outcome = { state: "open", kind: "permission" };
   listed = [];
   pushState = "requested";
@@ -210,6 +212,9 @@ function deps(): SlackInteractionDeps {
     bindings: {
       async findPendingApproval() {
         return null;
+      },
+      async findLiveSlackChannel() {
+        return channelLeft ? ({ status: "left" } as never) : null;
       },
       async resolveSlackChannel(installationId, channelId) {
         if (installationId !== INSTALLATION || channelId !== CHANNEL) {
@@ -1159,6 +1164,19 @@ describe("Slack interactions", () => {
     expect(result).toMatchObject({ result: "failed" });
     expect(called("update")).toEqual([]);
     expect(called("ephemeral")).toHaveLength(1);
+  });
+
+  test("a press in a channel the bot left tells nobody, even when the press fails", async () => {
+    channelLeft = true;
+    answerError = new Error("connection reset");
+    const result = await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(result).toMatchObject({ result: "failed" });
+    expect(called("ephemeral")).toEqual([]);
   });
 
   test("a follow-up turn that never lands is told to the presser", async () => {
