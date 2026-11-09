@@ -63,27 +63,34 @@ werft_add_trailers() {
     cr=$(printf '\r')
     # The block git reads as the message's trailers (the push check counts
     # only that block). --no-divider: a `---` line is ordinary text to it.
-    last=$(git interpret-trailers --parse --no-divider "$_werft_file") || exit 1
+    last=$(git interpret-trailers --parse --no-divider "$_werft_file" | tr -d '\r') || exit 1
     wanted=$_werft_trailers
     trap 'rm -f "$_werft_file.werft-wanted" "$_werft_file.werft-move"' EXIT
     # A message that already holds this session's Agent-Session line was issued
     # by an earlier turn (an amend, a rebase). It keeps the lines it was issued
     # with, wherever a later hook left them, and no other requester's
     # co-author is added next to them.
+    # Only a paragraph made of trailer lines counts, so an example quoted in
+    # the message body does not. CRs are dropped to read a CRLF message.
     session=$(grep -m1 '^Agent-Session: ' "$_werft_trailers")
-    if [ -n "$session" ] && grep -qxF -- "$session" "$_werft_file"; then
-      WERFT_SESSION=$session awk '
+    if [ -n "$session" ]; then
+      tr -d '\r' <"$_werft_file" | WERFT_SESSION=$session awk '
         BEGIN { RS = "" }
         {
-          n = split($0, l, "\n"); hit = 0
-          for (i = 1; i <= n; i++) if (l[i] == ENVIRON["WERFT_SESSION"]) hit = 1
-          if (!hit) next
+          n = split($0, l, "\n"); hit = 0; plain = 1
+          for (i = 1; i <= n; i++) {
+            if (l[i] == ENVIRON["WERFT_SESSION"]) hit = 1
+            if (l[i] !~ /^[A-Za-z][A-Za-z0-9-]*: /) plain = 0
+          }
+          if (!hit || !plain) next
           for (i = 1; i <= n; i++)
             if (l[i] == ENVIRON["WERFT_SESSION"] || l[i] ~ /^Co-authored-by: /) print l[i]
           exit
         }
-      ' "$_werft_file" >"$_werft_file.werft-wanted" || exit 1
-      wanted=$_werft_file.werft-wanted
+      ' >"$_werft_file.werft-wanted" || exit 1
+      if [ -s "$_werft_file.werft-wanted" ]; then
+        wanted=$_werft_file.werft-wanted
+      fi
     fi
     set --
     while IFS= read -r line || [ -n "$line" ]; do
@@ -95,10 +102,30 @@ werft_add_trailers() {
           # hook that appended a paragraph after ours (husky's `Husky-Ran:`)
           # leaves our line in an earlier one, where the push check does not
           # count it.
+          # Only a paragraph made of trailer lines loses it: the same text
+          # quoted in the body stays. A paragraph left empty goes with the
+          # blank lines before it.
           WERFT_DROP=$line awk '
-            $0 == ENVIRON["WERFT_DROP"] { removed = 1; next }
-            /^[ \t]*$/ { if (removed && blank) next; blank = 1; print; next }
-            { blank = 0; removed = 0; print }
+            function flush(   i, plain, bare, kept, text) {
+              if (n == 0) return
+              plain = 1
+              for (i = 1; i <= n; i++) {
+                bare = buf[i]; sub(/\r$/, "", bare)
+                if (bare !~ /^[A-Za-z][A-Za-z0-9-]*: /) plain = 0
+              }
+              kept = 0; text = ""
+              for (i = 1; i <= n; i++) {
+                bare = buf[i]; sub(/\r$/, "", bare)
+                if (plain && bare == ENVIRON["WERFT_DROP"]) continue
+                text = text (kept ? "\n" : "") buf[i]; kept++
+              }
+              if (kept) printf "%s%s\n", pending, text
+              pending = ""
+              n = 0
+            }
+            /^[ \t\r]*$/ { flush(); pending = pending $0 "\n"; next }
+            { buf[++n] = $0 }
+            END { flush() }
           ' "$_werft_file" >"$_werft_file.werft-move" || {
             rm -f "$_werft_file.werft-move"
             exit 1

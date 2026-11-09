@@ -1054,6 +1054,7 @@ describe("WorkerGateway", () => {
     // The commit trailers: the linked starter as co-author, then a session
     // no person started, which names only itself.
     const asked: string[] = [];
+    const recordedBundles: unknown[] = [];
     let starter: SessionAttributionRecord["starter"] = {
       userId: "user-1",
       github: { id: "583231", login: "octocat" },
@@ -1086,7 +1087,9 @@ describe("WorkerGateway", () => {
         },
         // Earlier turns were issued these co-authors besides the starter's.
         ledger: {
-          record: async () => {},
+          record: async (_sessionId: string, bundle: unknown) => {
+            recordedBundles.push(bundle);
+          },
           recordTurnCoAuthor: async () => {},
           list: async () => {
             const author = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
@@ -1112,6 +1115,8 @@ describe("WorkerGateway", () => {
             ];
           },
         },
+        // No bot found: the image's author is the one issued.
+        appBotUserId: async () => null,
         consoleOrigin: "https://console.example.com",
       },
       options: {
@@ -1132,6 +1137,13 @@ describe("WorkerGateway", () => {
       session_url: sessionUrl,
     });
     expect(linked.git_strip).toEqual(["noreply@anthropic.com"]);
+    // The claim's author is also issued with each earlier turn's co-author.
+    const claimAuthor = (recordedBundles[0] as { author: unknown }).author;
+    expect(recordedBundles).toContainEqual({
+      author: claimAuthor,
+      coAuthor: { name: "grace", email: "2+grace@users.noreply.github.com" },
+      agentSession: `https://console.example.com/sessions/${scope.session_id}`,
+    });
     // Every ledger bundle goes, an unlinked requester's (no co-author) too.
     const issuedAuthor = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
     expect(linked.git_issued).toEqual([
@@ -1218,8 +1230,8 @@ describe("WorkerGateway", () => {
     await expect(
       unreadable.bootstrapClaim({ kind: "bootstrap" }, request),
     ).rejects.toThrow("connection refused");
-    // No bot lookup wired: the claim leaves the image's author alone.
-    expect("git_author" in linked).toBe(false);
+    // No bot found: the claim leaves the image's author alone.
+    expect(linked.git_author ?? null).toBeNull();
 
     // The commit author: the console App's bot, only for a repository on
     // that App, and only once GitHub named the bot's id.

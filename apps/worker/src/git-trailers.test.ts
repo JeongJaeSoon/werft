@@ -232,6 +232,42 @@ describe("the commit-msg hook", () => {
     expect(lastMessage()).not.toContain("grace");
   });
 
+  test("a CRLF message amended in another requester's turn keeps the first requester alone", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git([
+      "commit",
+      "-q",
+      "--allow-empty",
+      "--cleanup=verbatim",
+      "-m",
+      "Fix the thing\r\n",
+    ]);
+    const grace = { name: "grace", email: "2+grace@users.noreply.github.com" };
+    await writeGitTrailers(
+      home,
+      claim({ co_author: grace, session_url: SESSION_URL }),
+    );
+    git(["commit", "-q", "--amend", "--allow-empty", "--no-edit"]);
+    expect(lastMessage()).not.toContain("grace");
+    expect(lastMessage()).toContain(`Co-authored-by: ${CO_AUTHOR.name}`);
+  });
+
+  test("a session line quoted in the body is not taken for an earlier issue", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git([
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      `Explain\n\n\`\`\`\nAgent-Session: ${SESSION_URL}\n\`\`\``,
+    ]);
+    const message = lastMessage();
+    expect(message).toContain(`\`\`\`\nAgent-Session: ${SESSION_URL}\n\`\`\``);
+    expect(message).toContain(
+      `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+    );
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,
