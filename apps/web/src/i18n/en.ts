@@ -56,12 +56,12 @@ export const slackEn = {
   "slack.state.reinstall": "Reinstall required",
   "slack.eventsPending.title": "Slack has not checked the Request URL yet",
   "slack.eventsPending.body":
-    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
   "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.channelsLocked.title":
     "Channels can't be picked until Slack checks the Request URL",
   "slack.channelsLocked.body":
-    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Advanced. This unlocks as soon as Slack checks it.",
+    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. This unlocks as soon as Slack checks it.",
   "slack.channelsLocked.action": "Go to Recheck",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":
