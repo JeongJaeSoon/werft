@@ -394,6 +394,7 @@ describe("PendingRequestRegistry", () => {
         expect(poll.capabilities).toEqual({
           approval_remember: true,
           platform_tool_trust: true,
+          permission_rules: true,
           user_env: true,
         });
       }
