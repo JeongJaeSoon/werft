@@ -1,0 +1,125 @@
+name: Pages
+
+# Builds the Pages site (the Fumadocs site, Storybook below /storybook/, the
+# API reference below /api/) and deploys it. Only a push to main that touches
+# a site input, or a manual run, gets here: a pull request proves the same
+# build and layout in ci.yml (`docs`, `storybook`, `pages`) and never deploys.
+#
+# Its own workflow so a deploy is not cancelled by the next merge's CI run
+# (ci.yml cancels superseded runs), and so a push that changes no site input
+# starts nothing here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/docs/**
+      - apps/storybook/**
+      - apps/web/**
+      - packages/**
+      - docs/**
+      - bun.lock
+      - bunfig.toml
+      # Tailwind skips what .gitignore ignores when it scans for classes.
+      - .gitignore
+      - package.json
+      - tsconfig*.json
+      - scripts/pages-site.sh
+      - scripts/storybook-pages.sh
+      - scripts/check-docs-self-hosting-export.ts
+      - .github/actions/bun-setup/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a run that is building or deploying: a later merge must not stop
+# an earlier one's deploy half-way. Runs queue one behind the other, and
+# GitHub keeps only the newest of the waiting ones, so the site ends at the
+# last merge's content.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      # next build runs on Node; pinned, not the image's own.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Static build
+        run: bun run --cwd apps/docs build
+      - name: Self-hosting public URL and fallback contract
+        run: bun run scripts/check-docs-self-hosting-export.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-out
+          path: apps/docs/out
+          retention-days: 1
+
+  storybook:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Static build
+        run: bun run --cwd apps/storybook build
+      - name: Every file the pages and chunks reference, relative to /storybook/
+        run: scripts/storybook-pages.sh check apps/storybook/dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: storybook-dist
+          path: apps/storybook/dist
+          retention-days: 1
+
+  # Gated on the PAGES_ENABLED repo variable: with Pages off, deploy-pages
+  # answers 404 and turns main red. The only job in the repository that may
+  # write to Pages.
+  deploy:
+    needs: [docs, storybook]
+    if: github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docs-out
+          path: docs-out
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: storybook-dist
+          path: storybook-dist
+      - name: Pages site layout
+        run: scripts/pages-site.sh docs-out storybook-dist _site
+      # A tab opened before this deploy still loads the chunks it was built
+      # with; scripts/storybook-pages.sh says why. The concurrency group above
+      # serialises deploys, so the live site it reads is the one this deploy
+      # replaces.
+      - name: Storybook chunks of builds retired within the hour
+        env:
+          LIVE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/storybook
+        run: scripts/storybook-pages.sh keep _site/storybook "$LIVE"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
