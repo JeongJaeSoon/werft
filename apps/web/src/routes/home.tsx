@@ -29,6 +29,7 @@ import {
   Badge,
   Card,
   cn,
+  EmptyState,
   formatElapsed,
   formatExactTime,
   formatRelativeTime,
@@ -1052,15 +1053,13 @@ function HomeSkeleton() {
 function NoRequests() {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col items-center gap-2 rounded-card border bg-card px-4 py-6 text-center text-control text-muted-foreground">
-      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--werft-color-surface-sunken) text-subtle-foreground">
-        <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
-      </span>
-      <Text className="font-semibold text-body">
-        {t("home.requests.empty")}
-      </Text>
-      <p className="m-0">{t("home.requests.emptyHint")}</p>
-    </div>
+    <EmptyState
+      framed
+      size="sm"
+      icon={<Inbox className="size-4" strokeWidth={1.5} />}
+      title={t("home.requests.empty")}
+      description={t("home.requests.emptyHint")}
+    />
   );
 }
 
@@ -1243,15 +1242,8 @@ function RecentSessionTable({
       />
     );
   if (items.length === 0)
-    return (
-      // Framed as the table it stands in for, inside its padding.
-      <Text
-        variant="sub"
-        className="rounded-card border bg-card px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)] text-body"
-      >
-        {t("sessions.empty")}
-      </Text>
-    );
+    // Framed as the table it stands in for.
+    return <EmptyState framed size="sm" title={t("sessions.empty")} />;
   return (
     <SessionOverviewTable label={t("home.recent.title")} messages={head}>
       {items.slice(0, RECENT_LIMIT).map((session) => {

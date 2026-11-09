@@ -12,6 +12,8 @@ export interface EmptyStateProps {
   readonly icon?: ReactNode | undefined;
   /** `sm` sits inside a card or a list, with less room around it. */
   readonly size?: "default" | "sm" | undefined;
+  /** Draws the card frame, for an empty list that stands in a card's or a framed table's place. */
+  readonly framed?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
@@ -26,12 +28,19 @@ export function EmptyState({
   secondaryAction,
   icon,
   size = "default",
+  framed = false,
   className,
 }: EmptyStateProps): JSX.Element {
   return (
     <div
-      className={cn("werft-state", "werft-state--empty", className)}
+      className={cn(
+        "werft-state",
+        "werft-state--empty",
+        framed && "rounded-card border bg-card",
+        className,
+      )}
       data-size={size}
+      data-framed={framed || undefined}
     >
       {icon ? (
         <span className="werft-state__icon" aria-hidden="true">

@@ -48,6 +48,18 @@ describe("EmptyState", () => {
     expect(root?.getAttribute("data-size")).toBe("sm");
   });
 
+  test("framed는 카드 테두리를 그리고 기본은 그리지 않는다", () => {
+    const plain = render(<EmptyState title="비어 있습니다" />);
+    const bare = plain.container.querySelector(".werft-state");
+    expect(bare?.hasAttribute("data-framed")).toBe(false);
+    expect(bare?.className).not.toContain("border");
+
+    const { container } = render(<EmptyState title="비어 있습니다" framed />);
+    const root = container.querySelector(".werft-state");
+    expect(root?.getAttribute("data-framed")).toBe("true");
+    expect(root?.className).toContain("rounded-card border bg-card");
+  });
+
   test("조용하다 — alert로 읽히지 않는다", () => {
     const { container } = render(<EmptyState title="비어 있습니다" />);
     expect(container.querySelector("[role='alert']")).toBeNull();

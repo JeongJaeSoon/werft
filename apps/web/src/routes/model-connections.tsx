@@ -104,10 +104,7 @@ export function ModelConnections({
             onRetry={() => void connections.refetch()}
           />
         ) : connections.data.items.length === 0 ? (
-          <EmptyState
-            className="rounded-card border bg-card"
-            title={t("settings.connections.empty")}
-          />
+          <EmptyState framed title={t("settings.connections.empty")} />
         ) : (
           <GridTable
             // The settings layout zeroes the row inset; a framed table needs it.
