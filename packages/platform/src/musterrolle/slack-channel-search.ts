@@ -419,6 +419,7 @@ export function createSlackChannelSearchService(deps: {
                 throw new SessionServiceError(
                   "BACKEND_UNAVAILABLE",
                   "Slack did not answer conversations.info; try again",
+                  { afterSeconds: 5 },
                 );
               }
               value = { id, name: "unknown", state: "unknown" };
@@ -536,6 +537,7 @@ export function createSlackChannelSearchService(deps: {
             throw new SessionServiceError(
               "BACKEND_UNAVAILABLE",
               `Slack did not answer ${error.method}; try again`,
+              { afterSeconds: 5 },
             );
           }
           throw error;

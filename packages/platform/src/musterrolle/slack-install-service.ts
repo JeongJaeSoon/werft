@@ -135,7 +135,7 @@ const slackUnavailable = (error: SlackApiError) =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     `Slack did not answer ${error.method}; start the install again`,
-    undefined,
+    { afterSeconds: 5 },
     slackCallDetails(error),
   );
 // Only what names the failure: never the request, the answer or a token.

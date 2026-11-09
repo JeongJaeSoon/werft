@@ -2103,6 +2103,21 @@ describe("Slack management", () => {
     expect(document.body.textContent).not.toContain("비밀 저장소");
     expect(document.body.textContent).not.toContain("잠시 뒤 다시 시도");
   });
+  test("keeps the try-again text for a retryable 503 even when it names an unknown reason", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "busy", true, {
+          reason_code: "something_new",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("something_new");
+  });
   test("shows the error code when a non-retryable 503 names no reason", async () => {
     renderAt(DETAIL, {
       ...routes(),
