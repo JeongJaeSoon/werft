@@ -440,6 +440,15 @@ describe("the built-in github MCP server on stored rows", () => {
       "list_repositories",
       "attach_repository",
     ]);
+    // 94S-1479: what the model reads over the wire says how to read an attach.
+    const attach = (
+      listed.body as {
+        result: { tools: Array<{ name: string; description: string }> };
+      }
+    ).result.tools.find((tool) => tool.name === "attach_repository");
+    expect(attach?.description).toContain(
+      "git ls-tree -r <repository_id>/<branch>",
+    );
     const called = await relay(token, {
       jsonrpc: "2.0",
       id: 2,
