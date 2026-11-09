@@ -146,6 +146,7 @@ export function createPostgresInstallationSettingsStore(
             id: string;
             provider: CatalogProfileConfig["provider"];
             replaces?: CatalogProfileConfig["provider"];
+            auto_mode: "supported" | "unsupported" | "unknown";
           }> = [];
           for (const row of await tx
             .select()
@@ -176,6 +177,7 @@ export function createPostgresInstallationSettingsStore(
             connections.push({
               id: row.id,
               provider: parsed.data,
+              auto_mode: row.autoMode,
               ...(former?.success ? { replaces: former.data } : {}),
             });
           }

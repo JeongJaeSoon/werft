@@ -233,7 +233,6 @@ export function createAgentService(deps: {
     const checked = await checkAgentExtensions(deps.extensions, {
       workspaceId,
       agentId,
-      permissionMode: profile.permission_mode,
       runtimeKind: profile.runtime_kind,
       tools: runningTools(profile, releaseSnapshot),
     });

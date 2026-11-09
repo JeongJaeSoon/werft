@@ -21,6 +21,7 @@ import {
   type CatalogProfileView,
   type CatalogRepository,
   type CatalogRepositoryView,
+  type ConnectionAutoMode,
   type CredentialRef,
   catalogProfileConfigSchema,
   credentialRefOf,
@@ -577,6 +578,8 @@ export function profileCatalog<
   readonly repositories: Record<string, R>;
   readonly mcp_servers?: Record<string, CatalogMcpServer> | undefined;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
+  /** `unknown` for a profile whose connection is not found or was never judged. */
+  connection_auto_mode: (profileId: string) => ConnectionAutoMode;
   /** The settings generation the catalog was read at; absent before. */
   readonly settings_generation?: number | undefined;
   /** Repository ids the settings hold that did not resolve here. */
@@ -598,6 +601,22 @@ export function profileCatalog<
     },
     get installation() {
       return registry.installation;
+    },
+    connection_auto_mode(profileId: string): ConnectionAutoMode {
+      const settings = registry.settings;
+      if (settings === null) return "unknown";
+      // A workspace version has no provider of its own: it follows its base.
+      // The connection is matched on the stored definition, never on the
+      // loaded profile, whose provider holds the resolved credential.
+      const installationId =
+        registry.records.get(profileId)?.base_profile_id ?? profileId;
+      const provider =
+        registry.installation.get(installationId)?.definition?.provider;
+      if (provider === undefined) return "unknown";
+      const id = connectionMatcher(settings).connectionOf(provider);
+      return id === null
+        ? "unknown"
+        : (settings.connection_auto_modes[id] ?? "unknown");
     },
     get repositories() {
       const rows = registry.repositoryRows;

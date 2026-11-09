@@ -76,6 +76,7 @@ import {
   acceptedRuntimeVersions,
   allowedRun,
   catalogProfile,
+  effectiveExecutionMode,
   isUnmetered,
   modelSuccessor,
   movesAtNextTurn,
@@ -570,7 +571,12 @@ export function createSessionService(deps: {
       version: profile.runtime_version,
       profile_id: profileId,
       model: profile.model,
-      permission_mode: profile.permission_mode,
+      // The mode the engine runs, which a stored default, acceptEdits, dontAsk
+      // or plan becomes on a connection whose classifier works.
+      permission_mode: effectiveExecutionMode(
+        profile.permission_mode,
+        catalog.connection_auto_mode?.(profileId) ?? "unknown",
+      ),
     };
   }
 
@@ -904,7 +910,6 @@ export function createSessionService(deps: {
           workspaceId: actor.ownerId,
           agentId: release?.agent_id ?? null,
           ...(selection === undefined ? {} : { selection }),
-          permissionMode: profile.permission_mode,
           runtimeKind: profile.runtime_kind,
           tools: runningTools(
             profile,
@@ -1324,7 +1329,6 @@ export function createSessionService(deps: {
         const checked = await checkPinnedExtensions(deps.extensions, {
           workspaceId: actor.ownerId,
           extensions: record.extensions,
-          permissionMode: pair.profile.permission_mode,
           runtimeKind: pair.profile.runtime_kind,
           tools: pair.profile.tools,
         });

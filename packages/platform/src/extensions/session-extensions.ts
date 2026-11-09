@@ -74,7 +74,6 @@ export async function resolveSessionExtensions(
       enable?: readonly string[] | undefined;
       disable?: readonly string[] | undefined;
     };
-    permissionMode: string;
     runtimeKind: RuntimeKind;
     tools: readonly string[];
   },
@@ -105,7 +104,6 @@ export async function resolveSessionExtensions(
   return resolveExtensions({
     scopes,
     session: { enable: enable.found, disable: disable.found },
-    permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
     tools: input.tools,
   });
@@ -116,7 +114,6 @@ export async function checkPinnedExtensions(
   input: {
     workspaceId: string;
     extensions: readonly { bundle_id: string }[] | null;
-    permissionMode: string;
     runtimeKind: RuntimeKind;
     tools: readonly string[];
   },
@@ -134,11 +131,26 @@ export async function checkPinnedExtensions(
         },
       };
     }
+    // A scripts bundle runs code, and what let it run on any profile was its
+    // review, not the profile's mode: a bundle whose approval was withdrawn
+    // since the session pinned it does not follow the session to a new profile.
+    if (
+      bundle.review !== "approved" &&
+      bundle.manifest.skills.some((skill) => skill.has_scripts)
+    ) {
+      return {
+        ok: false,
+        refusal: {
+          code: "bundle_not_approved",
+          name: bundle.name,
+          message: `"${bundle.name}" carries skills with scripts, and its registered version is not approved`,
+        },
+      };
+    }
     workspace.push({ mode: "required", ref: refOf(bundle) });
   }
   return resolveExtensions({
     scopes: { workspace },
-    permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
     tools: input.tools,
   });
@@ -149,7 +161,6 @@ export async function checkAgentExtensions(
   input: {
     workspaceId: string;
     agentId: string;
-    permissionMode: string;
     runtimeKind: RuntimeKind;
     tools: readonly string[];
   },
@@ -158,7 +169,6 @@ export async function checkAgentExtensions(
   if (isResolution(scopes)) return scopes;
   return resolveExtensions({
     scopes,
-    permissionMode: input.permissionMode,
     runtimeOffersSkills: deps.offersSkills(input.runtimeKind),
     tools: input.tools,
     includeOptional: true,

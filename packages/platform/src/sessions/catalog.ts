@@ -568,6 +568,13 @@ export type CatalogMcpServer = Omit<CatalogMcpServerConfig, "auth"> & {
 };
 
 export type SessionCatalog = {
+  /**
+   * Whether the classifier works over the connection a profile runs on.
+   * Absent, every profile is `unknown`: its stored mode runs as it is.
+   */
+  connection_auto_mode?:
+    | ((profileId: string) => ConnectionAutoMode)
+    | undefined;
   profiles: Record<string, CatalogProfile>;
   repositories: Record<string, CatalogRepository>;
   mcp_servers?: Record<string, CatalogMcpServer> | undefined;
@@ -687,6 +694,10 @@ export type CatalogRepositoryView = Omit<CatalogRepository, "auth"> & {
  * builds one from the config for a process that holds no provider key.
  */
 export type SessionCatalogView = {
+  /** See `SessionCatalog.connection_auto_mode`. */
+  connection_auto_mode?:
+    | ((profileId: string) => ConnectionAutoMode)
+    | undefined;
   profiles: Record<string, CatalogProfileView>;
   repositories: Record<string, CatalogRepositoryView>;
   workspace_profiles?: WorkspaceProfiles;
@@ -942,6 +953,40 @@ export function runtimeConfigOf(
       ? { project_settings: profile.project_settings }
       : {}),
   };
+}
+
+/**
+ * Whether the engine's auto mode classifier works over a connection, as an
+ * admin judged it. A connection nobody judged is `unknown`.
+ */
+export type ConnectionAutoMode = "supported" | "unsupported" | "unknown";
+
+/** The modes that become `auto` once the connection supports it. */
+const CONVERTIBLE_MODES: readonly CatalogProfile["permission_mode"][] = [
+  "default",
+  "acceptEdits",
+  "dontAsk",
+  "plan",
+];
+
+export function isConvertibleMode(
+  mode: CatalogProfile["permission_mode"],
+): boolean {
+  return CONVERTIBLE_MODES.includes(mode);
+}
+
+/**
+ * The mode the engine runs for a stored one. The two execution modes are
+ * `auto` and `bypassPermissions`; every other stored mode runs as `auto` where
+ * the connection's classifier is known to work, and as itself everywhere
+ * else, so an agent never loses its approvals to a model that cannot judge.
+ * The stored mode stays in the definition, the fingerprint and the release.
+ */
+export function effectiveExecutionMode(
+  mode: CatalogProfile["permission_mode"],
+  autoMode: ConnectionAutoMode,
+): CatalogProfile["permission_mode"] {
+  return isConvertibleMode(mode) && autoMode === "supported" ? "auto" : mode;
 }
 
 /** One request the egress proxy makes on a worker's behalf. */
