@@ -123,7 +123,11 @@ integration("a model moved at the next turn's claim", () => {
     const id = accepted.response.session_id;
     await db
       .update(sessions)
-      .set({ partition, model, profileFingerprint: profileFingerprint(profile) })
+      .set({
+        partition,
+        model,
+        profileFingerprint: profileFingerprint(profile),
+      })
       .where(eq(sessions.id, id));
     await db
       .update(unassignedSessions)

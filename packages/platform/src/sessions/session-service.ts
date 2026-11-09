@@ -835,9 +835,7 @@ export function createSessionService(deps: {
       // any waiting session. A model the body names is the caller's choice
       // and is refused when not offered.
       const successor =
-        allowed &&
-        input.body.model === undefined &&
-        wantedModel !== undefined
+        allowed && input.body.model === undefined && wantedModel !== undefined
           ? modelSuccessor(allowed.profile, wantedModel)
           : null;
       const runs = allowed

@@ -6,6 +6,7 @@ import { profilesQuery } from "../../api/queries.ts";
 import {
   profileDisplay,
   runsModel,
+  successorOf,
 } from "../../components/profile-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 
@@ -34,15 +35,26 @@ export function ModelRemovedAlert({
   ) {
     return null;
   }
-  return (
+  const successor = successorOf(profile, model);
+  const params = {
+    model,
+    profile: profileDisplay(t, profiles.data?.items, profile.id),
+  };
+  // A successor keeps the agent running: sessions start on it, so this only
+  // asks the admin to bring the card's model up to date.
+  return successor === undefined ? (
     <Alert variant="amber" className="border-0">
-      <AlertTitle>
-        {t("agent.modelRemoved.title", {
-          model,
-          profile: profileDisplay(t, profiles.data?.items, profile.id),
-        })}
-      </AlertTitle>
+      <AlertTitle>{t("agent.modelRemoved.title", params)}</AlertTitle>
       <AlertDescription>{t("agent.modelRemoved.text")}</AlertDescription>
+    </Alert>
+  ) : (
+    <Alert variant="blue" className="border-0">
+      <AlertTitle>
+        {t("agent.modelMoves.title", { ...params, successor })}
+      </AlertTitle>
+      <AlertDescription>
+        {t("agent.modelMoves.text", { model, successor })}
+      </AlertDescription>
     </Alert>
   );
 }

@@ -6,7 +6,10 @@ import type {
   WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
-import { type CatalogProfile, profileFingerprint } from "../sessions/catalog.ts";
+import {
+  type CatalogProfile,
+  profileFingerprint,
+} from "../sessions/catalog.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 

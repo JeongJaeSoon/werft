@@ -20520,6 +20520,18 @@
                     "minLength": 1
                   }
                 },
+                "model_successors": {
+                  "description": "Each model the profile dropped that has a successor, with the listed model of the same series a session on it moves to at its next turn. Absent when none does.",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
                 "tools": {
                   "type": "array",
                   "items": {
@@ -21015,6 +21027,18 @@
                 "minItems": 1,
                 "type": "array",
                 "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "model_successors": {
+                "description": "Each model the profile dropped that has a successor, with the listed model of the same series a session on it moves to at its next turn. Absent when none does.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalProperties": {
                   "type": "string",
                   "minLength": 1
                 }
