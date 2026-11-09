@@ -182,8 +182,15 @@ jobs:
           }
           JSON
           chmod 644 "$(dirname "$TEST_OPS_ENV_FILE")/settings.json"
-          scripts/test-ops.sh manifest "$MANIFEST" "$(dirname "$TEST_OPS_ENV_FILE")/settings.json" >"$RUNNER_TEMP/release.json"
-          jq 'del(.settings_digest)' "$RUNNER_TEMP/release.json"
+          # The release's own docs build the deploy manifest this way; its
+          # test-ops.sh has no `manifest` verb.
+          digest="$(bun run scripts/lib/test-ops.ts settings-digest "$(dirname "$TEST_OPS_ENV_FILE")/settings.json")"
+          jq --arg d "$digest" '{source_commit: .commit, images: {
+            control_host: (.images["control-host"] | "\(.image)@\(.digest)"),
+            worker: (.images.worker | "\(.image)@\(.digest)"),
+            egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")},
+            settings_digest: $d}' "$MANIFEST" >"$RUNNER_TEMP/release.json"
+          cat "$RUNNER_TEMP/release.json"
       - name: Preflight and deploy
         run: |
           scripts/test-ops.sh preflight "$RUNNER_TEMP/release.json"
@@ -201,7 +208,10 @@ jobs:
       - if: '!cancelled()'
         name: No registry login was used
         run: |
-          ! test -s "$HOME/.docker/config.json" || ! jq -e '.auths // {} | length > 0' "$HOME/.docker/config.json"
+          if [ -s "$HOME/.docker/config.json" ]; then
+            echo "registries with stored auth: $(jq -c '.auths // {} | keys' "$HOME/.docker/config.json")"
+            jq -e '(.auths // {}) | length == 0' "$HOME/.docker/config.json" >/dev/null
+          fi
 
   kind:
     needs: release
@@ -237,7 +247,7 @@ jobs:
           MANIFEST: ${{ runner.temp }}/manifest/release-manifest.json
         run: |
           export HELM_REGISTRY_CONFIG="$RUNNER_TEMP/no-login/helm.json" DOCKER_CONFIG="$RUNNER_TEMP/no-login"
-          mkdir -p "$DOCKER_CONFIG"
+          mkdir -p "$DOCKER_CONFIG" "$RUNNER_TEMP/chart"
           helm pull "$(jq -r .chart.ref "$MANIFEST")" --version "$(jq -r .chart.version "$MANIFEST")" --destination "$RUNNER_TEMP/chart"
           ls -l "$RUNNER_TEMP/chart"
       - name: Install the published chart on kind
