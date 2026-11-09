@@ -197,6 +197,12 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_env_variable_grants",
   "resolve_session_env",
   "reject_session_env",
+  // Skill-only extension bundles (94S-865). Names, digests and review states
+  // only; a bundle's files are never written to a receipt.
+  "register_extension",
+  "approve_extension",
+  "attach_extension",
+  "detach_extension",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

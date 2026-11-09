@@ -13228,7 +13228,11 @@
               "delete_env_variable",
               "set_env_variable_grants",
               "resolve_session_env",
-              "reject_session_env"
+              "reject_session_env",
+              "register_extension",
+              "approve_extension",
+              "attach_extension",
+              "detach_extension"
             ]
           },
           "target_ref": {
@@ -13292,7 +13296,8 @@
                           "routine",
                           "artifact",
                           "api_key",
-                          "team"
+                          "team",
+                          "extension_bundle"
                         ]
                       },
                       "id": {
