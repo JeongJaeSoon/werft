@@ -65,7 +65,9 @@ const HISTORY_COLUMNS = [
   "minmax(0,1fr) 152px 168px",
   "minmax(0,1fr) 128px",
 ] as const;
-const AGENT_COLUMNS = "minmax(0,1fr) minmax(0,1fr)";
+// The release label has one width; the rest goes to the name and, under it,
+// the model note.
+const AGENT_COLUMNS = "minmax(0,1fr) 152px";
 
 /**
  * The versions of `profile`'s line: a workspace profile's name, or for a
