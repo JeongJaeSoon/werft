@@ -35,10 +35,11 @@ export type RepositoryRow = {
   /** Stable across a toggle: the catalog id once there is one. */
   readonly key: string;
   /**
-   * The row's React key. The name, so the switch keeps focus when the catalog
-   * takes an installed-only repository (its `key` changes then); the id is
-   * added only for two rows that share a name. Switch state is kept by `key`,
-   * which never depends on which installation page is showing.
+   * The row's identity in the list: the React key and the key of its switch
+   * state. The name, because it is the one thing that stays the same when the
+   * catalog takes an installed-only repository (`key` changes then) and
+   * whichever installation page is showing; the id is added only for two rows
+   * that share a name.
    */
   readonly anchor: string;
   /** `owner/repo`. */
@@ -279,7 +280,7 @@ export function RepositoryList({
           aria-label={t("agentGitHub.section.repositories")}
         >
           {rows.map((row) => {
-            const on = toggles.wanted[row.key] ?? row.on;
+            const on = toggles.wanted[row.anchor] ?? row.on;
             const disabled =
               !editable || row.blocked !== null || row.target === null;
             return (
@@ -317,8 +318,8 @@ export function RepositoryList({
                     : undefined
                 }
                 meta={
-                  toggles.errors[row.key] ? (
-                    <FieldError>{toggles.errors[row.key]}</FieldError>
+                  toggles.errors[row.anchor] ? (
+                    <FieldError>{toggles.errors[row.anchor]}</FieldError>
                   ) : undefined
                 }
                 actions={
@@ -331,7 +332,7 @@ export function RepositoryList({
                       disabled={disabled}
                       onCheckedChange={(checked) => {
                         if (row.target) {
-                          toggles.toggle(row.key, row.target, checked);
+                          toggles.toggle(row.anchor, row.target, checked);
                         }
                       }}
                     />

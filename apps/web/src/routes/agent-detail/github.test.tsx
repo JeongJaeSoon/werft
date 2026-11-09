@@ -1083,6 +1083,61 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
+  test("설치 목록에만 있던 저장소를 켠 뒤 설치 목록만 새로 읽혀도 켠 채로 보인다", async () => {
+    const { server } = await activeAgent();
+    const base = routesFor(server, TAB);
+    const tabKey = `GET ${PATH}/github`;
+    let saved = false;
+    renderAt(DETAIL, {
+      ...base,
+      [tabKey]: (request: Request) =>
+        saved
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : (base[tabKey] as NonNullable<(typeof base)[string]>)(request),
+      [`GET ${PATH}/github/repositories`]: () =>
+        json(200, {
+          installations: [
+            {
+              id: 77,
+              account: "acme",
+              connection_id: "app-author",
+              role: "author",
+              permissions: { contents: "write" },
+              repository_count: 1,
+            },
+          ],
+          installation_id: 77,
+          page: 1,
+          per_page: 30,
+          total_count: 1,
+          repositories: [
+            {
+              github_repository_id: 12,
+              full_name: "acme/api",
+              default_branch: "main",
+              private: false,
+              // The installation page already knows the catalog took it.
+              catalog_id: saved ? "api" : null,
+            },
+          ],
+          unavailable: null,
+        }),
+      [ACCESS]: () => {
+        saved = true;
+        return accessed();
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("switch", { name: "acme/api 사용" }),
+    );
+    await screen.findByRole("alert");
+    // Only the installation page moved on: the saved choice is still shown.
+    expect(switchNamed("acme/api 사용").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
   test("행의 키는 카탈로그가 받아도 그대로고, 이름이 같은 두 행만 id로 가른다", async () => {
     const { repositoryRows } = await import("./github-repositories.tsx");
     const listed = {
@@ -1118,9 +1173,11 @@ describe("에이전트 GitHub 탭", () => {
     // Installed-only, then taken by the catalog: the React key (focus) holds.
     expect(rowOf(before)?.key).toBe("gh:12");
     expect(rowOf(after)?.anchor).toBe(rowOf(before)?.anchor ?? "");
-    // The switch state key of a catalog row is its id whatever page shows.
-    expect(rowOf(after)?.key).toBe("api");
-    expect(rowOf(repositoryRows(taken, [], [], null))?.key).toBe("api");
+    // The switch state key (the anchor) is the name: the same whether the
+    // catalog holds the repository yet and whichever page is showing.
+    expect(rowOf(after)?.anchor).toBe("acme/api");
+    expect(rowOf(repositoryRows(taken, [], [], null))?.anchor).toBe("acme/api");
+    expect(rowOf(before)?.anchor).toBe("acme/api");
 
     // A dropped row and a re-registered one with the same name stay apart.
     const twins = structuredClone(taken);
