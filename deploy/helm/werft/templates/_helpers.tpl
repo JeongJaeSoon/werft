@@ -176,7 +176,7 @@ all three render this one definition and cannot disagree.
 {{- range $name, $runtime := dict "images.worker.runtime" $current "images.workerPrevious.runtime" $previous.runtime -}}
 {{- /* The same rules as parseImageRuntime, which every reader starts with. */ -}}
 {{- if $runtime -}}
-{{- with without (keys $runtime) "engine" "sdkVersion" "cliVersion" "profileDigestScheme" "profiles" -}}
+{{- with without (keys $runtime) "engine" "sdkVersion" "cliVersion" "profileDigestScheme" "profiles" "restorableSchemes" -}}
 {{- fail (printf "%s has unknown field(s): %s" $name (join ", " (sortAlpha .))) -}}
 {{- end -}}
 {{- range $key := list "engine" "sdkVersion" "cliVersion" -}}
@@ -194,6 +194,25 @@ all three render this one definition and cannot disagree.
 {{- $scheme := index $runtime "profileDigestScheme" -}}
 {{- if not (and (or (kindIs "float64" $scheme) (kindIs "int64" $scheme) (kindIs "int" $scheme)) (eq (float64 $scheme) (floor $scheme)) (ge (float64 $scheme) 1.0)) -}}
 {{- fail (printf "%s.profileDigestScheme must be a positive integer" $name) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $runtime "restorableSchemes" -}}
+{{- $own := 1.0 -}}
+{{- if hasKey $runtime "profileDigestScheme" -}}{{- $own = float64 (index $runtime "profileDigestScheme") -}}{{- end -}}
+{{- $schemes := index $runtime "restorableSchemes" -}}
+{{- $valid := kindIs "slice" $schemes -}}
+{{- $hasOwn := false -}}
+{{- if $valid -}}
+{{- range $scheme := $schemes -}}
+{{- if not (and (or (kindIs "float64" $scheme) (kindIs "int64" $scheme) (kindIs "int" $scheme)) (eq (float64 $scheme) (floor $scheme)) (ge (float64 $scheme) 1.0)) -}}
+{{- $valid = false -}}
+{{- else if eq (float64 $scheme) $own -}}
+{{- $hasOwn = true -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not (and $valid $hasOwn) -}}
+{{- fail (printf "%s.restorableSchemes must be positive integers that include profileDigestScheme" $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
