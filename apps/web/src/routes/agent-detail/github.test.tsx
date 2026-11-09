@@ -1918,6 +1918,86 @@ describe("에이전트 GitHub 탭", () => {
       expect(sent[0]?.settings.repositories).toContain("docs-site");
     });
 
+    test("id를 모르는 스위치 뒤에 온 스위치도 순서대로 이어 받는다", async () => {
+      const { server } = await activeAgent();
+      let live: Tab = TAB;
+      let failing = false;
+      const sent: { expected_revision: number | null; settings: Settings }[] =
+        [];
+      renderAt(
+        DETAIL,
+        routesFor(server, TAB, {
+          [`GET ${PATH}/github`]: () =>
+            failing ? apiError(500, "INTERNAL_ERROR", "down") : json(200, live),
+          [ACCESS]: async (request) => {
+            failing = true;
+            const { enabled } = (await request.json()) as { enabled: boolean };
+            // The first answer names a ref the page has not read yet.
+            return json(200, {
+              settings_revision: enabled ? 4 : 5,
+              receipt_id: RECEIPT_ID,
+              enabled,
+              repository: enabled
+                ? {
+                    ref: "r1.docs-site-moved",
+                    repository: "acme/docs-site",
+                    private: null,
+                  }
+                : {
+                    ref: "r1.werft-sandbox",
+                    repository: "acme/werft-sandbox",
+                    private: null,
+                  },
+            });
+          },
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push((await request.json()) as (typeof sent)[number]);
+            return json(200, { settings_revision: 9, receipt_id: RECEIPT_ID });
+          },
+        }),
+      );
+      const user = await setupUser();
+      await screen.findByRole("heading", {
+        name: "에이전트가 쓸 수 있는 기능",
+      });
+      await user.click(switchNamed("push 전 사람 승인"));
+      await user.click(repoSwitch("docs-site"));
+      await screen.findByRole("button", { name: "다시 시도" });
+      await user.click(repoSwitch("werft-sandbox"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      live = {
+        ...TAB,
+        settings_revision: 5,
+        github: { ...SETTINGS, repositories: ["docs-site"] },
+        options: {
+          ...TAB.options,
+          repositories: TAB.options.repositories.map((option) =>
+            option.id === "docs-site"
+              ? { ...option, ref: "r1.docs-site-moved" }
+              : option,
+          ),
+        },
+      };
+      failing = false;
+      await user.click(
+        await screen.findByRole("button", { name: "다시 시도" }),
+      );
+      await waitFor(() =>
+        expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe(
+          "true",
+        ),
+      );
+      const save = (await screen.findByRole("button", {
+        name: "저장",
+      })) as HTMLButtonElement;
+      await waitFor(() => expect(save.disabled).toBe(false));
+      expect(screen.queryByText(STALE)).toBeNull();
+      await user.click(save);
+      await waitFor(() => expect(sent).toHaveLength(1));
+      expect(sent[0]?.expected_revision).toBe(5);
+      expect(sent[0]?.settings.repositories).toEqual(["docs-site"]);
+    });
+
     test("사이에 다른 곳 저장이 끼었으면(+2) 옮기지 않고 stale로 둔다", async () => {
       let release: () => void = () => {};
       const held = new Promise<void>((resolve) => {

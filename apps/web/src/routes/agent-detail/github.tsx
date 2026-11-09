@@ -536,32 +536,41 @@ function GitHubSettings({
       if (option.ref) idsByRef.current.set(option.ref, option.id);
   };
   remember(data);
+  // Confirmed switches not yet applied to the draft, in revision order. One
+  // whose repository id is unknown (the re-read failed) holds the ones after
+  // it: each is only the next step of the one before.
+  const waiting = useRef<SavedSwitch[]>([]);
+  const drain = (read: GitHubTabData) => {
+    remember(read);
+    const queue = waiting.current;
+    queue.sort((a, b) => a.revision - b.revision);
+    while (queue[0]) {
+      const saved = queue[0];
+      const id = idsByRef.current.get(saved.ref);
+      if (id === undefined) {
+        // A read that already includes this revision and still has no id for
+        // the ref will never give one.
+        if (saved.revision <= (read.settings_revision ?? 0)) {
+          queue.shift();
+          continue;
+        }
+        return;
+      }
+      queue.shift();
+      setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+    }
+  };
   const toggles = useRepositoryToggles(agentId, (saved) => {
+    waiting.current.push(saved);
     // The re-read may not have rendered yet, and a repository picked from an
     // installation only gets its id there: look in the cache too.
-    const fresh = cache.getQueryData<GitHubTabData>(githubKey(client, agentId));
-    if (fresh) remember(fresh);
-    const id = idsByRef.current.get(saved.ref);
-    if (id === undefined) {
-      // The re-read failed, so the new row's id is not known yet.
-      unresolved.current.push(saved);
-      return;
-    }
-    setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+    drain(
+      cache.getQueryData<GitHubTabData>(githubKey(client, agentId)) ?? data,
+    );
   });
-  const unresolved = useRef<SavedSwitch[]>([]);
-  // After every render, so the first read that names the new ref applies it;
-  // the revision check in followSwitch drops a switch a later draft no longer
-  // follows.
+  // After every render, so the first read that names a waiting ref applies it.
   useEffect(() => {
-    if (unresolved.current.length === 0) return;
-    const waiting = unresolved.current;
-    unresolved.current = [];
-    for (const saved of waiting) {
-      const id = idsByRef.current.get(saved.ref);
-      if (id === undefined) unresolved.current.push(saved);
-      else setDraft((held) => (held ? followSwitch(held, saved, id) : held));
-    }
+    if (waiting.current.length > 0) drain(data);
   });
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
