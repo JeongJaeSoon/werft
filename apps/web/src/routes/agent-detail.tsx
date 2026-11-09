@@ -487,6 +487,14 @@ function AgentView({
     className: PANEL,
   });
   const releaseTab = useRef<HTMLButtonElement>(null);
+  const tabRow = useRef<HTMLDivElement>(null);
+  // The row scrolls on a phone, so a tab opened by link may sit off screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
+  useEffect(() => {
+    tabRow.current
+      ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [tab]);
   const [editing, setEditing] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
   // Closing the editor hands the keyboard back to the button that opened it.
@@ -519,7 +527,7 @@ function AgentView({
       className="min-w-0 gap-[var(--werft-space-block)]"
     >
       {/* Seven tabs outgrow a phone in en/ja: scroll the row, not the page. */}
-      <div className="overflow-x-auto border-b">
+      <div ref={tabRow} className="overflow-x-auto border-b">
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
             <TabsTrigger
