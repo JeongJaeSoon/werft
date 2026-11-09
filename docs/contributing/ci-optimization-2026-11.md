@@ -76,6 +76,12 @@ CI와 같은 Bun 1.3.14로 `bun test --timeout 15000 ./tests`를 실행하여 **
 
 전체 workspace typecheck와 root TypeScript 검사, 라이선스 고지 대조(`251 packages`), actionlint 1.7.12·Bash 구문·diff 공백 검사를 통과했다. lint는 오류 없이 기존 경고 118개를 보고했다. 로컬 전체 검사는 자동 릴리스 경로를 보존한 최종 구성에서 다시 확인했다. GitHub 변경 후 실측은 완료한 실행의 로그와 검토용 PR 본문에 기록한다.
 
+### 리뷰 반영과 최신 main 통합
+
+아래 이전 측정과 위 1차 정상 완주의 수치는 당시 커밋의 기록이다. 최신 main의 Slack unit 분리(`control-slack`)와 다섯 부분, 12분 timeout을 유지했다. 일반 제품 계획에서는 이 다섯 부분을 중복 실행하지 않고 수동 `only=check`와 웹 축소 계획에서 사용한다.
+
+집계는 이름 있는 `needs`와 계획을 함께 읽어 Helm·Kubernetes·사이트·제품·quota job마다 예정된 실행은 success, 생략은 skipped인지 검증한다. 계획이 true인데 job이 skipped이거나 결과가 누락되면 실패한다. 별도 Pages workflow로 옮긴 main 사이트 빌드는 `site=false` 계획으로 반영했다. Next 캐시의 main 저장도 `pages.yml`의 docs job으로 옮기고 PR CI는 복원만 한다. 이 후속 변경의 실제 실행 결과는 검토용 PR 코멘트에 기록하며, 과거 절감률을 새 head의 재측정으로 바꾸어 주장하지 않는다.
+
 ## 2026-11-06 당시 측정
 
 

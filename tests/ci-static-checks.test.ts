@@ -13,6 +13,7 @@ type Step = {
 type Job = {
   if?: string;
   name?: string;
+  "timeout-minutes"?: number;
   needs?: string | string[];
   outputs?: Record<string, string>;
   strategy?: { matrix: { include: { part: string; unit?: string }[] } };
@@ -92,6 +93,7 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   );
   expect(units?.sort()).toEqual([...PARTS].sort());
   expect(new Set(units).size).toBe(PARTS.length);
+  expect(workflow.jobs["check-part"]?.["timeout-minutes"]).toBe(12);
   for (const part of PARTS) {
     expect(() => pick([], part)).toThrow(`unit part ${part} has no files`);
   }
@@ -183,16 +185,200 @@ test("required check only accepts verified product or documentation results", ()
   );
 });
 
-test("the required verdict rejects failed product, accessibility or packaging results", () => {
-  const run = (results: string) =>
-    verdict("check", { RESULTS: results }, "product-results");
-  expect(run(JSON.stringify(["success", "skipped", "success"]))).toBe(0);
+const plannedConsumers = [
+  "helm-chart",
+  "k8s-smoke",
+  "storybook",
+  "docs",
+  "pages",
+  "demo",
+  "ui-pack",
+  "workspace-quota",
+] as const;
+
+function productNeeds() {
+  return {
+    changes: {
+      result: "success",
+      outputs: {
+        helm: "true",
+        k8s: "true",
+        site: "true",
+        product: "true",
+        domains: '["db","api","surface","storage","docker","egress","worker"]',
+      },
+    },
+    static: { result: "success" },
+    "check-part": { result: "skipped" },
+    "docs-checks": { result: "skipped" },
+    "integration-domain": { result: "success" },
+    "helm-chart": { result: "success" },
+    "k8s-smoke": { result: "success" },
+    storybook: { result: "success" },
+    docs: { result: "success" },
+    pages: { result: "success" },
+    demo: { result: "success" },
+    "ui-pack": { result: "success" },
+    "workspace-quota": { result: "success" },
+  };
+}
+
+function productVerdict(needs: unknown, only = "all") {
+  return verdict(
+    "check",
+    { RESULTS: JSON.stringify(needs), ONLY: only },
+    "product-results",
+  );
+}
+
+test("product results bind named jobs to the plan and selection", () => {
+  const step = workflow.jobs.check?.steps.find(
+    (s) => s.id === "product-results",
+  );
+  const { env: bindings } = step ?? {};
+  expect(bindings).toEqual({
+    RESULTS: `\${{ toJSON(needs) }}`,
+    ONLY: `\${{ github.event.inputs.only || 'all' }}`,
+  });
+  expect(productVerdict(productNeeds())).toBe(0);
+  const main = productNeeds();
+  main.changes.outputs.site = "false";
+  for (const job of ["storybook", "docs", "pages"] as const)
+    main[job].result = "skipped";
+  expect(productVerdict(main)).toBe(0);
+  const web = productNeeds();
+  Object.assign(web.changes.outputs, {
+    helm: "false",
+    k8s: "false",
+    domains: '["surface"]',
+  });
+  for (const job of ["helm-chart", "k8s-smoke", "workspace-quota"] as const)
+    web[job].result = "skipped";
+  web["check-part"].result = "success";
+  expect(productVerdict(web)).toBe(0);
+  const docs = productNeeds();
+  Object.assign(docs.changes.outputs, {
+    helm: "false",
+    k8s: "false",
+    site: "false",
+    product: "false",
+    domains: "[]",
+  });
+  for (const job of plannedConsumers) docs[job].result = "skipped";
+  docs["integration-domain"].result = "skipped";
+  docs["docs-checks"].result = "success";
+  expect(productVerdict(docs)).toBe(0);
+  docs.changes.outputs.site = "true";
+  for (const job of ["storybook", "docs", "pages"] as const)
+    docs[job].result = "success";
+  expect(productVerdict(docs)).toBe(0);
+});
+
+test.each(plannedConsumers)(
+  "a planned %s must succeed, including when its condition skips it",
+  (job) => {
+    for (const result of [
+      "skipped",
+      "failure",
+      "cancelled",
+      "pending",
+      "",
+      null,
+    ]) {
+      expect(productVerdict({ ...productNeeds(), [job]: { result } })).not.toBe(
+        0,
+      );
+    }
+    expect(productVerdict({ ...productNeeds(), [job]: undefined })).not.toBe(0);
+  },
+);
+
+test.each(["helm", "k8s", "site", "product"])(
+  "the %s plan accepts only explicit boolean strings",
+  (flag) => {
+    for (const value of ["", "TRUE", "unknown", true, false, null, undefined]) {
+      const needs = productNeeds();
+      const consumers = {
+        helm: ["helm-chart"],
+        k8s: ["k8s-smoke"],
+        site: ["storybook", "docs", "pages"],
+        product: ["demo", "ui-pack", "workspace-quota"],
+      } as const;
+      for (const job of consumers[flag as keyof typeof consumers])
+        needs[job].result = "skipped";
+      expect(
+        productVerdict({
+          ...needs,
+          changes: {
+            ...needs.changes,
+            outputs: { ...needs.changes.outputs, [flag]: value },
+          },
+        }),
+      ).not.toBe(0);
+    }
+  },
+);
+
+test("omitted consumers must be skipped and workspace requires a product Docker domain", () => {
+  for (const job of plannedConsumers) {
+    const needs = productNeeds();
+    Object.assign(needs.changes.outputs, {
+      helm: "false",
+      k8s: "false",
+      site: "false",
+      product: "false",
+      domains: "[]",
+    });
+    for (const other of plannedConsumers) needs[other].result = "skipped";
+    needs[job].result = "success";
+    expect(productVerdict(needs)).not.toBe(0);
+  }
+  const withoutDocker = productNeeds();
+  withoutDocker.changes.outputs.domains = '["surface"]';
+  expect(productVerdict(withoutDocker)).not.toBe(0);
+  withoutDocker["workspace-quota"].result = "skipped";
+  expect(productVerdict(withoutDocker)).toBe(0);
+  const withoutProduct = productNeeds();
+  withoutProduct.changes.outputs.product = "false";
+  withoutProduct.demo.result = "skipped";
+  withoutProduct["ui-pack"].result = "skipped";
+  expect(productVerdict(withoutProduct)).not.toBe(0);
+  withoutProduct["workspace-quota"].result = "skipped";
+  expect(productVerdict(withoutProduct)).toBe(0);
+});
+
+test("manual only=check permits only the explicitly unselected consumers to skip", () => {
+  const needs = productNeeds();
+  for (const job of plannedConsumers) needs[job].result = "skipped";
+  needs["check-part"].result = "success";
+  needs["integration-domain"].result = "skipped";
+  expect(productVerdict(needs, "check")).toBe(0);
+  expect(productVerdict(needs)).not.toBe(0);
+  for (const job of plannedConsumers) {
+    expect(
+      productVerdict({ ...needs, [job]: { result: "success" } }, "check"),
+    ).not.toBe(0);
+  }
   for (const result of ["failure", "cancelled", "pending", "", null]) {
-    expect(run(JSON.stringify(["success", result]))).not.toBe(0);
+    expect(productVerdict({ ...needs, static: { result } }, "check")).not.toBe(
+      0,
+    );
   }
+});
+
+test("product results reject malformed needs, domains and job selections", () => {
   for (const invalid of ["", "[]", "null", "{}", "not-json"]) {
-    expect(run(invalid)).not.toBe(0);
+    expect(
+      verdict("check", { RESULTS: invalid, ONLY: "all" }, "product-results"),
+    ).not.toBe(0);
   }
+  for (const domains of ["", "not-json", "null", "{}", '"docker"', "[true]"]) {
+    const needs = productNeeds();
+    needs.changes.outputs.domains = domains;
+    expect(productVerdict(needs)).not.toBe(0);
+  }
+  for (const only of ["", "integration", "unknown"])
+    expect(productVerdict(productNeeds(), only)).not.toBe(0);
 });
 
 test("required integration never treats an unplanned skip as success", () => {

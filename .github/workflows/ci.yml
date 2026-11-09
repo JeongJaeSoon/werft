@@ -173,11 +173,33 @@ jobs:
       - id: product-results
         if: '!cancelled()'
         env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
+          RESULTS: ${{ toJSON(needs) }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
         run: |
           [ -n "$RESULTS" ] || exit 1
-          if ! jq -e 'type == "array" and length > 0 and all(.[]; . == "success" or . == "skipped")' <<<"$RESULTS" >/dev/null; then
-            echo "::error::a planned validation failed or was cancelled"
+          if ! jq -e --arg only "$ONLY" '
+            . as $needs
+            | .changes.outputs as $plan
+            | ($plan.domains | fromjson) as $domains
+            | {
+                "helm-chart": ($plan.helm == "true"),
+                "k8s-smoke": ($plan.k8s == "true"),
+                "storybook": ($plan.site == "true"),
+                "docs": ($plan.site == "true"),
+                "pages": ($plan.site == "true"),
+                "demo": ($plan.product == "true"),
+                "ui-pack": ($plan.product == "true"),
+                "workspace-quota": ($plan.product == "true" and ($domains | index("docker") != null))
+              } as $expected
+            | (["all", "check"] | index($only) != null)
+              and (.changes.result == "success")
+              and all(.[]; .result == "success" or .result == "skipped")
+              and (["helm", "k8s", "site", "product"] | all(.[]; $plan[.] == "true" or $plan[.] == "false"))
+              and ($domains | type == "array" and all(.[]; type == "string"))
+              and ($expected | to_entries | all(.[];
+                $needs[.["key"]].result == (if $only == "all" and .value then "success" else "skipped" end)))
+          ' <<<"$RESULTS" >/dev/null; then
+            echo "::error::invalid product plan or job results; planned jobs must succeed and omitted jobs must be skipped"
             exit 1
           fi
       - id: cancelled
@@ -660,11 +682,6 @@ jobs:
         run: bun run --cwd apps/docs build
       - name: Self-hosting public URL and fallback contract
         run: bun run scripts/check-docs-self-hosting-export.ts
-      - if: github.ref == 'refs/heads/main' && steps.docs-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: apps/docs/.next/cache
-          key: ${{ steps.docs-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docs-out
