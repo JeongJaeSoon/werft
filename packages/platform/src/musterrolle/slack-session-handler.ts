@@ -91,7 +91,10 @@ export type SlackSessionHandlerDeps = {
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
     SurfaceBindingStore,
-    "resolveSlackChannel" | "ensureDmBinding"
+    | "resolveSlackChannel"
+    | "ensureDmBinding"
+    | "findPendingApproval"
+    | "requireApproval"
   >;
   /** Whether the agent waits for a mention in every channel in use. */
   settings: Pick<SlackAppStore, "getSettings">;
@@ -164,6 +167,18 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // Before the early returns below, which let most unmentioned talk go:
+    // the event itself says the channel is private, so a binding made for a
+    // public one waits for approval now, whoever spoke and whatever was said.
+    if (!dm && event.channel_type === "group") {
+      const bound = await deps.bindings.resolveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      if (bound !== null && bound.channelKind === "public_channel") {
+        await deps.bindings.requireApproval(bound.id);
+      }
+    }
     const mentioned =
       event.type === "app_mention" ||
       new RegExp(`<@${agent.botUserId}(?:\\||>)`).test(event.text);
@@ -196,7 +211,11 @@ export function createSlackSessionHandler(
       throw new Error("The Slack app has no bot token stored");
     }
     const user = await deps.slack.userInfo(botToken, event.user);
-    const notice = async (reason: string, text: SlackNotice) => {
+    const notice = async (
+      reason: string,
+      text: SlackNotice,
+      wait?: { id: string; revision: number },
+    ) => {
       // Someone talking unmentioned did not ask the agent, so a
       // refusal is not theirs to read on every message.
       if (found === null && !mentioned && !dm) return;
@@ -211,7 +230,9 @@ export function createSlackSessionHandler(
         slackUserId: event.user,
         reason,
         notice: text,
-        onceKey: `${agent.installationId}:${surfaceRef}:${event.user}`,
+        onceKey: `${agent.installationId}:${surfaceRef}:${event.user}${
+          wait === undefined ? "" : `:${wait.id}:${wait.revision}`
+        }`,
       });
     };
 
@@ -224,6 +245,24 @@ export function createSlackSessionHandler(
         : binding !== null && binding.channelKind !== "dm"
           ? await deps.slack.channelKind(botToken, event.channel)
           : undefined;
+    if (
+      binding !== null &&
+      binding.channelKind === "public_channel" &&
+      eventKind === "private_channel"
+    ) {
+      const waiting = await deps.bindings.requireApproval(binding.id);
+      if (waiting !== null) {
+        deps.logger.warn("Slack channel turned private; waits for approval", {
+          ...ids,
+        });
+        await notice(
+          "pending_approval",
+          { message: "pendingApproval" },
+          { id: waiting.id, revision: waiting.revision },
+        );
+        return;
+      }
+    }
     if (
       binding !== null &&
       eventKind !== undefined &&
@@ -285,8 +324,27 @@ export function createSlackSessionHandler(
         reason: decision.decision.reason_code,
       });
       if (decision.notice !== null) {
-        await notice(decision.decision.reason_code, decision.notice);
+        await (decision.pending === null
+          ? notice(decision.decision.reason_code, decision.notice)
+          : notice("pending_approval", decision.notice, decision.pending));
       }
+      return;
+    }
+    // Read again: the binding the decision allowed on may be a newer one
+    // than the one read before it, approved after this message was sent.
+    const allowedOn = dm
+      ? binding
+      : await deps.bindings.resolveSlackChannel(
+          agent.installationId,
+          event.channel,
+        );
+    if (
+      allowedOn?.approvedAt != null &&
+      Number(event.ts) * 1000 < allowedOn.approvedAt.getTime()
+    ) {
+      deps.logger.info("Slack input predates the channel's approval; ignored", {
+        ...ids,
+      });
       return;
     }
 

@@ -53,6 +53,7 @@ function binding(
     home: false,
     memoryWritePolicy: "deny",
     status: "ready",
+    approvedAt: null,
     membership: null,
     muted: false,
     revision: 1,
@@ -369,6 +370,24 @@ describe("deployment welcome", () => {
       ],
     });
     expect(w.outbox.size).toBe(0);
+  });
+
+  test("a home waiting for approval hears nothing, and nothing is queued for it", async () => {
+    const waiting = world(
+      [
+        binding(HOME, "G0HOME", {
+          home: true,
+          channelKind: "private_channel",
+          status: "pending_approval",
+          membership: { state: "joined", error: null },
+        }),
+      ],
+      {},
+    );
+    expect(
+      await waiting.welcome.welcome(WORKSPACE, AGENT, { ask: true }),
+    ).toEqual({ status: "no_home" });
+    expect(waiting.outbox.size).toBe(0);
   });
 
   test("a home that is off, the DM row or no home at all is not welcomed", async () => {

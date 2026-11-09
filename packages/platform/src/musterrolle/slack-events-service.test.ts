@@ -4,6 +4,7 @@ import {
   signSlackRequest,
   slackEventEnvelope,
 } from "@werft-ai/testkit/fake-slack-api";
+import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import {
   createMemoryAgentIdentityStore,
   createMemorySecretStore,
@@ -86,12 +87,31 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     secrets: secrets.store,
     now: () => clock.getTime(),
   });
+  const pendingChannels = new Set<string>();
+  const readyChannels = new Map<string, "public_channel" | "private_channel">();
+  const rejectedChannels = new Set<string>();
   const service = createSlackEventsService({
     signingSecrets,
     inbox: inbox.store,
     apps: apps.store,
     identities: identities.store,
     installs: installs.store,
+    bindings: {
+      findLiveSlackChannel: async (_installationId, channelId) => {
+        const kind = readyChannels.get(channelId);
+        if (pendingChannels.has(channelId)) {
+          return {
+            status: "pending_approval",
+            channelKind: "private_channel",
+          } as SurfaceBindingRecord;
+        }
+        return kind === undefined
+          ? null
+          : ({ status: "ready", channelKind: kind } as SurfaceBindingRecord);
+      },
+      wasRejected: async (_installationId, channelId) =>
+        rejectedChannels.has(channelId),
+    },
     now: () => clock,
   });
 
@@ -166,6 +186,9 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     apps,
     secrets,
     lookups,
+    pendingChannels,
+    readyChannels,
+    rejectedChannels,
     install,
     signed,
     event,
@@ -383,6 +406,7 @@ describe("Slack events service", () => {
   test("bots and other subtypes are dropped; plain, thread_broadcast and mentions are kept", async () => {
     const w = world();
     await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
     const message = { type: "message", channel: "C0CHAN", ts: "1.1" };
     const cases = [
       [
@@ -434,6 +458,184 @@ describe("Slack events service", () => {
       expect(result).toMatchObject({ kind: "ack", status });
       expect(result.kind === "ack" ? result.reason : null).toBe(reason);
     }
+  });
+
+  test("in a channel waiting for approval, talk is dropped unread and a mention is kept without its text, files or blocks", async () => {
+    const w = world();
+    await w.install();
+    w.pendingChannels.add("G0WAIT");
+    const talk = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "message",
+          user: "U0P",
+          text: "the launch code is 1234",
+          channel: "G0WAIT",
+          channel_type: "group",
+          ts: "1.1",
+        }),
+      ),
+    );
+    expect(talk).toMatchObject({
+      status: "dropped",
+      reason: "channel_pending_approval",
+    });
+    for (const [type, text] of [
+      ["app_mention", `<@${BOT_USER}> the launch code is 1234`],
+      ["message", `hey <@${BOT_USER}> the launch code is 1234`],
+    ] as const) {
+      const mention = await w.service.receive(
+        w.signed(
+          w.event({
+            type,
+            user: "U0P",
+            text,
+            channel: "G0WAIT",
+            channel_type: "group",
+            ts: "1.2",
+            thread_ts: "1.1",
+            files: [{ id: "F1", name: "secret.txt" }],
+            blocks: [{ type: "rich_text" }],
+            attachments: [{ text: "secret" }],
+          }),
+        ),
+      );
+      expect(mention).toMatchObject({ status: "received" });
+    }
+    const kept = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" ? [row] : [],
+    );
+    expect(kept).toHaveLength(2);
+    for (const row of kept) {
+      const event = (row.payload as { event: Record<string, unknown> }).event;
+      expect(Object.keys(event).sort()).toEqual([
+        "channel",
+        "channel_type",
+        "text",
+        "thread_ts",
+        "ts",
+        "type",
+        "user",
+      ]);
+      expect(event.text).toBe(`<@${BOT_USER}>`);
+      expect(JSON.stringify(row.payload)).not.toContain("1234");
+      expect(JSON.stringify(row.payload)).not.toContain("secret");
+    }
+  });
+
+  test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {
+    const w = world();
+    await w.install();
+    w.pendingChannels.add("G0WAIT");
+    for (const fields of [
+      { type: "message", user: "U0P", channel: "D0DM", channel_type: "im" },
+      {
+        type: "message",
+        user: "U0P",
+        channel: "C0OTHER",
+        channel_type: "channel",
+      },
+    ]) {
+      expect(
+        await w.service.receive(
+          w.signed(w.event({ ...fields, text: "hi", ts: "1.1" })),
+        ),
+      ).toMatchObject({ status: "received" });
+    }
+    w.pendingChannels.delete("G0WAIT");
+    w.readyChannels.set("G0WAIT", "private_channel");
+    const result = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "message",
+          user: "U0P",
+          text: "hi",
+          channel: "G0WAIT",
+          ts: "1.3",
+        }),
+      ),
+    );
+    expect(result).toMatchObject({ status: "received" });
+  });
+
+  test("a private channel keeps no text unless a ready private binding holds it: rejected and unbound are dropped, bound as public is kept without text", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("G0PUBLIC", "public_channel");
+    w.readyChannels.set("G0OK", "private_channel");
+    const outcomes: Record<string, unknown> = {};
+    for (const channel of ["G0REJECTED", "G0PUBLIC", "G0OK"]) {
+      outcomes[channel] = await w.service.receive(
+        w.signed(
+          w.event({
+            type: "message",
+            user: "U0P",
+            text: "the launch code is 1234",
+            channel,
+            channel_type: "group",
+            ts: "1.1",
+          }),
+        ),
+      );
+    }
+    expect(outcomes.G0REJECTED).toMatchObject({
+      status: "dropped",
+      reason: "channel_pending_approval",
+    });
+    // Kept without its text, so the handler can still demote the binding.
+    expect(outcomes.G0PUBLIC).toMatchObject({ status: "received" });
+    const stored = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" &&
+      (row.payload as { event: { channel: string } }).event.channel ===
+        "G0PUBLIC"
+        ? [row.payload]
+        : [],
+    );
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored[0])).not.toContain("1234");
+    expect(outcomes.G0OK).toMatchObject({ status: "received" });
+
+    w.rejectedChannels.add("G0REJECTED");
+    const mention = await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0P",
+          text: `<@${BOT_USER}> the launch code is 1234`,
+          channel: "G0REJECTED",
+          ts: "1.2",
+        }),
+      ),
+    );
+    expect(mention).toMatchObject({ status: "received" });
+    // A channel the bot was just invited to has no binding yet: its first
+    // mention keeps the text the invite handler's binding will need.
+    await w.service.receive(
+      w.signed(
+        w.event({
+          type: "app_mention",
+          user: "U0P",
+          text: `<@${BOT_USER}> summarize this incident`,
+          channel: "C0NEW",
+          ts: "1.3",
+        }),
+      ),
+    );
+    const texts = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" ? [JSON.stringify(row.payload)] : [],
+    );
+    expect(texts.some((text) => text.includes("summarize this incident"))).toBe(
+      true,
+    );
+    const kept = [...w.inbox.rows.values()].flatMap((row) =>
+      row.status === "received" &&
+      (row.payload as { event: { channel: string } }).event.channel ===
+        "G0REJECTED"
+        ? [row.payload]
+        : [],
+    );
+    expect(kept).toHaveLength(1);
+    expect(JSON.stringify(kept[0])).not.toContain("1234");
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {
