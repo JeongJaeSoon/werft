@@ -605,29 +605,48 @@ async function observeJoin(
   if (!UUID.test(installationId)) return false;
   const installation = installationId.toLowerCase();
   return db.transaction(async (tx) => {
-    let isNew = true;
+    // The row exists before it is locked, so two runs of one event meet at
+    // the lock whether or not the channel was ever noted.
+    await tx
+      .insert(slackChannelLifecycle)
+      .values({ installationId: installation, channelId, lastEventUs: 0 })
+      .onConflictDoNothing();
+    const [noted] = await tx
+      .select()
+      .from(slackChannelLifecycle)
+      .where(
+        and(
+          eq(slackChannelLifecycle.installationId, installation),
+          eq(slackChannelLifecycle.channelId, channelId),
+        ),
+      )
+      .for("update");
+    if (!noted) throw new Error("slack_channel_lifecycle row vanished in tx");
+    if (at !== null && noted.lastEventUs > at) return false;
+    const isNew =
+      at === null || noted.lastJoinUs === null || at > noted.lastJoinUs;
     if (at !== null) {
-      const [noted] = await tx
-        .select({ us: slackChannelLifecycle.lastEventUs })
-        .from(slackChannelLifecycle)
+      await tx
+        .update(slackChannelLifecycle)
+        .set({ lastEventUs: at, lastJoinUs: at })
         .where(
           and(
             eq(slackChannelLifecycle.installationId, installation),
             eq(slackChannelLifecycle.channelId, channelId),
           ),
-        )
-        .for("update");
-      if (noted && noted.us >= at) isNew = noted.us < at;
-      if (!(await advanceLifecycle(tx, installation, channelId, at))) {
-        return false;
-      }
+        );
     }
     if (!isNew) return true;
+    // The bot is known to be in the channel when a join was seen and no leave
+    // since, whatever Slack answered then, or when the binding says so.
+    const inByEvents =
+      noted.lastJoinUs !== null &&
+      (noted.lastLeaveUs === null || noted.lastJoinUs > noted.lastLeaveUs);
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (
       current?.status === "ready" &&
       current.channelKind === "private_channel" &&
-      current.membership?.state === "joined"
+      (inByEvents || current.membership?.state === "joined")
     ) {
       await sendBackToApproval(tx, current.id, "rejoined_channel");
     }
@@ -674,6 +693,17 @@ async function botLeft(
     // An older leave is not the channel's latest word, so it leaves the
     // membership alone; whether it voids the approval is decided below.
     const latest = await advanceLifecycle(tx, installation, channelId, at);
+    if (latest && at !== null) {
+      await tx
+        .update(slackChannelLifecycle)
+        .set({ lastLeaveUs: at })
+        .where(
+          and(
+            eq(slackChannelLifecycle.installationId, installation),
+            eq(slackChannelLifecycle.channelId, channelId),
+          ),
+        );
+    }
     const current = await lockBinding(tx, channelOf(installation, channelId));
     if (
       !current ||

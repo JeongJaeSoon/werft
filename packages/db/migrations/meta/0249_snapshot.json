@@ -1,5 +1,5 @@
 {
-  "id": "27d37d97-4bbb-4c47-ada7-f89ff1926769",
+  "id": "f8e82b8b-dd9a-4d97-a958-727a09a65561",
   "prevId": "4061749b-59f5-484f-9456-009ac215cad9",
   "version": "7",
   "dialect": "postgresql",
@@ -11633,6 +11633,18 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "last_join_us": {
+          "name": "last_join_us",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_leave_us": {
+          "name": "last_leave_us",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},

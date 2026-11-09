@@ -3826,6 +3826,9 @@ export const slackChannelLifecycle = pgTable(
     installationId: uuid("installation_id").notNull(),
     channelId: text("channel_id").notNull(),
     lastEventUs: bigint("last_event_us", { mode: "number" }).notNull(),
+    /** The newest join and leave seen, whether or not Slack answered after. */
+    lastJoinUs: bigint("last_join_us", { mode: "number" }),
+    lastLeaveUs: bigint("last_leave_us", { mode: "number" }),
   },
   (table) => [
     primaryKey({

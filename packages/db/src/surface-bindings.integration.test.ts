@@ -1018,6 +1018,59 @@ integration("surface bindings on PostgreSQL", () => {
       ).toBeNull();
     });
 
+    test("a join seen whose Slack step failed still counts: the next join voids, however the membership reads", async () => {
+      const { installationId, binding } = await approved();
+      await store().setMembership(binding.id, {
+        state: "awaiting_invite",
+        error: null,
+      });
+      // The first join was noted, then Slack failed: no membership recorded.
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).not.toBeNull();
+      // The bot left unseen and came back: the second join is a new episode.
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(8)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toBeNull();
+    });
+
+    test("one join handled twice at once, or again after a re-approval, voids once", async () => {
+      const { owner, agentId, installationId, binding } = await approved();
+      await store().setMembership(binding.id, { state: "joined", error: null });
+      const seen = await Promise.all([
+        store().observeLifecycle(installationId, "G0SECRET", at(6)),
+        store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ]);
+      expect(seen).toEqual([true, true]);
+      const waited = await store().findLiveSlackChannel(
+        installationId,
+        "G0SECRET",
+      );
+      expect(waited).toMatchObject({
+        status: "pending_approval",
+        revision: binding.revision + 1,
+      });
+      const again = await approve(
+        owner,
+        agentId,
+        binding.id,
+        waited?.revision ?? 0,
+      );
+      expect(again.outcome).toBe("resolved");
+      expect(
+        await store().observeLifecycle(installationId, "G0SECRET", at(6)),
+      ).toBe(true);
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toMatchObject({ id: binding.id, status: "ready" });
+    });
+
     test("a leave older than a noted re-invite still voids an approval given before it, and leaves the membership alone", async () => {
       const { installationId, binding } = await approved();
       // The bot was out when the re-invite (later) was handled first.
