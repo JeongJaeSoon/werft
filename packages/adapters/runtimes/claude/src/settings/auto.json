@@ -2,10 +2,10 @@
   "full": {
     "allow": [
       "$defaults",
-      "Werft Git Work: Committing changes in this session's workspace, and pushing them to GitHub through the platform's push flow, which pushes only this session's saved checkpoint to an agent work branch the platform created for this session, in this session's own repository. Not covered: pushing to the default branch, a protected branch or any branch the platform did not create for this session; force pushes or rewriting pushed history; pushing to any other repository, including one attached to this session to read; committing secrets or credentials.",
+      "Werft Git Work: Committing changes in this session's workspace, and pushing them to GitHub through the platform's push flow, which pushes only this session's saved checkpoint to an agent work branch the platform created for this session, in this session's own repository or in a repository attached to this session, where the platform applies the push policy for attached repositories on the server and can refuse the push or hold it for a person's approval. Not covered: pushing to the default branch, a protected branch or any branch the platform did not create for this session; force pushes or rewriting pushed history; pushing by any route other than the platform's push flow; committing secrets or credentials.",
       "Werft Pull Requests: Opening a pull request from such an agent work branch, and editing the title and description of, commenting on, closing or reopening a pull request this session opened. Not covered: approving pull requests; submitting a review, including on a pull request this session opened; editing, commenting on, closing or reopening pull requests this session did not open; secrets in pull request text or comments.",
       "Werft Pull Request Merge: Merging, with the built-in `github` MCP server's `merge_pull_request`, a pull request this session opened, when the user asked in this conversation to merge it. Not covered: merging a pull request this session did not open; merging when the user did not ask; any other route to merge (`gh`, the GitHub API, pushing to a protected branch); bypassing branch protection, a ruleset or required checks.",
-      "Werft Repository Reading: Listing the repositories the agent was granted, and attaching one of them to read its code. Not covered: writing to an attached repository."
+      "Werft Repository Reading: Listing the repositories the agent was granted, and attaching one of them to read its code. Not covered: writing to an attached repository by any route other than the platform's push flow."
     ],
     "soft_deny": [
       "$defaults",
@@ -20,12 +20,12 @@
     "allow": [
       "$defaults",
       "Werft Git Work: Committing changes in this session's workspace. Not covered: committing secrets or credentials; pushing, which the platform does and `git push` does not reach GitHub from here.",
-      "Werft Pull Request Merge: Merging, with the built-in `github` MCP server's `merge_pull_request`, a pull request this session opened, when the user asked in this conversation to merge it. Not covered: merging a pull request this session did not open; merging when the user did not ask; any other route to merge (`gh`, the GitHub API, pushing to a protected branch); bypassing branch protection, a ruleset or required checks.",
-      "Werft Reviews and Workflows: Not covered: submitting a review, including on a pull request this session opened; dispatching or re-running a workflow."
+      "Werft Pull Request Merge: Merging, with the built-in `github` MCP server's `merge_pull_request`, a pull request this session opened, when the user asked in this conversation to merge it. Not covered: merging a pull request this session did not open; merging when the user did not ask; any other route to merge (`gh`, the GitHub API, pushing to a protected branch); bypassing branch protection, a ruleset or required checks."
     ],
     "soft_deny": [
       "$defaults",
-      "Werft GitHub Administration: changing repository settings, branch protection, webhooks, deploy keys or Actions secrets, deleting branches or repositories on GitHub, and merging pull requests by any route other than `mcp__github__merge_pull_request`."
+      "Werft GitHub Administration: changing repository settings, branch protection, webhooks, deploy keys or Actions secrets, deleting branches or repositories on GitHub, and merging pull requests by any route other than `mcp__github__merge_pull_request`.",
+      "Werft Reviews and Workflows: submitting a review, including approving or requesting changes, on any pull request including one this session opened, and dispatching or re-running a workflow, unless the user asked for that action in this conversation."
     ],
     "environment": [
       "$defaults",
