@@ -1224,6 +1224,67 @@ function budgetEnded(
  * nothing, leaving the existing failure count as the net. A blocked ceiling
  * is the exception: its row says the same to every replica.
  */
+/**
+ * Moves each session that waits for its next turn (signalled, no pod) off a
+ * model the profile dropped, onto the successor the catalog names, and writes
+ * the stream event that says so. Only here, at the start of a turn: a session
+ * with a pod keeps its model until that turn ends, and the proxy's cut stays
+ * what it was. Only a row pinned to the profile's current fingerprint moves
+ * (a version 1 one names its model in the hash and stays blocked), and a
+ * locked row is left to its holder, as the candidate query does.
+ */
+async function moveSessionsToSuccessors(
+  tx: Database,
+  launch: { partition: string; sessionId: string | null },
+  input: Pick<ClaimInput, "modelMoves" | "now">,
+): Promise<void> {
+  for (const move of input.modelMoves ?? []) {
+    const rows = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .innerJoin(
+        unassignedSessions,
+        eq(unassignedSessions.sessionId, sessions.id),
+      )
+      .where(
+        and(
+          eq(unassignedSessions.partition, launch.partition),
+          eq(sessions.partition, launch.partition),
+          eq(sessions.profileId, move.profileId),
+          eq(sessions.profileFingerprint, move.profileFingerprint),
+          eq(sessions.model, move.from),
+          isNull(sessions.podId),
+          inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+          isNull(sessions.executionRevokedAt),
+          isNull(sessions.takeoverRequiredAt),
+          ...(launch.sessionId === null
+            ? []
+            : [eq(sessions.id, launch.sessionId)]),
+        ),
+      )
+      .orderBy(asc(sessions.id))
+      .for("update", { of: sessions, skipLocked: true });
+    for (const { id } of rows) {
+      await tx
+        .update(sessions)
+        .set({ model: move.to, updatedAt: input.now })
+        .where(eq(sessions.id, id));
+      await recordEvent(tx, {
+        sessionId: id,
+        type: "system",
+        payload: {
+          type: "system",
+          subtype: "model_migrated",
+          from: move.from,
+          to: move.to,
+        },
+        turnRowId: null,
+        now: await dbNow(tx),
+      });
+    }
+  }
+}
+
 async function giveUpOnCatalogMismatch(
   tx: Database,
   launch: typeof workerLaunches.$inferSelect,
@@ -2016,6 +2077,9 @@ export function createPostgresWorkerUnitOfWork(
             ),
           };
         }
+        // A session waiting for a turn whose model left the list moves to its
+        // successor before the pair check below judges it.
+        await moveSessionsToSuccessors(tx, launch, input);
         // Server-side selection: the worker never names a session. It is
         // either the one the launch reserved or the partition's head; SKIP
         // LOCKED lets concurrent claims in one partition pick different heads

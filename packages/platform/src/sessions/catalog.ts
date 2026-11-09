@@ -1400,6 +1400,20 @@ export function modelSuccessor(
   return best?.model ?? null;
 }
 
+/**
+ * The profile as it ran a model that has since left it for a successor, for
+ * recognising a checkpoint made then. Never what a session runs on; null
+ * when the model has no successor, so a plain removal is not given back.
+ */
+export function profileAsMovedModel<P extends CatalogProfileView>(
+  profile: P,
+  removed: string,
+): P | null {
+  if (modelSuccessor(profile, removed) === null) return null;
+  const { models: _models, ...rest } = profile;
+  return { ...rest, model: removed } as unknown as P;
+}
+
 /** Every removed model of the profile that has a successor, with it. */
 export function modelMoves(
   profile: CatalogProfileView,

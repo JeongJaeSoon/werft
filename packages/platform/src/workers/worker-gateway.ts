@@ -102,6 +102,7 @@ import type {
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
+  ModelMove,
   ResolvedCredential,
   RunnablePair,
   WorkerBinding,
@@ -127,7 +128,10 @@ import {
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
   mcpBinding,
+  modelMoves,
+  modelSuccessor,
   type ProfilePin,
+  profileAsMovedModel,
   profileAllowsRepository,
   profileFingerprint,
   profileGone,
@@ -935,6 +939,7 @@ export function createWorkerGateway(deps: {
     profiles: SessionCatalog["profiles"];
     repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
+    moves: ModelMove[];
     settingsGeneration: number | null;
     unavailableRepositories: ReadonlySet<string>;
     settled: ReadonlySet<string>;
@@ -957,6 +962,17 @@ export function createWorkerGateway(deps: {
         profiles,
         repositories,
         pairs: buildRunnablePairs(workspace),
+        moves: [
+          ...Object.entries(profiles).map(([id, profile]) => ({ id, profile })),
+          ...workspace,
+        ].flatMap(({ id, profile }) =>
+          modelMoves(profile).map(({ from, to }) => ({
+            profileId: id,
+            profileFingerprint: profileFingerprint(profile),
+            from,
+            to,
+          })),
+        ),
         settingsGeneration,
         unavailableRepositories:
           catalog.unavailable_repositories ?? new Set<string>(),
@@ -1179,12 +1195,21 @@ export function createWorkerGateway(deps: {
         return [];
       }
       const listed = catalogProfile(catalog, made.profileId);
+      // A checkpoint taken on the model the session was moved off is still
+      // this session's: the move put the same series' next model in its row.
+      const moved =
+        listed &&
+        made.model !== null &&
+        made.profileFingerprint === profileFingerprint(listed) &&
+        modelSuccessor(listed, made.model) === binding.model
+          ? profileAsMovedModel(listed, made.model)
+          : null;
       const profile = listed
-        ? sessionProfile(
+        ? (sessionProfile(
             listed,
             { fingerprint: made.profileFingerprint, model: made.model },
             acceptedRuntimeVersions(catalog),
-          )
+          ) ?? moved)
         : null;
       return profile
         ? [
@@ -1559,6 +1584,7 @@ export function createWorkerGateway(deps: {
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
+        modelMoves: claimable.moves,
         settingsGeneration: claimable.settingsGeneration,
         unsettledRepositoryIds: claimable.unavailableRepositories,
         settledProfileIds: claimable.settled,

@@ -138,8 +138,19 @@ export type PolicyPair = {
   >[];
 };
 
+/** A model a profile dropped and the listed one of its series that replaces it. */
+export type ModelMove = {
+  profileId: string;
+  /** The profile's own fingerprint: only a session pinned to it moves. */
+  profileFingerprint: string;
+  from: string;
+  to: string;
+};
+
 export type ClaimInput = {
   runnable: RunnablePair[];
+  /** Moved at the start of a turn, before `runnable` judges the session. */
+  modelMoves?: readonly ModelMove[];
   // The installation settings generation that catalog was read at; null
   // before its first read. A replica behind the database's gives up on
   // nothing but a blocked ceiling: the row a pair needs may be one it has
