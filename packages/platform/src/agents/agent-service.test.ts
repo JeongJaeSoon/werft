@@ -1021,6 +1021,11 @@ describe("activation and the agent's extension bundles", () => {
     },
     offersSkills: () => true,
   };
+  // Skills reach the model through the Skill tool, which the profile names.
+  const WITH_SKILL: CatalogProfile = {
+    ...PROFILE,
+    tools: [...PROFILE.tools, "Skill"],
+  };
   const overWith = (store: AgentStore, profile: CatalogProfile) =>
     createAgentService({
       authorization: createAuthorizationPolicy(),
@@ -1032,7 +1037,7 @@ describe("activation and the agent's extension bundles", () => {
 
   test("a release on an unattended profile is refused while the agent offers a scripted bundle", async () => {
     const memory = memoryStore();
-    const auto: CatalogProfile = { ...PROFILE, permission_mode: "auto" };
+    const auto: CatalogProfile = { ...WITH_SKILL, permission_mode: "auto" };
     const { release: made } = await serviceOver(
       memory.store,
       auto,
@@ -1054,14 +1059,36 @@ describe("activation and the agent's extension bundles", () => {
     expect(memory.activations()).toBe(0);
   });
 
-  test("the same release on a default-mode profile activates", async () => {
+  test("a release on a profile whose tools lack Skill is refused, and nothing is activated", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(
       owner,
       AGENT,
       release,
     );
-    await overWith(memory.store, PROFILE).activateAgent(owner, AGENT, {
+    const error = await overWith(memory.store, PROFILE)
+      .activateAgent(owner, AGENT, {
+        release_id: made.id,
+        expected_revision: -1,
+      })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect((error as SessionServiceError).details).toMatchObject({
+      reason_code: "skill_tool_not_allowed",
+      bundle: "tools",
+    });
+    expect(memory.activations()).toBe(0);
+  });
+
+  test("the same release on a default-mode profile activates", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(
+      memory.store,
+      WITH_SKILL,
+    ).createRelease(owner, AGENT, release);
+    await overWith(memory.store, WITH_SKILL).activateAgent(owner, AGENT, {
       release_id: made.id,
       expected_revision: -1,
     });
@@ -1070,7 +1097,7 @@ describe("activation and the agent's extension bundles", () => {
 
   test("returning to an earlier release is refused on the same ground as an activation", async () => {
     const memory = memoryStore();
-    const auto: CatalogProfile = { ...PROFILE, permission_mode: "auto" };
+    const auto: CatalogProfile = { ...WITH_SKILL, permission_mode: "auto" };
     const { release: made } = await serviceOver(
       memory.store,
       auto,
