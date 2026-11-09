@@ -75,7 +75,7 @@ OpenAPI: [`createSession`](/reference/http-api/sessions/createSession)、[`getSe
 
 一覧には、運営者の profile(`source: operator`)と、ワークスペースの owner や admin がコンソールで絞り込んだ版(`source: workspace`、id は `ws_` で始まる)が並びます。ワークスペース版を新しいセッションに使えるのは、その `workspace.state` が `usable` の間だけです。規則は[運営者向けドキュメント](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)にあります。
 
-`repository_id` を送るかどうかは、profile の `repository_mode`(`GET /v1/profiles`)で決まります。`required` ならエージェントのリリースなしで作るセッションでは送り(リリースで作ったセッションは下のとおり省いても構いません)、`none` なら省き、`optional` ならどちらでも構いません。`repository_id` なしで作ったセッションは空の作業ディレクトリで始まり、セッションを読むと `repository_id` は `null` です。リポジトリがないので push リクエストは 409 `PUSH_SOURCE_MISSING` を返し、`optional` の profile がリポジトリの CLAUDE.md を読む設定でも、このセッションは読みません。エージェントのリリースで作ったセッションで `repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付けます(設定がない古いエージェントはリリースのリポジトリで始まります。[リポジトリなしのセッション](/sessions/without-repository))。fake モデルのスタックでは `general` profile がリポジトリなしで動きます。その作成ボディは次のとおりです。
+`repository_id` を送るかどうかは、profile の `repository_mode`(`GET /v1/profiles`)で決まります。`required` なら送り(GitHub 設定があるエージェントのセッションと、ワークスペースの上限が決める profile は、省いてもリポジトリなしで始まります)、`none` なら省き、`optional` ならどちらでも構いません。開始リポジトリのないセッションは空の作業ディレクトリで始まり、セッションを読むと `repository_id` は `null` です。リポジトリがないので push リクエストは 409 `PUSH_SOURCE_MISSING` を返し、`optional` の profile がリポジトリの CLAUDE.md を読む設定でも、このセッションは読みません。エージェントのリリースで作ったセッションで `repository_id` を省くと、GitHub 設定があるエージェントはリポジトリなしで始まり、必要なリポジトリだけを付けます(設定がない古いエージェントはリリースのリポジトリで始まります。[リポジトリなしのセッション](/sessions/without-repository))。fake モデルのスタックでは `general` profile がリポジトリなしで動きます。その作成ボディは次のとおりです。
 
 ```json
 { "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
@@ -105,7 +105,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
   --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
 ```
 
-**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、profile かリポジトリの選択が不正です。エージェントのリリースなしで作るセッションで `required` の profile に `repository_id` がないときのメッセージは `Profile <id> needs a repository: send repository_id`、`none` の profile に付けたときは `Profile <id> runs without a repository: omit repository_id` です。`repository_id: null` は省略ではなく 400 です。契約上 `createSession` は 429 `RATE_LIMITED` を返し得るので、後でやり直します。入力キューの上限はメッセージの追加に適用されます(4 節)。ストレージの上限は 413 `STORAGE_LIMIT_EXCEEDED` として現れるので、`/v1/limits` を見ます。実行スロットが足りないときは、セッションは拒否されず `queued` で待ちます。セッションのコストとトークンの上限はリクエストを拒否せず、超えたあとにセッションの `attention` の `BUDGET_EXCEEDED` と、`/usage` の `budget_exceeded: true` として現れます(8 節)。409 `IDEMPOTENCY_CONFLICT` は、同じ key で異なるボディを送ったことを示します。
+**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、profile かリポジトリの選択が不正です。`required` の profile に `repository_id` がないとき(上の例外のセッションを除く)のメッセージは `Profile <id> needs a repository: send repository_id`、`none` の profile に付けたときは `Profile <id> runs without a repository: omit repository_id` です。`repository_id: null` は省略ではなく 400 です。契約上 `createSession` は 429 `RATE_LIMITED` を返し得るので、後でやり直します。入力キューの上限はメッセージの追加に適用されます(4 節)。ストレージの上限は 413 `STORAGE_LIMIT_EXCEEDED` として現れるので、`/v1/limits` を見ます。実行スロットが足りないときは、セッションは拒否されず `queued` で待ちます。セッションのコストとトークンの上限はリクエストを拒否せず、超えたあとにセッションの `attention` の `BUDGET_EXCEEDED` と、`/usage` の `budget_exceeded: true` として現れます(8 節)。409 `IDEMPOTENCY_CONFLICT` は、同じ key で異なるボディを送ったことを示します。
 
 ## 3. pending-requests で承認と質問に答える
 
@@ -273,7 +273,7 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 すでに実行中の turn は、始まったときの profile で終わります。その後に届いた入力は、新しい profile の worker が処理し、同じエンジン会話を最後のチェックポイントから復元します。turn の読み取りの `attempts[].profile_id` で、どの turn がどの profile で動いたかが分かります。同じ profile への変更は何も変えず、receipt だけを残します。
 
-**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、新しい profile がカタログにない、セッションのリポジトリと組にならない(エージェントのリリースなしでリポジトリなしで作ったセッションに、`repository_mode` が `required` の新しい profile)、runtime の種類やバージョンが違う(チェックポイントを復元できない)、課金方式(`provider.billing`)が違う、またはセッションの現在の profile がカタログから外れたか別の構成に変わって runtime を比べられない、のいずれかです。409 `RELEASE_PROFILE_MISMATCH` は、セッションがエージェントのリリースから作られたので、profile はリリースが決めます。409 `REVISION_CONFLICT` のときは、セッションを読み直します。
+**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、新しい profile がカタログにない、セッションのリポジトリと組にならない(リポジトリなしで作ったセッションに、`repository_mode` が `required` の新しい profile。ワークスペースの上限が決める profile は例外)、runtime の種類やバージョンが違う(チェックポイントを復元できない)、課金方式(`provider.billing`)が違う、またはセッションの現在の profile がカタログから外れたか別の構成に変わって runtime を比べられない、のいずれかです。409 `RELEASE_PROFILE_MISMATCH` は、セッションがエージェントのリリースから作られたので、profile はリリースが決めます。409 `REVISION_CONFLICT` のときは、セッションを読み直します。
 
 ### セッションを終える: close、terminate、recovery close
 

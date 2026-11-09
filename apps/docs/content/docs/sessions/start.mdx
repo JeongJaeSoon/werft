@@ -68,7 +68,7 @@ SID=$(echo "$created" | jq -r .session_id)
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
 | `profile_id` | `agent_release_id`가 없으면 예 | 프로필 id([프로필 고르기](/agents/run-profiles)) |
-| `repository_id` | 프로필에 따라 | 카탈로그의 저장소 id. 보내면 worker가 이 저장소를 clone한다. 프로필의 `repository_mode`가 `none`이면 보내지 않고, `required`인 프로필은 에이전트 release 없이 만드는 세션에서 꼭 보낸다. 에이전트 release로 만든 세션은 `required` 프로필이어도 빼면, GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙이며, 설정이 없는 옛 에이전트는 release의 저장소로 시작한다([저장소 없는 세션](/sessions/without-repository)) |
+| `repository_id` | 프로필에 따라 | 카탈로그의 저장소 id. 보내면 worker가 이 저장소를 clone한다. 프로필의 `repository_mode`가 `none`이면 보내지 않고, `required`인 프로필은 꼭 보낸다. 단 GitHub 설정이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 프로필은 `required`여도 빼고 저장소 없이 시작할 수 있다. 에이전트 release로 만든 세션에서 빼면, GitHub 설정이 있는 에이전트는 저장소 없이 시작하고 필요한 저장소만 붙이며, 설정이 없는 옛 에이전트는 release의 저장소로 시작한다([저장소 없는 세션](/sessions/without-repository)) |
 | `message` | 예 | 첫 turn의 입력. UTF-8 32,768바이트까지 |
 | `model` | | 프로필이 허용한 모델 중 하나. 빼면 기본 모델 |
 | `title` | | 세션 이름. 빼면 첫 `message`에서 만든다([제목](#제목)) |

@@ -3,7 +3,7 @@ title: "リポジトリなしのセッション"
 description: リポジトリを clone せず、空の作業スペースで動くセッション
 ---
 
-リポジトリを使うかどうかは、プロファイルが決める。プロファイルの `repository_mode` が `required` ならエージェントのリリースなしで作るセッションごとに `repository_id` を送り(エージェントのリリースで作ったセッションは、下の節のとおり省いてよい)、`none` なら送らず、`optional` ならどちらでもよい。リポジトリなしで作ったセッションは、空の作業スペースから始まる。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+リポジトリを使うかどうかは、プロファイルが決める。プロファイルの `repository_mode` が `required` ならセッションごとに `repository_id` を送り(GitHub 設定があるエージェントのセッションと、ワークスペースの上限が決めるプロファイルは、下の節のとおり省いてよい)、`none` なら送らず、`optional` ならどちらでもよい。リポジトリなしで作ったセッションは、空の作業スペースから始まる。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
 
 ## プロファイルを確認する
 
@@ -87,7 +87,7 @@ curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{re
 
 ## プロファイルと合わないとき
 
-`none` のプロファイルに `repository_id` を送る、またはエージェントのリリースなしで作るセッションで `required` のプロファイルに省くと、422 `UNSUPPORTED_CAPABILITY` になる。
+`none` のプロファイルに `repository_id` を送る、または `required` のプロファイルで省くと、422 `UNSUPPORTED_CAPABILITY` になる。ただし GitHub 設定があるエージェントのセッションと、ワークスペースの上限が決めるプロファイルは、`required` でも省けばリポジトリなしで始まる。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

@@ -151,7 +151,7 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 - `repository_id`를 보냈으면 `optional`이어도 위의 쌍 allowlist를 지나야 한다. 없는 쌍은 `422`다. 단 GitHub 설정 행이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 profile은 쌍 대신 상한이 판정한다.
 - 빈 DB를 시드할 때 `none` profile이 `repositories.<id>.profiles`에 있거나 `project_settings.claude_md: true`를 가지면 API가 기동하지 않는다. 콘솔과 `POST /v1/installation-profiles`도 `none` 상한에 저장소나 `claude_md`를 주는 저장을 거절한다. 저장소가 없으니 읽을 CLAUDE.md도 없다. `optional` profile의 `claude_md`는 저장소 없이 만든 세션에서는 읽지 않는다.
 - 모든 profile이 `required`일 때만 `repositories`에 저장소가 하나 이상 있어야 한다.
-- 저장소 없이 만든 세션의 profile을 `required` profile로 바꾸는 요청(`POST /v1/sessions/{id}/profile`)은 `422 UNSUPPORTED_CAPABILITY`다. 단 GitHub 설정 행이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 profile은 저장소 없이도 `required` profile로 바꿀 수 있다.
+- 저장소 없이 만든 세션의 profile을 `required` profile로 바꾸는 요청(`POST /v1/sessions/{id}/profile`)은 `422 UNSUPPORTED_CAPABILITY`다. 단 워크스페이스 상한이 정하는 profile은 저장소 없이도 `required` profile로 바꿀 수 있다. release에 묶인 세션은 저장소와 무관하게 profile을 바꾸는 요청이 `409 RELEASE_PROFILE_MISMATCH`다.
 
 ### 워크스페이스 프로필 (콘솔에서 좁힌 profile)
 

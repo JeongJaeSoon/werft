@@ -68,7 +68,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 | Field | Required | Description |
 | --- | --- | --- |
 | `profile_id` | Yes, unless `agent_release_id` is set | The profile id ([Choose a profile](/agents/run-profiles)) |
-| `repository_id` | Depends on the profile | A repository id in the catalog. If sent, the worker clones this repository. It is not sent when the profile's `repository_mode` is `none`, and a `required` profile needs it on a session made without an agent release. On a session made from an agent release, omitting it works even for a `required` profile: an agent with GitHub settings starts without a repository and attaches only what it needs, and an older agent with no settings starts on its release's repository ([Sessions without a repository](/sessions/without-repository)) |
+| `repository_id` | Depends on the profile | A repository id in the catalog. If sent, the worker clones this repository. It is not sent when the profile's `repository_mode` is `none`, and a `required` profile needs it, except on a session of an agent with GitHub settings and for a profile the workspace ceiling decides, which may leave it out and start without a repository. On a session made from an agent release, omitting it starts an agent with GitHub settings without a repository, and it attaches only what it needs, while an older agent with no settings starts on its release's repository ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |
 | `title` | | The session's name. If omitted, derived from the first `message` ([Title](#title)) |
