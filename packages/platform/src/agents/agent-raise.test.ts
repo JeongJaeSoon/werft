@@ -131,7 +131,7 @@ const caller = callerFor(
 );
 
 /** `reads` is what each `store.get` answers in turn; the last one repeats. */
-function raiseOver(reads: AgentRecord[]) {
+function raiseOver(reads: AgentRecord[], stored: typeof version = version) {
   const activations: unknown[] = [];
   let read = 0;
   const store: AgentStore = {
@@ -144,7 +144,7 @@ function raiseOver(reads: AgentRecord[]) {
     }),
     summaries: async () => new Map(),
     get: async () => reads[Math.min(read++, reads.length - 1)] ?? null,
-    findVersion: async () => version,
+    findVersion: async () => stored,
     findRelease: async () => null,
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "slug_taken" }),
@@ -233,6 +233,22 @@ describe("raising an agent to the latest profile while a rollback lands", () => 
     expect(answer.release).toMatchObject({
       status: "failed",
       reason: "revision_conflict",
+    });
+    expect(activations).toHaveLength(0);
+  });
+
+  test("a stored card that declares a reserved name is not re-released by a raise", async () => {
+    const reserved = {
+      ...version,
+      card: { ...version.card, capabilities: { env: [{ name: "PATH" }] } },
+    } as typeof version;
+    const { activations, raise } = raiseOver(
+      [{ ...seen, versions: [reserved] }],
+      reserved,
+    );
+    expect((await raise()).release).toMatchObject({
+      status: "failed",
+      reason: "variable_name_reserved",
     });
     expect(activations).toHaveLength(0);
   });

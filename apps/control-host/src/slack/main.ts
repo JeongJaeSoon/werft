@@ -41,6 +41,7 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
+  agentEnvNames,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
@@ -213,6 +214,8 @@ export function slackSessionHandler(deps: {
           workspaceId,
           releaseId,
         ),
+      envNames: (workspaceId, releaseId) =>
+        agentEnvNames(agentStore, workspaceId, releaseId),
       ...newSessionGitHubReaders(db),
     },
     extensions: extensionDepsFor(db),

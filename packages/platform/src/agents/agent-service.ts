@@ -18,6 +18,7 @@ import {
   type AgentVersion,
   type BehaviorValues,
   canonicalJson,
+  envNameProblem,
   GITHUB_CEILING_NONE,
   type GitHubRefusal,
   githubFeaturesOverCeiling,
@@ -162,6 +163,44 @@ function sameRuntime(a: unknown, b: unknown): boolean {
     return canonicalJson({ ...rest, tools: [...(tools ?? [])].sort() });
   };
   return form(a) === form(b);
+}
+
+/** The variable names a card declares (`capabilities.env`), none for a card without. */
+export function declaredEnvNames(card: AgentCard): string[] {
+  return (card.capabilities?.env ?? []).map((entry) => entry.name);
+}
+
+/**
+ * A card that declares a name the platform sets itself could never start a
+ * session, so it is refused where it is saved and where its release is
+ * activated, not at the first session.
+ */
+export function assertDeclaredEnvNames(card: AgentCard): void {
+  const reserved = declaredEnvNames(card).find(
+    (name) => envNameProblem(name) === "reserved",
+  );
+  if (reserved !== undefined) {
+    throw new SessionServiceError(
+      "VARIABLE_NAME_RESERVED",
+      `The card declares ${reserved}, a name the platform sets itself`,
+    );
+  }
+}
+
+/** The names the release's card declares; none when the release is gone. */
+export async function agentEnvNames(
+  store: Pick<AgentStore, "findRelease" | "findVersion">,
+  workspaceId: string,
+  releaseId: string,
+): Promise<string[]> {
+  const release = await store.findRelease(workspaceId, releaseId);
+  if (!release) return [];
+  const version = await store.findVersion(
+    workspaceId,
+    release.agent_id,
+    release.version_id,
+  );
+  return version ? declaredEnvNames(version.card) : [];
 }
 
 export function createAgentService(deps: {
@@ -445,6 +484,15 @@ export function createAgentService(deps: {
       status: "failed",
       reason,
     });
+    // Rollout, migration and unlock re-release a stored card without a save,
+    // so the reserved-name check cannot live only on the save path.
+    if (
+      declaredEnvNames(version.card).some(
+        (name) => envNameProblem(name) === "reserved",
+      )
+    ) {
+      return failed("variable_name_reserved");
+    }
     let profile: CatalogProfile;
     try {
       profile = await usableProfile(caller.ownerId, profileId, {
@@ -656,6 +704,7 @@ export function createAgentService(deps: {
       model_source?: ModelSource;
     },
   ): Promise<SaveAgentResponse> {
+    if (fields.card !== undefined) assertDeclaredEnvNames(fields.card);
     const done = (record: AgentRecord, release: SaveRelease) => ({
       ...withBehavior(record),
       release,
@@ -707,6 +756,9 @@ export function createAgentService(deps: {
         cardOf(active?.version_id) ??
         cardOf(draft?.version_id) ??
         newest;
+      // The card that would be released, sent or not: a save that names only
+      // a profile re-releases the stored one.
+      if (asked && base !== undefined) assertDeclaredEnvNames(base);
       const profileId =
         fields.runtime_profile_id ??
         active?.runtime_profile_id ??
@@ -1457,6 +1509,8 @@ export function createAgentService(deps: {
     migrateAgent,
     unlockTools,
     revertMigration,
+    envNames: (workspaceId: string, releaseId: string) =>
+      agentEnvNames(store, workspaceId, releaseId),
 
     async listAgents(
       caller: Caller,
@@ -1507,6 +1561,7 @@ export function createAgentService(deps: {
     ): Promise<SaveAgentResponse> {
       // Any member may; the store makes them the agent's admin (D3).
       const userId = await onWorkspace(caller, "agent.create");
+      assertDeclaredEnvNames(request.card);
       let card = request.card;
       if (
         request.runtime_profile_id !== undefined &&
@@ -1720,6 +1775,13 @@ export function createAgentService(deps: {
       const userId = await manageAgent(caller, agentId);
       const release = await resolveRelease(caller.ownerId, request.release_id);
       if (release.agent_id !== agentId.toLowerCase()) throw NOT_FOUND();
+      // A release can predate the reserved list; its card is judged now.
+      const version = await store.findVersion(
+        caller.ownerId,
+        release.agent_id,
+        release.version_id,
+      );
+      if (version) assertDeclaredEnvNames(version.card);
       // Checked again when each session starts, so a binding revoked after
       // this point stops the next session rather than this activation.
       const missing = await credentials.unboundRefs(caller.ownerId, release.id);
