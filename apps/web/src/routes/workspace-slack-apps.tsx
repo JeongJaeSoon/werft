@@ -80,8 +80,8 @@ export function SlackApps() {
       id={SLACK_APPS_ANCHOR}
       titleAs="h3"
       title={t("workspace.slackApps")}
+      description={t("workspace.slackAppsHint")}
       box={apps.isPending || apps.isError || apps.data.items.length === 0}
-      foot={<Text variant="meta">{t("workspace.slackAppsHint")}</Text>}
     >
       {apps.isPending ? (
         <Skeleton width="50%" />

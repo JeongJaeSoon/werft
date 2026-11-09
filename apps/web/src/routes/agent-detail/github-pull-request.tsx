@@ -11,23 +11,30 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
-  Section,
+  SettingsSection,
   Skeleton,
   Textarea,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
-import { SECTION_BODY } from "../../components/section-body.ts";
 import type { Notify } from "../../components/toast.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 
 export const PULL_REQUEST_SECTION = "github-pull-request";
-const SECTION_PROPS = {
-  id: PULL_REQUEST_SECTION,
-  tabIndex: -1,
-  className: "scroll-mt-4 outline-none",
-} as const;
+
+/** The side nav's target: SettingsSection takes no focus of its own. */
+function Anchor({ children }: { readonly children: ReactNode }) {
+  return (
+    <div
+      id={PULL_REQUEST_SECTION}
+      tabIndex={-1}
+      className="scroll-mt-4 outline-none"
+    >
+      {children}
+    </div>
+  );
+}
 
 export const AGENT_TEMPLATE_MAX_BYTES = 16 * 1024;
 export const AGENT_TEMPLATE_NAME_MAX_LENGTH = 100;
@@ -64,16 +71,20 @@ export function AgentPullRequestSettingsCard({
   });
   if (read.isPending) {
     return (
-      <Section {...SECTION_PROPS} title={t("agentPullRequest.title")}>
-        <Skeleton className="h-24 w-full" />
-      </Section>
+      <Anchor>
+        <SettingsSection title={t("github.pullRequest.title")} box>
+          <Skeleton className="h-24 w-full" />
+        </SettingsSection>
+      </Anchor>
     );
   }
   if (read.data === undefined) {
     return (
-      <Section {...SECTION_PROPS} title={t("agentPullRequest.title")}>
-        <LoadFailure error={read.error} onRetry={() => void read.refetch()} />
-      </Section>
+      <Anchor>
+        <SettingsSection title={t("github.pullRequest.title")}>
+          <LoadFailure error={read.error} onRetry={() => void read.refetch()} />
+        </SettingsSection>
+      </Anchor>
     );
   }
   return (
@@ -164,12 +175,27 @@ function Form({
   };
 
   return (
-    <Section
-      {...SECTION_PROPS}
-      title={t("agentPullRequest.title")}
-      description={t("agentPullRequest.hint")}
-    >
-      <form className={SECTION_BODY} onSubmit={submit}>
+    <Anchor>
+      <SettingsSection
+        // The workspace's section name; the description says it is this
+        // agent's own.
+        title={t("github.pullRequest.title")}
+        description={t("agentPullRequest.hint")}
+        box
+        onSubmit={submit}
+        foot={
+          manages ? (
+            <Button
+              type="submit"
+              size="sm"
+              aria-disabled={save.isPending || undefined}
+              disabled={!changed || tooLarge}
+            >
+              {t("agentPullRequest.save")}
+            </Button>
+          ) : undefined
+        }
+      >
         <Field>
           <FieldLabel htmlFor={ids.formatting}>
             {t("agentPullRequest.formatting")}
@@ -238,19 +264,7 @@ function Form({
           </FieldDescription>
         </Field>
         {failure ? <FieldError>{failure}</FieldError> : null}
-        {manages ? (
-          <div>
-            <Button
-              type="submit"
-              size="sm"
-              aria-disabled={save.isPending || undefined}
-              disabled={!changed || tooLarge}
-            >
-              {t("agentPullRequest.save")}
-            </Button>
-          </div>
-        ) : null}
-      </form>
-    </Section>
+      </SettingsSection>
+    </Anchor>
   );
 }

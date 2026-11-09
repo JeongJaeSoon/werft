@@ -353,6 +353,10 @@ export function SessionDetail({
       }
     >
       <PageHeader
+        // The commands run from one to four buttons: they go under the title
+        // when the row cannot hold both, so the title, status and meta line
+        // keep a readable width.
+        stackBelow="wrap"
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* A server from before titles sends none at all. */}
@@ -365,6 +369,7 @@ export function SessionDetail({
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
+              className="shrink-0 whitespace-nowrap"
             />
             {/* A paused session otherwise reads the same as an idle one. */}
             {detail.admission_state === "active" ? null : (
@@ -373,6 +378,7 @@ export function SessionDetail({
                 state={detail.admission_state}
                 label={t(`sessions.admission.${detail.admission_state}`)}
                 axisLabel={t("sessions.column.admission")}
+                className="shrink-0 whitespace-nowrap"
               />
             )}
           </span>

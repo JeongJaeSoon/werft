@@ -4223,7 +4223,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Session control",
     summary: "Finish the session: drain, checkpoint, close for good",
     description:
-      "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. `docs/api-guide.md` compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.",
+      "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. [The API guide](https://jeongjaesoon.github.io/werft/en/reference/api-guide/#ending-a-session-close-terminate-and-recovery-close) compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.",
     scope: "control",
     body: "CloseSessionRequest",
     requestExample: { expected_revision: 7, reason: "Work is done" },
@@ -7821,15 +7821,128 @@ function errorContent(codes: readonly ApiErrorCode[]) {
   };
 }
 
-function queryParameters(schema: JsonSchema) {
+/**
+ * What a path parameter names, by the segment before it and its name. The
+ * contracts' params schemas carry no descriptions, so the reference would
+ * otherwise show a bare `id` on 30 agent operations alike.
+ */
+const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  "achievement-categories/{id}": "The achievement category's id.",
+  "achievement-rules/{family_id}":
+    "The rule family's id: every version of one rule shares it.",
+  "achievement-types/{id}": "The achievement type's id.",
+  "achievements/{id}": "The achievement's id.",
+  "admins/{kind}":
+    "`users` for an admin who is a member, `teams` for one that is a team.",
+  "agents/{id}": "The agent's id.",
+  "api-keys/{id}": "The API key's id.",
+  "app-pins/{role}": "The GitHub App role the pin is for.",
+  "apps/{app_id}": "The Slack app's id.",
+  "connections/{id}": "The model connection's id.",
+  "credential-bindings/{binding_id}": "The credential binding's id.",
+  "events/{agent_id}": "The agent whose Slack app sends the events.",
+  "github-apps/{connectionId}": "The GitHub App connection's id.",
+  "github-apps/{role}":
+    "A GitHub App role, or the id of one connection of a role.",
+  "github-repositories/{repositoryId}":
+    "The repository's id in the workspace's repository catalog.",
+  "identities/{identity_id}": "The agent identity's id.",
+  "installation-profiles/{profile_id}": "The installation profile's id.",
+  "interactions/{agent_id}":
+    "The agent whose Slack app sends the interactions.",
+  "invites/{id}": "The invite's id.",
+  "linked-accounts/{id}": "The linked account's id.",
+  "mcp-servers/{id}": "The MCP server's id.",
+  "members/{userId}": "The member's user id.",
+  "members/{user_id}": "The member's user id.",
+  "outputs/{path}":
+    "The `path` the outputs list gives, percent-encoded as one segment (`out/report.md` is `out%2Freport.md`).",
+  "pull-requests/{number}": "The pull request's number on its repository.",
+  "push-requests/{push_request_id}": "The push request's id.",
+  "receipts/{id}": "The receipt's id.",
+  "secrets/{purpose}": "Which of the Slack app's secrets.",
+  "sessions/{id}": "The session's id.",
+  "slack-bindings/{binding_id}": "The Slack binding's id.",
+  "teams/{team_id}": "The team's id.",
+  "tools/{name}": "The tool's name as its `tool_use` event recorded it.",
+  "turns/{turn_id}": "The turn's id.",
+  "users/{user_id}": "The user's id.",
+  "variables/{name}": "The variable's name.",
+  "workflow-runs/{run_id}": "The GitHub Actions workflow run's id.",
+  "workspace-profiles/{profile_id}": "The workspace profile's id.",
+  "workspaces/{id}": "The workspace's id.",
+  "{kind}/{subject_id}": "The member's user id or the team's id, by `kind`.",
+};
+
+function pathParameterDescription(path: string, name: string) {
+  const segments = path.split("/");
+  const at = segments.indexOf(`{${name}}`);
+  return PATH_PARAMETER_DESCRIPTIONS[`${segments[at - 1]}/{${name}}`];
+}
+
+const USAGE_PERIOD_START =
+  "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.";
+const USAGE_PERIOD_END =
+  "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.";
+const USAGE_SCOPE =
+  "Whose sessions to count. The description says who may read each scope.";
+
+/**
+ * What a query parameter does, for those whose schema says nothing. A
+ * `METHOD path name` key is for one operation; a bare name for every other.
+ */
+const QUERY_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  cursor: "The `next_cursor` of the page before; omit it for the first page.",
+  limit: "How many items a page holds at most.",
+  since: USAGE_PERIOD_START,
+  until: USAGE_PERIOD_END,
+  scope: USAGE_SCOPE,
+  agent_id: "Counts only the sessions of this agent, any of its releases.",
+  "GET /v1/limits scope":
+    "`installation` (the default) for the limits and the installation-wide usage, `me` for the per-session limits alone.",
+  "GET /v1/usage/summary agent_id":
+    "With `scope=agent`, the agent whose sessions to count; refused with any other scope.",
+  "GET /v1/usage/outcomes agent_id":
+    "With `scope=agent`, the agent whose sessions to count; refused with any other scope.",
+  "GET /v1/usage/summary group_by":
+    "Adds `groups`: the same sessions under their agent, the user holding them or their current profile.",
+  "GET /v1/usage/outcomes group_by":
+    "`agent` adds `groups`, the same figures per agent.",
+  "GET /v1/agents/{id}/slack-channels ids":
+    "The Slack channel ids to look up, comma-separated, at most 50.",
+  type_id: "Counts only the achievements of this achievement type.",
+  category_id: "Counts only the achievements of this category.",
+  bucket: "The size of one bucket; `day` is the only one.",
+  by: "Groups by the model the metered calls named, or by agent.",
+  sort: "`recent` lists the latest call first, `slowest` the longest first.",
+  installation_id:
+    "The GitHub App installation to list. Required while the role has several connections.",
+  page: "The page of GitHub's listing, from 1.",
+  per_page: "How many repositories GitHub puts on a page.",
+  include: "`summary` adds to each agent what its card shows.",
+  dry_run:
+    "`true` checks the document and answers as an import would, writing nothing.",
+  schedule:
+    "`true` holds the call until a push that is not finished yet is pushed, instead of refusing it.",
+};
+
+function queryParameters(schema: JsonSchema, operation: string) {
   const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
   const required = new Set((schema.required ?? []) as string[]);
-  return Object.entries(properties).map(([name, property]) => ({
-    name,
-    in: "query",
-    required: required.has(name),
-    schema: property,
-  }));
+  return Object.entries(properties).map(([name, property]) => {
+    const description =
+      property.description === undefined
+        ? (QUERY_PARAMETER_DESCRIPTIONS[`${operation} ${name}`] ??
+          QUERY_PARAMETER_DESCRIPTIONS[name])
+        : undefined;
+    return {
+      name,
+      in: "query",
+      required: required.has(name),
+      ...(description === undefined ? {} : { description }),
+      schema: property,
+    };
+  });
 }
 
 function paramsSchemaFor(path: string): z.ZodObject {
@@ -7928,7 +8041,17 @@ function pathParameters(path: string) {
   return names.map((name) => {
     const property = properties[name as string];
     if (!property) throw new Error(`No params schema for ${name} in ${path}`);
-    return { name, in: "path", required: true, schema: property };
+    const description =
+      property.description === undefined
+        ? pathParameterDescription(path, name as string)
+        : undefined;
+    return {
+      name,
+      in: "path",
+      required: true,
+      ...(description === undefined ? {} : { description }),
+      schema: property,
+    };
   });
 }
 
@@ -7967,7 +8090,12 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
   if (route.query) {
     const querySchema = schemas[route.query];
     if (!querySchema) throw new Error(`Missing query schema ${route.query}`);
-    parameters.push(...queryParameters(querySchema));
+    parameters.push(
+      ...queryParameters(
+        querySchema,
+        `${route.method.toUpperCase()} ${route.path}`,
+      ),
+    );
   }
   if (takesIdempotencyKey(route)) {
     parameters.push({

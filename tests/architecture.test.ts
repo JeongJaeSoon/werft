@@ -563,6 +563,21 @@ function isModuleSpecifier(node: ts.Node): boolean {
 const scriptFile = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 
 /**
+ * Raw text whose string literals could cook to "testing" with escapes: each
+ * letter is itself or any escape (\u, \u{}, \x, octal, or a single-character
+ * escape), and line continuations may sit between letters. It matches more
+ * than it must, never less, so it only decides which files are worth parsing.
+ */
+const escapedTesting = new RegExp(
+  [..."testing"]
+    .map(
+      (letter) =>
+        `(?:${letter}|\\\\(?:u\\{[0-9a-fA-F]+\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-7]{1,3}|[^\\r\\n\\u2028\\u2029]))`,
+    )
+    .join("(?:\\\\(?:\\r\\n|[\\r\\n\\u2028\\u2029]))*"),
+);
+
+/**
  * Module references from runtime files under `directory` that reach a
  * workspace package's `testing/` helpers. Test files and `testing/` itself
  * are test support and may.
@@ -589,11 +604,11 @@ async function testingHelperImports(
     })
     .map((entry) => join(entry.parentPath, entry.name));
   // A specifier with a `testing` segment spells that word in the text unless
-  // an escape (a backslash) builds it, so only files with either get parsed.
+  // escapes build some of its letters, so only files with either get parsed.
   const texts = await Promise.all(files.map((file) => readFile(file, "utf8")));
   for (const [index, file] of files.entries()) {
     const text = texts[index] as string;
-    if (!text.includes("testing") && !text.includes("\\")) continue;
+    if (!text.includes("testing") && !escapedTesting.test(text)) continue;
     walk(parseText(file, text), (node) => {
       let reference: ts.Node | undefined;
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
@@ -916,6 +931,10 @@ describe("architecture", () => {
         ["wrapped.ts", 'export const g = () => require(("./testing/w"));'],
         ["typed.ts", 'export type T = typeof import("./testing/t");'],
         ["escaped.ts", 'import "./test\\u0069ng/a";'],
+        ["braced.ts", 'import "./test\\u{69}ng/b";'],
+        ["hexed.ts", 'import "./\\x74esting/h";'],
+        ["identity.ts", 'import "./t\\esting/i";'],
+        ["continued.ts", 'import "./tes\\\nting/c";'],
         ["plain.ts", "export const x = 1;"],
         ["unit.test.tsx", 'import "./testing/a.ts";'],
         [join("testing", "a.ts"), 'import "@werft-ai/db/testing/b";'],
@@ -929,8 +948,12 @@ describe("architecture", () => {
           )
           .sort(),
       ).toEqual([
+        `${join("src", "braced.ts")} ./testing/b`,
+        `${join("src", "continued.ts")} ./testing/c`,
         `${join("src", "dynamic.ts")} ./testing/a`,
         `${join("src", "escaped.ts")} ./testing/a`,
+        `${join("src", "hexed.ts")} ./testing/h`,
+        `${join("src", "identity.ts")} ./testing/i`,
         `${join("src", "reexport.mts")} @werft-ai/db/testing/a`,
         `${join("src", "required.js")} ../src/testing/a`,
         `${join("src", "static.ts")} @werft-ai/db/testing/a`,

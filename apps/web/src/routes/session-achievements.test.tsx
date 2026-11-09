@@ -167,9 +167,10 @@ describe("session achievements", () => {
       routes(() => json(200, listed)),
     );
     const card = await openCard();
-    expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe(
-      "성과 3",
-    );
+    // The count is a badge beside the title, outside the heading's name.
+    const heading = within(card).getByRole("heading", { level: 2 });
+    expect(heading.textContent).toBe("성과");
+    expect(heading.nextElementSibling?.textContent).toBe("3");
     expect(card.textContent).toContain(
       "워크스페이스 성과 규칙으로 판정한 것입니다. PR·리뷰가 근거인 성과는 바로 집계되고, out/ 파일이나 대화가 근거인 성과는 확인해야 집계됩니다.",
     );
