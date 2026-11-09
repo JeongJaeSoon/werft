@@ -35,7 +35,7 @@ Even when it is on, a guest has to link their own Slack account before using an 
 
 ## Link a Slack account
 
-The link uses Sign in with Slack (OpenID Connect). The operator sets `CONSOLE_ORIGIN`, the console's public address; a workspace administrator adds an App Configuration Token under Settings › Integrations › Slack so the account-link app can be made; and that workspace must have a confirmed Slack installation. The local stack has no `CONSOLE_ORIGIN`, so the start request returns 503.
+The link uses Sign in with Slack (OpenID Connect). The operator sets `CONSOLE_ORIGIN`, the console's public address; a workspace administrator adds an App Configuration Token under Settings > Workspace > Integrations > Slack so the account-link app can be made; and that workspace must have a confirmed Slack installation. The local stack has no `CONSOLE_ORIGIN`, so the start request returns 503.
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"

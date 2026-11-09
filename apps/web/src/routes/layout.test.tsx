@@ -183,6 +183,36 @@ describe("app shell", () => {
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기구성원"));
   });
 
+  // An address with no screen under the settings root must not read as the
+  // "일반" page it only shares a prefix with.
+  for (const path of [
+    "/settings/workspace/connections",
+    "/settings/workspace/nothing/here",
+  ]) {
+    test(`${path} has no screen and the top bar reads 설정, not 일반`, async () => {
+      renderAt(path, signedIn);
+      const [header] = await screen.findAllByRole("banner");
+      await waitFor(() => expect(header?.textContent).toBe("메뉴 열기설정"));
+    });
+  }
+
+  for (const [path, title] of [
+    ["/settings/workspace", "일반"],
+    ["/settings/workspace/", "일반"],
+    ["/settings/workspace/achievement-rules", "성과 규칙"],
+    ["/settings/workspace/integrations/slack", "연동"],
+    ["/settings/workspace/integrations/github/new-app", "연동"],
+    ["/settings/workspace/api-keys", "조직 관리 키"],
+  ] as const) {
+    test(`${path} still reads ${title} in the top bar`, async () => {
+      renderAt(path, signedIn);
+      const [header] = await screen.findAllByRole("banner");
+      await waitFor(() =>
+        expect(header?.textContent).toBe(`메뉴 열기${title}`),
+      );
+    });
+  }
+
   for (const [path, title] of [
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],

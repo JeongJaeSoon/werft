@@ -3,9 +3,8 @@ title: "Where session data flows"
 description: Where session events are stored, where secrets are masked, who can read the content, and the Langfuse example collector
 ---
 
-The session data the worker receives from the engine (model replies, tool calls and results, permission requests, state changes) goes to the `events` table in the database. This table is the source of truth that features rely on. This page says what the table holds, what breaks when the flow is cut, where secrets are masked, who can read the content, and how to start the Langfuse collector example. Each item names the file it rests on.
-
-Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of `ObservabilityContext` in `packages/observability/src/index.ts`, and nothing fills it.
+The session data the worker receives from the engine (model replies, tool calls and results, permission requests, state changes) goes to the `events` table in the database. This table is the source of truth that features rely on. This page says what the table holds, what breaks when the flow is cut, where secrets are masked, who can read the content, and how to start the Langfuse collector example.
+Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of the observability context, and nothing fills it.
 
 ## At a glance
 
@@ -29,41 +28,41 @@ engine (Claude Agent SDK)
 | Content length | The worker does not truncate it |
 | Where it lands | The PostgreSQL you installed |
 
-The event kinds and the payload contract are `SESSION_EVENT_NAMES` and `sessionEventVariants` in `packages/contracts/src/api/event.ts`. The worker's Claude adapter turns engine messages into these events (`projectPublicEvents` in `packages/adapters/runtimes/claude/src/mapper.ts`). An assistant message becomes one event per block, and a tool result block becomes a `tool_result` event as received.
+The event kinds and the payload contract are the session event definitions of the public API schema. The worker's Claude adapter turns engine messages into these events. An assistant message becomes one event per block, and a tool result block becomes a `tool_result` event as received.
 
-The worker's `EventPublisher` (`apps/worker/src/event-publisher.ts`) adds a per-attempt `source_sequence` to each event and sends them in order to `/append-events` of the Worker Gateway. It does not remove an event from its queue until the gateway says it received it. The API writes the events to the `events` table (`events` in `packages/db/src/schema.ts`). The unique index `events_attempt_sequence_uniq` accepts the same sequence of the same attempt only once.
+The worker's event sender adds a per-attempt `source_sequence` to each event and sends them in order to `/append-events` of the Worker Gateway. It does not remove an event from its queue until the gateway says it received it. The API writes the events to the `events` table. The unique index `events_attempt_sequence_uniq` accepts the same sequence of the same attempt only once.
 
 These features rely on the table.
 
-- **SSE and reconnect.** `apps/control-host/src/api/routes/events.ts` reads the table from after `Last-Event-ID` and sends it as a stream. How to use it is in section 5 of the [API use-case guide](/reference/api-guide).
-- **Turn finalization.** A missing earlier sequence is refused as `sequence_gap`, and a finalize with fewer events stored is refused as `events_incomplete` (`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
-- **Pending-request notification.** The `question` event of a question or permission request and the session's `needs_input` state commit in the same transaction. So a client never gets `needs_input` before it can see the question (`packages/db/src/pending-control.ts`). The answer stays in the `pending_requests` table. How the worker closed the request is kept in the same row. `settled_outcome` is `answered`, `expired` or `cancelled`. `settled_reason` is why the worker cancelled (`park`, `shutdown`, `interrupt`, `refused`). `settled_answer_result` is how the runtime took the answer (`applied`, `stale`, `unknown`). A request a person refused is `answered` with `decision` `deny` in `answer`, which tells it apart from a cancellation.
-- **State transitions.** Control steps such as recovery, resume, pause and interrupt commit together with the state through `recordStatus` and `recordEvent` (`packages/db/src/session-events.ts`).
+- **SSE and reconnect.** The API reads the table from after `Last-Event-ID` and sends it as a stream. How to use it is in section 5 of the [API use-case guide](/reference/api-guide).
+- **Turn finalization.** A missing earlier sequence is refused as `sequence_gap`, and a finalize with fewer events stored is refused as `events_incomplete`.
+- **Pending-request notification.** The `question` event of a question or permission request and the session's `needs_input` state commit in the same transaction. So a client never gets `needs_input` before it can see the question. The answer stays in the `pending_requests` table. How the worker closed the request is kept in the same row. `settled_outcome` is `answered`, `expired` or `cancelled`. `settled_reason` is why the worker cancelled (`park`, `shutdown`, `interrupt`, `refused`). `settled_answer_result` is how the runtime took the answer (`applied`, `stale`, `unknown`). A request a person refused is `answered` with `decision` `deny` in `answer`, which tells it apart from a cancellation.
+- **State transitions.** Control steps such as recovery, resume, pause and interrupt commit together with the state.
 - **A client's judgment that the work is done.** A public API client reads `assistant`, `tool_use` and `tool_result` events and decides whether the work is finished ([API use-case guide](/reference/api-guide)).
 
-The source of truth for cost and usage is the `provider_usage` table, not the events. The egress proxy reads usage from the Messages response (`apps/egress-proxy/src/usage.ts`) and the API writes it to this table (`packages/db/src/worker-unit-of-work.ts`).
+The source of truth for cost and usage is the `provider_usage` table, not the events. The egress proxy reads usage from the Messages response and the API writes it to this table.
 
 ## Content capture and secret masking
 
 ### What it holds
 
-Events carry content: assistant text, tool input (`tool_use`), tool result bodies (`tool_result`), and the input of questions and permission requests (`projectPublicEvents` and `approvalView` in `packages/adapters/runtimes/claude/src/mapper.ts`).
+Events carry content: assistant text, tool input (`tool_use`), tool result bodies (`tool_result`), and the input of questions and permission requests.
 
-The telemetry of the engine (the Claude Code CLI) itself is not turned on. The environment variables passed to the engine are an allowlist (`packages/adapters/runtimes/claude/src/profile.ts`), and no OTel variable is passed.
+The telemetry of the engine (the Claude Code CLI) itself is not turned on. The environment variables passed to the engine are an allowlist, and no OTel variable is passed.
 
 ### Where secrets are masked
 
 There are three layers now.
 
-1. **Engine messages.** `sanitizeNativeMessage` of the Claude adapter (`packages/adapters/runtimes/claude/src/mapper.ts`) replaces, in every engine message, the values of sensitive keys, values shaped like secrets such as `Bearer …`, and named values such as `password=…` with `[REDACTED]`. The events are built from this result.
-2. **Secrets the claim handed over.** The worker's `SecretScrubber` (`apps/worker/src/secret-scrubber.ts`) finds the secret values themselves that this attempt received and replaces them with `<redacted>`. `scrubbingGateway` applies this to `appendEvents` and `registerPending`. It cannot catch a value the engine re-encoded, such as base64.
-3. **Process logs.** `sanitizeText` and `sanitizeFields` in `packages/observability/src/redaction.ts` mask the stdout logs of the API and the worker. The egress proxy uses a copy of the same file, `apps/egress-proxy/src/redaction.ts`. The list of rules is in the section "Provider keys and repository credentials do not go to the worker" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. These rules are for logs and do not apply to events.
+1. **Engine messages.** The Claude adapter's message cleanup replaces, in every engine message, the values of sensitive keys, values shaped like secrets such as `Bearer …`, and named values such as `password=…` with `[REDACTED]`. The events are built from this result.
+2. **Secrets the claim handed over.** The worker's secret scrubber finds the secret values themselves that this attempt received and replaces them with `<redacted>`. It applies this to sending events and registering pending requests. It cannot catch a value the engine re-encoded, such as base64.
+3. **Process logs.** The log masking rules mask the stdout logs of the API and the worker. The egress proxy uses a copy of the same rules. The list of rules is in the section "Provider keys and repository credentials do not go to the worker" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. These rules are for logs and do not apply to events.
 
 The pattern rules of 1 and 3 mask different amounts. The log rule `sanitizeText` replaces the whole string with `[REDACTED]` as soon as it sees a secret-shaped value or a fragment such as `token=`. The mapper mostly replaces only the matched span, and when the end of the value is clear in the form `name=value` it masks just the value. But the mapper's `hideNamedValues` also masks the whole text when it sees a value that continues after a colon, like `password: …`, or a value whose end cannot be found. So the tool result of reading a YAML file that contains `password:` disappears from the events entirely. The pattern lists of the two files also differ.
 
 ## Who can read the content
 
-Session events are read only when a principal with the `sessions:read` scope can see that session (`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). First, the session must be in the same scope as the principal. For a person that is their own workspace; for an API key it is the owner of that key (`ownerScopeOf` in `packages/contracts/src/musterrolle/authorization.ts`). Within that, when the share scope of the session is `workspace` (the default of a session that was never changed), every member of the workspace can read it; when it is `people` or `team`, only the creator and the named people and team members can. A personal key is judged as the person who created it. An agent key is not a member, so it is judged as the key itself (limited to that agent's sessions), and on a session it made itself (a session with no creator) it takes the creator's place (`viewerOf` in `packages/platform/src/musterrolle/policy.ts` and `sessionVisibleTo` in `packages/db/src/session-shares.ts`). A session that cannot be seen answers 404. How to change the share scope, and the audit view of owners and admins, are in the section "Session share scope and audit view" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. The scope is checked at the HTTP boundary by `apps/control-host/src/api/scope-policy.ts`.
+Session events are read only when a principal with the `sessions:read` scope can see that session. First, the session must be in the same scope as the principal. For a person that is their own workspace; for an API key it is the owner of that key. Within that, when the share scope of the session is `workspace` (the default of a session that was never changed), every member of the workspace can read it; when it is `people` or `team`, only the creator and the named people and team members can. A personal key is judged as the person who created it. An agent key is not a member, so it is judged as the key itself (limited to that agent's sessions), and on a session it made itself (a session with no creator) it takes the creator's place. A session that cannot be seen answers 404. How to change the share scope, and the audit view of owners and admins, are in the section "Session share scope and audit view" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. The scope is checked at the HTTP boundary.
 
 ## Retention
 
@@ -115,7 +114,7 @@ On its first start, the Langfuse example creates the organization `Werft local`,
 
 To use other keys:
 
-1. Log in at `http://localhost:25000` and create a key pair at Settings → API Keys → Create new API keys.
+1. Log in at `http://localhost:25000` and create a key pair at Settings > API Keys > Create new API keys.
 2. Pass the two values as environment variables and recreate only the collector. Do not write the values to a file.
 
 ```sh

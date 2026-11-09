@@ -15,7 +15,7 @@ Use PostgreSQL 16. To investigate connection saturation, slow statements, or loc
 <a id="역할별-연결-수" />
 ## Connections by role
 
-Every role creates its pool through `createEnforcedPool` in `packages/db/src/pool.ts`. Pool limits vary by role.
+Every role creates its pool the same way. Pool limits vary by role.
 
 | Role | Pool limit | Reason |
 |---|---|---|

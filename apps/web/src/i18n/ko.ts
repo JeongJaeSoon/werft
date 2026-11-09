@@ -99,7 +99,7 @@ export const slackKo = {
     "워크스페이스에 App Configuration Token이 등록되지 않아 앱을 만들 수 없습니다.",
   "slack.configToken.needs_reentry":
     "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
-  "slack.configToken.settings": "연동 › Slack에서 토큰 등록",
+  "slack.configToken.settings": "연동 > Slack에서 토큰 등록",
   "slack.configToken.askAdmin": "소유자나 관리자에게 토큰 등록을 요청하세요.",
   "slack.install": "Slack 앱 설치",
   "slack.reinstall": "다시 설치",

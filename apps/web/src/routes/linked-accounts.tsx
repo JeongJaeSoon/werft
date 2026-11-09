@@ -367,7 +367,7 @@ const noreplyOf = (account: LinkedAccount) =>
 /**
  * GitHub, linked through the workspace's author App: the commits of sessions
  * the person starts name them as co-author. Until an owner or admin finishes
- * user linking in Integrations › GitHub, the row says so and offers nothing.
+ * user linking in Integrations > GitHub, the row says so and offers nothing.
  */
 function GitHubService({
   accounts,
