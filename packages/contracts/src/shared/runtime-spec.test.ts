@@ -118,15 +118,26 @@ describe("runtime spec contract", () => {
     ).toBe(false);
   });
 
-  test("billing takes the catalog's two values", () => {
-    for (const billing of ["per_token", "none"]) {
-      expect(
-        specSourceSchema.safeParse({
-          ...source,
-          connection: { ...source.connection, billing },
-        }).success,
-      ).toBe(true);
-    }
+  // `none` only fits an endpoint the operator runs (billingFitsEndpoint), so
+  // it is checked on a private one, through to the derived spec.
+  test("billing takes the catalog's two values, none on a private endpoint", () => {
+    const privateNone = {
+      ...source,
+      connection: {
+        id: "conn-local",
+        kind: "litellm" as const,
+        endpoint: "http://litellm.internal:4000",
+        billing: "none" as const,
+      },
+    };
+    const parsed = specSourceSchema.parse(privateNone);
+    expect(deriveRuntimeSpec(parsed).connection.billing).toBe("none");
+    expect(
+      specSourceSchema.safeParse({
+        ...source,
+        connection: { ...source.connection, billing: "per_token" },
+      }).success,
+    ).toBe(true);
     expect(
       specSourceSchema.safeParse({
         ...source,
