@@ -187,7 +187,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--werft-col
 
 | 층 · 디렉터리 | 아는 것 | 들어 있는 것 |
 |---|---|---|
-| foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `formatTimestamp` |
+| foundations · `src/foundations/` | 없음 | `tokens.css`·`styles.css`·`theme.css`·`fonts.css`(+`fonts/`), `cn`, `useReducedMotion`, `useMediaQuery`, `formatTimestamp` |
 | primitives · `src/primitives/` | foundations | shadcn 항목 `Button`·`Badge`·`Card*`·`Input`·`Textarea`·`NativeSelect*`·`Checkbox`·`RadioGroup*`·`Tabs*`·`Dialog*`·`Field*`, 그리고 `Skeleton`. 도메인을 모른다. 의미 있는 상태는 `Badge`가 아니라 `StatusLabel`로 |
 | patterns · `src/patterns/` | primitives | `ConfirmDialog`·`DestructiveActionDialog`(결과 설명이 필수이고, 파괴적 동작은 이름을 입력해야 열린다), `EmptyState`, `ErrorState`(제목·할 일·원문·재시도·증거 링크. 할 일 문구는 쓰는 쪽이 준다), 페이지 틀 `PageFrame`(여백 + 1620px 가운데 열)과 그 안의 `Page`(머리 + 32px 간격 섹션), 페이지 머리 `PageHeader`(h1 + 설명 + 동작 여러 개), `Stepper`, 상세 화면 두 칸 배치 `useDetailLayout` |
 

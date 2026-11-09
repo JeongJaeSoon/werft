@@ -26,6 +26,8 @@ import {
   Folder,
   Gauge,
   type LucideIcon,
+  PanelRightClose,
+  PanelRightOpen,
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -34,12 +36,14 @@ import {
   DetailLayout,
   DetailRail,
   DetailRailSection,
+  type DetailRailToggle,
   OPERATIONS_MESSAGES,
   RepositoryName,
   RepositorySummary,
   SessionStatusLabel,
   StatusLabel,
   sessionRepositoriesOf,
+  useDetailRailToggle,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
 import { useWerft } from "../provider.tsx";
@@ -131,6 +135,13 @@ export function SessionDetail({
     id,
     `${events.events.at(-1)?.id ?? ""}/${turns.data?.items.length ?? 0}`,
   );
+  const panel = useDetailRailToggle({
+    id: "session-panel",
+    storageKey: PANEL_STORAGE_KEY,
+    closeLabel: t("session.panel.close"),
+    // The route keeps this block mounted from one session to the next.
+    visit: id,
+  });
 
   if (detail === undefined) {
     // The host leaves the gutters to this layout, rail or not.
@@ -273,7 +284,7 @@ export function SessionDetail({
     </Tabs>
   );
   const rail = (
-    <DetailRail label={t("session.panel")}>
+    <DetailRail label={t("session.panel")} toggle={panel}>
       <DetailRailSection title={t("session.pending")}>
         <div
           // With nothing to show, the answers block keeps its live region
@@ -385,12 +396,70 @@ export function SessionDetail({
             unavailable={unavailable}
             refusal={refusal}
             variant="head"
-            trailing={back}
+            trailing={
+              <span className="flex flex-wrap gap-2">
+                <PanelToggle panel={panel} waiting={pendingCount ?? 0} />
+                {back}
+              </span>
+            }
           />
         }
       />
       {body}
     </DetailLayout>
+  );
+}
+
+/** One browser remembers whether the reader folds the wide column away. */
+export const PANEL_STORAGE_KEY = "ap.session.panel";
+
+/**
+ * Opens and folds the rail. Folded, the requests waiting for an answer stay
+ * in sight as a count on the button, so an approval is two clicks away.
+ */
+function PanelToggle({
+  panel,
+  waiting,
+}: {
+  readonly panel: DetailRailToggle;
+  readonly waiting: number;
+}) {
+  const { t } = useBlockText();
+  // Open, the rail shows the requests itself, and the head keeps its room.
+  const shown = waiting > 0 && !panel.open;
+  const Icon = panel.open ? PanelRightClose : PanelRightOpen;
+  return (
+    <>
+      <Button
+        ref={panel.triggerRef}
+        type="button"
+        variant="outline"
+        size={shown ? "sm" : "icon-sm"}
+        aria-expanded={panel.open}
+        aria-controls={panel.id}
+        // The head's commands already crowd the title on a narrow page, so
+        // the button is an icon with the count; the native tooltip names it
+        // as it does the commands' icons.
+        title={t("session.panel")}
+        onClick={panel.toggle}
+      >
+        <Icon strokeWidth={1.5} aria-hidden="true" />
+        <span className="sr-only">{t("session.panel")}</span>
+        {shown ? (
+          <Badge variant="amber" className="tabular-nums">
+            <span aria-hidden="true">{waiting}</span>
+            <span className="sr-only">
+              {t("session.panel.waiting", { count: waiting })}
+            </span>
+          </Badge>
+        ) : null}
+      </Button>
+      {/* Folded, the rail's own live region is gone from the page; a new
+          request is still announced. */}
+      <output className="sr-only">
+        {shown ? t("session.panel.waiting", { count: waiting }) : ""}
+      </output>
+    </>
   );
 }
 

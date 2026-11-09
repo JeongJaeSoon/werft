@@ -10,6 +10,7 @@ export type {
   SessionActionProps,
 } from "./session-actions.tsx";
 export {
+  PANEL_STORAGE_KEY,
   SessionDetail,
   type SessionDetailProps,
   type SessionDetailTab,
