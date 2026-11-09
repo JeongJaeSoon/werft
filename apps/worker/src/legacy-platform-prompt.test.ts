@@ -474,12 +474,18 @@ describe("runtimeProfile with a platform prompt", () => {
       );
     }
     expect(
-      claimFingerprintOf(config, true)({
+      claimFingerprintOf(
+        config,
+        true,
+      )({
         principal,
         runtime_config: { ...base, platform_prompt: withRepository },
       }).profileSha256,
     ).not.toBe(
-      claimFingerprintOf(config, true)({
+      claimFingerprintOf(
+        config,
+        true,
+      )({
         principal,
         runtime_config: { ...base, platform_prompt: withoutRepository },
       }).profileSha256,
