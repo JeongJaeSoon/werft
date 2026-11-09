@@ -141,6 +141,13 @@ async function tokenMenu(
   await user.click(await screen.findByRole("menuitem", { name: item }));
 }
 
+// Deleting the token lives in the page's danger zone.
+const DELETE_TOKEN = { name: "App Configuration Token 삭제" };
+async function deleteToken(user: Awaited<ReturnType<typeof setupUser>>) {
+  const zone = await screen.findByRole("region", { name: "위험 구역" });
+  await user.click(within(zone).getByRole("button", DELETE_TOKEN));
+}
+
 describe("워크스페이스 설정", () => {
   test("소유자는 보존 기간을 바꾸고, 저장한 값으로 다시 읽는다", async () => {
     let days = 90;
@@ -812,13 +819,13 @@ describe("워크스페이스 설정", () => {
     ).toBe(true);
   });
 
-  test("메뉴의 토큰 삭제 확인을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+  test("위험 구역의 토큰 삭제 확인을 취소하면 포커스가 그 삭제 버튼으로 돌아간다", async () => {
     renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
     });
     const user = await setupUser();
-    await tokenMenu(user, `${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`);
+    await deleteToken(user);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() =>
@@ -826,12 +833,17 @@ describe("워크스페이스 설정", () => {
     );
     await waitFor(() =>
       expect(
-        document.activeElement === screen.getByRole("button", TOKEN_MENU),
+        document.activeElement === screen.getByRole("button", DELETE_TOKEN),
       ).toBe(true),
     );
+    // The row's menu only replaces; deleting is not in it.
+    await user.click(screen.getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["토큰 교체"]);
   });
 
-  test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 토큰 삭제 메뉴를 남긴다", async () => {
+  test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 위험 구역의 토큰 삭제를 남긴다", async () => {
     let fail = false;
     const { services } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -854,14 +866,11 @@ describe("워크스페이스 설정", () => {
         "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
       ),
     ).toBeDefined();
-    const user = await setupUser();
-    await user.click(screen.getByRole("button", TOKEN_MENU));
-    expect(
-      screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+    const zone = screen.getByRole("region", { name: "위험 구역" });
+    expect(within(zone).getByRole("button", DELETE_TOKEN)).toBeDefined();
   });
 
-  test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼과 삭제만 있는 메뉴를 둔다", async () => {
+  test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼만 두며 삭제는 위험 구역에 있다", async () => {
     renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
@@ -877,11 +886,9 @@ describe("워크스페이스 설정", () => {
     expect(
       within(section).getByRole("button", { name: "토큰 재등록" }),
     ).toBeDefined();
-    const user = await setupUser();
-    await user.click(within(section).getByRole("button", TOKEN_MENU));
-    expect(
-      screen.getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+    expect(within(section).queryByRole("button", TOKEN_MENU)).toBeNull();
+    const zone = screen.getByRole("region", { name: "위험 구역" });
+    expect(within(zone).getByRole("button", DELETE_TOKEN)).toBeDefined();
   });
 
   const ACTIVE_TOKEN = {
@@ -1071,7 +1078,7 @@ describe("워크스페이스 설정", () => {
         ),
     });
     const user = await setupUser();
-    await tokenMenu(user, "App Configuration Token 삭제");
+    await deleteToken(user);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -1177,7 +1184,7 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await tokenMenu(user, "App Configuration Token 삭제");
+    await deleteToken(user);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
@@ -1245,7 +1252,7 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
-  test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 삭제 메뉴를 둔다", async () => {
+  test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 위험 구역의 삭제를 둔다", async () => {
     renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
@@ -1263,7 +1270,8 @@ describe("워크스페이스 설정", () => {
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeNull();
     expect(screen.queryByText(START)).toBeNull();
-    expect(within(section).getByRole("button", TOKEN_MENU)).toBeDefined();
+    const zone = screen.getByRole("region", { name: "위험 구역" });
+    expect(within(zone).getByRole("button", DELETE_TOKEN)).toBeDefined();
   });
 
   test("앱 목록을 읽는 동안에는 토큰 칸만 기다리고 게스트·앱 목록을 먼저 그리지 않는다", async () => {
@@ -1362,7 +1370,7 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await tokenMenu(user, "App Configuration Token 삭제");
+    await deleteToken(user);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     await waitFor(() =>

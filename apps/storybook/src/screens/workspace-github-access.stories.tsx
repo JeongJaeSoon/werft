@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Badge,
   Button,
+  DangerZone,
+  DangerZoneRow,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
@@ -13,7 +15,6 @@ import {
   LinkTabs,
   Page,
   RowList,
-  RowListItem,
   SettingRow,
   Switch,
   Text,
@@ -32,8 +33,9 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  * Settings > Workspace > Integrations > GitHub
  * (docs/contributing/decisions/github-agent.md
  * §7): one GitHub card with the App list, the installation table and the
- * repositories line, then the features agents may use and the member account
- * link. Values are what GET /v1/workspaces/{id}/github-settings returns.
+ * repositories line, then the features agents may use, the member account
+ * link and, last, the danger zone that disconnects each App. Values are what
+ * GET /v1/workspaces/{id}/github-settings returns.
  */
 
 type Viewer = "owner" | "admin" | "member";
@@ -47,6 +49,10 @@ const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
 const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
 const MEMBER_NARROW = "minmax(0,1fr) 88px";
 const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
+const APP_COLUMNS = "minmax(0,1fr) 152px 44px";
+const APP_COLUMNS_READ = "minmax(0,1fr) 152px";
+const APP_NARROW = "minmax(0,1fr) 120px 44px";
+const APP_NARROW_READ = "minmax(0,1fr) 120px";
 
 // connections[]: name, role, app_id, installations[] with status and detail.
 const APPS = [
@@ -126,22 +132,79 @@ function AppRows({
   readonly state: State;
 }) {
   return (
-    <RowList variant="joined" aria-label="GitHub App">
+    <GridTable
+      aria-label="워크스페이스에 연결한 GitHub App"
+      columns={manage ? APP_COLUMNS : APP_COLUMNS_READ}
+      narrowAt={480}
+      narrowColumns={manage ? APP_NARROW : APP_NARROW_READ}
+      framed
+    >
+      <GridTableHeader>
+        <GridTableColumnHeader>App</GridTableColumnHeader>
+        <GridTableColumnHeader>상태</GridTableColumnHeader>
+        {manage ? (
+          <GridTableColumnHeader>
+            <Text as="span" className="sr-only">
+              메뉴
+            </Text>
+          </GridTableColumnHeader>
+        ) : null}
+      </GridTableHeader>
       {APPS.map((app) => {
         const short = state === "short" && app.role === "작성용";
         const pending = app.role === "리뷰 승인용";
         return (
-          <RowListItem key={app.id} className="flex-col items-stretch gap-2">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Text as="span" weight="medium" truncate>
-                    {app.name}
-                  </Text>
-                  <Badge>{app.role}</Badge>
-                </div>
-                <Text variant="meta">{`App ID ${app.id} · 키 ${app.key}`}</Text>
+          <GridTableRow key={app.id}>
+            <GridTableCell {...{ role: "rowheader" }} lines>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Text as="span" weight="medium" truncate>
+                  {app.name}
+                </Text>
+                <Badge>{app.role}</Badge>
               </div>
+              <Text as="span" variant="meta">
+                {`App ID ${app.id} · 키 ${app.key}`}
+              </Text>
+              {short ? (
+                <div className="flex flex-col gap-2">
+                  <Text className="text-(color:--werft-tone-caution-fg)">
+                    Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
+                    필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게 승인을
+                    요청합니다. 다시 설치하지 않아도 됩니다.
+                  </Text>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm">
+                      GitHub에서 권한 추가
+                      <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-link"
+                    >
+                      App 소유자에게 보낼 안내 복사
+                    </Button>
+                  </div>
+                </div>
+              ) : pending ? (
+                <div className="flex flex-col gap-2">
+                  <Text className="text-(color:--werft-tone-caution-fg)">
+                    acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
+                    저장소에서도 이 App의 권한이 모두 동작합니다.
+                  </Text>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit text-link"
+                  >
+                    owner에게 보낼 안내 복사
+                  </Button>
+                </div>
+              ) : null}
+            </GridTableCell>
+            <GridTableCell>
               {short ? (
                 <Badge variant="amber">권한 추가 필요</Badge>
               ) : pending ? (
@@ -149,50 +212,16 @@ function AppRows({
               ) : (
                 <Badge variant="green">연결됨</Badge>
               )}
-              {manage ? <MenuButton label={`${app.name} 메뉴`} /> : null}
-            </div>
-            {short ? (
-              <div className="flex flex-col gap-2">
-                <Text className="text-(color:--werft-tone-caution-fg)">
-                  Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
-                  필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게 승인을
-                  요청합니다. 다시 설치하지 않아도 됩니다.
-                </Text>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm">
-                    GitHub에서 권한 추가
-                    <ArrowUpRight aria-hidden="true" className="size-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-link"
-                  >
-                    App 소유자에게 보낼 안내 복사
-                  </Button>
-                </div>
-              </div>
-            ) : pending ? (
-              <div className="flex flex-col gap-2">
-                <Text className="text-(color:--werft-tone-caution-fg)">
-                  acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
-                  저장소에서도 이 App의 권한이 모두 동작합니다.
-                </Text>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="w-fit text-link"
-                >
-                  owner에게 보낼 안내 복사
-                </Button>
-              </div>
+            </GridTableCell>
+            {manage ? (
+              <GridTableCell align="end">
+                <MenuButton label={`${app.name} 메뉴`} />
+              </GridTableCell>
             ) : null}
-          </RowListItem>
+          </GridTableRow>
         );
       })}
-    </RowList>
+    </GridTable>
   );
 }
 
@@ -488,6 +517,20 @@ function GitHubScreen({
             <>
               <FeaturesCard manage={manage} state={state} />
               <UserLinkRow manage={manage} />
+              {manage ? (
+                <DangerZone title="위험 구역">
+                  {APPS.map((app) => (
+                    <DangerZoneRow
+                      key={app.id}
+                      title={`${app.name} 연결 해제`}
+                      description="이 워크스페이스에서 App을 뗍니다. GitHub의 App과 설치는 그대로 남습니다."
+                      actionLabel="연결 해제"
+                      actionName={`${app.name} 연결 해제`}
+                      onAction={() => undefined}
+                    />
+                  ))}
+                </DangerZone>
+              ) : null}
             </>
           )}
         </div>

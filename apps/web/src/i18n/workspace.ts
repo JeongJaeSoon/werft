@@ -111,6 +111,8 @@ export const workspaceKo = {
   "workspace.tokenUnsetHint":
     "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.",
   "workspace.tokenSection": "Slack 앱 생성",
+  "workspace.tokenSectionHint":
+    "이 콘솔이 Slack 앱을 만들 때 쓰는 토큰입니다. 워크스페이스에 하나만 둡니다.",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
@@ -277,6 +279,8 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "Apps already made keep working. Register a token to make new ones.",
   "workspace.tokenSection": "Slack app creation",
+  "workspace.tokenSectionHint":
+    "The token this console uses to create Slack apps. A workspace holds one.",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
@@ -444,6 +448,8 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "作成済みのアプリはそのまま動作します。新しいアプリを作成するにはトークンを登録してください。",
   "workspace.tokenSection": "Slack アプリの作成",
+  "workspace.tokenSectionHint":
+    "このコンソールが Slack アプリを作るときに使うトークンです。ワークスペースに 1 つだけ置きます。",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
