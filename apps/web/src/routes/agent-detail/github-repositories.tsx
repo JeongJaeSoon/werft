@@ -5,9 +5,12 @@ import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   FieldError,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Link,
-  RowList,
-  SettingRow,
   Switch,
   Text,
 } from "@werft-ai/ui";
@@ -49,6 +52,8 @@ export type RepositoryRow = {
 };
 
 const GITHUB = "https://github.com/";
+// Repository (name, badges, why it is locked) | the switch.
+const REPOSITORY_COLUMNS = "minmax(0,1fr) 64px";
 
 function pageOf(url: string | undefined, name: string): string {
   if (url?.startsWith("https://")) return url.replace(/\.git$/, "");
@@ -250,15 +255,25 @@ export function RepositoryList({
         />
       ) : null}
       {rows.length === 0 ? (
-        <Text as="span" variant="sub">
-          {t("agentGitHub.repositoriesNone")}
-        </Text>
+        <div className="rounded-card border bg-card p-4">
+          <Text as="span" variant="sub">
+            {t("agentGitHub.repositoriesNone")}
+          </Text>
+        </div>
       ) : (
-        <RowList
-          variant="joined"
-          framed={false}
-          aria-label={t("agentGitHub.section.repositories")}
+        <GridTable
+          aria-label={t("github.repos.title")}
+          columns={REPOSITORY_COLUMNS}
+          framed
         >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("agentGitHub.table.repository")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader align="end">
+              {t("agentGitHub.table.use")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
           {rows.map((row, index) => {
             const on = toggles.wanted[row.anchor] ?? row.on;
             const disabled =
@@ -278,44 +293,45 @@ export function RepositoryList({
               .filter((id) => id !== null)
               .join(" ");
             return (
-              <SettingRow
+              <GridTableRow
                 // Not the catalog id: a new key after adoption drops focus.
                 key={row.anchor}
-                title={
-                  <Link
-                    href={row.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={t("agentGitHub.repositoryOpen", { name: row.name })}
-                    className="[overflow-wrap:anywhere]"
-                  >
-                    {row.name}
-                  </Link>
-                }
-                badge={
-                  <>
-                    {row.private ? (
-                      <Badge variant="gray">{t("agentGitHub.private")}</Badge>
+              >
+                <GridTableCell>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <Link
+                        href={row.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={t("agentGitHub.repositoryOpen", {
+                          name: row.name,
+                        })}
+                        className="font-medium [overflow-wrap:anywhere]"
+                      >
+                        {row.name}
+                      </Link>
+                      {row.private ? (
+                        <Badge variant="gray">{t("agentGitHub.private")}</Badge>
+                      ) : null}
+                      {row.appMissing ? (
+                        <Badge variant="amber">
+                          {t("agentGitHub.appNotInstalled")}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {reason === undefined ? null : (
+                      <Text as="span" variant="meta" id={reasonId}>
+                        {reason}
+                      </Text>
+                    )}
+                    {refusal ? (
+                      <FieldError id={errorId}>{refusal}</FieldError>
                     ) : null}
-                    {row.appMissing ? (
-                      <Badge variant="amber">
-                        {t("agentGitHub.appNotInstalled")}
-                      </Badge>
-                    ) : null}
-                  </>
-                }
-                description={
-                  reason === undefined ? undefined : (
-                    <span id={reasonId}>{reason}</span>
-                  )
-                }
-                meta={
-                  refusal ? (
-                    <FieldError id={errorId}>{refusal}</FieldError>
-                  ) : undefined
-                }
-                actions={
-                  manages ? (
+                  </div>
+                </GridTableCell>
+                <GridTableCell align="end">
+                  {manages ? (
                     <Switch
                       aria-label={t("agentGitHub.repositoryToggle", {
                         name: row.name,
@@ -334,12 +350,12 @@ export function RepositoryList({
                     <Text as="span" variant="sub">
                       {t(on ? "agentGitHub.on" : "agentGitHub.off")}
                     </Text>
-                  )
-                }
-              />
+                  )}
+                </GridTableCell>
+              </GridTableRow>
             );
           })}
-        </RowList>
+        </GridTable>
       )}
       {list.data && !own ? (
         <InstalledPageNav
