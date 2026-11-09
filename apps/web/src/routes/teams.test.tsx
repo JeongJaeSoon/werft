@@ -1206,6 +1206,11 @@ describe("팀 화면", () => {
     expect(name.getAttribute("title")).toBe("Mate");
     expect(name.className.split(" ")).toContain("line-clamp-2");
     expect(name.className.split(" ")).not.toContain("truncate");
+    // The select's tighter padding switches at the table's own 820px, the same
+    // query as the narrow tracks, so it never overflows a 7rem track in between.
+    expect(within(table).getByRole("combobox").className.split(" ")).toContain(
+      "[@container(max-width:820px)]:pe-6",
+    );
     expect(
       within(table).getByText("mate@example.com").getAttribute("title"),
     ).toBe("mate@example.com");
