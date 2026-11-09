@@ -346,6 +346,38 @@ integration("action_notice rows on PostgreSQL", () => {
     );
   });
 
+  test("an opening notice that was given up on does not count as told", async () => {
+    const sessionId = await threadedSession("en");
+    const open = async (id: string, commit: string, created: boolean) => {
+      const job = await drain.claimNextDue(60_000);
+      if (job?.id !== id) throw new Error("claimed another request");
+      await drain.settle(job, {
+        kind: "opened",
+        pullRequest: {
+          number: 7,
+          url: "https://github.com/acme/app/pull/7",
+          head: `agent/${sessionId}`,
+          base: "main",
+          headSha: commit,
+          title: "Add the thing",
+          created,
+        },
+      });
+    };
+    const first = await pushedWithIntent(sessionId);
+    await open(first, COMMIT, true);
+    // The outbox closed it unsent (the installation went away meanwhile).
+    await db
+      .update(slackOutbox)
+      .set({ status: "failed", errorCode: "not_addressed" })
+      .where(eq(slackOutbox.dedupeKey, `action:${first}:opened`));
+    const second = await pushedWithIntent(sessionId, "app", "d".repeat(40));
+    await open(second, "d".repeat(40), false);
+    const keys = (await notices(sessionId)).map((n) => n.dedupeKey);
+    expect(keys).toContain(`action:${second}:opened`);
+    expect(keys).not.toContain(`action:${second}:pr_updated`);
+  });
+
   test("the list shows the stage, why it ended and the recorded pull request", async () => {
     const sessionId = await threadedSession("en");
     const id = await pushedWithIntent(sessionId);

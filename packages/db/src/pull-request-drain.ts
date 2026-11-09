@@ -8,7 +8,7 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, ne, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
@@ -328,6 +328,9 @@ async function write(
         eq(slackOutbox.sessionId, job.sessionId),
         eq(slackOutbox.kind, "action_notice"),
         sql`${slackOutbox.body} ->> 'link_url' = ${opened.url}`,
+        // A notice that was given up on (`failed`, e.g. closed unaddressed
+        // after a revoke) never reached the thread.
+        ne(slackOutbox.status, "failed"),
       ),
     )
     .limit(1);
