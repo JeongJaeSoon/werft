@@ -191,6 +191,7 @@ import {
   checkpointObjectRouteSigner,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
+  extensionBundleSource,
 } from "./checkpoints.ts";
 import {
   createEgressAuthorizer,
@@ -1095,10 +1096,12 @@ if (titleEgressUrl === null) {
 const egressAuthorizer = egressAuthorizerConfigFromEnv(process.env);
 const githubMcpGrantKey =
   egressAuthorizer === null ? null : githubMcpGrantKeyOf(egressAuthorizer);
+const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
   catalog,
   neutralize,
+  ...(extensionBundles === undefined ? {} : { extensions: extensionBundles }),
   // The storage-backed verifier: a checkpoint is promoted only after its
   // manifest, objects and workspace bundle were read back from S3 (checked by
   // git), and the pointer itself advances inside the turn's own transaction.
