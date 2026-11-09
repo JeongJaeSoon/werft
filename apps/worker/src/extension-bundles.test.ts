@@ -499,6 +499,33 @@ describe("the bundle route's failures are retried by status, not by the body's f
     expect(requests()).toBe(2);
   });
 
+  test("a damaged stored bundle (409) ends the start at once, naming the bundle and the failed check", async () => {
+    const damaged = () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "UNSUPPORTED_CAPABILITY",
+            message:
+              "The stored bundle failed its integrity check and cannot be served",
+            retryable: false,
+            request_id: "req_1",
+            details: null,
+          },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    const { run, requests } = publishVia([damaged]);
+    const error = await run().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect(error).toBeInstanceOf(ExtensionBundleError);
+    expect(requests()).toBe(1);
+    const text = (error as Error).message;
+    expect(text).toContain(digestOf(GOOD).slice(0, 12));
+    expect(text).toContain("integrity check");
+  });
+
   test("a 404 that says retryable:true is not retried", async () => {
     const { run, requests } = publishVia([() => apiError(404, true)]);
     await expect(run()).rejects.toBeInstanceOf(ExtensionBundleError);

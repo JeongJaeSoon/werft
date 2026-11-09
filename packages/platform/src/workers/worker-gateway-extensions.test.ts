@@ -330,7 +330,13 @@ describe("the extension bundle route", () => {
         digest: LINT.digest,
       }),
     );
-    expect(failed.status).toBe(503);
+    // A damaged object stays damaged: a 5xx would be retried for the whole
+    // startup budget.
+    expect(failed.status).toBe(409);
+    expect(failed.code).toBe("UNSUPPORTED_CAPABILITY");
+    expect(failed.retryable).toBe(false);
+    expect(failed.message).not.toContain("damaged");
+    expect(failed.message).toContain("integrity check");
     const gone = route(stateOk([LINT]), async () => null);
     const missing = await refusal(
       gone.gateway.extensionBundle(principal, {
