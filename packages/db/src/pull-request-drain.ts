@@ -8,11 +8,11 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
-import { pushRequests, sessions } from "./schema.ts";
+import { pullRequests, pushRequests, sessions } from "./schema.ts";
 
 // Parenthesized as a whole: it sits inside `and(...)`, where a bare top-level
 // OR binds looser than its neighbours and lets its other branch ignore them.
@@ -317,6 +317,20 @@ async function write(
       recorded: { number: recorded.number, url: recorded.url },
     };
   }
+  // An earlier push request of the session recorded this pull request: this
+  // push updated it, and the thread heard of it when it was opened.
+  const [earlier] = await tx
+    .select({ pushRequestId: pullRequests.pushRequestId })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.sessionId, job.sessionId),
+        eq(pullRequests.url, opened.url),
+        isNotNull(pullRequests.pushRequestId),
+        ne(pullRequests.pushRequestId, job.id),
+      ),
+    )
+    .limit(1);
   await savePullRequestIn(tx, {
     ownerId: job.ownerId,
     sessionId: job.sessionId,
@@ -343,6 +357,9 @@ async function write(
       ...cleared,
     })
     .where(fence);
-  await tell("opened", { number: opened.number, url: opened.url });
+  await tell(earlier === undefined ? "opened" : "pr_updated", {
+    number: opened.number,
+    url: opened.url,
+  });
   return { result: "settled" };
 }

@@ -8,6 +8,7 @@ export const ACTION_NOTICE_RESULTS = [
   "pushed",
   "push_failed",
   "opened",
+  "pr_updated",
   "pr_failed",
   "pr_closed",
   "pr_uncertain",
@@ -49,6 +50,8 @@ const COPY: Record<UserLocale, Copy> = {
     push_failed: (n) =>
       `push하지 못했어요: ${n.repository} ${n.branch} (${code(n)})`,
     opened: (n) => `PR #${n.number}을 열었어요: ${n.repository}`,
+    pr_updated: (n) =>
+      `열려 있던 PR #${n.number}에 새 push(${short(n)})를 반영했어요: ${n.repository}`,
     pr_failed: (n) =>
       `PR을 열지 못했어요: ${n.repository} ${n.branch} (${code(n)})`,
     pr_closed: (n) =>
@@ -61,6 +64,8 @@ const COPY: Record<UserLocale, Copy> = {
     push_failed: (n) =>
       `pushできませんでした: ${n.repository} ${n.branch} (${code(n)})`,
     opened: (n) => `PR #${n.number} を作成しました: ${n.repository}`,
+    pr_updated: (n) =>
+      `作成済みの PR #${n.number} に新しい push (${short(n)}) を反映しました: ${n.repository}`,
     pr_failed: (n) =>
       `PRを作成できませんでした: ${n.repository} ${n.branch} (${code(n)})`,
     pr_closed: (n) =>
@@ -73,6 +78,8 @@ const COPY: Record<UserLocale, Copy> = {
     push_failed: (n) =>
       `Could not push ${n.repository} ${n.branch} (${code(n)})`,
     opened: (n) => `Opened PR #${n.number} in ${n.repository}`,
+    pr_updated: (n) =>
+      `Updated the open PR #${n.number} in ${n.repository} with the new push (${short(n)})`,
     pr_failed: (n) =>
       `Could not open a PR for ${n.repository} ${n.branch} (${code(n)})`,
     pr_closed: (n) =>

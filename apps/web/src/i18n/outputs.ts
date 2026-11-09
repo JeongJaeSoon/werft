@@ -132,7 +132,8 @@ export const outputsKo = {
   "session.github.reason.superseded_by_turn":
     "답변을 기다리는 사이 다른 턴이 먼저 실행돼 push를 취소했습니다.",
   "session.github.reason.session_closed": "세션이 닫혔습니다.",
-  "session.github.reason.rejected_before": "같은 커밋을 이미 거절했습니다.",
+  "session.github.reason.rejected_before":
+    "이 커밋의 push는 이미 거절돼 다시 요청하지 않았습니다. 새 커밋으로 다시 요청하세요.",
   "session.github.reason.request_open":
     "같은 대상의 앞선 요청이 아직 열려 있습니다.",
   "session.github.reason.github_disabled":
@@ -301,7 +302,7 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "回答待ちの間に別のターンが先に実行されたため、push を取り消しました。",
   "session.github.reason.session_closed": "セッションが閉じられました。",
   "session.github.reason.rejected_before":
-    "同じコミットをすでに却下しています。",
+    "このコミットの push はすでに却下されているため、再依頼しませんでした。新しいコミットで依頼し直してください。",
   "session.github.reason.request_open":
     "同じ対象の前のリクエストがまだ開いています。",
   "session.github.reason.github_disabled":
@@ -470,7 +471,8 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
   "session.github.reason.superseded_by_turn":
     "Another turn ran while the answer was pending, so the push was cancelled.",
   "session.github.reason.session_closed": "The session was closed.",
-  "session.github.reason.rejected_before": "This commit was already rejected.",
+  "session.github.reason.rejected_before":
+    "A push of this commit was already rejected, so it was not asked again. Ask again with a new commit.",
   "session.github.reason.request_open":
     "An earlier request for the same target is still open.",
   "session.github.reason.github_disabled": "The agent's GitHub setting is off.",
