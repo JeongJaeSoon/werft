@@ -810,12 +810,12 @@ integration("surface bindings on PostgreSQL", () => {
     });
   });
 
-  test("migration 0244 puts every live private binding to wait and leaves the others", async () => {
+  test("migration 0245 puts every live private binding to wait and leaves the others", async () => {
     const owner = await person(await workspace(), "owner");
     const { agentId, installationId } = await slackAgent(owner);
     const migrationSql = (
       await Bun.file(
-        `${import.meta.dir}/../migrations/0244_slack_private_approval.sql`,
+        `${import.meta.dir}/../migrations/0245_slack_private_approval.sql`,
       ).text()
     )
       .split("--> statement-breakpoint")

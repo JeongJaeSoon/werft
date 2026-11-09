@@ -4,7 +4,7 @@ import type { Database } from "./queries.ts";
 import { pushContinuations, sessions, turns } from "./schema.ts";
 
 export const PUSH_CONTINUATION_MESSAGE =
-  "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so the platform deferred the push to this turn; it was not refused. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. If the push request it answers is in state requested, a person has to approve the push before it runs: do not wait for it or call open_pull_request again in this turn; end your turn and ask a person to approve the push. Once a push request is approved, the push runs in the background: if open_pull_request answers not_pushed with push_request_state approved or pushing, wait a few seconds and call it again.";
+  "Platform note: earlier you called request_push before the platform had saved any of this session's work, so it set the push aside; it was not refused. Your work, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. If the push request it answers is in state requested, a person has to approve the push before it runs: do not wait for it or call open_pull_request again now; finish your reply and tell the user, in plain words, that the push needs their approval. Do not mention this note or how the platform saves work. Once a push request is approved, the push runs in the background: if open_pull_request answers not_pushed with push_request_state approved or pushing, wait a few seconds and call it again.";
 
 export async function runningTurnOf(
   db: Database,

@@ -325,7 +325,8 @@ export async function lockSessionReach(
       ? targets.flatMap((t) => (t.teamId === null ? [] : [t.teamId]))
       : [];
   // Axis B, as sessionVisibleTo has it: a workspace-wide session of an agent
-  // with a managing team reaches only those inside the agent.
+  // reaches only those inside the agent, unless the holding team of migration
+  // 0243 still holds it.
   let gated =
     scope === "workspace" &&
     !owns &&
@@ -363,7 +364,9 @@ export async function lockSessionReach(
     agentId = agent?.id ?? null;
     managingTeamId = agent?.managingTeamId ?? null;
     // The holding team of migration 0243 does not limit who sees its agents'
-    // workspace sessions, as sessionVisibleTo has it.
+    // workspace sessions, as sessionVisibleTo has it. A null team is no longer
+    // "an agent without a team" (the column is NOT NULL): it only means the
+    // release has no agent row left, and there is no team to gate on.
     if (
       managingTeamId === null ||
       agent?.holdsUnassigned ||

@@ -1415,13 +1415,17 @@ describe("에이전트 관리자", () => {
     await waitFor(() =>
       expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(true),
     );
+    // Both lists failed: the reason is said under the picker, which stays
+    // open for typing.
     await waitFor(() =>
-      expect(
-        screen
-          .getByRole("button", { name: "관리자로 추가" })
-          .getAttribute("aria-disabled"),
-      ).toBe("true"),
+      expect(picker.getAttribute("aria-describedby")).not.toBeNull(),
     );
+    // The id must resolve to a real element: a dangling aria-describedby reads
+    // as `undefined`, which a bare `.not.toBe("")` would let through.
+    const hintText = document.getElementById(
+      picker.getAttribute("aria-describedby") ?? "",
+    )?.textContent;
+    expect(hintText?.length ?? 0).toBeGreaterThan(0);
     expect(picker.disabled).toBe(false);
     const user = await setupUser();
     await user.type(picker, "a");
@@ -1434,6 +1438,63 @@ describe("에이전트 관리자", () => {
         ).toBe(true),
       { timeout: 3000 },
     );
+  });
+
+  test("관리자를 추가하는 동안 칸이 잠겨, 그사이 고른 사람이 말없이 사라지지 않는다", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let current = admins();
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, current),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: async (request: Request) => {
+        const body = (await request.json()) as { team_id?: string };
+        await gate;
+        current = admins({
+          teams: [
+            {
+              team_id: body.team_id ?? "",
+              name: "결제팀",
+              created_by: USER_ID,
+              created_at: AT,
+            },
+          ],
+        });
+        return json(200, { admins: current, receipt_id: RECEIPT_ID });
+      },
+    });
+    const user = await setupUser();
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    await pick(user, picker, "결제");
+    // The request is held: the picker clears its query on select, so an open
+    // picker here would swallow a second choice with nothing left to retry.
+    await waitFor(() => expect(picker.disabled).toBe(true));
+    // happy-dom keeps focus on a disabled input; a browser drops it to <body>.
+    act(() => {
+      const sink = document.createElement("button");
+      document.body.append(sink);
+      sink.focus();
+      sink.remove();
+    });
+    expect(document.activeElement === picker).toBe(false);
+    expect(document.activeElement === document.body).toBe(true);
+    expect(
+      api.calls.filter(
+        (c) => c.method === "POST" && c.path.endsWith("/admins"),
+      ),
+    ).toHaveLength(1);
+
+    act(() => release());
+    expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
+    await waitFor(() => expect(picker.disabled).toBe(false));
+    // The lock dropped focus to the page; it comes back so the next admin can
+    // be typed at once.
+    await waitFor(() => expect(document.activeElement === picker).toBe(true));
   });
 
   test("owner는 사람·팀을 지정하고 해제한다", async () => {
@@ -1482,8 +1543,8 @@ describe("에이전트 관리자", () => {
     const picker = screen.getByRole("combobox", {
       name: "관리자로 추가할 사람이나 팀",
     }) as HTMLInputElement;
-    const addButton = () =>
-      screen.getByRole("button", { name: "관리자로 추가" });
+    // There is no add button: choosing from the results adds at once.
+    expect(screen.queryByRole("button", { name: "관리자로 추가" })).toBeNull();
     // People and teams are searched on the server together.
     await pick(user, picker, "결제");
     expect(
@@ -1493,19 +1554,8 @@ describe("에이전트 관리자", () => {
     ).toEqual(
       expect.arrayContaining(["/v1/members?q=결제", "/v1/teams?q=결제"]),
     );
-    expect(picker.value).toBe("결제팀");
-    expect(addButton().hasAttribute("disabled")).toBe(false);
-    // Editing the text drops the choice, so nothing the input no longer
-    // shows is added.
-    await user.type(picker, "x");
-    expect(addButton().hasAttribute("disabled")).toBe(true);
-    await user.clear(picker);
-    await pick(user, picker, "결제");
-    await user.click(addButton());
-    await waitFor(() =>
-      expect(said()).toContain("결제팀을(를) 관리자로 추가했습니다."),
-    );
-    expect(picker.value).toBe("");
+    expect(await toastSaid()).toBe("결제팀을(를) 관리자로 추가했습니다.");
+    await waitFor(() => expect(picker.value).toBe(""));
     expect(
       api.calls.find((c) => c.method === "POST" && c.path.endsWith("/admins"))
         ?.body,
@@ -1525,11 +1575,67 @@ describe("에이전트 관리자", () => {
     expect(dialog.textContent).not.toContain("나 자신을 빼면");
     await user.click(within(dialog).getByRole("button", { name: "빼기" }));
     await waitFor(() =>
-      expect(said()).toContain("Mate을(를) 관리자에서 뺐습니다."),
+      expect(toastRegion()?.textContent).toBe(
+        "Mate을(를) 관리자에서 뺐습니다.",
+      ),
     );
     expect(
       screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeNull();
+  });
+
+  test("관리자 추가가 거절되면 목록은 그대로이고, 사유가 남고, 토스트 없이 칸이 풀린다", async () => {
+    const refusal = "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.";
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      [`POST /v1/agents/${AGENT_ID}/admins`]: () =>
+        apiError(404, "NOT_FOUND", "gone"),
+    });
+    const user = await setupUser();
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    await screen.findByText("Mate");
+    await pick(user, picker, "결제");
+    expect(await screen.findByText(refusal)).toBeDefined();
+    await waitFor(() => expect(picker.disabled).toBe(false));
+    // Nothing was added, nothing is announced as done.
+    expect(screen.queryByText("결제팀")).toBeNull();
+    expect(screen.getByText("Mate")).toBeDefined();
+    // A toast region mounts as soon as one is raised and is filled later, so
+    // its absence is the check; reading its text would pass before the fill.
+    expect(toastRegion() === null).toBe(true);
+    expect(
+      api.calls.filter(
+        (c) => c.method === "POST" && c.path.endsWith("/admins"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("관리자 빼기가 거절되면 그 사람은 목록에 남고, 사유가 남고, 토스트가 없다", async () => {
+    const refusal = "더 이상 없는 항목입니다 — 목록을 다시 불러오세요.";
+    renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      [`DELETE /v1/agents/${AGENT_ID}/admins/users/${MATE_ID}`]: () =>
+        apiError(404, "NOT_FOUND", "gone"),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "빼기" }));
+    expect(await screen.findByText(refusal)).toBeDefined();
+    // The dialog is gone and the row stays: the server did not remove them.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      screen.getByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    ).toBeDefined();
+    expect(toastRegion() === null).toBe(true);
   });
 
   test("에이전트 관리자인 구성원이 자기 자신을 빼면 관리 권한을 잃는다고 경고하고, 취소하면 보내지 않는다", async () => {
@@ -1714,10 +1820,14 @@ describe("에이전트 관리자", () => {
     expect(
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
-    const person = screen.getByRole("button", { name: "관리자로 추가" });
-    expect(person.getAttribute("aria-disabled")).toBe("true");
+    // There is no add button to carry the reason: the shut picker says it.
+    expect(screen.queryByRole("button", { name: "관리자로 추가" })).toBeNull();
+    const picker = screen.getByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    }) as HTMLInputElement;
+    expect(picker.disabled).toBe(true);
     expect(
-      document.getElementById(person.getAttribute("aria-describedby") ?? "")
+      document.getElementById(picker.getAttribute("aria-describedby") ?? "")
         ?.textContent,
     ).toBe(
       "구성원 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원. 팀 관리 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",

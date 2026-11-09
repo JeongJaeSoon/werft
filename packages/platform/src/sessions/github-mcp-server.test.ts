@@ -105,12 +105,17 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     /** AGENT_ACTION_FLOWS as the server reads it per call. */
     actionFlows: boolean;
     /** What a `request_push` made as an intent asked the service for. */
-    intents: Array<{ sessionId: string; turnId: number; branch?: string }>;
+    intents: Array<{
+      sessionId: string;
+      turnId: number;
+      branch?: string;
+      sourceRef?: string;
+    }>;
     intentStatus:
       | "deferred"
       | "github_disabled"
       | "turn_not_running"
-      | "turn_target_taken";
+      | "source_ref_required";
     /** The status each read of a workflow run answers. */
     runStatus: string;
     /** How long reading the session's state takes. */
@@ -266,8 +271,11 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
             ...(input.body.branch === undefined
               ? {}
               : { branch: input.body.branch }),
+            ...(input.sourceRef === undefined
+              ? {}
+              : { sourceRef: input.sourceRef }),
           });
-          if (control.intentStatus === "turn_target_taken") {
+          if (control.intentStatus === "source_ref_required") {
             return {
               status: control.intentStatus,
               target_branch: `agent/${sessionId}`,
@@ -286,6 +294,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
               status: "deferred" as const,
               refusal_code: null,
               push_request_id: null,
+              source_ref: input.sourceRef ?? null,
               created_at: "2026-11-05T00:00:00.000Z",
             },
           };
@@ -892,11 +901,11 @@ describe("tools/call", () => {
           result: {
             status: "deferred",
             push_intent_id: "99999999-9999-4999-8999-999999999999",
-            waits_for: "turn_end",
+            waits_for: "reply_end",
             repository_id: "sample-app",
             target_branch: `agent/${SESSION}`,
             pull_request: "none",
-            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, without waiting for the push, also when the push needs approval.",
+            next: "Now call open_pull_request with this push_intent_id, without waiting for the push, also when the push needs approval. When every repository is asked for, tell the user in plain words which repositories a push was requested for, that each push waits for a person's approval where approval is required, and that each pull request opens once its push succeeds.",
           },
         },
       });
@@ -954,33 +963,11 @@ describe("tools/call", () => {
       });
     });
 
-    test("source_ref is source_ref_unsupported whatever the flow says, and creates nothing", async () => {
-      for (const actionFlows of [true, false]) {
-        const h = harness();
-        h.control.actionFlows = actionFlows;
-        expect(
-          payload(await h.call("request_push", { source_ref: "feature" })),
-        ).toEqual({
-          body: {
-            ok: false,
-            refusal: {
-              code: "source_ref_unsupported",
-              by: "platform",
-              retryable: false,
-            },
-          },
-        });
-        expect(h.control.intents).toEqual([]);
-        expect(h.pushes).toEqual([]);
-      }
-    });
-
-    test("a second target in the turn is refused with the first target named, so the model can wait for the next input", async () => {
+    test("source_ref is source_ref_unsupported without the intent flow, and creates nothing", async () => {
       const h = harness();
-      h.control.actionFlows = true;
-      h.control.intentStatus = "turn_target_taken";
+      h.control.actionFlows = false;
       expect(
-        payload(await h.call("request_push", { branch: "docs-overview" })),
+        payload(await h.call("request_push", { source_ref: "feature" })),
       ).toEqual({
         body: {
           ok: false,
@@ -988,10 +975,56 @@ describe("tools/call", () => {
             code: "source_ref_unsupported",
             by: "platform",
             retryable: false,
-            details: {
-              reason: "one_target_per_turn",
-              target_branch: `agent/${SESSION}`,
-            },
+          },
+        },
+      });
+      expect(h.control.intents).toEqual([]);
+      expect(h.pushes).toEqual([]);
+    });
+
+    test("with the intent flow, source_ref reaches the intent", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      const answer = payload(
+        await h.call("request_push", {
+          repository_id: "sample-app",
+          source_ref: "guard-docs",
+        }),
+      );
+      expect(answer).toMatchObject({ body: { ok: true } });
+      expect(h.control.intents).toEqual([
+        expect.objectContaining({ sourceRef: "guard-docs" }),
+      ]);
+    });
+
+    test.each(["../x", "a b", "/abs", "x.lock", "refs/heads/x y"])(
+      "source_ref %p is a validation error, and creates nothing",
+      async (source_ref) => {
+        const h = harness();
+        h.control.actionFlows = true;
+        expect(
+          payload(await h.call("request_push", { source_ref })),
+        ).toMatchObject({
+          body: { ok: false, refusal: { code: "validation_error" } },
+        });
+        expect(h.control.intents).toEqual([]);
+      },
+    );
+
+    test("a second push without a source_ref is refused with the target that lacks one named, so the model can repeat it", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      h.control.intentStatus = "source_ref_required";
+      expect(
+        payload(await h.call("request_push", { branch: "docs-overview" })),
+      ).toEqual({
+        body: {
+          ok: false,
+          refusal: {
+            code: "source_ref_required",
+            by: "platform",
+            retryable: true,
+            details: { target_branch: `agent/${SESSION}` },
           },
         },
       });

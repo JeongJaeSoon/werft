@@ -35,8 +35,8 @@ export type SessionShare = {
   updatedAt: Date | null;
   /**
    * `workspace` would reach only those inside the session's agent, whatever
-   * the scope is now: the agent has a managing team and axis B is
-   * `managing_team`.
+   * the scope is now: axis B is `managing_team` and the agent is not held by
+   * the "Unassigned agents" team of migration 0243 (`holds_unassigned`).
    */
   audienceLimited: boolean;
 };

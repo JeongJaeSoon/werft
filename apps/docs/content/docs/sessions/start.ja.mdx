@@ -229,7 +229,7 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 </Tab>
 </Tabs>
 
-`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。担当チームがあるエージェントのセッションは、ワークスペースの設定によって `workspace` でもエージェントの内側だけが見られ、そのとき `audience_limited` が `true` になる([エージェントの外の member ができること](/agents/permissions#エージェントの外の-member-ができること))。コンソールのセッション画面は **運用** 欄の **共有範囲** にこの値を読み取り専用で示し、`audience_limited` なら `ワークスペース(担当チーム外の人は見られません。ワークスペース設定)` と書く。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
+`scope` は `private`(作った人だけ)、`people`(`user_ids` の人)、`team`(`team_ids` のチームの現在のメンバー)、`workspace`(すべてのメンバー)のいずれかである。一度も変えていないセッションは `workspace`、`revision` 0 になる。エージェントのセッションは、ワークスペースの設定によって `workspace` でもエージェントの内側だけが見られ、そのとき `audience_limited` が `true` になる([エージェントの外の member ができること](/agents/permissions#エージェントの外の-member-ができること))。コンソールのセッション画面は **運用** 欄の **共有範囲** にこの値を読み取り専用で示し、`audience_limited` なら `ワークスペース(担当チーム外の人は見られません。ワークスペース設定)` と書く。範囲を変える `POST /v1/sessions/{id}/share` は Web ログインでしか呼べないため、SDK のメソッドはない([`setSessionShare`](/reference/http-api/sessions/setSessionShare))。
 
 ## タイトル
 
