@@ -8,4 +8,7 @@ import type { WorkerCapabilities } from "@werft-ai/contracts";
 export const WORKER_CAPABILITIES: WorkerCapabilities = {
   approval_remember: true,
   platform_tool_trust: true,
+  // runtimeStart hands `runtime_config.env` to the engine's environment
+  // (composition.ts), so the server may send it.
+  user_env: true,
 };

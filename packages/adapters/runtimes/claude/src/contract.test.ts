@@ -859,6 +859,53 @@ describe("gitEnvironment", () => {
   });
 });
 
+describe("userEnvironment", () => {
+  const start = {
+    config: {
+      mode: "new" as const,
+      correlationId: "c",
+      cwd: "/tenant/workspace",
+      home: "/tenant/home",
+      model: "primary",
+      permissionMode: "default" as const,
+      tools: ["Bash"],
+    },
+    bindings: {
+      principal: { ownerScope: "owner-a" },
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.com",
+        auth: { kind: "api_key" as const, value: "placeholder" },
+      },
+    },
+    bundle: { instructions: [], repoInstructions: null, mcpServers: [] },
+  };
+  const user = { REGION: "eu", TEAM: "payments" };
+  const deps = { stateDir: "/tenant/config" };
+
+  test("reaches the run's config, and is absent without variables", () => {
+    expect(
+      claudeStartConfig(
+        { ...start, config: { ...start.config, userEnvironment: user } },
+        deps,
+      ).userEnvironment,
+    ).toEqual(user);
+    expect(claudeStartConfig(start, deps)).not.toHaveProperty(
+      "userEnvironment",
+    );
+  });
+
+  test("leaves the checkpoint fingerprint as it is", () => {
+    const withUser = {
+      ...start,
+      config: { ...start.config, userEnvironment: user },
+    };
+    expect(claudeRuntimeModule.fingerprint(withUser)).toEqual(
+      claudeRuntimeModule.fingerprint(start),
+    );
+  });
+});
+
 describe("trustedTools", () => {
   const PUSH = "mcp__github__request_push";
   const tools = ["Bash", PUSH, "mcp__github__submit_review"];

@@ -201,6 +201,10 @@ export function claudeStartConfig(
     ...(config.gitEnvironment === undefined
       ? {}
       : { gitEnvironment: config.gitEnvironment }),
+    // Same reason: a claim naming other variables must not move the fingerprint.
+    ...(config.userEnvironment === undefined
+      ? {}
+      : { userEnvironment: config.userEnvironment }),
     ...trustedToolsOf(start.bundle.mcpServers),
     ...(deps.providerMaxRetries === undefined
       ? {}
