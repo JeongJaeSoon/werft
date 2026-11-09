@@ -17,12 +17,8 @@ import { ListToolbar } from "@werft-ai/react/components";
 import {
   Alert,
   AlertDescription,
-  Avatar,
-  avatarInitials,
-  avatarTone,
   Badge,
   Button,
-  buttonVariants,
   Combobox,
   ConfirmDialog,
   DangerZone,
@@ -37,22 +33,17 @@ import {
   DialogTrigger,
   EmptyState,
   Field,
-  FieldDescription,
   FieldError,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
   formatTimestamp,
-  GridTable,
   GridTableCell,
   GridTableColumnHeader,
-  GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
   Heading,
   Input,
-  RadioGroup,
-  RadioGroupItem,
+  NativeSelect,
+  NativeSelectOption,
   RowAction,
   Section,
   Text,
@@ -74,7 +65,12 @@ import {
   useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
+import {
+  INACTIVE_ROW_CLASS,
+  InactiveBadge,
+} from "../components/inactive-member.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { MemberTableFrame } from "../components/member-table.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import {
@@ -191,6 +187,7 @@ export function TeamsScreen() {
         <EmptyState
           className="w-full"
           title={t("teams.listNoMatch")}
+          description={t("teams.listNoMatchHint")}
           action={
             <Button type="button" variant="outline" size="sm" onClick={clear}>
               {t("members.clearSearch")}
@@ -213,8 +210,17 @@ export function TeamsScreen() {
 // The same frame as the 구성원 table; the count and its arrow share the
 // second track, so every row's arrow lines up.
 const TEAM_COLUMNS = "minmax(0,1fr) 9rem";
-// "Change role" and "Remove" side by side in the longest language.
-const TEAM_ACTIONS_COLUMN = "12rem";
+// Below 640px the count and its arrow keep what the name leaves.
+const TEAM_NARROW_COLUMNS = "minmax(0,1fr) 7rem";
+// "Remove" in the longest language, beside nothing else.
+const TEAM_ACTIONS_COLUMN = "var(--werft-row-action-min-width)";
+// The inline team role select: "Team lead" and its arrow in the longest language.
+const TEAM_ROLE_COLUMN = "7.5rem";
+// Narrow tables: the select drops its inner padding (see TeamRoleSelect), so
+// the longest language (ja, 110px) fits without clipping.
+const TEAM_ROLE_NARROW_COLUMN = "7rem";
+// The button in the longest language (en "Remove", 67px).
+const TEAM_ACTIONS_NARROW_COLUMN = "4.5rem";
 
 function TeamTable({
   items,
@@ -223,50 +229,49 @@ function TeamTable({
 }) {
   const { t } = useI18n();
   return (
-    // The padding keeps the opener's focus ring inside the scroller's clip.
-    <div className="-m-1 grid overflow-x-auto p-1">
-      <GridTable
-        aria-label={t("teams.listLabel")}
-        columns={TEAM_COLUMNS}
-        framed={true}
-      >
-        <GridTableHeader>
-          <GridTableColumnHeader>
-            {t("teams.column.team")}
-          </GridTableColumnHeader>
-          <GridTableColumnHeader>
-            {t("teams.column.members")}
-          </GridTableColumnHeader>
-        </GridTableHeader>
-        {items.map((team) => (
-          <GridTableRow key={team.id}>
-            <GridTableCell>
-              <GridTableRowOpener
-                asChild
-                aria-label={t("teams.open", { name: team.name })}
-              >
-                <Link
-                  to="/members/teams/$teamId"
-                  params={{ teamId: team.id }}
-                />
-              </GridTableRowOpener>
-              <Text as="span" weight="medium" truncate title={team.name}>
-                {team.name}
-              </Text>
-            </GridTableCell>
-            <GridTableCell>
-              <Text as="span" variant="meta" numeric truncate>
-                {t("teams.memberCount", { count: team.member_count })}
-              </Text>
-              <ChevronRight
-                aria-hidden="true"
-                className="ml-auto size-4 shrink-0 text-subtle-foreground"
-              />
-            </GridTableCell>
-          </GridTableRow>
-        ))}
-      </GridTable>
-    </div>
+    <MemberTableFrame
+      label={t("teams.listLabel")}
+      layout={{
+        columns: TEAM_COLUMNS,
+        narrowColumns: TEAM_NARROW_COLUMNS,
+        narrowAt: 640,
+        headers: (
+          <>
+            <GridTableColumnHeader>
+              {t("teams.column.team")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("teams.column.members")}
+            </GridTableColumnHeader>
+          </>
+        ),
+      }}
+    >
+      {items.map((team) => (
+        <GridTableRow key={team.id}>
+          <GridTableCell>
+            <GridTableRowOpener
+              asChild
+              aria-label={t("teams.open", { name: team.name })}
+            >
+              <Link to="/members/teams/$teamId" params={{ teamId: team.id }} />
+            </GridTableRowOpener>
+            <Text as="span" weight="medium" truncate title={team.name}>
+              {team.name}
+            </Text>
+          </GridTableCell>
+          <GridTableCell>
+            <Text as="span" variant="meta" numeric truncate>
+              {t("teams.memberCount", { count: team.member_count })}
+            </Text>
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-auto size-4 shrink-0 text-subtle-foreground"
+            />
+          </GridTableCell>
+        </GridTableRow>
+      ))}
+    </MemberTableFrame>
   );
 }
 
@@ -286,20 +291,40 @@ export function TeamDetailScreen() {
   return <TeamPage key={teamId} id={teamId} />;
 }
 
+/**
+ * The page head's one primary action on a team's page: adding members. The
+ * head lives in the 구성원 layout above the route, so it reads the team the
+ * address names; the page below shares the same cached read.
+ */
+export function TeamHeadAction() {
+  const { teamId } = useParams({ strict: false });
+  const { client } = useWerft();
+  const manages = useHasPermission("team.manage");
+  const team = useQuery({
+    ...teamQuery(client, teamId ?? ""),
+    enabled: manages && teamId !== undefined,
+  });
+  // A failed read keeps the last data in the cache, but the page below turns
+  // into the failure: the button goes with it. The key ties the dialog's
+  // picks to one team, so going back to another team never carries them over.
+  if (!manages || !team.data || team.isError) return null;
+  return <AddMembersDialog key={team.data.id} team={team.data} />;
+}
+
 function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const team = useQuery(teamQuery(client, id));
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
+  // A plain link, not a button: the way back is an address.
   const back = (
-    <Link
-      to="/members/teams"
-      className={buttonVariants({ variant: "outline", size: "sm" })}
-    >
-      <ArrowLeft className="size-3.5" aria-hidden="true" />
-      {t("teams.back")}
-    </Link>
+    <TextLink asChild className="inline-flex w-fit items-center gap-1">
+      <Link to="/members/teams">
+        <ArrowLeft className="size-3.5" aria-hidden="true" />
+        {t("teams.back")}
+      </Link>
+    </TextLink>
   );
 
   if (team.isPending) return <StatusScreen kind="loading" />;
@@ -307,11 +332,11 @@ function TeamPage({ id }: { readonly id: string }) {
   // heads the tab with the way back beside it.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-2">
+        {back}
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.error ? t("teams.title") : team.data.name}
         </Heading>
-        {back}
       </div>
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
@@ -572,10 +597,11 @@ function TeamMembers({
   // push the columns before it out from under their headers. Below 820px the
   // date and the workspace role drop out; the name keeps what the team role
   // and the buttons leave.
+  const teamRoleColumn = manages ? TEAM_ROLE_COLUMN : "96px";
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
-    "96px",
+    teamRoleColumn,
     "minmax(9.5rem,0.5fr)",
     manages && TEAM_ACTIONS_COLUMN,
   ]
@@ -583,8 +609,8 @@ function TeamMembers({
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    "96px",
-    manages && TEAM_ACTIONS_COLUMN,
+    manages ? TEAM_ROLE_NARROW_COLUMN : teamRoleColumn,
+    manages && TEAM_ACTIONS_NARROW_COLUMN,
   ]
     .filter(Boolean)
     .join(" ");
@@ -602,7 +628,6 @@ function TeamMembers({
           {t("teams.memberTotal", { count: team.members.length })}
         </Badge>
       }
-      actions={manages ? <AddMembersDialog team={team} /> : undefined}
     >
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
@@ -624,6 +649,7 @@ function TeamMembers({
             <EmptyState
               className="w-full"
               title={t("teams.noMatch")}
+              description={t("teams.noMatchHint")}
               action={
                 <Button
                   type="button"
@@ -636,105 +662,114 @@ function TeamMembers({
               }
             />
           ) : (
-            // Below the narrow template's width the fixed tracks would leave
-            // the name no room, so the table scrolls instead; the padding
-            // keeps the row opener's focus ring inside the scroller's clip.
-            <div className="-m-1 grid overflow-x-auto p-1">
-              <GridTable
-                aria-label={t("teams.tableLabel")}
-                columns={columns}
-                narrowAt={820}
-                narrowColumns={narrowColumns}
-                framed={true}
-                className={manages ? "min-w-[480px]" : undefined}
-              >
-                <GridTableHeader>
-                  <GridTableColumnHeader>
-                    {t("members.column.name")}
-                  </GridTableColumnHeader>
-                  {roles && (
+            <MemberTableFrame
+              label={t("teams.tableLabel")}
+              layout={{
+                columns,
+                narrowColumns,
+                narrowAt: 820,
+                headers: (
+                  <>
+                    <GridTableColumnHeader>
+                      {t("members.column.name")}
+                    </GridTableColumnHeader>
+                    {roles && (
+                      <GridTableColumnHeader hideNarrow={true}>
+                        {t("teams.column.workspaceRole")}
+                      </GridTableColumnHeader>
+                    )}
+                    <GridTableColumnHeader>
+                      {t("teams.column.teamRole")}
+                    </GridTableColumnHeader>
                     <GridTableColumnHeader hideNarrow={true}>
-                      {t("teams.column.workspaceRole")}
+                      {t("teams.column.addedAt")}
                     </GridTableColumnHeader>
-                  )}
-                  <GridTableColumnHeader>
-                    {t("teams.column.teamRole")}
-                  </GridTableColumnHeader>
-                  <GridTableColumnHeader hideNarrow={true}>
-                    {t("teams.column.addedAt")}
-                  </GridTableColumnHeader>
-                  {manages && (
-                    <GridTableColumnHeader action={true}>
-                      {t("members.column.actions")}
-                    </GridTableColumnHeader>
-                  )}
-                </GridTableHeader>
-                {shown.map((member) => {
-                  const name = member.display_name ?? member.email;
-                  const memberRole = roles?.get(member.user_id);
-                  return (
-                    <GridTableRow key={member.user_id}>
-                      <GridTableCell>
-                        <Avatar
-                          initials={avatarInitials(name)}
-                          tone={avatarTone(member.user_id)}
-                        />
-                        <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
-                          <Text as="span" weight="medium" truncate>
-                            {name}
-                          </Text>
-                          {member.display_name !== null && (
-                            <Text
-                              as="span"
-                              variant="meta"
-                              truncate
-                              title={member.email}
-                            >
-                              {member.email}
-                            </Text>
-                          )}
-                        </span>
-                      </GridTableCell>
-                      {roles && (
-                        <GridTableCell hideNarrow={true}>
-                          {memberRole && (
-                            <Badge
-                              variant={
-                                memberRole === "member" ? "gray" : "blue"
-                              }
-                            >
-                              {roleLabel(t, memberRole)}
-                            </Badge>
-                          )}
-                        </GridTableCell>
+                    {manages && (
+                      <GridTableColumnHeader action={true}>
+                        {t("members.column.actions")}
+                      </GridTableColumnHeader>
+                    )}
+                  </>
+                ),
+              }}
+            >
+              {shown.map((member) => {
+                const name = member.display_name ?? member.email;
+                const memberRole = roles?.get(member.user_id);
+                const inactive = member.disabled_at !== null;
+                return (
+                  <GridTableRow
+                    key={member.user_id}
+                    inactive={inactive}
+                    className={inactive ? INACTIVE_ROW_CLASS : undefined}
+                    data-disabled={inactive}
+                  >
+                    <GridTableCell lines={true}>
+                      {/* Below md the badge drops under the name, so the name keeps the column. */}
+                      <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+                        {/* Two lines at most: the track left at 390px holds about 63px. */}
+                        <Text
+                          as="span"
+                          weight="medium"
+                          title={name}
+                          className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
+                        >
+                          {name}
+                        </Text>
+                        {inactive ? (
+                          <InactiveBadge className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0" />
+                        ) : null}
+                      </span>
+                      {member.display_name !== null && (
+                        <Text
+                          as="span"
+                          variant="meta"
+                          truncate
+                          title={member.email}
+                        >
+                          {member.email}
+                        </Text>
                       )}
-                      <GridTableCell>
-                        <TeamRoleBadge role={member.role} />
-                      </GridTableCell>
-                      <GridTableCell
-                        hideNarrow={true}
-                        className="text-caption text-muted-foreground tabular-nums"
-                      >
-                        {formatTimestamp(member.added_at, locale)}
-                      </GridTableCell>
-                      {manages && (
-                        <GridTableCell align="end">
-                          <TeamRoleDialog team={team} member={member} />
-                          <RowAction
-                            variant="danger"
-                            disabled={remove.isPending}
-                            aria-label={t("teams.removeMemberFor", { name })}
-                            onClick={() => setRemoving(member)}
+                    </GridTableCell>
+                    {roles && (
+                      <GridTableCell hideNarrow={true}>
+                        {memberRole && (
+                          <Badge
+                            variant={memberRole === "member" ? "gray" : "blue"}
                           >
-                            {t("teams.removeMember")}
-                          </RowAction>
-                        </GridTableCell>
+                            {roleLabel(t, memberRole)}
+                          </Badge>
+                        )}
+                      </GridTableCell>
+                    )}
+                    <GridTableCell>
+                      {manages ? (
+                        <TeamRoleSelect team={team} member={member} />
+                      ) : (
+                        <TeamRoleBadge role={member.role} />
                       )}
-                    </GridTableRow>
-                  );
-                })}
-              </GridTable>
-            </div>
+                    </GridTableCell>
+                    <GridTableCell
+                      hideNarrow={true}
+                      className="text-caption text-muted-foreground tabular-nums"
+                    >
+                      {formatTimestamp(member.added_at, locale)}
+                    </GridTableCell>
+                    {manages && (
+                      <GridTableCell raised={true} align="end">
+                        <RowAction
+                          disabled={remove.isPending}
+                          aria-label={t("teams.removeMemberFor", { name })}
+                          onClick={() => setRemoving(member)}
+                        >
+                          {t("teams.removeMember")}
+                        </RowAction>
+                      </GridTableCell>
+                    )}
+                  </GridTableRow>
+                );
+              })}
+            </MemberTableFrame>
           )}
         </div>
       )}
@@ -772,10 +807,12 @@ export function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
 }
 
 /**
- * A team member's role, picked here and saved with 저장: a lead administers
+ * A team member's role, applied the moment it is picked: a lead administers
  * every agent the team manages from the next request on (agent-rbac (d)).
+ * The select follows the server's role, so a refused change snaps back; it is
+ * locked while the request runs. Promotion to lead asks first, demotion does not.
  */
-function TeamRoleDialog({
+function TeamRoleSelect({
   team,
   member,
 }: {
@@ -787,12 +824,7 @@ function TeamRoleDialog({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  const [open, setOpen] = useState(false);
-  // Until a role is picked the dialog follows the row, so a refetch that
-  // changed the role elsewhere is not saved back over.
-  const [picked, setPicked] = useState<TeamMemberRole | null>(null);
-  const chosen = picked ?? member.role;
-  const legendId = useId();
+  const [promoting, setPromoting] = useState(false);
   const name = member.display_name ?? member.email;
 
   const save = useMutation<TeamChangeResponse, ApiError, TeamMemberRole>({
@@ -803,77 +835,58 @@ function TeamRoleDialog({
           body: { role: next },
         }),
       ),
+    onSettled: () => setPromoting(false),
     onSuccess: async (_result, next) => {
-      setOpen(false);
       notify(t("teams.roleChanged", { name, role: t(`teams.role.${next}`) }));
       await refreshTeam(queryClient, client, team.id);
     },
-    onError: (error) => {
-      setOpen(false);
-      notify(refusalText(t, error, "team.manage", role), { tone: "error" });
-    },
+    // Nothing is kept locally, so the select is already back on the server's
+    // role; the toast says why.
+    // A failure after the confirmation stays until read, like any other one.
+    onError: (error) =>
+      notify(refusalText(t, error, "team.manage", role), {
+        tone: "error",
+        persistent: promoting,
+      }),
   });
+  // While the request runs the select shows the role it asked for.
+  const shown = save.isPending && save.variables ? save.variables : member.role;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (save.isPending) return;
-        setPicked(null);
-        setOpen(next);
-      }}
-    >
-      <DialogTrigger asChild>
-        <RowAction aria-label={t("teams.changeRoleFor", { name })}>
-          {t("teams.changeRole")}
-        </RowAction>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t("teams.roleTitle")}</DialogTitle>
-          <DialogDescription>
-            {member.display_name === null
-              ? member.email
-              : `${member.display_name} · ${member.email}`}
-          </DialogDescription>
-        </DialogHeader>
-        <FieldSet>
-          <FieldLegend id={legendId} variant="label">
-            {t("teams.column.teamRole")}
-          </FieldLegend>
-          <RadioGroup
-            value={chosen}
-            onValueChange={(value) => setPicked(value as TeamMemberRole)}
-            disabled={save.isPending}
-            aria-labelledby={legendId}
-          >
-            {TEAM_ROLES.map((value) => (
-              <Field key={value} orientation="horizontal">
-                <RadioGroupItem value={value} />
-                <FieldLabel>{t(`teams.role.${value}`)}</FieldLabel>
-                <FieldDescription>
-                  {t(`teams.role.${value}.help`)}
-                </FieldDescription>
-              </Field>
-            ))}
-          </RadioGroup>
-        </FieldSet>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="outline">
-              {t("common.cancel")}
-            </Button>
-          </DialogClose>
-          <Button
-            type="button"
-            disabled={save.isPending || chosen === member.role}
-            onClick={() => save.mutate(chosen)}
-          >
-            {t("members.edit.save")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <NativeSelect
+        // w-auto, not fit: a select in a table cell collapses at 390px.
+        // Same 820px container query as the table's narrow tracks.
+        className="w-auto ps-2 pe-8 [@container(max-width:820px)]:ps-1 [@container(max-width:820px)]:pe-6"
+        aria-label={t("teams.changeRoleFor", { name })}
+        value={shown}
+        disabled={save.isPending}
+        onChange={(event) => {
+          const next = event.target.value as TeamMemberRole;
+          if (next === member.role) return;
+          if (next === "lead") setPromoting(true);
+          else save.mutate(next);
+        }}
+      >
+        {TEAM_ROLES.map((value) => (
+          <NativeSelectOption key={value} value={value}>
+            {t(`teams.role.${value}`)}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      <ConfirmDialog
+        open={promoting}
+        onOpenChange={(next) => {
+          if (!next && !save.isPending) setPromoting(false);
+        }}
+        title={t("teams.promoteTitle", { name })}
+        consequence={t("teams.promoteConsequence")}
+        confirmLabel={t("teams.promoteConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={save.isPending}
+        onConfirm={() => save.mutate("lead")}
+      />
+    </>
   );
 }
 
@@ -969,7 +982,7 @@ function AddMembersDialog({ team }: { readonly team: TeamDetail }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        <Button type="button">
           <Plus aria-hidden="true" />
           {t("teams.addOpen")}
         </Button>

@@ -553,7 +553,7 @@ describe("Claude SDK adapter options", () => {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
         permissionDecisionReason:
-          "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.",
+          "The platform could not record that this tool is starting, so it was not run. This is not a user decision.",
       },
     });
   });

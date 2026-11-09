@@ -23,6 +23,20 @@ export type PushApprovabilityVerdict =
   | { approvable: true }
   | { approvable: false; reason: PushUnapprovableReason };
 
+/** The commit a pinned revision holds as its snapshot or as a kept branch's tip. */
+export function pinnedCarries(
+  pinned: {
+    gitCommit: string;
+    sources?: ReadonlyArray<{ commit: string }> | undefined;
+  },
+  commit: string,
+): boolean {
+  return (
+    pinned.gitCommit === commit ||
+    (pinned.sources ?? []).some((source) => source.commit === commit)
+  );
+}
+
 /**
  * Whether an approval of `request` would pass the server's decision check
  * (push-requests.ts decide, push-request-service.ts decide), judged the same
@@ -51,7 +65,8 @@ export async function pushApprovability(
     const pinned = await source
       .readPushSourceAt(session.id, request.checkpointRevision)
       .catch(() => null);
-    return pinned?.status === "ready" && pinned.gitCommit === request.gitCommit
+    return pinned?.status === "ready" &&
+      pinnedCarries(pinned, request.gitCommit)
       ? { approvable: true }
       : { approvable: false, reason: "pinned_source_invalid" };
   }

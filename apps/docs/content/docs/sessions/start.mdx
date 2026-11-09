@@ -229,7 +229,7 @@ curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '
 </Tab>
 </Tabs>
 
-`scope`는 `private`(만든 사람만), `people`(`user_ids`의 사람), `team`(`team_ids` 팀의 지금 구성원), `workspace`(모든 구성원) 중 하나다. 한 번도 바꾸지 않은 세션은 `workspace`, `revision` 0이다. 담당 팀이 있는 에이전트의 세션은 워크스페이스 설정에 따라 `workspace`여도 에이전트 안쪽만 볼 수 있고, 그때 `audience_limited`가 `true`다([바깥 member가 할 수 있는 일](/agents/permissions#바깥-member가-할-수-있는-일)). 콘솔의 세션 화면은 **운영** 칸의 **공유 범위**에 이 값을 읽기 전용으로 보이고, `audience_limited`이면 `워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)`이라 적는다. 범위를 바꾸는 `POST /v1/sessions/{id}/share`는 웹 로그인으로만 부르므로 SDK 메서드가 없다([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
+`scope`는 `private`(만든 사람만), `people`(`user_ids`의 사람), `team`(`team_ids` 팀의 지금 구성원), `workspace`(모든 구성원) 중 하나다. 한 번도 바꾸지 않은 세션은 `workspace`, `revision` 0이다. 에이전트의 세션은 워크스페이스 설정에 따라 `workspace`여도 에이전트 안쪽만 볼 수 있고, 그때 `audience_limited`가 `true`다([바깥 member가 할 수 있는 일](/agents/permissions#바깥-member가-할-수-있는-일)). 콘솔의 세션 화면은 **운영** 칸의 **공유 범위**에 이 값을 읽기 전용으로 보이고, `audience_limited`이면 `워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)`이라 적는다. 범위를 바꾸는 `POST /v1/sessions/{id}/share`는 웹 로그인으로만 부르므로 SDK 메서드가 없다([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
 
 ## 제목
 
@@ -269,7 +269,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
 ```
 
 </Tab>
@@ -278,7 +278,7 @@ try {
 오류 본문은 모든 API가 같은 모양이다. `retryable`이 `true`일 때만 같은 key로 다시 보낼 만하다.
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)

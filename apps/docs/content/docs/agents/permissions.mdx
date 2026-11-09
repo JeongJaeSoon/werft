@@ -57,7 +57,7 @@ release로 만든 세션은 그보다 좁게, release에 고정된 도구만 쓴
 
 | 모드 | 동작 |
 | --- | --- |
-| `default` | 세션 작업 공간 안의 파일 쓰기·편집, 원격에 닿지 않는 로컬 git(status, diff, log, show, add, commit, branch, switch, stash, `checkout -b`, `restore --staged`)과 `bun`·`npm`·`pnpm`·`yarn`의 test·run은 묻지 않고 실행한다. `&&`·`;`·`\|`로 이은 명령은 각 부분이 이 범위일 때만 통과하고, 한 부분이라도 밖이면 전체가 권한 요청이 된다. 작업 공간 밖 쓰기(symlink와 `..`를 풀어 본 경로 기준), 비밀값·`.git`·`.claude` 경로, push·fetch 같은 원격 접근, 작업 내용을 되돌릴 수 없게 지우는 명령(`reset --hard`, `checkout -- <경로>`, `restore`의 작업 트리 복원, force 옵션)은 실행 전에 권한 요청을 만든다. 읽기 명령은 묻지 않는다. 로컬 프로필의 모드다 |
+| `default` | 세션 작업 공간 안의 파일 쓰기·편집, 원격에 닿지 않는 로컬 git(status, diff, log, show, add, commit, switch, stash, `checkout -b`, `restore --staged`), 작업 공간 안 `mkdir`, `bun`·`npm`·`pnpm`·`yarn`의 test·run은 묻지 않고 실행한다. `&&`·`;`·`\|`로 이은 명령은 각 부분이 이 범위일 때만 통과하고, 한 부분이라도 밖이면 전체가 권한 요청이 된다. 작업 공간 밖 쓰기(symlink와 `..`를 풀어 본 경로 기준), 비밀값·`.git`·`.claude` 경로, push·fetch 같은 원격 접근, 작업 내용을 되돌릴 수 없게 지우는 명령(`reset --hard`, `checkout -- <경로>`, `restore`의 작업 트리 복원, force 옵션)은 실행 전에 권한 요청을 만든다. 상태를 바꾸지 않는 조회(`git branch -a`, `git remote -v`, `ls`, `cat`, `grep`, `find` 등)는 엔진이 작업 공간 안에서 묻지 않고 실행한다. 작업 공간 밖 경로, `find -exec`·`-delete`, `git branch -D`·`git remote add` 같은 변경은 엔진이 묻고, 비밀 파일 이름(`.env`, 키, `.git/config`)을 줄에 적은 `cat`·`head`·`tail`·`grep`·`rg`와 숨김 파일까지 뒤지는 `rg -u`·`--hidden`류는 이 목록이 묻는다(이름만 보므로 `cat .e*`나 `grep -r`은 못 잡는다). 로컬 프로필의 모드다 |
 | `acceptEdits`, `dontAsk` | Claude Code의 같은 이름 모드로 돌고, `default`와 같은 작업 공간 사전 허용과 승인 목록을 더한다. 이 목록의 비밀값·`.git`·`.claude` 경로는 `acceptEdits`에서도 묻는다 |
 | `plan` | Claude Code의 같은 이름 모드로 돈다. 사전 허용은 없다 |
 | `auto` | 사람 대신 모델 분류기가 호출마다 허용·거부를 정한다. 분류기를 쓸 수 없으면 거부한다. 설치 설정 없이 쓸 수 있다. 내장 GitHub 도구 중 push, PR 쓰기, 저장소 읽기는 예외로 분류기를 거치지 않고 서버가 판정한다(push 승인, release의 도구 목록, 세션 grant). 리뷰 제출과 workflow는 분류기를 거친다. 플랫폼이 분류기에 행동 단위 규칙을 더한다. 아래 허용 목록의 push·PR·저장소 읽기는 이 예외를 받지 못하는 옛 worker에서만 분류기가 보는 규칙이다. 허용: 세션 작업 공간의 commit과 플랫폼 push 흐름으로 세션 자기 저장소의 세션 전용 작업 브랜치(`agent/<session-id>`)에 push하기, 그 브랜치에서 PR 열기와 이 세션이 연 PR의 제목·본문 수정·코멘트·닫기·다시 열기, 허용된 저장소 목록 보기와 읽기용으로 붙이기. 이 허용에 들지 않는 것: 기본·보호 브랜치나 플랫폼이 만들지 않은 브랜치 push, force push, PR 머지·승인, 리뷰 제출, 이 세션이 열지 않은 PR의 수정·코멘트·닫기, 다른 저장소(세션에 붙인 저장소 포함) push, 비밀값. 저장소 설정·브랜치 보호·webhook·deploy key·Actions secret 변경, GitHub의 브랜치·저장소 삭제, PR 머지는 어떤 경로로든 거부 쪽으로 둔다 |
@@ -107,10 +107,10 @@ owner·admin, 에이전트 관리자, 담당 팀 구성원을 그 에이전트�
 | `agent_outsider_access` | `use`(기본값) | 정보를 읽고 세션을 시작한다 |
 | | `view` | 정보만 읽는다. 세션 시작은 `403 FORBIDDEN`(`reason_code: role`) |
 | | `none` | 에이전트가 목록에 없고 읽으면 `404`, 세션 시작은 `403` |
-| `agent_outsider_session_visibility` | `managing_team`(기본값) | 담당 팀이 있는 에이전트의 `workspace` 공유 세션이 목록·개수·상세·이벤트·사용량 최근 목록에 나오지 않는다 |
+| `agent_outsider_session_visibility` | `managing_team`(기본값) | 에이전트의 `workspace` 공유 세션이 담당 팀 밖 구성원에게는 목록·개수·상세·이벤트·사용량 최근 목록에 나오지 않는다 |
 | | `workspace` | 그 세션도 모든 member가 본다 |
 
-- `agent_outsider_access`와 `agent_outsider_session_visibility`는 모든 에이전트에 적용된다. 에이전트에는 늘 담당 팀이 있다. 담당 팀이 필수가 되기 전에 팀이 없던 에이전트는 구성원 없는 `Unassigned agents` 팀이 맡았고, 이 에이전트들의 `workspace` 세션은 에이전트를 맞는 팀으로 옮기기 전까지 이전처럼 모든 멤버에게 보인다.
+- `agent_outsider_access`와 `agent_outsider_session_visibility`는 모든 에이전트에 적용된다. 에이전트에는 늘 담당 팀이 있다. 담당 팀이 필수가 되기 전에 팀이 없던 에이전트는 구성원 없는 보관 팀(이름을 바꿔도 서버는 보관 팀으로 알아본다)이 맡았고, 이 에이전트들의 `workspace` 세션은 에이전트를 맞는 팀으로 옮기기 전까지 이전처럼 모든 멤버에게 보인다.
 - 바깥 member라도 자기가 시작한 세션과, 자기나 자기 팀을 지정해 공유한(`people`·`team`) 세션은 계속 본다.
 - 두 설정 모두 다음 요청부터 이미 만든 세션에도 적용된다. 열린 이벤트 스트림은 다음 확인 때 끊긴다. 담당 팀을 바꾸거나 구성원이 팀에서 빠질 때도 같다.
 - 사용량 합계(세션 수·비용·성과 수)는 그대로이고, 최근 성과 목록에서 볼 수 없는 세션의 줄만 빠진다.
@@ -130,7 +130,7 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 콘솔에서는 **워크스페이스 설정**의 **에이전트 접근**에서 바꾼다. **담당 팀 밖 구성원의 에이전트 접근**은 **보고 실행**(`use`)·**보기만**(`view`)·**숨김**(`none`), **워크스페이스 공개 세션**은 **담당 팀 안에만**(`managing_team`)·**모든 구성원**(`workspace`)이다. 바꾼 값만 보내고, 저장하면 화면이 `GET /v1/auth/me`를 다시 읽는다. owner·admin이 아닌 구성원에게는 고르는 칸 없이 지금 값만 보인다.
 
 <Callout>
-이전에는 `workspace` 공유 세션을 모든 member가 봤다. 지금은 기본값이 `managing_team`이라, 담당 팀을 정한 에이전트의 세션은 바로 안쪽만 본다. 예전처럼 보이려면 `agent_outsider_session_visibility`를 `workspace`로 바꾼다.
+이전에는 `workspace` 공유 세션을 모든 member가 봤다. 지금은 기본값이 `managing_team`이라, 에이전트의 세션은 바로 안쪽만 본다(보관 팀에 남아 있는 에이전트는 예외다). 예전처럼 보이려면 `agent_outsider_session_visibility`를 `workspace`로 바꾼다.
 </Callout>
 
 [만들기](/agents/create)의 `AID`와 `WEB`을 이어 쓴다.

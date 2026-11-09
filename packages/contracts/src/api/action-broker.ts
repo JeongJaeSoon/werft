@@ -92,9 +92,9 @@ export const ACTION_REFUSAL_CODES = {
   not_pushed: actionRefusalSpec("platform", true),
   checkpoint_unavailable: actionRefusalSpec("platform", true),
   pinned_source_invalid: actionRefusalSpec("platform"),
-  // `source_ref` waits for the multi-branch stage; calling again cannot help.
   source_ref_unsupported: actionRefusalSpec("platform"),
-  // `request_push` called outside a running turn while the intent flow is on.
+  source_ref_required: actionRefusalSpec("platform", true),
+  // `request_push` called outside a running turn.
   no_running_turn: actionRefusalSpec("platform"),
   lease_expired: actionRefusalSpec("platform", true),
   push_failed: actionRefusalSpec("platform", true),

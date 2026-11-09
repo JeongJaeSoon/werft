@@ -2687,7 +2687,6 @@ describe("compose layers", () => {
         "PLATFORM_SECRET_KEY",
         "SETTINGS_DOCUMENT",
         "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
-        "SESSION_PROMPT_REVISION",
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
       ],
     ],

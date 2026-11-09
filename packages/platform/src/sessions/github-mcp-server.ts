@@ -264,12 +264,6 @@ export function createGitHubMcpServer(deps: {
   store: GitHubMcpStore;
   /** The session services, made with the authorization they run under. */
   services: (authorization: AuthorizationPolicy) => GitHubMcpServices;
-  /**
-   * AGENT_ACTION_FLOWS, read on each call. On, a `request_push` inside a
-   * running turn is an intent (push what the turn ends with); off, it takes
-   * the legacy path. Absent is off.
-   */
-  actionFlows?: () => boolean;
   /** Where the exception behind an `internal_error` answer goes to be logged. */
   onInternalError?: (
     error: unknown,
@@ -379,96 +373,62 @@ export function createGitHubMcpServer(deps: {
         const { source_ref, ...body } = parsed.data as z.infer<
           (typeof GITHUB_MCP_TOOL_ARGUMENTS)["request_push"]
         >;
-        // Whatever the setting, and before anything is written.
-        if (source_ref !== undefined) {
+        // A push is of what the turn ends with, so a call outside a running
+        // turn has nothing to carry: the last saved checkpoint may be behind
+        // the workspace.
+        if (turnAtCall === null) {
           return refused({
-            code: "source_ref_unsupported",
+            code: "no_running_turn",
             by: "platform",
             retryable: false,
           });
         }
-        // Before anything is written, in either flow: no PR tool is trusted
-        // to run unseen yet, so a pull request cannot ride along with the
-        // push, and the actions flow must not store an intent for it either.
-        if ((body as { pull_request?: unknown }).pull_request !== undefined) {
-          throw new SessionServiceError(
-            "BAD_REQUEST",
-            "pull_request needs a tool call",
-            undefined,
-            { refusal: "pull_request_needs_tool_call" },
-          );
-        }
-        if (deps.actionFlows?.() === true) {
-          if (turnAtCall === null) {
-            return refused({
-              code: "no_running_turn",
-              by: "platform",
-              retryable: false,
-            });
-          }
-          const asked = await services.pushRequests.requestIntent(
-            actor,
-            sessionId,
-            { attemptId: grant.attemptId, turnId: turnAtCall, body },
-          );
-          if (asked.status === "github_disabled") {
-            return refused({
-              code: "github_disabled",
-              by: "policy",
-              retryable: false,
-            });
-          }
-          if (asked.status === "turn_target_taken") {
-            // One source per turn in this stage: the turn-end checkpoint is
-            // pushed to one target, and the next target waits for the next
-            // input.
-            return refused({
-              code: "source_ref_unsupported",
-              by: "platform",
-              retryable: false,
-              details: {
-                reason: "one_target_per_turn",
-                target_branch: asked.target_branch,
-              },
-            });
-          }
-          if (asked.status === "turn_not_running") {
-            return refused({
-              code: "no_running_turn",
-              by: "platform",
-              retryable: false,
-            });
-          }
-          return done({
-            status: "deferred",
-            push_intent_id: asked.intent.id,
-            waits_for: "turn_end",
-            repository_id: asked.intent.repository_id,
-            target_branch: asked.intent.target_branch,
-            pull_request: "none",
-            // The model reads this as the end of the job; say that the pull
-            // request is still its call, in this turn, approval or not.
-            next: "To open the pull request without a later turn, call open_pull_request with this push_intent_id in this same turn, without waiting for the push, also when the push needs approval.",
+        const asked = await services.pushRequests.requestIntent(
+          actor,
+          sessionId,
+          {
+            attemptId: grant.attemptId,
+            turnId: turnAtCall,
+            body,
+            ...(source_ref === undefined ? {} : { sourceRef: source_ref }),
+          },
+        );
+        if (asked.status === "github_disabled") {
+          return refused({
+            code: "github_disabled",
+            by: "policy",
+            retryable: false,
           });
         }
+        if (asked.status === "source_ref_required") {
+          return refused({
+            code: "source_ref_required",
+            by: "platform",
+            retryable: true,
+            details: { target_branch: asked.target_branch },
+          });
+        }
+        if (asked.status === "turn_not_running") {
+          return refused({
+            code: "no_running_turn",
+            by: "platform",
+            retryable: false,
+          });
+        }
+        return done({
+          status: "deferred",
+          push_intent_id: asked.intent.id,
+          waits_for: "reply_end",
+          repository_id: asked.intent.repository_id,
+          target_branch: asked.intent.target_branch,
+          pull_request: "none",
+        });
       }
       return done(
         await run(services, actor, sessionId, tool, parsed.data, waitLeft),
       );
     } catch (error) {
       if (error instanceof SessionServiceError) {
-        const continued =
-          turnAtCall !== null &&
-          isRecord(error.details) &&
-          error.details.refusal === "no_checkpoint" &&
-          (await deps.store.markPushContinuation({
-            sessionId,
-            turnId: turnAtCall,
-          }));
-        // Not a refusal: the push still happens, one turn later.
-        if (continued) {
-          return done({ status: "deferred", continuation: "after_turn" });
-        }
         return refused(
           refusalFromServiceError(
             tool,

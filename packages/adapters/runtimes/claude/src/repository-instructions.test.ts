@@ -44,26 +44,12 @@ describe("the appended system prompt of a profile", () => {
     return systemPromptAppend(claudeProfileConfig(profile));
   };
 
-  test("without agent instructions it is the platform's words and then the repository's, as before", () => {
-    expect(appended([{ scope: "platform", text: PLATFORM }])).toBe(
+  test("it is the platform's words and then the repository's", () => {
+    expect(appended([{ text: PLATFORM }])).toBe(
       `${PLATFORM}\n\n${REPO_HEADING}\n\nrepo rules`,
     );
     expect(appended([])).toBe(`${REPO_HEADING}\n\nrepo rules`);
     expect(appended([], null)).toBeUndefined();
-  });
-
-  test("agent instructions come after the platform's words and before the repository's, under their heading", () => {
-    expect(
-      appended([
-        { scope: "platform", text: PLATFORM },
-        { scope: "agent", text: "Answer in haiku." },
-      ]),
-    ).toBe(
-      `${PLATFORM}\n\nAgent instructions set by this agent's administrators:\n\nAnswer in haiku.\n\n${REPO_HEADING}\n\nrepo rules`,
-    );
-    expect(appended([{ scope: "agent", text: "Answer in haiku." }], null)).toBe(
-      "Agent instructions set by this agent's administrators:\n\nAnswer in haiku.",
-    );
   });
 });
 

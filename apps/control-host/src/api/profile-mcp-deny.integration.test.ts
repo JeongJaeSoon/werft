@@ -213,7 +213,6 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
 
   const card = (): AgentCardRequest =>
     agentCardRequestSchema.parse({
-      agent_instructions: "analyse",
       model: "claude-sonnet-5",
       capabilities: { tools: null, mcp: null, forbidden: [] },
     });

@@ -192,10 +192,10 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 
 | 항목 | 내용 |
 |---|---|
-| 입력 | 지금 입력(`repository_id?`, `branch?`)에 `source_ref?`(L4b 전에는 `source_ref_unsupported`). strict |
-| 플랫폼이 정하는 것 | 대상 브랜치 `agent/<session-id>[-<branch>]`, 고정 commit(이 턴 끝 checkpoint의 HEAD), 승인 방식, 실행 시점(턴 끝) |
-| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch, pull_request, next }` (`next`는 승인 대기여도 같은 턴에 `open_pull_request({ push_intent_id })`를 부르라고 알린다; 푸시 뒤 PR을 여는 후속 턴은 없다). off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
-| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 같은 턴·같은 저장소의 다른 대상(`branch` 접미사만 다름)은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `details.target_branch` = 이미 잡힌 대상)로 거절한다. 모든 의도가 같은 턴 끝 checkpoint를 가리켜 같은 commit이 두 번 push되기 때문이다(D10). 모델은 남은 묶음을 사람에게 말하고 다음 입력을 기다린다. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
+| 입력 | `repository_id?`, `branch?`, `source_ref?`(작업공간의 로컬 브랜치 짧은 이름). strict. `AGENT_ACTION_FLOWS`가 꺼져 있으면 `source_ref`는 `source_ref_unsupported` |
+| 플랫폼이 정하는 것 | 대상 브랜치 `agent/<session-id>[-<branch>]`, 고정 commit(`source_ref`가 있으면 그 브랜치의 commit, 없으면 이 턴 끝 checkpoint의 HEAD), 승인 방식, 실행 시점(턴 끝) |
+| 출력 | `AGENT_ACTION_FLOWS` on: `{ status: "deferred", push_intent_id, waits_for: "turn_end", repository_id, target_branch, pull_request, next }` (`waits_for`는 `reply_end`. `next`는 승인 대기여도 바로 `open_pull_request({ push_intent_id })`를 부르고, 사용자에게는 저장소·승인 대기·PR만 말하라고 알린다; 푸시 뒤 PR을 여는 후속 턴은 없다). off: 지금 결과를 봉투에 넣고 `message`만 뺀다 |
+| 멱등 | 같은 턴에서 같은 대상을 다시 부르면 같은 의도. 한 턴에 의도가 둘 이상이 되면 모든 의도가 `source_ref`를 가져야 한다. 모든 의도가 같은 턴 끝 checkpoint를 가리키므로, 이름 없는 의도가 둘이면 같은 commit이 두 번 push되고 이름 없는 하나는 HEAD가 끝난 저장소의 commit을 받기 때문이다(D10). 빠진 쪽이 있으면 새 호출은 `source_ref_required`(`details.target_branch` = `source_ref`가 없는 대상)로 거절하고, 그 대상을 `source_ref`와 함께 다시 부르면 아직 `deferred`인 동안 값이 채워진다. 모델은 저장소마다 로컬 브랜치에 커밋하고 `source_ref`로 각각 요청한다. 같은 대상의 열린 push 요청은 하나(`request_open`). 사람이 거절한 commit의 재요청은 `rejected_before` |
 | 정책 | `push.primary`·`push.attached`. `ask`면 T3 push 폼 |
 
 턴 끝 뒤의 결과는 모델이 `get_push_request`(L5, 부류 `repository.read`)로 읽고, 사람에게는 T1 `action_notice`로 나간다.
@@ -205,7 +205,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 | `validation_error` | platform | false(`isError`) |
 | `no_repository`, `repository_not_allowed`, `github_disabled`, `default_branch`, `target_refused`, `over_workspace_ceiling`, `self_approval` | policy | false |
 | `source_ref_unsupported`, `no_running_turn`, `missing_scope`, `unverified_principal`, `not_found`, `session_closed`, `turn_ended_without_checkpoint`, `turn_finalized_without_pin`, `superseded_by_turn`, `source_missing`, `attribution_mismatch`, `uncommitted_changes`, `no_checkpoint`, `checkpoint_moved`, `commit_mismatch`, `catalog_changed`, `already_resolved`, `already_decided`, `unrelated_history`, `github_settings_unsupported`, `no_push_credential` | platform | false |
-| `checkpoint_unavailable`, `lease_expired`, `push_failed`, `request_open` | platform | true |
+| `checkpoint_unavailable`, `lease_expired`, `push_failed`, `request_open`, `source_ref_required` | platform | true |
 | `rejected_before` | person | false |
 | `non_fast_forward`, `github_refused` | github | false |
 
@@ -378,7 +378,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | D7 | push 뒤 PR 자동 생성 | 폐기 | PR은 모델이 `open_pull_request`(또는 `gh pr create`)를 부를 때만 열린다 |
 | D8 | push·PR·저장소 읽기를 엔진 권한 단계에서 빼기 | (a) 유지, PR 8 조건 | [6절](#6-행동-부류-정책) |
 | D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그". 그 뒤의 control-host 모듈 이름 action-broker는 레이어 이름이 아니다([1절](#1-위치와-이름)) |
-| D10 | 한 턴에 PR 여러 개 | 폐기 + 도구 한계 | 1단계 `request_push`의 소스는 턴 끝 HEAD 하나. 여러 소스는 `source_ref`(L4b, 2단계) |
+| D10 | 한 턴에 PR 여러 개 | 개정 | 처음에는 `request_push`의 소스가 턴 끝 HEAD 하나였다. 붙인 저장소는 한 git 저장소의 remote이고 checkpoint는 HEAD 하나(`workspace.gitCommit`)만 담아서, 저장소 둘째부터는 사용자에게 다음 입력을 요청하게 됐다. 바뀐 것: checkpoint가 로컬 브랜치를 모두(최대 16개) 담고 `request_push`가 `source_ref`로 브랜치를 고른다. 한 턴에 저장소마다 push와 PR이 끝난다. 남은 묶음을 플랫폼이 다음 턴으로 이어가는 안(F4)은 그대로 만들지 않는다: 이어 갈 브랜치의 commit이 checkpoint에 없으면 복구할 수 없고, 마지막 HEAD만 저장하면 첫 요청도 잘못된 HEAD를 받는다 |
 | D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다(PR 2). 주 저장소가 콘솔에 등록한 App으로 연결되고, bot 조회가 성공하고, 연결이 바뀌지 않았을 때만 PR을 여는 App과 같은 bot이다. 예외: 첨부 저장소의 다른 App, `Werft` fallback, 연결 변경, PAT 연결 저장소, 이미 열린 PR을 이어 쓸 때. 개정(PR 0): 이전 결정은 PR 템플릿 설계 4.1절의 "App 선택은 지금 그대로"(이미 고정된 App만 따르고 없으면 `Werft`)였다. 바뀐 이유: commit과 PR의 bot이 갈라지지 않게 하려는 것이다. 주 저장소가 콘솔에 등록한 App으로 연결돼 있고 작성용 고정이 없으면, claim이 PR 경로와 같은 resolver로 App을 정해 고정을 남긴다. 닿는 작성용 연결이 정확히 하나일 때만이고, `ambiguous_app`·닿는 연결 없음·조회 실패면 고정하지 않는다. 출처는 `pinned_by = 'claim'`(`first_mint`가 아니다)이고, 같은 트랜잭션에서 감사 receipt `pinned_at_claim`(operation `set_repository_github_app`, actor null)을 쓴다. 고정을 만들지 못해도 claim은 막히지 않고 `Werft`로 계속 발급한다([github-agent 결정 11](github-agent.md#claim이-남기는-고정)) |
 
 ## 11. 도구 위에 얹는 것
@@ -388,10 +388,12 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | # | 것 | 판단 |
 |---|---|---|
 | F1 | push가 끝나면 PR 호출 없이 PR을 연다 | 만들지 않는다(D7) |
-| F4 | 한 요청의 남은 PR 묶음을 플랫폼이 이어서 | 만들지 않는다(D10) |
+| F4 | 한 요청의 남은 PR 묶음을 플랫폼이 다음 턴으로 이어서 | 만들지 않는다(D10). 한 턴 안에서 `source_ref`로 끝낸다 |
 | F2 | 이어 턴(`push_continuations`)과 Slack 승인 후속 턴 | 호환 경로. push 요청 행은 만들 때의 흐름 `flow`(`legacy` \| `actions`)를 적고, 이어 턴과 후속 턴은 `flow = 'legacy'` 요청에만 생긴다. `AGENT_ACTION_FLOWS`가 off인 동안 만든 직접 요청만 `legacy`다. 의도에서 바뀐 요청(`origin = 'intent'`)은 늘 `actions`이고, 이미 만든 요청은 설정을 바꿔도 동작이 바뀌지 않는다. 모든 배포에서 설정을 켜고 남은 `legacy` 요청이 0이 된 뒤 후속 PR이 지운다 |
 | F3 | `request_push({ pull_request })` 한 번으로 push와 PR 예약 | 선택 복합 호출(L12). L12 전 replica는 strict 입력이라 이 칸을 `validation_error`로 거절한다. 그래서 설치 설정 `AGENT_ACTION_PR_IN_PUSH`(기본 off)는 모든 replica가 L12 이상일 때만 켜고, 꺼져 있으면 이 칸은 `validation_error`다. 켜져 있어도 PR 도구가 `trusted`가 아닌 세션은 `pull_request_needs_tool_call`(platform, false, 부작용 없음)이다 |
 | F5 | 지연 완료 결과를 사람에게(`action_notice`) | 모델이 부른 push·PR 호출에 딸린 고정 알림. 바깥 효과를 새로 만들지 않는다 |
+
+> **갱신(2026-11-09).** 이 절과 아래 표에서 말하는 `AGENT_ACTION_FLOWS`와 `SESSION_PROMPT_REVISION`은 없어졌다. 턴 안의 `request_push`는 언제나 의도(intent) 흐름이고, 턴 밖에서 부르면 `no_running_turn`으로 거절한다. 이어 턴(`push_continuations`)은 더 만들지 않으며, 엔진에 가는 프롬프트·도구 설명·응답·후속 턴 메시지에는 사실만 적는다. 아래는 당시 결정의 기록이다.
 
 `AGENT_ACTION_FLOWS`는 "자동 흐름"을 켜는 설정이 아니라 T5·T6의 **지연 완료 계약**(턴 안 `request_push`의 의도, PR 예약)을 켜는 배포 장벽이다. 모든 replica가 L5 이상일 때 켠다. 이 설정은 새 직접 호출의 경로만 고르고, 이미 만든 요청은 행의 `flow`를 따른다.
 
@@ -450,7 +452,7 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 | G5 | commit 시점과 push 브랜치 준비 | F | 현재 계약 | T5([5.5](#55-t5-push-request_push)). 턴 안 `request_push`가 의도를 만들고 `deferred`/`waits_for: "turn_end"`를 돌려준다(`packages/platform/src/sessions/github-mcp-server.ts:378-447`). 턴 끝 checkpoint를 고정한다. 모델 안내 문구는 [11절](#11-도구-위에-얹는-것) F2 |
 | G6 | push 미뤄짐 처리(이어 턴) | F | 현재 계약 + 후속 | `AGENT_ACTION_FLOWS` on이면 이어 턴이 없다([12절](#12-앞선-결정과의-차이) 둘째 줄). `flow = 'legacy'` 요청에만 이어 턴이 남는다(`github-mcp-server.ts:464-470`, `packages/db/src/push-continuations.ts:6`). 지우는 일은 [11절](#11-도구-위에-얹는-것) F2의 후속 PR |
 | G7 | push 뒤 PR 열기 | F | 현재 계약(D7로 바뀜) | 플랫폼이 스스로 열지 않는다. 모델이 `open_pull_request({ push_intent_id })`를 부르면(`gh pr create`는 후속 L14다. 이미지의 `gh`는 지금 자격 없는 원본이다, `apps/worker/Dockerfile:149-152`) 예약하고, push가 끝나면 PR drain이 연다(`packages/platform/src/sessions/pull-request-drain.ts`, [5.6](#56-t6-pr-작성-open_pull_request)). 설계 원문의 "push가 끝나면 PR을 연다"는 [10절](#10-오너-결정-d1d11) D7(폐기)로 대체됐다. `slackPushFollowUp`(`packages/platform/src/musterrolle/slack-interactions.ts:71`)은 `legacy` 요청에만 남는다 |
-| G8 | PR 개수(브랜치 분할) | L | 현재 계약 + 후속 | 1단계는 턴마다 대상 하나다. 같은 턴·같은 저장소의 다른 대상은 `source_ref_unsupported`(`details.reason = one_target_per_turn`, `github-mcp-server.ts:426-430`)이고 `source_ref`는 거절한다(`:383-387`). [10절](#10-오너-결정-d1d11) D10. 한 턴 여러 소스는 후속 L4b(2단계) |
+| G8 | PR 개수(브랜치 분할) | L | 현재 계약 | 한 턴에 의도가 여럿일 수 있다. 의도가 둘 이상이면 각자 `source_ref`가 있어야 하고 없으면 `source_ref_required`다(`packages/db/src/push-intents.ts`의 `createDeferred`). 브랜치의 commit은 pin된 revision의 매니페스트(`workspace.sources`)에서 고른다. [10절](#10-오너-결정-d1d11) D10 |
 | G9 | PR 리뷰 | L | 현재 계약 | `submit_review`(`review` 부류). 본문은 `cleanBody`로 정리하고 `commit_id`가 PR head가 아니면 `stale_commit`이다(`packages/platform/src/sessions/github-work-service.ts:357-387`). [5.9](#59-그-밖의-기존-도구)의 L6 |
 | G10 | workflow 입력·재실행·결과 확인 | L | 현재 계약 | `dispatch_workflow`·`rerun_workflow`·`get_workflow_run`(`workflow` 부류). `wait_seconds`와 `final`은 `packages/contracts/src/api/github-mcp.ts:151`, `:457`. [5.9](#59-그-밖의-기존-도구)의 L7 |
 | G11 | GitHub 행동 허용 판단 | L(정책) | 현재 계약 | [6절](#6-행동-부류-정책). 부류 값과 도구별 부류는 `ACTION_CLASS_VALUES`·`GITHUB_MCP_TOOL_CLASSES`(`github-mcp.ts:329`, `:343`). 부류가 없는 도구는 노출되지 않는다 |

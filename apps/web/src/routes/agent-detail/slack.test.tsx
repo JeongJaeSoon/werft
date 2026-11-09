@@ -571,7 +571,7 @@ describe("Slack management", () => {
     expect(puts()).toEqual(["off", "on"]);
   });
 
-  test("shows the public or private tag beside the row's control, in the picker and the list", async () => {
+  test("shows the public or private tag beside the channel name in the list and beside the action in the picker", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack/channels`]: () =>
@@ -587,10 +587,12 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
-    // The list row carries its tag in the control column, next to the switch.
     const use = within(list).getByRole("switch");
     const connected = within(use.closest("li") as HTMLElement);
-    expect(connected.getByText("공개").parentElement).toBe(use.parentElement);
+    const tag = connected.getByText("공개");
+    expect(use.parentElement?.contains(tag)).toBe(false);
+    expect(tag.closest("span.row-start-1")?.textContent).toContain("C123");
+    expect(connected.queryByText("이 채널에서 사용")).toBeNull();
     await user.click(screen.getByRole("button", { name: "채널 추가" }));
     const dialog = screen.getByRole("dialog");
     await within(dialog).findByText("#secret");

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { runtimeConfigSchema } from "@werft-ai/contracts";
-import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import {
@@ -244,7 +243,7 @@ describe("claimFingerprint", () => {
         () => null,
       );
       expect(profile.bundle.instructions).toEqual([
-        { scope: "platform", text: OUT_DIRECTORY_PROMPT },
+        { text: OUT_DIRECTORY_PROMPT },
       ]);
       const digest = fingerprint({
         principal,
@@ -255,50 +254,6 @@ describe("claimFingerprint", () => {
       expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");
-  });
-
-  test("agent instructions follow the platform's words and change the digest; blank ones change nothing", () => {
-    const repository = {
-      id: "sample-app",
-      url: "https://example.invalid/team/app.git",
-      branch: "main",
-    };
-    const instructed = {
-      ...shipped["claude-coding-real"],
-      agent_instructions: "Answer in haiku.",
-    };
-    const agentPart = { scope: "agent" as const, text: "Answer in haiku." };
-    for (const [workspace, instructions] of [
-      [{ repository }, [agentPart]],
-      [
-        { repository: null },
-        [{ scope: "platform", text: OUT_DIRECTORY_PROMPT }, agentPart],
-      ],
-    ] as const) {
-      const profile = runtimeProfile(
-        config,
-        claude,
-        { principal, runtimeConfig: instructed, workspace },
-        () => null,
-      );
-      expect(profile.bundle.instructions).toEqual(instructions);
-      expect(
-        fingerprint({ principal, runtime_config: instructed, workspace })
-          .profileSha256,
-      ).toBe(claude.fingerprint(profile).profileSha256);
-    }
-    expect(
-      fingerprint({ principal, runtime_config: instructed }).profileSha256,
-    ).not.toBe(onMain["claude-coding-real"]);
-    expect(
-      fingerprint({
-        principal,
-        runtime_config: {
-          ...shipped["claude-coding-real"],
-          agent_instructions: " \n",
-        },
-      }).profileSha256,
-    ).toBe(onMain["claude-coding-real"]);
   });
 
   test("which instruction file is read, and its name, stay out of the digest an older session was stamped with", () => {
@@ -340,18 +295,12 @@ describe("claimFingerprint", () => {
   });
 
   test("the engine's instructions and the workspace's AGENTS.md come from one list", () => {
-    const runtimeConfig = {
-      ...shipped["claude-coding-real"],
-      agent_instructions: "Answer in Korean.",
-    };
+    const runtimeConfig = shipped["claude-coding-real"];
     const parts = instructionParts(runtimeConfig, {
       repository: null,
     });
 
-    expect(parts).toEqual([
-      { scope: "platform", text: OUT_DIRECTORY_PROMPT },
-      { scope: "agent", text: "Answer in Korean." },
-    ]);
+    expect(parts).toEqual([{ text: OUT_DIRECTORY_PROMPT }]);
     expect(
       runtimeProfile(
         config,
@@ -362,15 +311,10 @@ describe("claimFingerprint", () => {
     ).toEqual(parts);
   });
 
-  test("the claim carries agent instructions only as runtime_config.agent_instructions; no name, description or role", () => {
+  test("the claim carries no agent instructions, name, description or role", () => {
     const base = shipped["claude-coding-real"];
-    expect(
-      runtimeConfigSchema.safeParse({ ...base, agent_instructions: "x" })
-        .success,
-    ).toBe(true);
     for (const extra of [
-      { agent_instructions: "" },
-      { agent_instructions: "x".repeat(AGENT_INSTRUCTIONS_MAX_LENGTH + 1) },
+      { agent_instructions: "x" },
       { name: "Reviewer" },
       { description: "Reviews pull requests" },
       { role: "reviewer" },

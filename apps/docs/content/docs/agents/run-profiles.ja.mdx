@@ -3,7 +3,7 @@ title: "プロファイルを選ぶ"
 description: セッションがどのモデル・ツール・権限モードで動くかを決めるプロファイル
 ---
 
-プロファイル (profile) は、セッションの動作方式を決める。runtime とそのバージョン、モデル、ツール一覧、権限モード、モデル provider、リポジトリを使うかどうかである。運用担当者のプロファイル は、そのインストールのすべてのワークスペースが使える最も広い範囲を決める。インストールのデータベースにあり、ユーザーは id を指定して選ぶ。プロファイルごとに動作できるリポジトリの一覧もその行にある。新しいインストールにプロファイルはない。インストールのオーナーがコンソールの設定 > ワークスペース > **モデル接続** (プロファイル画面の下にある同名のセクションでも追加できる) でモデル接続を追加し、その接続でプロファイルを作る。接続もインストールのデータベースにある。接続の追加ダイアログは、選んだ種類の公式エンドポイント (anthropic は `https://api.anthropic.com`) を入力済みにする。プロキシや互換サーバーを使うときだけ変更すればよく、空のまま送っても同じアドレスで保存される。公式アドレスのない種類 (litellm) は、エンドポイントを自分で入力する。エンドポイントは作成後に変更できない。
+プロファイル (profile) は、セッションの動作方式を決める。runtime とそのバージョン、モデル、ツール一覧、権限モード、モデル provider、リポジトリを使うかどうかである。運用担当者のプロファイル は、そのインストールのすべてのワークスペースが使える最も広い範囲を決める。インストールのデータベースにあり、ユーザーは id を指定して選ぶ。プロファイルごとに動作できるリポジトリの一覧もその行にある。新しいインストールにプロファイルはない。インストールのオーナーがコンソールの設定 > ワークスペース > **モデル接続**で接続を追加し、プロファイルを作るときにその接続を選ぶ。プロファイル画面では接続を作ったり変更したりせず、選ぶだけである。接続もインストールのデータベースにある。接続の追加ダイアログは、選んだ種類の公式エンドポイント (anthropic は `https://api.anthropic.com`) を入力済みにする。プロキシや互換サーバーを使うときだけ変更すればよく、空のまま送っても同じアドレスで保存される。公式アドレスのない種類 (litellm) は、エンドポイントを自分で入力する。エンドポイントは作成後に変更できない。接続を使用停止すると、その接続だけでモデルを呼ぶプロファイルとエージェントは、再び有効にするまで動かない。確認ダイアログは、取得できた影響の数 (プロファイル、有効なリリースのエージェント、未終了のセッション) を示す。使用停止した接続は、同じ画面の**再び有効にする**で戻せる。ただし、保存したキーがない場合や、同じ定義の別の接続が使用中の場合は戻せない。プロファイルが使っていた接続が利用できなくなったときは、フォームが先頭の接続に置き換えず、接続を選び直させる。
 
 ## 一覧を見る
 
@@ -52,7 +52,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
-  "runtime_version": "0.3.270",
+  "runtime_version": "0.3.319",
   "billing": "metered",
   "repository_mode": "required"
 }
@@ -77,6 +77,19 @@ provider のアドレスと認証情報は一覧に表示されない。その�
 
 セッションを作成するとき、`profile_id` で選ぶ。プロファイルが複数のモデルを許可している場合は `model` でその中の 1 つを選び、省略するとデフォルトのモデルで動く。
 
+実行中のセッションのモデルが許可リストから外れると、モデルへのリクエストはまもなく切断される。セッションのイベントに `error` イベント(`code: MODEL_NOT_ALLOWED`、`model`)が 1 回残り、セッション詳細のタイムラインに「… がプロファイルの許可リストから外れたため、このセッションのモデルリクエストがブロックされました」と表示される。許可リストを元に戻すか、別のモデルで新しいセッションを開始する。
+
+モデルが許可リストから外れたためにブロックされる経路は、どれもそのモデル名を伝える。
+
+- 実行中のターンは上の `error` イベントである。プロファイルやモデル接続ごとなくなってブロックされるときも同じイベントが残り、`cause` は `profile_removed`(モデルだけが外れた場合は `model_removed`)、`model` にはセッションが使っていたモデルが入る。
+- 次のメッセージで新しい worker を起動しようとして止まると、セッションは `failed` になる。同じ `error` イベント(`cause: model_removed`)と「モデル … がプロファイル … の許可リストから外れた」という理由が、セッションのイベントと入力 receipt に残る。セッション詳細の `attention`(`CATALOG_MISMATCH`)も外れたモデル名を伝える。
+- 許可リストにないモデルで新しいセッションを作ると、`422 UNSUPPORTED_CAPABILITY` がモデル名を伝える。リクエストがモデルを指定せず、リリースのモデルで動く場合も同じである。
+- 許可リストから外れたモデルのリリースを有効化したり、そのリリースでセッションを作ったりすると、`PROFILE_DIGEST_MISMATCH` がリリースのモデルが許可リストから外れたことをモデル名とともに伝える。
+
+プロファイル詳細は「このプロファイルを使うエージェント」の上に、エージェントの概要は準備状況の上に、どのモデルが外れたかと対処(モデルをリストに戻すか、エージェントの詳細設定でモデルを許可されたものに変更して保存する)を警告として表示する。
+
+最初にブロックされたとき、Slack の DM も 1 回届く。DM にも外れたモデル名が入る。宛先はセッションを作成した人とエージェントの管理者(直接指定した管理者、管理者チームのメンバー、担当チームの lead)で、それぞれこのエージェントの Slack アプリがインストールされたチームに Slack アカウントを連携している場合だけ届く。1 つのセッションにつき 1 人 1 回なので、同じセッションの次の試行がブロックされても再送されない。ほかの理由で終了したセッションには送らない。
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
@@ -94,7 +107,7 @@ console.log((await werft.sessions.get(sessionId)).runtime);
 ```text
 {
   kind: 'claude_agent_sdk',
-  version: '0.3.270',
+  version: '0.3.319',
   profile_id: 'claude-coding-local',
   model: 'claude-sonnet-5',
   permission_mode: 'default'
@@ -118,7 +131,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 ```text
 {
   "kind": "claude_agent_sdk",
-  "version": "0.3.270",
+  "version": "0.3.319",
   "profile_id": "claude-coding-local",
   "model": "claude-sonnet-5",
   "permission_mode": "default"
@@ -164,7 +177,7 @@ curl -sS "$API/v1/installation-profiles/options" "${WEB[@]}" \
 
 ```bash
 next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
-  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.319",
   model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
   repository_ids: ["sample-app"], deny: ["WebSearch"]}')
 curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'

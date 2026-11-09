@@ -93,7 +93,11 @@ function recordCheckpointPinProblem(
  */
 export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
   readonly profiles: Readonly<
-    Record<string, { profileSha256: string } | { error: string }>
+    Record<
+      string,
+      | { profileSha256: string; legacyProfileSha256?: string }
+      | { error: string }
+    >
   >;
 };
 
@@ -267,9 +271,6 @@ export type ClaimedSession = ClaimOwner & {
 type ClaimOwner = {
   readonly ownerId: string;
   readonly repositoryMode: "repository" | "none";
-  // The release card's agent_instructions; null without a release or when
-  // the card has none.
-  readonly agentInstructions: string | null;
   // The row's platform_prompt as stored, unread: the image's claim schema
   // judges it as a worker would. Null for a revision 0 session.
   readonly platformPrompt: unknown;
@@ -277,7 +278,6 @@ type ClaimOwner = {
 
 /** A `sessions` row with its release and the release's card, as read for a plan. */
 export type SessionRow = {
-  agent_instructions: unknown;
   platform_prompt: unknown;
   branch: string | null;
   id: string;
@@ -317,10 +317,6 @@ export function claimedSessionOf(
     repoUrl: row.repo_url,
     repositoryId: row.repository_id,
     repositoryMode: row.repository_mode,
-    agentInstructions:
-      typeof row.agent_instructions === "string"
-        ? row.agent_instructions
-        : null,
     platformPrompt: row.platform_prompt ?? null,
   };
 }
@@ -390,9 +386,6 @@ function claimOf(
     principal: { owner_scope: session.ownerId },
     runtime_config: {
       ...runtimeConfig,
-      ...(session.agentInstructions === null || session.agentInstructions === ""
-        ? {}
-        : { agent_instructions: session.agentInstructions }),
       ...(session.platformPrompt === null
         ? {}
         : { platform_prompt: session.platformPrompt as PlatformPrompt }),
@@ -469,8 +462,9 @@ function earlierProfilesOf(
 }
 
 /**
- * The digests the target image computes for a session's earlier profiles,
- * the ones a worker of it would send as alternate_profile_sha256s. A
+ * The digests the target image computes for the given profile keys (current
+ * and frozen-legacy each), the ones a worker of it would send as
+ * alternate_profile_sha256s; the caller drops the current runtime's. A
  * profile it could not hash is left out, as the gateway leaves out one the
  * catalog no longer holds.
  */
@@ -482,9 +476,10 @@ export function alternateDigests(
     const profile = Object.hasOwn(image.profiles, key)
       ? image.profiles[key]
       : undefined;
-    return profile !== undefined && "profileSha256" in profile
+    if (profile === undefined || !("profileSha256" in profile)) return [];
+    return profile.legacyProfileSha256 === undefined
       ? [profile.profileSha256]
-      : [];
+      : [profile.profileSha256, profile.legacyProfileSha256];
   });
 }
 

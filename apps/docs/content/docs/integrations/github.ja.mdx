@@ -94,7 +94,7 @@ PR 本文の末尾には、プラットフォームが書く末尾ブロック�
 
 ## push の後に PR が作られる仕組み
 
-push リクエストに PR のリクエストが付いていると、push が `pushed` で終わった後に control-host の中の action-broker が PR を作成します。エージェントが続きのターンで `open_pull_request` をもう一度呼ぶ必要はありません。この処理は `AGENT_ACTION_FLOWS` 設定がオンでもオフでも control-host の起動と一緒に始まります。設定をオフにして再起動しても、すでに始まっている PR の段階は最後まで処理されます。REST では、push が終わる前に `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` を呼ぶと、409 `PUSH_NOT_PUSHED` の代わりに 202 と `status: "scheduled"` が返り、push が終わり次第 PR が作成されます。`schedule` クエリがない場合や、`AGENT_ACTION_FLOWS` を無効にして作成した（従来フローの）push リクエストの場合は従来どおり 409 です。
+push リクエストに PR のリクエストが付いていると、push が `pushed` で終わった後に control-host の中の action-broker が PR を作成します。エージェントが続きのターンで `open_pull_request` をもう一度呼ぶ必要はありません。この処理は control-host の起動と一緒に始まり、再起動しても、すでに始まっている PR の段階は最後まで処理されます。REST では、push が終わる前に `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true` を呼ぶと、409 `PUSH_NOT_PUSHED` の代わりに 202 と `status: "scheduled"` が返り、push が終わり次第 PR が作成されます。`schedule` クエリがない場合や、従来フロー（`flow = legacy`）で作成した push リクエストの場合は従来どおり 409 です。
 
 PR の段階は push リクエストごとに 1 つで、状態は次のように変わります。
 

@@ -32,13 +32,4 @@ export interface GitHubMcpStore {
     sessionId: string;
     attemptId: string;
   }): Promise<number | null>;
-  /**
-   * Marks that turn while it still runs: once it completes with a
-   * checkpoint, the platform queues a turn that tells the model to ask for
-   * the push again (94S-1243). False when no turn was marked.
-   */
-  markPushContinuation(input: {
-    sessionId: string;
-    turnId: number;
-  }): Promise<boolean>;
 }

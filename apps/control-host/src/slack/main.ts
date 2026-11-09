@@ -41,7 +41,6 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
-  agentPromptIdentity,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
@@ -49,12 +48,12 @@ import {
   createSessionService,
   createSlackBotApi,
   createSlackMemberJoinedHandler,
+  createSlackMemberLeftHandler,
   createSlackSessionHandler,
   createSlackWelcome,
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
-  platformPromptRevisionFromEnv,
   profileCatalog,
   releaseStartable,
   repositoryView,
@@ -78,7 +77,6 @@ import {
 } from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
-import { booleanFlag } from "../boolean-flag.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -214,19 +212,8 @@ export function slackSessionHandler(deps: {
           workspaceId,
           releaseId,
         ),
-      promptIdentity: (workspaceId, releaseId) =>
-        agentPromptIdentity(agentStore, workspaceId, releaseId),
       ...newSessionGitHubReaders(db),
     },
-    promptRevision: platformPromptRevisionFromEnv(environment),
-    // The API role validates the same variable at boot; this role only reads it.
-    actionFlows: (
-      (on) => () =>
-        on
-    )(
-      environment.AGENT_ACTION_FLOWS !== undefined &&
-        booleanFlag(environment.AGENT_ACTION_FLOWS, "AGENT_ACTION_FLOWS"),
-    ),
     credentials,
     limits: installationLimitsFromEnv(environment),
   });
@@ -235,6 +222,9 @@ export function slackSessionHandler(deps: {
   const consoleOrigin = consoleOriginFrom(environment);
   const identities = createPostgresAgentIdentityStore(db);
   const bindings = createPostgresSurfaceBindingStore(db);
+  const slackApi = createSlackBotApi({
+    apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+  });
   const sessionHandler = createSlackSessionHandler({
     inbox: deps.inbox ?? createPostgresSlackInboundEventStore(db),
     leaseMs: deps.leaseMs,
@@ -261,9 +251,7 @@ export function slackSessionHandler(deps: {
         )
       );
     },
-    slack: createSlackBotApi({
-      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
-    }),
+    slack: slackApi,
     botToken: (workspaceId, slackAppId) =>
       slackBotToken(secrets, workspaceId, slackAppId),
     notices: deps.notices ?? createLoggingSlackNoticeSink(logger),
@@ -273,7 +261,7 @@ export function slackSessionHandler(deps: {
         ? ""
         : new URL("/settings/linked-accounts", consoleOrigin).toString(),
   });
-  return createSlackMemberJoinedHandler({
+  const memberJoined = createSlackMemberJoinedHandler({
     agents: identities,
     bindings,
     welcome: createSlackWelcome({
@@ -284,7 +272,15 @@ export function slackSessionHandler(deps: {
       join: null,
       logger,
     }),
+    slack: slackApi,
+    botToken: (workspaceId, slackAppId) =>
+      slackBotToken(secrets, workspaceId, slackAppId),
     next: sessionHandler,
+  });
+  return createSlackMemberLeftHandler({
+    agents: identities,
+    bindings,
+    next: memberJoined,
   });
 }
 

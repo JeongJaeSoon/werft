@@ -34,6 +34,40 @@ if ! jq -e 'type == "array" and all(.[];
   exit 1
 fi
 
+# The image-build plan, when the caller has one (the `supply-chain` job; a
+# publish judges its own digest and sets none, so it gets the full set).
+# The plan is a value, never an absence: an unset variable means no plan to
+# honour, but an empty or unknown one fails, so a planner that did not run
+# cannot pass as "nothing to build".
+scans=({control-host,worker,egress-proxy}-{amd64,arm64} npm)
+if [ -n "${IMAGES_PLAN+x}" ]; then
+  # A planner that failed or was cancelled can leave an output behind.
+  if [ "${IMAGES_PLAN_RESULT:-}" != success ]; then
+    echo "::error::the image build plan finished as '${IMAGES_PLAN_RESULT:-}'"
+    exit 1
+  fi
+  case "$IMAGES_PLAN" in
+    build)
+      if [ "${IMAGES_BUILD_RESULT:-}" != success ]; then
+        echo "::error::build was planned and finished as '${IMAGES_BUILD_RESULT:-}'"
+        exit 1
+      fi
+      ;;
+    skip)
+      # Only a pull request that changes nothing but prose may skip the build.
+      if [ "${GITHUB_EVENT_NAME:-}" != pull_request ] || [ "${IMAGES_BUILD_RESULT:-}" != skipped ]; then
+        echo "::error::build was planned out but the event is '${GITHUB_EVENT_NAME:-}' and the build '${IMAGES_BUILD_RESULT:-}'"
+        exit 1
+      fi
+      scans=(npm)
+      ;;
+    *)
+      echo "::error::no valid image build plan ('${IMAGES_PLAN}')"
+      exit 1
+      ;;
+  esac
+fi
+
 found=0
 missing=0
 {
@@ -42,7 +76,7 @@ missing=0
   echo "| scan | result |"
   echo "| --- | --- |"
 } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
-for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do
+for scan in "${scans[@]}"; do
   result="$(cat "${results}/${scan}.txt" 2>/dev/null || echo "no result")"
   echo "${scan}: ${result}"
   echo "| ${scan} | ${result} |" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"

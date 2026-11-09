@@ -3,6 +3,9 @@ import {
   type CheckpointBlockReason,
   type CheckpointRef,
   checkpointBlockReasonSchema,
+  type EnvRefusal,
+  MODEL_NOT_ALLOWED_EVENT_CODE,
+  type ModelCutCause,
   type PendingRememberRule,
   type PermissionGrant,
   rememberRuleSchema,
@@ -113,14 +116,20 @@ import {
 import { encodeEventCursor } from "./cursors.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { CLOSE, drainBlocker, drainOf, openDrainReceipt } from "./drain.ts";
+import { envStartRefusal, recordEnvRefusal } from "./env-variables.ts";
 import {
   type AttemptRow,
   acquireFence,
   leaseHeld,
   type SessionRow,
 } from "./fence.ts";
-import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
+import {
+  catalogMismatchCause,
+  quarantineLaunch,
+  variablesRefusedCause,
+} from "./launch-quarantine.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
+import { writeModelCut } from "./model-cut-notices.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -135,8 +144,7 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
-import { queuePushContinuation } from "./push-continuations.ts";
-import { queuePushFollowUps } from "./push-follow-ups.ts";
+import { followUpFact, queuePushFollowUps } from "./push-follow-ups.ts";
 import { settleTurnPushIntents } from "./push-intents.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -154,7 +162,6 @@ import {
 import {
   achievementJudgments,
   agentReleases,
-  agentVersions,
   approvalCheckpoints,
   attempts,
   checkpointOutputs,
@@ -1015,6 +1022,27 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   );
 }
 
+/**
+ * The session's model when its profile is still offered here, with models of
+ * its own, but none of them is the session's; null when anything else moved
+ * (a dropped pair, a row without a model). Read from the pairs' models, not
+ * their fingerprints: a version 1 fingerprint names its model, so it stops
+ * matching whichever way the list changed.
+ */
+export function removedModelOf(
+  session: RunnableFields,
+  runnable: readonly RunnablePair[],
+): string | null {
+  const { model } = session;
+  if (model === null) return null;
+  const named = runnable.filter(
+    (pair) => allowsPair(pair, session) && pair.model !== null,
+  );
+  return named.length > 0 && named.every((pair) => pair.model !== model)
+    ? model
+    : null;
+}
+
 // A row from before has no fingerprint; it runs on whatever the
 // pair's profile is now, and the claim that binds it pins that.
 export function runnablePairOf(
@@ -1305,12 +1333,66 @@ async function giveUpOnCatalogMismatch(
       .where(eq(executions.id, launch.executionId));
     return "context_gap";
   }
+  const removed = removedModelOf(session, runnable);
   // Names ids only: the stored URL may embed a credential.
-  const detail = runnable.some((pair) => allowsPair(pair, session))
-    ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
-    : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
-  // As `recordLaunchFailure` gives a launch up: counted, the credential
-  // revoked, nothing left to rebuild.
+  const detail =
+    removed !== null
+      ? `model ${removed} was taken off the allowed list of profile ${session.profileId}`
+      : runnable.some((pair) => allowsPair(pair, session))
+        ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
+        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+  await countLaunchGiveUp(tx, launch.executionId, detail);
+  // The stream and the DMs say which model left, as they do for an attempt
+  // cut while running; the session's own lock is held.
+  if (removed !== null) {
+    await writeModelCut(tx, {
+      sessionId: session.id,
+      attemptId: null,
+      model: removed,
+      cause: "model_removed",
+    });
+  }
+  await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
+  return "catalog_mismatch";
+}
+
+/**
+ * Fails a session whose variable snapshot the claim refuses, in the claim's
+ * transaction: one receipt that names the cause, the launch counted as given
+ * up, the session failed and its execution asked to go.
+ */
+async function refuseSessionVariables(
+  tx: Database,
+  launch: { executionId: string; generation: number },
+  session: { id: string; ownerId: string },
+  reason: EnvRefusal,
+): Promise<void> {
+  const cause = variablesRefusedCause(reason);
+  await recordEnvRefusal(tx, {
+    ownerId: session.ownerId,
+    actor: null,
+    requestId: null,
+    reason,
+    target: { sessionId: session.id },
+  });
+  await countLaunchGiveUp(tx, launch.executionId, cause.detail);
+  await quarantineLaunch(
+    tx,
+    { executionId: launch.executionId, generation: launch.generation },
+    session.id,
+    cause,
+  );
+}
+
+/**
+ * As `recordLaunchFailure` gives a launch up: counted, the credential
+ * revoked, nothing left to rebuild.
+ */
+async function countLaunchGiveUp(
+  tx: Database,
+  executionId: string,
+  detail: string,
+): Promise<void> {
   await tx
     .update(workerLaunches)
     .set({
@@ -1321,9 +1403,7 @@ async function giveUpOnCatalogMismatch(
       nonceHash: null,
       replacementReason: null,
     })
-    .where(eq(workerLaunches.executionId, launch.executionId));
-  await quarantineLaunch(tx, ref, session.id, catalogMismatchCause(detail));
-  return "catalog_mismatch";
+    .where(eq(workerLaunches.executionId, executionId));
 }
 
 /**
@@ -1480,29 +1560,19 @@ async function bindingOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseTools" | "agentInstructions">> {
-  if (session.agentReleaseId === null)
-    return { releaseTools: null, agentInstructions: null };
+): Promise<Pick<WorkerBinding, "releaseTools">> {
+  if (session.agentReleaseId === null) return { releaseTools: null };
   const [release] = await tx
-    .select({
-      snapshot: agentReleases.runtimeConfigSnapshot,
-      instructions: sql<unknown>`${agentVersions.card}->'agent_instructions'`,
-    })
+    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
     .from(agentReleases)
-    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
   const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
-  const instructions = release?.instructions;
   return {
     releaseTools:
       Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
         ? tools
         : [],
-    agentInstructions:
-      typeof instructions === "string" && instructions !== ""
-        ? instructions
-        : null,
   };
 }
 
@@ -1845,6 +1915,42 @@ export function createPostgresWorkerUnitOfWork(
           if (!replayableBinding(bound.session, bound.attempt, launch)) {
             return { outcome: "invalid_credential" };
           }
+          // The retry is judged like a new claim: a replica whose reserved
+          // names grew since the first answer was lost must not hand the same
+          // binding back.
+          const replayRefusal = envStartRefusal(
+            bound.session.envStart,
+            await dbNow(tx),
+          );
+          if (replayRefusal !== null) {
+            // The first answer may have reached a worker: its token, fence
+            // and epoch die with the refusal, like a release. pod/execution
+            // stay until the backend confirms the execution gone.
+            await tx
+              .update(attempts)
+              .set({
+                state: "exited",
+                endedAt: input.now,
+                endReason: "variables_refused",
+              })
+              .where(eq(attempts.id, bound.attempt.id));
+            await revokeCredentials(tx, bound.attempt.id, input.now);
+            await tx
+              .update(sessions)
+              .set({
+                leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+                authRevision: sql`${sessions.authRevision} + 1`,
+                updatedAt: input.now,
+              })
+              .where(eq(sessions.id, bound.session.id));
+            await refuseSessionVariables(
+              tx,
+              launch,
+              bound.session,
+              replayRefusal,
+            );
+            return { outcome: "variables_refused" };
+          }
           // A retry can land on a replica whose catalog lost this profile.
           // Rotating the token first would revoke the old one, bump the
           // revision and then fail on the way out, leaving a binding nobody
@@ -1994,6 +2100,16 @@ export function createPostgresWorkerUnitOfWork(
             .set({ desiredState: "terminated" })
             .where(eq(executions.id, launch.executionId));
           return { outcome: "context_gap" };
+        }
+
+        // The snapshot the session took at accept is judged again under the
+        // names the platform reserves now. A refusal fails the session here, in
+        // this transaction, as a catalog give-up does; the next input signals it
+        // again and meets the same refusal until the variables are fixed.
+        const envRefusal = envStartRefusal(locked.envStart, await dbNow(tx));
+        if (envRefusal !== null) {
+          await refuseSessionVariables(tx, launch, locked, envRefusal);
+          return { outcome: "variables_refused" };
         }
 
         // Read once: the binding hands the worker exactly the restore the
@@ -2172,6 +2288,52 @@ export function createPostgresWorkerUnitOfWork(
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,
         };
+      });
+    },
+
+    recordModelCutAtomic(input: {
+      sessionId: string;
+      attemptId: string;
+      model: string;
+      cause: ModelCutCause;
+    }): Promise<{ recorded: boolean }> {
+      return db.transaction(async (tx) => {
+        // The session first, as every stream write does: a later event id
+        // must not commit before an earlier one a reader already passed.
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, input.sessionId))
+          .for("update");
+        // Then the attempt row, which serializes the exchanges the proxy
+        // refuses at once, so the check below and the insert see each other.
+        const [attempt] = await tx
+          .select({ id: attempts.id })
+          .from(attempts)
+          .where(
+            and(
+              eq(attempts.id, input.attemptId),
+              eq(attempts.sessionId, input.sessionId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!attempt) return { recorded: false };
+        const [seen] = await tx
+          .select({ id: events.id })
+          .from(events)
+          .where(
+            and(
+              eq(events.sessionId, input.sessionId),
+              eq(events.attemptId, input.attemptId),
+              eq(events.type, "error"),
+              sql`${events.payload}->>'code' = ${MODEL_NOT_ALLOWED_EVENT_CODE}`,
+            ),
+          )
+          .limit(1);
+        if (seen) return { recorded: false };
+        await writeModelCut(tx, input);
+        return { recorded: true };
       });
     },
 
@@ -2445,7 +2607,9 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            message: turn.message,
+            // Turns queued before the follow-up wording became facts still
+            // hold the old text; only a message equal to it is rewritten.
+            message: followUpFact(turn.message),
             deliveryStartedAt,
             actorId: turn.actorId,
           },
@@ -2939,24 +3103,13 @@ export function createPostgresWorkerUnitOfWork(
         );
         // Intents the turn left deferred are pinned to the checkpoint this
         // finalize just advanced to, or cancelled when the turn left none.
-        // They are made only while AGENT_ACTION_FLOWS is on, but settled
-        // whatever it is now. A parked turn keeps them: the answer starts a
-        // turn that takes them over (continueParkedTurn).
+        // A parked turn keeps them: the answer starts a turn that takes
+        // them over (continueParkedTurn).
         if (terminal !== undefined && parked.length === 0) {
           await settleTurnPushIntents(tx, {
             turnRowId: terminal.id,
             completedRevision:
               input.terminal.status === "completed" ? checkpointRevision : null,
-          });
-        }
-        if (
-          terminal !== undefined &&
-          input.terminal.status === "completed" &&
-          checkpointRevision !== null
-        ) {
-          await queuePushContinuation(tx, {
-            session: fenced.session,
-            turnRowId: terminal.id,
           });
         }
         // A parked turn resumes later and may still open the pull request;

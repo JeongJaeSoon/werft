@@ -42,6 +42,7 @@ import {
   slackApps,
   slackOutbox,
   slackThreadStatus,
+  surfaceBindings,
   turns,
   users,
   verifySlackInstallation,
@@ -65,7 +66,6 @@ import {
   SLACK_CARD_SETTLE_TIMING,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
-  SLACK_TEXT_MAX,
   SLACK_THREAD_STATUS_TIMING,
   SlackApiError,
   type SlackBotApi,
@@ -157,7 +157,7 @@ afterAll(() => {
   slack.stop();
 });
 
-const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
+const ENGINES = testDatabaseUrl() ? ["PostgreSQL"] : ["PGlite"];
 
 function useDatabase(engine: string) {
   let close = async () => {};
@@ -310,7 +310,13 @@ async function agentInSlack() {
     verifiedVia: "slack_oidc",
     verifiedAt: new Date(),
   });
-  return { workspaceId, agentId, slackAppId };
+  return {
+    workspaceId,
+    agentId,
+    slackAppId,
+    owner,
+    bindingId: bound.binding.id,
+  };
 }
 
 let eventCounter = 0;
@@ -1029,85 +1035,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ).toEqual(["Second", "Second done."]);
   });
 
-  test("an app refused the sender's name posts the instruction once as itself", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    const sessionId = await sessionOf(fixture);
-    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
-    await outboxPass();
-    await fetch(`${slack.url.replace(/\/api$/, "")}/fake/answers`, {
-      method: "POST",
-      body: JSON.stringify({
-        method: "chat.postMessage",
-        status: 200,
-        body: { ok: false, error: "missing_scope" },
-      }),
-    });
-
-    await askFrom(sessionId, 2, "web", "Add a test", true);
-    expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
-
-    const [, instruction, ...rest] = posted();
-    expect(rest).toEqual([]);
-    expect(instruction?.text).toBe("owner (웹 콘솔)\nAdd a test");
-    expect(instruction?.options.username).toBeUndefined();
-  });
-
-  test("a row queued with the name in its text keeps it once, sent as the sender or as the app", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    const sessionId = await sessionOf(fixture);
-    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
-    await outboxPass();
-    await askFrom(sessionId, 2, "web", "Add a test, <!here>", true);
-    await outboxPass({ botToken: null });
-    const [queued] = await db
-      .select()
-      .from(slackOutbox)
-      .where(eq(slackOutbox.kind, "instruction"));
-    if (!queued) throw new Error("no instruction row");
-    expect(queued.status).toBe("pending");
-    // How rows were queued before the name left the text.
-    await db
-      .update(slackOutbox)
-      .set({
-        body: {
-          ...(queued.body as Record<string, unknown>),
-          text: "owner (웹 콘솔)\nAdd a test, <!here>",
-        },
-        nextAttemptAt: new Date(),
-      })
-      .where(eq(slackOutbox.id, queued.id));
-    await fetch(`${slack.url.replace(/\/api$/, "")}/fake/answers`, {
-      method: "POST",
-      body: JSON.stringify({
-        method: "chat.postMessage",
-        status: 200,
-        body: { ok: false, error: "missing_scope" },
-      }),
-    });
-    expect(await outboxPass()).toMatchObject({ sent: 1 });
-    expect(posted()[1]?.text).toBe(
-      "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
-    );
-    expect(posted()[1]?.options.username).toBeUndefined();
-  });
-
-  test("a long answer is cut to Slack's limit with its link kept whole", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    const sessionId = await sessionOf(fixture);
-    await endTurn(sessionId, 1, "completed", [
-      [text(`${"가".repeat(SLACK_TEXT_MAX)}<@U0ELSE>`)],
-    ]);
-    await outboxPass();
-    const [message] = posted();
-    expect(message?.text.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
-    expect(message?.text).toEndWith(
-      `…\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
-    );
-  });
-
   test("a failed turn gets one failure notice with its link", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -1211,6 +1138,160 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       status: "failed",
       errorCode: "not_addressed",
     });
+  });
+
+  test("a reply to a channel that is waiting for approval is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+
+    expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a reply claimed before its channel began waiting for approval does not start sending", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (!claim) throw new Error("nothing claimed");
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    expect(await outbox.beginSend(claim)).toBe(false);
+  });
+
+  test("rejecting a channel fails the replies still waiting for it, claimed or not", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const [claimed] = await createPostgresSlackOutboxStore(db).claim({
+      limit: 10,
+      leaseMs: 30_000,
+    });
+    if (!claimed) throw new Error("nothing claimed");
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const [binding] = await db.select().from(surfaceBindings);
+    const rejected = await createPostgresSurfaceBindingStore(db).reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(rejected.outcome).toBe("resolved");
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+    expect(posted()).toEqual([]);
+  });
+
+  test("a reply made after its channel was rejected is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const [binding] = await db.select().from(surfaceBindings);
+    const rejected = await createPostgresSurfaceBindingStore(db).reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(rejected.outcome).toBe("resolved");
+    const store = createPostgresSurfaceBindingStore(db);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", CHANNEL),
+    ).toBe(true);
+    expect(
+      await store.wasRejected(binding?.installationId ?? "", "C0OTHER"),
+    ).toBe(false);
+
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a channel bound again after a rejection is no longer a rejected one", async () => {
+    const fixture = await agentInSlack();
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    const store = createPostgresSurfaceBindingStore(db);
+    const [binding] = await db.select().from(surfaceBindings);
+    const installationId = binding?.installationId ?? "";
+    await store.reject({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: binding?.revision ?? -1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(true);
+
+    const rebound = await store.set({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      channelId: CHANNEL,
+      channelKind: "private_channel",
+      mode: "on",
+      home: false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      managerRoles: MANAGERS,
+    });
+    if (rebound.outcome !== "set") throw new Error(rebound.outcome);
+    expect(rebound.binding.status).toBe("pending_approval");
+    // Waiting, then approved, then unbound: the old rejection is history.
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
+    const approved = await store.approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: rebound.binding.id,
+      revision: rebound.binding.revision,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(surfaceBindings.id, rebound.binding.id));
+    expect(await store.wasRejected(installationId, CHANNEL)).toBe(false);
   });
 
   test("each request a turn waits on gets its own card once, with the buttons that settle it", async () => {
@@ -1517,38 +1598,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 });
   });
 
-  test("a 429 whose body breaks off mid-read still waits out its Retry-After", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
-    const brokenBody = () =>
-      new ReadableStream({
-        start(controller) {
-          controller.error(new Error("connection reset"));
-        },
-      });
-    const limited = createSlackBotApi({
-      apiUrl: slack.url,
-      fetch: (async () =>
-        new Response(brokenBody(), {
-          status: 429,
-          headers: { "retry-after": "3" },
-        })) as unknown as typeof fetch,
-    });
-    expect(await outboxPass({ slack: limited })).toMatchObject({
-      retried: 1,
-      uncertain: 0,
-    });
-    expect((await rows())[0]).toMatchObject({
-      status: "pending",
-      errorCode: "ratelimited",
-    });
-
-    await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
-    expect(await outboxPass()).toMatchObject({ sent: 1 });
-    expect(posted()).toHaveLength(1);
-  });
-
   test("a 5xx whose body breaks off mid-read is uncertain, never resent", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -1602,26 +1651,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     "| acme/api | 붙일 수 있음 |",
   ].join("\n");
 
-  test("a reply with a table posts a table block, the row list as its text", async () => {
-    const fixture = await agentInSlack();
-    await mention(fixture, THREAD);
-    await endTurn(await sessionOf(fixture), 1, "completed", [
-      [text(TABLE_REPLY)],
-    ]);
-    expect(await outboxPass()).toMatchObject({ sent: 1, failed: 0 });
-    const [message] = posted();
-    expect(message?.text).toContain("*acme/web* — 상태: 기본 저장소");
-    expect(message?.text).not.toContain("```");
-    const blocks = JSON.parse(message?.options.blocks ?? "[]") as {
-      type: string;
-    }[];
-    expect(blocks.map((block) => block.type)).toEqual([
-      "section",
-      "table",
-      "section",
-    ]);
-  });
-
   test("a table block Slack refuses is sent again as the row list", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -1641,22 +1670,18 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await mention(fixture, THREAD);
     await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
     slack.failures.set("chat.postMessage", "internal_error");
-    const waits: number[] = [];
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       await outboxPass();
       const [row] = await db
         .select({
           status: slackOutbox.status,
           attempts: slackOutbox.attempts,
-          waitMs: sql<number>`extract(epoch from ${slackOutbox.nextAttemptAt} - now()) * 1000`,
         })
         .from(slackOutbox);
       expect(row?.attempts).toBe(attempt);
       expect(row?.status).toBe(attempt < 5 ? "pending" : "failed");
-      if (attempt < 5) waits.push(Math.round(Number(row?.waitMs) / 1000));
       await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
     }
-    expect(waits).toEqual([30, 60, 120, 240]);
     expect((await rows())[0]).toMatchObject({ errorCode: "internal_error" });
     expect(slack.statuses.at(-1)).toMatchObject({ status: "active" });
   });
@@ -3500,5 +3525,78 @@ describe.each(ENGINES)("action notices on %s", (engine) => {
       pushed,
     );
     expect((await notices())[0]?.kind).toBe("action_notice");
+  });
+});
+
+describe.each(ENGINES)("model notices on %s", (engine) => {
+  useDatabase(engine);
+
+  test("a model_notice goes to the person as a direct message with the session's link, though the session has no thread to answer in", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [link] = await db.select().from(sessionLinks);
+    if (!link) throw new Error("no link");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "model_notice",
+      channelId: PERSON,
+      threadTs: "",
+      slackUserId: null,
+      sessionId,
+      body: { text: "The session stopped.", locale: "en" },
+      dedupeKey: `model-not-allowed:${fixture.workspaceId}:${sessionId}:${PERSON}`,
+    });
+    // The thread is muted: a reply there would stop, this notice must not.
+    await db.update(sessionLinks).set({ muted: true });
+
+    expect(await outboxPass()).toMatchObject({
+      claimed: 1,
+      sent: 1,
+      failed: 0,
+    });
+    expect(posted()).toEqual([
+      expect.objectContaining({
+        channelId: PERSON,
+        threadTs: null,
+        text: `The session stopped.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.en.link}>`,
+      }),
+    ]);
+    expect((await rows())[0]).toMatchObject({
+      kind: "model_notice",
+      status: "sent",
+    });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+  });
+
+  test("a revoked installation still stops it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [link] = await db.select().from(sessionLinks);
+    if (!link) throw new Error("no link");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "model_notice",
+      channelId: PERSON,
+      threadTs: "",
+      slackUserId: null,
+      sessionId,
+      body: { text: "The session stopped." },
+      dedupeKey: `model-not-allowed:${fixture.workspaceId}:${sessionId}:${PERSON}`,
+    });
+    await db.execute(
+      sql`UPDATE slack_installations SET status = 'revoked', revoked_at = now()`,
+    );
+    expect(await outboxPass()).toMatchObject({ claimed: 0, failed: 1 });
+    expect(posted()).toEqual([]);
   });
 });

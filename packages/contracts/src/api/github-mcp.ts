@@ -39,6 +39,7 @@ import {
   pushRequestIdSchema,
   pushRequestSchema,
   pushRequestStateSchema,
+  sourceRefSchema,
 } from "./push-request.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
@@ -48,7 +49,7 @@ const hasOneOfPushIds = (a: {
   push_intent_id?: string | undefined;
 }) => (a.push_request_id === undefined) !== (a.push_intent_id === undefined);
 const ONE_PUSH_ID_MESSAGE =
-  "give exactly one of push_request_id and push_intent_id";
+  "exactly one of push_request_id and push_intent_id is accepted";
 
 /**
  * What `get_push_request` answers: the intent, the push request and the pull
@@ -112,15 +113,8 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  // The REST body plus `source_ref`, which only the tool takes. Until the
-  // multi-branch stage it is answered `source_ref_unsupported`.
   request_push: createPushRequestRequestSchema
-    .safeExtend({
-      source_ref: z.string().min(1).max(255).optional(),
-      // Accepted only where the PR tool is trusted; elsewhere
-      // `pull_request_needs_tool_call` (nothing is created).
-      pull_request: openPullRequestRequestSchema.optional(),
-    })
+    .safeExtend({ source_ref: sourceRefSchema.optional() })
     .strict(),
   open_pull_request: openPullRequestRequestSchema
     .safeExtend({
@@ -476,11 +470,11 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. With the installation's agent action flows on, a call inside a running turn pushes the state this turn ends with, and the answer is `deferred` with `push_intent_id` and `waits_for: turn_end`; the platform makes the push request when the turn ends, and no later turn starts for the pull request: call `open_pull_request` with that `push_intent_id` in the same turn, also when the push needs approval. Otherwise (the flows off, or no running turn) the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. A push carries the workspace HEAD of the checkpoint it is made from, and the history before it: for an attached repository that is its branch checked out in the workspace (a git worktree or clone elsewhere is not captured), with `repository_id` naming that repository. With the flows on, that checkpoint is the one taken when the turn ends, and every push request of the turn is pinned to it, whichever repository it names; a push request for a repository other than the one checked out does not select that repository's state, and a new target branch whose history shares nothing with the target's default branch is refused as `unrelated_history` (an existing target branch gives `non_fast_forward` instead). The platform does not hold a second repository's request for a later turn. `source_ref` is not supported yet, and with the flows on a turn takes one target per repository: a second `branch` in the same turn is refused with `source_ref_unsupported`, so say what is left and push it in the next turn. `pull_request` is not accepted yet: a call that carries it is refused with `pull_request_needs_tool_call` and nothing is created; open the pull request with `open_pull_request` (in a running turn with the flows on, with the `push_intent_id` this call returns).",
+    "Request a push to GitHub; `git push` from the workspace does not reach GitHub. The branch is agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names the repository to push to: an attached repository, or, omitted, the session's own. `source_ref` names the local branch of the workspace (for example `guard-docs`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository, and `source_ref` is the local branch whose latest commit is pushed to the `repository_id` (a branch that shares no history with the target's default branch is refused as `unrelated_history`; an existing target branch gives `non_fast_forward` instead). Once two pushes are asked for, every one needs its `source_ref`: a call refused as `source_ref_required` names the target that lacks one in `details.target_branch`. The answer is `deferred` with `push_intent_id`: the platform makes the push request from the checkpoint saved when the reply ends, and `open_pull_request` accepts that `push_intent_id` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens once the push succeeds. A call outside a running turn is refused as `no_running_turn`.",
   get_push_request:
     "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or, with the installation's agent action flows on, schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. With the flows off, a push request that is not pushed yet is refused with `not_pushed`. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with `not_pushed` and its state. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
     "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
@@ -498,31 +492,22 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
-  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
-  attach_repository: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes; allowed repositories the task does not touch stay unattached, and \`list_repositories\` needs no attach. The workspace has one checkout and a push carries its HEAD, so changes to several repositories are pushed one repository per turn. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. Changes to it are pushed from a branch of \`<repository_id>/<branch>\` checked out in the workspace; a git worktree or clone elsewhere is not captured, and a push carries the workspace HEAD of its checkpoint (with the flows on, the checkpoint taken when the turn ends, shared by every push request of that turn).`,
+  list_repositories: `List the repositories this session works with, ${LIST_REPOSITORIES_LIMIT_DEFAULT} a page (\`limit\` 1 to ${LIST_REPOSITORIES_LIMIT_MAX}): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.`,
+  attach_repository: `Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.`,
 };
 
 const requestPushResultSchema = z.union([
   pushRequestSchema,
-  // The release's settings keep the follow-up turn (`push_continuations`):
-  // no checkpoint yet, the push request is made one turn later.
-  z
-    .object({
-      status: z.literal("deferred"),
-      continuation: z.literal("after_turn"),
-    })
-    .strict(),
-  // Inside a running turn with AGENT_ACTION_FLOWS on: "push what this turn
-  // ends with". The platform makes the push request after the turn ends.
+  // Inside a running turn: the push is of what this turn ends with, and the
+  // platform makes the push request after the turn ends.
   z
     .object({
       status: z.literal("deferred"),
       push_intent_id: z.uuid(),
-      waits_for: z.literal("turn_end"),
+      waits_for: z.literal("reply_end"),
       repository_id: z.string(),
       target_branch: z.string(),
       pull_request: z.enum(["scheduled", "none"]),
-      next: z.string(),
     })
     .strict(),
 ]);
@@ -609,6 +594,7 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "github_refused",
     "backend_unavailable",
     "source_ref_unsupported",
+    "source_ref_required",
     "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,

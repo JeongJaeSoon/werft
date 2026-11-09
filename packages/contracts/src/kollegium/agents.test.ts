@@ -818,19 +818,21 @@ describe("agent, version and release", () => {
 describe("card read and request shapes", () => {
   const { role: _role, instructions: _instructions, ...bare } = card;
 
-  test("a stored card reads without role and instructions, and with agent instructions", () => {
+  test("a stored card reads without role and instructions, and drops the retired agent_instructions key", () => {
     expect(storedAgentCardSchema.parse(bare)).toMatchObject({
       model: card.model,
     });
-    expect(
-      storedAgentCardSchema.parse({ ...bare, agent_instructions: "" })
-        .agent_instructions,
-    ).toBe("");
-    expect(
-      agentCardSchema.safeParse({
+    for (const retired of ["Answer in Korean.", "", "x".repeat(20_001)]) {
+      const read = storedAgentCardSchema.parse({
         ...bare,
-        agent_instructions: "x".repeat(20_001),
-      }).success,
+        agent_instructions: retired,
+      });
+      expect(read).toEqual(storedAgentCardSchema.parse(bare));
+      expect("agent_instructions" in read).toBe(false);
+    }
+    // The strict card schema itself no longer knows the key.
+    expect(
+      agentCardSchema.safeParse({ ...bare, agent_instructions: "x" }).success,
     ).toBe(false);
   });
 
@@ -844,21 +846,20 @@ describe("card read and request shapes", () => {
       card: requestCard,
     });
     expect(createAgentRequestSchema.safeParse(body(bare)).success).toBe(true);
-    expect(
-      createAgentRequestSchema.safeParse(
-        body({ ...bare, agent_instructions: "Answer in Korean." }),
-      ).success,
-    ).toBe(true);
+    // A client from before the field was retired may still send it: the key is
+    // dropped, never stored.
+    const sentOld = createAgentRequestSchema.parse(
+      body({ ...bare, agent_instructions: "Answer in Korean." }),
+    );
+    expect(sentOld.card).toEqual(
+      createAgentRequestSchema.parse(body(bare)).card,
+    );
+    expect("agent_instructions" in sentOld.card).toBe(false);
     expect(
       updateAgentRequestSchema.safeParse({
-        card: { ...card, agent_instructions: "Answer in Korean." },
+        card: { ...card, agent_instructions: "x".repeat(20_001) },
       }).success,
     ).toBe(true);
-    expect(
-      updateAgentRequestSchema.safeParse({
-        card: { ...bare, agent_instructions: "x".repeat(20_001) },
-      }).success,
-    ).toBe(false);
     expect(
       updateAgentRequestSchema.safeParse({ card: { ...card, secret: "x" } })
         .success,
@@ -892,6 +893,7 @@ describe("agent list summary", () => {
     },
     runtime_profile_id: null,
     release_label: null,
+    release_model: null,
     bound_credential_refs: [],
     admins: ["Kim"],
     needs_input_count: 1,

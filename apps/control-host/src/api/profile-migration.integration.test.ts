@@ -99,9 +99,10 @@ const REPOSITORIES = `repositories:
       kind: github_app
 `;
 
-function card(instructions: string) {
+// `tag` only tells two cards apart: it is the text of the card's one rule.
+function card(tag: string) {
   return agentCardRequestSchema.parse({
-    agent_instructions: instructions,
+    rules: [{ id: "r1", text: tag, source: "user" }],
     model: "claude-sonnet-5",
     capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
   });

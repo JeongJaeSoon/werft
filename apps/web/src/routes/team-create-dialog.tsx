@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
   Field,
+  FieldError,
   FieldLabel,
   Input,
 } from "@werft-ai/ui";
@@ -43,6 +44,8 @@ export function TeamCreateDialog({
   const role = useRole();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The name that was refused as taken, so it marks the name box, not the dialog.
+  const [taken, setTaken] = useState<string | null>(null);
   // Leaving the list unmounts this button, and with it the dialog: only
   // the dialog's own state is skipped then. The toast still says the team
   // exists.
@@ -56,7 +59,10 @@ export function TeamCreateDialog({
 
   const create = useMutation<TeamChangeResponse, ApiError, string>({
     mutationFn: (name) => unwrap(client.POST("/v1/teams", { body: { name } })),
-    onMutate: () => setError(null),
+    onMutate: () => {
+      setError(null);
+      setTaken(null);
+    },
     onSuccess: async ({ team }) => {
       if (mounted.current) setOpen(false);
       // The toast belongs to the page, so it says so even after a visit away.
@@ -65,12 +71,10 @@ export function TeamCreateDialog({
         queryKey: queryKeysOf(client).teams,
       });
     },
-    onError: (failure) =>
-      setError(
-        failure.code === "ALREADY_EXISTS"
-          ? t("teams.nameTaken")
-          : refusalText(t, failure, "team.manage", role),
-      ),
+    onError: (failure, submitted) => {
+      if (failure.code === "ALREADY_EXISTS") setTaken(submitted);
+      else setError(refusalText(t, failure, "team.manage", role));
+    },
   });
 
   return (
@@ -80,6 +84,7 @@ export function TeamCreateDialog({
         // Open until the request answers, so its answer lands in this opening.
         if (create.isPending) return;
         setError(null);
+        setTaken(null);
         setOpen(next);
       }}
     >
@@ -98,6 +103,7 @@ export function TeamCreateDialog({
         <TeamCreateForm
           pending={create.isPending}
           error={error}
+          taken={taken}
           onSubmit={(name) => {
             if (!create.isPending) create.mutate(name);
           }}
@@ -111,10 +117,12 @@ export function TeamCreateDialog({
 function TeamCreateForm({
   pending,
   error,
+  taken,
   onSubmit,
 }: {
   readonly pending: boolean;
   readonly error: string | null;
+  readonly taken: string | null;
   readonly onSubmit: (name: string) => void;
 }) {
   const { t } = useI18n();
@@ -147,6 +155,9 @@ function TeamCreateForm({
           readOnly={pending}
           onChange={(event) => setName(event.target.value)}
         />
+        <FieldError>
+          {name.trim() === taken ? t("teams.nameTaken") : undefined}
+        </FieldError>
       </Field>
       <DialogFooter>
         <DialogClose asChild>

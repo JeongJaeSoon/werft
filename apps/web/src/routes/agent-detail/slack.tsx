@@ -186,7 +186,7 @@ export default function SlackTab({
               <Heading id={`${SECTION.basic}-title`}>
                 {t("slack.basic")}
               </Heading>
-              <RowList variant="joined">
+              <RowList variant="joined" framed={false}>
                 <SlackDmSetting agentId={agentId} />
                 <SlackMentionOnly agentId={agentId} notify={notify} />
               </RowList>

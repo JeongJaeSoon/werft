@@ -240,7 +240,7 @@ export function SlackConnect({
           </Alert>
         ))}
         {record && (record.app_id || manage) ? (
-          <RowList variant="joined">
+          <RowList variant="joined" framed={false}>
             {record.app_id ? (
               <SettingRow
                 title={t("slack.appId")}

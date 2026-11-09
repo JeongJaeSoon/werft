@@ -38,6 +38,8 @@ export const SLACK_INBOUND_MAX_ATTEMPTS = 5;
  * - `message_subtype`: a message subtype the channel does not take.
  * - `unsupported_event`: an event type the app never subscribes to.
  * - `user_tokens_only`: `tokens_revoked` named no bot token.
+ * - `channel_pending_approval`: a message in a private channel that waits for
+ *   approval and does not mention the bot; its text is not kept.
  */
 export const SLACK_INBOUND_DROP_REASON_VALUES = [
   ...SLACK_EVENT_DROP_REASON_VALUES,
@@ -47,6 +49,7 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   "message_subtype",
   "unsupported_event",
   "user_tokens_only",
+  "channel_pending_approval",
 ] as const;
 
 /** Message subtypes kept besides a plain message (no subtype). */
@@ -57,6 +60,7 @@ export const SLACK_INBOUND_EVENT_TYPES = [
   "app_mention",
   "message",
   "member_joined_channel",
+  "member_left_channel",
   "app_uninstalled",
   "tokens_revoked",
 ] as const;

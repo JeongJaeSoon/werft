@@ -48,7 +48,7 @@ const CATALOG: SessionCatalog = withSeededInstallation({
 });
 
 const card = agentCardSchema.parse({
-  agent_instructions: "v1",
+  rules: [{ id: "r1", text: "v1", source: "user" }],
   model: "claude-sonnet-5",
   capabilities: { mcp: null, forbidden: [] },
 });

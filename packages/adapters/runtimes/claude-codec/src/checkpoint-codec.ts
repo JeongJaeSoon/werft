@@ -15,6 +15,7 @@ import type {
   RuntimeFingerprint,
 } from "@werft-ai/runtime-core";
 import {
+  MAX_CHECKPOINT_SOURCES,
   MAX_REPORTED_MISMATCHES,
   workspacePathProblem,
 } from "@werft-ai/runtime-core";
@@ -184,6 +185,18 @@ const manifestSchema = z
         baseBundles: z.array(objectRefSchema).min(1).optional(),
         bundle: objectRefSchema,
         gitCommit: z.string().regex(/^[0-9a-f]{40}$/),
+        sources: z
+          .array(
+            z
+              .object({
+                commit: z.string().regex(/^[0-9a-f]{40}$/),
+                name: z.string().min(1).max(255),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(MAX_CHECKPOINT_SOURCES)
+          .optional(),
         untracked: z.array(workspaceArtifactSchema),
       })
       .strict(),

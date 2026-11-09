@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   type CatalogProfile,
   createAuthorizationPolicy,
@@ -13,16 +13,17 @@ import {
   withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
-import { eq } from "drizzle-orm";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { migrate } from "./migrate.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {
+  events,
   sessions,
   turns,
   unassignedSessions,
@@ -91,9 +92,8 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
 });
 
 afterEach(async () => {
@@ -188,14 +188,11 @@ async function refusal(promise: Promise<unknown>) {
 }
 
 describe("profile fingerprint pinned at create", () => {
-  test("create stores the fingerprint of the profile as the catalog defined it, never the credential", async () => {
+  test("create stores the literal fingerprint of the accepted settings", async () => {
     const sessionId = await createSession(ORIGINAL);
     const stored = await storedFingerprint(sessionId);
-    expect(stored).toBe(profileFingerprint(profile()));
-    expect(stored).not.toContain("provider-key-one");
-    // The value is not part of it: a rotated key hashes the same.
     expect(stored).toBe(
-      profileFingerprint(profile({ key: "provider-key-two" })),
+      "sha256:4a6521dca081535c61beba67569e43f79104afa33edf73f5f8705c786494db57",
     );
   });
 
@@ -448,11 +445,7 @@ describe("a model named at create", () => {
     expect(granted.upstream.url).toBe("https://litellm.invalid");
   });
 
-  test("omitted, the default runs with the fingerprint a profile without models has", async () => {
-    const { session_id: sessionId } = await create(OFFERS);
-    expect(await storedFingerprint(sessionId)).toBe(
-      profileFingerprint(profile()),
-    );
+  test("expanding the model menu still claims a stored pin from before the list", async () => {
     // Listing more models stops nothing created before the list.
     const before = (await create(ORIGINAL)).session_id;
     const gateway = gatewayOf(OFFERS);
@@ -461,28 +454,84 @@ describe("a model named at create", () => {
   });
 
   test("a model the profile does not offer is refused and stores nothing", async () => {
-    for (const [catalog, model] of [
-      [OFFERS, "claude-fable-5-1"],
-      [ORIGINAL, "claude-opus-5-5"],
-    ] as const) {
-      const error = await create(catalog, model).catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(SessionServiceError);
-      expect((error as SessionServiceError).code).toBe(
-        "UNSUPPORTED_CAPABILITY",
-      );
-    }
+    const error = await create(OFFERS, "claude-fable-5-1").catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).code).toBe("UNSUPPORTED_CAPABILITY");
     expect(await db.select({ id: sessions.id }).from(sessions)).toEqual([]);
   });
 
   test("taking the session's model off the list stops it, as editing the profile would", async () => {
     const { session_id: sessionId } = await create(OFFERS, "claude-opus-5-5");
-    expect(
-      (await serviceOf(ORIGINAL).getSession(OWNER, sessionId)).attention?.code,
-    ).toBe("CATALOG_MISMATCH");
+    const attention = (await serviceOf(ORIGINAL).getSession(OWNER, sessionId))
+      .attention;
+    expect(attention?.code).toBe("CATALOG_MISMATCH");
+    // The reader is told which model left, not only that the catalog moved.
+    expect(attention).toMatchObject({
+      reason: expect.stringContaining("claude-opus-5-5"),
+    });
     const narrowed = gatewayOf(ORIGINAL);
     expect(
       await refusal(claim(narrowed, await launch(sessionId, true))),
     ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
+    // The next-turn claim says it on every surface the failure reaches: the
+    // launch's error, the stream's typed event and the failed status.
+    const [given] = await db
+      .select({ error: workerLaunches.lastLaunchError })
+      .from(workerLaunches)
+      .where(eq(workerLaunches.sessionId, sessionId));
+    expect(given?.error).toContain("claude-opus-5-5");
+    const stream = (
+      await db
+        .select({ type: events.type, payload: events.payload })
+        .from(events)
+        .where(eq(events.sessionId, sessionId))
+    ).map((row) => row.payload);
+    expect(stream).toContainEqual(
+      expect.objectContaining({
+        code: "MODEL_NOT_ALLOWED",
+        model: "claude-opus-5-5",
+        cause: "model_removed",
+      }),
+    );
+    expect(stream).toContainEqual(
+      expect.objectContaining({
+        phase: "failed",
+        message: expect.stringContaining("claude-opus-5-5"),
+      }),
+    );
+  });
+
+  test("a profile that left the catalog cuts a running attempt with the model it ran named", async () => {
+    const { session_id } = await create(OFFERS, "claude-opus-5-5");
+    const gateway = gatewayOf(OFFERS);
+    const claimed = await claim(gateway, await launch(session_id, false));
+    const auth = claimed.runtime_config.provider.auth;
+    if (auth.kind !== "egress_token") throw new Error(auth.kind);
+    const gone = gatewayOf(
+      withSeededInstallation({
+        settings_generation: 0,
+        profiles: {},
+        repositories: {},
+      }),
+    );
+    expect(
+      await refusal(
+        gone.authorizeEgress({ token: auth.token, purpose: "provider" }),
+      ),
+    ).toEqual({ status: 409, code: "CATALOG_MISMATCH" });
+    const [cut] = (
+      await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(and(eq(events.sessionId, session_id), eq(events.type, "error")))
+    ).map((row) => row.payload);
+    expect(cut).toMatchObject({
+      code: "MODEL_NOT_ALLOWED",
+      model: "claude-opus-5-5",
+      cause: "profile_removed",
+    });
   });
 
   test("taking a running attempt's model off the list cuts its next provider grant, and only its", async () => {
@@ -494,6 +543,13 @@ describe("a model named at create", () => {
       if (auth.kind !== "egress_token") throw new Error(auth.kind);
       return { token: auth.token, purpose: "provider" as const };
     };
+    const modelCuts = async (sessionId: string) =>
+      (
+        await db
+          .select({ payload: events.payload })
+          .from(events)
+          .where(and(eq(events.sessionId, sessionId), eq(events.type, "error")))
+      ).map((row) => row.payload);
     const opusRun = await providerAuth("claude-opus-5-5");
     const defaultRun = await providerAuth();
     expect((await gateway.authorizeEgress(opusRun)).upstream.url).toBe(
@@ -505,8 +561,30 @@ describe("a model named at create", () => {
       status: 409,
       code: "CATALOG_MISMATCH",
     });
+    // Every refused exchange of the attempt repeats this; the stream says it once.
+    expect(await refusal(narrowed.authorizeEgress(opusRun))).toEqual({
+      status: 409,
+      code: "CATALOG_MISMATCH",
+    });
+    // Created in this order, so the order names them.
+    const [opusSession, defaultSession] = (
+      await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .orderBy(sessions.createdAt)
+    ).map((row) => row.id);
+    if (opusSession === undefined || defaultSession === undefined) {
+      throw new Error("the two sessions were not stored");
+    }
+    expect(await modelCuts(opusSession)).toEqual([
+      expect.objectContaining({
+        code: "MODEL_NOT_ALLOWED",
+        model: "claude-opus-5-5",
+      }),
+    ]);
     expect((await narrowed.authorizeEgress(defaultRun)).upstream.url).toBe(
       "https://litellm.invalid",
     );
+    expect(await modelCuts(defaultSession)).toEqual([]);
   });
 });

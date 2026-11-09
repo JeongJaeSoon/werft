@@ -30,13 +30,14 @@ describe("agent app manifest", () => {
     ]);
   });
 
-  test("Finalize subscribes to these events, member_joined_channel included", () => {
+  test("Finalize subscribes to these events, the bot's join and leave included", () => {
     expect([...SLACK_AGENT_BOT_EVENTS]).toEqual([
       "app_mention",
       "message.im",
       "message.channels",
       "message.groups",
       "member_joined_channel",
+      "member_left_channel",
       "app_uninstalled",
       "tokens_revoked",
     ]);

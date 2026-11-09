@@ -229,7 +229,7 @@ Reference: [`GET /v1/sessions/{id}/share`](/reference/http-api/sessions/getSessi
 </Tab>
 </Tabs>
 
-`scope` is one of `private` (only the creator), `people` (the people in `user_ids`), `team` (the current members of the teams in `team_ids`), or `workspace` (every member). A session that was never changed is `workspace` with `revision` 0. Depending on a workspace setting, a session of an agent with a responsible team may be seen only by those inside the agent even at `workspace`, and then `audience_limited` is `true` ([What members outside an agent can do](/agents/permissions#what-members-outside-an-agent-can-do)). The console's session screen shows the scope read-only under **Shared with** in the **Operations** panel, and with `audience_limited` it reads `Workspace (people outside the responsible team cannot see it, by workspace setting)`. `POST /v1/sessions/{id}/share`, which changes the scope, is called only with a web login, so the SDK has no method for it ([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
+`scope` is one of `private` (only the creator), `people` (the people in `user_ids`), `team` (the current members of the teams in `team_ids`), or `workspace` (every member). A session that was never changed is `workspace` with `revision` 0. Depending on a workspace setting, a session of an agent may be seen only by those inside the agent even at `workspace`, and then `audience_limited` is `true` ([What members outside an agent can do](/agents/permissions#what-members-outside-an-agent-can-do)). The console's session screen shows the scope read-only under **Shared with** in the **Operations** panel, and with `audience_limited` it reads `Workspace (people outside the responsible team cannot see it, by workspace setting)`. `POST /v1/sessions/{id}/share`, which changes the scope, is called only with a web login, so the SDK has no method for it ([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
 
 ## Title
 
@@ -269,7 +269,7 @@ try {
 ```
 
 ```text
-422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+422 UNSUPPORTED_CAPABILITY false Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers
 ```
 
 </Tab>
@@ -278,7 +278,7 @@ try {
 The error body has the same shape in every API. Resend with the same key only when `retryable` is `true`.
 
 ```text
-{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
+{"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Model claude-opus-9 is not on the allowed list of profile claude-coding-local; name a model the profile offers","retryable":false,"request_id":"…","details":null}}
 ```
 
 Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)

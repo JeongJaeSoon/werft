@@ -313,6 +313,7 @@ export const MANAGEMENT_ROLES: Partial<
   "agent.admin.manage": ["owner", "admin"],
   "credential.bind": ["owner", "admin"],
   "binding.manage": ["owner", "admin"],
+  "binding.approve": ["owner", "admin"],
   "session.audit_read": ["owner", "admin"],
   "session.admin_list": ["owner", "admin"],
   "usage.installation_read": ["owner"],

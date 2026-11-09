@@ -94,7 +94,7 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 ## push가 끝난 뒤 PR이 열리는 방식
 
-push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host 안의 action-broker가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. 이 일은 `AGENT_ACTION_FLOWS` 설정과 상관없이 control-host가 뜰 때 같이 시작한다. 설정을 끈 채로 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나, `AGENT_ACTION_FLOWS`가 꺼진 채 만든(옛 흐름) push 요청이면 전과 같이 409다.
+push 요청에 PR 요청이 붙어 있으면, push가 `pushed`로 끝난 뒤에 control-host 안의 action-broker가 PR을 연다. 에이전트가 이어 턴에서 `open_pull_request`를 다시 부르지 않아도 된다. 이 일은 control-host가 뜰 때 같이 시작하고, 다시 띄워도 이미 시작된 PR 단계는 끝까지 처리된다. REST로는 push가 끝나기 전에 `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request?schedule=true`를 부르면 409 `PUSH_NOT_PUSHED` 대신 202와 `status: "scheduled"`를 받고, push가 끝나는 대로 PR이 열린다. `schedule` query가 없거나, 예전 흐름(`flow = legacy`)으로 만든 push 요청이면 전과 같이 409다.
 
 PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
 

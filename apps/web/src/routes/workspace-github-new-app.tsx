@@ -382,7 +382,7 @@ export function GitHubNewAppCallback() {
   const appUrl = appLeftOnGitHub(complete.error);
   const settled = missing || complete.isError || complete.isSuccess;
   return (
-    <Page title={t("github.newApp")}>
+    <>
       <output aria-live="polite">
         {missing
           ? t("github.newApp.stateInvalid")
@@ -410,6 +410,16 @@ export function GitHubNewAppCallback() {
           </Button>
         </div>
       ) : null}
+    </>
+  );
+}
+
+/** Kept apart from the body so a tab layout can host the body without this frame. */
+export function GitHubNewAppRoute() {
+  const { t } = useI18n();
+  return (
+    <Page title={t("github.newApp")}>
+      <GitHubNewAppCallback />
     </Page>
   );
 }

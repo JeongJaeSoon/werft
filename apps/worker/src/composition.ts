@@ -30,12 +30,14 @@ import {
   writeGitTrailers,
 } from "./git-trailers.ts";
 import { placeInstructionFiles } from "./instruction-files.ts";
+import {
+  LEGACY_OUT_DIRECTORY_PROMPT,
+  LEGACY_OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY,
+  legacyPlatformPromptText,
+  startsWithoutRepository,
+} from "./legacy-platform-prompt.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
-import {
-  platformPromptText,
-  startsWithoutRepository,
-} from "./platform-prompt.ts";
 import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
@@ -106,6 +108,7 @@ export function createWorkerHost(
       overrides.checkpoints ??
       new SessionCheckpoints({
         fingerprint: claimFingerprint(config),
+        legacyFingerprint: claimFingerprint(config, true),
         gateway,
         instructionsCommit: () => workspace.instructionsCommit(),
         logger: checkpointLogger,
@@ -259,21 +262,14 @@ export function runtimeStart(
 }
 
 /**
- * What the engine of a session without a repository is told, since it has
- * nowhere to push: `out/` is where the platform looks for what to hand over.
- * It is part of the fingerprint, so rewording it stops those sessions'
- * checkpoints from resuming.
+ * What the engine of a session without a repository is told: the one fact it
+ * cannot see, which directory the platform collects outputs from. It is part
+ * of the fingerprint of the checkpoints made after it, so rewording it stops
+ * those sessions' checkpoints from resuming unless the old wording stays in
+ * the legacy fingerprint.
  */
 export const OUT_DIRECTORY_PROMPT =
-  "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
-
-/**
- * Its wording for the sessions of revisions 4 and 5, which start without a
- * repository and may attach one later; the sentence above would be false
- * after that.
- */
-export const OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY =
-  "This workspace starts without a repository. Put files meant for people in `out/` at the workspace root; a repository you attach is a git remote, not this directory.";
+  "`out/` at the workspace root is the directory whose files a checkpoint collects as outputs.";
 
 /**
  * What a claim runs, short of how it resumes: shared by the launcher and by
@@ -285,6 +281,7 @@ export function runtimeProfile(
   module: Pick<RuntimeModule, "descriptor">,
   launch: Pick<RuntimeLaunch, "principal" | "runtimeConfig" | "workspace">,
   committedInstructions: () => string | null,
+  legacyPrompt = false,
 ): RuntimeProfileInput {
   const { principal, runtimeConfig } = launch;
   const { principal: owner, ...provider } = engineProfile(
@@ -303,7 +300,11 @@ export function runtimeProfile(
     },
     bindings: { principal: owner, provider },
     bundle: {
-      instructions: instructionParts(runtimeConfig, launch.workspace),
+      instructions: instructionParts(
+        runtimeConfig,
+        launch.workspace,
+        legacyPrompt,
+      ),
       repoInstructions:
         runtimeConfig.project_settings?.claude_md === true &&
         instructionFiles.length > 0
@@ -315,8 +316,7 @@ export function runtimeProfile(
 }
 
 /**
- * What the platform and the agent's administrators tell the engine, in
- * order. The engine gets it as its prompt and the workspace as AGENTS.md
+ * What the platform tells the engine, in order. The engine gets it as its prompt and the workspace as AGENTS.md
  * (`placeInstructionFiles`), so the two cannot differ.
  */
 export function instructionParts(
@@ -324,38 +324,30 @@ export function instructionParts(
   workspace:
     | Pick<BootstrapClaimResponse["workspace"], "repository">
     | undefined,
+  /** Only the checkpoint fingerprint of an older session asks for this. */
+  legacy = false,
 ): InstructionPart[] {
+  if (legacy) {
+    return [
+      ...(runtimeConfig.platform_prompt === undefined
+        ? []
+        : [{ text: legacyPlatformPromptText(runtimeConfig.platform_prompt) }]),
+      ...(workspace?.repository === null
+        ? [
+            {
+              text:
+                runtimeConfig.platform_prompt !== undefined &&
+                startsWithoutRepository(runtimeConfig.platform_prompt)
+                  ? LEGACY_OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY
+                  : LEGACY_OUT_DIRECTORY_PROMPT,
+            },
+          ]
+        : []),
+    ];
+  }
   return [
-    ...(runtimeConfig.platform_prompt === undefined
-      ? []
-      : [
-          {
-            scope: "platform" as const,
-            text: platformPromptText(runtimeConfig.platform_prompt),
-          },
-        ]),
-    ...(workspace?.repository === null
-      ? [
-          {
-            scope: "platform" as const,
-            text:
-              runtimeConfig.platform_prompt !== undefined &&
-              startsWithoutRepository(runtimeConfig.platform_prompt)
-                ? OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY
-                : OUT_DIRECTORY_PROMPT,
-          },
-        ]
-      : []),
-    ...agentInstructionsOf(runtimeConfig),
+    ...(workspace?.repository === null ? [{ text: OUT_DIRECTORY_PROMPT }] : []),
   ];
-}
-
-// Blank adds nothing, so its prompt and fingerprint are a claim without it.
-function agentInstructionsOf(runtimeConfig: RuntimeConfig): InstructionPart[] {
-  const text = runtimeConfig.agent_instructions;
-  return text === undefined || text.trim() === ""
-    ? []
-    : [{ scope: "agent", text }];
 }
 
 function mcpServersOf(
@@ -379,9 +371,13 @@ function mcpServersOf(
  * read: the digest records only that the profile lets it in. A claim given
  * without its workspace is taken for a session with a repository, which is
  * all `image-runtime.ts` is fed.
+ *
+ * With `legacyPrompt`, the fingerprint the checkpoints of a session made
+ * before the platform stopped giving engines its paragraph were stamped with.
  */
 export function claimFingerprint(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+  legacyPrompt = false,
 ): (
   claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config"> & {
     workspace?: BootstrapClaimResponse["workspace"] | undefined;
@@ -401,6 +397,7 @@ export function claimFingerprint(
             : { workspace: claim.workspace }),
         },
         () => null,
+        legacyPrompt,
       ),
     );
 }

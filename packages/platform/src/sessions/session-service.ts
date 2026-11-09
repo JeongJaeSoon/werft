@@ -72,6 +72,8 @@ import {
   isUnmetered,
   type ProfilePin,
   profileFingerprint,
+  profileGone,
+  profileModels,
   profileWithModel,
   refreshWorkspaceProfilesFor,
   repositoryInCeiling,
@@ -82,11 +84,7 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
-import {
-  type AgentPromptIdentity,
-  type PlatformPromptRevision,
-  platformPromptOf,
-} from "./platform-prompt.ts";
+import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
 export const viewerOf = (actor: Caller): SessionViewer => ({
@@ -394,24 +392,12 @@ export function createSessionService(deps: {
         | "policy_pins"
       >
     >;
-    // The agent a new session's platform prompt names; null when the
-    // release or its agent is gone. Absent, no session gets the prompt.
-    promptIdentity?(
-      workspaceId: string,
-      releaseId: string,
-    ): Promise<AgentPromptIdentity | null>;
     agentGitHubSettings(
       agentId: string,
     ): Promise<AgentGitHubSettingsRow | null>;
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
-  // The platform prompt revision new sessions of an agent release get;
-  // absent is 0, none.
-  promptRevision?: PlatformPromptRevision;
-  // AGENT_ACTION_FLOWS, read when a session is created: it picks the prompt
-  // wording for `request_push`, and the session keeps it for good.
-  actionFlows?: () => boolean;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -513,6 +499,30 @@ export function createSessionService(deps: {
         acceptedRuntimeVersions(catalog),
       ) !== null
     );
+  }
+
+  // Says which model left when that is what moved, so the reader can act on
+  // it; any other mismatch keeps the general sentence.
+  function mismatchReason(record: SessionDetailRecord): string {
+    const listed = record.profile_id
+      ? catalogProfile(catalog, record.profile_id)
+      : undefined;
+    if (
+      listed &&
+      record.model !== null &&
+      !profileModels(listed).includes(record.model)
+    ) {
+      return `Model ${record.model} was taken off the allowed list of profile ${record.profile_id}; messages will not run until an operator adds it back, or you start a new session on another model`;
+    }
+    if (
+      !listed &&
+      record.profile_id &&
+      record.model !== null &&
+      profileGone(catalog, record.profile_id)
+    ) {
+      return `Profile ${record.profile_id}, which served model ${record.model}, is no longer in this host's catalog; messages will not run until an operator restores it, or you start a new session on another profile`;
+    }
+    return "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it";
   }
 
   function runtimeFor(record: {
@@ -632,8 +642,13 @@ export function createSessionService(deps: {
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
     const block = sessionBlock(actor.ownerId, profile_id);
+    const attached = attachedRepositoriesOf(
+      detail.attached_repository_ids,
+      catalog.repositories,
+    );
     return {
       ...detail,
+      ...(attached === undefined ? {} : { attached_repositories: attached }),
       attention:
         detail.attention ??
         (block ? { code: "PROFILE_BLOCKED", ...block } : null) ??
@@ -643,8 +658,7 @@ export function createSessionService(deps: {
           ? null
           : {
               code: "CATALOG_MISMATCH",
-              reason:
-                "The catalog does not allow this session's profile and repository pair, or defines the profile with other settings than the session was created with; messages will not run until an operator restores it",
+              reason: mismatchReason(record),
             }) ??
         // Dispatch stops at the same predicate (nextInputAtomic), so what
         // this says and what the gateway does come from one comparison.
@@ -808,31 +822,14 @@ export function createSessionService(deps: {
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
+      const wantedModel = input.body.model ?? releaseModel(release);
       const runs = allowed
-        ? profileWithModel(
-            allowed.profile,
-            input.body.model ?? releaseModel(release),
-          )
+        ? profileWithModel(allowed.profile, wantedModel)
         : null;
       const staleRuntime =
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
-      const identity =
-        release !== null && (deps.promptRevision ?? 0) >= 1
-          ? await deps.releases?.promptIdentity?.(actor.ownerId, release.id)
-          : undefined;
-      const platformPrompt = identity
-        ? platformPromptOf({
-            identity,
-            surface: actor.subject.surface,
-            repositoryUrl:
-              repositoryId === null || pair?.repository == null
-                ? null
-                : pair.repository.url,
-            actionFlows: deps.actionFlows?.() === true,
-          })
-        : undefined;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
@@ -867,7 +864,6 @@ export function createSessionService(deps: {
         ...(policy.source === "agent"
           ? { captureGitHubPolicyStart: true as const }
           : {}),
-        ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined
           ? {}
@@ -893,6 +889,12 @@ export function createSessionService(deps: {
             release.agent_id,
             result.receiptId,
           );
+        // Names no variable: the requester is not the administrator who can fix it.
+        case "variables_refused":
+          throw new SessionServiceError(
+            "VARIABLE_UNRESOLVED",
+            "A variable this agent's card declares has no value for it; ask the agent's administrator",
+          );
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);
@@ -904,7 +906,7 @@ export function createSessionService(deps: {
               allowed && staleRuntime
                 ? `Profile ${profileId} runs ${allowed.profile.runtime_kind} ${allowed.profile.runtime_version}, which the current worker image does not ship; the operator updates the profile's runtime_version`
                 : allowed && !runs
-                  ? `Profile ${profileId} does not offer model ${input.body.model}`
+                  ? `Model ${wantedModel} is not on the allowed list of profile ${profileId}; ${input.body.model === undefined ? "release the agent again on a model the profile offers" : "name a model the profile offers"}`
                   : (workspaceRefusal?.message ??
                     repositoryRefusal(profileId, repositoryId)),
             )
@@ -1463,14 +1465,23 @@ export function createSessionService(deps: {
       );
       return {
         items: page.items.map(
-          ({ profile_id, profile_fingerprint, ...item }) => ({
-            ...item,
-            runtime: runtimeFor({
-              profile_id,
-              profile_fingerprint,
-              model: item.model,
-            }),
-          }),
+          ({ profile_id, profile_fingerprint, ...item }) => {
+            const attached = attachedRepositoriesOf(
+              item.attached_repository_ids,
+              catalog.repositories,
+            );
+            return {
+              ...item,
+              ...(attached === undefined
+                ? {}
+                : { attached_repositories: attached }),
+              runtime: runtimeFor({
+                profile_id,
+                profile_fingerprint,
+                model: item.model,
+              }),
+            };
+          },
         ),
         next_cursor: page.next_cursor,
       };

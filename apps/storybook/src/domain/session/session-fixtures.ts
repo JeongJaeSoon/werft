@@ -32,6 +32,10 @@ const COPY: Record<TurnEventMessageKey, string> = {
   "session.event.kind.question": "Question",
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
+  "session.event.error.modelNotAllowed":
+    "Model requests for this session were blocked because {model} is no longer allowed by its profile",
+  "session.event.error.modelProfileRemoved":
+    "Model requests for this session were blocked because the profile that served {model} is gone",
   "session.event.init": "Session started",
   "session.event.vcsChanged": "Working tree changed",
   "session.event.thinkingTokens": "Thinking ({count})",

@@ -1,0 +1,132 @@
+{
+  "secretNameParts": [
+    ".env",
+    ".npmrc",
+    ".yarnrc",
+    ".pypirc",
+    ".netrc",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".keystore",
+    "id_rsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "credentials",
+    "service-account"
+  ],
+  "sensitiveEditPaths": [
+    ".git/**",
+    ".claude/**",
+    ".mcp.json",
+    ".aws/**",
+    ".ssh/**",
+    ".docker/**",
+    ".kube/**",
+    "**/.env",
+    "**/.env.*",
+    "**/.npmrc",
+    "**/.yarnrc.yml",
+    "**/.pypirc",
+    "**/.netrc",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/*.keystore",
+    "**/id_rsa*",
+    "**/id_ecdsa*",
+    "**/id_ed25519*",
+    "**/credentials*",
+    "**/service-account*.json"
+  ],
+  "git": {
+    "allow": [
+      "git status",
+      "git diff",
+      "git log",
+      "git show",
+      "git add",
+      "git commit",
+      "git checkout -b",
+      "git switch -c",
+      "git switch --create",
+      "git restore --staged",
+      "git stash list",
+      "git stash show",
+      "git stash push",
+      "git stash pop",
+      "git stash apply"
+    ],
+    "exact": ["git stash"],
+    "ask": [
+      "git * --force*",
+      "git * --discard-changes*",
+      "git * --output*",
+      "git * --ext-diff*",
+      "git add --*",
+      "git add * --*",
+      "git add -*f*",
+      "git add * -*f*",
+      "git checkout -b * -*",
+      "git switch -c * -*",
+      "git switch --create * -*",
+      "git restore --staged -*",
+      "git restore --staged * -*"
+    ],
+    "askWhenSecretNamed": ["git add", "git commit"]
+  },
+  "fs": {
+    "allow": ["mkdir"],
+    "ask": [
+      "mkdir /*",
+      "mkdir * /*",
+      "mkdir *..*",
+      "mkdir ~*",
+      "mkdir * ~*",
+      "mkdir *$*",
+      "mkdir *`*"
+    ]
+  },
+  "secretRead": {
+    "readers": ["cat", "head", "tail", "grep", "rg"],
+    "nameStarts": [" ", "/", "\"", "'", "=", "-f"],
+    "clusterLetters": "nHiswNlcoF",
+    "extensions": [".pem", ".key", ".p12", ".pfx", ".keystore"],
+    "extensionEnds": [" ", "\"", "'"],
+    "notAReadName": ["credentials", "service-account"],
+    "extraNames": ["service-account*.json", ".git/config"]
+  },
+  "rgHidden": {
+    "ask": [
+      "rg *--hidden*",
+      "rg *--no-ignore*",
+      "rg *--unrestricted*",
+      "rg -u*",
+      "rg * -u*"
+    ],
+    "letterBeforeUU": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  },
+  "dev": {
+    "commands": [
+      "bun test",
+      "bun run",
+      "npm test",
+      "npm run",
+      "pnpm test",
+      "pnpm run",
+      "yarn test",
+      "yarn run"
+    ],
+    "ask": [
+      "* --prefix*",
+      "* --script-shell*",
+      "* --cwd*",
+      "* -C *",
+      "* /*",
+      "* ..*",
+      "* */../*"
+    ]
+  }
+}

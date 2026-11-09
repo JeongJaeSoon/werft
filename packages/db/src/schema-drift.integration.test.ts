@@ -62,12 +62,16 @@ const MIGRATIONS_ONLY = [
   "function checkpoint_output_objects_release() trigger language plpgsql volatility=v parallel=u set enable_seqscan=off body md5 f9c1384d33099e58aafbf4c3e1895063",
   // 0143: an agent identity's credential name is never an agent's.
   "function credential_bindings_exclusive_target() trigger language plpgsql volatility=v parallel=u body md5 55270e3870adbfee5a5edd2ab0daf6a8",
+  // 0249: a session's copied variable values go when it closes, by one write
+  // every close path passes through.
+  "function env_start_without_values(snapshot jsonb) jsonb language sql volatility=i parallel=u body md5 961af7aed215f5220cdabdca4a5a3e41",
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
   "function provider_usage_totals_clear() trigger language plpgsql volatility=v parallel=u body md5 85a0b1f735cb692332ac4baaa297ba69",
   "function provider_usage_totals_recount() trigger language plpgsql volatility=v parallel=u body md5 21f013ae13ff4eeb4ca390ed5296bf34",
   // 0000: the queue's admission count.
   "function queue_unassigned_session_count() double precision language sql volatility=s parallel=u body md5 77ab23e0fa3455549b846ff0e7980c2a",
   // 0172: a system pause's reason is cleared once the session leaves it.
+  "function sessions_clear_env_values() trigger language plpgsql volatility=v parallel=u body md5 dc88ade530dc71df6e1156e1525f8a04",
   "function sessions_clear_pause_reason() trigger language plpgsql volatility=v parallel=u body md5 42f7916898b6ee5d3ea948c318a3d61c",
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
@@ -116,6 +120,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER provider_usage_count_insert AFTER INSERT ON public.provider_usage REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_add() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_truncate AFTER TRUNCATE ON public.provider_usage FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_clear() enabled=O",
+  "trigger CREATE TRIGGER sessions_clear_env_values_trg BEFORE UPDATE OF admission_state ON public.sessions FOR EACH ROW WHEN (((new.admission_state = 'closed'::admission_state) AND (old.admission_state IS DISTINCT FROM 'closed'::admission_state) AND (new.env_start IS NOT NULL))) EXECUTE FUNCTION sessions_clear_env_values() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_pause_reason BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN (((new.pause_reason IS NOT NULL) AND (new.admission_state <> ALL (ARRAY['pausing'::admission_state, 'paused'::admission_state])))) EXECUTE FUNCTION sessions_clear_pause_reason() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_delete AFTER DELETE ON public.tool_calls REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_recount() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",

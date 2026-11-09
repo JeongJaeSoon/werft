@@ -39,7 +39,10 @@ function rowOf(row: Row): CatalogRepositoryRow {
 const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 
 // The import and every console write take it, so an id is decided by one
-// writer at a time.
+// writer at a time. A transaction that also locks an agent, an App or the
+// workspace's settings takes this first: profile backfills hold it before
+// they update agents.
+export const lockCatalogWrites = async (tx: Database) => lockWrites(tx);
 const lockWrites = async (tx: Database) => {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
@@ -91,9 +94,16 @@ const auditOf = (row: CatalogRepositoryRow) => ({
   branch: row.branch,
 });
 
+type ResolveInput = Parameters<CatalogRepositoryStore["resolve"]>[0];
+type ResolveResult = ReturnType<CatalogRepositoryStore["resolve"]>;
+
+export type PostgresCatalogRepositoryStore = CatalogRepositoryStore & {
+  resolve(input: ResolveInput, joined?: Database): ResolveResult;
+};
+
 export function createPostgresCatalogRepositoryStore(
   db: Database,
-): CatalogRepositoryStore {
+): PostgresCatalogRepositoryStore {
   const listActive = async () => {
     const rows = await db
       .select()
@@ -139,10 +149,12 @@ export function createPostgresCatalogRepositoryStore(
       );
     },
 
-    resolve(input) {
+    resolve(input: ResolveInput, joined?: Database) {
       // Under the lock, so two first picks of one repository get one row
-      // and two repositories never take the same id.
-      return db.transaction(async (tx) => {
+      // and two repositories never take the same id. `joined` is a caller's
+      // transaction that this one then belongs to; its locks must already
+      // follow `lockCatalogWrites` first.
+      const run = async (tx: Database) => {
         await lockWrites(tx);
         // A demotion or a managing-team change committed after the policy's
         // decision on the agent wins.
@@ -289,7 +301,8 @@ export function createPostgresCatalogRepositoryStore(
           created: true,
           changed: true,
         };
-      });
+      };
+      return joined === undefined ? db.transaction(run) : run(joined);
     },
 
     async agentCounts() {

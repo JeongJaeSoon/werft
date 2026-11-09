@@ -44,6 +44,10 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     status: (status) => t(`sessions.status.${status}`),
     statusAxis: t("sessions.column.status"),
     noRepository: t("sessionList.noRepository"),
+    moreRepositories: (count) =>
+      count === 1
+        ? t("sessionList.moreRepositories.one")
+        : t("sessionList.moreRepositories", { count }),
     unknown: t("sessionList.unknown"),
     recent: t("sessionList.column.recent"),
     open: (name) => t("sessionList.open", { name }),

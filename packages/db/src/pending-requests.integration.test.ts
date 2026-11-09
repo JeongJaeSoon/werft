@@ -809,7 +809,11 @@ integration("pending requests and answers on PostgreSQL", () => {
             revision: 2,
             gitCommit: "b".repeat(40),
           }),
-          readPushSourceAt: async () => ({ status: "none" }),
+          readPushSourceAt: async () => ({
+            status: "ready",
+            revision: 2,
+            gitCommit: "b".repeat(40),
+          }),
         },
       });
       const created = await service.create(
@@ -826,7 +830,10 @@ integration("pending requests and answers on PostgreSQL", () => {
           verified: true,
         },
         sessionId,
-        { idempotencyKey: crypto.randomUUID() },
+        {
+          idempotencyKey: crypto.randomUUID(),
+          body: { checkpoint_revision: 2 },
+        },
       );
       expect(created).toMatchObject({
         state: "requested",

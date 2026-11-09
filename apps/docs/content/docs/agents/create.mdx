@@ -3,20 +3,20 @@ title: "만들기"
 description: 에이전트를 정의하고, release를 만들어 활성화하고, 세션에 묶는다
 ---
 
-에이전트는 워크스페이스 안의 이름 붙은 정의다. 이름과 설명은 사람이 보는 값이고, 실행에 쓰이는 정의는 카드(에이전트 지시문, 모델, 도구)다. 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 프로필과 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션을 만들 때 release를 넣으면 그 세션은 그 에이전트의 것이 된다.
+에이전트는 워크스페이스 안의 이름 붙은 정의다. 이름과 설명은 사람이 보는 값이고, 실행에 쓰이는 정의는 카드(모델, 도구)다. 카드를 고칠 때마다 새 version이 쌓인다. version 하나를 프로필과 묶은 것이 release이고, 에이전트가 가리키는 release가 활성 release다. 세션을 만들 때 release를 넣으면 그 세션은 그 에이전트의 것이 된다.
 
 <Callout type="warn">
-세션은 `profile_id`의 프로필로 돌고, release로 만든 세션은 그 release에 고정된 도구만 쓴다. release 카드의 에이전트 지시문은 그 세션의 시스템 프롬프트에 붙고, 이름과 설명은 모델에 전달되지 않는다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
+세션은 `profile_id`의 프로필로 돌고, release로 만든 세션은 그 release에 고정된 도구만 쓴다. 이름과 설명은 모델에 전달되지 않고, 에이전트가 일하는 방식은 저장소의 `AGENTS.md`나 `CLAUDE.md`로 알려 준다. 자세한 내용은 [지시문과 설명](/agents/instructions-and-roles)과 [권한](/agents/permissions)에 있다.
 </Callout>
 
 ## 웹 콘솔에서
 
 로컬 스택의 웹 콘솔은 `http://127.0.0.1:3000/`이다.
 
-1. 처음 한 번은 `/bootstrap`에서 첫 owner와 워크스페이스를 만든다. bootstrap token은 API가 처음 뜰 때 로그에 한 번 찍는다: `docker compose logs api | grep BOOTSTRAP_TOKEN=`
+1. 처음 한 번은 `/bootstrap`에서 첫 owner와 워크스페이스를 만든다. 첫 owner 토큰을 받는 방법은 설치 방식마다 다르다. 단일 서버 설치에서 토큰을 직접 정하지 않았다면 `scripts/test-ops.sh bootstrap-token`이 한 번 보여 준다. 자세한 내용은 [첫 owner와 key](/run-server/self-hosting/users-and-keys)에 있다.
 2. 로그인한 뒤 왼쪽 사이드바의 "에이전트"를 열고 오른쪽 위의 "새 에이전트"를 누른다. "새 에이전트" 화면이 다섯 단계(이름 → 하는 일 → 릴리스 → 켜기 → 채널 연결)로 열린다.
 3. "이름" 단계에서 이름을 넣는다. 식별자(slug)는 이름에서 채워지고 고칠 수 있다. 필요하면 "설명 (선택)"에 사람이 읽을 소개를 적는다. "다음"을 누른다.
-4. "하는 일" 단계에서 모델을 고르고, "쓸 수 있는 도구"에서 프로필 도구를 체크로 고른 뒤([지시문과 설명](/agents/instructions-and-roles#웹-콘솔에서-도구-고르기)) 답변 언어를 정하고 "초안 저장하고 다음"을 누른다. 에이전트가 초안으로 저장되고 버전 1이 생긴다. 동작 지시는 만든 뒤 에이전트 상세의 "상세 설정"에서 에이전트 지시문으로 적는다.
+4. "하는 일" 단계에서 모델을 고르고, "쓸 수 있는 도구"에서 프로필 도구를 체크로 고른 뒤([지시문과 설명](/agents/instructions-and-roles#웹-콘솔에서-도구-고르기)) 답변 언어를 정하고 "초안 저장하고 다음"을 누른다. 에이전트가 초안으로 저장되고 버전 1이 생긴다. 동작 지시는 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다.
 5. "릴리스" 단계에서 프로필을 골라 "릴리스 만들기"를 누른다. 카드의 모델이 프로필이 실행할 수 있는 모델 중 하나여야 릴리스를 만들 수 있다.
 6. "켜기" 단계에서 "에이전트 켜기"를 누른다. 이제 새 세션은 이 release로 시작한다. "나중에 하기"를 누르면 에이전트는 초안으로 남고 상세 화면으로 간다.
 
@@ -55,7 +55,6 @@ agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "description": "저장소를 읽고 질문에 답한다",
   "managing_team_id": "'"$TEAM"'",
   "card": {
-    "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
     "capabilities": { "tools": ["Read", "Grep", "Glob"], "mcp": null }
   }
@@ -77,7 +76,7 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 `managing_team_id`에 넣은 팀이 담당 팀이 된다. 빠지면 400 `BAD_REQUEST`이고 `error.details.issues`에 `{"path": "managing_team_id", "message": "managing_team_id is required"}`가 있다. owner·admin이 없는 팀을 넣으면 404다. 그 밖의 사람이 자기가 속하지 않은 팀을 넣으면, 없는 팀이어도 403(`details.reason_code: team_not_allowed`)이다. 그래서 속한 팀이 없는 member는 에이전트를 만들 수 없다. 응답의 `agent.managing_team_name`은 그 팀의 이름이다.
 
-모든 에이전트에는 담당 팀이 하나 있다. 담당 팀은 `PUT /v1/agents/{id}/managing-team`으로 바꿀 수만 있고 비울 수는 없다. 담당 팀을 필수로 받기 전에 만든 에이전트는 마이그레이션이 담당 팀을 채웠다. 담당 팀이 없던 에이전트는 모두 워크스페이스마다 하나씩 만든 구성원 없는 `Unassigned agents` 팀이 맡았다. 그 팀은 보통 팀과 같아서 이름을 바꾸거나 에이전트를 다른 팀으로 옮길 수 있다.
+모든 에이전트에는 담당 팀이 하나 있다. 담당 팀은 `PUT /v1/agents/{id}/managing-team`으로 바꿀 수만 있고 비울 수는 없다. 담당 팀을 필수로 받기 전에 만든 에이전트는 마이그레이션이 담당 팀을 채웠다. 담당 팀이 없던 에이전트는 모두 워크스페이스마다 하나씩 만든 구성원 없는 `Unassigned agents` 팀이 맡았다(같은 이름의 팀이 이미 있으면 `Unassigned agents (1a2b3c4d)`처럼 뒤에 8자리 식별자가 붙는다). 그 팀은 보통 팀과 같아서 이름을 바꾸거나 에이전트를 다른 팀으로 옮길 수 있다.
 
 ### 릴리스 만들기
 
@@ -149,7 +148,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 - **새 에이전트**: 첫 단계에서 담당 팀을 반드시 고른다. owner·admin은 모든 팀에서, member는 자기가 속한 팀에서 고른다. 고를 팀이 하나면 미리 골라 둔다. 속한 팀이 없는 member는 “속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 관리자에게 팀에 넣어 달라고 요청하세요.”만 보고 다음으로 가지 못한다.
 - **에이전트 목록**: 표와 카드에 담당 팀이 보인다. 설정을 읽을 수 없는 에이전트의 카드에는 이름·상태·담당 팀만 있다.
-- **관리자 탭**: 맨 위 `담당 팀` 묶음에 지금 담당 팀이 보인다. 에이전트를 관리하는 사람은 여기서 담당 팀을 정하거나 바꾼다. 담당 팀에 팀 관리자가 없으면 그렇다고 알린다.
+- **관리자 탭**: 맨 위 `담당 팀` 묶음에 지금 담당 팀 이름이 팀 상세로 가는 링크로 보인다. 에이전트를 관리하는 사람은 그 옆 `바꾸기`에서 팀을 고르면 바로 바뀌고, 비울 수는 없다. 담당 팀에 팀 관리자가 없으면 그렇다고 알린다. 아래 `에이전트 관리자` 목록은 사람과 팀을 같은 한 줄 행으로 보이고, 검색 결과에서 고르면 바로 추가된다. 담당 팀이 관리자 팀이기도 하면 그 행에 구성원 모두가 관리자라고 적힌다.
 - **담당 팀 구성원**: 상세 화면의 설정을 모두 읽지만 편집·릴리스·연결 단추는 없고, 화면 위에 읽기만 할 수 있다는 안내가 있다.
 - **바깥 member**: 상세 주소를 열면 설정 대신 이름·상태·담당 팀과 “이 에이전트의 설정은 담당 팀 구성원과 관리자만 봅니다.”가 보인다.
 
@@ -208,6 +207,6 @@ curl -sS "$API/v1/sessions" \
 
 ## 다음 단계
 
-- [지시문과 설명](/agents/instructions-and-roles): 이름·설명과 에이전트 지시문, 카드의 필드와 version
+- [지시문과 설명](/agents/instructions-and-roles): 이름·설명과 저장소의 `AGENTS.md`·`CLAUDE.md`, 카드의 필드와 version
 - [프로필 고르기](/agents/run-profiles): 프로필과 모델
 - [권한](/agents/permissions): 도구 권한과 에이전트 관리자

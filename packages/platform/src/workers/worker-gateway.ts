@@ -18,6 +18,7 @@ import type {
   HeartbeatResponse,
   InvalidateApprovalCheckpointRequest,
   InvalidateApprovalCheckpointResponse,
+  ModelCutCause,
   NextInputRequest,
   NextInputResponse,
   ParkDeclinedRequest,
@@ -129,6 +130,8 @@ import {
   type ProfilePin,
   profileAllowsRepository,
   profileFingerprint,
+  profileGone,
+  profileModels,
   profilePins,
   providerUpstreamOf,
   refreshWorkspaceProfilesFor,
@@ -245,10 +248,7 @@ export type CheckpointProtocol = {
 
 // What every config of a session's claim carries from its release and its
 // row, whichever profile and tool list it is for.
-type ReleaseRun = Pick<
-  WorkerBinding,
-  "releaseTools" | "agentInstructions" | "platformPrompt"
->;
+type ReleaseRun = Pick<WorkerBinding, "releaseTools" | "platformPrompt">;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
@@ -571,6 +571,12 @@ export function createWorkerGateway(deps: {
   // agent's credential is still bound.
   mcp?: McpEgressStore;
   onMcpReceiptError?: (error: unknown) => void;
+  // Called when the note on why a model was cut could not be written; the
+  // cut stands either way, and a lost note is not retried by a later regrant.
+  onModelCutError?: (
+    error: unknown,
+    cut: { sessionId: string; attemptId: string },
+  ) => void;
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
   // Absent, no attachment reaches a worker and its reports are dropped.
@@ -629,9 +635,8 @@ export function createWorkerGateway(deps: {
 
   // The session's configs under one profile, one per tool list
   // (claimToolLists), and the list the engine runs. Each carries the
-  // release card's agent instructions, which a checkpoint's fingerprint
-  // holds whichever config made it; none leaves the field off, so such a
-  // claim is the one an older worker accepts.
+  // platform prompt, which a checkpoint's fingerprint holds whichever config
+  // made it.
   function toolConfigsOf(
     profile: CatalogProfile,
     release: ReleaseRun,
@@ -643,7 +648,6 @@ export function createWorkerGateway(deps: {
       release.releaseTools ?? null,
       runReleaseTools,
     );
-    const instructions = release.agentInstructions;
     const prompt = release.platformPrompt;
     const configOf = (tools: readonly string[]): RuntimeConfig => {
       const config = runtimeConfigOf(
@@ -654,7 +658,6 @@ export function createWorkerGateway(deps: {
       );
       return {
         ...config,
-        ...(instructions ? { agent_instructions: instructions } : {}),
         ...(prompt ? { platform_prompt: prompt } : {}),
       };
     };
@@ -1681,6 +1684,13 @@ export function createWorkerGateway(deps: {
             "CATALOG_MISMATCH",
             "The session this launch was reserved for runs as a profile and repository pair this host's catalog no longer allows; the session was failed",
           );
+        // Not retryable, as above: the session was failed and the launch given up.
+        case "variables_refused":
+          throw new WorkerGatewayError(
+            409,
+            "VARIABLE_UNRESOLVED",
+            "A variable the session took when it was accepted is refused; the session was failed",
+          );
         // Not retryable: this worker will never be the image it was launched
         // as. The session waits for a launch on a correctly configured one.
         case "image_mismatch":
@@ -2009,6 +2019,37 @@ export function createWorkerGateway(deps: {
             acceptedRuntimeVersions(catalog),
           )
         ) {
+          // Told to the session: a model left off the list, or a profile
+          // (its connection) gone, so the model it ran is no longer
+          // reachable. The profile merely changing stays the catalog's own
+          // cut, with nothing to name.
+          // A stored profile that no longer runs (its base changed) is not
+          // gone: that stays the general cut.
+          const cause: ModelCutCause | null = !listed
+            ? result.profileId && profileGone(catalog, result.profileId)
+              ? "profile_removed"
+              : null
+            : result.model !== null &&
+                !profileModels(listed).includes(result.model)
+              ? "model_removed"
+              : null;
+          if (cause !== null && result.model !== null) {
+            // The cut happens either way; a failed note must not turn it
+            // into a 500 the proxy would read as an outage.
+            await work
+              .recordModelCutAtomic({
+                sessionId: result.sessionId,
+                attemptId: result.attemptId,
+                model: result.model,
+                cause,
+              })
+              .catch((error: unknown) =>
+                deps.onModelCutError?.(error, {
+                  sessionId: result.sessionId,
+                  attemptId: result.attemptId,
+                }),
+              );
+          }
           moved("session's profile");
         }
         return grant(providerUpstreamOf(listed));

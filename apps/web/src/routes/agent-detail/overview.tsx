@@ -43,6 +43,7 @@ import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
+import { ModelRemovedAlert } from "./model-removed.tsx";
 import { nextVersion, shownVersion } from "./versions.tsx";
 
 // KeyValueList's dd does not break a long unspaced value; this does.
@@ -290,6 +291,7 @@ export function AgentReadiness({
         </Badge>
       }
     >
+      <ModelRemovedAlert release={detail.active_release} />
       <Card className="gap-0 p-4">
         <Steps
           completedLabel={t("agent.ready.stepDone")}
@@ -574,28 +576,6 @@ export function CardSummary({
             },
             ...(card
               ? [
-                  {
-                    label: t("agentCard.agentInstructions"),
-                    value: card.agent_instructions ? (
-                      <span className={`${VALUE} line-clamp-3`}>
-                        {card.agent_instructions}
-                      </span>
-                    ) : (
-                      none
-                    ),
-                  },
-                  ...(card.instructions
-                    ? [
-                        {
-                          label: t("agentCard.earlierInstructions"),
-                          value: (
-                            <span className={`${VALUE} line-clamp-3`}>
-                              {card.instructions}
-                            </span>
-                          ),
-                        },
-                      ]
-                    : []),
                   {
                     label: t("agents.cards.credentials"),
                     value: names(card.capabilities.credential_refs ?? []),

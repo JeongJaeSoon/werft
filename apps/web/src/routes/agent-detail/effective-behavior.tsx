@@ -177,16 +177,6 @@ export function EffectiveBehavior({
       label: t("agent.effective.titleModel"),
       value: v.title_model ? <Code size="inherit">{v.title_model}</Code> : none,
     },
-    {
-      label: t("agentCard.agentInstructions"),
-      value: v.agent_instructions ? (
-        <span className="line-clamp-3 [overflow-wrap:anywhere]">
-          {v.agent_instructions}
-        </span>
-      ) : (
-        none
-      ),
-    },
   ];
 
   return (

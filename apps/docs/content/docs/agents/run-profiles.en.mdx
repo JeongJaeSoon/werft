@@ -3,7 +3,7 @@ title: "Choose a profile"
 description: The profile that decides which model, tools, and permission mode a session runs with
 ---
 
-A profile decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles set the widest range every workspace on the installation can use. They live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation has no profiles. The installation owner adds a model connection under Settings > Workspace > **Model connections** (the section of the same name at the bottom of the Profiles screen works too) and makes a profile with it. Connections live in the installation's database too. The add-connection dialog fills in the official endpoint for the kind you pick (`https://api.anthropic.com` for anthropic). Change it only for a proxy or a compatible server; leaving it empty stores the same address. A kind with no official address (litellm) needs its endpoint typed in. An endpoint cannot be changed after the connection is made.
+A profile decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles set the widest range every workspace on the installation can use. They live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation has no profiles. The installation owner adds a connection under Settings > Workspace > **Model connections** and picks it when making a profile. The Profiles screen only picks a connection; it does not create or change one. Connections live in the installation's database too. The add-connection dialog fills in the official endpoint for the kind you pick (`https://api.anthropic.com` for anthropic). Change it only for a proxy or a compatible server; leaving it empty stores the same address. A kind with no official address (litellm) needs its endpoint typed in. An endpoint cannot be changed after the connection is made. Profiles and agents that reach their model only through a disabled connection cannot run until it is turned back on. The confirmation dialog shows the impact counts it could read (profiles, agents on an active release, sessions not yet ended). A disabled connection comes back with **Enable again** on the same screen, unless its stored key is gone or another connection with the same definition is in use. If the connection a profile used is no longer available, the profile form asks you to pick one instead of switching to the first connection.
 
 ## List profiles
 
@@ -52,7 +52,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
-  "runtime_version": "0.3.270",
+  "runtime_version": "0.3.319",
   "billing": "metered",
   "repository_mode": "required"
 }
@@ -77,6 +77,19 @@ The provider address and credentials do not appear in the list. Those values do 
 
 Choose with `profile_id` when you create a session. If the profile allows several models, choose one of them with `model`; if you leave it out, the session runs with the default model.
 
+If the model of a running session leaves the allow-list, its model requests are cut shortly after. The session's events get one `error` event (`code: MODEL_NOT_ALLOWED`, `model`), and the session detail timeline reads "Model requests for this session were blocked because … is no longer allowed by its profile". Restore the model to the list, or start a new session on another model.
+
+Every path that blocks because a model left the list names it.
+
+- A running turn is the `error` event above. When the whole profile or model connection is gone, the same event is written with `cause: profile_removed` (`model_removed` when only the model left), and `model` is the model the session was running.
+- When the next message fails to start a worker, the session becomes `failed`. The same `error` event (`cause: model_removed`) and a reason saying the model "was taken off the allowed list of profile …" land in the session's events and the input receipt. The session detail's `attention` (`CATALOG_MISMATCH`) names the model as well.
+- Creating a session on a model that is not on the list answers `422 UNSUPPORTED_CAPABILITY` with the model's name. That includes a request that names no model and so runs the release's model.
+- Activating a release whose model left the list, or creating a session from it, answers `PROFILE_DIGEST_MISMATCH` saying the release's model was taken off the allowed list, with its name.
+
+The profile detail warns above "agents on this profile", and the agent overview above its readiness steps, which model left and what to do: put the model back on the list, or change the model to an allowed one in the agent's Settings and save.
+
+The first block also sends one Slack DM, and the DM names the model too. It goes to the person who created the session and to the agent's administrators (the administrators set directly, members of an administrator team, and the managing team's leads), each only if they have linked a Slack account in the team where this agent's Slack app is installed. Each person gets one per session, so a later attempt of the same session being blocked sends nothing more. Sessions that ended for other reasons send none.
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
@@ -94,7 +107,7 @@ console.log((await werft.sessions.get(sessionId)).runtime);
 ```text
 {
   kind: 'claude_agent_sdk',
-  version: '0.3.270',
+  version: '0.3.319',
   profile_id: 'claude-coding-local',
   model: 'claude-sonnet-5',
   permission_mode: 'default'
@@ -118,7 +131,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 ```text
 {
   "kind": "claude_agent_sdk",
-  "version": "0.3.270",
+  "version": "0.3.319",
   "profile_id": "claude-coding-local",
   "model": "claude-sonnet-5",
   "permission_mode": "default"
@@ -164,7 +177,7 @@ Make the local profile's next version, blocking only `WebSearch`. The local prof
 
 ```bash
 next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
-  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.319",
   model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
   repository_ids: ["sample-app"], deny: ["WebSearch"]}')
 curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'

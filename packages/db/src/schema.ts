@@ -12,6 +12,9 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  ENV_VARIABLE_KIND_VALUES,
+  ENV_VARIABLE_NAME_PATTERN,
+  ENV_VARIABLE_VALUE_MAX_BYTES,
   GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   GITHUB_REVIEW_OUTCOME_STATE_VALUES,
@@ -81,6 +84,7 @@ import {
   jsonb,
   numeric,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -119,6 +123,7 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "workspace.manage",
   "agent.manage",
   "binding.manage",
+  "binding.approve",
   "routine.manage",
   "session.read",
   "session.submit",
@@ -159,6 +164,7 @@ const ACTION_RESOURCE_KINDS: Record<
   "workspace.manage": ["workspace"],
   "agent.manage": ["workspace", "agent"],
   "binding.manage": ["workspace", "agent", "surface_binding"],
+  "binding.approve": ["workspace", "agent", "surface_binding"],
   "routine.manage": ["workspace", "agent", "routine"],
   "session.read": ["session", "session_link"],
   "session.submit": ["session", "session_link", "surface_binding"],
@@ -1367,6 +1373,11 @@ export const sessions = pgTable(
     // on a session started without a settings row, which follows its
     // release's card and pins.
     mcpStart: jsonb("mcp_start").$type<unknown>(),
+    // The user variables the session took when it was accepted
+    // (`envStartSchema`). A plain entry keeps its value so claims, retries and
+    // restores replay it; a trigger drops the values when the session closes.
+    // Null on a session that declared no variable.
+    envStart: jsonb("env_start").$type<unknown>(),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
@@ -2396,6 +2407,8 @@ export const pushIntents = pgTable(
     attemptId: text("attempt_id").notNull(),
     repositoryId: text("repository_id").notNull(),
     targetBranch: text("target_branch").notNull(),
+    // null is the checkpoint's snapshot (HEAD).
+    sourceRef: text("source_ref"),
     status: text().notNull().default("deferred"),
     pinnedRevision: integer("pinned_revision"),
     pushRequestId: uuid("push_request_id").references(() => pushRequests.id),
@@ -3712,9 +3725,17 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("deny"),
     status: text()
-      .$type<"ready" | "partial" | "failed" | "revoked">()
+      .$type<"ready" | "pending_approval" | "partial" | "failed" | "revoked">()
       .notNull()
       .default("ready"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * The newest join/leave of the channel (`slack_channel_lifecycle`, Slack's
+     * own clock) the approval already knew of; 0 when there was none. A later
+     * leave voids the approval, an earlier or equal one cannot. Null until
+     * approved, and for an approval made before this column existed.
+     */
+    approvedLifecycleUs: bigint("approved_lifecycle_us", { mode: "number" }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),
@@ -3793,7 +3814,41 @@ export const surfaceBindings = pgTable(
       "surface_bindings_ready_check",
       sql`${table.surface} <> 'slack' OR ${table.status} <> 'ready' OR (${table.installationId} IS NOT NULL AND ${table.surfaceKind} IS NOT NULL AND (${table.externalSurfaceId} IS NOT NULL OR ${table.surfaceKind} = 'dm'))`,
     ),
+    check(
+      "surface_bindings_pending_check",
+      sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
+    ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
+  ],
+);
+
+/**
+ * The newest join/leave Slack told us of per channel of an install, as
+ * microseconds since the epoch (Slack's `event_ts` has no finer unit, and a
+ * millisecond would tie two events). Kept apart from `surface_bindings` so
+ * it outlives a revoked binding: those events carry no `ts`, so an old one
+ * arriving late is told apart by this.
+ */
+export const slackChannelLifecycle = pgTable(
+  "slack_channel_lifecycle",
+  {
+    installationId: uuid("installation_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    lastEventUs: bigint("last_event_us", { mode: "number" }).notNull(),
+    /** The newest join and leave seen, whether or not Slack answered after. */
+    lastJoinUs: bigint("last_join_us", { mode: "number" }),
+    lastLeaveUs: bigint("last_leave_us", { mode: "number" }),
+  },
+  (table) => [
+    primaryKey({
+      name: "slack_channel_lifecycle_pk",
+      columns: [table.installationId, table.channelId],
+    }),
+    foreignKey({
+      name: "slack_channel_lifecycle_installation_fk",
+      columns: [table.installationId],
+      foreignColumns: [slackInstallations.id],
+    }),
   ],
 );
 
@@ -4024,7 +4079,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice')`,
     ),
     check(
       "slack_outbox_status_check",
@@ -4129,6 +4184,187 @@ export const credentialBindings = pgTable(
       "credential_bindings_ref_check",
       sql`${table.credentialRef} ~ ${sql.raw(`'${CREDENTIAL_REF_PATTERN}'`)}`,
     ),
+  ],
+);
+
+// Kept equal to the platform port's lists by extension-bundles.integration.test.ts.
+export const EXTENSION_BUNDLE_REVIEWS = [
+  "pending",
+  "approved",
+  "rejected",
+] as const;
+export const EXTENSION_BUNDLE_SOURCES = ["upload", "github"] as const;
+
+// A skill-only extension bundle, registered once per workspace and digest
+// (94S-865). `digest` is the sha256 of the validator's canonical file list;
+// every other column is bookkeeping, so a review or a label never moves it.
+// The files are in the object store at workspaces/<id>/bundles/<digest>.tar.
+// Workspace-owned bundles only; an operator-wide bundle is a later ticket.
+export const extensionBundles = pgTable(
+  "extension_bundles",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    digest: text().notNull(),
+    label: text().notNull(),
+    source: text().notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    manifest: jsonb().notNull(),
+    review: text().notNull().default("pending"),
+    registeredBy: uuid("registered_by")
+      .notNull()
+      .references(() => users.id),
+    registeredAt: timestamp("registered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("extension_bundles_workspace_digest_idx").on(
+      table.workspaceId,
+      table.digest,
+    ),
+    check(
+      "extension_bundles_digest_check",
+      sql`${table.digest} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "extension_bundles_name_check",
+      sql`${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "extension_bundles_label_check",
+      sql`char_length(${table.label}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "extension_bundles_source_check",
+      sql`${table.source} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_SOURCES))})`,
+    ),
+    check(
+      "extension_bundles_review_check",
+      sql`${table.review} IN (${sql.raw(sqlList(EXTENSION_BUNDLE_REVIEWS))})`,
+    ),
+    check(
+      "extension_bundles_review_actor_check",
+      sql`(${table.review} = 'pending') = (${table.reviewedBy} IS NULL AND ${table.reviewedAt} IS NULL)`,
+    ),
+    check("extension_bundles_size_check", sql`${table.sizeBytes} > 0`),
+    check(
+      "extension_bundles_manifest_check",
+      sql`jsonb_typeof(${table.manifest}) = 'object'`,
+    ),
+  ],
+);
+
+// One counter for every variable write and grant write. A deleted and
+// re-created variable never repeats a version, so an `If-Match` that was read
+// before the delete cannot match the new row by accident.
+export const envVariableVersionsSeq = pgSequence("env_variable_versions_seq");
+
+// User variables a workspace (`agent_id` null) or one agent registers. A secret
+// keeps its value in `secret_values`, never here; its columns exist so the
+// secret path adds no migration.
+export const envVariables = pgTable(
+  "env_variables",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    agentId: uuid("agent_id"),
+    name: text().notNull(),
+    kind: text().notNull(),
+    value: text(),
+    engineDelivery: boolean("engine_delivery").notNull().default(false),
+    allowAutomation: boolean("allow_automation").notNull().default(false),
+    grantAll: boolean("grant_all").notNull().default(false),
+    version: bigint({ mode: "number" })
+      .notNull()
+      .default(sql`nextval('env_variable_versions_seq')`),
+    grantVersion: bigint("grant_version", { mode: "number" })
+      .notNull()
+      .default(sql`nextval('env_variable_versions_seq')`),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "env_variables_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    // The grant rows' composite key: a grant cannot name a variable of
+    // another workspace.
+    unique("env_variables_workspace_id_uniq").on(table.workspaceId, table.id),
+    uniqueIndex("env_variables_workspace_name_uniq")
+      .on(table.workspaceId, table.name)
+      .where(sql`${table.agentId} IS NULL`),
+    uniqueIndex("env_variables_agent_name_uniq")
+      .on(table.workspaceId, table.agentId, table.name)
+      .where(sql`${table.agentId} IS NOT NULL`),
+    check(
+      "env_variables_name_check",
+      sql`${table.name} ~ ${sql.raw(`'${ENV_VARIABLE_NAME_PATTERN}'`)}`,
+    ),
+    check(
+      "env_variables_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(ENV_VARIABLE_KIND_VALUES))})`,
+    ),
+    // A plain value lives here; a secret's never does.
+    check(
+      "env_variables_value_check",
+      sql`(${table.kind} = 'plain') = (${table.value} IS NOT NULL) AND (${table.value} IS NULL OR octet_length(${table.value}) <= ${sql.raw(String(ENV_VARIABLE_VALUE_MAX_BYTES))})`,
+    ),
+    check(
+      "env_variables_engine_delivery_check",
+      sql`NOT ${table.engineDelivery} OR ${table.kind} = 'secret'`,
+    ),
+    check(
+      "env_variables_allow_automation_check",
+      sql`NOT ${table.allowAutomation} OR (${table.kind} = 'secret' AND ${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "env_variables_grant_all_check",
+      sql`NOT ${table.grantAll} OR (${table.kind} = 'plain' AND ${table.agentId} IS NULL)`,
+    ),
+  ],
+);
+
+// The agents a workspace-level variable is granted to. Without a row (and
+// without `grant_all`) no agent receives the value.
+export const envVariableGrants = pgTable(
+  "env_variable_grants",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    variableId: uuid("variable_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    /** Secrets only: the agent's unattended sessions may receive the value. */
+    allowAutomation: boolean("allow_automation").notNull().default(false),
+    /** No foreign key: the row outlives the account. */
+    grantedBy: uuid("granted_by"),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.variableId, table.agentId] }),
+    foreignKey({
+      name: "env_variable_grants_variable_fk",
+      columns: [table.workspaceId, table.variableId],
+      foreignColumns: [envVariables.workspaceId, envVariables.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "env_variable_grants_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
   ],
 );
 

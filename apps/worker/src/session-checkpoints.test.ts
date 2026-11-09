@@ -122,6 +122,7 @@ function harness(
     fingerprint?:
       | RuntimeFingerprint
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
+    legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
     instructionsCommit?: () => string | null;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
@@ -146,6 +147,9 @@ function harness(
     error: (event, fields) => errors.push({ event, fields }),
   };
   const port = new SessionCheckpoints({
+    ...(options.legacyFingerprint === undefined
+      ? {}
+      : { legacyFingerprint: options.legacyFingerprint }),
     fingerprint: (claim) =>
       typeof fingerprint === "function"
         ? fingerprint(claim)
@@ -893,6 +897,7 @@ describe("a publish that fails for a reason other than the mirror", () => {
           },
           gitCommit: "c".repeat(40),
           headCommit: "c".repeat(40),
+          sources: [],
           untracked,
         },
       };
@@ -1180,6 +1185,62 @@ describe("a publish that fails for a reason other than the mirror", () => {
       false,
     ]);
   });
+});
+
+describe("local branches in a checkpoint", () => {
+  const promptOf = (prompt_revision: 1 | 2 | 3 | 4 | 5 | 6) => ({
+    prompt_revision,
+    agent_identity: { name: "a", description: null },
+    origin_surface: "console" as const,
+    language: "ko" as const,
+    repository: null,
+  });
+
+  test.each([
+    ["no platform prompt", undefined],
+    ["revision 1", 1],
+    ["revision 3", 3],
+    ["revision 5", 5],
+    ["revision 6", 6],
+  ] as const)(
+    "a session with %s asks the capture for branches",
+    async (_label, revision) => {
+      const seen: Array<boolean | undefined> = [];
+      const h = harness({
+        captureWorkspace: async (input) => {
+          seen.push(input.keepBranches);
+          return captureWorkspace(input);
+        },
+      });
+      const claimed = await claimOf(h.gateway);
+      const claim = {
+        ...claimed,
+        runtime_config: {
+          ...claimed.runtime_config,
+          ...(revision === undefined
+            ? {}
+            : { platform_prompt: promptOf(revision) }),
+        },
+      };
+      const plan = await h.port.restorePlan(
+        claim,
+        new AbortController().signal,
+      );
+      if (plan.mode !== "new" || plan.sessionStore === undefined) {
+        throw new Error("expected a fresh plan with a mirror");
+      }
+      await (plan.sessionStore as TranscriptMirror).append(root, [
+        { type: "user", uuid: "u1", message: "hi" },
+      ]);
+
+      await h.port.capture(ready, {
+        scope: scopeOf(claim),
+        recheck: async () => ready,
+      });
+
+      expect(seen).toEqual([true]);
+    },
+  );
 });
 
 describe("unchanged untracked files", () => {
@@ -1669,6 +1730,7 @@ function restoring(
     fingerprint?:
       | RuntimeFingerprint
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
+    legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
   } = {},
@@ -1683,6 +1745,9 @@ function restoring(
     ...(options.fingerprint === undefined
       ? {}
       : { fingerprint: options.fingerprint }),
+    ...(options.legacyFingerprint === undefined
+      ? {}
+      : { legacyFingerprint: options.legacyFingerprint }),
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
     ...(options.claudeConfigDir === undefined
       ? {}
@@ -2041,6 +2106,31 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(claudeCheckpointCodec.decode(bytes).runtime.profileSha256).toBe(
       switched.profileSha256,
     );
+  });
+
+  test("a checkpoint made under the frozen legacy prompt resumes, and the next is stamped with the current digest", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const legacy = { ...runtime, profileSha256: "d".repeat(64) };
+    const current = { ...runtime, profileSha256: "e".repeat(64) };
+    const h = restoring(from, {
+      fingerprint: () => current,
+      legacyFingerprint: () => legacy,
+    });
+    const claim = await claimOf(h.gateway);
+    // The stored manifest carries the runtime it was taken under.
+    const bytes = await from.objects.get(from.ref.manifest_ref);
+    if (bytes === undefined) throw new Error("manifest missing");
+    expect(claudeCheckpointCodec.decode(bytes).runtime.profileSha256).toBe(
+      runtime.profileSha256,
+    );
+
+    await h.port.restorePlan(claim, neverStopped()).catch(() => undefined);
+
+    expect(h.gateway.restorePlans[0]).toMatchObject({
+      runtime: { profile_sha256: current.profileSha256 },
+      alternate_profile_sha256s: [legacy.profileSha256],
+    });
   });
 
   test("without the earlier profile's config, a checkpoint from it is refused as incompatible", async () => {

@@ -1,16 +1,14 @@
 import type { PlatformPrompt } from "@werft-ai/contracts";
 
 /**
- * The platform's paragraph at the front of the appended system prompt: only
- * what the platform alone knows (the agent's name and description as its
- * author wrote them, where the session started, its repository and how
- * GitHub work goes) and its safety rules. The role is the author's to give,
- * in the instructions below. It has no branch on whether GitHub is set up:
- * that changes while a session runs, so the tools answer it. Every word is
- * part of the checkpoint fingerprint of the sessions of this revision, so a
- * change in wording is a new revision, never an edit here.
+ * The platform paragraph that sessions of revisions 1 to 6 once had at the
+ * front of the engine's system prompt. It is no longer given to any engine.
+ * It stays only so the checkpoint fingerprint those sessions' checkpoints
+ * were stamped with can still be computed, which keeps them restorable. Every
+ * word is in that fingerprint, so this text is frozen: never edit it, and
+ * never feed it to an engine.
  */
-export function platformPromptText(prompt: PlatformPrompt): string {
+export function legacyPlatformPromptText(prompt: PlatformPrompt): string {
   return [
     identityText(prompt),
     `This session started in ${SURFACES[prompt.origin_surface]}. Answer in ${LANGUAGES[prompt.language]} unless the person writes in another language.`,
@@ -26,11 +24,19 @@ export function platformPromptText(prompt: PlatformPrompt): string {
   ].join("\n\n");
 }
 
+/** What the engine of a session without a repository was told before; frozen like the paragraph above. */
+export const LEGACY_OUT_DIRECTORY_PROMPT =
+  "This workspace has no repository. Put files meant for people in `out/` at the workspace root.";
+
+/** The wording for revisions 4 and 5, which start without a repository and may attach one later. */
+export const LEGACY_OUT_DIRECTORY_PROMPT_STARTS_WITHOUT_REPOSITORY =
+  "This workspace starts without a repository. Put files meant for people in `out/` at the workspace root; a repository you attach is a git remote, not this directory.";
+
 /** Revisions 4 and 5 are 1 and 3 plus the paragraph for a session that starts without a repository. */
 export function startsWithoutRepository({
   prompt_revision,
 }: PlatformPrompt): boolean {
-  return prompt_revision >= 4;
+  return prompt_revision === 4 || prompt_revision === 5;
 }
 
 const SURFACES: Record<PlatformPrompt["origin_surface"], string> = {
@@ -72,6 +78,14 @@ const PUSH_THIS_TURN_SCHEDULED_PR = [
   "A push carries the HEAD the workspace has when the turn ends and the history before it, whichever repository the request names. Work on one repository per turn and push one repository per turn, with that repository's branch checked out in the workspace and never from a git worktree or a clone elsewhere, which a push does not capture; push a second repository in a later turn.",
 ];
 
+const PUSH_EACH_REPOSITORY = [
+  "Push with mcp__github__request_push. It pushes the latest commit of a local branch of the workspace, never uncommitted edits: commit first, then call it.",
+  "It answers deferred, which is not a refusal: the platform makes the push request once your reply ends, and nothing starts after that, so do not call it again for the same push.",
+  "To open a pull request, call mcp__github__open_pull_request with that push_intent_id right after request_push answers deferred, even when a person has to approve the push: it answers scheduled, and the platform opens the pull request once the push is done. Do not end your reply with a promise to open it later.",
+  "When the user asks for several repositories, do all of them in this one reply and never ask the user to send another message. Attach every repository that is not the session's own with mcp__github__attach_repository and a wait_seconds that lets the answer come back final, before branching from it. For each repository, create a local branch started from <repository_id>/<branch> (origin/<branch> for the session's own repository), commit that repository's change on it, call request_push with repository_id and source_ref set to that branch, then call open_pull_request with the returned push_intent_id. Work in the workspace itself, never in a git worktree or a clone elsewhere, which a push does not capture. If request_push answers source_ref_required, repeat that call with its source_ref.",
+  "End your reply by telling the user in plain words which repositories a push was requested for, that each push waits for a person's approval where approval is required, and that each pull request opens once its push succeeds. Do not mention checkpoints, turns, intents or how the platform saves work.",
+];
+
 const PUSH_APPROVAL =
   "If push approval is on for this agent, a person approves each push, whatever the permission mode.";
 
@@ -110,13 +124,15 @@ function githubText(prompt: PlatformPrompt): string {
     startsWithoutRepository(prompt)
       ? GITHUB_INTRO_WITHOUT_REPOSITORY
       : GITHUB_INTRO,
-    ...(prompt_revision === 3 || prompt_revision === 5
-      ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
-      : [
-          ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
-          PUSH_APPROVAL,
-          PULL_REQUEST_AFTER_PUSH,
-        ]),
+    ...(prompt_revision === 6
+      ? [...PUSH_EACH_REPOSITORY, PUSH_APPROVAL]
+      : prompt_revision === 3 || prompt_revision === 5
+        ? [...PUSH_THIS_TURN_SCHEDULED_PR, PUSH_APPROVAL]
+        : [
+            ...(prompt_revision === 2 ? PUSH_THIS_TURN : PUSH_NEXT_TURN),
+            PUSH_APPROVAL,
+            PULL_REQUEST_AFTER_PUSH,
+          ]),
     ...GITHUB_REST,
   ].join(" ");
 }

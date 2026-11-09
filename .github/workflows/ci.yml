@@ -104,9 +104,9 @@ jobs:
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # A hang ceiling, not a runtime target: slow runners pushed the longest
-    # part past 6m without a failing test, so this sits well above that.
-    timeout-minutes: 9
+    # A hang ceiling, not a runtime target: split normal runs below 6m
+    # instead of letting them approach this ceiling on slow runners.
+    timeout-minutes: 12
     strategy:
       # Each part's failures are its own; a cancelled part would hide them
       # until the next push.
@@ -122,7 +122,10 @@ jobs:
           # tests/: as one part they ran about 5m of the then-6m ceiling.
           - part: "unit: worker, web"
             unit: worker-web
-          # The complement of the parts above: the other apps, tests/, and any
+          # Recent runs spent about 4m22s in Slack and 4m01s in the complement.
+          - part: "unit: control Slack"
+            unit: control-slack
+          # The complement of the parts above: other app tests, tests/, and any
           # other directory the `test` script's filters pick up.
           - part: "unit: other apps, tests"
             unit: rest
@@ -328,6 +331,7 @@ jobs:
               - tests/ci-services.
               - tests/ci-plan.
               - tests/ci-static-checks.
+              - tests/install-rehearsal.
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-i18n-code.
@@ -346,6 +350,7 @@ jobs:
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
               - tests/local-sh.
+              - tests/pages-workflow.
               - tests/preview-reap.
               - tests/release-auto.
               - tests/sdk-release.
@@ -591,6 +596,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.site == 'true'
+      && github.event_name != 'push'
       && contains(fromJSON('["all","storybook"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -622,6 +628,7 @@ jobs:
     needs: changes
     if: >-
       needs.changes.outputs.site == 'true'
+      && github.event_name != 'push'
       && contains(fromJSON('["all","docs","storybook"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -701,9 +708,9 @@ jobs:
           retention-days: 7
 
   # Assemble the current run's artifacts to prove the deploy layout: the
-  # docs site at the root, Storybook and the Scalar reference beside it.
-  # docs/api/index.html embeds the spec and loads ./scalar.js beside it;
-  # openapi.json rides along as the downloadable copy.
+  # docs site at the root, Storybook and the Scalar reference beside it
+  # (scripts/pages-site.sh, the same assembly pages.yml deploys). Pull
+  # requests and manual runs only; the deploy is pages.yml's.
   pages:
     needs: [docs, storybook]
     runs-on: ubuntu-24.04
@@ -713,75 +720,13 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: docs-out
-          path: _site
-      # The docs build owns the root; a docs page at /api or /storybook would
-      # be silently merged with or replaced by the sibling below.
-      - name: Siblings are free in the docs build
-        run: |
-          for sibling in _site/api _site/storybook; do
-            if [ -e "$sibling" ]; then
-              echo "::error::apps/docs produced $sibling, which the Pages site reserves"
-              exit 1
-            fi
-          done
+          path: docs-out
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: storybook-dist
-          path: _site/storybook
-      - name: Storybook in place below /storybook/
-        run: scripts/storybook-pages.sh check _site/storybook
-      - name: Pages site
-        run: |
-          mkdir -p _site/api
-          cp docs/api/index.html docs/api/scalar.js docs/openapi.json _site/api/
-          ls _site _site/api _site/storybook
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pages-site
-          path: _site
-          include-hidden-files: true
-          retention-days: 1
-
-  # Publishes the site assembled above to GitHub Pages. Main pushes only: a PR or a
-  # feature-branch run never deploys, and is the only job here that may write
-  # to Pages. Gated on the PAGES_ENABLED repo variable: with Pages off,
-  # deploy-pages answers 404 and turns main red.
-  storybook-pages:
-    needs: pages
-    if: >-
-      github.ref == 'refs/heads/main' && github.event_name == 'push'
-      && vars.PAGES_ENABLED == 'true'
-    concurrency:
-      group: github-pages
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: pages-site
-          path: _site
-      # A tab opened before this deploy still loads the chunks it was built
-      # with; scripts/storybook-pages.sh says why. Inside the github-pages
-      # group, so the live site it reads is the one this deploy replaces.
-      - name: Storybook chunks of builds retired within the hour
-        env:
-          LIVE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/storybook
-        run: scripts/storybook-pages.sh keep _site/storybook "$LIVE"
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: _site
-      - id: deploy
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+          path: storybook-dist
+      - name: Pages site layout
+        run: scripts/pages-site.sh docs-out storybook-dist _site
 
   # The only place the workspace byte ceiling can actually be exercised. The
   # `local` volume driver honours `size` only when the storage under the

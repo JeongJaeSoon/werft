@@ -193,9 +193,6 @@ services:
       # this is true (docs/operator/api-server.md); off by default. auto
       # needs no opt-in.
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
-      # This stack builds the API, the Slack role and the worker from one
-      # tree, so every claimant knows the revision (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
-      SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
     depends_on:
       localstack:
         condition: service_healthy
@@ -208,7 +205,6 @@ services:
     environment:
       PLATFORM_SECRET_KEY: *local-secret-key
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
-      SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
 
   maintenance:
     environment:

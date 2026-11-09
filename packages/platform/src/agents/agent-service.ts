@@ -68,7 +68,6 @@ import {
   type SessionCatalogView,
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
-import type { AgentPromptIdentity } from "../sessions/platform-prompt.ts";
 import { sameExecutionForm } from "../sessions/profile-execution-form.ts";
 import {
   profileBlockedError,
@@ -113,22 +112,27 @@ export async function resolveAgentRelease(
   );
   const blocked = profileBlockedError(profileId, refusal);
   if (blocked) throw blocked;
+  const model = releaseModel(release);
   const profile =
     refusal === null ? catalogProfile(deps.catalog, profileId) : undefined;
   if (!profile) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
-      `Runtime profile ${profileId} of this release is not in this host's catalog; release the version again under a profile the catalog has`,
+      `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  const model = releaseModel(release);
+  if (model !== undefined && !profileModels(profile).includes(model)) {
+    throw new SessionServiceError(
+      "PROFILE_DIGEST_MISMATCH",
+      `Model ${model} of this release was taken off the allowed list of runtime profile ${profileId}; release the version again on a model the profile offers`,
+    );
+  }
   if (
     !profilePinned(
       profile,
       release.profile_digest,
       acceptedRuntimeVersions(deps.catalog),
-    ) ||
-    (model !== undefined && !profileModels(profile).includes(model))
+    )
   ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
@@ -146,26 +150,6 @@ function sameRuntime(a: unknown, b: unknown): boolean {
     return canonicalJson({ ...rest, tools: [...(tools ?? [])].sort() });
   };
   return form(a) === form(b);
-}
-
-/** The agent a session of this release introduces itself as, read now. */
-export async function agentPromptIdentity(
-  store: Pick<AgentStore, "findRelease" | "get" | "findVersion">,
-  workspaceId: string,
-  releaseId: string,
-): Promise<AgentPromptIdentity | null> {
-  const release = await store.findRelease(workspaceId, releaseId);
-  if (!release) return null;
-  const [detail, version] = await Promise.all([
-    store.get(workspaceId, release.agent_id),
-    store.findVersion(workspaceId, release.agent_id, release.version_id),
-  ]);
-  if (!detail || !version) return null;
-  return {
-    name: detail.agent.name,
-    description: detail.agent.description,
-    language: version.card.language,
-  };
 }
 
 export function createAgentService(deps: {
@@ -577,7 +561,6 @@ export function createAgentService(deps: {
 
   function behaviorValues(
     profileId: string,
-    card: AgentCard,
     model: string,
     modelSource: ModelSource,
   ): BehaviorValues {
@@ -586,7 +569,6 @@ export function createAgentService(deps: {
       model,
       model_source: modelSource,
       title_model: catalogProfile(catalog, profileId)?.title_model ?? null,
-      agent_instructions: card.agent_instructions ?? null,
     };
   }
 
@@ -604,7 +586,6 @@ export function createAgentService(deps: {
           active && activeCard
             ? behaviorValues(
                 active.runtime_profile_id,
-                activeCard,
                 releaseModel(active) ?? activeCard.model,
                 record.model_source,
               )
@@ -613,7 +594,6 @@ export function createAgentService(deps: {
           draft && draftCard
             ? behaviorValues(
                 draft.runtime_profile_id,
-                draftCard,
                 draftCard.model,
                 draft.model_source,
               )
@@ -1326,8 +1306,6 @@ export function createAgentService(deps: {
     migrateAgent,
     unlockTools,
     revertMigration,
-    promptIdentity: (workspaceId: string, releaseId: string) =>
-      agentPromptIdentity(store, workspaceId, releaseId),
 
     async listAgents(
       caller: Caller,

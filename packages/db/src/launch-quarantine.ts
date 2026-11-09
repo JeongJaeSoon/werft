@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from "@werft-ai/contracts";
+import type { ApiErrorCode, EnvRefusal } from "@werft-ai/contracts";
 import type { ExecutionRef } from "@werft-ai/platform";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { INPUT_RECEIPT_OPERATIONS } from "./control-shared.ts";
@@ -18,9 +18,12 @@ import { recordStatus } from "./session-events.ts";
 /** Why a launch was given up on, as the session's reader will see it. */
 export type LaunchGiveUpCause = {
   /** On the failed receipts and the status event. */
-  code: Extract<ApiErrorCode, "LAUNCH_FAILED" | "CATALOG_MISMATCH">;
+  code: Extract<
+    ApiErrorCode,
+    "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "VARIABLE_UNRESOLVED"
+  >;
   /** On the failed turns. */
-  terminalReason: "launch_failed" | "catalog_mismatch";
+  terminalReason: "launch_failed" | "catalog_mismatch" | "variables_refused";
   /** The receipt's error message, before the detail. */
   receiptPrefix: string;
   /** The resume receipt's error message, before the detail. */
@@ -48,6 +51,19 @@ export function catalogMismatchCause(detail: string): LaunchGiveUpCause {
     resumePrefix:
       "the catalog no longer allows this session's profile and repository, so no worker may restore it",
     detail,
+  };
+}
+
+/** The cause names the reason, never the variable: its reader is the requester. */
+export function variablesRefusedCause(reason: EnvRefusal): LaunchGiveUpCause {
+  return {
+    code: "VARIABLE_UNRESOLVED",
+    terminalReason: "variables_refused",
+    receiptPrefix:
+      "a variable the agent's card declares did not reach the session",
+    resumePrefix:
+      "a variable the agent's card declares did not reach the session, so no worker may restore it",
+    detail: `variables refused (${reason})`,
   };
 }
 

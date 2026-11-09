@@ -10,10 +10,9 @@ import {
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
-
-import { platformAutoMode } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
+import { modeSettings } from "./engine-settings.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import {
@@ -29,7 +28,6 @@ import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import { offerableRules } from "./session-rules.ts";
 import { TurnLedger } from "./turn-ledger.ts";
-import { workspaceRules } from "./workspace-permissions.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
@@ -41,7 +39,7 @@ const ENGINE_ATTRIBUTION_OFF = { commit: "", pr: "", sessionUrl: false };
 // Not a person's refusal: the platform could not record that the
 // checkpoint this turn waits on no longer holds once the tool runs.
 const ADMISSION_GUARD_REFUSED =
-  "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.";
+  "The platform could not record that this tool is starting, so it was not run. This is not a user decision.";
 
 /** The SDK driver `ClaudeAgentRuntime` wraps. */
 export class ClaudeSdkRuntime {
@@ -117,7 +115,6 @@ export function buildSdkOptions(
 ): Options {
   const permittedTools = new Set(config.tools);
   const trustedTools = new Set(config.trustedTools ?? []);
-  const preApproved = workspaceRules(config.cwd, permittedTools);
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
@@ -280,17 +277,12 @@ export function buildSdkOptions(
         }),
     settings: {
       attribution: ENGINE_ATTRIBUTION_OFF,
-      // Plan mode promises no side effects, and auto mode leaves these calls
-      // to its classifier, whose rules know what a secret is; a rule here
-      // would settle a commit before the classifier saw it.
-      ...(config.permissionMode === "plan" ||
-      config.permissionMode === "auto" ||
-      preApproved.allow.length === 0
-        ? {}
-        : { permissions: preApproved }),
-      ...(config.permissionMode === "auto"
-        ? { autoMode: platformAutoMode(trustedTools.size > 0) }
-        : {}),
+      ...modeSettings({
+        cwd: config.cwd,
+        permissionMode: config.permissionMode,
+        tools: permittedTools,
+        trusted: trustedTools.size > 0,
+      }),
     },
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,

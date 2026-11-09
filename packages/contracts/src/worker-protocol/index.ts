@@ -17,10 +17,7 @@ import {
   mcpServerIdSchema,
 } from "../kollegium/agents.ts";
 import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
-import {
-  AGENT_DESCRIPTION_MAX_LENGTH,
-  AGENT_INSTRUCTIONS_MAX_LENGTH,
-} from "../shared/agent-card.ts";
+import { AGENT_DESCRIPTION_MAX_LENGTH } from "../shared/agent-card.ts";
 import { workspaceEnforceSchema } from "../shared/execution.ts";
 import {
   attemptIdSchema,
@@ -281,7 +278,8 @@ export const platformPromptSchema = z
     // that a push carries one repository's commit per turn. 4 and 5 are 1 and
     // 3 with the paragraph for a session that starts without a repository;
     // nothing creates them yet, and an older worker refuses them, so they are
-    // turned on only after every worker knows them. A session keeps the
+    // turned on only after every worker knows them. 6 pushes each repository
+    // from its own local branch in the one reply. A session keeps the
     // revision it was created with: the wording is in its fingerprint.
     prompt_revision: z.union([
       z.literal(1),
@@ -289,6 +287,7 @@ export const platformPromptSchema = z
       z.literal(3),
       z.literal(4),
       z.literal(5),
+      z.literal(6),
     ]),
     agent_identity: z
       .object({
@@ -327,22 +326,10 @@ export const runtimeConfigSchema = z
         { message: "must not repeat a server" },
       )
       .optional(),
-    // The release card's `agent_instructions`, appended to the engine's
-    // system prompt and so part of the checkpoint fingerprint. It rides in
-    // this strict object, never at the claim's top level where an older
-    // worker would drop it and run without it: such a worker refuses the
-    // claim instead. Absent when the card has none, so those claims and
-    // their fingerprints stay what they were; every restore config of the
-    // claim carries the same value, since a session's release never
-    // changes.
-    agent_instructions: z
-      .string()
-      .min(1)
-      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
-      .optional(),
-    // Here and not at the claim's top level for the same reason as
-    // `agent_instructions`. Absent for a session created without it
-    // (revision 0), so its claims and fingerprints stay what they were.
+    // Here and not at the claim's top level, where an older worker would
+    // drop it and run without it: such a worker refuses the claim instead.
+    // Absent for a session created without it (revision 0), so its claims
+    // and fingerprints stay what they were.
     platform_prompt: platformPromptSchema.optional(),
     // The user variables the session's engine process starts with. Only sent
     // to a worker that announced `user_env`, and absent when there are none,
@@ -384,6 +371,11 @@ export const WORKER_EXIT_LEASE_LOST = 75;
 // How many earlier profiles a claim offers for a restore: one per change the
 // checkpoints still reachable from the pointer went through, at most.
 export const MAX_RESTORE_PROFILES = 16;
+
+// What a restore plan request may list: for the claim's config and each earlier
+// profile, the digest of its current form and of the form an older session was
+// stamped with.
+export const MAX_RESTORE_ALTERNATES = 2 * MAX_RESTORE_PROFILES + 1;
 
 export const permissionGrantSchema = z
   .object({
@@ -1004,7 +996,7 @@ export const restorePlanRequestSchema = workerScopeSchema
     alternate_profile_sha256s: z
       .array(z.string().regex(/^[0-9a-f]{64}$/))
       .min(1)
-      .max(MAX_RESTORE_PROFILES)
+      .max(MAX_RESTORE_ALTERNATES)
       .optional(),
   })
   .strict();

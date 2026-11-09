@@ -166,6 +166,31 @@ export const TurnWithoutTokens: Story = {
   args: { entries: pairedTimelineEntries(WAIT_FAIL_EVENTS) },
 };
 
+const MODEL_CUT_EVENTS = [
+  ["status", { phase: "running" }],
+  ["assistant", { text: "Reading the failing test." }],
+  [
+    "error",
+    {
+      code: "MODEL_NOT_ALLOWED",
+      message: "model requests were blocked",
+      model: "claude-opus-5-5-20261001-extended-context",
+    },
+    null,
+  ],
+] as const;
+
+/** The proxy blocked the model after it left the profile's allow-list. */
+export const ModelNotAllowed: Story = {
+  args: { entries: pairedTimelineEntries(MODEL_CUT_EVENTS) },
+};
+
+export const ModelNotAllowedMobile390: Story = {
+  name: "Model not allowed (390px)",
+  args: { entries: pairedTimelineEntries(MODEL_CUT_EVENTS) },
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
 /** Events before the first turn stand outside any group. */
 export const WithoutTurn: Story = {
   args: { entries: pairedTimelineEntries(NO_TURN_EVENTS) },
