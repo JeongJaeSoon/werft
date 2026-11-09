@@ -2073,21 +2073,17 @@ describe("Slack management", () => {
       ),
     ).toBeDefined();
   });
-  test("names the unset events address in Japanese", async () => {
-    renderAt(
-      DETAIL,
-      {
-        ...routes(),
-        [`GET ${PATH}/slack/app`]: () =>
-          apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
-            reason_code: "events_url_unset",
-          }),
-      },
-      "ja",
-    );
+  test("names the unset events address and both settings that fix it", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
+          reason_code: "events_url_unset",
+        }),
+    });
     expect(
       await screen.findByText(
-        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN(イベントをコンソールと別に受ける場合は SLACK_EVENTS_PUBLIC_URL)の設定を依頼してください。",
+        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN(이벤트를 콘솔과 따로 받으면 SLACK_EVENTS_PUBLIC_URL) 설정을 요청하세요.",
       ),
     ).toBeDefined();
   });
