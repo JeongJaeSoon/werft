@@ -99,8 +99,8 @@ export function additionalRepositoriesOf<
 /**
  * Whether the session's own repository is one the gate now refuses on policy:
  * the agent's switch is off, or its saved list, a person's saved list or the
- * workspace ceiling has dropped it. These are the gate's own conditions, in
- * its order. A policy that is unreadable says nothing about the repository,
+ * workspace ceiling has dropped it. These are the gate's own conditions; it
+ * checks the ceiling first, which only changes which refusal it names. A policy that is unreadable says nothing about the repository,
  * so it is not revoked here.
  */
 export function ownRepositoryRevoked(

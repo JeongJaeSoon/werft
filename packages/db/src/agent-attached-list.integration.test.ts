@@ -43,7 +43,7 @@ const COMMIT = "b".repeat(40);
 const quiet = { info: () => {}, warn: () => {} };
 
 const repo = (name: string, branch = "main") => ({
-  url: `https://example.invalid/${name}.git`,
+  url: `https://example.invalid/acme/${name}.git`,
   branch,
   profiles: ["p"],
   auth: { kind: "github_app" as const, registered: true as const },
@@ -176,7 +176,7 @@ integration("an agent session's own attached list on PostgreSQL", () => {
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id, github_policy_source,
          checkpoint_revision, github_policy_start, attached_repository_ids, profile_id)
-       VALUES ($1, $2, 'https://example.invalid/app.git', 'main', 'sample-app',
+       VALUES ($1, $2, 'https://example.invalid/acme/app.git', 'main', 'sample-app',
          $3, $4, $5, $6, 1, $7, $8, 'p')`,
       [
         sessionId,
@@ -438,11 +438,14 @@ integration("an agent session's own attached list on PostgreSQL", () => {
          WHERE session_id = $1 AND repository_id = 'docs'`,
         [s.sessionId, COMMIT],
       );
-      // Before the removal the gate passes policy for docs; what it says is
-      // about the connection this test does not give it.
-      expect(
-        await gateReason(s, { purpose: "clone", repositoryId: "docs" }),
-      ).not.toBe("repository_not_allowed");
+      // Before the removal the gate passes policy, for the repository added
+      // later and for the session's own; it stops where this test gives it no
+      // connection.
+      for (const work of [{ repositoryId: "docs" }, {}]) {
+        expect(await gateReason(s, { purpose: "clone", ...work })).toBe(
+          "GitHubUnavailableError: The repository's GitHub App is not registered",
+        );
+      }
       await s.setList(["sample-app"]);
 
       expect((await attach(s, "docs")).refused).toBe("repository_not_allowed");
