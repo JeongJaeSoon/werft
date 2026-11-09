@@ -654,24 +654,30 @@ function AppRow({
     : t("github.apps.idLine", { id: String(connection.app_id) });
   return (
     <GridTableRow>
-      <GridTableCell {...{ role: "rowheader" }} lines>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Text as="span" weight="medium" truncate>
-            {connection.name}
-          </Text>
-          <Badge>{t(`github.role.${connection.role}`)}</Badge>
-          <WideBadge connection={connection} />
+      {/* Not a `lines` cell: that truncates every line after the first,
+          and what the App needs from its owner has to wrap. */}
+      <GridTableCell {...{ role: "rowheader" }}>
+        <div className="flex w-full min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-(--werft-row-line-gap)">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Text as="span" weight="medium" truncate>
+                {connection.name}
+              </Text>
+              <Badge>{t(`github.role.${connection.role}`)}</Badge>
+              <WideBadge connection={connection} />
+            </div>
+            <Text as="span" variant="meta">
+              {meta}
+            </Text>
+          </div>
+          <AppNotes
+            connection={connection}
+            state={state}
+            shortfalls={shortfalls}
+            pending={pending}
+            canManage={canManage}
+          />
         </div>
-        <Text as="span" variant="meta">
-          {meta}
-        </Text>
-        <AppNotes
-          connection={connection}
-          state={state}
-          shortfalls={shortfalls}
-          pending={pending}
-          canManage={canManage}
-        />
       </GridTableCell>
       <GridTableCell>
         <AppStateBadge state={state} pending={pending.length} />

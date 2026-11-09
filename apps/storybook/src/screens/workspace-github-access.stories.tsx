@@ -155,54 +155,58 @@ function AppRows({
         const pending = app.role === "리뷰 승인용";
         return (
           <GridTableRow key={app.id}>
-            <GridTableCell {...{ role: "rowheader" }} lines>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <Text as="span" weight="medium" truncate>
-                  {app.name}
-                </Text>
-                <Badge>{app.role}</Badge>
-              </div>
-              <Text as="span" variant="meta">
-                {`App ID ${app.id} · 키 ${app.key}`}
-              </Text>
-              {short ? (
-                <div className="flex flex-col gap-2">
-                  <Text className="text-(color:--werft-tone-caution-fg)">
-                    Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
-                    필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게 승인을
-                    요청합니다. 다시 설치하지 않아도 됩니다.
+            <GridTableCell {...{ role: "rowheader" }}>
+              <div className="flex w-full min-w-0 flex-col gap-2">
+                <div className="flex min-w-0 flex-col gap-(--werft-row-line-gap)">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Text as="span" weight="medium" truncate>
+                      {app.name}
+                    </Text>
+                    <Badge>{app.role}</Badge>
+                  </div>
+                  <Text as="span" variant="meta">
+                    {`App ID ${app.id} · 키 ${app.key}`}
                   </Text>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" variant="outline" size="sm">
-                      GitHub에서 권한 추가
-                      <ArrowUpRight aria-hidden="true" className="size-3.5" />
-                    </Button>
+                </div>
+                {short ? (
+                  <div className="flex flex-col gap-2">
+                    <Text className="text-(color:--werft-tone-caution-fg)">
+                      Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
+                      필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게
+                      승인을 요청합니다. 다시 설치하지 않아도 됩니다.
+                    </Text>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" variant="outline" size="sm">
+                        GitHub에서 권한 추가
+                        <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-link"
+                      >
+                        App 소유자에게 보낼 안내 복사
+                      </Button>
+                    </div>
+                  </div>
+                ) : pending ? (
+                  <div className="flex flex-col gap-2">
+                    <Text className="text-(color:--werft-tone-caution-fg)">
+                      acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
+                      저장소에서도 이 App의 권한이 모두 동작합니다.
+                    </Text>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="text-link"
+                      className="w-fit text-link"
                     >
-                      App 소유자에게 보낼 안내 복사
+                      owner에게 보낼 안내 복사
                     </Button>
                   </div>
-                </div>
-              ) : pending ? (
-                <div className="flex flex-col gap-2">
-                  <Text className="text-(color:--werft-tone-caution-fg)">
-                    acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
-                    저장소에서도 이 App의 권한이 모두 동작합니다.
-                  </Text>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="w-fit text-link"
-                  >
-                    owner에게 보낼 안내 복사
-                  </Button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </GridTableCell>
             <GridTableCell>
               {short ? (
