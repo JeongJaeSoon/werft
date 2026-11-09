@@ -67,7 +67,7 @@ export function repositoryRows(
   installed: readonly InstalledRepository[],
   installationId: number | null,
 ): RepositoryRow[] {
-  const rows = new Map<string, Omit<RepositoryRow, "view">>();
+  const rows = new Map<string, RepositoryRow>();
   const refs = new Map<string, string>();
   for (const held of data.selected_repositories ?? [])
     refs.set(held.id, held.ref);
@@ -77,6 +77,7 @@ export function repositoryRows(
     const name = option.repository ?? option.full_name ?? option.url;
     rows.set(option.id, {
       key: option.id,
+      view: name.toLowerCase(),
       name,
       href: pageOf(option.url, name),
       private: option.private === true,
@@ -91,6 +92,9 @@ export function repositoryRows(
     const name = held.repository ?? held.id;
     rows.set(held.id, {
       key: held.id,
+      // Its own id too: a repository registered again under this name gets
+      // the plain name, and must keep it when this dropped row goes away.
+      view: `${name.toLowerCase()}#${held.id}`,
       name,
       href: `${GITHUB}${name}`,
       private: held.private === true,
@@ -102,9 +106,12 @@ export function repositoryRows(
   }
   // A page read before the catalog took a repository still says
   // `catalog_id: null`; the name finds the row the catalog now holds.
-  const byName = new Map(
-    [...rows.values()].map((row) => [row.name.toLowerCase(), row]),
-  );
+  const byName = new Map<string, RepositoryRow>();
+  for (const row of rows.values()) {
+    const name = row.name.toLowerCase();
+    // The catalog's row, which comes first, wins over a dropped one.
+    if (!byName.has(name)) byName.set(name, row);
+  }
   for (const listed of installed) {
     const known =
       (listed.catalog_id === null ? undefined : rows.get(listed.catalog_id)) ??
@@ -132,6 +139,7 @@ export function repositoryRows(
     const key = listed.catalog_id ?? `gh:${listed.github_repository_id}`;
     rows.set(key, {
       key,
+      view: listed.full_name.toLowerCase(),
       name: listed.full_name,
       href: `${GITHUB}${listed.full_name}`,
       private: listed.private,
@@ -147,23 +155,9 @@ export function repositoryRows(
             },
     });
   }
-  const sorted = [...rows.values()].sort((a, b) =>
+  return [...rows.values()].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
   );
-  // The name is what stays put while a row moves from "installed only" to a
-  // catalog id; the id is added only for two rows that share a name.
-  const seen = new Map<string, number>();
-  for (const row of sorted) {
-    const name = row.name.toLowerCase();
-    seen.set(name, (seen.get(name) ?? 0) + 1);
-  }
-  return sorted.map((row) => {
-    const name = row.name.toLowerCase();
-    return {
-      ...row,
-      view: (seen.get(name) ?? 0) > 1 ? `${name}#${row.key}` : name,
-    };
-  });
 }
 
 /**

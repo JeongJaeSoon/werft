@@ -1133,6 +1133,13 @@ describe("에이전트 GitHub 탭", () => {
       .map((row) => row.view);
     expect(views).toHaveLength(2);
     expect(new Set(views).size).toBe(2);
+    // The dropped row going away leaves the new row's view as it was.
+    const alone = structuredClone(taken);
+    alone.selected_repositories = [];
+    const kept = repositoryRows(alone, [], [], null).find(
+      (row) => row.name === "acme/api",
+    );
+    expect(views).toContain(kept?.view ?? "");
   });
 
   test("세부 설정 초안이 있어도 켠 저장소는 켜진 채로 보인다", async () => {
