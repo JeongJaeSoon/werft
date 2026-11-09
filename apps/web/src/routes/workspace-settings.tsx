@@ -17,12 +17,10 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  Heading,
   Input,
   Page,
   RadioGroup,
   RadioGroupItem,
-  RowList,
   SecretField,
   SettingRow,
   SettingsSection,
@@ -621,7 +619,6 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
-  const titleId = useId();
   const hintId = useId();
   const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
@@ -656,16 +653,11 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   });
 
   return (
-    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <Heading id={titleId} level={2}>
-          {t("workspace.guest")}
-        </Heading>
-        <Text variant="sub" id={hintId}>
-          {t("workspace.guestHint")}
-        </Text>
-      </div>
-      <RowList variant="joined" framed={false}>
+    <SettingsSection
+      title={t("workspace.guest")}
+      description={t("workspace.guestHint")}
+      descriptionId={hintId}
+      rows={
         <SettingRow
           title={t("workspace.guestLabel")}
           meta={
@@ -698,7 +690,7 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             />
           }
         />
-      </RowList>
-    </section>
+      }
+    />
   );
 }

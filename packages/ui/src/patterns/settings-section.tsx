@@ -82,7 +82,9 @@ export function SettingsSection({
     <section
       id={id}
       aria-labelledby={titleId}
-      className="flex min-w-0 flex-col gap-4"
+      // A page may zero the row padding so unframed rows sit on its edge;
+      // the section's rows and tables are in a box, which needs it back.
+      className="flex min-w-0 flex-col gap-4 [--werft-row-padding-x:var(--werft-space-4)]"
     >
       <div className="flex flex-col gap-1 border-b pb-2">
         <div className="flex min-h-8 items-center justify-between gap-3">
