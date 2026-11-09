@@ -141,6 +141,9 @@ export const profilesKo = {
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
     "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설정의 모델 연결에서 추가하고 바꿉니다.",
+  "profiles.ceiling.connectionPick": "연결을 고르세요",
+  "profiles.ceiling.connectionDropped":
+    "이 프로필의 기존 연결을 쓸 수 없습니다. 연결을 새로 고르세요.",
   "profiles.ceiling.runtime": "런타임",
   "profiles.ceiling.runtimeVersion": "런타임 버전",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -503,6 +506,9 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
     "The connection sets the model provider and credentials. Add or change connections under Settings > Model connections.",
+  "profiles.ceiling.connectionPick": "Pick a connection",
+  "profiles.ceiling.connectionDropped":
+    "The connection this profile used is not available. Pick a connection.",
   "profiles.ceiling.runtime": "Runtime",
   "profiles.ceiling.runtimeVersion": "Runtime version",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -870,6 +876,9 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
     "モデルの提供元と認証情報は接続が決めます。接続は設定のモデル接続で追加・変更します。",
+  "profiles.ceiling.connectionPick": "接続を選んでください",
+  "profiles.ceiling.connectionDropped":
+    "このプロファイルが使っていた接続は利用できません。接続を選んでください。",
   "profiles.ceiling.runtime": "ランタイム",
   "profiles.ceiling.runtimeVersion": "ランタイムのバージョン",
   "profiles.ceiling.runtimeVersionInvalid":
