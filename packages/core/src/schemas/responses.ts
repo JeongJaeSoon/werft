@@ -430,6 +430,8 @@ export const responseSchemas = {
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/convert":
     settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/auto-mode":
+    settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/enable":
