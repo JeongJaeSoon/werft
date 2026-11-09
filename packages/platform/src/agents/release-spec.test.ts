@@ -3,6 +3,7 @@ import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
 import {
   type CatalogProfile,
   profileFingerprintV1,
+  runtimeConfigOf,
 } from "../sessions/catalog.ts";
 import {
   cardContentSha256,
@@ -14,6 +15,7 @@ import {
   backfillReleaseSpecs,
   buildSpecSource,
   releaseSpecRecord,
+  runtimeConfigFromSpec,
   verifyReleaseSpec,
 } from "./release-spec.ts";
 
@@ -290,5 +292,47 @@ describe("backfillReleaseSpecs", () => {
         }))
       ).raced,
     ).toBe(1);
+  });
+});
+
+describe("runtimeConfigFromSpec", () => {
+  // Where the two modes agree with the engine's own, the config is the one a
+  // profile makes; only a mode the spec folds into `auto` differs.
+  test.each(["bypassPermissions", "auto"] as const)(
+    "is what runtimeConfigOf makes for a %s profile",
+    (permission_mode) => {
+      const against: CatalogProfile = {
+        ...profile,
+        permission_mode,
+        project_settings: { claude_md: true },
+      };
+      const spec = releaseSpecRecord(sourceOf(against)).runtime_spec;
+      for (const hasRepository of [true, false]) {
+        expect(
+          runtimeConfigFromSpec(spec, "egress-token", hasRepository),
+        ).toEqual(runtimeConfigOf(against, "egress-token", hasRepository));
+      }
+    },
+  );
+
+  test("a mode the spec folds into auto runs as auto", () => {
+    const against: CatalogProfile = { ...profile, permission_mode: "plan" };
+    const spec = releaseSpecRecord(sourceOf(against)).runtime_spec;
+    expect(runtimeConfigFromSpec(spec, "t", false).permission_mode).toBe(
+      "auto",
+    );
+  });
+
+  test("carries no credential but the egress token", () => {
+    const config = runtimeConfigFromSpec(
+      releaseSpecRecord(sourceOf()).runtime_spec,
+      "egress-token",
+      true,
+    );
+    expect(config.provider.auth).toEqual({
+      kind: "egress_token",
+      token: "egress-token",
+    });
+    expect(JSON.stringify(config)).not.toContain("catalog-provider-key");
   });
 });
