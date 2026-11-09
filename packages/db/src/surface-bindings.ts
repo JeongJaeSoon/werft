@@ -538,30 +538,93 @@ async function advanceLifecycle(
   return rows.length > 0;
 }
 
+type LockedBinding = SurfaceBindingRecord & {
+  approvedLifecycleUs: number | null;
+};
+
+async function lockBinding(
+  tx: Database,
+  where: ReturnType<typeof and>,
+): Promise<LockedBinding | null> {
+  const [found] = await tx
+    .select({
+      ...columns,
+      approvedLifecycleUs: surfaceBindings.approvedLifecycleUs,
+    })
+    .from(surfaceBindings)
+    .where(where)
+    .limit(1)
+    .for("update");
+  if (!found) return null;
+  const { approvedLifecycleUs, ...row } = found;
+  return { ...recordOf(row), approvedLifecycleUs };
+}
+
+// A ready private channel whose approval can no longer be trusted waits
+// again: no home, no approval, a new revision (so its notice is sent again)
+// and an installation receipt that says why.
+async function sendBackToApproval(
+  tx: Database,
+  bindingId: string,
+  reason: string,
+): Promise<void> {
+  await tx
+    .update(surfaceBindings)
+    .set({
+      status: "pending_approval",
+      home: false,
+      approvedAt: null,
+      approvedLifecycleUs: null,
+      revision: sql`${surfaceBindings.revision} + 1`,
+      updatedAt: DB_NOW,
+    })
+    .where(eq(surfaceBindings.id, bindingId));
+  const [after] = await tx
+    .select(columns)
+    .from(surfaceBindings)
+    .where(eq(surfaceBindings.id, bindingId));
+  if (!after)
+    throw new Error(`surface binding ${bindingId} vanished in its tx`);
+  await writeReceipt(tx, null, recordOf(after), "request_surface_binding", {
+    reason,
+  });
+}
+
 // The join's last write, after Slack was asked and the binding made: the
-// membership is recorded only if no later leave was noted meanwhile.
+// membership is recorded only if no later leave was noted meanwhile. A join
+// of an approved private channel the bot was already in can only follow a
+// leave this role has not seen (Slack sends none to a member), so that
+// approval is void too.
 async function recordJoin(
   db: Database,
   installationId: string,
   channelId: string,
   bindingId: string,
   at: number | null,
-): Promise<boolean> {
-  if (!UUID.test(installationId) || !UUID.test(bindingId)) return false;
+): Promise<"overtaken" | "recorded" | "approval_voided"> {
+  if (!UUID.test(installationId) || !UUID.test(bindingId)) return "overtaken";
   return db.transaction(async (tx) => {
     if (!(await advanceLifecycle(tx, installationId, channelId, at))) {
-      return false;
+      return "overtaken";
     }
+    const id = bindingId.toLowerCase();
+    const current = await lockBinding(
+      tx,
+      and(eq(surfaceBindings.id, id), isNull(surfaceBindings.revokedAt)),
+    );
+    if (!current) return "overtaken";
+    const voided =
+      at !== null &&
+      current.status === "ready" &&
+      current.channelKind === "private_channel" &&
+      current.membership?.state === "joined" &&
+      at > (current.approvedLifecycleUs ?? 0);
+    if (voided) await sendBackToApproval(tx, id, "rejoined_channel");
     await tx
       .update(surfaceBindings)
       .set({ membership: "joined", membershipError: null, updatedAt: DB_NOW })
-      .where(
-        and(
-          eq(surfaceBindings.id, bindingId.toLowerCase()),
-          isNull(surfaceBindings.revokedAt),
-        ),
-      );
-    return true;
+      .where(eq(surfaceBindings.id, id));
+    return voided ? "approval_voided" : "recorded";
   });
 }
 
@@ -577,12 +640,7 @@ async function botLeft(
     // An older leave is not the channel's latest word, so it leaves the
     // membership alone; whether it voids the approval is decided below.
     const latest = await advanceLifecycle(tx, installation, channelId, at);
-    const [current] = await tx
-      .select(columns)
-      .from(surfaceBindings)
-      .where(channelOf(installation, channelId))
-      .limit(1)
-      .for("update");
+    const current = await lockBinding(tx, channelOf(installation, channelId));
     if (
       !current ||
       current.channelKind !== "private_channel" ||
@@ -590,45 +648,21 @@ async function botLeft(
     ) {
       return latest;
     }
-    const waited = current.status === "pending_approval";
-    // An approval given after the leave stands, however late the leave
-    // arrives; one given before it does not, even if a re-invite came first.
-    const approvedBefore =
-      at === null ||
-      current.approvedAt === null ||
-      current.approvedAt.getTime() * 1000 < at;
-    if (!waited && !approvedBefore) return latest;
-    if (waited && !latest) return latest;
-    await tx
-      .update(surfaceBindings)
-      .set({
-        updatedAt: DB_NOW,
-        ...(latest
-          ? { membership: "awaiting_invite" as const, membershipError: null }
-          : {}),
-        // Already waiting: nothing about the wait changes, so the notice
-        // keyed on the revision is not sent again.
-        ...(waited
-          ? {}
-          : {
-              status: "pending_approval" as const,
-              home: false,
-              approvedAt: null,
-              revision: sql`${surfaceBindings.revision} + 1`,
-            }),
-      })
-      .where(eq(surfaceBindings.id, current.id));
-    if (!waited) {
-      const [after] = await tx
-        .select(columns)
-        .from(surfaceBindings)
+    // The approval voids unless it already knew of this leave: only Slack's
+    // own times are compared, never the database clock against Slack's.
+    const known = at !== null && at <= (current.approvedLifecycleUs ?? 0);
+    if (current.status === "ready" && !known) {
+      await sendBackToApproval(tx, current.id, "bot_left_channel");
+    }
+    if (latest) {
+      await tx
+        .update(surfaceBindings)
+        .set({
+          membership: "awaiting_invite",
+          membershipError: null,
+          updatedAt: DB_NOW,
+        })
         .where(eq(surfaceBindings.id, current.id));
-      if (!after) {
-        throw new Error(`surface binding ${current.id} vanished in its tx`);
-      }
-      await writeReceipt(tx, null, recordOf(after), "request_surface_binding", {
-        reason: "bot_left_channel",
-      });
     }
     return latest;
   });
@@ -687,11 +721,35 @@ async function resolve(
         : { outcome: "conflict" };
     }
     if (current.revision !== input.revision) return { outcome: "conflict" };
+    // What the approval covers: the join/leave events noted so far. A leave
+    // noted later and stamped later voids it; a late one from before does not.
+    const [noted] =
+      decision === "approve" &&
+      current.installationId !== null &&
+      current.channelId !== null
+        ? await tx
+            .select({ us: slackChannelLifecycle.lastEventUs })
+            .from(slackChannelLifecycle)
+            .where(
+              and(
+                eq(
+                  slackChannelLifecycle.installationId,
+                  current.installationId,
+                ),
+                eq(slackChannelLifecycle.channelId, current.channelId),
+              ),
+            )
+            .limit(1)
+        : [];
     await tx
       .update(surfaceBindings)
       .set({
         ...(decision === "approve"
-          ? { status: "ready" as const, approvedAt: DB_NOW }
+          ? {
+              status: "ready" as const,
+              approvedAt: DB_NOW,
+              approvedLifecycleUs: noted?.us ?? 0,
+            }
           : { status: "revoked" as const, revokedAt: DB_NOW }),
         revision: sql`${surfaceBindings.revision} + 1`,
         updatedAt: DB_NOW,

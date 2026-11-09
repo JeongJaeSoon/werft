@@ -71,25 +71,25 @@ try {
                   event_ts: `${Math.floor(Date.now() / 1000) + Number(seq)}.000001`,
                 }
               : mode === "plain" || mode === "reply"
-              ? {
-                  type: "message",
-                  channel_type: "channel",
-                  user: "U0MOCK",
-                  channel,
-                  ts,
-                  text: text || "verify plain post",
-                  ...(mode === "reply"
-                    ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
-                    : {}),
-                }
-              : {
-                  type: "app_mention",
-                  user: "U0MOCK",
-                  channel: posted ? channel : "C0VERIFY",
-                  ts,
-                  text: text || "verify inbox",
-                  ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
-                },
+                ? {
+                    type: "message",
+                    channel_type: "channel",
+                    user: "U0MOCK",
+                    channel,
+                    ts,
+                    text: text || "verify plain post",
+                    ...(mode === "reply"
+                      ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
+                      : {}),
+                  }
+                : {
+                    type: "app_mention",
+                    user: "U0MOCK",
+                    channel: posted ? channel : "C0VERIFY",
+                    ts,
+                    text: text || "verify inbox",
+                    ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
+                  },
         };
   const body = mode === "malformed" ? "{" : JSON.stringify(payload);
   const timestamp = String(

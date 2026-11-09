@@ -85,7 +85,7 @@ function service(
     reject: async () => ({ outcome: "not_found" }),
     observeLifecycle: async () => true,
     botLeft: async () => true,
-    recordJoin: async () => true,
+    recordJoin: async () => "recorded",
     ...overrides,
     list: async () => [],
     resolveSlackChannel: async () => null,

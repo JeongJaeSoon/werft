@@ -152,16 +152,13 @@ export function createSlackMemberJoinedHandler(deps: {
     }
     const at = lifecycleTime(claim);
     // A leave noted since the check above wins: no membership, no welcome.
-    if (
-      !(await deps.bindings.recordJoin(
-        agent.installationId,
-        channel,
-        binding.id,
-        at,
-      ))
-    ) {
-      return;
-    }
+    const recorded = await deps.bindings.recordJoin(
+      agent.installationId,
+      channel,
+      binding.id,
+      at,
+    );
+    if (recorded !== "recorded") return;
     if (binding.home && binding.status === "ready") {
       await deps.welcome.welcome(binding.workspaceId, binding.agentId, {
         ask: false,
@@ -187,9 +184,10 @@ function lifecycleTime(claim: SlackInboundClaim): number | null {
       ? /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(stamp)
       : null;
   if (parts) {
-    return (
-      Number(parts[1]) * 1_000_000 + Number((parts[2] ?? "").padEnd(6, "0"))
-    );
+    const us =
+      Number(parts[1]) * 1_000_000 + Number((parts[2] ?? "").padEnd(6, "0"));
+    // Past 2^53 two stamps would collapse into one number and mis-order.
+    if (Number.isSafeInteger(us)) return us;
   }
   return claim.eventTime === null ? null : claim.eventTime.getTime() * 1000;
 }

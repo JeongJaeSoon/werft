@@ -956,12 +956,38 @@ integration("surface bindings on PostgreSQL", () => {
       expect(noted?.lastEventUs).toBe(at(6));
     });
 
-    test("a leave older than a noted re-invite still voids an approval given before it, and leaves the membership alone", async () => {
+    test("a rejoin of an approved private channel the bot is already in means a leave was missed: back to approval, no answer meanwhile", async () => {
       const { installationId, binding } = await approved();
-      // The re-invite (later) was handled first and recorded the membership.
+      await store().setMembership(binding.id, { state: "joined", error: null });
       expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(6)),
-      ).toBe(true);
+      ).toBe("approval_voided");
+      expect(
+        await store().resolveSlackChannel(installationId, "G0SECRET"),
+      ).toBeNull();
+      // The late leave then finds it waiting already: nothing more to void.
+      expect(await store().botLeft(installationId, "G0SECRET", at(5))).toBe(
+        false,
+      );
+      expect(
+        await store().findLiveSlackChannel(installationId, "G0SECRET"),
+      ).toMatchObject({
+        status: "pending_approval",
+        revision: binding.revision + 1,
+        membership: { state: "joined", error: null },
+      });
+    });
+
+    test("a leave older than a noted re-invite still voids an approval given before it, and leaves the membership alone", async () => {
+      const { installationId, binding } = await approved();
+      // The bot was out when the re-invite (later) was handled first.
+      await store().setMembership(binding.id, {
+        state: "awaiting_invite",
+        error: null,
+      });
+      expect(
+        await store().recordJoin(installationId, "G0SECRET", binding.id, at(6)),
+      ).toBe("recorded");
       expect(await store().botLeft(installationId, "G0SECRET", at(5))).toBe(
         false,
       );
@@ -980,14 +1006,28 @@ integration("surface bindings on PostgreSQL", () => {
       ).toBeNull();
     });
 
-    test("a leave from before the approval leaves the approval standing, however late it arrives", async () => {
-      const { installationId, binding } = await approved();
-      expect(await store().botLeft(installationId, "G0SECRET", 1_000)).toBe(
+    test("a leave the approval already knew of leaves it standing, however late it arrives; a newer one voids it", async () => {
+      const { owner, agentId, installationId, binding } = await waiting();
+      // The leave was noted (and the bot invited again) before the approval.
+      await store().observeLifecycle(installationId, "G0SECRET", at(4));
+      const done = await approve(owner, agentId, binding.id, binding.revision);
+      if (done.outcome !== "resolved") throw new Error(done.outcome);
+      expect(await store().botLeft(installationId, "G0SECRET", at(3))).toBe(
+        false,
+      );
+      expect(await store().botLeft(installationId, "G0SECRET", at(4))).toBe(
         true,
       );
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toMatchObject({ id: binding.id, status: "ready" });
+      // One microsecond past what the approval knew is a new leave.
+      expect(await store().botLeft(installationId, "G0SECRET", at(4) + 1)).toBe(
+        true,
+      );
+      expect(
+        await store().findLiveSlackChannel(installationId, "G0SECRET"),
+      ).toMatchObject({ id: binding.id, status: "pending_approval" });
     });
 
     test("a join overtaken by a leave after its first check writes no membership", async () => {
@@ -1000,7 +1040,7 @@ integration("surface bindings on PostgreSQL", () => {
       );
       expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(1)),
-      ).toBe(false);
+      ).toBe("overtaken");
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toMatchObject({
@@ -1009,7 +1049,7 @@ integration("surface bindings on PostgreSQL", () => {
       });
       expect(
         await store().recordJoin(installationId, "G0SECRET", binding.id, at(3)),
-      ).toBe(true);
+      ).toBe("recorded");
       expect(
         await store().findLiveSlackChannel(installationId, "G0SECRET"),
       ).toMatchObject({

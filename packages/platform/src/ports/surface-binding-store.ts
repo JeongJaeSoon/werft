@@ -160,26 +160,28 @@ export interface SurfaceBindingStore {
   /**
    * The join's last write: the binding's membership becomes `joined`, in one
    * transaction with the order check of `observeLifecycle`, so a leave noted
-   * after the join was first seen is not overwritten. False, and nothing
-   * written, when the join has been overtaken.
+   * after the join was first seen is not overwritten. `overtaken`: nothing
+   * written. `approval_voided`: the binding was an approved private channel
+   * the bot was already in, so this join means a leave was missed (Slack
+   * sends no join to a member); it waits for approval again, as after a leave.
    */
   recordJoin(
     installationId: string,
     channelId: string,
     bindingId: string,
     at: number | null,
-  ): Promise<boolean>;
+  ): Promise<"overtaken" | "recorded" | "approval_voided">;
   /**
    * The bot left a channel, or was removed from it, at `at`. A private
    * channel's binding goes back to `pending_approval` (no longer home, its
    * approval cleared, a `request_surface_binding` receipt for the
    * installation) and keeps its mode and ceiling, so an invite after this
-   * needs a new approval. That holds for a leave older than a noted event
-   * too, as long as the approval was given before the leave: a re-invite
-   * handled first must not keep the old approval alive. An approval given
-   * after the leave stands. Membership becomes `awaiting_invite` only when
-   * the leave is the newest noted event. A public channel's binding is left
-   * alone. False when the leave is older than a noted event.
+   * needs a new approval. The approval voids unless it already knew of this
+   * leave, that is, unless `at` is not after the newest join/leave noted when
+   * it was given; this holds for a leave older than a noted re-invite too.
+   * Membership becomes `awaiting_invite` only when the leave is the newest
+   * noted event. A public channel's binding is left alone. False when the
+   * leave is older than a noted event.
    */
   botLeft(
     installationId: string,

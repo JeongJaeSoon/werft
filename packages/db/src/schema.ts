@@ -3720,6 +3720,13 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("ready"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * The newest join/leave of the channel (`slack_channel_lifecycle`, Slack's
+     * own clock) the approval already knew of; 0 when there was none. A later
+     * leave voids the approval, an earlier or equal one cannot. Null until
+     * approved, and for an approval made before this column existed.
+     */
+    approvedLifecycleUs: bigint("approved_lifecycle_us", { mode: "number" }),
     muted: boolean().notNull().default(false),
     /** `surfaceMembershipSchema`; null until Slack was asked. */
     membership: text().$type<SurfaceMembershipState>(),

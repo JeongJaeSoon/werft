@@ -1,5 +1,5 @@
 {
-  "id": "72b4ea55-5ab1-4fca-9a68-c6ab7a3c3cad",
+  "id": "27d37d97-4bbb-4c47-ada7-f89ff1926769",
   "prevId": "4061749b-59f5-484f-9456-009ac215cad9",
   "version": "7",
   "dialect": "postgresql",
@@ -12800,6 +12800,12 @@
         "approved_at": {
           "name": "approved_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_lifecycle_us": {
+          "name": "approved_lifecycle_us",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },

@@ -190,7 +190,7 @@ describe("the bot's invite", () => {
     },
     botToken: string | null = "xoxb-test",
     fresh = true,
-    overtakenAfterCheck = false,
+    joinResult: "overtaken" | "recorded" | "approval_voided" = "recorded",
   ) {
     const lifecycle: [string, number | null][] = [];
     const asked: string[] = [];
@@ -236,10 +236,10 @@ describe("the bot's invite", () => {
         },
         recordJoin: async (_installation, channelId, id, at) => {
           lifecycle.push([channelId, at]);
-          if (!overtakenAfterCheck) {
+          if (joinResult === "recorded") {
             recorded.push([id, { state: "joined", error: null }]);
           }
-          return !overtakenAfterCheck;
+          return joinResult;
         },
         observeLifecycle: async (_installation, channelId, at) => {
           lifecycle.push([channelId, at]);
@@ -444,7 +444,7 @@ describe("the bot's invite", () => {
       undefined,
       undefined,
       true,
-      true,
+      "overtaken",
     );
     await h.handle(
       claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
@@ -452,6 +452,35 @@ describe("the bot's invite", () => {
     expect(h.invited).toEqual([["G1", "private_channel"]]);
     expect(h.recorded).toEqual([]);
     expect(h.welcomed).toEqual([]);
+  });
+
+  test("a rejoin of an approved private channel sends it back to approval: no welcome", async () => {
+    const h = handler(
+      { home: true, status: "ready", channelKind: "private_channel" },
+      undefined,
+      undefined,
+      true,
+      "approval_voided",
+    );
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.recorded).toEqual([]);
+    expect(h.welcomed).toEqual([]);
+  });
+
+  test("an event_ts past the safe integer range falls back to the envelope's time", async () => {
+    const h = handler({ home: false });
+    await h.handle({
+      ...claim({
+        type: "member_joined_channel",
+        user: BOT,
+        channel: "G1",
+        event_ts: "999999999999.000001",
+      }),
+      eventTime: new Date(1_700_000_005_000),
+    });
+    expect(h.lifecycle[0]).toEqual(["G1", 1_700_000_005_000_000]);
   });
 });
 
