@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "@werft-ai/contracts";
+import {
+  CLAUDE_AGENT_SDK_VERSION,
+  CLAUDE_CODE_VERSION,
+} from "@werft-ai/runtime-claude-codec";
 import type {
   ApprovalRequested,
   RuntimeEvent,
@@ -19,6 +23,34 @@ import type {
   RuntimeHooks,
 } from "./driver.ts";
 import { frameFromNativeMessage } from "./mapper.ts";
+
+describe("assertCompatible", () => {
+  const session = (version: string) => ({
+    kind: "claude_agent_sdk" as const,
+    version,
+    profile_id: "op_default_v1",
+  });
+  const check = (version: string) =>
+    claudeRuntimeModule.assertCompatible(session(version));
+
+  test("takes the build this worker ships under either spelling", () => {
+    expect(() => check(CLAUDE_AGENT_SDK_VERSION)).not.toThrow();
+    expect(() => check(CLAUDE_CODE_VERSION)).not.toThrow();
+  });
+
+  // An install that upgraded the SDK still holds profile rows at the version
+  // before; its tool catalog is the same, so its sessions must still start.
+  test("takes an older build whose tool catalog is the same as this one's", () => {
+    expect(() => check("0.3.270")).not.toThrow();
+    expect(() => check("2.1.270")).not.toThrow();
+  });
+
+  test("refuses a build with no catalog here", () => {
+    expect(() => check("0.3.1")).toThrow(
+      `Session needs runtime version 0.3.1; this worker ships Agent SDK ${CLAUDE_AGENT_SDK_VERSION}`,
+    );
+  });
+});
 
 function scriptedDriver() {
   const frames: AgentFrame[] = [];

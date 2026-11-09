@@ -25,6 +25,11 @@ export type CreatePushIntentInput = {
   policySource: string;
   /** The pull request content to open once pushed; the PR drain reads it. */
   pullRequest?: unknown;
+  /**
+   * The local branch whose commit the push carries; null or absent is the
+   * checkpoint's snapshot (HEAD).
+   */
+  sourceRef?: string | null;
 };
 
 export type PushIntentWrite =
@@ -32,11 +37,11 @@ export type PushIntentWrite =
   /** The turn is no longer running: finalize already ended it. */
   | { outcome: "turn_not_running" }
   /**
-   * The turn already has an intent for another target of the same
-   * repository. Every intent of a turn pins the same turn-end checkpoint, so
-   * a second target would push the same commit again.
+   * Two intents of a turn would both mean the snapshot (HEAD): every intent
+   * of a turn pins the same turn-end checkpoint, so each must name its own
+   * source. `targetBranch` is the target that lacks one.
    */
-  | { outcome: "turn_target_taken"; targetBranch: string };
+  | { outcome: "source_ref_required"; targetBranch: string };
 
 /** A pinned intent the runner holds under a lease. */
 export type PushIntentJob = {
@@ -46,6 +51,8 @@ export type PushIntentJob = {
   repositoryId: string;
   targetBranch: string;
   pinnedRevision: number;
+  /** The local branch to push, or null for the snapshot. */
+  sourceRef: string | null;
   actor: ReceiptActor;
   pushClass: "push.primary" | "push.attached";
   pullRequest: unknown;
@@ -75,8 +82,9 @@ export interface PushIntentStore {
   /**
    * Writes a `deferred` intent for the turn, under the session row lock and
    * only while the turn still runs. The same turn, repository and target
-   * again return the same row (`existing`), whatever its status. Another
-   * target of that turn and repository is `turn_target_taken`.
+   * again return the same row (`existing`), whatever its status; while it is
+   * still `deferred`, a call that names a `sourceRef` sets it. A turn with
+   * two intents needs a source on each (`source_ref_required` otherwise).
    */
   createDeferred(input: CreatePushIntentInput): Promise<PushIntentWrite>;
   list(ownerId: string, sessionId: string): Promise<PushIntent[]>;

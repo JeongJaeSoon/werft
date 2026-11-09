@@ -303,11 +303,11 @@ describe("a session pinned to an agent release", () => {
       });
     });
 
-    test("a session created while the action flows are on is snapshotted at revision 3, and with them off or the prompt off it is not", async () => {
+    test("a session created while the action flows are on is snapshotted at revision 6, and with them off or the prompt off it is not", async () => {
       expect(
         (await create({ promptRevision: 1, identity, actionFlows: true }))
           ?.prompt_revision,
-      ).toBe(3);
+      ).toBe(6);
       expect(
         (await create({ promptRevision: 1, identity, actionFlows: false }))
           ?.prompt_revision,
@@ -325,7 +325,7 @@ describe("a session pinned to an agent release", () => {
         expect(
           (await create({ promptRevision: 2, identity, actionFlows }))
             ?.prompt_revision,
-        ).toBe(actionFlows ? 3 : 1);
+        ).toBe(actionFlows ? 6 : 1);
       }
       expect(await create({ promptRevision: 0, identity })).toBeUndefined();
       expect(await create({ identity })).toBeUndefined();

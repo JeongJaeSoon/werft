@@ -5,7 +5,12 @@ import {
   surfaceCeilingSchema,
   surfaceChannelKindSchema,
 } from "../kollegium/surfaces.ts";
-import { receiptIdSchema } from "../shared/index.ts";
+import {
+  agentIdSchema,
+  receiptIdSchema,
+  revisionSchema,
+  surfaceBindingIdSchema,
+} from "../shared/index.ts";
 
 // How an agent answers in each Slack channel of its app's install, and in
 // its DMs (94S-177). One write sets one channel; the DM binding is the
@@ -67,6 +72,31 @@ export const putSlackBindingResponseSchema = z
   })
   .strict();
 
+/**
+ * An owner's or admin's decision on a private channel waiting for approval.
+ * `revision` is the binding's revision as the caller read it: a decision on
+ * a binding that changed since answers 409, and the same decision again
+ * after it landed answers the binding it left.
+ */
+export const resolveSlackBindingRequestSchema = z
+  .object({ revision: revisionSchema })
+  .strict();
+
+export const resolveSlackBindingResponseSchema = z
+  .object({
+    slack_binding: surfaceBindingSchema,
+    /** Null when the decision was already made and this call only replays it. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
+export const slackBindingParamsSchema = z
+  .object({
+    id: agentIdSchema,
+    binding_id: surfaceBindingIdSchema,
+  })
+  .strict();
+
 export const SLACK_BINDING_LIST_LIMIT = 500;
 
 /** The agent's live bindings: home first, then oldest first. */
@@ -87,6 +117,10 @@ export const SLACK_BINDING_MESSAGES = {
     "Slack이 이 채널을 알려주지 않아요. 에이전트를 채널에 초대한 뒤 다시 시도하세요",
   slackUnavailable:
     "지금 Slack에서 채널 정보를 읽지 못했어요. 잠시 뒤 다시 시도하세요",
+  pendingHome:
+    "승인을 기다리는 비공개 채널은 홈으로 정할 수 없어요. 먼저 승인하세요",
+  notPending:
+    "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
 } as const;
 
 export type SlackBindingMode = z.infer<typeof slackBindingModeSchema>;
@@ -95,6 +129,12 @@ export type PutSlackBindingRequest = z.infer<
 >;
 export type PutSlackBindingResponse = z.infer<
   typeof putSlackBindingResponseSchema
+>;
+export type ResolveSlackBindingRequest = z.infer<
+  typeof resolveSlackBindingRequestSchema
+>;
+export type ResolveSlackBindingResponse = z.infer<
+  typeof resolveSlackBindingResponseSchema
 >;
 export type ListSlackBindingsResponse = z.infer<
   typeof listSlackBindingsResponseSchema

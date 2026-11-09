@@ -120,9 +120,33 @@ export const pushIntentSchema = z.object({
   status: pushIntentStatusSchema,
   refusal_code: pushIntentRefusalSchema.nullable(),
   push_request_id: z.uuid().nullable(),
+  // The local branch the push carries; null is the snapshot of the turn end.
+  source_ref: z.string().nullable().default(null),
   created_at: timestampSchema,
 });
 export type PushIntent = z.infer<typeof pushIntentSchema>;
+
+/**
+ * A local branch of the session's workspace, by short name (`guard-docs`, not
+ * `refs/heads/guard-docs`): the source a push carries. A subset of what git
+ * accepts, within what a checkpoint records (200 characters).
+ */
+export const sourceRefSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/)
+  .refine(
+    (name) =>
+      !name.includes("..") &&
+      !name.includes("//") &&
+      !name.includes("/.") &&
+      !name.endsWith("/") &&
+      !name.endsWith(".") &&
+      !name.endsWith(".lock") &&
+      !name.includes(".lock/"),
+    { message: "not a branch name git accepts" },
+  );
 
 export const PUSH_BRANCH_PREFIX = "agent/";
 

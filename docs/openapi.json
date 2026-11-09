@@ -4022,6 +4022,20 @@
         ],
         "additionalProperties": false
       },
+      "ResolveSlackBindingRequest": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "additionalProperties": false
+      },
       "ApiErrorResponse": {
         "type": "object",
         "properties": {
@@ -9458,6 +9472,13 @@
                     }
                   ]
                 },
+                "source_ref": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "created_at": {
                   "type": "string",
                   "format": "date-time",
@@ -9472,6 +9493,7 @@
                 "status",
                 "refusal_code",
                 "push_request_id",
+                "source_ref",
                 "created_at"
               ],
               "additionalProperties": false
@@ -13263,6 +13285,8 @@
               "link_agent_identity",
               "revoke_agent_identity",
               "set_surface_binding",
+              "request_surface_binding",
+              "resolve_surface_binding",
               "share_session",
               "request_push",
               "resolve_push",
@@ -18384,6 +18408,7 @@
                 "agent.admin.manage",
                 "credential.bind",
                 "binding.manage",
+                "binding.approve",
                 "routine.manage",
                 "session.read",
                 "session.submit",
@@ -27873,9 +27898,22 @@
                   "type": "string",
                   "enum": [
                     "ready",
+                    "pending_approval",
                     "partial",
                     "failed",
                     "revoked"
+                  ]
+                },
+                "approved_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
                 "membership": {
@@ -28084,9 +28122,22 @@
                 "type": "string",
                 "enum": [
                   "ready",
+                  "pending_approval",
                   "partial",
                   "failed",
                   "revoked"
+                ]
+              },
+              "approved_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "membership": {
@@ -28170,6 +28221,242 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "slack_binding",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "ResolveSlackBindingResponse": {
+        "type": "object",
+        "properties": {
+          "slack_binding": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "workspace_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "owner_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "slack",
+                  "api"
+                ]
+              },
+              "installation_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "external_surface_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "surface_kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "public_channel",
+                      "private_channel",
+                      "dm"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "agent_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "on"
+                ]
+              },
+              "ceiling": {
+                "type": "object",
+                "properties": {
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "session.read",
+                        "session.submit",
+                        "session.control",
+                        "session.approve"
+                      ]
+                    }
+                  },
+                  "disclosure": {
+                    "type": "string",
+                    "enum": [
+                      "full",
+                      "summary"
+                    ]
+                  }
+                },
+                "required": [
+                  "actions",
+                  "disclosure"
+                ],
+                "additionalProperties": false
+              },
+              "home": {
+                "type": "boolean"
+              },
+              "memory_write_policy": {
+                "type": "string",
+                "enum": [
+                  "deny",
+                  "allow_explicit"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "pending_approval",
+                  "partial",
+                  "failed",
+                  "revoked"
+                ]
+              },
+              "approved_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "membership": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "joined",
+                      "awaiting_invite",
+                      "config_error",
+                      "join_failed"
+                    ]
+                  },
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[a-z_]{1,64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "error"
+                ],
+                "additionalProperties": false
+              },
+              "muted": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "workspace_id",
+              "owner_id",
+              "surface",
+              "installation_id",
+              "external_surface_id",
+              "surface_kind",
+              "agent_id",
+              "mode",
+              "ceiling",
+              "home",
+              "memory_write_policy",
+              "status",
+              "muted",
+              "revision",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -31075,7 +31362,7 @@
           "Workspace settings"
         ],
         "summary": "Set what members outside an agent may do with it and its sessions (owner or admin)",
-        "description": "Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent, one with no managing team included. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent with a managing team from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent with no managing team is not limited. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent still held by the 'Unassigned agents' team that migration 0243 made for agents that had no managing team is not limited, until it is moved to a real team. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -43172,7 +43459,7 @@
           "Sessions"
         ],
         "summary": "Who sees the session",
-        "description": "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's with a managing team and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's, the agent is not held by the 'Unassigned agents' team of migration 0243, and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -65120,6 +65407,730 @@
         }
       }
     },
+    "/v1/agents/{id}/slack-bindings/{binding_id}/approve": {
+      "post": {
+        "operationId": "approveSlackBinding",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Approve a private Slack channel",
+        "description": "A binding of a private channel starts as `pending_approval` and takes no input until an owner or admin approves it here: it becomes `ready` and `approved_at` is set, and a message sent before `approved_at` is not answered. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same approval again, after it landed, answers the binding as it is with a null `receipt_id`. Owners and admins only, not the agent's admins; API keys are refused. Writes a `resolve_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "binding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveSlackBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveSlackBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack-bindings/{binding_id}/reject": {
+      "post": {
+        "operationId": "rejectSlackBinding",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reject a private Slack channel",
+        "description": "Revokes a binding that waits for approval, so its channel slot is free again. The bot stays in the channel and takes no input; remove it in Slack to make it leave. `revision` is the revision the caller read; a binding that is not waiting, or changed since, answers 409 REVISION_CONFLICT. The same rejection again answers the binding as it is with a null `receipt_id`. Owners and admins only; API keys are refused. Writes a `resolve_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "binding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveSlackBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveSlackBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agents/{id}/slack-channels": {
       "get": {
         "operationId": "lookupSlackChannels",
@@ -76634,7 +77645,7 @@
                       ],
                       "permission_mode": "acceptEdits",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required"
                     },
@@ -76656,7 +77667,7 @@
                       ],
                       "permission_mode": "acceptEdits",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required",
                       "repository_ids": [
@@ -76695,7 +77706,7 @@
                       ],
                       "permission_mode": "default",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "billing": "metered",
                       "repository_mode": "required",
                       "workspace": {
@@ -76907,7 +77918,7 @@
                     ],
                     "permission_mode": "default",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "workspace": {
@@ -77245,7 +78256,7 @@
                     ],
                     "permission_mode": "default",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "workspace": {
@@ -81763,9 +82774,9 @@
                   ],
                   "tool_catalogs": [
                     {
-                      "id": "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+                      "id": "claude_agent_sdk@0.3.319+claude-code@2.1.319",
                       "runtime_kind": "claude_agent_sdk",
-                      "runtime_version": "0.3.270",
+                      "runtime_version": "0.3.319",
                       "tools": [
                         {
                           "name": "Read",
@@ -81943,7 +82954,7 @@
                 "name": "coding",
                 "connection_id": "anthropic-main",
                 "runtime_kind": "claude_agent_sdk",
-                "runtime_version": "0.3.270",
+                "runtime_version": "0.3.319",
                 "model": "claude-sonnet-5",
                 "models": [
                   "claude-sonnet-5",
@@ -81999,7 +83010,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -82352,7 +83363,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -82635,7 +83646,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -82918,7 +83929,7 @@
                     ],
                     "permission_mode": "acceptEdits",
                     "runtime_kind": "claude_agent_sdk",
-                    "runtime_version": "0.3.270",
+                    "runtime_version": "0.3.319",
                     "billing": "metered",
                     "repository_mode": "required",
                     "repository_ids": [
@@ -88019,7 +89030,7 @@
           "Limits & receipts"
         ],
         "summary": "What the sessions created in a period cost and the achievements they earned",
-        "description": "The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.\n\n`achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.\n\n`type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent with a managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.\n\n`achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.\n\n`type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. An achievement of a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`) is left out of `recent`, since a conversation's achievement carries its session's title and link; the counts still include it. The period cuts on when each session was created. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -89250,7 +90261,7 @@
           "Limits & receipts"
         ],
         "summary": "Recent or slowest calls of one tool, and its calls per day",
-        "description": "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent with a managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Lists the calls of the tool `name` whose `tool_use` event was stored in `[since, until)`, with the scopes, period and `agent_id` of `GET /v1/usage/tools`; the period spans at most 366 days. `sort=recent` (the default) lists the latest `occurred_at` first, `sort=slowest` the longest `duration_ms` first with untimed calls last; ties go to the later event. Read the next page with `next_cursor`, which is null on the last page; a cursor from the other sort is 400.\n\n`session_id` and `title` are null for a session the caller may not read (one in another owner, one not shared with the caller, or a `workspace`-scoped session of an agent whose managing team the caller is outside while `agent_outsider_session_visibility` is `managing_team`); the call's time, duration, outcome and agent still show. `agent` is null for a session made without an agent. `outcome` is `unknown` while no result is paired or when the result's `is_error` is not a boolean; `duration_ms` is null without a paired result or with either time missing, and set even when `outcome` is `unknown`. `per_day` counts the tool's calls on every UTC date the period touches, zeros included. Calls show up within one reconciler pass of being stored. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
