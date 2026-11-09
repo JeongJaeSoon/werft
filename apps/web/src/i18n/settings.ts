@@ -122,7 +122,7 @@ export const settingsKo = {
   "settings.autoMode.label": "판정",
   "settings.autoMode.save": "저장",
   "settings.autoMode.saving": "저장하는 중",
-  "settings.done.autoMode": "{id}의 자동 모드를 '{value}'로 기록했습니다.",
+  "settings.done.autoMode": "{id}의 자동 모드를 '{value}'(으)로 기록했습니다.",
   "settings.connections.egressWarning":
     "{host}는 egress 자격 증명 허용 목록에 없습니다. 저장은 되지만, 세션이 이 키로 나가려면 운영자가 EGRESS_CREDENTIAL_ALLOWLIST에 더해야 합니다.",
   "settings.connections.ceilings": "프로필",

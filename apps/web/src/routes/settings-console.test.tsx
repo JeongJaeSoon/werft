@@ -880,7 +880,7 @@ describe("모델 연결", () => {
     await user.selectOptions(select, "supported");
     await user.click(within(dialog).getByRole("button", { name: "저장" }));
     await screen.findByText(
-      "console-key의 자동 모드를 '지원함'로 기록했습니다.",
+      "console-key의 자동 모드를 '지원함'(으)로 기록했습니다.",
     );
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
       [`${CONNECTIONS}/console-key/auto-mode`, { auto_mode: "supported" }],
