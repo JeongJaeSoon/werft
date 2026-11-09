@@ -559,9 +559,10 @@ describe("images.yml release job", () => {
     expect(text).toContain(
       '"$' + '{ref#refs/tags/}" release-manifest.json bundle-out',
     );
-    // Every other run builds and checks it, and uploads nothing.
+    // Product plans build and check it without attaching a release.
     const other = jobs["test-ops-bundle"];
-    expect(other?.if).toBeUndefined();
+    expect(other?.needs).toBe("plan");
+    expect(other?.if).toBe("needs.plan.outputs.images == 'build'");
     expect(other?.permissions).toBeUndefined();
     const otherRuns = (other?.steps ?? [])
       .map((step) => step.run ?? "")

@@ -88,6 +88,28 @@ Every path that blocks because a model left the list names it.
 
 The profile detail warns above "agents on this profile", and the agent overview above its readiness steps, which model left and what to do: put the model back on the list, or change the model to an allowed one in the agent's Settings and save.
 
+### Moving to the next model of the same series
+
+Write `model_families` on an operator profile (`profiles` in the settings document) and a session whose model left the list moves to the next model of its series instead of being blocked. Nothing is guessed from model names; only the values you write count.
+
+```json
+"model_families": {
+  "claude-sonnet-5-0": { "family": "sonnet", "rank": 0 },
+  "claude-sonnet-5-1": { "family": "sonnet", "rank": 1 }
+}
+```
+
+- Models with the same `family` are one series, and a higher `rank` is newer. Two models of one `family` with the same `rank` are refused as a setting.
+- Keep the entry of a model after it leaves the list. Without it nothing knows what series the model belonged to, and its sessions are blocked as before.
+- The candidate is a listed model of the same `family` with a higher `rank`; with several, the nearest (lowest) one. It never moves down to a lower `rank` or across to another `family`. With no candidate the session is blocked as described above.
+- `model_families` is not part of what a session is pinned to (its fingerprint). Adding or changing it leaves sessions and releases already made as they are.
+
+The move happens at the claim that starts the session's next turn. Only a session waiting for a turn moves; a turn already running is left alone, and its model requests are cut as described above. A move writes a `system` session event (`subtype: model_migrated`, `from`, `to`), which the timeline shows as "moved from … to …". A checkpoint made on the earlier model still restores after the move.
+
+When a release's model left but a candidate exists, the release still starts sessions. The session starts on the candidate and the release itself is unchanged. A request that names `model` itself must name one on the allowed list. `model_successors` in the profile summary (`GET /v1/profiles`) shows each dropped model and where it moves, and the agent overview then shows a notice instead of the blocked warning.
+
+This covers a change to the model list of an operator profile. Workspace and installation profile versions keep their model list once made.
+
 The first block also sends one Slack DM, and the DM names the model too. It goes to the person who created the session and to the agent's administrators (the administrators set directly, members of an administrator team, and the managing team's leads), each only if they have linked a Slack account in the team where this agent's Slack app is installed. Each person gets one per session, so a later attempt of the same session being blocked sends nothing more. Sessions that ended for other reasons send none.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>

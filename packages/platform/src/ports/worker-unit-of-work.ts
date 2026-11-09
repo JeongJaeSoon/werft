@@ -138,8 +138,18 @@ export type PolicyPair = {
   >[];
 };
 
+export type ModelMove = {
+  profileId: string;
+  /** Only a session pinned to this moves; a version 1 pin names its model. */
+  fromFingerprint: string;
+  toFingerprint: string;
+  from: string;
+  to: string;
+};
+
 export type ClaimInput = {
   runnable: RunnablePair[];
+  modelMoves?: readonly ModelMove[];
   // The installation settings generation that catalog was read at; null
   // before its first read. A replica behind the database's gives up on
   // nothing but a blocked ceiling: the row a pair needs may be one it has

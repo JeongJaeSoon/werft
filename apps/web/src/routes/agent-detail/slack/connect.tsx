@@ -427,7 +427,7 @@ export function SlackConnect({
             <span>{t(`slack.configToken.${tokenBlock}`)}</span>{" "}
             {manageWorkspace ? (
               <Link asChild underline="always">
-                <RouterLink to="/settings/workspace/slack">
+                <RouterLink to="/settings/workspace/integrations/slack">
                   {t("slack.configToken.settings")}
                 </RouterLink>
               </Link>

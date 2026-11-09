@@ -166,38 +166,60 @@ async function openSessionsHolding(
   return row?.n ?? 0;
 }
 
+// Every SELECT of a read sees the same committed state.
+const SNAPSHOT = {
+  isolationLevel: "repeatable read",
+  accessMode: "read only",
+} as const;
+
+async function readScope(
+  tx: Database,
+  scope: EnvVariableScope,
+): Promise<EnvVariableRecord[]> {
+  const rows = await tx
+    .select()
+    .from(envVariables)
+    .where(scopeWhere(scope))
+    .orderBy(asc(envVariables.name));
+  if (scope.agentId !== null || rows.length === 0) {
+    return rows.map((row) => recordOf(row, []));
+  }
+  const grants = await tx
+    .select({
+      variableId: envVariableGrants.variableId,
+      agentId: envVariableGrants.agentId,
+      allowAutomation: envVariableGrants.allowAutomation,
+    })
+    .from(envVariableGrants)
+    .where(
+      inArray(
+        envVariableGrants.variableId,
+        rows.map((row) => row.id),
+      ),
+    )
+    .orderBy(asc(envVariableGrants.agentId));
+  return rows.map((row) =>
+    recordOf(
+      row,
+      grants.filter((grant) => grant.variableId === row.id),
+    ),
+  );
+}
+
 export function createPostgresEnvVariableStore(db: Database): EnvVariableStore {
   return {
-    async list(scope) {
-      const rows = await db
-        .select()
-        .from(envVariables)
-        .where(scopeWhere(scope))
-        .orderBy(asc(envVariables.name));
-      if (scope.agentId !== null || rows.length === 0) {
-        return rows.map((row) => recordOf(row, []));
-      }
-      const grants = await db
-        .select({
-          variableId: envVariableGrants.variableId,
-          agentId: envVariableGrants.agentId,
-          allowAutomation: envVariableGrants.allowAutomation,
-        })
-        .from(envVariableGrants)
-        .where(
-          inArray(
-            envVariableGrants.variableId,
-            rows.map((row) => row.id),
-          ),
-        )
-        .orderBy(asc(envVariableGrants.agentId));
-      return rows.map((row) =>
-        recordOf(
-          row,
-          grants.filter((grant) => grant.variableId === row.id),
-        ),
-      );
-    },
+    hasAgent: (workspaceId, agentId) => agentExists(db, workspaceId, agentId),
+
+    list: (scope) => db.transaction((tx) => readScope(tx, scope), SNAPSHOT),
+
+    readAgentView: (workspaceId, agentId) =>
+      db.transaction(
+        async (tx) => ({
+          own: await readScope(tx, { workspaceId, agentId }),
+          workspace: await readScope(tx, { workspaceId, agentId: null }),
+        }),
+        SNAPSHOT,
+      ),
 
     put(input) {
       const { scope, name, principal } = input;
