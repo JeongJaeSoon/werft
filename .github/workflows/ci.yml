@@ -1056,8 +1056,10 @@ jobs:
           curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
           echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
           tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
-          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
-          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          bun "$GITHUB_WORKSPACE/scripts/fetch-pinned.ts" \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            "$KUBECONFORM_SHA256" kubeconform.tgz \
+            https://api.github.com/repos/yannh/kubeconform/releases/assets/438612666
           tar -xzf kubeconform.tgz -C bin kubeconform
           echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
       - name: helm lint

@@ -82,6 +82,12 @@ CI와 같은 Bun 1.3.14로 `bun test --timeout 15000 ./tests`를 실행하여 **
 
 집계는 이름 있는 `needs`와 계획을 함께 읽어 Helm·Kubernetes·사이트·제품·quota job마다 예정된 실행은 success, 생략은 skipped인지 검증한다. 계획이 true인데 job이 skipped이거나 결과가 누락되면 실패한다. 별도 Pages workflow로 옮긴 main 사이트 빌드는 `site=false` 계획으로 반영했다. Next 캐시의 main 저장도 `pages.yml`의 docs job으로 옮기고 PR CI는 복원만 한다. 이 후속 변경의 실제 실행 결과는 검토용 PR 코멘트에 기록하며, 과거 절감률을 새 head의 재측정으로 바꾸어 주장하지 않는다.
 
+### 반복된 worker layer 실패의 입력 경로 수정
+
+main `ca6ac15f2`의 성공 실행 42566966027과 PR `f8a6ac61d`의 실행 42567660208 attempt 3을 비교했다. 실패는 worker의 GitHub CLI·Git LFS release archive를 가져오는 원격 `ADD --checksum`에서 발생했다. 양쪽 베이스·frontend pin과 Images의 `images-앱-아키텍처` 캐시 scope는 같다. quickstart·kind 빌드는 해당 Images GHA cache나 공유 artifact를 입력으로 쓰지 않으며 Next 캐시는 docs만 대상으로 한다. 오류의 고정 digest는 92바이트 HTTP 504 HTML 본문의 해시이고, 뒤의 서로 다른 digest는 각 archive의 기대 pin이다.
+
+같은 로컬 builder·베이스 pin·`--no-cache`에서 수정 전 gh stage의 실패를 재현했다. 수정 후에는 기존 `fetch-pinned.ts`가 브라우저 다운로드 경로 실패 뒤 공식 release asset API로 전환해 같은 SHA의 파일만 기록한다. 공개 API의 octet-stream 응답과 redirect를 지원하며 인증정보를 전달하지 않는다. 버전·archive pin·베이스·캐시 scope를 바꾸지 않고 cold gh·git-lfs stage와 실제 native 실행을 검증했다. Helm job은 helm archive 검증을 통과한 다음 kubeconform 다운로드에서 실패한 것이어서 그 입력에도 같은 대체 경로를 적용했다. 전체 Actions 결과는 PR 코멘트에 기록한다. 이전의 일시 오류 판단 대신 이 재현과 입력 경로 수정을 후속 결론으로 삼는다.
+
 ## 2026-11-06 당시 측정
 
 

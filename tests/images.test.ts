@@ -263,7 +263,7 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(`ARG GIT_LFS_COMPRESS=${GIT_LFS_COMPRESS}\n`);
     expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
     expect(source).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
+      /bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/git-lfs-src\.tar\.gz \\\n {2}https:\/\/api\.github\.com\/repos\/git-lfs\/git-lfs\/releases\/assets\/666389036/m,
     );
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
@@ -313,14 +313,23 @@ describe("app Dockerfiles", () => {
   test("the worker carries gh from the pinned release", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GH_VERSION=${GH_VERSION}\n`);
-    for (const arch of ["amd64", "arm64"]) {
-      expect(source).toMatch(
-        new RegExp(
-          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/cli/cli/releases/download/v\\$\\{GH_VERSION\\}/gh_\\$\\{GH_VERSION\\}_linux_${arch}\\.tar\\.gz \\\\$`,
-          "m",
-        ),
+    for (const [arch, asset] of [
+      ["amd64", "679195621"],
+      ["arm64", "679195636"],
+    ]) {
+      const lines = source.split("\n");
+      const url = `https://github.com/cli/cli/releases/download/v\${GH_VERSION}/gh_\${GH_VERSION}_linux_${arch}.tar.gz`;
+      const input = lines.findIndex((line) => line.trim() === `${url} \\`);
+      expect(input).toBeGreaterThan(-1);
+      expect(lines[input - 1]?.trim()).toBe("bun /tmp/fetch-pinned.ts \\");
+      expect(lines[input + 1]?.trim()).toMatch(/^[0-9a-f]{64} \\$/);
+      expect(lines[input + 2]?.trim()).toBe(`/tmp/gh-${arch}.tar.gz \\`);
+      expect(lines[input + 3]?.trim()).toBe(
+        `https://api.github.com/repos/cli/cli/releases/assets/${asset}`,
       );
     }
+    expect(source).not.toMatch(/ADD --checksum[^\n]*\n[^\n]*github\.com/);
+    expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(4);
     expect(source.match(/^COPY --from=gh .*$/gm)).toEqual([
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
