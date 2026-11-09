@@ -35,11 +35,12 @@ export type RepositoryRow = {
   /** Stable across a toggle: the catalog id once there is one. */
   readonly key: string;
   /**
-   * Keys the row's React element and its switch state. Unique per row, and
-   * the same before and after the catalog takes a repository the installation
-   * lists: `gh:<GitHub id>` when an installation page lists it, else `key`.
+   * The row's React key. The name, so the switch keeps focus when the catalog
+   * takes an installed-only repository (its `key` changes then); the id is
+   * added only for two rows that share a name. Switch state is kept by `key`,
+   * which never depends on which installation page is showing.
    */
-  readonly view: string;
+  readonly anchor: string;
   /** `owner/repo`. */
   readonly name: string;
   readonly href: string;
@@ -81,7 +82,7 @@ export function repositoryRows(
     const name = option.repository ?? option.full_name ?? option.url;
     rows.set(option.id, {
       key: option.id,
-      view: option.id,
+      anchor: "",
       name,
       href: pageOf(option.url, name),
       private: option.private === true,
@@ -96,7 +97,7 @@ export function repositoryRows(
     const name = held.repository ?? held.id;
     rows.set(held.id, {
       key: held.id,
-      view: held.id,
+      anchor: "",
       name,
       href: `${GITHUB}${name}`,
       private: held.private === true,
@@ -121,9 +122,6 @@ export function repositoryRows(
     if (known) {
       rows.set(known.key, {
         ...known,
-        // The installation's id is what the row had while only it listed the
-        // repository, so a pending switch survives the catalog taking it.
-        view: `gh:${listed.github_repository_id}`,
         private: known.private || listed.private,
         target:
           known.target ??
@@ -144,7 +142,7 @@ export function repositoryRows(
     const key = listed.catalog_id ?? `gh:${listed.github_repository_id}`;
     rows.set(key, {
       key,
-      view: `gh:${listed.github_repository_id}`,
+      anchor: "",
       name: listed.full_name,
       href: `${GITHUB}${listed.full_name}`,
       private: listed.private,
@@ -160,9 +158,21 @@ export function repositoryRows(
             },
     });
   }
-  return [...rows.values()].sort((a, b) =>
+  const sorted = [...rows.values()].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
   );
+  const seen = new Map<string, number>();
+  for (const row of sorted) {
+    const name = row.name.toLowerCase();
+    seen.set(name, (seen.get(name) ?? 0) + 1);
+  }
+  return sorted.map((row) => {
+    const name = row.name.toLowerCase();
+    return {
+      ...row,
+      anchor: (seen.get(name) ?? 0) > 1 ? `${name}#${row.key}` : name,
+    };
+  });
 }
 
 /**
@@ -269,15 +279,15 @@ export function RepositoryList({
           aria-label={t("agentGitHub.section.repositories")}
         >
           {rows.map((row) => {
-            const on = toggles.wanted[row.view] ?? row.on;
+            const on = toggles.wanted[row.key] ?? row.on;
             const disabled =
               !editable || row.blocked !== null || row.target === null;
             return (
               <SettingRow
-                // The view key, not the catalog id: that changes once the
+                // The anchor, not the catalog id: that changes once the
                 // catalog takes the repository, and a new key would drop the
-                // switch's focus and the row's pending state.
-                key={row.view}
+                // switch's focus.
+                key={row.anchor}
                 title={
                   <Link
                     href={row.href}
@@ -307,8 +317,8 @@ export function RepositoryList({
                     : undefined
                 }
                 meta={
-                  toggles.errors[row.view] ? (
-                    <FieldError>{toggles.errors[row.view]}</FieldError>
+                  toggles.errors[row.key] ? (
+                    <FieldError>{toggles.errors[row.key]}</FieldError>
                   ) : undefined
                 }
                 actions={
@@ -321,7 +331,7 @@ export function RepositoryList({
                       disabled={disabled}
                       onCheckedChange={(checked) => {
                         if (row.target) {
-                          toggles.toggle(row.view, row.target, checked);
+                          toggles.toggle(row.key, row.target, checked);
                         }
                       }}
                     />

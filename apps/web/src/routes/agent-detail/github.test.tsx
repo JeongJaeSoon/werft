@@ -1113,10 +1113,14 @@ describe("에이전트 GitHub 탭", () => {
       [{ ...listed, catalog_id: "api" }],
       77,
     );
-    const viewOf = (rows: typeof before) =>
-      rows.find((row) => row.name === "acme/api")?.view;
-    expect(viewOf(before)).toBe("gh:12");
-    expect(viewOf(after)).toBe(viewOf(before));
+    const rowOf = (rows: typeof before) =>
+      rows.find((row) => row.name === "acme/api");
+    // Installed-only, then taken by the catalog: the React key (focus) holds.
+    expect(rowOf(before)?.key).toBe("gh:12");
+    expect(rowOf(after)?.anchor).toBe(rowOf(before)?.anchor ?? "");
+    // The switch state key of a catalog row is its id whatever page shows.
+    expect(rowOf(after)?.key).toBe("api");
+    expect(rowOf(repositoryRows(taken, [], [], null))?.key).toBe("api");
 
     // A dropped row and a re-registered one with the same name stay apart.
     const twins = structuredClone(taken);
@@ -1128,35 +1132,11 @@ describe("에이전트 GitHub 탭", () => {
         ref: "r1.api-old",
       },
     ];
-    const views = repositoryRows(twins, ["api-old"], [], null)
+    const anchors = repositoryRows(twins, ["api-old"], [], null)
       .filter((row) => row.name === "acme/api")
-      .map((row) => row.view);
-    expect(views).toHaveLength(2);
-    expect(new Set(views).size).toBe(2);
-    // The dropped row going away leaves the new row's view as it was.
-    const alone = structuredClone(taken);
-    alone.selected_repositories = [];
-    const kept = repositoryRows(alone, [], [], null).find(
-      (row) => row.name === "acme/api",
-    );
-    expect(views).toContain(kept?.view ?? "");
-
-    // A dropped row the catalog lists again under the same id keeps its view,
-    // and one repository under two catalog ids never shares a view.
-    const relisted = structuredClone(taken);
-    relisted.options.repositories.push({
-      ...taken.options.repositories[2],
-      id: "api-old",
-      ref: "r1.api-old",
-    } as (typeof taken.options.repositories)[number]);
-    const first = repositoryRows(twins, ["api-old"], [], null).find(
-      (row) => row.key === "api-old",
-    );
-    const second = repositoryRows(relisted, ["api-old"], [], null);
-    expect(second.find((row) => row.key === "api-old")?.view).toBe(first?.view);
-    const sameName = second.filter((row) => row.name === "acme/api");
-    expect(sameName).toHaveLength(2);
-    expect(new Set(sameName.map((row) => row.view)).size).toBe(2);
+      .map((row) => row.anchor);
+    expect(anchors).toHaveLength(2);
+    expect(new Set(anchors).size).toBe(2);
   });
 
   test("세부 설정 초안이 있어도 켠 저장소는 켜진 채로 보인다", async () => {
