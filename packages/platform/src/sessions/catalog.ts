@@ -238,6 +238,25 @@ export function billingFitsEndpoint(provider: {
   );
 }
 
+export const modelFamiliesSchema = z
+  .record(
+    z.string().min(1),
+    z.object({ family: z.string().min(1), rank: z.number().int() }).strict(),
+  )
+  .refine(
+    (families) => {
+      const seen = new Set<string>();
+      for (const { family, rank } of Object.values(families)) {
+        const key = `${family}\u0000${rank}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+      }
+      return true;
+    },
+    { message: "two models of one family cannot share a rank" },
+  );
+export type ModelFamilies = z.infer<typeof modelFamiliesSchema>;
+
 export const catalogProfileConfigSchema = z
   .object({
     runtime_kind: runtimeKindSchema,
@@ -249,6 +268,12 @@ export const catalogProfileConfigSchema = z
     // The model that names a session after its first turn; the session's own
     // when absent. Not pinned either: it never runs the session.
     title_model: z.string().min(1).optional(),
+    // Which models are versions of one series, newest highest. Read only when
+    // a model leaves the list: a session on it moves to the next one up the
+    // same series that is still listed. Keep a removed model's entry here,
+    // or nothing knows what it was a version of. Not pinned: it never runs
+    // a session.
+    model_families: modelFamiliesSchema.optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
     provider: catalogProviderSchema,
@@ -509,6 +534,7 @@ export type CatalogProfile = {
   model: string;
   models?: string[] | undefined;
   title_model?: string | undefined;
+  model_families?: ModelFamilies | undefined;
   tools: string[];
   permission_mode: z.infer<typeof permissionModeSchema>;
   project_settings?: z.infer<typeof projectSettingsSchema> | undefined;
@@ -1322,6 +1348,7 @@ export function profileFingerprint(profile: CatalogProfileView): string {
     model: _model,
     repository: _repository,
     title_model: _titleModel,
+    model_families: _families,
     ...runs
   } = withoutSecret(profile);
   return sha256({
@@ -1334,6 +1361,7 @@ function profileFingerprintV1(profile: CatalogProfileView): string {
   const {
     models: _models,
     title_model: _titleModel,
+    model_families: _families,
     ...runs
   } = withoutSecret(profile);
   return sha256({ fingerprint_version: 1, profile: runs });
@@ -1342,6 +1370,44 @@ function profileFingerprintV1(profile: CatalogProfileView): string {
 /** The models a session of this profile may name, the default first. */
 export function profileModels(profile: CatalogProfileView): string[] {
   return [...new Set([profile.model, ...(profile.models ?? [])])];
+}
+
+/**
+ * The listed model a session on `removed` moves to: the lowest rank above
+ * its own in the same family, so a move is one step up and never down. Null
+ * when `removed` is still listed, has no family entry, or nothing listed is
+ * a newer version of it.
+ */
+export function modelSuccessor(
+  profile: CatalogProfileView,
+  removed: string,
+): string | null {
+  const families = profile.model_families;
+  const listed = profileModels(profile);
+  const from = families?.[removed];
+  if (!families || !from || listed.includes(removed)) return null;
+  let best: { model: string; rank: number } | null = null;
+  for (const model of listed) {
+    const entry = families[model];
+    if (
+      entry?.family === from.family &&
+      entry.rank > from.rank &&
+      (best === null || entry.rank < best.rank)
+    ) {
+      best = { model, rank: entry.rank };
+    }
+  }
+  return best?.model ?? null;
+}
+
+/** Every removed model of the profile that has a successor, with it. */
+export function modelMoves(
+  profile: CatalogProfileView,
+): Array<{ from: string; to: string }> {
+  return Object.keys(profile.model_families ?? {}).flatMap((from) => {
+    const to = modelSuccessor(profile, from);
+    return to === null ? [] : [{ from, to }];
+  });
 }
 
 /**

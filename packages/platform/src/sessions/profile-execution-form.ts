@@ -29,7 +29,13 @@ export function profileExecutionForm(
   definition: Definition,
   mcpDeny: readonly string[] = [],
 ): string {
-  const { repository: _repository, ...rest } = definition;
+  // Neither runs a session: `repository` is dropped on purpose (above),
+  // `model_families` only says where a removed model moves.
+  const {
+    repository: _repository,
+    model_families: _families,
+    ...rest
+  } = definition;
   const provider = isRecord(rest.provider) ? rest.provider : {};
   const form: Definition = {
     ...rest,
