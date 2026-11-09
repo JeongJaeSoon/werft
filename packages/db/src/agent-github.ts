@@ -417,6 +417,12 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
           const base =
             current ?? (await seedOf(tx, locked.agent.activeReleaseId));
           if (base === null) throw new Abort({ outcome: "seed_unavailable" });
+          // The response schema wants a non-empty string, and a catalog row
+          // can hold an empty owner or name.
+          const label =
+            repository.owner !== "" && repository.name !== ""
+              ? `${repository.owner}/${repository.name}`
+              : repository.id;
           const has = base.repositories.includes(repository.id);
           // A typo or a long-gone id that nothing lists has nothing to turn off.
           if (offAfterCatalog && !has) {
@@ -512,10 +518,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
                 change: "repository",
                 agent_settings_revision: revision,
                 repository_id: repository.id,
-                repository:
-                  repository.owner === ""
-                    ? repository.name
-                    : `${repository.owner}/${repository.name}`,
+                repository: label,
                 github_repository_id: githubRepositoryId,
                 enabled: input.enabled,
                 before: held === undefined ? null : valuesOf(held),
@@ -552,6 +555,7 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
               id: repository.id,
               owner: repository.owner,
               name: repository.name,
+              label,
             },
             catalogChanged: catalogReceiptId !== null,
           };

@@ -139,7 +139,12 @@ function appWith(
         outcome: "saved",
         revision: 2,
         receiptId: null,
-        repository: { id: "sample-app", owner: "octo", name: "sample" },
+        repository: {
+          id: "sample-app",
+          owner: "octo",
+          name: "sample",
+          label: "octo/sample",
+        },
         catalogChanged: false,
       };
     },

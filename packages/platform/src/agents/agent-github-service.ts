@@ -637,11 +637,7 @@ export function createAgentGitHubService(deps: {
             enabled: request.enabled,
             repository: {
               ref: repositoryRefOf(result.repository.id),
-              // A repository the catalog no longer holds has only its id.
-              repository:
-                result.repository.owner === ""
-                  ? result.repository.name
-                  : `${result.repository.owner}/${result.repository.name}`,
+              repository: result.repository.label,
               private: null,
             },
           };

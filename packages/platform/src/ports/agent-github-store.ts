@@ -33,7 +33,11 @@ export type SetAgentGitHubRepositoryResult =
       revision: number;
       /** The settings receipt, else the catalog's when only the row changed. */
       receiptId: string | null;
-      repository: { id: string; owner: string; name: string };
+      /**
+       * `label` is `owner/name`, or the id when the catalog holds no name for
+       * it (no row, or a row whose owner or name is empty).
+       */
+      repository: { id: string; owner: string; name: string; label: string };
       /** A row was added or renamed: the in-memory catalog is behind. */
       catalogChanged: boolean;
     }

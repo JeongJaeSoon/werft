@@ -475,6 +475,54 @@ integration("turning one repository on or off on PostgreSQL", () => {
     expect((await settingsOf(f))?.repositories).toEqual([]);
   });
 
+  test("a catalog row with no owner or name is shown by its id, never as an empty string", async () => {
+    const f = await fixture();
+    await settingsRow(f);
+    const ids = [
+      `blank-${f.sample}`,
+      `gone-${f.sample}`,
+      `half-${f.sample}`,
+    ] as const;
+    // The URL's last two path segments, or empty (schema.ts).
+    for (const [id, owner, name, removed] of [
+      [ids[0], "", "", false],
+      [ids[1], "", "", true],
+      [ids[2], "acme", "", false],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO catalog_repositories (id, owner, name, url, branch, auth_kind, source, removed_at)
+         VALUES ($1, $2, $3, 'https://example.invalid/x.git', 'main', 'github_app', 'seed', ${removed ? "now()" : "NULL"})`,
+        [id, owner, name],
+      );
+    }
+    await pool.query(
+      "UPDATE agent_github_settings SET repositories = $2 WHERE agent_id = $1",
+      [f.agentId, JSON.stringify([f.sample, ...ids])],
+    );
+    for (const id of ids) {
+      const off = await toggle(f, {
+        enabled: false,
+        target: { kind: "catalog", id },
+      });
+      expect(off).toMatchObject({
+        outcome: "saved",
+        repository: { id, label: id },
+      });
+    }
+    const changes = (await receiptsOf(f)).filter(
+      (r) =>
+        r.operation === "set_agent_github" && r.result.change === "repository",
+    );
+    expect(changes.map((r) => r.result.repository)).toEqual([...ids]);
+    // A named row keeps owner/name.
+    expect(
+      await toggle(f, {
+        enabled: false,
+        target: { kind: "catalog", id: f.sample },
+      }),
+    ).toMatchObject({ repository: { label: `acme/${f.sample}` } });
+  });
+
   test("a pick writes the catalog row, the settings, the receipts and the pin together", async () => {
     const f = await fixture();
     const target = pick(f, { name: "TogetherRepo", githubRepositoryId: 41 });

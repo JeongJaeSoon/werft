@@ -816,7 +816,12 @@ describe("repositories read as owner/repo", () => {
       outcome: "saved",
       revision: 5,
       receiptId: "receipt-5",
-      repository: { id: "sample-app", owner: "octo", name: "sample" },
+      repository: {
+        id: "sample-app",
+        owner: "octo",
+        name: "sample",
+        label: "octo/sample",
+      },
       catalogChanged: false,
     } as const;
     const WEB_KEY = callerFor(
