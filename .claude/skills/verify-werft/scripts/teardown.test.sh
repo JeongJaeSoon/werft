@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for teardown-lib.sh, down.sh's name check and janitor.sh's dry run,
+# Tests for teardown-lib.sh, down.sh, rm-volumes.sh and janitor.sh's dry run,
 # against a fake `docker` that only logs. Nothing here touches a real Docker.
 #   bash .claude/skills/verify-werft/scripts/teardown.test.sh
 set -uo pipefail
@@ -79,6 +79,49 @@ printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVER
 : >"$log"
 bash "$here/down.sh" "$id" >/dev/null 2>&1; check "down.sh: another project's name refused" 1 $?
 [ ! -s "$log" ]; check "down.sh: refusal ran no docker command" 0 $?
+
+# down.sh on this run's own project: containers go, volumes never do.
+mkdir -p "$scratch/scripts" "$VERIFY_AP_ROOT/$id/evidence"
+printf '#!/usr/bin/env bash\necho "local.sh $*" >>"$FAKE_DOCKER_LOG"\n' >"$scratch/scripts/local.sh"
+chmod +x "$scratch/scripts/local.sh"
+: >"$scratch/compose.yaml"
+mkdir -p "$scratch/infra"
+: >"$scratch/infra/compose.fake-model.yml"
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' \
+  "$p" "$p" "$scratch" >"$VERIFY_AP_ROOT/$id/state.env"
+: >"$log"
+bash "$here/down.sh" "$id" >/dev/null 2>&1; check "down.sh: own project exits 0" 0 $?
+grep -q '^local.sh down --keep-volumes$' "$log"; check "down.sh: asks local.sh to keep volumes" 0 $?
+grep -Eq '^compose .* down .*(-v|--volumes)( |$)|^volume rm|prune' "$log"; check "down.sh: no -v, no volume rm, no prune" 1 $?
+[ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "down.sh: run stays for rm-volumes.sh" 0 $?
+bash "$here/down.sh" "$id" --keep-volumes >/dev/null 2>&1; check "down.sh: old --keep-volumes argument is a usage error" 2 $?
+
+# rm-volumes.sh: exact names with the run's prefix only.
+mkdir -p "$VERIFY_AP_ROOT/$id/evidence"
+anon=$(printf 'a%.0s' $(seq 1 64))
+printf '  volume  %s_pgdata\n  volume  %s\n  volume  werft-ws-1\n  volume  verify-ap-20261031-094644-90075_pgdata\n' "$p" "$anon" \
+  >"$VERIFY_AP_ROOT/$id/evidence/teardown-targets.txt"
+: >"$log"
+: >"$VERIFY_AP_ROOT/$id/cookie"; : >"$VERIFY_AP_ROOT/$id/cookie.owner"; : >"$VERIFY_AP_ROOT/$id/cookie.member"
+bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: own project exits 0" 0 $?
+[ -z "$(find "$VERIFY_AP_ROOT/$id" -maxdepth 1 -name 'cookie*')" ]; check "rm-volumes.sh: cookie and cookie.<who> removed" 0 $?
+[ "$(grep -c '^volume rm' "$log")" = 1 ] && grep -qx "volume rm ${p}_pgdata" "$log"; check "rm-volumes.sh: removes only the run's own prefixed name" 0 $?
+grep -Eq -- ' -f|prune|--force' "$log"; check "rm-volumes.sh: no force or prune flag" 1 $?
+[ ! -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: ports.yml removed after success" 0 $?
+bash "$here/rm-volumes.sh" >/dev/null 2>&1; check "rm-volumes.sh: no argument is a usage error" 2 $?
+: >"$VERIFY_AP_ROOT/$id/ports.yml"
+: >"$log"
+FAKE_DOCKER_FAIL=volume bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: a failing docker volume command exits 1" 1 $?
+[ -f "$VERIFY_AP_ROOT/$id/ports.yml" ]; check "rm-volumes.sh: failure keeps ports.yml" 0 $?
+printf 'export COMPOSE_PROJECT_NAME=%s\nexport EXECUTION_INSTALLATION_ID=%s\nVERIFY_REPO=%s\n' \
+  verify-ap-20261031-094644-90075 verify-ap-20261031-094644-90075 "$scratch" >"$VERIFY_AP_ROOT/$id/state.env"
+: >"$log"
+bash "$here/rm-volumes.sh" "$id" >/dev/null 2>&1; check "rm-volumes.sh: another project's name refused" 1 $?
+grep -q '^volume rm' "$log"; check "rm-volumes.sh: refusal removed nothing" 1 $?
+
+# The skill never tells the agent to build ids.sh from Bash (Write tool only).
+grep -rEq '>>? *"?\$(\{VERIFY_RUN\}|VERIFY_RUN)/ids\.sh' "$here/.." --include='*.md' --include='*.sh'; check "skill docs: no redirect into ids.sh" 1 $?
 
 # janitor: a dry run issues no removing command.
 : >"$log"

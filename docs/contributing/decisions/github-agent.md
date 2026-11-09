@@ -626,7 +626,7 @@ i18n ko·en·ja를 같이 고친다.
 
 ## 8. 검증 기준(werft-sandbox)
 
-실 GitHub 검증은 `JeongJaeSoon/werft-sandbox`와 작성용 App `werft-sandbox-agent`(App ID는 저장소 밖 노트에 있다)로 한다. 리뷰용 App은 오너가 새로 만든다. 각 구현 PR의 실측 항목은 [9절](#9-구현-pr-분할)에 있다. 공통 규칙은 셋이다. 자기 verify 스택 하나를 쓰고 끝나면 바로 `--keep-volumes`로 내린다. 키 파일은 경로만 넘기고 읽지 않는다. 거절을 확인할 때는 플랫폼 거절(게이트 `reason_code`)과 GitHub 거절(403·422)을 나눠 적는다.
+실 GitHub 검증은 `JeongJaeSoon/werft-sandbox`와 작성용 App `werft-sandbox-agent`(App ID는 저장소 밖 노트에 있다)로 한다. 리뷰용 App은 오너가 새로 만든다. 각 구현 PR의 실측 항목은 [9절](#9-구현-pr-분할)에 있다. 공통 규칙은 셋이다. 자기 verify 스택 하나를 쓰고 끝나면 바로 `down.sh`로 내린다(volume은 남는다). 키 파일은 경로만 넘기고 읽지 않는다. 거절을 확인할 때는 플랫폼 거절(게이트 `reason_code`)과 GitHub 거절(403·422)을 나눠 적는다.
 
 ## 9. 구현 PR 분할
 
