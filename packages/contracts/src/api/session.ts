@@ -321,6 +321,14 @@ export const sessionRepositorySchema = z.object({
   }),
 });
 
+export const sessionAttachedRepositorySchema = z.object({
+  id: z.string().min(1).meta({ description: "The catalog key." }),
+  full_name: z.string().min(1).nullable().meta({
+    description:
+      "A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository.",
+  }),
+});
+
 export const SESSION_ACTIVITY_WINDOW_EVENTS = 500;
 export const SESSION_ACTIVITY_TEXT_MAX = 200;
 const activityToolName = z.string().meta({
@@ -546,6 +554,13 @@ export const sessionSummarySchema = z.object({
       description:
         "The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
     }),
+  attached_repositories: z
+    .array(sessionAttachedRepositorySchema)
+    .optional()
+    .meta({
+      description:
+        "`attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable).",
+    }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
   last_event_at: timestampSchema.nullable(),
@@ -724,6 +739,9 @@ export type PauseBlockedReason = z.infer<typeof pauseBlockedReasonSchema>;
 export type CloseBlockedReason = z.infer<typeof closeBlockedReasonSchema>;
 export type SessionDurability = z.infer<typeof sessionDurabilitySchema>;
 export type SessionRepository = z.infer<typeof sessionRepositorySchema>;
+export type SessionAttachedRepository = z.infer<
+  typeof sessionAttachedRepositorySchema
+>;
 export type SessionActivity = z.infer<typeof sessionActivitySchema>;
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 export type PauseReason = z.infer<typeof pauseReasonSchema>;

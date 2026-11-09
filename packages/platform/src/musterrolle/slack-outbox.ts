@@ -1089,10 +1089,20 @@ export async function drainSlackOutbox(deps: {
       }
 
       // A card's text is slackCardText's, escaped and linked already.
+      // A model notice is a direct message with no thread: it opens the
+      // session instead.
+      const modelLink =
+        claim.kind === "model_notice" && claim.sessionId !== null
+          ? sessionUrl(deps.consoleOrigin, claim.sessionId)
+          : undefined;
       const text =
         claim.kind === "input_notice" && claim.body.blocks !== undefined
           ? claim.body.text
-          : slackOutboxText(claim.body);
+          : slackOutboxText(
+              modelLink === undefined
+                ? claim.body
+                : { ...claim.body, link_url: modelLink },
+            );
       let outcome: SlackOutboxSettle;
       try {
         const response =

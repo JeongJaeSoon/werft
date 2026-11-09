@@ -144,7 +144,8 @@ const channelNotWaiting = (row: SQL) => sql`(
 )`;
 
 // Where a row may still go: an installation not revoked, for a session's row
-// its thread's link still live, unmuted and showing full answers, and for an
+// its thread's link still live, unmuted and showing full answers (a
+// `model_notice` is a direct message with no thread, so it skips that), and for an
 // input notice its request still waiting: a card's own request, or, for a
 // turn's notice from before the cards, any of its turn's. Checked again at
 // claim, since a row can wait out a backoff after any of it changed.
@@ -155,7 +156,7 @@ const addressed = (db: Database, row: SQL) => sql`(
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
   )
   AND ${channelNotWaiting(row)}
-  AND (${row}.session_id IS NULL OR EXISTS (
+  AND (${row}.session_id IS NULL OR ${row}.kind = 'model_notice' OR EXISTS (
     SELECT 1 FROM session_links l
     WHERE l.session_id = ${row}.session_id
       AND l.installation_id = ${row}.installation_id

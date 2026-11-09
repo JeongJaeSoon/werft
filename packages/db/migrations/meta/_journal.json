@@ -1100,6 +1100,13 @@
       "when": 1794188791363,
       "tag": "0247_extension_bundles",
       "breakpoints": true
+    },
+    {
+      "idx": 248,
+      "version": "7",
+      "when": 1794188792363,
+      "tag": "0248_model_notice_kind",
+      "breakpoints": true
     }
   ]
 }
