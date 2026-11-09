@@ -164,6 +164,22 @@ compose 스택도 같은 원칙이다. `infra/compose.core.yml`·`infra/compose.
 
 mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서만** package write를 쥔다. 그 token은 이 저장소가 쓸 수 있는 모든 package, 곧 앱 릴리스 이미지까지 쓸 수 있다. 그래서 pull request trigger가 없고, `main`이 아닌 ref에서 dispatch하면 job을 건너뛴다. digest를 올리는 PR이 자기 run에서 미러하게 하면 PR이 고칠 수 있는 workflow에 package write를 주게 되어 `images.yml`의 게시 경계를 우회하므로, 두 단계로 나눈다.
 
+## 컨테이너 패키지 보존 정책 (dry run)
+
+`package-retention.yml`은 매주 월요일 05:41 KST(일요일 20:41 UTC)와 수동 dispatch에서 읽기 전용 보존 목록을 만든다. 관련 PR에서는 보호 규칙 시험과 `packages: read` 권한의 preview를 실행해 같은 목록을 로그로 남긴다. 대상은 이 저장소에 연결된 `werft-control-host`·`werft-worker`·`werft-egress-proxy`와 chart `werft` 네 패키지이며, 다른 패키지는 조회·정리 대상에 넣지 않는다.
+
+이미지의 `main-<sha>`·`staging-<runid>[-<attempt>][-amd64|-arm64]`, chart의 `0.1.0-main-<sha>`만 후보로 분류한다. 생성·최근 갱신이 7일 미만인 버전과 패키지별 최신 임시 버전 20개는 남긴다. semver와 알 수 없는 태그를 하나라도 함께 가진 digest, 태그 없는 버전은 예외로 남긴다. 모든 GitHub Release(초안·prerelease 포함)의 `release-manifest.json`이 가리키는 이미지 index·두 platform digest와 chart 버전은 보존한다. 제품 릴리스 manifest가 없거나 손상됐으면 중단한다. 남길 OCI index가 참조하는 하위 manifest도 재귀적으로 보존하므로, staging platform을 지워 남긴 multi-arch 이미지를 깨는 목록을 만들지 않는다. registry 응답의 digest도 검증하며 조회 실패는 안전한 생략으로 처리하지 않는다.
+
+로그는 버전마다 `would-delete` 또는 `keep`, 태그·digest·보존 이유를 출력한다. 마지막 JSON과 실행 summary에서 지울 후보 수·남길 수·예외 수를 확인하고, 예외 목록은 로그에서 확인한다. 이 숫자는 조회한 시점의 스냅샷이며, 실제 삭제 전에 다시 조회·검토해야 한다. `packages: write`는 예약·수동 dry-run job에만 두고 PR 시험에는 주지 않는다. 이 첫 단계에는 삭제 API가 없으며, 수동 입력 `dry_run=false`도 실패한다.
+
+```sh
+gh workflow run package-retention.yml --repo JeongJaeSoon/werft -f dry_run=true
+GITHUB_REPOSITORY=JeongJaeSoon/werft bun .github/scripts/package-retention.ts --dry-run
+bun test ./.github/scripts/package-retention.test.ts
+```
+
+삭제 활성화는 dry-run의 지울·남길·예외 목록에 대한 리드 승인 뒤 별도 PR로만 진행한다. 현재 단계는 공간을 회수하지 않는다.
+
 ## 제3자 라이선스와 취약점
 
 배포 이미지에 들어가는 제3자 구성요소의 목록과 고지는 저장소 루트의 `THIRD_PARTY_NOTICES.md`다. 세 이미지 모두 이 파일을 `/app`에 싣는다.
