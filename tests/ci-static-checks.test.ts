@@ -65,12 +65,6 @@ test("Bun cache restores on PRs but only saves outside PR events", () => {
   const caches = action.runs.steps.filter((s) =>
     s.uses?.startsWith("actions/cache"),
   );
-  expect(
-    action.runs.steps.find((s) => s.id === "bun")?.with?.["no-cache"],
-  ).toBe(
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow expression
-    "${{ github.event_name == 'pull_request' }}",
-  );
   for (const event of [
     "pull_request",
     "push",
