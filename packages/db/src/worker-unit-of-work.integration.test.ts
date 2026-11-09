@@ -845,6 +845,39 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({ status: 403, code: "FORBIDDEN" });
   });
 
+  test("nextInput tells a platform-queued turn with the old directive wording as facts, and leaves a person's message as written", async () => {
+    const legacy =
+      "Platform note: a person approved push request p1 (repository app, branch agent/s1) in Slack. Open the pull request now.";
+    for (const [actor, expected] of [
+      [
+        null,
+        "A person approved push request p1 (repository app, branch agent/s1). The push runs in the background.",
+      ],
+      ["person", legacy],
+    ] as const) {
+      const session = await queuedSession(partitionFor(`legacy-${actor}`));
+      const l = await launch(session.session_id);
+      const claimed = await claim(l);
+      const userId = actor === null ? null : crypto.randomUUID();
+      if (userId !== null) {
+        await db.insert(users).values({
+          id: userId,
+          email: `${userId}@example.invalid`,
+          passwordHash: "argon2id$placeholder",
+          displayName: "person",
+        });
+      }
+      await db
+        .update(turns)
+        .set({ message: legacy, actorId: userId })
+        .where(eq(turns.sessionId, session.session_id));
+      const next = await gateway.nextInput(principalOf(claimed), {
+        ...scopeOf(claimed),
+      });
+      expect(next.input?.message).toBe(expected);
+    }
+  });
+
   test("nextInput delivers the FIFO head once, records delivery_started_at and redelivers to the same attempt", async () => {
     const { session, claimed, input } = await claimAndDeliver();
     expect(input.turn_id).toBe("1");

@@ -2444,7 +2444,10 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            message: followUpFact(turn.message),
+            // A turn the platform queued itself has no actor; a person's
+            // message is delivered as written.
+            message:
+              turn.actorId === null ? followUpFact(turn.message) : turn.message,
             deliveryStartedAt,
           },
         };
