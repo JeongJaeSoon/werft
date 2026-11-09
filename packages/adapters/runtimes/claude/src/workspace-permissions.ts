@@ -85,7 +85,6 @@ const LOCAL_GIT = [
   "git show",
   "git add",
   "git commit",
-  "git branch",
   "git checkout -b",
   "git switch -c",
   "git switch --create",
@@ -97,6 +96,22 @@ const LOCAL_GIT = [
   "git stash push",
   "git stash pop",
   "git stash apply",
+];
+
+/**
+ * A sample PR starts with `mkdir -p notes && echo ... > notes/x`, and the
+ * engine does not run `mkdir` unasked outside acceptEdits. An empty directory
+ * is cheap to undo; a path that leaves the workspace still asks.
+ */
+const LOCAL_FS = ["mkdir"];
+const LOCAL_FS_ASK = [
+  "mkdir /*",
+  "mkdir * /*",
+  "mkdir *..*",
+  "mkdir ~*",
+  "mkdir * ~*",
+  "mkdir *$*",
+  "mkdir *`*",
 ];
 
 /** Bare forms that must not also take the `*` of the shapes above. */
@@ -118,8 +133,6 @@ const GIT_ASK = [
   "git add * --*",
   "git add -*f*",
   "git add * -*f*",
-  "git branch -*",
-  "git branch * -*",
   "git checkout -b * -*",
   "git switch -c * -*",
   "git switch --create * -*",
@@ -129,6 +142,94 @@ const GIT_ASK = [
   ...["git add", "git commit"].flatMap((command) =>
     SECRET_NAME_PARTS.map((part) => `${command} *${part}*`),
   ),
+];
+
+/**
+ * Read-only inspection (`ls`, `cat`, `grep`, `git remote -v`, `git branch -a`,
+ * `find`, ...) is not listed in `allow`: the engine runs those unasked inside
+ * the workspace and itself asks for an outside path, `find -exec|-delete|-fprint`,
+ * `tree -o` and `rg --pre`. What it does not see is that `.env` is a secret, so
+ * the readers of file content ask when a secret's name is on the line. By
+ * name only: `cat .e*`, `grep -r . .` and a symlink named innocently get past
+ * it, as they do past the Read tool, which the engine allows in the workspace.
+ * The container and the egress proxy are what hold the content in.
+ */
+const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
+
+/**
+ * Where a file name begins in a command line: the first operand, or after a
+ * space, a slash or a quote. Matching them anywhere would ask for
+ * `process.env` and `src/credentials.ts`, which are code and not secrets.
+ */
+const CLUSTER_LETTERS = [..."nHiswNlcoF"];
+const NAME_STARTS = [
+  " ",
+  "/",
+  '"',
+  "'",
+  "=",
+  // `grep -f.env`, `grep -nf.env`: a pattern file named right after the flag.
+  "-f",
+  ...CLUSTER_LETTERS.map((letter) => `-${letter}f`),
+];
+
+/** Matched where the name ends, so `object.keys.ts` is not a key file. */
+const SECRET_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".keystore"];
+
+/** File names that are secrets, matched from where the name begins. */
+const SECRET_READ_NAMES = [
+  ...SECRET_NAME_PARTS.filter(
+    (part) =>
+      part !== "credentials" &&
+      part !== "service-account" &&
+      !SECRET_EXTENSIONS.includes(part),
+  ),
+  // Only the JSON key files, as in SENSITIVE_PATHS; `service-account.ts` is code.
+  "service-account*.json",
+  ".git/config",
+];
+
+/** The ask patterns for one reader and every spelling above. */
+function secretReadPatterns(command: string): string[] {
+  const names = SECRET_READ_NAMES.flatMap((name) => [
+    `${command} ${name}*`,
+    ...NAME_STARTS.map((start) => `${command} *${start}${name}*`),
+  ]);
+  const extensions = SECRET_EXTENSIONS.flatMap((extension) => [
+    `${command} *${extension}`,
+    ...[" ", '"', "'"].map((end) => `${command} *${extension}${end}*`),
+  ]);
+  return [...names, ...extensions];
+}
+
+/**
+ * `rg` skips hidden files (dotenv files among them) unless told not to, and
+ * `-uu` turns that off. It can be spelled `-uu`, `-nuu`, `-u -u` or `-unu`, so
+ * any flag that starts with `-u` asks, and so does one letter then `uu`. `*`
+ * crosses spaces, so a bare `-*uu*` would ask for `rg -n uuid src`. A `u` in the
+ * middle of a longer cluster (`-nunu`, `-ninuu`) is not caught.
+ */
+const FLAG_LETTERS = [
+  ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+];
+const RG_HIDDEN_ASK = [
+  "rg *--hidden*",
+  "rg *--no-ignore*",
+  "rg *--unrestricted*",
+  "rg -u*",
+  "rg * -u*",
+  ...FLAG_LETTERS.flatMap((letter) => [
+    `rg -${letter}uu*`,
+    `rg * -${letter}uu*`,
+  ]),
+  // Two of the usual flags before `uu` (`-nHuu`).
+  ...CLUSTER_LETTERS.flatMap((first) =>
+    CLUSTER_LETTERS.flatMap((second) => [
+      `rg -${first}${second}uu*`,
+      `rg * -${first}${second}uu*`,
+    ]),
+  ),
+  // Two of the usual flags before `uu` (`-nHuu`).
 ];
 
 /** Test and script runners; the workspace's own code runs through them. */
@@ -199,11 +300,16 @@ export function workspaceRules(
     }
   }
   if (tools.has("Bash")) {
-    for (const command of [...LOCAL_GIT, ...DEV_COMMANDS]) {
+    for (const command of [...LOCAL_GIT, ...LOCAL_FS, ...DEV_COMMANDS]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
     allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
     ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
+    ask.push(...LOCAL_FS_ASK.map((pattern) => `Bash(${pattern})`));
+    for (const command of SECRET_READERS) {
+      ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
+    }
+    ask.push(...RG_HIDDEN_ASK.map((pattern) => `Bash(${pattern})`));
     for (const command of DEV_COMMANDS) {
       // `*` stands for the operands before the flag, which may be none.
       for (const flag of DEV_ASK) {

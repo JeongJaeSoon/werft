@@ -693,11 +693,11 @@ describe.serial("Agent SDK 0.3.319 and Claude Code 2.1.319", () => {
 
   // A platform tool (`trusted`) gets a PreToolUse allow from the adapter and
   // nothing else: the claim is that the allow takes the call out of the
-  // whole permission stage, the auto classifier included. The classifier is
-  // observable only on a model it is offered for (`claude-sonnet-5`; on
+  // whole permission stage, the auto classifier included. The auto stage is
+  // in play only on a model it is offered for (`claude-sonnet-5`; on
   // `claude-sonnet-4-5`, the harness default, auto asks canUseTool and never
-  // calls a model). Its requests carry no tools and quote the tool call, so
-  // the control run shows them and the allowed run must show none.
+  // judges). On the fake upstream the control run is refused by the safety
+  // check and the allowed run must not be.
   // The in-process server stands in for the adapter's relay, which is an
   // SDK MCP server too.
   describe("a PreToolUse allow on an MCP tool", () => {
@@ -767,16 +767,24 @@ describe.serial("Agent SDK 0.3.319 and Claude Code 2.1.319", () => {
       return { asked, classifierRequests, ran };
     }
 
-    test("auto: a control run reaches the classifier, and the allow does not", async () => {
+    // 0.3.319 judges an auto call on the server's side, so no classifier
+    // request reaches the fake upstream. With no server verdict, auto mode
+    // refuses the call and says so in the tool result: that refusal is how
+    // the control run shows the stage is in play.
+    const autoRefusals = () =>
+      (server?.requests ?? []).filter((request) =>
+        JSON.stringify(request.body).includes("Auto mode is unavailable"),
+      ).length;
+
+    test("auto: a control run is refused by the safety check, and the allow is not", async () => {
       const control = await pushRun("auto", []);
-      // The classifier was asked about the call, and its unparsable answer
-      // did not let the tool run: the stage is really in play.
-      expect(control.classifierRequests).toBeGreaterThan(0);
-      expect(control.ran).toEqual([]);
+      expect(autoRefusals()).toBeGreaterThan(0);
+      expect(control).toEqual({ asked: [], classifierRequests: 0, ran: [] });
       await context?.dispose();
       server?.stop();
 
       const allowed = await pushRun("auto", [allowHook]);
+      expect(autoRefusals()).toBe(0);
       expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
     }, 120_000);
 

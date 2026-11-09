@@ -104,7 +104,7 @@ export function WorkspaceSlackScreen() {
     unready && apps.status === "success" && apps.data.items.length === 0;
   const guest = <SlackGuest onOutcome={setOutcome} />;
   return (
-    <WorkspacePage page="slack">
+    <>
       <OutcomeLine outcome={outcome} />
       {/* Members can only read the guest setting; it leads for them. */}
       {canManage ? null : guest}
@@ -115,6 +115,15 @@ export function WorkspaceSlackScreen() {
         onOutcome={setOutcome}
       />
       {canManage && !tokenOnly && !deciding ? guest : null}
+    </>
+  );
+}
+
+/** Kept apart from the body so a tab layout can host the body without this frame. */
+export function WorkspaceSlackRoute() {
+  return (
+    <WorkspacePage page="slack">
+      <WorkspaceSlackScreen />
     </WorkspacePage>
   );
 }
