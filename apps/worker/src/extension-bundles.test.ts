@@ -485,7 +485,7 @@ describe("the bundle route's failures are retried by status, not by the body's f
     const tar = packBundleTar(GOOD);
     const { run, requests } = publishVia([
       () => apiError(503, false),
-      () => new Response(tar),
+      () => new Response(new Uint8Array(tar)),
     ]);
     await run();
     expect(requests()).toBe(2);
