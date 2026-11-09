@@ -2202,3 +2202,137 @@ describe("Slack management", () => {
     expect(document.getElementById("slack-danger")).toBeNull();
   });
 });
+
+describe("Slack private channel states", () => {
+  const PRIVATE_ID = "00000000-0000-4000-8000-0000000000c2";
+  const pending: typeof BINDING = {
+    ...BINDING,
+    id: PRIVATE_ID,
+    external_surface_id: "C2",
+    surface_kind: "private_channel",
+    home: false,
+    status: "pending_approval",
+    membership: { state: "joined", error: null },
+    revision: 3,
+  };
+  const left: typeof BINDING = {
+    ...pending,
+    status: "left",
+    approved_at: null,
+    membership: { state: "awaiting_invite", error: null },
+    revision: 4,
+  };
+  const withoutApprove = () => {
+    const base = me();
+    return {
+      ...base,
+      permissions: base.permissions.filter((p) => p !== "binding.approve"),
+    };
+  };
+
+  test("shows a channel waiting for approval and approves it with the revision it read", async () => {
+    let approved = false;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [
+            BINDING,
+            approved ? { ...pending, status: "ready", revision: 4 } : pending,
+          ],
+        }),
+      [`POST ${PATH}/slack-bindings/${PRIVATE_ID}/approve`]: () => {
+        approved = true;
+        return json(200, {
+          slack_binding: { ...pending, status: "ready", revision: 4 },
+          receipt_id: ID,
+        });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    await within(list).findByText("승인 대기");
+    expect(
+      within(list).getByText(
+        /승인하기 전에는 이 채널의 메시지에 답하지 않습니다/,
+      ),
+    ).toBeDefined();
+    await user.click(within(list).getByRole("button", { name: /^채널 승인/ }));
+    await screen.findByText("채널을 승인했습니다.");
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      revision: 3,
+    });
+    await waitFor(() =>
+      expect(within(list).queryByText("승인 대기")).toBeNull(),
+    );
+    expect(
+      within(list).queryByRole("button", { name: /^채널 승인/ }),
+    ).toBeNull();
+  });
+
+  test("offers no approve button to a role that may not approve", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, withoutApprove()),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, pending] }),
+    });
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    await within(list).findByText("승인 대기");
+    expect(
+      within(list).queryByRole("button", { name: /^채널 승인/ }),
+    ).toBeNull();
+  });
+
+  test("shows a conflict and the row as it is now when the binding moved", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, pending] }),
+      [`POST ${PATH}/slack-bindings/${PRIVATE_ID}/approve`]: () =>
+        apiError(409, "REVISION_CONFLICT", "moved"),
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    await user.click(
+      await within(list).findByRole("button", { name: /^채널 승인/ }),
+    );
+    await screen.findByText(/다른 곳에서 먼저 바꿨습니다/);
+  });
+
+  test("shows a binding the bot left as inactive with the re-invite guidance", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, left] }),
+    });
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    await within(list).findByText("나감");
+    expect(within(list).getByText("비활성")).toBeDefined();
+    expect(
+      within(list).getByText(/채널에 다시 초대하면 승인 대기로 돌아옵니다/),
+    ).toBeDefined();
+    expect(
+      within(list).getByRole("button", { name: "/invite 명령 복사" }),
+    ).toBeDefined();
+    // Nothing to approve and no switch that would read "in use".
+    expect(
+      within(list).queryByRole("button", { name: /^채널 승인/ }),
+    ).toBeNull();
+    expect(within(list).queryByRole("switch", { name: /C2/ })).toBeNull();
+  });
+
+  test("leaves an active binding as it was", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, { ...pending, status: "ready" }] }),
+    });
+    const list = await screen.findByRole("list", { name: "연결된 채널" });
+    await within(list).findAllByRole("switch");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(within(list).queryByText("나감")).toBeNull();
+    expect(within(list).queryByText("비활성")).toBeNull();
+    expect(within(list).getAllByRole("switch")).toHaveLength(2);
+  });
+});

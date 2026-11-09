@@ -26,6 +26,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { useHasPermission } from "../../../auth/guard.tsx";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import type { Notify } from "../../../components/toast.tsx";
@@ -208,6 +209,23 @@ export function SlackChannels({
         notify(slackFailure(failure, t), { silent: true });
     },
   });
+  // The server lets only a workspace owner or admin approve, not an agent's admin.
+  const canApprove = useHasPermission("binding.approve");
+  const approve = useMutation({
+    onMutate: () => setNotice(""),
+    mutationFn: (row: Binding) =>
+      unwrap(
+        client.POST("/v1/agents/{id}/slack-bindings/{binding_id}/approve", {
+          params: { path: { id: agentId, binding_id: row.id } },
+          body: { revision: row.revision },
+        }),
+      ),
+    onSuccess: () => notify(t("slack.approved")),
+    onError: (failure) => notify(slackFailure(failure, t), { silent: true }),
+    // A conflict means the row moved (left, approved elsewhere): show it as it is.
+    onSettled: () =>
+      cache.invalidateQueries({ queryKey: [...key, "bindings"] }),
+  });
   const rows =
     bindings.data?.items.filter((row) => row.surface_kind !== "dm") ?? [];
   const listed = [
@@ -373,10 +391,28 @@ export function SlackChannels({
                         {row.home ? (
                           <Badge variant="gray">{t("slack.home")}</Badge>
                         ) : null}
+                        {row.status === "pending_approval" ? (
+                          <Badge variant="amber">
+                            {t("slack.pendingApproval")}
+                          </Badge>
+                        ) : row.status === "left" ? (
+                          <Badge variant="red">{t("slack.left")}</Badge>
+                        ) : null}
                       </>
                     }
                     meta={
-                      awaitsInvite(row, known) ? (
+                      row.status === "left" ? (
+                        <span className="flex flex-wrap items-center gap-1">
+                          <Text as="span" variant="sub">
+                            {t("slack.leftHint")}
+                          </Text>
+                          <InviteCopy command={invite} notify={notify} />
+                        </span>
+                      ) : row.status === "pending_approval" ? (
+                        <Text as="span" variant="sub">
+                          {t("slack.pendingApprovalHint")}
+                        </Text>
+                      ) : awaitsInvite(row, known) ? (
                         <span className="flex flex-wrap items-center gap-1">
                           <Badge variant="gray">
                             {t("slack.privateInvite")}
@@ -386,15 +422,34 @@ export function SlackChannels({
                       ) : undefined
                     }
                     actions={
-                      manages ? (
-                        <Switch
-                          aria-label={t("slack.inUseOf", { channel: name })}
-                          checked={row.mode !== "off"}
-                          aria-disabled={update.isPending}
-                          onCheckedChange={(checked) =>
-                            change(row, checked ? "on" : "off")
-                          }
-                        />
+                      // A left binding takes no input and sends nothing, so a
+                      // switch that reads "on" would be a lie.
+                      row.status === "left" ? (
+                        <Text as="span" variant="sub">
+                          {t("slack.inactive")}
+                        </Text>
+                      ) : manages ? (
+                        <span className="flex items-center gap-2">
+                          {row.status === "pending_approval" && canApprove ? (
+                            <RowAction
+                              aria-label={t("slack.approveChannel", {
+                                channel: name,
+                              })}
+                              disabled={approve.isPending}
+                              onClick={() => approve.mutate(row)}
+                            >
+                              {t("slack.approve")}
+                            </RowAction>
+                          ) : null}
+                          <Switch
+                            aria-label={t("slack.inUseOf", { channel: name })}
+                            checked={row.mode !== "off"}
+                            aria-disabled={update.isPending}
+                            onCheckedChange={(checked) =>
+                              change(row, checked ? "on" : "off")
+                            }
+                          />
+                        </span>
                       ) : (
                         <Text as="span" variant="sub">
                           {t(row.mode !== "off" ? "slack.on" : "slack.off")}
