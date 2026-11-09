@@ -80,9 +80,10 @@ const CATALOG: SessionCatalog = withSeededInstallation({
   },
 });
 
-function card(instructions: string, model = "claude-sonnet-5") {
+// `tag` only tells two cards apart: it is the text of the card's one rule.
+function card(tag: string, model = "claude-sonnet-5") {
   return agentCardRequestSchema.parse({
-    agent_instructions: instructions,
+    rules: [{ id: "r1", text: tag, source: "user" }],
     model,
     capabilities: { tools: ["Read"], mcp: null, forbidden: [] },
   });
@@ -205,7 +206,6 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
       model: "claude-sonnet-5",
       model_source: "profile",
       title_model: "claude-haiku-5",
-      agent_instructions: "v1",
     });
     expect(made.effective_behavior.draft).toBeNull();
   });
@@ -510,14 +510,13 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     const activeCard = now.versions.find(
       (v) => v.id === now.active_release?.version_id,
     )?.card;
+    const tagOf = (c: typeof activeCard) => c?.rules[0]?.text ?? "";
     const lastJudged = now.versions
-      .filter((v) => ["X", "Y"].includes(v.card.agent_instructions ?? ""))
+      .filter((v) => ["X", "Y"].includes(tagOf(v.card)))
       .at(-1);
-    expect(["X", "Y"]).toContain(activeCard?.agent_instructions ?? "");
+    expect(["X", "Y"]).toContain(tagOf(activeCard));
     if (statuses.includes("superseded")) {
-      expect(activeCard?.agent_instructions).toBe(
-        lastJudged?.card.agent_instructions,
-      );
+      expect(tagOf(activeCard)).toBe(tagOf(lastJudged?.card));
     }
   });
 

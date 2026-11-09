@@ -241,10 +241,7 @@ export type CheckpointProtocol = {
 
 // What every config of a session's claim carries from its release and its
 // row, whichever profile and tool list it is for.
-type ReleaseRun = Pick<
-  WorkerBinding,
-  "releaseTools" | "agentInstructions" | "platformPrompt"
->;
+type ReleaseRun = Pick<WorkerBinding, "releaseTools" | "platformPrompt">;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
@@ -625,9 +622,8 @@ export function createWorkerGateway(deps: {
 
   // The session's configs under one profile, one per tool list
   // (claimToolLists), and the list the engine runs. Each carries the
-  // release card's agent instructions, which a checkpoint's fingerprint
-  // holds whichever config made it; none leaves the field off, so such a
-  // claim is the one an older worker accepts.
+  // platform prompt, which a checkpoint's fingerprint holds whichever config
+  // made it.
   function toolConfigsOf(
     profile: CatalogProfile,
     release: ReleaseRun,
@@ -639,7 +635,6 @@ export function createWorkerGateway(deps: {
       release.releaseTools ?? null,
       runReleaseTools,
     );
-    const instructions = release.agentInstructions;
     const prompt = release.platformPrompt;
     const configOf = (tools: readonly string[]): RuntimeConfig => {
       const config = runtimeConfigOf(
@@ -650,7 +645,6 @@ export function createWorkerGateway(deps: {
       );
       return {
         ...config,
-        ...(instructions ? { agent_instructions: instructions } : {}),
         ...(prompt ? { platform_prompt: prompt } : {}),
       };
     };

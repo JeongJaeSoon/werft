@@ -154,7 +154,6 @@ import {
 import {
   achievementJudgments,
   agentReleases,
-  agentVersions,
   approvalCheckpoints,
   attempts,
   checkpointOutputs,
@@ -1480,29 +1479,19 @@ async function bindingOf(
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<Pick<WorkerBinding, "releaseTools" | "agentInstructions">> {
-  if (session.agentReleaseId === null)
-    return { releaseTools: null, agentInstructions: null };
+): Promise<Pick<WorkerBinding, "releaseTools">> {
+  if (session.agentReleaseId === null) return { releaseTools: null };
   const [release] = await tx
-    .select({
-      snapshot: agentReleases.runtimeConfigSnapshot,
-      instructions: sql<unknown>`${agentVersions.card}->'agent_instructions'`,
-    })
+    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
     .from(agentReleases)
-    .innerJoin(agentVersions, eq(agentVersions.id, agentReleases.versionId))
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
   const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
-  const instructions = release?.instructions;
   return {
     releaseTools:
       Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
         ? tools
         : [],
-    agentInstructions:
-      typeof instructions === "string" && instructions !== ""
-        ? instructions
-        : null,
   };
 }
 

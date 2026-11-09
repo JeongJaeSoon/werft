@@ -36,19 +36,19 @@ const COPY: Record<
 > = {
   ko: {
     legend: "이름과 설명",
-    hint: "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
+    hint: "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 저장소의 CLAUDE.md나 AGENTS.md에 적으세요.",
     name: "이름",
     description: "설명",
   },
   en: {
     legend: "Name and description",
-    hint: "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in Agent instructions.",
+    hint: "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in the repository's CLAUDE.md or AGENTS.md.",
     name: "Name",
     description: "Description",
   },
   ja: {
     legend: "名前と説明",
-    hint: "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
+    hint: "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はリポジトリの CLAUDE.md や AGENTS.md に書いてください。",
     name: "名前",
     description: "説明",
   },

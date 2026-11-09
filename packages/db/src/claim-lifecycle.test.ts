@@ -302,34 +302,6 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
   });
 
-  test("the binding carries the release card's agent instructions as stored, and none for a card without them, an empty one, or no release", async () => {
-    const instructionsBound = async (agentReleaseId: string | null) => {
-      const backend = new NonceHoldingBackend();
-      await queuedSession("default", agentReleaseId);
-      const [ref] = (await pass(backend)).launched;
-      if (!ref) throw new Error("nothing launched");
-      const bound = await claim(ref, backend.nonceOf(ref));
-      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
-      return bound.binding.agentInstructions;
-    };
-    const text = "  Answer in Korean.\n";
-    expect(await instructionsBound(null)).toBeNull();
-    expect(
-      await instructionsBound(
-        await releaseWith({ tools: [] }, { agent_instructions: text }),
-      ),
-    ).toBe(text);
-    // The card's earlier `instructions` never reach a run.
-    expect(
-      await instructionsBound(await releaseWith({ tools: [] })),
-    ).toBeNull();
-    expect(
-      await instructionsBound(
-        await releaseWith({ tools: [] }, { agent_instructions: "" }),
-      ),
-    ).toBeNull();
-  });
-
   test("the binding carries the session row's platform prompt as stored, and none for a revision 0 row", async () => {
     const promptBound = async (prompt: PlatformPrompt | null) => {
       const backend = new NonceHoldingBackend();

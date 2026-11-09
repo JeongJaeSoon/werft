@@ -4,7 +4,6 @@ export const RELEASE_AREAS = [
   "repositories",
   "model",
   "tools",
-  "prompt",
   "settings",
   "secrets",
 ] as const;
@@ -213,8 +212,6 @@ export function releaseChanges(
     tools: _toolsB,
     ...configB
   } = after.runtime_config_snapshot;
-  const instructionsA = cardA?.agent_instructions ?? "";
-  const instructionsB = cardB?.agent_instructions ?? "";
   const changes: ReleaseChange[] = [
     // No GitHub pin is every repository the profile allows, not none.
     ...optionalListChange(
@@ -249,18 +246,6 @@ export function releaseChanges(
       () => true,
     ),
     ...listChange("tools", "toolPolicy", perTool(toolsA), perTool(toolsB)),
-    // What a run appends to its system prompt; rules and language stay on the card.
-    ...(instructionsA === instructionsB
-      ? []
-      : [
-          {
-            area: "prompt",
-            field: { key: "instructions" },
-            kind: "text",
-            before: instructionsA,
-            after: instructionsB,
-          } as const,
-        ]),
     ...valueChange(
       "settings",
       { key: "profile" },
