@@ -26,12 +26,14 @@ import {
   agentAdminParamsSchema,
   agentAdminsViewSchema,
   agentDetailSchema,
+  agentEnvVariablesSchema,
   agentGitHubActivityResponseSchema,
   agentGitHubResponseSchema,
   agentIdentityParamsSchema,
   agentIdParamsSchema,
   agentMcpResponseSchema,
   agentPullRequestResponseSchema,
+  agentVariableParamsSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
   apiRootResponseSchema,
@@ -78,12 +80,14 @@ import {
   createTeamRequestSchema,
   createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
+  deleteEnvVariableResponseSchema,
   deleteGitHubAppResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
   deleteTeamResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  envVariableListSchema,
   exportSettingsResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   GITHUB_INSTALLATION_STATE_TTL_SECONDS,
@@ -196,6 +200,10 @@ import {
   putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsRequestSchema,
   putAgentPullRequestSettingsResponseSchema,
+  putEnvVariableGrantsRequestSchema,
+  putEnvVariableGrantsResponseSchema,
+  putEnvVariableRequestSchema,
+  putEnvVariableResponseSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretRequestSchema,
@@ -322,6 +330,7 @@ import {
   workspaceParamsSchema,
   workspaceProfileChangeResponseSchema,
   workspaceProfileIdParamsSchema,
+  workspaceVariableParamsSchema,
 } from "@werft-ai/contracts";
 import { z } from "zod";
 import {
@@ -623,6 +632,13 @@ const responseComponents = {
   CreateCredentialBindingResponse: createCredentialBindingResponseSchema,
   ListCredentialBindingsResponse: listCredentialBindingsResponseSchema,
   RevokeCredentialBindingResponse: revokeCredentialBindingResponseSchema,
+  EnvVariableList: envVariableListSchema,
+  PutEnvVariableRequest: putEnvVariableRequestSchema,
+  PutEnvVariableResponse: putEnvVariableResponseSchema,
+  PutEnvVariableGrantsRequest: putEnvVariableGrantsRequestSchema,
+  PutEnvVariableGrantsResponse: putEnvVariableGrantsResponseSchema,
+  DeleteEnvVariableResponse: deleteEnvVariableResponseSchema,
+  AgentEnvVariables: agentEnvVariablesSchema,
   LinkAgentIdentityResponse: linkAgentIdentityResponseSchema,
   ListAgentIdentitiesResponse: listAgentIdentitiesResponseSchema,
   RevokeAgentIdentityResponse: revokeAgentIdentityResponseSchema,
@@ -705,6 +721,11 @@ export const OPENAPI_TAGS = [
       "Write agent cards, release a version against a runtime profile, activate a release and bind the credential names it runs with. Owners, admins, and each agent's own admins.",
   },
   {
+    name: "Variables",
+    description:
+      "Environment variables the workspace or one agent holds and a session's engine and tools read. Owners and admins manage the workspace's own and choose which agents receive them; an agent's admins manage that agent's. Signed-in people only.",
+  },
+  {
     name: "Linked accounts",
     description:
       "Link and unlink the caller's own Slack account through Sign in with Slack.",
@@ -745,7 +766,13 @@ export const OPENAPI_TAG_GROUPS = [
   },
   {
     name: "Workspace management",
-    tags: ["Members", "Teams", "Linked accounts", "Workspace settings"],
+    tags: [
+      "Members",
+      "Teams",
+      "Linked accounts",
+      "Workspace settings",
+      "Variables",
+    ],
   },
   { name: "Administration", tags: ["Admin", "Recovery"] },
   { name: "Operations", tags: ["Health", "Limits & receipts"] },
@@ -796,6 +823,11 @@ export type RouteDeclaration = {
   // Appended to ERROR_CODE_WHEN's sentence where a code is narrower here.
   errorNotes?: Partial<Record<ApiErrorCode, string>>;
   lastEventId?: boolean;
+  // Optimistic concurrency: `If-Match` names the version the caller read, the
+  // resource's `version` or its `grant_version`; `ifNoneMatch` also takes `*`
+  // to create.
+  ifMatch?: "version" | "grant_version";
+  ifNoneMatch?: true;
   // The service checks `scope` itself, so it can record the refusal; the
   // /v1 scope table leaves the route alone. The document still shows it.
   scopeCheckedBy?: "service";
@@ -884,6 +916,18 @@ const EXAMPLE_GITHUB_CONNECTION = {
 };
 const EXAMPLE_USER_ID = "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35";
 const EXAMPLE_AGENT_ID = "8d2c4f1a-6b3e-4a9d-b7c5-2e1f0a9b8c7d";
+const EXAMPLE_ENV_VARIABLE = {
+  name: "REGION",
+  kind: "plain",
+  value: "ap-northeast-1",
+  version: 41,
+  grant_all: false,
+  grant_version: 42,
+  granted_agents: [EXAMPLE_AGENT_ID],
+  engine_delivery: false,
+  updated_by: EXAMPLE_USER_ID,
+  updated_at: "2026-11-09T01:00:00.000Z",
+};
 const EXAMPLE_SLACK_APP_REDIRECT = `https://console.example.ts.net/agents/${EXAMPLE_AGENT_ID}/slack/callback`;
 const EXAMPLE_SLACK_APP = {
   id: "6a1d3e5f-2b4c-4d8e-9f0a-1b2c3d4e5f60",
@@ -1891,7 +1935,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary:
       "Start making the author GitHub App from a manifest (owner or admin)",
-    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/integrations/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
     auth: "session",
     body: "StartGitHubAppManifestRequest",
     requestExample: {
@@ -4875,6 +4919,199 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
   {
+    method: "get",
+    path: "/v1/workspace/variables",
+    operationId: "listWorkspaceVariables",
+    tag: "Variables",
+    summary: "The workspace's own variables",
+    description:
+      "Owners and admins; never an API key. A plain variable carries its `value`; a secret never does. `granted_agents` is who may receive it, `grant_all` that every agent may (plain only).",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "EnvVariableList",
+      description: "The workspace's variables, by name.",
+      example: { items: [EXAMPLE_ENV_VARIABLE] },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/variables/{name}",
+    operationId: "putWorkspaceVariable",
+    tag: "Variables",
+    summary: "Create or replace a workspace variable",
+    description:
+      "Owners and admins, signed in as a person; never an API key. `If-None-Match: *` creates, `If-Match: <version>` replaces the value. A new variable reaches no agent until it is granted. Only `kind: plain` is accepted for now: a secret answers 400 SECRET_ENV_UNSUPPORTED. The value is text of at most 48 KB without NUL bytes. Writes a `set_env_variable` receipt that names the variable and its version, never the value.",
+    auth: "session",
+    body: "PutEnvVariableRequest",
+    requestExample: { kind: "plain", value: "ap-northeast-1" },
+    success: {
+      status: 200,
+      schema: "PutEnvVariableResponse",
+      description: "The variable's new `version` and its `grant_version`.",
+      example: { name: "REGION", version: 44, grant_version: 42 },
+    },
+    errors: [400, 401, 403, 409, 412, 413, 428, 503],
+    errorCodes: {
+      400: [
+        "BAD_REQUEST",
+        "VARIABLE_NAME_INVALID",
+        "VARIABLE_NAME_RESERVED",
+        "VARIABLE_VALUE_INVALID",
+        "VARIABLE_VALUE_TOO_LARGE",
+        "SECRET_ENV_UNSUPPORTED",
+      ],
+      409: ["VARIABLE_QUOTA_EXCEEDED"],
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "version",
+    ifNoneMatch: true,
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/workspace/variables/{name}",
+    operationId: "deleteWorkspaceVariable",
+    tag: "Variables",
+    summary: "Delete a workspace variable",
+    description:
+      "Takes what writing takes, and `If-Match: <version>`. `affected_agents` counts the agents that received the value and `open_sessions` the sessions not closed yet that copied it when they started: those keep the value until they close. Writes a `delete_env_variable` receipt.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteEnvVariableResponse",
+      description:
+        "How many agents received the value and sessions still hold it.",
+      example: { affected_agents: 3, open_sessions: 1 },
+    },
+    errors: [400, 401, 403, 404, 412, 428, 503],
+    errorCodes: {
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "version",
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/variables/{name}/grants",
+    operationId: "putWorkspaceVariableGrants",
+    tag: "Variables",
+    summary: "Replace the agents that may receive a workspace variable",
+    description:
+      "Owners and admins; never an API key. The whole set is replaced. `grant_all: true` takes no `agents`. `If-Match: <grant_version>` is required, so two edits of the same grants cannot overwrite each other: the later one answers 412. Writes a `set_env_variable_grants` receipt with the set before and after.",
+    auth: "session",
+    body: "PutEnvVariableGrantsRequest",
+    requestExample: { grant_all: false, agents: [{ id: EXAMPLE_AGENT_ID }] },
+    success: {
+      status: 200,
+      schema: "PutEnvVariableGrantsResponse",
+      description: "The grants now held, and their new `grant_version`.",
+      example: { name: "REGION", grant_version: 43 },
+    },
+    errors: [400, 401, 403, 404, 412, 413, 428, 503],
+    errorCodes: {
+      400: ["BAD_REQUEST", "SECRET_GRANT_ALL_FORBIDDEN"],
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "grant_version",
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/variables",
+    operationId: "listAgentVariables",
+    tag: "Variables",
+    summary: "The variables an agent has",
+    description:
+      "Owners, admins and that agent's admins; never an API key. `items` are the agent's own; `granted_workspace_values` are the workspace values granted to it, the only workspace values this answer shows. `effective` lists each name once with its `source`; `workspace_value_ungranted` says a workspace variable of the same name exists but is not granted to this agent, with no value. A secret never carries a value.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentEnvVariables",
+      description:
+        "The agent's own variables and the workspace values it gets.",
+      example: {
+        effective: [
+          {
+            name: "REGION",
+            kind: "plain",
+            source: "workspace",
+            shadows_workspace: false,
+            workspace_value_ungranted: false,
+          },
+        ],
+        items: [],
+        granted_workspace_values: [
+          { name: "REGION", kind: "plain", value: "ap-northeast-1" },
+        ],
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/variables/{name}",
+    operationId: "putAgentVariable",
+    tag: "Variables",
+    summary: "Create or replace an agent's own variable",
+    description:
+      "Owners, admins and that agent's admins, signed in as a person; never an API key. Preconditions, limits and receipt as for the workspace's variables; an agent holds 50. The agent's value wins over a workspace value of the same name.",
+    auth: "session",
+    body: "PutEnvVariableRequest",
+    requestExample: { kind: "plain", value: "ap-northeast-1" },
+    success: {
+      status: 200,
+      schema: "PutEnvVariableResponse",
+      description: "The variable's new `version` and its `grant_version`.",
+      example: { name: "REGION", version: 44, grant_version: 42 },
+    },
+    errors: [400, 401, 403, 404, 409, 412, 413, 428, 503],
+    errorCodes: {
+      400: [
+        "BAD_REQUEST",
+        "VARIABLE_NAME_INVALID",
+        "VARIABLE_NAME_RESERVED",
+        "VARIABLE_VALUE_INVALID",
+        "VARIABLE_VALUE_TOO_LARGE",
+        "SECRET_ENV_UNSUPPORTED",
+      ],
+      409: ["VARIABLE_QUOTA_EXCEEDED"],
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "version",
+    ifNoneMatch: true,
+    idempotent: false,
+  },
+  {
+    method: "delete",
+    path: "/v1/agents/{id}/variables/{name}",
+    operationId: "deleteAgentVariable",
+    tag: "Variables",
+    summary: "Delete an agent's own variable",
+    description:
+      "Takes what writing takes, and `If-Match: <version>`. `open_sessions` counts the sessions not closed yet that copied the value when they started.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "DeleteEnvVariableResponse",
+      description:
+        "How many agents received the value and sessions still hold it.",
+      example: { affected_agents: 3, open_sessions: 1 },
+    },
+    errors: [400, 401, 403, 404, 412, 428, 503],
+    errorCodes: {
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "version",
+    idempotent: false,
+  },
+  {
     method: "post",
     path: "/v1/agents/{id}/identities",
     operationId: "linkAgentIdentity",
@@ -7584,6 +7821,10 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path === "/v1/receipts/{id}") return receiptIdParamsSchema;
   if (path.startsWith("/v1/agents/{id}/admins/")) return agentAdminParamsSchema;
   if (path.includes("{binding_id}")) return credentialBindingParamsSchema;
+  if (path.startsWith("/v1/workspace/variables/{name}"))
+    return workspaceVariableParamsSchema;
+  if (path === "/v1/agents/{id}/variables/{name}")
+    return agentVariableParamsSchema;
   if (path === "/v1/agents/{id}/identities/{identity_id}")
     return agentIdentityParamsSchema;
   if (path.startsWith("/v1/agents/{id}")) return agentIdParamsSchema;
@@ -7720,6 +7961,25 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       required: true,
       description: IDEMPOTENCY_KEY_DESCRIPTION,
       schema: { type: "string", minLength: 1, maxLength: 255 },
+    });
+  }
+  if (route.ifMatch !== undefined) {
+    parameters.push({
+      name: "If-Match",
+      in: "header",
+      required: route.ifNoneMatch !== true,
+      description: `The \`${route.ifMatch}\` last read, as a number (an entity tag's quotes are allowed). A different one answers \`412 VERSION_MISMATCH\`; none answers \`428 PRECONDITION_REQUIRED\`.${route.ifNoneMatch ? " Send it to change a variable that exists, `If-None-Match: *` to create one; never both." : ""}`,
+      schema: { type: "string", minLength: 1 },
+    });
+  }
+  if (route.ifNoneMatch) {
+    parameters.push({
+      name: "If-None-Match",
+      in: "header",
+      required: false,
+      description:
+        "The literal `*`, to create a variable that must not exist yet. One that exists answers `412 VERSION_MISMATCH`.",
+      schema: { type: "string", enum: ["*"] },
     });
   }
   if (route.lastEventId) {

@@ -213,6 +213,7 @@ async function run(
     pusher: createGitPusher({ gitRunner: recording }),
     attributions: {
       record: async () => {},
+      recordTurnCoAuthor: async () => {},
       list: async () => options.issued ?? [],
     },
     logger: {

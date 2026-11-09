@@ -333,7 +333,7 @@ describe("워크스페이스 설정", () => {
 
   test("관리자가 게스트 사용을 켜면 서버에 저장하고 다시 읽은 값으로 켜짐이다", async () => {
     let enabled = false;
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(adminMe(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         enabled = ((await request.json()) as { slack_guest_enabled: boolean })
@@ -365,7 +365,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("게스트 스위치는 설정 행 컨트롤 칸의 마지막이고, 읽지 않는 켜짐·꺼짐 글자가 바로 앞에 있다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(adminMe(), false)),
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
@@ -389,7 +389,7 @@ describe("워크스페이스 설정", () => {
 
   test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
     let enabled = false;
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         enabled = ((await request.json()) as { slack_guest_enabled: boolean })
@@ -420,7 +420,7 @@ describe("워크스페이스 설정", () => {
   test("저장 중에도 포커스가 스위치에 남고, 그동안 다시 누른 Space는 보내지 않는다", async () => {
     let enabled = false;
     let release = () => {};
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), enabled)),
       [`POST ${GUEST}`]: async (request: Request) => {
         const sent = (await request.json()) as { slack_guest_enabled: boolean };
@@ -459,7 +459,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("라벨 글자를 눌러도 게스트 사용이 바뀐다", async () => {
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), false)),
       [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: true }),
     });
@@ -501,7 +501,7 @@ describe("워크스페이스 설정", () => {
 
   test("워크스페이스 설정 권한이 없으면 스위치가 이유와 함께 닫혀 있고, 서버에 묻지 않는다", async () => {
     const body = me();
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () =>
         json(200, {
           ...body,
@@ -522,7 +522,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("켜져 있으면 끄는 값을 보낸다", async () => {
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, withGuest(me(), true)),
       [`POST ${GUEST}`]: () => json(200, { slack_guest_enabled: false }),
     });
@@ -556,7 +556,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("게스트 설정을 서버가 403으로 거절하면 같은 이유 문구이고 서버의 영어 문구는 없다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, adminMe()),
       [`POST ${GUEST}`]: () =>
         apiError(
@@ -678,18 +678,21 @@ describe("워크스페이스 설정", () => {
       state: "active",
       updated_at: "2026-10-25T05:00:00.000Z",
     };
-    const { api, services } = renderAt("/settings/workspace/slack", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${TOKEN}`]: () => json(200, saved ? active : UNSET_TOKEN),
-      [`PUT ${TOKEN}`]: () => {
-        saved = true;
-        return json(200, {
-          ...active,
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-          warnings: [],
-        });
+    const { api, services } = renderAt(
+      "/settings/workspace/integrations/slack",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${TOKEN}`]: () => json(200, saved ? active : UNSET_TOKEN),
+        [`PUT ${TOKEN}`]: () => {
+          saved = true;
+          return json(200, {
+            ...active,
+            receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+            warnings: [],
+          });
+        },
       },
-    });
+    );
     expect(await screen.findByText(START)).toBeDefined();
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     const user = await setupUser();
@@ -729,7 +732,7 @@ describe("워크스페이스 설정", () => {
 
   test("저장 뒤 다시 읽기가 끝나지 않아도 token 값은 캐시에 남지 않는다", async () => {
     let saved = false;
-    const { services } = renderAt("/settings/workspace/slack", {
+    const { services } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       // The read after the save never answers.
       [`GET ${TOKEN}`]: () =>
@@ -768,7 +771,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("token 칸을 취소하면 포커스가 칸을 연 버튼으로 돌아간다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
     });
@@ -783,7 +786,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("메뉴의 토큰 교체로 연 칸을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
     });
@@ -802,7 +805,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("메뉴의 토큰 삭제 확인을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
     });
@@ -822,7 +825,7 @@ describe("워크스페이스 설정", () => {
 
   test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 토큰 삭제 메뉴를 남긴다", async () => {
     let fail = false;
-    const { services } = renderAt("/settings/workspace/slack", {
+    const { services } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         fail
@@ -845,7 +848,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼과 삭제만 있는 메뉴를 둔다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         json(200, { ...REGISTERED_TOKEN, state: "needs_reentry" }),
@@ -881,7 +884,7 @@ describe("워크스페이스 설정", () => {
   };
 
   test("설정된 token은 끝 네 글자, 팀, 발급자, 마지막 확인 시각, 마지막 등록자만 보인다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, ACTIVE_TOKEN),
     });
@@ -893,7 +896,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("팀·발급자·등록자를 모르는 token은 끝 네 글자와 마지막 확인 시각만 보인다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         json(200, { ...ACTIVE_TOKEN, issuer: null, updated_by: null }),
@@ -904,7 +907,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("등록에 성공하면 Slack이 확인한 팀과 발급자를 알린다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, ACTIVE_TOKEN),
       [`PUT ${TOKEN}`]: () =>
@@ -927,7 +930,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("발급자가 바뀐 저장은 Slack이 확인한 팀·발급자와 함께 앞으로 만드는 앱의 협업자가 바뀐다고 알린다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`PUT ${TOKEN}`]: () =>
         json(200, {
@@ -955,7 +958,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("token 저장을 서버가 403으로 거절하면 권한 문구이고 서버의 영어 문구는 없다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, adminMe()),
       [`PUT ${TOKEN}`]: () =>
         apiError(403, "FORBIDDEN", "Only an owner or admin can set it"),
@@ -973,7 +976,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("비밀 저장소가 꺼져 있으면 저장 실패를 관리자에게 확인할 일로 알린다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`PUT ${TOKEN}`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
@@ -991,7 +994,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("잠깐 쓸 수 없는 서버는 저장소 문구가 아니라 다시 시도할 일로 알린다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`PUT ${TOKEN}`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "Try again", true),
@@ -1009,7 +1012,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("비밀 저장소가 꺼져 있으면 token 상태 대신 관리자에게 확인할 일을 보이고, 다시 묻지 않는다", async () => {
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
@@ -1028,7 +1031,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("삭제를 비밀 저장소가 꺼져 거절하면 관리자에게 확인할 일로 알린다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         json(200, { ...UNSET_TOKEN, configured: true, state: "active" }),
@@ -1046,7 +1049,7 @@ describe("워크스페이스 설정", () => {
 
   test("이미 지워진 token을 삭제하면 다시 읽어 지워졌다고 알린다", async () => {
     let deleted = false;
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, deleted ? UNSET_TOKEN : ACTIVE_TOKEN),
       [`DELETE ${TOKEN}`]: () => {
@@ -1070,7 +1073,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("토큰도 앱도 없으면 Slack 연결하기 카드 하나만 있고, 연 칸은 Slack에서 값을 찾는 순서를 보인다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
     });
@@ -1103,7 +1106,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("토큰을 지웠어도 만든 앱이 있으면 등록 안 됨 행 아래에 게스트와 앱 목록이 남는다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
       [`GET ${APPS}`]: () => json(200, { items: [LINK_APP] }),
@@ -1124,7 +1127,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 삭제 메뉴를 둔다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         json(200, { ...REGISTERED_TOKEN, state: "needs_reentry" }),
@@ -1146,7 +1149,7 @@ describe("워크스페이스 설정", () => {
 
   test("앱 목록을 읽는 동안에는 토큰 칸만 기다리고 게스트·앱 목록을 먼저 그리지 않는다", async () => {
     let release: (() => void) | undefined;
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
       [`GET ${APPS}`]: () =>
@@ -1174,7 +1177,7 @@ describe("워크스페이스 설정", () => {
 
   test("시작 카드 뒤 토큰 다시 읽기가 실패하면 등록 버튼 대신 실패를 보인다", async () => {
     let fail = false;
-    const { services } = renderAt("/settings/workspace/slack", {
+    const { services } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         fail
@@ -1194,7 +1197,7 @@ describe("워크스페이스 설정", () => {
 
   test("등록 응답만으로 등록된 화면이 되고, 다시 읽기를 기다리지 않는다", async () => {
     let saved = false;
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         saved ? new Promise<Response>(() => {}) : json(200, UNSET_TOKEN),
@@ -1221,7 +1224,7 @@ describe("워크스페이스 설정", () => {
 
   test("토큰을 지우면 다시 등록하는 버튼이 포커스를 받는다", async () => {
     let deleted = false;
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
         json(200, deleted ? UNSET_TOKEN : REGISTERED_TOKEN),
@@ -1244,7 +1247,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("등록 요청이 도는 동안 다시 붙여 넣은 값은 보내지도 지우지도 않는다", async () => {
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
       [`PUT ${TOKEN}`]: () => new Promise<Response>(() => {}),
@@ -1262,7 +1265,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("앱 목록을 읽지 못하면 처음이라고 단정하지 않는다", async () => {
-    renderAt("/settings/workspace/slack", {
+    renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
       [`GET ${APPS}`]: () => apiError(500, "INTERNAL_ERROR", "boom"),
@@ -1275,7 +1278,7 @@ describe("워크스페이스 설정", () => {
   });
 
   test("구성원은 토큰을 읽지 않고 게스트 설정을 읽기 전용으로 본다", async () => {
-    const { api } = renderAt("/settings/workspace/slack", {
+    const { api } = renderAt("/settings/workspace/integrations/slack", {
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
     expect(
@@ -1291,12 +1294,15 @@ describe("워크스페이스 설정", () => {
   });
 
   test("Slack이 거절한 토큰은 칸 아래에 알리고, 값을 다 쓴 경우를 대비해 상태를 다시 읽는다", async () => {
-    const { api, services } = renderAt("/settings/workspace/slack", {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
-      [`PUT ${TOKEN}`]: () =>
-        apiError(409, "CONFIG_TOKEN_INVALID", "Slack refused it"),
-    });
+    const { api, services } = renderAt(
+      "/settings/workspace/integrations/slack",
+      {
+        "GET /v1/auth/me": () => json(200, me()),
+        [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
+        [`PUT ${TOKEN}`]: () =>
+          apiError(409, "CONFIG_TOKEN_INVALID", "Slack refused it"),
+      },
+    );
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "토큰 등록" }));
     const input = screen.getByLabelText("Refresh Token");

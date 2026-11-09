@@ -37,6 +37,7 @@ export type TurnEventMessageKey =
   | "session.event.kind.error"
   | "session.event.error.modelNotAllowed"
   | "session.event.error.modelProfileRemoved"
+  | "session.event.modelMigrated"
   | "session.event.init"
   | "session.event.vcsChanged"
   | "session.event.thinkingTokens"
@@ -271,8 +272,24 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
   const engine = eventEngineEvent(data);
   // Without engine_event it is one the control plane wrote, named by its
   // own subtype.
-  if (engine === null)
+  if (engine === null) {
+    if (
+      data.subtype === "model_migrated" &&
+      typeof data.from === "string" &&
+      typeof data.to === "string"
+    ) {
+      return {
+        label,
+        summary: [
+          message("session.event.modelMigrated", {
+            from: clip(data.from),
+            to: clip(data.to),
+          }),
+        ],
+      };
+    }
     return { label, summary: text(String(data.subtype ?? "")) };
+  }
   switch (engine.category) {
     case "thinking":
       return {

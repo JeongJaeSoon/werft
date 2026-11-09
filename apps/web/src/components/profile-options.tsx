@@ -29,6 +29,14 @@ export const runsModel = (
   model: string | undefined,
 ): boolean => model === undefined || profile.models.includes(model);
 
+export const successorOf = (
+  profile: ProfileSummary,
+  model: string,
+): string | undefined =>
+  profile.models.includes(model)
+    ? undefined
+    : profile.model_successors?.[model];
+
 /** What a profile is called: an imported ceiling has only its id. */
 export const profileName = (profile: ProfileSummary): string =>
   profile.workspace?.name ?? profile.installation?.name ?? profile.id;

@@ -37,6 +37,36 @@ export function createPostgresCommitAttributionLedger(
         })
         .onConflictDoNothing();
     },
+    async recordTurnCoAuthor(rawSessionId, coAuthor) {
+      const sessionId = rawSessionId.toLowerCase();
+      const issued = await db
+        .select()
+        .from(sessionCommitAttributions)
+        .where(eq(sessionCommitAttributions.sessionId, sessionId));
+      const bundles = new Map<string, AttributionExpectation>();
+      for (const row of issued) {
+        const expectation: AttributionExpectation = {
+          author: { name: row.authorName, email: row.authorEmail },
+          coAuthor,
+          agentSession: row.agentSession,
+        };
+        bundles.set(expectationDigest(expectation), expectation);
+      }
+      for (const [digest, expectation] of bundles) {
+        await db
+          .insert(sessionCommitAttributions)
+          .values({
+            sessionId,
+            digest,
+            authorName: expectation.author.name,
+            authorEmail: expectation.author.email,
+            coAuthorName: coAuthor?.name ?? null,
+            coAuthorEmail: coAuthor?.email ?? null,
+            agentSession: expectation.agentSession,
+          })
+          .onConflictDoNothing();
+      }
+    },
     async list(rawSessionId) {
       const rows = await db
         .select()

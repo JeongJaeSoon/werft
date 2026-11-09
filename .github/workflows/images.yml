@@ -1,7 +1,7 @@
 name: Images
 
-# Builds the three app images (apps/*/Dockerfile) on every pull request and
-# main push, smokes the worker's bundled Claude Code executable, and records
+# Builds product images on amd64 for PRs and both native architectures on
+# main, tags, daily and manual runs. It smokes the worker's bundled Claude Code executable, and records
 # every digest as an artifact. A push to main and a v* tag push publish to
 # ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
 # approval; a tag waits for the `release` environment once, at `publish`, and
@@ -69,10 +69,9 @@ env:
   KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
 
 jobs:
-  # Whether to build at all. Only a pull request that changes nothing but
-  # prose skips the images (ci-plan.sh decides, the same way CI does);
-  # every other event, and every other change, builds all six. The value is
-  # `build` or `skip`, and `supply-chain` fails on anything else.
+  # CI and Images share the complete changed-path range. Prose-only PRs
+  # and main pushes skip image builds; releases and unknown inputs do not.
+  # The verdict requires a successful plan and matching build result.
   plan:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
@@ -86,6 +85,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
       - id: images
         env:
@@ -107,7 +107,7 @@ jobs:
       fail-fast: false
       matrix: &image-matrix
         app: [control-host, worker, egress-proxy]
-        arch: [amd64, arm64]
+        arch: ${{ github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -248,7 +248,8 @@ jobs:
       - uses: ./.github/actions/bun-setup
         with:
           restore-cache: "false"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - if: needs.plan.outputs.images == 'build'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: vulnerabilities-*
           path: vulnerabilities
@@ -271,7 +272,8 @@ jobs:
           IMAGES_PLAN: ${{ needs.plan.outputs.images }}
           IMAGES_PLAN_RESULT: ${{ needs.plan.result }}
           IMAGES_BUILD_RESULT: ${{ needs.build.result }}
-        run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT"
+          SCAN_SCOPE: ${{ needs.plan.outputs.images == 'skip' && 'dependencies' || (github.event_name == 'pull_request' && 'amd64' || 'all') }}
+        run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT" "$SCAN_SCOPE"
 
   # Publish path, in stages so a failed verification never leaves a consumable
   # tag behind.
@@ -681,6 +683,8 @@ jobs:
   # `release` job uploads it. Here it is built twice from a fixed manifest, and
   # the two archives must be the same bytes, which a rerun of a release relies on.
   test-ops-bundle:
+    needs: plan
+    if: needs.plan.outputs.images == 'build'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

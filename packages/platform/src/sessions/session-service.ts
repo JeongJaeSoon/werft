@@ -77,6 +77,8 @@ import {
   allowedRun,
   catalogProfile,
   isUnmetered,
+  modelSuccessor,
+  movesAtNextTurn,
   type ProfilePin,
   profileFingerprint,
   profileGone,
@@ -510,11 +512,16 @@ export function createSessionService(deps: {
       (run.repository === null ||
         (run.repository.url === record.repo_url &&
           run.repository.branch === record.branch)) &&
-      sessionProfile(
+      (sessionProfile(
         run.profile,
         pinOf(record),
         acceptedRuntimeVersions(catalog),
-      ) !== null
+      ) !== null ||
+        movesAtNextTurn(
+          run.profile,
+          pinOf(record),
+          acceptedRuntimeVersions(catalog),
+        ))
     );
   }
 
@@ -840,8 +847,12 @@ export function createSessionService(deps: {
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
       const wantedModel = input.body.model ?? releaseModel(release);
+      const successor =
+        allowed && input.body.model === undefined && wantedModel !== undefined
+          ? modelSuccessor(allowed.profile, wantedModel)
+          : null;
       const runs = allowed
-        ? profileWithModel(allowed.profile, wantedModel)
+        ? profileWithModel(allowed.profile, successor ?? wantedModel)
         : null;
       const staleRuntime =
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
@@ -904,7 +915,10 @@ export function createSessionService(deps: {
         ...(pair
           ? {
               profileFingerprint: profileFingerprint(pair.profile),
-              model: pair.profile.model,
+              model:
+                successor === null || wantedModel === undefined
+                  ? pair.profile.model
+                  : wantedModel,
               unmetered: isUnmetered(pair.profile),
             }
           : {}),

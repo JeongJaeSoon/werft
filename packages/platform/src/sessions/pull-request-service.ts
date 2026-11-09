@@ -55,6 +55,8 @@ import {
   pullRequestTail,
   pushRequestMarkerOf,
   sessionUrlOf,
+  surfaceOfChannel,
+  type TailRequester,
   withPullRequestTail,
 } from "./git-attribution.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
@@ -159,7 +161,28 @@ export function createPullRequestService(deps: {
       commit: source.gitCommit,
       pushRequestId: source.id,
       record: await deps.attribution.attribution(source.sessionId),
+      requester: await requesterOf(source),
     });
+  }
+
+  async function requesterOf(source: {
+    sessionId: string;
+    id: string;
+  }): Promise<TailRequester | null> {
+    const turn = await deps.attribution.requesterOfPushRequest(
+      source.sessionId,
+      source.id,
+    );
+    if (turn === null) return null;
+    if (turn.userId === null) return { kind: "none" };
+    return {
+      kind: "person",
+      github: await deps.attribution.githubLinkOf(
+        source.sessionId,
+        turn.userId,
+      ),
+      surface: surfaceOfChannel(turn.channel),
+    };
   }
 
   /**

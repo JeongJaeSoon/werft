@@ -59,6 +59,7 @@ import {
   turnContinuations,
   turns,
   unassignedSessions,
+  users,
 } from "./schema.ts";
 import { announceLapsedInputWaits } from "./session-events.ts";
 import { launchSession } from "./testing/launches.ts";
@@ -1683,6 +1684,19 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(first).toMatchObject({ resumed: false, waiting_for: 1 });
     expect(await continuations(turnRowId)).toEqual([]);
     expect((await sessionRow(sessionId)).admissionState).toBe("paused");
+    const [requester] = await db
+      .insert(users)
+      .values({
+        id: crypto.randomUUID(),
+        email: `${crypto.randomUUID()}@example.invalid`,
+        passwordHash: "x",
+        displayName: "requester",
+      })
+      .returning({ id: users.id });
+    await db
+      .update(turns)
+      .set({ actorId: requester?.id ?? null })
+      .where(eq(turns.id, turnRowId));
 
     // Answered through a stored key, which a receipt names.
     const byKey = {
@@ -1706,6 +1720,9 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(carried?.message).toContain(
       "Bash call: denied. Reason: not that one",
     );
+    // The answer came through a key with no user, yet the turn that carries
+    // the parked one on stays the requester's.
+    expect(carried?.actorId).toBe(requester?.id ?? null);
     expect(await sessionRow(sessionId)).toMatchObject({
       admissionState: "resuming",
       pauseReason: null,
