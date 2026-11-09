@@ -161,7 +161,7 @@ describe("bootstrap checklist", () => {
     const links = stepLinks();
     expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
       null,
-      ["모델 연결", "/settings/workspace/connections"],
+      ["모델 연결", "/settings/workspace/model-connections"],
       ["프로필", "/profiles"],
       ["구성원 목록", "/members"],
       ["에이전트 목록", "/agents"],

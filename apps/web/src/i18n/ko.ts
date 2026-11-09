@@ -164,6 +164,16 @@ export const slackKo = {
   "slack.search": "채널 찾기",
   "slack.invite": "참여 대기",
   "slack.privateInvite": "/invite 필요",
+  "slack.pendingApproval": "승인 대기",
+  "slack.pendingApprovalHint":
+    "소유자나 관리자가 승인하기 전에는 이 채널의 메시지에 답하지 않습니다.",
+  "slack.approve": "승인",
+  "slack.approveChannel": "채널 승인: {channel}",
+  "slack.approved": "채널을 승인했습니다.",
+  "slack.left": "나감",
+  "slack.inactive": "비활성",
+  "slack.leftHint":
+    "봇이 채널에서 나가 메시지를 받지도 보내지도 않습니다. 채널에 다시 초대하면 승인 대기로 돌아옵니다.",
   "slack.add": "연결",
   "slack.noChannels":
     "찾은 채널이 없습니다. 비공개 채널은 먼저 /invite로 초대하세요.",

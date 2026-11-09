@@ -221,6 +221,7 @@ const ADMIN_PERMISSIONS: AuthMeResponse["permissions"] = [
   "agent.admin.manage",
   "credential.bind",
   "binding.manage",
+  "binding.approve",
   "achievement_rule.manage",
   "achievement.review",
 ];

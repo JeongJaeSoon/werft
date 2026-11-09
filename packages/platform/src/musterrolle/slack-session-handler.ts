@@ -35,6 +35,7 @@ import {
   type SlackInboundHandler,
   type SlackInboxLogger,
 } from "./slack-inbox.ts";
+import { judgeThreadReply } from "./slack-thread-shadow.ts";
 
 const slackMessageSchema = z.object({
   type: z.enum(["app_mention", "message"]),
@@ -186,6 +187,20 @@ export function createSlackSessionHandler(
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
       return;
+    // Observe only: the reply goes on as a turn whatever the judgment says.
+    // The text is not logged; `event_id` joins the case to its inbox row. A
+    // retried event logs again.
+    const isReply =
+      event.thread_ts !== undefined && event.thread_ts !== event.ts;
+    if (found !== null && isReply && !mentioned && !dm) {
+      deps.logger.info("Slack thread reply judged without a mention", {
+        ...ids,
+        channel: event.channel,
+        thread_ts: threadTs,
+        ...judgeThreadReply(event.text, agent.botUserId),
+        shadow: true,
+      });
+    }
     const binding = dm
       ? await deps.bindings.ensureDmBinding(agent.installationId)
       : await deps.bindings.resolveSlackChannel(

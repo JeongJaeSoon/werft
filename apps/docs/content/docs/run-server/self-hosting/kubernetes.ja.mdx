@@ -59,7 +59,7 @@ Secret は key ごとに一つのファイルを置いたディレクトリ（`0
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の 64 文字 hex。保存した資格情報を封印します。なければ Pod は起動しません |
 | `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | object store key。IRSA で署名する場合は両 key を外し、values に `secrets.objectStoreKeys: false` と `serviceAccounts.api.annotations` を設定します |
 | `BOOTSTRAP_TOKEN` | 既定 API replica 2 個へ同じ 32–256 文字のトークンを渡す必要があります。Secret に作成し、下記 values の `secrets.catalogEnv` に含めます |
-| `ANTHROPIC_API_KEY` | 任意。セッション用 Anthropic key の既定経路は、設置後のコンソールの**設定 > ワークスペース設定 > モデル接続 > 接続を追加**です。この key は環境変数で渡す代替経路で、設定すると api だけに渡されます。設定しなければ下記 values の `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します。chart の既定値はこの key を api に渡すため、Secret にないと Pod は起動しません |
+| `ANTHROPIC_API_KEY` | 任意。セッション用 Anthropic key の既定経路は、設置後のコンソールの**設定 > エージェント接続 > モデル接続 > 接続を追加**です。この key は環境変数で渡す代替経路で、設定すると api だけに渡されます。設定しなければ下記 values の `secrets.catalogEnv` からこの名前だけを外し、`BOOTSTRAP_TOKEN` は残します。chart の既定値はこの key を api に渡すため、Secret にないと Pod は起動しません |
 
 ```bash
 kubectl create namespace werft

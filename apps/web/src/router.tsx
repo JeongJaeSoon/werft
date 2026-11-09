@@ -366,7 +366,7 @@ const orgKeys = createRoute({
 
 const connections = createRoute({
   getParentRoute: () => authed,
-  path: "/settings/workspace/connections",
+  path: "/settings/workspace/model-connections",
   component: ConnectionsScreen,
 });
 
