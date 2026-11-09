@@ -24,7 +24,7 @@ import {
 import { dmOn, SLACK_WARNING_KEY, slackReason, slackState } from "./shared.ts";
 
 /**
- * The tab's Slack card, as on Integrations › Slack: the mark, then this
+ * The tab's Slack card, as on Integrations > Slack: the mark, then this
  * agent's state, bot, home channel and DM at a glance, then what stops it
  * from working.
  */

@@ -26,7 +26,7 @@ import { Ellipsis, Hash, Plus } from "lucide-react";
 import { useId } from "react";
 /*
  * apps/web routes/agent-detail/slack.tsx: an agent's Slack tab, built like
- * Integrations › Slack. The Slack card, the agent's own sections (channels,
+ * Integrations > Slack. The Slack card, the agent's own sections (channels,
  * basic), then the sections the workspace screen has, under its names and in
  * its order (Slack app creation, Addresses for a Slack app, Slack apps made
  * here), each saying what this agent uses, and last the danger zone.
@@ -73,7 +73,7 @@ function SlackCard({ state }: { readonly state: TabState }) {
       </div>
       <Text variant="sub">
         이 에이전트가 Slack에서 쓰는 앱, 주소, 채널입니다. 앱을 만드는 토큰은
-        워크스페이스의 연동 › Slack에 등록합니다.
+        워크스페이스의 연동 {">"} Slack에 등록합니다.
       </Text>
       {state === "pending" ? (
         <Alert variant="amber">
@@ -230,12 +230,12 @@ function AppSections({
       <SettingsSection
         titleAs="h3"
         title="Slack 앱 생성"
-        description="이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 › Slack에서 합니다."
+        description="이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 > Slack에서 합니다."
         rows={
           <SettingRow
             title="App Configuration Token"
             badge={<Badge variant="green">토큰 확인됨</Badge>}
-            actions={<RowAction>연동 › Slack에서 관리</RowAction>}
+            actions={<RowAction>{"연동 > Slack에서 관리"}</RowAction>}
           />
         }
       />

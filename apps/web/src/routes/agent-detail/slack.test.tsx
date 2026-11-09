@@ -1185,7 +1185,7 @@ describe("Slack management", () => {
     });
   }
 
-  test("lists the agent's app as Integrations › Slack does, with reinstall on its row", async () => {
+  test("lists the agent's app as Integrations > Slack does, with reinstall on its row", async () => {
     renderAt(DETAIL, routes(APP, true));
     await screen.findByRole("navigation", { name: "Slack 구역" });
     const section = await screen.findByRole("region", {
@@ -1215,7 +1215,7 @@ describe("Slack management", () => {
     );
   });
 
-  test("names the shared sections as Integrations › Slack does, in its order", async () => {
+  test("names the shared sections as Integrations > Slack does, in its order", async () => {
     renderAt(DETAIL, routes(APP, true));
     await screen.findByRole("region", { name: "자동으로 만든 Slack 앱" });
     const headings = screen
@@ -1233,7 +1233,7 @@ describe("Slack management", () => {
     expect(within(token).getByText("토큰 확인됨")).toBeDefined();
     expect(
       within(token)
-        .getByRole("link", { name: "연동 › Slack에서 관리" })
+        .getByRole("link", { name: "연동 > Slack에서 관리" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/slack");
   });

@@ -150,10 +150,10 @@ export const slackKo = {
   "slack.addChannelHint": "채널 추가에서 이 에이전트가 반응할 채널을 고르세요.",
   "slack.addChannel": "채널 추가",
   "slack.cardHint":
-    "이 에이전트가 Slack에서 쓰는 앱, 주소, 채널입니다. 앱을 만드는 토큰은 워크스페이스의 연동 › Slack에 등록합니다.",
+    "이 에이전트가 Slack에서 쓰는 앱, 주소, 채널입니다. 앱을 만드는 토큰은 워크스페이스의 연동 > Slack에 등록합니다.",
   "slack.tokenHint":
-    "이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 › Slack에서 합니다.",
-  "slack.tokenManage": "연동 › Slack에서 관리",
+    "이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 > Slack에서 합니다.",
+  "slack.tokenManage": "연동 > Slack에서 관리",
   "slack.addressesHint":
     "이 에이전트의 앱이 쓰는 이벤트 요청 URL입니다. 콘솔이 앱을 만들 때 자동으로 넣고, Slack이 이 주소를 확인해야 채널 글을 받습니다.",
   "slack.addressesNone": "앱을 만들면 이 에이전트의 주소가 정해집니다.",

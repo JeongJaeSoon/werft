@@ -37,7 +37,7 @@ export { slackKey } from "./slack/queries.ts";
 export { slackFailure } from "./slack/shared.ts";
 
 /**
- * An agent's Slack tab, built like Integrations › Slack: the Slack card,
+ * An agent's Slack tab, built like Integrations > Slack: the Slack card,
  * then what this agent does in Slack (its channels and basic settings), then
  * for its managers the sections the workspace screen has, under the same
  * names and in the same order, saying what this agent uses, and last the

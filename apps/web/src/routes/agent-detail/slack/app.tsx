@@ -40,7 +40,7 @@ import {
 } from "./shared.ts";
 
 /*
- * The sections this tab shares with Integrations › Slack, under the same
+ * The sections this tab shares with Integrations > Slack, under the same
  * names and in the same order: the token the app is made with, the address
  * Slack calls, the app the console made. There they are the workspace's
  * connection; here, what this agent uses.
@@ -81,7 +81,7 @@ function SaveError({ error }: { readonly error: unknown }) {
   ) : null;
 }
 
-/** Integrations › Slack's "Slack app creation", as this agent sees it. */
+/** Integrations > Slack's "Slack app creation", as this agent sees it. */
 export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
   const { t } = useI18n();
   const manageWorkspace = useHasPermission("workspace.manage");
@@ -137,7 +137,7 @@ export function SlackTokenSection({ slack }: { readonly slack: SlackApp }) {
   );
 }
 
-/** Integrations › Slack's "Addresses for a Slack app": this agent's one. */
+/** Integrations > Slack's "Addresses for a Slack app": this agent's one. */
 export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
   const { t } = useI18n();
   const { app, record, identity, busy, pending, recheck } = slack;
@@ -203,7 +203,7 @@ export function SlackAddressSection({ slack }: { readonly slack: SlackApp }) {
   );
 }
 
-/** Integrations › Slack's "Slack apps made here": the one for this agent. */
+/** Integrations > Slack's "Slack apps made here": the one for this agent. */
 export function SlackAppSection({
   slack,
   name,
