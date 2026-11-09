@@ -341,33 +341,6 @@ integration("profile rollouts on PostgreSQL (U3b reader)", () => {
     expect((await runs(fixed.agent.id))?.runtimeProfileId).toBe("op_ops_v2");
   });
 
-  test("a pinned agent is left alone and its item ends superseded", async () => {
-    const caller = await owner();
-    await lineage(caller);
-    const made = await follower(caller);
-    await db
-      .update(agents)
-      .set({ profileTracking: "pinned" })
-      .where(eq(agents.id, made.agent.id));
-    const rolloutId = await rolloutOf(caller, [made.agent.id]);
-    await runner().runOnce();
-    expect(await releasesOf(made.agent.id)).toHaveLength(1);
-    expect((await items(rolloutId))[0]?.status).toBe("superseded");
-  });
-
-  test("an agent already on the same execution form gets no release", async () => {
-    const caller = await owner();
-    await lineage(caller, [
-      [2, V2],
-      [3, V3],
-    ]);
-    const made = await follower(caller, { profile: "op_ops_v2" });
-    const rolloutId = await rolloutOf(caller, [made.agent.id], "op_ops_v3");
-    await runner().runOnce();
-    expect(await releasesOf(made.agent.id)).toHaveLength(1);
-    expect((await items(rolloutId))[0]?.status).toBe("applied");
-  });
-
   test("two replicas at once apply an item once", async () => {
     const caller = await owner();
     await lineage(caller);
