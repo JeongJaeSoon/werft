@@ -94,8 +94,8 @@ export function createSlackMemberJoinedHandler(deps: {
     SurfaceBindingStore,
     | "ensureInvitedChannel"
     | "observeLifecycle"
+    | "recordJoin"
     | "requireApproval"
-    | "setMembership"
   >;
   welcome: Pick<SlackWelcome, "welcome">;
   slack: Pick<SlackBotApi, "channelKind">;
@@ -150,7 +150,18 @@ export function createSlackMemberJoinedHandler(deps: {
     ) {
       binding = (await deps.bindings.requireApproval(binding.id)) ?? binding;
     }
-    await deps.bindings.setMembership(binding.id, JOINED);
+    const at = lifecycleTime(claim);
+    // A leave noted since the check above wins: no membership, no welcome.
+    if (
+      !(await deps.bindings.recordJoin(
+        agent.installationId,
+        channel,
+        binding.id,
+        at,
+      ))
+    ) {
+      return;
+    }
     if (binding.home && binding.status === "ready") {
       await deps.welcome.welcome(binding.workspaceId, binding.agentId, {
         ask: false,
@@ -165,15 +176,22 @@ const memberLeftSchema = z.object({
   channel: z.string().min(1),
 });
 
-// join and leave events carry no `ts`; `event_ts` (microseconds) is the
-// time Slack stamped them, and the envelope's seconds are the fallback.
-function lifecycleTime(claim: SlackInboundClaim): Date | null {
+// join and leave events carry no `ts`; `event_ts` ("<seconds>.<micros>") is
+// the time Slack stamped them, and the envelope's time is the fallback. An
+// integer of microseconds, since a Date would tie two events in one ms.
+function lifecycleTime(claim: SlackInboundClaim): number | null {
   const stamp = (claim.payload.event as { event_ts?: unknown } | undefined)
     ?.event_ts;
-  if (typeof stamp === "string" && /^\d{1,12}(\.\d{1,6})?$/.test(stamp)) {
-    return new Date(Number(stamp) * 1000);
+  const parts =
+    typeof stamp === "string"
+      ? /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(stamp)
+      : null;
+  if (parts) {
+    return (
+      Number(parts[1]) * 1_000_000 + Number((parts[2] ?? "").padEnd(6, "0"))
+    );
   }
-  return claim.eventTime;
+  return claim.eventTime === null ? null : claim.eventTime.getTime() * 1000;
 }
 
 /**

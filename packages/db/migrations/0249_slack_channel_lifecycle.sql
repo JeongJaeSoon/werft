@@ -1,7 +1,7 @@
 CREATE TABLE "slack_channel_lifecycle" (
 	"installation_id" uuid NOT NULL,
 	"channel_id" text NOT NULL,
-	"last_event_at" timestamp with time zone NOT NULL,
+	"last_event_us" bigint NOT NULL,
 	CONSTRAINT "slack_channel_lifecycle_pk" PRIMARY KEY("installation_id","channel_id")
 );
 --> statement-breakpoint

@@ -3807,16 +3807,18 @@ export const surfaceBindings = pgTable(
 );
 
 /**
- * The newest join/leave Slack told us of per channel of an install. Kept
- * apart from `surface_bindings` so it outlives a revoked binding: those
- * events carry no `ts`, so an old one arriving late is told apart by this.
+ * The newest join/leave Slack told us of per channel of an install, as
+ * microseconds since the epoch (Slack's `event_ts` has no finer unit, and a
+ * millisecond would tie two events). Kept apart from `surface_bindings` so
+ * it outlives a revoked binding: those events carry no `ts`, so an old one
+ * arriving late is told apart by this.
  */
 export const slackChannelLifecycle = pgTable(
   "slack_channel_lifecycle",
   {
     installationId: uuid("installation_id").notNull(),
     channelId: text("channel_id").notNull(),
-    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    lastEventUs: bigint("last_event_us", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({

@@ -417,6 +417,8 @@ export function createPostgresSurfaceBindingStore(
       ),
     botLeft: (installationId, channelId, at) =>
       botLeft(db, installationId, channelId, at),
+    recordJoin: (installationId, channelId, bindingId, at) =>
+      recordJoin(db, installationId, channelId, bindingId, at),
     approve: (input) => resolve(db, input, "approve"),
     reject: (input) => resolve(db, input, "reject"),
     async setMembership(bindingId, membership, expected) {
@@ -514,41 +516,67 @@ async function requireApproval(
 }
 
 // The upsert's row lock holds until the caller's transaction ends, so a
-// leave and a join of one channel apply in the order their times say.
+// leave and a join of one channel note and apply in one order.
 async function advanceLifecycle(
   tx: Database,
   installationId: string,
   channelId: string,
-  at: Date | null,
+  at: number | null,
 ): Promise<boolean> {
   if (at === null) return true;
   if (!UUID.test(installationId)) return false;
   const rows = rowsOf<{ installation_id: string }>(
     await tx.execute(sql`
       INSERT INTO ${slackChannelLifecycle} (installation_id, channel_id,
-        last_event_at)
-      VALUES (${installationId.toLowerCase()}, ${channelId},
-        ${at.toISOString()}::timestamptz)
+        last_event_us)
+      VALUES (${installationId.toLowerCase()}, ${channelId}, ${at}::bigint)
       ON CONFLICT (installation_id, channel_id) DO UPDATE
-        SET last_event_at = EXCLUDED.last_event_at
-        WHERE ${slackChannelLifecycle.lastEventAt} <= EXCLUDED.last_event_at
+        SET last_event_us = EXCLUDED.last_event_us
+        WHERE ${slackChannelLifecycle.lastEventUs} <= EXCLUDED.last_event_us
       RETURNING installation_id`),
   );
   return rows.length > 0;
+}
+
+// The join's last write, after Slack was asked and the binding made: the
+// membership is recorded only if no later leave was noted meanwhile.
+async function recordJoin(
+  db: Database,
+  installationId: string,
+  channelId: string,
+  bindingId: string,
+  at: number | null,
+): Promise<boolean> {
+  if (!UUID.test(installationId) || !UUID.test(bindingId)) return false;
+  return db.transaction(async (tx) => {
+    if (!(await advanceLifecycle(tx, installationId, channelId, at))) {
+      return false;
+    }
+    await tx
+      .update(surfaceBindings)
+      .set({ membership: "joined", membershipError: null, updatedAt: DB_NOW })
+      .where(
+        and(
+          eq(surfaceBindings.id, bindingId.toLowerCase()),
+          isNull(surfaceBindings.revokedAt),
+        ),
+      );
+    return true;
+  });
 }
 
 async function botLeft(
   db: Database,
   installationId: string,
   channelId: string,
-  at: Date | null,
+  at: number | null,
 ): Promise<boolean> {
   if (!UUID.test(installationId)) return false;
   const installation = installationId.toLowerCase();
   return db.transaction(async (tx) => {
-    if (!(await advanceLifecycle(tx, installation, channelId, at))) {
-      return false;
-    }
+    // An older leave is not the channel's latest word, so it leaves the
+    // membership alone; whether it voids the approval is decided below.
+    const latest = await advanceLifecycle(tx, installation, channelId, at);
     const [current] = await tx
       .select(columns)
       .from(surfaceBindings)
@@ -560,15 +588,24 @@ async function botLeft(
       current.channelKind !== "private_channel" ||
       (current.status !== "ready" && current.status !== "pending_approval")
     ) {
-      return true;
+      return latest;
     }
     const waited = current.status === "pending_approval";
+    // An approval given after the leave stands, however late the leave
+    // arrives; one given before it does not, even if a re-invite came first.
+    const approvedBefore =
+      at === null ||
+      current.approvedAt === null ||
+      current.approvedAt.getTime() * 1000 < at;
+    if (!waited && !approvedBefore) return latest;
+    if (waited && !latest) return latest;
     await tx
       .update(surfaceBindings)
       .set({
-        membership: "awaiting_invite",
-        membershipError: null,
         updatedAt: DB_NOW,
+        ...(latest
+          ? { membership: "awaiting_invite" as const, membershipError: null }
+          : {}),
         // Already waiting: nothing about the wait changes, so the notice
         // keyed on the revision is not sent again.
         ...(waited
@@ -593,7 +630,7 @@ async function botLeft(
         reason: "bot_left_channel",
       });
     }
-    return true;
+    return latest;
   });
 }
 

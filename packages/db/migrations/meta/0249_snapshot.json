@@ -1,5 +1,5 @@
 {
-  "id": "43c2b83f-7d65-4f1c-af22-b7dd83522bdf",
+  "id": "72b4ea55-5ab1-4fca-9a68-c6ab7a3c3cad",
   "prevId": "4061749b-59f5-484f-9456-009ac215cad9",
   "version": "7",
   "dialect": "postgresql",
@@ -11628,9 +11628,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "last_event_at": {
-          "name": "last_event_at",
-          "type": "timestamp with time zone",
+        "last_event_us": {
+          "name": "last_event_us",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         }

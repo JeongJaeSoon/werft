@@ -190,8 +190,9 @@ describe("the bot's invite", () => {
     },
     botToken: string | null = "xoxb-test",
     fresh = true,
+    overtakenAfterCheck = false,
   ) {
-    const lifecycle: [string, Date | null][] = [];
+    const lifecycle: [string, number | null][] = [];
     const asked: string[] = [];
     const demoted: string[] = [];
     const recorded: [string, SurfaceMembership][] = [];
@@ -233,8 +234,12 @@ describe("the bot's invite", () => {
             channelKind: "private_channel",
           } as SurfaceBindingRecord;
         },
-        setMembership: async (id, membership) => {
-          recorded.push([id, membership]);
+        recordJoin: async (_installation, channelId, id, at) => {
+          lifecycle.push([channelId, at]);
+          if (!overtakenAfterCheck) {
+            recorded.push([id, { state: "joined", error: null }]);
+          }
+          return !overtakenAfterCheck;
         },
         observeLifecycle: async (_installation, channelId, at) => {
           lifecycle.push([channelId, at]);
@@ -421,17 +426,38 @@ describe("the bot's invite", () => {
         event_ts: "not-a-time",
       }),
     );
+    // Each join is checked, then recorded, with the same time; the
+    // microseconds of event_ts are kept.
     expect(h.lifecycle).toEqual([
-      ["G1", new Date(1_700_000_000_000)],
-      ["G1", new Date(1_700_000_005_000)],
+      ["G1", 1_700_000_000_000_250],
+      ["G1", 1_700_000_000_000_250],
+      ["G1", 1_700_000_005_000_000],
+      ["G1", 1_700_000_005_000_000],
+      ["G1", null],
       ["G1", null],
     ]);
+  });
+
+  test("a leave noted between the check and the last write wins: no membership, no welcome", async () => {
+    const h = handler(
+      { home: true, status: "ready", channelKind: "private_channel" },
+      undefined,
+      undefined,
+      true,
+      true,
+    );
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.invited).toEqual([["G1", "private_channel"]]);
+    expect(h.recorded).toEqual([]);
+    expect(h.welcomed).toEqual([]);
   });
 });
 
 describe("the bot's removal", () => {
   function handler(user = BOT, fresh = true) {
-    const left: [string, string, Date | null][] = [];
+    const left: [string, string, number | null][] = [];
     const passed: string[] = [];
     const handle = createSlackMemberLeftHandler({
       agents: {
@@ -482,7 +508,7 @@ describe("the bot's removal", () => {
         event_ts: "1700000100.000000",
       }),
     );
-    expect(h.left).toEqual([[INSTALLATION, "G1", new Date(1_700_000_100_000)]]);
+    expect(h.left).toEqual([[INSTALLATION, "G1", 1_700_000_100_000_000]]);
     expect(h.passed).toEqual([]);
   });
 
@@ -504,6 +530,6 @@ describe("the bot's removal", () => {
         new Date(1_700_000_200_000),
       ),
     );
-    expect(h.left[0]?.[2]).toEqual(new Date(1_700_000_200_000));
+    expect(h.left[0]?.[2]).toBe(1_700_000_200_000_000);
   });
 });

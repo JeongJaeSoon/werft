@@ -145,30 +145,46 @@ export interface SurfaceBindingStore {
    */
   requireApproval(bindingId: string): Promise<SurfaceBindingRecord | null>;
   /**
-   * Notes that Slack reported a join of the bot to a channel at `at`.
-   * False when a later join or leave of that channel was already noted, so
-   * the event is old news and must change nothing. An equal time passes,
-   * since a retried event runs its effect again. A null `at` (no time in
-   * the event) cannot be ordered and passes without being noted.
+   * Notes that Slack reported a join of the bot to a channel at `at`
+   * (microseconds since the epoch). False when a later join or leave of that
+   * channel was already noted, so the join is old news and must change
+   * nothing. An equal time passes, since a retried event runs its effect
+   * again. A null `at` (no time in the event) cannot be ordered and passes
+   * without being noted.
    */
   observeLifecycle(
     installationId: string,
     channelId: string,
-    at: Date | null,
+    at: number | null,
   ): Promise<boolean>;
   /**
-   * The bot left a channel, or was removed from it, at `at`. In one
-   * transaction with the order check of `observeLifecycle`, a private
+   * The join's last write: the binding's membership becomes `joined`, in one
+   * transaction with the order check of `observeLifecycle`, so a leave noted
+   * after the join was first seen is not overwritten. False, and nothing
+   * written, when the join has been overtaken.
+   */
+  recordJoin(
+    installationId: string,
+    channelId: string,
+    bindingId: string,
+    at: number | null,
+  ): Promise<boolean>;
+  /**
+   * The bot left a channel, or was removed from it, at `at`. A private
    * channel's binding goes back to `pending_approval` (no longer home, its
-   * approval cleared, membership `awaiting_invite`, a
-   * `request_surface_binding` receipt for the installation) and keeps its
-   * mode and ceiling, so an invite after this needs a new approval. A
-   * public channel's binding is left alone. False when the event is old.
+   * approval cleared, a `request_surface_binding` receipt for the
+   * installation) and keeps its mode and ceiling, so an invite after this
+   * needs a new approval. That holds for a leave older than a noted event
+   * too, as long as the approval was given before the leave: a re-invite
+   * handled first must not keep the old approval alive. An approval given
+   * after the leave stands. Membership becomes `awaiting_invite` only when
+   * the leave is the newest noted event. A public channel's binding is left
+   * alone. False when the leave is older than a noted event.
    */
   botLeft(
     installationId: string,
     channelId: string,
-    at: Date | null,
+    at: number | null,
   ): Promise<boolean>;
   approve(
     input: ResolveSurfaceBindingInput,

@@ -383,6 +383,10 @@ async function deliver(
   });
 }
 
+/** A join/leave event_ts that many seconds after now, so after any approval. */
+const lifecycleTs = (seconds: number) =>
+  `${Math.floor(Date.now() / 1000) + seconds}.000100`;
+
 const mention = (ts: string, extra: Record<string, unknown> = {}) => ({
   type: "app_mention",
   channel: CHANNEL,
@@ -1076,7 +1080,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         user: BOT_USER,
         channel: CHANNEL,
         channel_type: "G",
-        event_ts: "1700000100.000100",
+        event_ts: lifecycleTs(60),
       },
       { thread: false },
     );
@@ -1095,7 +1099,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         user: BOT_USER,
         channel: CHANNEL,
         channel_type: "G",
-        event_ts: "1700000200.000100",
+        event_ts: lifecycleTs(120),
       },
       { thread: false },
     );
@@ -1122,7 +1126,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await sessionsOf(fixture)).toHaveLength(1);
   });
 
-  test("a leave that arrives after a later join is old news and leaves the approval alone", async () => {
+  test("a re-invite handled before the older leave still ends in a new approval, with no answer meanwhile", async () => {
     const fixture = await agentInSlack("general", {
       channelKind: "private_channel",
     });
@@ -1143,10 +1147,49 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
         type: "member_joined_channel",
         user: BOT_USER,
         channel: CHANNEL,
-        event_ts: "1700000200.000100",
+        event_ts: lifecycleTs(120),
       },
       { thread: false },
     );
+    await deliver(
+      fixture,
+      {
+        type: "member_left_channel",
+        user: BOT_USER,
+        channel: CHANNEL,
+        event_ts: lifecycleTs(60),
+      },
+      { thread: false },
+    );
+    await drain(handle);
+    // The re-invite was handled first and kept the old approval; the leave
+    // that came after it, though older, still voids what was approved before.
+    const [row] = await db.select().from(surfaceBindings);
+    expect(row).toMatchObject({
+      status: "pending_approval",
+      membership: "joined",
+      approvedAt: null,
+    });
+    expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+    await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+  });
+
+  test("a leave from before the approval, arriving late, leaves the approval standing", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle } = handler();
+    const approved = await createPostgresSurfaceBindingStore(db).approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
     await deliver(
       fixture,
       {
@@ -1159,8 +1202,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     );
     await drain(handle);
     const [row] = await db.select().from(surfaceBindings);
-    expect(row).toMatchObject({ status: "ready", membership: "joined" });
-    expect(await inboxStatuses()).toEqual(["processed", "processed"]);
+    expect(row).toMatchObject({ status: "ready" });
   });
 
   test("another member leaving a private channel changes nothing", async () => {
