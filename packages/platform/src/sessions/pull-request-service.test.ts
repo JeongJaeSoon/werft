@@ -303,6 +303,8 @@ function harness(
           title: "t",
           mergeCommitSha: open.mergedAt === null ? null : "c".repeat(40),
           mergeableState: mergeable,
+          mergeable: mergeable === null ? null : mergeable === "clean",
+          draft: mergeable === "draft",
           additions: null,
           deletions: null,
           changedFiles: null,
@@ -2471,6 +2473,8 @@ describe("merging the pull request", () => {
       expect(details).toMatchObject({
         refusal: "merge_blocked",
         mergeable_state: state,
+        mergeable: false,
+        draft: state === "draft",
       });
       const text = (details as { reason: string }).reason;
       expect(text).toMatch(reason);
@@ -2480,6 +2484,8 @@ describe("merging the pull request", () => {
     unread.setMergeable(null);
     expect((await refusal(merge(unread))).details).toMatchObject({
       mergeable_state: null,
+      mergeable: null,
+      draft: false,
       reason: "GitHub reported no mergeable_state.",
     });
   });
