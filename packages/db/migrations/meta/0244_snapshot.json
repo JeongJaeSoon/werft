@@ -1,5 +1,5 @@
 {
-  "id": "b1348bbd-611f-4ae2-97ff-a345fbd07eab",
+  "id": "1f89e09c-1c57-45a6-a619-3c71055d279a",
   "prevId": "e6ecdef2-df5b-43aa-b3a5-c9e4f0d61f05",
   "version": "7",
   "dialect": "postgresql",
@@ -4233,182 +4233,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.extension_bundles": {
-      "name": "extension_bundles",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "digest": {
-          "name": "digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size_bytes": {
-          "name": "size_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "manifest": {
-          "name": "manifest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "review": {
-          "name": "review",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "registered_by": {
-          "name": "registered_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "registered_at": {
-          "name": "registered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "reviewed_by": {
-          "name": "reviewed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reviewed_at": {
-          "name": "reviewed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "extension_bundles_workspace_digest_idx": {
-          "name": "extension_bundles_workspace_digest_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "digest",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "extension_bundles_workspace_id_workspaces_id_fk": {
-          "name": "extension_bundles_workspace_id_workspaces_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "extension_bundles_registered_by_users_id_fk": {
-          "name": "extension_bundles_registered_by_users_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "users",
-          "columnsFrom": ["registered_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "extension_bundles_reviewed_by_users_id_fk": {
-          "name": "extension_bundles_reviewed_by_users_id_fk",
-          "tableFrom": "extension_bundles",
-          "tableTo": "users",
-          "columnsFrom": ["reviewed_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "extension_bundles_digest_check": {
-          "name": "extension_bundles_digest_check",
-          "value": "\"extension_bundles\".\"digest\" ~ '^[0-9a-f]{64}$'"
-        },
-        "extension_bundles_name_check": {
-          "name": "extension_bundles_name_check",
-          "value": "\"extension_bundles\".\"name\" ~ '^[a-z0-9][a-z0-9-]{0,63}$'"
-        },
-        "extension_bundles_label_check": {
-          "name": "extension_bundles_label_check",
-          "value": "char_length(\"extension_bundles\".\"label\") BETWEEN 1 AND 200"
-        },
-        "extension_bundles_source_check": {
-          "name": "extension_bundles_source_check",
-          "value": "\"extension_bundles\".\"source\" IN ('upload','github')"
-        },
-        "extension_bundles_review_check": {
-          "name": "extension_bundles_review_check",
-          "value": "\"extension_bundles\".\"review\" IN ('pending','approved','rejected')"
-        },
-        "extension_bundles_review_actor_check": {
-          "name": "extension_bundles_review_actor_check",
-          "value": "(\"extension_bundles\".\"review\" = 'pending') = (\"extension_bundles\".\"reviewed_by\" IS NULL AND \"extension_bundles\".\"reviewed_at\" IS NULL)"
-        },
-        "extension_bundles_size_check": {
-          "name": "extension_bundles_size_check",
-          "value": "\"extension_bundles\".\"size_bytes\" > 0"
-        },
-        "extension_bundles_manifest_check": {
-          "name": "extension_bundles_manifest_check",
-          "value": "jsonb_typeof(\"extension_bundles\".\"manifest\") = 'object'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.github_app_manifest_states": {
       "name": "github_app_manifest_states",
       "schema": "",
@@ -8170,6 +7994,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "source_ref": {
+          "name": "source_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",

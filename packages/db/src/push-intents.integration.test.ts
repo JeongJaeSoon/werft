@@ -79,17 +79,22 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     return { sessionId, turnId: turn.id };
   }
 
-  const ask = (s: { sessionId: string; turnId: number }, branch?: string) =>
+  const ask = (
+    s: { sessionId: string; turnId: number },
+    branch?: string,
+    extra: { repositoryId?: string; sourceRef?: string } = {},
+  ) =>
     intents.createDeferred({
       ownerId: OWNER,
       sessionId: s.sessionId,
       turnId: s.turnId,
       attemptId: "attempt-1",
-      repositoryId: "sample-app",
+      repositoryId: extra.repositoryId ?? "sample-app",
       targetBranch: branch ?? `agent/${s.sessionId}`,
       actor: ACTOR,
       pushClass: "push.primary",
       policySource: "agent",
+      ...(extra.sourceRef === undefined ? {} : { sourceRef: extra.sourceRef }),
     });
 
   const createRequest = (
@@ -135,16 +140,61 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(0);
   });
 
-  test("another target of the same turn and repository is refused: both would push the turn's one checkpoint", async () => {
+  test("another target of the same turn without a source is refused: both would push the turn's one snapshot", async () => {
     const s = await runningTurn();
     await ask(s);
     expect(await ask(s, `agent/${s.sessionId}-docs`)).toEqual({
-      outcome: "turn_target_taken",
+      outcome: "source_ref_required",
       targetBranch: `agent/${s.sessionId}`,
     });
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(1);
     // The first target is still the same row when asked again.
     expect(await ask(s)).toMatchObject({ outcome: "existing" });
+  });
+
+  test("two targets that each name their source are two intents; the first one is given its source by asking again", async () => {
+    const s = await runningTurn();
+    const first = await ask(s);
+    if (first.outcome !== "created") throw new Error("expected created");
+    expect(first.intent.source_ref).toBeNull();
+    const docs = `agent/${s.sessionId}-docs`;
+    expect(await ask(s, docs, { sourceRef: "docs-work" })).toEqual({
+      outcome: "source_ref_required",
+      targetBranch: `agent/${s.sessionId}`,
+    });
+    const named = await ask(s, undefined, { sourceRef: "main-work" });
+    expect(named).toMatchObject({
+      outcome: "existing",
+      intent: { id: first.intent.id, source_ref: "main-work" },
+    });
+    const second = await ask(s, docs, { sourceRef: "docs-work" });
+    expect(second).toMatchObject({
+      outcome: "created",
+      intent: { source_ref: "docs-work" },
+    });
+    const listed = await intents.list(OWNER, s.sessionId);
+    expect(listed.map((row) => row.source_ref).sort()).toEqual([
+      "docs-work",
+      "main-work",
+    ]);
+    expect(await ask(s, docs)).toMatchObject({
+      outcome: "existing",
+      intent: { source_ref: "docs-work" },
+    });
+  });
+
+  test("a settled intent keeps the source it was pinned with", async () => {
+    const s = await runningTurn();
+    const first = await ask(s, undefined, { sourceRef: "one" });
+    if (first.outcome !== "created") throw new Error("expected created");
+    await db
+      .update(pushIntents)
+      .set({ status: "pinned", pinnedRevision: 2 })
+      .where(eq(pushIntents.id, first.intent.id));
+    expect(await ask(s, undefined, { sourceRef: "other" })).toMatchObject({
+      outcome: "existing",
+      intent: { source_ref: "one" },
+    });
   });
 
   test("rows stored before the rule: asking for the second stored target is still that row", async () => {
@@ -175,24 +225,22 @@ integration("push intents and the same-target rules on PostgreSQL", () => {
     expect(again.intent.id).toBe(seeded.id);
     // A third target is still refused, naming the oldest row.
     expect(await ask(s, `agent/${s.sessionId}-extra`)).toEqual({
-      outcome: "turn_target_taken",
+      outcome: "source_ref_required",
       targetBranch: `agent/${s.sessionId}`,
     });
   });
 
-  test("another repository of the same turn is its own intent", async () => {
+  test("another repository of the same turn is its own intent once each names its source; without one it would push the wrong commit", async () => {
     const s = await runningTurn();
     await ask(s);
-    const other = await intents.createDeferred({
-      ownerId: OWNER,
-      sessionId: s.sessionId,
-      turnId: s.turnId,
-      attemptId: "attempt-1",
-      repositoryId: "docs",
+    expect(await ask(s, undefined, { repositoryId: "docs" })).toEqual({
+      outcome: "source_ref_required",
       targetBranch: `agent/${s.sessionId}`,
-      actor: ACTOR,
-      pushClass: "push.attached",
-      policySource: "agent",
+    });
+    await ask(s, undefined, { sourceRef: "app-work" });
+    const other = await ask(s, undefined, {
+      repositoryId: "docs",
+      sourceRef: "docs-work",
     });
     expect(other.outcome).toBe("created");
     expect(await intents.list(OWNER, s.sessionId)).toHaveLength(2);

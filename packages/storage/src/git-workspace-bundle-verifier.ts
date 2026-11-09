@@ -6,6 +6,7 @@ import type { WorkspaceBundleVerifier } from "@werft-ai/platform";
 import {
   checkpointBundleRefs,
   gitBundleOffersFrom,
+  manifestSourcesOf,
   PEELED_REF_FORMAT,
   peeledCommits,
 } from "@werft-ai/runtime-core";
@@ -152,7 +153,7 @@ export function createGitWorkspaceBundleVerifier(
     options.maxGitMemoryBytes ?? DEFAULT_MAX_GIT_MEMORY_BYTES;
   return {
     policy: JSON.stringify({ maxGitMemoryBytes, maxPackObjects, timeoutMs }),
-    async verify({ bases = [], bytes, commit, key, path }) {
+    async verify({ bases = [], bytes, commit, key, path, sources = [] }) {
       // The structural read is the cheap gate: no git process for bytes that
       // are not a whole chain of bundles offering the commit, and it hands
       // back the refs to fetch and the object count each pack declares.
@@ -300,8 +301,29 @@ export function createGitWorkspaceBundleVerifier(
               bases.length === 0 ? checked.reason : `${key}: ${checked.reason}`,
           };
         }
+        const carried = manifestSourcesOf(checked.refs);
+        const missing = sources.find(
+          (named) =>
+            !carried.some(
+              (source) =>
+                source.name === named.name && source.commit === named.commit,
+            ),
+        );
+        if (missing !== undefined) {
+          return {
+            status: "unusable",
+            reason: `the manifest's source branch ${missing.name} is not at ${missing.commit} in the bundle`,
+          };
+        }
         const walk = await git(
-          ["rev-list", "--objects", "--quiet", `${commit}^{commit}`, "--"],
+          [
+            "rev-list",
+            "--objects",
+            "--quiet",
+            `${commit}^{commit}`,
+            ...sources.map((source) => `${source.commit}^{commit}`),
+            "--",
+          ],
           repository,
         );
         if (walk.exitCode !== 0) return refused("git rev-list", walk);

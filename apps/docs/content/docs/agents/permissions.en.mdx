@@ -107,10 +107,10 @@ Owners, admins, the agent's administrators and its responsible team's members ar
 | `agent_outsider_access` | `use` (default) | Reads the agent's information and starts its sessions |
 | | `view` | Only reads its information. Starting a session is `403 FORBIDDEN` (`reason_code: role`) |
 | | `none` | The agent is missing from lists and reading it is `404`; starting a session is `403` |
-| `agent_outsider_session_visibility` | `managing_team` (default) | `workspace`-shared sessions of an agent with a responsible team are left out of lists, counts, details, events and the usage recent list |
+| `agent_outsider_session_visibility` | `managing_team` (default) | `workspace`-shared sessions of an agent are left out of lists, counts, details, events and the usage recent list for members outside its responsible team |
 | | `workspace` | Every member sees those sessions too |
 
-- `agent_outsider_access` and `agent_outsider_session_visibility` apply to every agent. An agent always has a responsible team. Agents that had no team before it became required went to a memberless `Unassigned agents` team, and their `workspace` sessions stay visible to every member, as before, until the agent moves to the right team.
+- `agent_outsider_access` and `agent_outsider_session_visibility` apply to every agent. An agent always has a responsible team. Agents that had no team before it became required went to a memberless holding team (the server recognizes it even if it is renamed), and their `workspace` sessions stay visible to every member, as before, until the agent moves to the right team.
 - A member outside still sees the sessions they started and the ones shared with them or their team (`people`, `team`).
 - Both settings apply from the next request, to sessions already made too. An open event stream ends at its next check. Changing the responsible team, or leaving it, works the same way.
 - Usage totals (session count, cost, achievement count) stay the same; only the rows of sessions the caller cannot see drop out of the recent achievements list.
@@ -130,7 +130,7 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 In the console, change them under **Agent access** in **Workspace settings**. **Agent access for members outside the responsible team** is **View and run** (`use`), **View only** (`view`) or **Hidden** (`none`); **Workspace-shared sessions** is **Responsible team only** (`managing_team`) or **Every member** (`workspace`). Only the changed values are sent, and after a save the screen reads `GET /v1/auth/me` again. Members who are not owners or admins see the current values without the choices.
 
 <Callout>
-Before, every member saw `workspace`-shared sessions. The default is now `managing_team`, so the sessions of an agent with a responsible team are seen only by those inside it right away. To see them as before, set `agent_outsider_session_visibility` to `workspace`.
+Before, every member saw `workspace`-shared sessions. The default is now `managing_team`, so the sessions of an agent are seen only by those inside it right away (agents still in a holding team are the exception). To see them as before, set `agent_outsider_session_visibility` to `workspace`.
 </Callout>
 
 This continues with `AID` and `WEB` from [Create](/agents/create).

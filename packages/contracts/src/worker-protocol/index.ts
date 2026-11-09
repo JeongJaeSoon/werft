@@ -281,7 +281,8 @@ export const platformPromptSchema = z
     // that a push carries one repository's commit per turn. 4 and 5 are 1 and
     // 3 with the paragraph for a session that starts without a repository;
     // nothing creates them yet, and an older worker refuses them, so they are
-    // turned on only after every worker knows them. A session keeps the
+    // turned on only after every worker knows them. 6 pushes each repository
+    // from its own local branch in the one reply. A session keeps the
     // revision it was created with: the wording is in its fingerprint.
     prompt_revision: z.union([
       z.literal(1),
@@ -289,6 +290,7 @@ export const platformPromptSchema = z
       z.literal(3),
       z.literal(4),
       z.literal(5),
+      z.literal(6),
     ]),
     agent_identity: z
       .object({

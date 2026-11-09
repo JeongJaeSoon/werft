@@ -188,6 +188,12 @@ export type PushSourceResult =
       gitCommit: string;
       revision: number;
       status: "ready";
+      /**
+       * The local branches the checkpoint kept, which a push request may
+       * name as its source instead of the snapshot `gitCommit`. Absent for
+       * a checkpoint from before sources.
+       */
+      sources?: Array<{ commit: string; name: string }>;
       /** What the worker found wrong with the commits; absent when nothing. */
       mismatches?: AttributionMismatch[];
     }
@@ -936,6 +942,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           commit: gitCommit,
           key: tip.key,
           path: tip.path,
+          ...(workspace.sources === undefined
+            ? {}
+            : { sources: workspace.sources }),
         });
       } catch (error) {
         // Only the verifier's own throws: a store that failed the read above
@@ -1566,6 +1575,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         status: "ready",
         revision: pointer.revision,
         gitCommit: verdict.manifest.workspace.gitCommit,
+        sources: [...(verdict.manifest.workspace.sources ?? [])],
         ...(verdict.manifest.attribution === undefined
           ? {}
           : { mismatches: [...verdict.manifest.attribution.mismatches] }),
@@ -1594,6 +1604,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         status: "ready",
         revision,
         gitCommit: judged.manifest.workspace.gitCommit,
+        sources: [...(judged.manifest.workspace.sources ?? [])],
         ...(judged.manifest.attribution === undefined
           ? {}
           : { mismatches: [...judged.manifest.attribution.mismatches] }),
@@ -1663,7 +1674,12 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       const judged = await judgeEarlier(row, input.sessionId);
       if (judged.verdict !== "verified") return unavailable(judged.reason);
       const { workspace } = judged.manifest;
-      if (workspace.gitCommit !== input.gitCommit) {
+      if (
+        workspace.gitCommit !== input.gitCommit &&
+        !(workspace.sources ?? []).some(
+          (source) => source.commit === input.gitCommit,
+        )
+      ) {
         return unavailable(
           `revision ${input.revision} carries ${workspace.gitCommit}, not ${input.gitCommit}`,
         );
