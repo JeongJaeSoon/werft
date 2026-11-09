@@ -245,7 +245,8 @@ export function createSlackSessionHandler(
         agent.installationId,
         event.channel,
       );
-      if (live?.status === "left") throw new SlackInboundDropped("channel_left");
+      if (live?.status === "left")
+        throw new SlackInboundDropped("channel_left");
     };
 
     // A channel whose kind Slack now reports otherwise than the binding was
