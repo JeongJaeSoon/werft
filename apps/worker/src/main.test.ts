@@ -8,6 +8,7 @@ import {
   verifyWorkspace,
   workspaceEvidenceFromEnv,
 } from "./main.ts";
+import { workspaceLimitMode } from "./workspace-limit-mode.ts";
 
 test.each([
   undefined,
@@ -18,6 +19,7 @@ test.each([
   "true ",
   "1",
   "on",
+  "yes",
   "true",
 ])(
   "only the exact true storage declaration becomes worker evidence: %j",
@@ -34,6 +36,38 @@ test.each([
       localQuota: "off",
       ...(value === "true" ? { enforcedByStorage: true } : {}),
     });
+  },
+);
+
+test.each([
+  ["yes", "unknown"],
+  ["1", "unknown"],
+  ["TRUE", "unknown"],
+  ["true", "hard"],
+] as const)(
+  "a storage declaration env value %j classifies bytes as %s",
+  (value, bytes) => {
+    const evidence = workspaceEvidenceFromEnv({
+      WORKER_WORKSPACE_ENFORCED_BY_STORAGE: value,
+      WORKER_WORKSPACE_QUOTA_BYTES: "1000",
+      WORKER_WORKSPACE_PVC_CAPACITY_BYTES: "2000",
+    });
+    expect(
+      workspaceLimitMode({
+        ...evidence,
+        mount: {
+          mountPoint: "/workspace",
+          filesystem: "ext4",
+          options: ["rw"],
+        },
+        filesystem: {
+          totalBytes: 1000,
+          freeBytes: 500,
+          totalInodes: 100,
+          freeInodes: 50,
+        },
+      }),
+    ).toMatchObject({ bytes, inodes: "unknown" });
   },
 );
 

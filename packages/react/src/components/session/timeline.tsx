@@ -23,6 +23,13 @@ import { type JSX, type ReactNode, useId, useState } from "react";
 
 import { Sparkles } from "../console-icons.ts";
 import { Markdown } from "./markdown.tsx";
+import {
+  type FocusContext,
+  finalStatusKey,
+  focusWork,
+  type WorkCounts,
+  workCounts,
+} from "./timeline-focus.ts";
 import { type FormatTurnMessage, turnSummaryText } from "./turn-text.ts";
 
 export interface TimelineEntry {
@@ -41,7 +48,16 @@ export interface TimelineEntry {
   readonly requestId?: string | undefined;
   /** What a question offers to choose from, shown under its line. */
   readonly options?: readonly string[] | undefined;
+  /** A tool call's tool, which the focus view counts it by. */
+  readonly toolName?: string | undefined;
 }
+
+/**
+ * `focus` keeps open what a person reads or answers and folds each run of
+ * the agent's work between them; `all` opens every event, internal ones
+ * included. Without a view, runs of status and system lines fold.
+ */
+export type TimelineView = "focus" | "all";
 
 /** Who or what an event came from; each has its own icon. */
 export type TimelineKind = "agent" | "tool" | "request" | "error" | "system";
@@ -60,6 +76,8 @@ export interface TimelineMessages {
    * stays a compact line of its own.
    */
   readonly folded?: ((count: number) => string) | undefined;
+  /** Says what a run folded in the focus view did, such as "Ran 2 commands". */
+  readonly work?: ((counts: WorkCounts) => string) | undefined;
   /** Marks a tool call whose result has not arrived. */
   readonly running?: string | undefined;
   /** Marks a tool call that waits on an answer instead; see `held`. */
@@ -142,6 +160,8 @@ export interface TimelineProps {
   readonly state?: "connecting" | "open" | "closed" | undefined;
   /** Shows the events presentTurnEvent marks `fold: "debug"`. */
   readonly showDebug?: boolean | undefined;
+  /** See `TimelineView`; the focus view folds `debug` events with the work. */
+  readonly view?: TimelineView | undefined;
   readonly locale?: TimestampLocale | undefined;
   /** The instant relative times count from; defaults to the clock. */
   readonly now?: number | Date | undefined;
@@ -163,7 +183,7 @@ export interface TimelineProps {
   readonly prompt?: ((turnId: string) => ReactNode) | undefined;
 }
 
-interface TimelineRow extends TimelineEntry {
+export interface TimelineRow extends TimelineEntry {
   readonly key: string;
   /** The tool result paired with this call, drawn in the same row. */
   readonly result?: TimelineEntry | undefined;
@@ -175,7 +195,7 @@ interface TimelineRow extends TimelineEntry {
   readonly inner?: readonly TimelineEntry[] | undefined;
 }
 
-type TimelineItem =
+export type TimelineItem =
   | { readonly fold: false; readonly row: TimelineRow }
   | {
       readonly fold: true;
@@ -183,7 +203,7 @@ type TimelineItem =
       readonly rows: readonly TimelineRow[];
     };
 
-interface TurnGroup {
+export interface TurnGroup {
   readonly key: string;
   readonly turnId: string | null;
   readonly startedAt: string;
@@ -205,7 +225,7 @@ const innerKey = (row: TimelineRow, inner: TimelineEntry): string =>
 const isNoise = (row: TimelineEntry): boolean =>
   !row.presentation.error && NOISE_LABELS.has(row.presentation.label.key);
 
-function timelineRows(
+export function timelineRows(
   entries: readonly TimelineEntry[],
   showDebug: boolean,
 ): TimelineRow[] {
@@ -262,7 +282,17 @@ function timelineRows(
   return rows;
 }
 
-function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
+/**
+ * How a group's lines fold: `noise` folds runs of two or more status and
+ * system lines, `focus` every run of work (one line included), `none` none.
+ */
+export type FoldMode = "noise" | "focus" | "none";
+
+export function turnGroups(
+  rows: readonly TimelineRow[],
+  mode: FoldMode,
+  focus: FocusContext = {},
+): TurnGroup[] {
   // A line with no turn between two lines of one turn belongs to that turn,
   // so a turn is not split in two around it.
   const nextTurn: (string | null)[] = [];
@@ -293,13 +323,17 @@ function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
     let run: TimelineRow[] = [];
     const flush = () => {
       const [first] = run;
-      if (first && run.length > 1) {
+      if (first && (run.length > 1 || mode === "focus")) {
         items.push({ fold: true, key: `fold-${first.key}`, rows: run });
       } else if (first) items.push({ fold: false, row: first });
       run = [];
     };
     for (const row of group.rows) {
-      if (fold && isNoise(row)) {
+      if (
+        mode === "focus"
+          ? focusWork(row, focus) !== null
+          : mode === "noise" && isNoise(row)
+      ) {
         run.push(row);
         continue;
       }
@@ -318,9 +352,10 @@ function turnGroups(rows: readonly TimelineRow[], fold: boolean): TurnGroup[] {
 
 /** The turn's token count, read from its result event's summary. */
 function turnTokens(group: TurnGroup): TurnEventMessage | undefined {
-  for (const item of group.items) {
-    if (item.fold) continue;
-    const { presentation } = item.row;
+  for (const row of group.items.flatMap((item) =>
+    item.fold ? item.rows : [item.row],
+  )) {
+    const { presentation } = row;
     if (presentation.label.key !== "session.event.kind.result") continue;
     for (const part of presentation.summary) {
       if ("key" in part && part.key === "session.event.result.tokens") {
@@ -412,6 +447,7 @@ export function Timeline({
   messages,
   state = "open",
   showDebug = false,
+  view,
   locale = "ko",
   now,
   className,
@@ -421,8 +457,17 @@ export function Timeline({
 }: TimelineProps): JSX.Element {
   const idBase = useId();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const rows = timelineRows(entries, showDebug);
-  const groups = turnGroups(rows, messages.folded !== undefined);
+  const rows = timelineRows(entries, showDebug || view !== undefined);
+  const focus: FocusContext = { held, finalStatus: finalStatusKey(rows) };
+  const groups = turnGroups(
+    rows,
+    view === "focus"
+      ? "focus"
+      : view === "all" || messages.folded === undefined
+        ? "none"
+        : "noise",
+    focus,
+  );
   const time: TimeContext = { locale, now };
 
   // A time that would read the same as the one above it is not repeated,
@@ -450,7 +495,12 @@ export function Timeline({
       // Closed, the folded lines are out of sight, so the line after the
       // fold compares with what stood before it.
       const before = said;
-      for (const row of item.rows) see(row.key, row.occurredAt);
+      for (const row of item.rows) {
+        see(row.key, row.occurredAt);
+        for (const inner of row.inner ?? []) {
+          see(innerKey(row, inner), inner.occurredAt);
+        }
+      }
       if (!open.has(item.key)) said = before;
     }
   }
@@ -468,39 +518,39 @@ export function Timeline({
       key: string;
       draw: (first: boolean, last: boolean) => JSX.Element;
     }[] = [];
+    const drawRow = (row: TimelineRow) => ({
+      key: row.key,
+      draw: (first: boolean, last: boolean) =>
+        isNoise(row) ? (
+          <NoiseItem
+            key={row.key}
+            row={row}
+            formatMessage={formatMessage}
+            messages={messages}
+            time={time}
+            shown={shown.has(row.key)}
+            first={first}
+            last={last}
+          />
+        ) : (
+          <EventItem
+            key={row.key}
+            row={row}
+            formatMessage={formatMessage}
+            messages={messages}
+            time={time}
+            shown={shown.has(row.key)}
+            innerShown={(inner) => shown.has(innerKey(row, inner))}
+            first={first}
+            last={last}
+            request={request}
+            held={held}
+          />
+        ),
+    });
     for (const item of items) {
       if (!item.fold) {
-        const { row } = item;
-        lines.push({
-          key: row.key,
-          draw: (first, last) =>
-            isNoise(row) ? (
-              <NoiseItem
-                key={row.key}
-                row={row}
-                formatMessage={formatMessage}
-                messages={messages}
-                time={time}
-                shown={shown.has(row.key)}
-                first={first}
-                last={last}
-              />
-            ) : (
-              <EventItem
-                key={row.key}
-                row={row}
-                formatMessage={formatMessage}
-                messages={messages}
-                time={time}
-                shown={shown.has(row.key)}
-                innerShown={(inner) => shown.has(innerKey(row, inner))}
-                first={first}
-                last={last}
-                request={request}
-                held={held}
-              />
-            ),
-        });
+        lines.push(drawRow(item.row));
         continue;
       }
       const expanded = open.has(item.key);
@@ -510,6 +560,21 @@ export function Timeline({
           <FoldItem
             key={item.key}
             rows={item.rows}
+            work={
+              view === "focus" && messages.work
+                ? messages.work(workCounts(item.rows, focus))
+                : undefined
+            }
+            running={
+              view === "focus" &&
+              item.rows.some(
+                (row) =>
+                  row.toolCallId !== undefined &&
+                  row.result === undefined &&
+                  row.presentation.label.key === "session.event.kind.toolUse" &&
+                  !held?.has(row.toolCallId),
+              )
+            }
             expanded={expanded}
             onToggle={() => toggle(item.key)}
             formatMessage={formatMessage}
@@ -520,23 +585,7 @@ export function Timeline({
         ),
       });
       if (!expanded) continue;
-      for (const row of item.rows) {
-        lines.push({
-          key: row.key,
-          draw: (first, last) => (
-            <NoiseItem
-              key={row.key}
-              row={row}
-              formatMessage={formatMessage}
-              messages={messages}
-              time={time}
-              shown={shown.has(row.key)}
-              first={first}
-              last={last}
-            />
-          ),
-        });
-      }
+      for (const row of item.rows) lines.push(drawRow(row));
     }
     return lines.map((line, index) =>
       line.draw(index === 0, index === lines.length - 1),
@@ -939,6 +988,8 @@ function NoiseItem({
 
 function FoldItem({
   rows,
+  work,
+  running,
   expanded,
   onToggle,
   formatMessage,
@@ -947,6 +998,10 @@ function FoldItem({
   last,
 }: LineProps & {
   readonly rows: readonly TimelineRow[];
+  /** The focus view's count of what the run did, in place of the labels. */
+  readonly work?: string | undefined;
+  /** A call in the run is still running. */
+  readonly running?: boolean | undefined;
   readonly expanded: boolean;
   readonly onToggle: () => void;
 }): JSX.Element {
@@ -978,8 +1033,21 @@ function FoldItem({
           FOCUS,
         )}
       >
-        <span className="font-medium">{messages.folded?.(rows.length)}</span>
-        {` · ${labels.join(", ")}`}
+        {work === undefined ? (
+          <>
+            <span className="font-medium">
+              {messages.folded?.(rows.length)}
+            </span>
+            {` · ${labels.join(", ")}`}
+          </>
+        ) : (
+          <span className="font-medium">{work}</span>
+        )}
+        {running && messages.running ? (
+          <span className="text-[var(--werft-tone-progress-fg)]">
+            {` · ${messages.running}`}
+          </span>
+        ) : null}
       </button>
     </li>
   );

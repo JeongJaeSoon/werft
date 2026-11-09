@@ -45,7 +45,18 @@ export type RuntimeHostDeps = {
   providerMaxRetries?: number;
   /** How long an approval waits for its tool call to reach the event stream. */
   toolCallWaitMs?: number;
+  /**
+   * Judged before every tool call, in every permission mode: a string refuses
+   * the call, and the model reads it as the reason. For advice the host can
+   * give at once from where the engine runs; it is never a security gate.
+   */
+  precheckTool?: ToolPrecheck;
 };
+
+export type ToolPrecheck = (
+  tool: string,
+  input: Record<string, unknown>,
+) => Promise<string | null>;
 
 export interface RuntimeModule {
   readonly descriptor: RuntimeDescriptor;

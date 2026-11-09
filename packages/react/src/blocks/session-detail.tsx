@@ -8,12 +8,11 @@ import type {
 import {
   Badge,
   Button,
-  Checkbox,
-  Field,
-  FieldLabel,
   formatTimestamp,
   KeyValueList,
   PageHeader,
+  SegmentedControl,
+  SegmentedControlItem,
   Tabs,
   TabsContent,
   TabsList,
@@ -60,7 +59,11 @@ import {
   SessionComposer,
   SessionControls,
 } from "./session-actions.tsx";
-import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
+import {
+  listedRequests,
+  SessionTimeline,
+  useTimelineView,
+} from "./session-timeline.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
 
@@ -106,7 +109,7 @@ export function SessionDetail({
   const { t } = useBlockText();
   const session = useSession(id);
   const [tab, setTab] = useState("timeline");
-  const [debug, setDebug] = useState(false);
+  const [view, setView] = useTimelineView();
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState(id);
   if (draftFor !== id) {
@@ -172,15 +175,19 @@ export function SessionDetail({
           <TabsTrigger value="info">{t("session.tabs.info")}</TabsTrigger>
         </TabsList>
         {tab === "timeline" ? (
-          <Field orientation="horizontal" className="w-auto gap-2 text-caption">
-            <Checkbox
-              checked={debug}
-              onCheckedChange={(checked) => setDebug(checked === true)}
-            />
-            <FieldLabel className="text-caption">
-              {t("session.events.debug")}
-            </FieldLabel>
-          </Field>
+          <SegmentedControl
+            aria-label={t("session.events.view")}
+            value={view}
+            onValueChange={(next) => setView(next === "all" ? "all" : "focus")}
+            className="mb-1"
+          >
+            <SegmentedControlItem value="focus">
+              {t("session.events.view.focus")}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="all">
+              {t("session.events.view.all")}
+            </SegmentedControlItem>
+          </SegmentedControl>
         ) : null}
       </div>
       {/* Kept mounted on other tabs: the composer holds a send in flight. */}
@@ -215,7 +222,7 @@ export function SessionDetail({
             <SessionTimeline
               events={events.events}
               state={events.state}
-              debug={debug}
+              view={view}
               pending={listedRequests(pending)}
               turns={turns.data?.items}
             />
@@ -335,6 +342,10 @@ export function SessionDetail({
       }
     >
       <PageHeader
+        // The commands run from one to four buttons: they go under the title
+        // when the row cannot hold both, so the title, status and meta line
+        // keep a readable width.
+        stackBelow="wrap"
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* A server from before titles sends none at all. */}
@@ -347,6 +358,7 @@ export function SessionDetail({
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
+              className="shrink-0 whitespace-nowrap"
             />
             {/* A paused session otherwise reads the same as an idle one. */}
             {detail.admission_state === "active" ? null : (
@@ -355,6 +367,7 @@ export function SessionDetail({
                 state={detail.admission_state}
                 label={t(`sessions.admission.${detail.admission_state}`)}
                 axisLabel={t("sessions.column.admission")}
+                className="shrink-0 whitespace-nowrap"
               />
             )}
           </span>

@@ -15,6 +15,8 @@ import {
   ConfirmDialog,
   CopyButton,
   cn,
+  DangerZone,
+  DangerZoneRow,
   ErrorState,
   Field,
   FieldContent,
@@ -1021,15 +1023,7 @@ function SlackApps({ apps }: { readonly apps: readonly MadeApp[] }) {
 }
 
 /** components/row-menu.tsx RowMenu: the ⋯ button and its items. */
-function TokenMenu({
-  active,
-  onReplace,
-  onDelete,
-}: {
-  readonly active: boolean;
-  readonly onReplace: () => void;
-  readonly onDelete: () => void;
-}) {
+function TokenMenu({ onReplace }: { readonly onReplace: () => void }) {
   const [open, setOpen] = useState(false);
   const item = (text: string, danger: boolean, onSelect: () => void) => (
     <Button
@@ -1067,8 +1061,7 @@ function TokenMenu({
         align="end"
         className="flex min-w-44 flex-col gap-0.5 p-1"
       >
-        {active ? item("토큰 교체", false, onReplace) : null}
-        {item(`${TOKEN_NAME} 삭제`, true, onDelete)}
+        {item("토큰 교체", false, onReplace)}
       </PopoverContent>
     </Popover>
   );
@@ -1227,12 +1220,8 @@ function SlackPage({
               {summary.state === "needs_reentry" ? "토큰 재등록" : "토큰 등록"}
             </Button>
           )}
-          {summary.configured ? (
-            <TokenMenu
-              active={summary.state === "active"}
-              onReplace={() => setEditing(true)}
-              onDelete={() => setDeleting(true)}
-            />
+          {summary.state === "active" ? (
+            <TokenMenu onReplace={() => setEditing(true)} />
           ) : null}
         </div>
         {summary.state === "needs_reentry" ? (
@@ -1311,6 +1300,18 @@ function SlackPage({
           {body}
         </section>
         {canManage && !tokenOnly ? guest : null}
+        {/* Deleting the token ends the page, under the guest card. */}
+        {summary?.configured ? (
+          <DangerZone title="위험 구역">
+            <DangerZoneRow
+              title={`${TOKEN_NAME} 삭제`}
+              description="새 Slack 앱을 만들 수 없게 됩니다. 이미 만든 앱과 설치, 게스트 설정은 그대로입니다."
+              actionLabel="삭제"
+              actionName={`${TOKEN_NAME} 삭제`}
+              onAction={() => setDeleting(true)}
+            />
+          </DangerZone>
+        ) : null}
         <ConfirmDialog
           open={deleting}
           onOpenChange={setDeleting}

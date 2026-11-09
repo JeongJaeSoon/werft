@@ -318,10 +318,11 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 |---|---|---|---|
 | commit author·committer | App bot `<slug>[bot]` | 같음 | 같음 |
 | commit 트레일러 | `Co-authored-by: <login> <id+login@users.noreply.github.com>` + `Agent-Session` | `Agent-Session`만 | `Agent-Session`만 |
-| PR 본문 꼬리 | `- Requested by: @<login> (<surface>)`와 `Co-authored-by` | `- Requested by: a person without a linked GitHub account (<surface>)` | `- Requested by: none (App only)` |
+| PR 본문 꼬리 | `- Requested by: <login> (<surface>)`와 `Co-authored-by` | `- Requested by: a person without a linked GitHub account (<surface>)` | `- Requested by: none (App only)` |
 | PR 작성자 | App bot | 같음 | 같음 |
 
 - 연결하지 않은 요청자의 이름은 어디에도 넣지 않는다. 공개 저장소 PR에 사람 이름이 남고, 플랫폼 표시 이름은 GitHub에서 아무 계정도 가리키지 않기 때문이다.
+- 꼬리는 `<!-- werft:pr-tail -->` 줄부터 `<!-- /werft:pr-tail -->` 줄까지이고 줄은 영어로 쓴다(`pullRequestTail`, `packages/platform/src/sessions/git-attribution.ts`). login 앞에 `@`를 붙이지 않는다. 꼬리가 사람에게 알림을 보내지 않게 하려는 것이다. 위 표의 값이 쓰는 그대로의 문구다.
 - `<surface>`는 `Slack`·`web console`·`API key`·`platform`이다. 꼬리의 `Started by` 줄은 그대로 두고 `Requested by` 줄을 더한다. 꼬리 인식은 옛 꼬리와 새 꼬리를 둘 다 플랫폼 꼬리로 읽고, 다시 써도 두 번 붙지 않는다.
 - 예약된 PR(L5)은 예약한 턴의 호출자이고, 예약 행에 그 값을 저장한다. 여러 턴의 commit이 든 PR은 commit마다 그 턴의 호출자가 트레일러에 남는다.
 - 값이 가는 길: control-host가 턴 입력에 `co_author`와 `requester`를 싣고, worker가 그 턴을 시작할 때 `~/.werft/git-trailers`를 다시 쓴다. claim 하나에서 턴이 여럿 돌기 때문이다. PR 3의 세션별 발급값 기록에 턴마다 낸 값을 더해, 다른 사람 턴의 commit이 "발급되지 않은 공동 작성자"로 막히지 않게 한다. 트레일러는 귀속 표시이고 보안 경계가 아니다.

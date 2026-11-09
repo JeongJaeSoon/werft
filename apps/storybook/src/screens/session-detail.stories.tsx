@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { TurnSummary } from "@werft-ai/contracts";
 import { SessionDetail } from "@werft-ai/react/blocks";
 import { Button, EmptyState, Section, Text } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
-import { expect } from "storybook/test";
+import { expect, within } from "storybook/test";
 import { I18nProvider } from "../../../web/src/i18n/i18n.tsx";
 import { SessionWorkspaceLimit } from "../../../web/src/routes/session-workspace-limit.tsx";
 
@@ -12,6 +13,7 @@ import {
   base,
   DETAIL,
   eventStream,
+  eventStreamOf,
   hostFor,
   PENDING,
   pending,
@@ -397,4 +399,289 @@ export const InfoRepositoriesThreeMobile: Story = {
   ...InfoRepositoriesThree,
   name: "정보 탭: 저장소 3개 (390px)",
   globals: MOBILE,
+};
+
+/*
+ * Focus view (Claude Code's focus mode): the instruction, replies, the
+ * failed test run, the permission request still waiting and the latest
+ * status stay open; each run of tool calls, thinking and internal events
+ * between them folds into one line that counts what it did. The events are
+ * the shapes of the fake model's GATE-SPEC script (control-host demo-data).
+ */
+const FOCUS_TITLE = "의존성 업데이트 영향 확인";
+const call = (
+  id: string,
+  name: string,
+  input: Record<string, unknown>,
+): [string, unknown] => ["tool_use", { tool_call: { id, name, input } }];
+const done = (id: string, text: string, isError = false): [string, unknown] => [
+  "tool_result",
+  { tool_result: { tool_call_id: id, is_error: isError, text } },
+];
+const INSTALL_LOG = Array.from(
+  { length: 40 },
+  (_, line) =>
+    `added @scope/package-${line + 1}@2.${line}.0 from https://registry.npmjs.org/@scope/package-${line + 1}/-/package-${line + 1}-2.${line}.0.tgz`,
+).join("\n");
+const RELEASE_NOTES = [
+  "# 릴리스 노트 초안",
+  "",
+  "## 사용자에게 보이는 변경",
+  "- 세션 상세의 타임라인이 기본으로 사람이 볼 것만 펼칩니다.",
+  "- 로그인 화면에서 Slack 계정 연결이 한 번에 끝납니다.",
+  "",
+  "## 내부 변경",
+  ...Array.from(
+    { length: 20 },
+    (_, line) => `- 의존성 ${line + 1}: 마이너 버전 올림, 공개 API 변경 없음`,
+  ),
+].join("\n");
+const FOCUS_EVENTS: readonly [string, unknown][] = [
+  ["status", { phase: "running" }],
+  ["system", { engine_event: { name: "init", category: "started" } }],
+  [
+    "system",
+    { engine_event: { name: "thinking_tokens", category: "thinking" } },
+  ],
+  [
+    "system",
+    { engine_event: { name: "thinking_tokens", category: "thinking" } },
+  ],
+  [
+    "system",
+    { engine_event: { name: "rate_limit_event", category: "internal" } },
+  ],
+  call("tu_1", "Bash", { command: "npm install", description: "의존성 설치" }),
+  done("tu_1", INSTALL_LOG),
+  call("tu_2", "Read", { file_path: "package.json" }),
+  done("tu_2", '{\n  "name": "werft-sandbox",\n  "version": "1.4.0"\n}'),
+  call("tu_3", "Read", { file_path: "CHANGELOG.md" }),
+  done("tu_3", "## 1.4.0\n- 첫 공개"),
+  call("tu_4", "Write", {
+    file_path: "out/release-notes.md",
+    content: RELEASE_NOTES,
+  }),
+  done("tu_4", RELEASE_NOTES),
+  [
+    "assistant",
+    {
+      text: "out/release-notes.md에 초안을 썼습니다. 사용자에게 보이는 변경 두 가지를 정리했습니다. 이어서 테스트를 돌립니다.",
+    },
+  ],
+  call("tu_5", "Bash", { command: "npm test", description: "테스트 실행" }),
+  done(
+    "tu_5",
+    "FAIL src/login.test.ts\n  ● Slack 연결 › 콜백이 state를 확인한다\n    expected 302, received 500",
+    true,
+  ),
+  [
+    "system",
+    { engine_event: { name: "thinking_tokens", category: "thinking" } },
+  ],
+  call("tu_6", "Grep", { pattern: "verifyState" }),
+  done("tu_6", "src/login.ts:42"),
+  call("tu_7", "Edit", { file_path: "src/login.ts" }),
+  done("tu_7", "The file src/login.ts has been updated."),
+  call("tu_8", "Bash", {
+    command: "npm test",
+    description: "테스트 다시 실행",
+  }),
+  done("tu_8", "Tests: 48 passed, 48 total"),
+  [
+    "assistant",
+    {
+      text: "state 확인이 빠진 곳을 고쳐 테스트 48개가 모두 통과합니다. 브랜치를 올리려면 권한이 필요합니다.",
+    },
+  ],
+  call("tu_9", "Bash", {
+    command: "git push origin agent/deps-update",
+    description: "브랜치 올리기",
+  }),
+  [
+    "question",
+    {
+      request_id: "req_1",
+      tool_use_id: "tu_9",
+      kind: "permission",
+      tool: "Bash",
+      input: {
+        command: "git push origin agent/deps-update",
+        description: "브랜치 올리기",
+      },
+    },
+  ],
+  ["status", { phase: "needs_input" }],
+];
+const FOCUS_REQUESTS = {
+  ...PENDING,
+  items: [
+    {
+      ...PENDING.items[0],
+      input: {
+        command: "git push origin agent/deps-update",
+        description: "브랜치 올리기",
+      },
+    },
+  ],
+};
+const FOCUS_TURN: TurnSummary = {
+  turn_id: "turn_1",
+  session_id: SESSION.id,
+  status: "needs_input",
+  message:
+    "의존성 업데이트가 테스트를 깨는지 확인하고, 릴리스 노트 초안을 out/release-notes.md에 써 주세요.",
+  channel: "web",
+  created_by: {
+    user_id: "0192f0c4-7d3a-7b4e-9f00-00000000c001",
+    display_name: "김민아",
+  },
+  slack_permalink: null,
+  terminal_reason: null,
+  checkpoint_revision: null,
+  created_at: SESSION.created_at,
+  started_at: SESSION.created_at,
+  ended_at: null,
+};
+const focusRoutes = (): FakeRoutes => ({
+  ...routes({
+    detail: { ...TITLED, title: FOCUS_TITLE },
+    requests: FOCUS_REQUESTS,
+  }),
+  [`GET ${base}/events`]: () => eventStreamOf(FOCUS_EVENTS, 1500),
+  [`GET ${base}/turns`]: () =>
+    json(200, { items: [FOCUS_TURN], next_cursor: null }),
+});
+// The view is remembered per browser; each story starts from focus.
+const forgetView = () => {
+  globalThis.localStorage?.removeItem("werft.session.timeline.view");
+};
+const showAll: Story["play"] = async ({ canvas, userEvent }) => {
+  const view = await canvas.findByRole("group", { name: "타임라인 보기" });
+  await userEvent.click(within(view).getByRole("button", { name: "전체" }));
+  await expect(
+    within(view).getByRole("button", { name: "전체" }),
+  ).toHaveAttribute("aria-pressed", "true");
+};
+
+/** Focus, the default: four folded runs between what a person reads. */
+export const TimelineFocus: Story = {
+  name: "타임라인: 집중 보기",
+  parameters: { api: focusRoutes() },
+  beforeEach: forgetView,
+  play: async ({ canvas }) => {
+    const fold = await canvas.findByRole("button", {
+      name: "실행한 명령 1개 · 읽은 파일 2개 · 쓴 파일 1개 · 이벤트 4개",
+    });
+    await expect(fold).toHaveAttribute("aria-expanded", "false");
+    await expect(await canvas.findByText("권한 요청")).toBeVisible();
+  },
+};
+
+/** A fold opened: its calls and their long results, folded under each. */
+export const TimelineFocusOpen: Story = {
+  name: "타임라인: 집중 보기, 묶음 펼침",
+  parameters: { api: focusRoutes() },
+  beforeEach: forgetView,
+  play: async ({ canvas, userEvent }) => {
+    const fold = await canvas.findByRole("button", {
+      name: /^실행한 명령 1개 · 읽은 파일 2개/,
+    });
+    await userEvent.click(fold);
+    await expect(fold).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      await canvas.findByText("Write: out/release-notes.md"),
+    ).toBeVisible();
+  },
+};
+
+/** Every event open, internal ones included, as before focus. */
+export const TimelineAll: Story = {
+  name: "타임라인: 전체 보기",
+  parameters: { api: focusRoutes() },
+  beforeEach: forgetView,
+  play: showAll,
+};
+
+export const TimelineFocusMobile: Story = {
+  ...TimelineFocus,
+  name: "타임라인: 집중 보기 (390px)",
+  globals: MOBILE,
+};
+
+export const TimelineFocusDark: Story = {
+  ...TimelineFocus,
+  name: "타임라인: 집중 보기 (dark)",
+  globals: { theme: "dark" },
+};
+
+export const TimelineAllMobileDark: Story = {
+  ...TimelineAll,
+  name: "타임라인: 전체 보기 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
+};
+
+/*
+ * The header with every command a running turn takes (stop, pause,
+ * terminate) and the way back: four buttons beside the title. The title,
+ * the status tag and the meta line keep their width; the buttons move under
+ * the title when the row has no room for both.
+ */
+const FOUR_BUTTONS = {
+  ...TITLED,
+  title: "의존성 업데이트 영향 확인",
+  status: "needs_input",
+  admission_state: "active",
+  current_turn_id: "turn_01",
+};
+
+export const HeadFourButtons: Story = {
+  name: "머리: 버튼 4개 (권한 요청 대기)",
+  parameters: { api: routes({ detail: FOUR_BUTTONS }) },
+};
+
+export const HeadFourButtonsDark: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (dark)",
+  globals: { theme: "dark" },
+};
+
+export const HeadFourButtonsMobile: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (390px)",
+  globals: MOBILE,
+};
+
+export const HeadFourButtonsMobileDark: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
+};
+
+const LONG_TITLE = {
+  ...FOUR_BUTTONS,
+  title:
+    "결제 서비스의 의존성 업데이트가 정산 배치와 알림 워커, 관리자 콘솔에 주는 영향을 확인하고 깨지는 테스트를 고친 뒤 변경 요약을 남기기",
+};
+
+export const HeadLongTitle: Story = {
+  name: "머리: 긴 제목 + 버튼 4개",
+  parameters: { api: routes({ detail: LONG_TITLE }) },
+};
+
+export const HeadLongTitleDark: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (dark)",
+  globals: { theme: "dark" },
+};
+
+export const HeadLongTitleMobile: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (390px)",
+  globals: MOBILE,
+};
+
+export const HeadLongTitleMobileDark: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
 };
