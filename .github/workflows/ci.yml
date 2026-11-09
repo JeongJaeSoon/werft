@@ -47,6 +47,7 @@ jobs:
       k8s: ${{ steps.plan.outputs.k8s }}
       domains: ${{ steps.plan.outputs.domains }}
       sdk_pack: ${{ steps.sdk.outputs.run }}
+      unit_parts: ${{ steps.units.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,7 +58,6 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
-
       - id: sdk
         name: Plan SDK consumer check
         env:
@@ -76,6 +76,22 @@ jobs:
             done <"$RUNNER_TEMP/sdk-pack-paths"
           fi
           echo "run=$run" >>"$GITHUB_OUTPUT"
+      - if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
+        uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
+      - id: units
+        if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
+        env:
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+        run: |
+          args=()
+          if [ "$ONLY" != check ] && [ "$DOMAINS" = '["surface"]' ]; then
+            args+=(--exclude-surface)
+          fi
+          matrix=$(bun .github/scripts/unit-part.ts matrix "${args[@]}")
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
   static:
     name: check (static)
@@ -110,8 +126,8 @@ jobs:
         run: bun test ./tests
 
   # Integration domains already run every unit test with their services on.
-  # Keep shards for manual checks and the reduced web plan, whose surface
-  # domain alone does not cover repository policy or other unit tests.
+  # Manual checks keep all shards. The web plan runs only the complement
+  # of surface, retaining policy tests without repeating surface files.
   check-part:
     name: check (${{ matrix.part }})
     needs: changes
@@ -133,23 +149,7 @@ jobs:
       # until the next push.
       fail-fast: false
       matrix:
-        include:
-          - part: "unit: packages"
-            unit: packages
-          # PGlite migration fixtures otherwise exhaust the packages job's ceiling.
-          - part: "unit: db"
-            unit: packages-db
-          # apps/worker/ and apps/web/ apart from the rest of apps/ and
-          # tests/: as one part they ran about 5m of the then-6m ceiling.
-          - part: "unit: worker, web"
-            unit: worker-web
-          # Recent runs spent about 4m22s in Slack and 4m01s in the complement.
-          - part: "unit: control Slack"
-            unit: control-slack
-          # The complement of the parts above: other app tests, tests/, and any
-          # other directory the `test` script's filters pick up.
-          - part: "unit: other apps, tests"
-            unit: rest
+        include: ${{ fromJSON(needs.changes.outputs.unit_parts) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
@@ -157,11 +157,17 @@ jobs:
       - name: Tests of this part
         env:
           UNIT: ${{ matrix.unit }}
+          DOMAINS: ${{ needs.changes.outputs.domains }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
         # An assignment, not process substitution, so a planner failure fails
         # the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         run: |
-          files=$(bun .github/scripts/unit-part.ts "$UNIT")
+          args=()
+          if [ "$ONLY" != check ] && [ "$DOMAINS" = '["surface"]' ]; then
+            args+=(--exclude-surface)
+          fi
+          files=$(bun .github/scripts/unit-part.ts "$UNIT" "${args[@]}")
           mapfile -t files <<<"$files"
           bun test "${files[@]}"
 

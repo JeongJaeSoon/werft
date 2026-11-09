@@ -128,8 +128,8 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
       ).toEqual([]);
     }
   }
-  // forbidden-terms, helm-chart, supply-chain
-  expect(skipping).toBe(3);
+  // changes, forbidden-terms, helm-chart, supply-chain
+  expect(skipping).toBe(4);
 });
 
 test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {
@@ -141,11 +141,25 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   );
   expect(partOf("apps/control-host/src/slack-extra/a.test.ts")).toBe("rest");
   expect(partOf("apps/control-host/src/api/auth.test.ts")).toBe("rest");
-  const units = workflow.jobs["check-part"]?.strategy?.matrix.include.map(
-    (entry) => entry.unit,
+  const files = PARTS.map((unit) => {
+    const paths = {
+      packages: "packages/a.test.ts",
+      "packages-db": "packages/db/a.test.ts",
+      "worker-web": "apps/web/a.test.ts",
+      "control-slack": "apps/control-host/src/slack/a.test.ts",
+      rest: "tests/a.test.ts",
+    };
+    return paths[unit];
+  });
+  const { matrix } = await import("../.github/scripts/unit-part.ts");
+  expect(
+    matrix(files)
+      .map((entry) => entry.unit)
+      .sort(),
+  ).toEqual([...PARTS].sort());
+  expect(workflow.jobs["check-part"]?.strategy?.matrix.include).toBe(
+    `\${{ fromJSON(needs.changes.outputs.unit_parts) }}`,
   );
-  expect(units?.sort()).toEqual([...PARTS].sort());
-  expect(new Set(units).size).toBe(PARTS.length);
   expect(workflow.jobs["check-part"]?.["timeout-minutes"]).toBe(12);
   for (const part of PARTS) {
     expect(() => pick([], part)).toThrow(`unit part ${part} has no files`);
@@ -154,9 +168,21 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
 
 test("static checks keep one cache writer and report independent failures", () => {
   const parts = workflow.jobs["check-part"];
+  expect(workflow.jobs.changes?.outputs?.unit_parts).toBe(
+    `\${{ steps.units.outputs.matrix }}`,
+  );
+  expect(workflow.jobs.changes?.outputs?.sdk_pack).toBe(
+    `\${{ steps.sdk.outputs.run }}`,
+  );
   expect(
-    parts?.strategy?.matrix.include.filter((entry) => !entry.unit),
-  ).toEqual([]);
+    workflow.jobs.changes?.steps.map((step) => step.id ?? step.uses),
+  ).toEqual([
+    expect.stringContaining("actions/checkout@"),
+    "plan",
+    "sdk",
+    "./.github/actions/bun-setup",
+    "units",
+  ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
   expect(job?.needs).toBeUndefined();
