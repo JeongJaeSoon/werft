@@ -28,6 +28,7 @@ import type {
   ResumeSessionRequest,
   SessionCredentialUnboundDetails,
   SessionDetail,
+  SessionExtension,
   SessionRuntimeView,
   SlackMessageRef,
   TerminateSessionRequest,
@@ -43,6 +44,12 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
+import type { ExtensionRefusal } from "../extensions/resolve.ts";
+import {
+  checkPinnedExtensions,
+  resolveSessionExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/session-extensions.ts";
 import {
   budgetExceeded,
   type SessionSpend,
@@ -102,6 +109,15 @@ export class SessionServiceError extends Error {
   ) {
     super(message);
   }
+}
+
+function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
+  return new SessionServiceError(
+    "UNSUPPORTED_CAPABILITY",
+    refusal.message,
+    undefined,
+    { reason_code: refusal.code, bundle: refusal.name },
+  );
 }
 
 export function selfApproval(error: unknown): boolean {
@@ -398,6 +414,7 @@ export function createSessionService(deps: {
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
+  extensions?: SessionExtensionsDeps;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -830,10 +847,42 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
+      const selection = input.body.extensions;
+      let extensions: SessionExtension[] | undefined;
+      let extensionRefusal: SessionServiceError | null = null;
+      if (deps.extensions && profile) {
+        const resolved = await resolveSessionExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          agentId: release?.agent_id ?? null,
+          ...(selection === undefined ? {} : { selection }),
+          permissionMode: profile.permission_mode,
+          runtimeKind: profile.runtime_kind,
+        });
+        if (resolved.ok) {
+          extensions = resolved.extensions.map((e) => ({
+            bundle_id: e.bundleId,
+            name: e.name,
+            digest: e.digest,
+            scope: e.scope,
+          }));
+        } else {
+          extensionRefusal = extensionRefusalError(resolved.refusal);
+        }
+      } else if (selection !== undefined) {
+        extensionRefusal = extensionRefusalError({
+          code: "feature_unsupported",
+          name: "",
+          message: "This server does not offer extension bundles",
+        });
+      }
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
         payloadHash: payloadHash(input.body),
+        ...(extensions === undefined ? {} : { extensions }),
+        ...(extensionRefusal === null
+          ? {}
+          : { extensionsRefused: true as const }),
         profileId,
         channel: actor.subject.surface.kind,
         title:
@@ -900,6 +949,7 @@ export function createSessionService(deps: {
           throw limitError(result);
         case "unsupported":
           throw (
+            extensionRefusal ??
             profileBlockedError(profileId, workspaceRefusal) ??
             new SessionServiceError(
               "UNSUPPORTED_CAPABILITY",
@@ -1187,7 +1237,7 @@ export function createSessionService(deps: {
         : undefined;
       // The next attempt restores checkpoints the current runtime took, so
       // the runtime has to stay; the model, tools and provider may change.
-      const refusal = workspaceRefusal
+      const profileRefusal = workspaceRefusal
         ? workspaceRefusal.message
         : pair === null ||
             (pair.repository !== null &&
@@ -1202,6 +1252,24 @@ export function createSessionService(deps: {
                 current.runtime_version !== pair.profile.runtime_version
               ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
               : null;
+      let pinnedRefusal: string | null = null;
+      if (
+        profileRefusal === null &&
+        pair !== null &&
+        deps.extensions &&
+        record.extensions !== null &&
+        record.extensions !== undefined &&
+        record.extensions.length > 0
+      ) {
+        const checked = await checkPinnedExtensions(deps.extensions, {
+          workspaceId: actor.ownerId,
+          extensions: record.extensions,
+          permissionMode: pair.profile.permission_mode,
+          runtimeKind: pair.profile.runtime_kind,
+        });
+        if (!checked.ok) pinnedRefusal = checked.refusal.message;
+      }
+      const refusal = profileRefusal ?? pinnedRefusal;
       const result = await controls.changeProfileAtomic({
         principal: actor,
         sessionId,

@@ -1,5 +1,5 @@
 {
-  "id": "0a86264f-0563-4582-8e09-e396ce1ad32c",
+  "id": "81595d6d-cd55-4538-ac98-1104cf5df509",
   "prevId": "c2e41355-a648-41dc-86e4-08040171df5a",
   "version": "7",
   "dialect": "postgresql",
@@ -4504,6 +4504,169 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.extension_attachments": {
+      "name": "extension_attachments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bundle_id": {
+          "name": "bundle_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "extension_attachments_workspace_name_idx": {
+          "name": "extension_attachments_workspace_name_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"extension_attachments\".\"scope\" = 'workspace'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "extension_attachments_agent_name_idx": {
+          "name": "extension_attachments_agent_name_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"extension_attachments\".\"scope\" = 'agent'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "extension_attachments_workspace_id_workspaces_id_fk": {
+          "name": "extension_attachments_workspace_id_workspaces_id_fk",
+          "tableFrom": "extension_attachments",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "extension_attachments_bundle_id_extension_bundles_id_fk": {
+          "name": "extension_attachments_bundle_id_extension_bundles_id_fk",
+          "tableFrom": "extension_attachments",
+          "tableTo": "extension_bundles",
+          "columnsFrom": ["bundle_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "extension_attachments_created_by_users_id_fk": {
+          "name": "extension_attachments_created_by_users_id_fk",
+          "tableFrom": "extension_attachments",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "extension_attachments_agent_fk": {
+          "name": "extension_attachments_agent_fk",
+          "tableFrom": "extension_attachments",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "extension_attachments_scope_check": {
+          "name": "extension_attachments_scope_check",
+          "value": "\"extension_attachments\".\"scope\" IN ('workspace', 'agent') AND (\"extension_attachments\".\"scope\" = 'agent') = (\"extension_attachments\".\"agent_id\" IS NOT NULL)"
+        },
+        "extension_attachments_mode_check": {
+          "name": "extension_attachments_mode_check",
+          "value": "\"extension_attachments\".\"mode\" IN ('required', 'optional', 'forbidden')"
+        },
+        "extension_attachments_name_check": {
+          "name": "extension_attachments_name_check",
+          "value": "\"extension_attachments\".\"name\" ~ '^[a-z0-9][a-z0-9-]{0,63}$'"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.extension_bundles": {
@@ -11440,6 +11603,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "extensions": {
+          "name": "extensions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -12254,7 +12423,7 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','own_bot_user','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','own_bot_user','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval')"
         },
         "slack_inbound_events_dropped_check": {
           "name": "slack_inbound_events_dropped_check",
@@ -13279,7 +13448,7 @@
         },
         "surface_bindings_status_check": {
           "name": "surface_bindings_status_check",
-          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','left','partial','failed','revoked')"
+          "value": "\"surface_bindings\".\"status\" IN ('ready','pending_approval','partial','failed','revoked')"
         },
         "surface_bindings_membership_check": {
           "name": "surface_bindings_membership_check",
@@ -13300,10 +13469,6 @@
         "surface_bindings_pending_check": {
           "name": "surface_bindings_pending_check",
           "value": "\"surface_bindings\".\"status\" <> 'pending_approval' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND \"surface_bindings\".\"surface_kind\" = 'private_channel' AND NOT \"surface_bindings\".\"home\")"
-        },
-        "surface_bindings_left_check": {
-          "name": "surface_bindings_left_check",
-          "value": "\"surface_bindings\".\"status\" <> 'left' OR (\"surface_bindings\".\"surface\" = 'slack' AND \"surface_bindings\".\"installation_id\" IS NOT NULL AND \"surface_bindings\".\"external_surface_id\" IS NOT NULL AND COALESCE(\"surface_bindings\".\"surface_kind\" = 'private_channel', false) AND NOT \"surface_bindings\".\"home\" AND \"surface_bindings\".\"approved_at\" IS NULL AND \"surface_bindings\".\"approved_lifecycle_us\" IS NULL)"
         },
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",

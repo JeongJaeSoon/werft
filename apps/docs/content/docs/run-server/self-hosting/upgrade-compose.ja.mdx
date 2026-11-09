@@ -92,14 +92,15 @@ incremental checkpoint と release ツール復元候補の下限を両方含む
 | モデルブロックの Slack DM（migration 0248） | migration を含む API をすべて更新し、その後 slack ロール | 0248 の後にイメージを戻しても安全です。古い slack ロールは `model_notice` 行を送るスレッドがないため `not_addressed` で閉じ、DM は送りません。スキーマを 0248 より下げるには、先に `model_notice` 行を削除し、`slack_outbox_kind_check` を以前の一覧に戻します |
 | 担当チームの必須化（migration 0243） | migration を含む API をすべて更新 | 0243 の後に、すでに担当チームを必須にしていた直前のイメージへ戻すと、作成はできますが保管チームのエージェントのセッションが再び隠れます。チームなしで INSERT する古いイメージはエージェントを作れません（`NOT NULL` 違反）。それより下げるには書き込みを止めて `NOT NULL` を外す必要があり、バックフィルも以前の可視性も元に戻りません |
 | Slack 非公開チャンネルの退出処理（migration 0250） | migration を含む API をすべて更新 → slack ロールを更新 → 作成済みのエージェントアプリごとに events の再確認で manifest を再送 | 古いイメージは新しい `slack_channel_lifecycle` テーブルを無視するので、戻してもデータは残る。ただし `member_left_channel` を処理しないイメージへ戻すと、bot が非公開チャンネルから出て再招待されたときに古い承認がそのまま復活する |
-| bot が非公開チャンネルから出たら `left`（非アクティブ）にする（migration 0251） | migration を含む API をすべて更新 → slack ロールと、outbox・カード・スレッド状態を動かすロールまで同じイメージで更新 | `status` の CHECK と `slack_inbound_events` の drop 理由の CHECK が `left`・`channel_left` を受け付けるようになる。`left` を知らない古いイメージは、そのチャンネルの入力は受け付けないが、outbox はそのチャンネルへ送ってしまう。最初の `left` 行ができた後は、このイメージより前に戻さない。戻す場合は先に書き込みと送信を止め、`left` 行を `pending_approval` に変える必要があるが、そうすると「非アクティブ」という意味は失われる |
+| bot が非公開チャンネルから出たら `left`（非アクティブ）にする（migration 0252） | migration を含む API をすべて更新 → slack ロールと、outbox・カード・スレッド状態を動かすロールまで同じイメージで更新 | `status` の CHECK と `slack_inbound_events` の drop 理由の CHECK が `left`・`channel_left` を受け付けるようになる。`left` を知らない古いイメージは、そのチャンネルの入力は受け付けないが、outbox はそのチャンネルへ送ってしまう。最初の `left` 行ができた後は、このイメージより前に戻さない。戻す場合は先に書き込みと送信を止め、`left` 行を `pending_approval` に変える必要があるが、そうすると「非アクティブ」という意味は失われる |
+| 拡張バンドルの attach とセッション解決（migration 0251） | migration を含む API をすべて更新 | 0251 の後にイメージを戻しても安全です。古いイメージは `extension_attachments` テーブルも `sessions.extensions` 列も読まないため、セッションに固定されたバンドル一覧は無視されます。スキーマを 0251 より下げるには、`extension_attachments` テーブルを削除し、`sessions.extensions` 列を外します。セッションに固定済みのバンドル一覧は元に戻りません |
 
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。
 
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### v0.1.0 以降の変更を初めて適用する場合
 
-- `v0.1.0` より後、対象バージョンまでの全 migration（現在 `0251` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
+- `v0.1.0` より後、対象バージョンまでの全 migration（現在 `0252` まで）を migrate で適用します。`0239_connection_replaces_auth` の新しい列は以前のイメージが無視しますが、それだけで他の checkpoint・protocol の rollback が安全という意味ではありません。
 - `v0.1.0` タグの compose は `ANTHROPIC_API_KEY` が空だと描画を拒否します。`v0.1.0` から上げるとき、env ファイルに残ったキーはそのままで構いません。`a486f20d2` 以降のソースはキーの有無を問いません。`v0.1.0` のソースを再適用するときだけ、キーを空にしないでください。
 - control-host を先、worker を後に更新します。`platform_tool_trust` fallback があっても、更新の間は以前の権限経路を使うため順序を守ります。
 - API、Compose maintenance、Kubernetes の checkpointGc・sessionArchive CronJob を先に対象イメージにし、**以前のイメージで開始した Job が終了したこと**を確認してから worker を更新します。以前の GC は固定 revision を削除する場合があり、以前の API・検証器は worker が常に載せるローカルブランチを拒否します。`AGENT_ACTION_FLOWS` と `SESSION_PROMPT_REVISION` はなくなり、値を渡しても読みません。`v0.1.1` の公開状況を変更履歴の見出しだけでは判断しません。

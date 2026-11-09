@@ -196,6 +196,7 @@ import {
   githubMcpGrantKeyOf,
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
+import { extensionDepsFor } from "./extension-deps.ts";
 import {
   connectionsOf,
   createAppBotUsers,
@@ -510,6 +511,7 @@ const slackWelcome =
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
+const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,
   store: agentStore,
@@ -520,6 +522,7 @@ const agents = createAgentService({
   keys: createPostgresWorkspaceKeyStore(db),
   outsideAgents: agentAccess,
   profileLineage: profileRollouts,
+  extensions: extensionDeps,
 });
 const archivedEvents = archivedEventSource(checkpointStorage);
 const sessions = createSessionService({
@@ -536,6 +539,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
+  extensions: extensionDeps,
   credentials: credentialBindings,
   limits,
 });
