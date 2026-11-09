@@ -47,6 +47,8 @@ export class ClaudeSdkRuntime {
   constructor(
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
+    // Replaceable so a test can answer the engine's initialization itself.
+    private readonly launch: typeof query = query,
   ) {}
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
@@ -67,7 +69,7 @@ export class ClaudeSdkRuntime {
     const input = new InputStream();
     const abortController = new AbortController();
     const ledger = new TurnLedger(config.resume);
-    const sdkQuery = query({
+    const sdkQuery = this.launch({
       prompt: input,
       options: buildSdkOptions(
         launched,

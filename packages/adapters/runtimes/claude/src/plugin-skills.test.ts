@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import type { ClaudeRuntimeConfig } from "./config.ts";
 import {
   expectedPluginSkills,
   missingSkills,
@@ -10,6 +10,7 @@ import {
 } from "./plugin-skills.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
+import { ClaudeSdkRuntime } from "./runtime.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 const made: string[] = [];
@@ -154,5 +155,67 @@ describe("a run handed plugins is ready only once the engine loaded them", () =>
 
   test("a run with no plugins is not held to any of it", async () => {
     await run({ commands: [] }, undefined).ready();
+  });
+});
+
+describe("ClaudeSdkRuntime.start hands the published tree's skills to the readiness check", () => {
+  const policy = {
+    endpoints: ["https://api.anthropic.com"],
+    models: ["primary"],
+  };
+  const hooks = { onPermission: async () => ({ behavior: "allow" as const }) };
+
+  function started(path: string, initialization: object) {
+    const config: ClaudeRuntimeConfig = {
+      claudeConfigDir: "/tenant/config",
+      correlationId: "start-skills",
+      mode: "new",
+      cwd: "/tenant/workspace",
+      home: "/tenant/home",
+      model: "primary",
+      profile: {
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.com",
+        auth: { kind: "api_key", value: "placeholder" },
+        principal: { ownerScope: "owner-a" },
+      },
+      identities: { plugins: { [path]: "digest" } },
+      plugins: [{ type: "local", path }],
+      settingSources: [],
+      tools: ["Read"],
+    };
+    const fake = (() => ({
+      initializationResult: async () => initialization,
+    })) as never;
+    return new ClaudeSdkRuntime(policy, undefined, fake).start(config, hooks);
+  }
+
+  test("a tree whose skills the engine reports starts", async () => {
+    const path = tree("lint", ["check"]);
+    await started(path, {
+      plugins_applied: true,
+      commands: [{ name: "lint:check" }],
+    }).ready();
+  });
+
+  test("a tree whose skill the engine does not report fails the start", async () => {
+    const path = tree("lint", ["check", "fix"]);
+    await expect(
+      started(path, {
+        plugins_applied: true,
+        commands: [{ name: "lint:check" }],
+      }).ready(),
+    ).rejects.toThrow("lint:fix");
+  });
+
+  test("an unreadable tree fails the start before the engine exists", () => {
+    expect(() => started("/nonexistent/ext", {})).toThrow(PluginTreeError);
+  });
+
+  test("an init reply without a commands list is a clear start failure", async () => {
+    const path = tree("lint", ["check"]);
+    await expect(
+      started(path, { plugins_applied: true }).ready(),
+    ).rejects.toThrow("did not list its commands");
   });
 });

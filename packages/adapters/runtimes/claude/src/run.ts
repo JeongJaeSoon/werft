@@ -190,6 +190,11 @@ export class ClaudeSdkRun implements DriverRun {
         "The engine did not load the session's extension bundles",
       );
     }
+    if (!Array.isArray(initialized.commands)) {
+      throw new Error(
+        "The engine's initialization reply did not list its commands, so the extension skills cannot be confirmed",
+      );
+    }
     const missing = missingSkills(this.expectedSkills, initialized.commands);
     if (missing.length > 0) {
       throw new Error(
