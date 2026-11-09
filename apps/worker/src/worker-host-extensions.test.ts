@@ -24,7 +24,7 @@ const timeouts: WorkerTimeouts = {
 
 const withBundle: RuntimeConfig = {
   model: "fake-model",
-  tools: [],
+  tools: ["Read", "Skill"],
   permission_mode: "default",
   provider: {
     kind: "anthropic",
@@ -76,6 +76,39 @@ describe("a claim that carries extension bundles", () => {
     expect(gateway.releases.map((release) => release.reason)).toEqual([
       expect.stringContaining("extension lint"),
     ]);
+  });
+
+  test("tools that do not list Skill fail the start before any download: no publisher call, no engine, and the reason says the fix", async () => {
+    for (const tools of [[], ["Read"]]) {
+      let downloads = 0;
+      const { gateway, worker, started } = host(
+        { ...withBundle, tools },
+        async () => {
+          downloads += 1;
+        },
+      );
+
+      const summary = await worker.runLoop();
+
+      expect(summary.outcome).toBe("failed");
+      expect(downloads).toBe(0);
+      expect(started.engines).toBe(0);
+      const reason = gateway.releases[0]?.reason ?? "";
+      expect(reason).toContain("lint");
+      expect(reason).toContain('Add "Skill" to the runtime profile');
+    }
+  });
+
+  test("with Skill among the tools the bundles are published and the engine starts", async () => {
+    let downloads = 0;
+    const { worker, started } = host(withBundle, async () => {
+      downloads += 1;
+    });
+
+    await worker.runLoop();
+
+    expect(downloads).toBe(1);
+    expect(started.engines).toBe(1);
   });
 
   test("a worker with no way to publish them refuses to start rather than run without", async () => {
