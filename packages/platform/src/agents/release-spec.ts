@@ -25,7 +25,6 @@ export type SpecRelease = ReleaseIdentity & Pick<AgentRelease, "id">;
 export type SpecSourceRefusal =
   | { reason: "profile_changed" }
   | { reason: "connection_missing" }
-  | { reason: "repository_mode_conflict" }
   | { reason: "invalid_source"; message: string };
 
 function sha256Json(value: unknown): string {
@@ -53,8 +52,10 @@ function stringsOf(value: unknown): string[] | null {
  * The repository mode is the exception: the fingerprint leaves it out, so it
  * is the profile's value as of now. That is also what a session of this
  * release is held to today, so freezing it here keeps what runs at the
- * moment the spec starts to be read. A release that names a repository can
- * not have been made under `none`; that one is refused rather than frozen.
+ * moment the spec starts to be read. No pairing of the release's repository
+ * and the mode is refused: the agent and workspace policy paths run a release
+ * whatever the mode says, so a refusal would leave a runnable release
+ * without a spec.
  */
 export function buildSpecSource(input: {
   release: SpecRelease;
@@ -66,9 +67,6 @@ export function buildSpecSource(input: {
     return { ok: false, reason: "profile_changed" };
   }
   if (connectionId === null) return { ok: false, reason: "connection_missing" };
-  if (repositoryModeOf(profile) === "none" && release.repository_id !== null) {
-    return { ok: false, reason: "repository_mode_conflict" };
-  }
   const snapshot = release.runtime_config_snapshot;
   const candidate = {
     derivation_version: SPEC_DERIVATION_VERSION,

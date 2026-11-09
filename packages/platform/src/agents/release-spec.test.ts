@@ -118,15 +118,15 @@ describe("buildSpecSource", () => {
     expect(sourceOf(optional).repository_mode).toBe("optional");
   });
 
-  test("a release that names a repository is not frozen under none", () => {
+  // The policy paths run such a release today, so it must get a spec.
+  test("a release that names a repository still gets a source under none", () => {
     const none: CatalogProfile = { ...profile, repository: "none" };
-    expect(
-      buildSpecSource({
-        release: { ...releaseOf(none), repository_id: "repo-1" },
-        profile: none,
-        connectionId: "conn-1",
-      }),
-    ).toEqual({ ok: false, reason: "repository_mode_conflict" });
+    const built = buildSpecSource({
+      release: { ...releaseOf(none), repository_id: "repo-1" },
+      profile: none,
+      connectionId: "conn-1",
+    });
+    expect(built.ok && built.source.repository_mode).toBe("none");
   });
 
   test("a provider that matches no connection gets no source", () => {
