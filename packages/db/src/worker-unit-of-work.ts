@@ -122,6 +122,7 @@ import {
 } from "./fence.ts";
 import { catalogMismatchCause, quarantineLaunch } from "./launch-quarantine.ts";
 import { sessionGitHubMcpOf, sessionMcpOf } from "./mcp-egress.ts";
+import { enqueueModelCutNotices } from "./model-cut-notices.ts";
 import {
   abandonUndeliveredParked,
   closeParkedGroup,
@@ -2215,6 +2216,10 @@ export function createPostgresWorkerUnitOfWork(
           turnRowId: null,
           attemptId: input.attemptId,
           now: await dbNow(tx),
+        });
+        await enqueueModelCutNotices(tx, {
+          sessionId: input.sessionId,
+          model: input.model,
         });
         return { recorded: true };
       });
