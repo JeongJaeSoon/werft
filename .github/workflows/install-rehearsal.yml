@@ -81,10 +81,12 @@ jobs:
     needs: release
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    env:
-      TEST_OPS_ENV_FILE: ${{ github.workspace }}/../rehearsal/test-ops.env
-      TEST_OPS_STATE_DIR: ${{ github.workspace }}/../rehearsal/state
     steps:
+      # Outside the checkout, as test-ops.sh requires, and spelled without `..`.
+      - name: Where the settings live
+        run: |
+          echo "TEST_OPS_ENV_FILE=$RUNNER_TEMP/rehearsal/test-ops.env" >>"$GITHUB_ENV"
+          echo "TEST_OPS_STATE_DIR=$RUNNER_TEMP/rehearsal/state" >>"$GITHUB_ENV"
       # The release's own source: the commit its manifest names, which is
       # what docs/operator/test-ops.md tells an operator to check out.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -205,12 +207,15 @@ jobs:
         run: |
           docker ps -a || true
           scripts/test-ops.sh status || true
+      # The runner's own Docker config may hold a Docker Hub login for the
+      # third-party images compose names (postgres, LocalStack). None of
+      # ours is read through it: ghcr.io must have no stored auth.
       - if: '!cancelled()'
-        name: No registry login was used
+        name: No ghcr.io login was used
         run: |
           if [ -s "$HOME/.docker/config.json" ]; then
             echo "registries with stored auth: $(jq -c '.auths // {} | keys' "$HOME/.docker/config.json")"
-            jq -e '(.auths // {}) | length == 0' "$HOME/.docker/config.json" >/dev/null
+            jq -e '(.auths // {}) | keys | map(select(test("ghcr.io"))) | length == 0' "$HOME/.docker/config.json" >/dev/null
           fi
 
   kind:
