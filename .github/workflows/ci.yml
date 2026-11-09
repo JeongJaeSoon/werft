@@ -15,7 +15,7 @@ on:
         type: choice
         required: false
         default: all
-        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs, demo, ui-pack]
+        options: [all, check, integration, workspace-quota, e2e, quickstart, helm-chart, k8s-smoke, agent-sdk-compat, storybook, docs, demo, ui-pack, sdk-pack-smoke]
       allow_parallel:
         description: 'Allow independent parallel manual runs for deliberate flake testing (uses extra minutes)'
         type: boolean
@@ -46,6 +46,7 @@ jobs:
       helm: ${{ steps.plan.outputs.helm }}
       k8s: ${{ steps.plan.outputs.k8s }}
       domains: ${{ steps.plan.outputs.domains }}
+      sdk_pack: ${{ steps.sdk.outputs.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +57,25 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
+
+      - id: sdk
+        name: Plan SDK consumer check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          run=true
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
+            run=false
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                packages/sdk/*|packages/client/*|packages/contracts/*|examples/*|scripts/sdk-pack-smoke.ts|LICENSE|bun.lock|.github/actions/bun-setup/*|.github/workflows/sdk-release.yml|.github/workflows/ci.yml)
+                  run=true ;;
+              esac
+            done <"$RUNNER_TEMP/sdk-pack-paths"
+          fi
+          echo "run=$run" >>"$GITHUB_OUTPUT"
 
   static:
     name: check (static)
@@ -744,6 +764,34 @@ jobs:
           name: ui-pack-button
           path: ${{ runner.temp }}/ui-pack-button.png
           retention-days: 7
+
+  # Preserve the release workflow's PR consumer check without publishing.
+  sdk-pack-smoke:
+    needs: changes
+    if: >-
+      needs.changes.outputs.sdk_pack == 'true'
+      && contains(fromJSON('["all","sdk-pack-smoke"]'), github.event.inputs.only || 'all')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/sdk examples
+      - name: SDK_VERSION matches package.json
+        run: |
+          version=$(node -p 'require("./packages/sdk/package.json").version')
+          grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts
+      - run: bun run --cwd packages/sdk build:package
+      - name: The bundle reports the version it is published as
+        run: |
+          version=$(node -p 'require("./packages/sdk/dist/package.json").version')
+          grep -qF "\"${version}\"" packages/sdk/dist/index.js
+      - name: Install, type-check and run the sample in an empty project
+        run: bun scripts/sdk-pack-smoke.ts
 
   # Assemble the current run's artifacts to prove the deploy layout: the
   # docs site at the root, Storybook and the Scalar reference beside it

@@ -112,6 +112,12 @@ gh run view <run-id> --log | grep -E '^check \(unit: ' | grep -oE '\s[0-9]+ (pas
 
 반대로 **workflow 전체가 건너뛰어지면**(path·branch 필터, commit message) 체크는 `pending`으로 남아 머지를 막는다. 그래서 비용을 줄이려고 `on:`에 `paths` 필터를 거는 방식은 여기서 쓰지 않았고, 건너뛰기는 전부 job 단위 `if:`로만 한다.
 
+## SDK·UI 패키지 릴리스
+
+`ui-release.yml`은 `ui-v*`, `sdk-release.yml`은 `sdk-v*` 태그 push와 수동 dispatch에서만 실행한다. PR·main push는 릴리스 workflow를 실행하지 않고, SDK main prerelease도 게시하지 않는다. SDK의 버전 지정 main dispatch는 기존처럼 검증·태그 생성·승인 게시하며, 빈 버전 dispatch는 dry run이다. SDK 태그 push도 main 소속·버전 일치·해당 커밋 main CI 성공을 확인한 뒤 `release` 승인을 받아 게시한다.
+
+SDK 빈 프로젝트 설치·타입 검사·샘플 실행은 ci.yml의 독립 `sdk-pack-smoke` job으로 옮겼다. SDK·client·contracts·examples·consumer 스크립트·LICENSE·lockfile·Bun setup·관련 workflow 변경에만 실행하며, 경로를 알 수 없으면 실행한다. 기존 SDK PR 검사와 동일하게 비필수 job이고, 필수 여섯 체크와 집계는 바꾸지 않았다. UI consumer는 기존 `ui-pack`이 담당한다.
+
 ## D2 gate (nightly)
 
 D2 gate는 정상 경로와 장애 뒤 복원(A–E), reconciler sweep(R1–R2), control-host role 수명주기(H1–H5)를 스택 밖에서 확인한다. 이 테스트들은 이 커밋에서 빌드한 이미지로 compose 스택 전체를 띄워야 돈다. 그래서 ci.yml은 이 테스트들을 `integration (worker)`의 선언된 skip으로 두고, 실제로는 `scripts/d2-gate/run.sh`만 이 테스트들을 돌린다. 사람이 손으로만 돌리면 harness가 조용히 낡는다. harness가 incremental bundle을 chain 없이 unbundle해 main `33a9c99c`에서 gate A가 깨졌는데, 누군가 돌려 보기 전까지 아무도 몰랐다.
