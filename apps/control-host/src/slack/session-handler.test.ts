@@ -790,6 +790,27 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
   });
 
+  test("an agent whose GitHub settings cannot be read says so in the thread", async () => {
+    const fixture = await agentInSlack("general");
+    await db.insert(schema.agentGitHubSettings).values({
+      agentId: fixture.agentId,
+      workspaceId: fixture.workspaceId,
+      repositories: [],
+      pushApproval: true,
+      features: { unreadable: true } as never,
+      actionsAllow: [],
+    });
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      reason: "repository_required",
+      notice: { message: "repositoryRequired" },
+    });
+  });
+
   test("unmentioned posts outside a linked thread and the bot's own or edited posts are ignored", async () => {
     const fixture = await agentInSlack();
     const { handle, notices } = handler();

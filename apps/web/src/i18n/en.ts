@@ -86,7 +86,7 @@ export const slackEn = {
     "The Request URL was sent to Slack again. The status changes once Slack checks it.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
-    "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. In Settings, choose a profile that can use a repository and save, and a new release is made.",
+    "Slack sessions can't start from the active release (profile {profile}). The profile needs a repository and the release has none chosen, the release's repository left the catalog or is not allowed by the profile or workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings, and in Settings choose a profile that can use a repository and save, and a new release is made.",
   "slack.issuerChanged.title": "Made by another Slack user",
   "slack.issuerChanged.body":
     "Slack user {previous} made this app, but the App Configuration Token now belongs to {user}. That token may not be able to install or change the app. If installing fails, register {previous}'s token again or add {user} as a collaborator on the app. If the app was already deleted in Slack, delete it under Danger zone and install again.",

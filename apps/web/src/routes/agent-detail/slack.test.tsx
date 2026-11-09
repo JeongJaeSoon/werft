@@ -1352,7 +1352,7 @@ describe("Slack management", () => {
       await screen.findByText("Slack에서는 세션을 시작할 수 없습니다"),
     ).toBeDefined();
     expect(document.body.textContent).toContain(
-      "활성 릴리스의 프로필(claude-coding-local)은 세션마다 저장소가 필요한데 릴리스에 쓸 수 있는 저장소가 없습니다",
+      "활성 릴리스(프로필 claude-coding-local)로는 Slack 세션이 시작되지 못합니다. 프로필이 저장소를 요구하는데",
     );
     expect(
       screen.getByRole("button", { name: "Slack 앱 만들고 설치" }),

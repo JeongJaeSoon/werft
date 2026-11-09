@@ -144,7 +144,7 @@ profile의 `repository`는 그 profile로 만든 세션이 저장소를 갖는�
 
 | 값 | `POST /v1/sessions`의 `repository_id` | 세션 |
 |---|---|---|
-| `required`(생략하면 이 값) | 꼭 보낸다. 빼면 `422 UNSUPPORTED_CAPABILITY`(`Profile <id> needs a repository: send repository_id`) | 카탈로그 저장소를 clone한 작업 디렉터리에서 시작한다 |
+| `required`(생략하면 이 값) | 꼭 보낸다. 빼면 `422 UNSUPPORTED_CAPABILITY`(`Profile <id> needs a repository: send repository_id`). 단 GitHub 설정 행이 있는 에이전트의 세션과 워크스페이스 상한이 정하는 profile은 저장소 없이 시작한다 | 카탈로그 저장소를 clone한 작업 디렉터리에서 시작한다 |
 | `none` | 보내지 않는다. 보내면 `422 UNSUPPORTED_CAPABILITY`(`Profile <id> runs without a repository: omit repository_id`) | 빈 작업 디렉터리에서 시작한다. 세션 상세의 `repository_id`는 `null`이고 push 요청은 `409 PUSH_SOURCE_MISSING`이다 |
 | `optional` | 보내도 되고 빼도 된다 | 보내면 `required`처럼, 빼면 `none`처럼 돈다 |
 
@@ -315,6 +315,18 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - 이행할 데이터는 없다. 영향을 받는 세션을 세려면 읽기 전용으로 `SELECT status, count(*) FROM sessions WHERE github_policy_source = 'agent' AND attached_repository_ids IS NOT NULL AND status NOT IN ('failed', 'stopped') GROUP BY status`를 쓴다. 이 세션들은 이후 에이전트가 새로 켠 저장소를 붙일 수 있게 된다.
 
 **이전 이미지로 롤백해도 안전하다(fail-closed).** 이전 이미지의 `effectiveGitHubPolicy`(`packages/contracts/src/kollegium/agents.ts`)는 시작 스냅샷과 지금 저장된 설정을 `meetGitHubSettings`로 교차해서, 시작 뒤에 켠 저장소를 여전히 거절한다. 새로 켠 저장소가 열린 채 남는 일이 없다. 달라지는 것은 이전 이미지의 `list_repositories`가 `revoked`를 아예 내지 않는다는 것(이 상태는 이번에 처음 나온다)과, 시작 뒤에 켠 저장소를 붙일 수 없다는 것뿐이다. 혼합 구간에서도 새 replica가 연 저장소를 구 replica가 거절할 뿐 구 replica가 더 열어 주는 일은 없으므로, 위 "교체 절차"처럼 replica를 먼저 멈출 필요가 없다.
+
+### 새 세션의 시작 저장소: 저장소 없이 시작하고 필요한 것만 붙인다
+
+`POST /v1/sessions`가 `repository_id` 없이 만드는 세션은 설정 행이 있는 에이전트(`github_policy_source = 'agent'`)에서 저장소 없이 시작한다. 에이전트는 `list_repositories`로 허용된 저장소를 보고 작업에 필요한 것만 `attach_repository`로 붙인다. 이 동작을 켜고 끄는 설치 설정은 없다.
+
+- `repository_id`를 보낸 요청은 그 저장소로 시작한다. 허용 목록·워크스페이스 상한 검사는 그대로다.
+- 설정 행이 없는 에이전트(`github_policy_source = 'release'`)는 릴리스의 저장소로 시작한다. 저장소를 요구하는 profile은 저장소 없이 뜨지 못하기 때문이다(워크스페이스 상한을 쓰는 profile은 저장소 없이도 뜬다). GitHub 탭을 한 번 저장하면 행이 생겨 이 경로에서 벗어난다.
+- 에이전트 설정의 `start_repository_id`는 열과 API 필드로 남지만 시작에 쓰이지 않는다. 열 삭제는 별도 변경이다.
+- 이미 시작한 세션은 바뀌지 않는다. 시작 저장소는 세션을 만들 때 한 번 정해 `sessions.repository_id`에 남고, claim과 복원은 그 행을 읽는다.
+- Slack 멘션·DM과 Slack 앱 연결 때의 경고(`releaseStartable`)도 같은 규칙을 쓴다. 이 판정이 거짓이 되는 경우는 설정 행이 있는 에이전트의 설정을 읽을 수 없을 때, 그리고 설정 행이 없는 에이전트의 릴리스가 저장소를 쓸 수 없을 때다.
+- **배포 영향:** 새 이미지로 올린 순간부터 `start_repository_id`가 켜진 에이전트의 새 세션이 저장소 없이 시작한다. 세려면 읽기 전용으로 `SELECT count(*) FROM agent_github_settings WHERE start_repository_id IS NOT NULL`을 쓴다.
+- **롤백:** 이전 이미지로 교체하면 그 에이전트들의 새 세션이 다시 시작 저장소로 시작한다. 데이터 이행이 없고 설정으로 되돌리는 길도 없다. 이전 이미지가 만든 세션과 새 이미지가 만든 세션은 모두 행의 값으로 돌아가므로 교체 중에 갈리는 것은 새 세션의 시작 저장소뿐이고, 어느 쪽이든 허용 범위 안이다.
 
 ### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
 
@@ -665,7 +677,7 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 - 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 그 안에서는 개인 key와 에이전트 key가 같은 scope를 고른다(`sessions:approve` 포함). 이미 발급한 key의 scope는 바뀌지 않는다.
 - 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
-- 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 release의 `repository_id`로 시작한다. release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
+- 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고, 행이 없는 에이전트는 release의 `repository_id`로 시작한다(아래 "새 세션의 시작 저장소" 절). release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
 - 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 에이전트의 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
 - 폐기는 `DELETE /v1/api-keys/{id}`이고 발급과 같은 권한이 든다. 남의 개인 key는 `404`다. 이미 폐기한 key는 아무것도 바꾸지 않고 `receipt_id: null`을 돌려준다.
 - 발급·폐기는 `create_api_key`·`revoke_api_key` receipt와 `api_key.manage`·`api_key.manage_own` 판정 행을 남긴다. receipt에는 key의 종류·에이전트·scope만 있고 비밀값은 없다.
@@ -1070,7 +1082,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 8. 메시지에서 `<@BOT>`(Slack이 붙이는 `|이름`까지)을 지운다. 남은 글이 없으면 넘긴다.
 9. lease를 다시 쥐고(`renew`: `id`·`claim_token`이 같고 lease가 살아 있을 때 `lease_expires_at = now() + lease`) 설치 상태를 같은 문장에서 읽는다. lease를 잃었으면 아무것도 쓰지 않고 던진다(다른 pass가 이미 잡았다). 그 사이 설치가 `revoked`가 됐으면 `dropped`·`installation_revoked`다.
 10. 새 스레드면 연결 행을 잡는다: `INSERT … ON CONFLICT DO NOTHING RETURNING`, 없으면 `SELECT … FOR UPDATE`. 동시에 온 첫 메시지 둘도 행 하나를 같이 쓴다.
-11. 연결에 세션이 없거나 이 메시지가 연 메시지(`opened_by_ts`)면 `createSession`(idempotency key = 연결 행 id, body `{profile_id, agent_release_id, message}`)으로 만들고 연결 행에 붙인다. 저장소는 release의 `repository_id`다. 아니면 `appendMessage`(idempotency key `<team>:<channel>:<ts>`, `mode: enqueue`)로 다음 턴을 넣는다. 둘 다 웹·API와 같은 session service 경로다. 세션 쪽 거절(`RATE_LIMITED`·`BACKEND_UNAVAILABLE` 말고)은 안내 "지금은 요청을 처리하지 못했어요"를 남기고 끝낸다. 그 둘은 던져서 다시 한다. 저장소 필수(`repository_mode: required`) 프로필에 저장소 없는 release는 release 단계에서 거절되므로(`422`, `repository_id: Profile <id> needs a repository…`) 이 경로에 오지 않는다. 0173 이전에 만든 release나 프로필이 나중에 저장소 필수로 바뀐 release는 `UNSUPPORTED_CAPABILITY`로 거절되고, 안내는 "이 에이전트의 release에 저장소가 없어 시작하지 못했어요…"이며 notice 이유는 `repository_required`다. release의 프로필이 카탈로그에 없거나 바뀌어 `PROFILE_DIGEST_MISMATCH`면 안내는 "이 에이전트의 release가 쓰는 프로필이 지금 카탈로그에 없거나 바뀌어…"이고 notice 이유는 `profile_unavailable`이다. 웹의 에이전트 Slack 화면과 `GET /v1/agents/{id}/slack/app`의 `warnings`(`no_active_release`·`profile_unavailable`·`repository_required`)가 연결 전에 이를 알린다(연결은 막지 않는다).
+11. 연결에 세션이 없거나 이 메시지가 연 메시지(`opened_by_ts`)면 `createSession`(idempotency key = 연결 행 id, body `{profile_id, agent_release_id, message}`)으로 만들고 연결 행에 붙인다. 저장소는 GitHub 설정 행이 있는 에이전트에서는 없고, 행이 없는 에이전트에서는 release의 `repository_id`다. 아니면 `appendMessage`(idempotency key `<team>:<channel>:<ts>`, `mode: enqueue`)로 다음 턴을 넣는다. 둘 다 웹·API와 같은 session service 경로다. 세션 쪽 거절(`RATE_LIMITED`·`BACKEND_UNAVAILABLE` 말고)은 안내 "지금은 요청을 처리하지 못했어요"를 남기고 끝낸다. 그 둘은 던져서 다시 한다. 저장소 필수(`repository_mode: required`) 프로필에 저장소 없는 release는 release 단계에서 거절되므로(`422`, `repository_id: Profile <id> needs a repository…`) 이 경로에 오지 않는다. 0173 이전에 만든 release나 프로필이 나중에 저장소 필수로 바뀐 release는 `UNSUPPORTED_CAPABILITY`로, GitHub 설정을 읽을 수 없거나 저장소가 워크스페이스 상한 밖이면 `GITHUB_REFUSED`로 거절된다. 둘 다 `releaseStartable`이 거짓일 때만 안내가 "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(…) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요…"이고 notice 이유는 `repository_required`다. 거짓이 아니면 일반 실패 안내다. release의 프로필이 카탈로그에 없거나 바뀌어 `PROFILE_DIGEST_MISMATCH`면 안내는 "이 에이전트의 release가 쓰는 프로필이 지금 카탈로그에 없거나 바뀌어…"이고 notice 이유는 `profile_unavailable`이다. 웹의 에이전트 Slack 화면과 `GET /v1/agents/{id}/slack/app`의 `warnings`(`no_active_release`·`profile_unavailable`·`repository_required`)가 연결 전에 이를 알린다(연결은 막지 않는다).
 12. Slack에 스레드 상태를 보낸다: `agents.sessions.setStatus` `{channel_id, thread_ts: <스레드 root>, status: "processing"}`. 세션 쓰기 뒤에 보내서 lease를 다시 쥔 때와 세션 쓰기 사이에 Slack 호출이 끼지 않는다. `not_authorized`·`feature_disabled`·`thread_ts_required`는 그 workspace가 상태를 보이지 않는다는 뜻이라 info 로그, 다른 실패는 warn 로그이고 어느 쪽도 처리를 막지 않는다. `active`로 되돌리는 것은 답을 보내는 outbox(아래 "Slack outbox")다.
 
 - 같은 메시지가 두 번 오는 일(Slack은 채널의 멘션 하나에 `app_mention`과 `message`를 둘 다 보내고, 재시도도 있다)은 key로 막는다. 첫 메시지는 연결 행 id라 두 번째 이벤트가 같은 세션을 돌려받고, 답글은 `<team>:<channel>:<ts>`가 턴과 같은 transaction의 receipt에 남아 두 번째 이벤트가 같은 턴을 돌려받는다. 따로 dedupe 표를 두지 않은 것은 이 key가 세션 쓰기와 한 transaction이라 "기록은 됐는데 턴은 없다"가 생기지 않기 때문이다.

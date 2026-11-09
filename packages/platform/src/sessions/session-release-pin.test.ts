@@ -958,17 +958,44 @@ describe("which policy a new session runs on", () => {
     expect(accepted).not.toHaveProperty("captureGitHubPolicyStart");
   });
 
-  test("a row: the agent's, starting on the row's repository, with the settings snapshotted at start", async () => {
+  test("a row: the agent's, starting without a repository though the row names one, with the settings snapshotted at start", async () => {
+    expect(ROW.startRepositoryId).toBe("app");
     const { refusal, accepted } = await start({
       agentSettings: ROW,
       repositoryCeiling: CEILING,
     });
     expect(refusal).toBeNull();
     expect(accepted).toMatchObject({
-      repository: { id: "app" },
       githubPolicySource: "agent",
       captureGitHubPolicyStart: true,
     });
+    expect(accepted?.repository).toBe("none");
+  });
+
+  test("a row's start repository, list and ceiling do not stop a session that names none", async () => {
+    for (const options of [
+      { agentSettings: { ...ROW, repositories: ["docs"] } },
+      { agentSettings: ROW },
+      {
+        agentSettings: ROW,
+        repositoryCeiling: { ...CEILING, repository_ids: ["docs"] },
+      },
+    ]) {
+      const { refusal, accepted } = await start(
+        options as Parameters<typeof setup>[0],
+      );
+      expect(refusal).toBeNull();
+      expect(accepted?.repository).toBe("none");
+    }
+  });
+
+  test("a row with a repository the caller names starts on it", async () => {
+    const { refusal, accepted } = await start(
+      { agentSettings: ROW, repositoryCeiling: CEILING },
+      { repository_id: "app" },
+    );
+    expect(refusal).toBeNull();
+    expect(accepted).toMatchObject({ repository: { id: "app" } });
   });
 
   test("a row without a start repository starts on none, even on a required profile", async () => {
@@ -1005,9 +1032,10 @@ describe("which policy a new session runs on", () => {
         repositoryCeiling: CEILING,
       },
     },
-  ])("is refused: $name", async ({ options }) => {
+  ])("a repository the caller names is refused: $name", async ({ options }) => {
     const { refusal, accepted } = await start(
       options as Parameters<typeof setup>[0],
+      { repository_id: "app" },
     );
     expect(refusal).toBeInstanceOf(SessionServiceError);
     expect((refusal as SessionServiceError).code).toBe("GITHUB_REFUSED");

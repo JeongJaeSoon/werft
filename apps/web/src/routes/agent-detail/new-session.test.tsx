@@ -138,7 +138,8 @@ describe("이 에이전트로 새 세션", () => {
       "POST /v1/sessions": created,
     });
     const { user, dialog } = await openDialog();
-    expect(within(dialog).getByText("sample-app")).toBeDefined();
+    // Which repository the session starts on is the server's decision.
+    expect(within(dialog).queryByText("sample-app")).toBeNull();
     await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
     await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
     await waitFor(() =>
@@ -188,6 +189,28 @@ describe("이 에이전트로 새 세션", () => {
     );
     expect(field.value).toBe("요약해 줘");
     expect(history.location.pathname).toBe(DETAIL);
+  });
+
+  test("저장소를 요구하는 프로필을 서버가 거절하면 화면이 미리 막지 않았어도 대화상자에 이유를 보인다", async () => {
+    const server = await released("required");
+    const detail = withRelease(server.detail(), { repository_id: null });
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () => json(200, detail),
+      "POST /v1/sessions": () =>
+        apiError(
+          409,
+          "UNSUPPORTED_CAPABILITY",
+          "Profile claude-coding-local needs a repository: send repository_id",
+        ),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "프로필",
+    );
   });
 
   test("대화상자를 닫았다 열어도 쓰던 메시지가 남는다", async () => {
@@ -393,8 +416,6 @@ describe("이 에이전트로 새 세션", () => {
 
     const profileReason =
       "활성 릴리스의 프로필을 쓸 수 없어 세션을 시작할 수 없습니다. 쓸 수 있는 프로필로 다시 릴리스하세요.";
-    const repositoryReason =
-      "활성 릴리스가 쓸 수 있는 저장소가 없어 세션을 시작할 수 없습니다. 저장소를 골라 다시 릴리스하세요.";
 
     test("프로필이 카탈로그에 없다", async () => {
       const server = await released("optional");
@@ -434,24 +455,11 @@ describe("이 에이전트로 새 세션", () => {
       await waitFor(async () =>
         expect((await button()).getAttribute("aria-disabled")).toBeNull(),
       );
-      expect(screen.queryByText(repositoryReason) === null).toBe(true);
     });
 
-    test("릴리스의 저장소가 프로필이 허용하는 목록 밖이다", async () => {
-      const server = await released("optional");
-      renderAt(DETAIL, {
-        ...meAs(me()),
-        ...server.routes,
-        ...profilesRoute(server, (items) =>
-          items.map((item) =>
-            item.id === local ? { ...item, repository_ids: ["other"] } : item,
-          ),
-        ),
-      });
-      await expectBlocked(repositoryReason);
-    });
-
-    test("릴리스의 저장소가 GitHub 설정 밖이다", async () => {
+    // A session starts without a repository, or on its release's when the
+    // agent has no settings row; only the server knows which, so it decides.
+    test("릴리스의 저장소가 프로필 허용 목록이나 GitHub 설정 밖이어도 화면은 막지 않는다", async () => {
       const server = await released("optional");
       const detail = withRelease(server.detail(), {
         policy_pins: { github: { repositories: ["other"] } },
@@ -462,11 +470,19 @@ describe("이 에이전트로 새 세션", () => {
           ...meAs(me()),
           ...server.routes,
           [`GET ${PATH}`]: () => json(200, detail),
+          ...profilesRoute(server, (items) =>
+            items.map((item) =>
+              item.id === local ? { ...item, repository_ids: ["other"] } : item,
+            ),
+          ),
         },
         "ko",
         "warn",
       );
-      await expectBlocked(repositoryReason);
+      await waitFor(async () =>
+        expect((await button()).getAttribute("aria-disabled")).toBeNull(),
+      );
+      await openDialog();
     });
   });
 
@@ -574,7 +590,7 @@ describe("이 에이전트로 새 세션", () => {
     const keys = Object.keys(agentsKo).filter((key) =>
       key.startsWith("agent.newSession."),
     ) as (keyof typeof agentsKo)[];
-    expect(keys).toHaveLength(14);
+    expect(keys).toHaveLength(12);
     for (const key of keys) {
       expect(agentsEn[key]?.trim()).toBeTruthy();
       expect(agentsJa[key]?.trim()).toBeTruthy();

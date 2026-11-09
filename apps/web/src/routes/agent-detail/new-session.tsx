@@ -18,7 +18,6 @@ import { guidanceFor } from "@werft-ai/react/components";
 import {
   Button,
   buttonVariants,
-  Code,
   Dialog,
   DialogClose,
   DialogContent,
@@ -42,7 +41,7 @@ import { startableWhenPinned } from "../../components/profile-options.tsx";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 
 type AgentBlock = "archived" | "paused" | "noRelease";
-type ReleaseBlock = "profile" | "repository";
+type ReleaseBlock = "profile";
 
 function consolePolicyBlock(
   agent: Pick<Agent, "status" | "active_release_id">,
@@ -51,24 +50,20 @@ function consolePolicyBlock(
   return agent.active_release_id === null ? "noRelease" : null;
 }
 
+// Only the profile is foreseen here. Whether a session starts without a
+// repository, or on its release's, depends on the agent's GitHub settings
+// row, which this screen does not read, so the server's refusal says so.
 function foreseenServerRefusal(
-  release: Pick<AgentRelease, "runtime_profile_id" | "repository_id"> & {
-    readonly policy_pins: Pick<AgentRelease["policy_pins"], "github">;
-  },
+  release: Pick<AgentRelease, "runtime_profile_id">,
   profiles: readonly ProfileSummary[] | undefined,
 ): ReleaseBlock | null {
   if (profiles === undefined) return null;
   const profile = profiles.find(
     (listed) => listed.id === release.runtime_profile_id,
   );
-  if (profile === undefined || !startableWhenPinned(profile)) return "profile";
-  const repository = release.repository_id;
-  if (repository === null) return null;
-  const pinned = release.policy_pins.github?.repositories;
-  return (profile.repository_ids?.includes(repository) ?? true) &&
-    (pinned?.includes(repository) ?? true)
-    ? null
-    : "repository";
+  return profile === undefined || !startableWhenPinned(profile)
+    ? "profile"
+    : null;
 }
 
 function useScopeReason(): string | undefined {
@@ -118,7 +113,6 @@ const AGENT_REASONS = {
 
 const RELEASE_REASONS = {
   profile: "agent.newSession.blocked.profile",
-  repository: "agent.newSession.blocked.repository",
 } as const satisfies Record<ReleaseBlock, Parameters<Translate>[0]>;
 
 export function NewSessionReason({
@@ -137,11 +131,9 @@ const refusedByServer = (error: ApiError) =>
 
 export function NewSessionButton({
   releaseId,
-  repository,
   reason,
 }: {
   readonly releaseId: string | null;
-  readonly repository?: string | null | undefined;
   readonly reason: string | undefined;
 }) {
   const { t, locale } = useI18n();
@@ -228,16 +220,6 @@ export function NewSessionButton({
               {t("agent.newSession.description")}
             </DialogDescription>
           </DialogHeader>
-          {repository === undefined ? null : (
-            <Text variant="sub" className="wrap-anywhere">
-              {t("agent.newSession.repository")}{" "}
-              {repository === null ? (
-                t("agent.releases.repositoryNone")
-              ) : (
-                <Code className="wrap-anywhere">{repository}</Code>
-              )}
-            </Text>
-          )}
           <Field>
             <FieldLabel htmlFor={fieldId}>
               {t("agent.newSession.message")}

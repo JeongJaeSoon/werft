@@ -800,7 +800,6 @@ function AgentView({
         <div className="flex flex-1 flex-wrap items-start gap-2">
           <NewSessionButton
             releaseId={detail.active_release?.id ?? null}
-            repository={detail.active_release?.repository_id}
             reason={newSessionReason}
           />
           <Link

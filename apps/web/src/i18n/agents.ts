@@ -196,7 +196,6 @@ export const agentsKo = {
   "agent.releases.byMember": "구성원",
   "agent.releases.emptyBody":
     "프로필이나 카드를 바꿔 저장하면 릴리스가 여기에 쌓입니다.",
-  "agent.releases.repositoryNone": "저장소 없음",
   "agent.releases.access": "접근 변경",
   "agent.releases.accessNoRelease":
     "저장소와 GitHub 설정 변경입니다. 새 릴리스를 만들지 않습니다.",
@@ -315,7 +314,6 @@ export const agentsKo = {
   "agent.newSession.title": "새 세션 시작",
   "agent.newSession.description":
     "활성 릴리스로 세션을 시작하고 세션 화면으로 이동합니다.",
-  "agent.newSession.repository": "저장소:",
   "agent.newSession.message": "첫 메시지",
   "agent.newSession.messageRequired": "메시지를 입력하세요.",
   "agent.newSession.cancel": "취소",
@@ -331,8 +329,6 @@ export const agentsKo = {
     "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
   "agent.newSession.blocked.profile":
     "활성 릴리스의 프로필을 쓸 수 없어 세션을 시작할 수 없습니다. 쓸 수 있는 프로필로 다시 릴리스하세요.",
-  "agent.newSession.blocked.repository":
-    "활성 릴리스가 쓸 수 있는 저장소가 없어 세션을 시작할 수 없습니다. 저장소를 골라 다시 릴리스하세요.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -652,7 +648,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.byMember": "A member",
   "agent.releases.emptyBody":
     "Releases appear here once you save a change to the profile or the card.",
-  "agent.releases.repositoryNone": "No repository",
   "agent.releases.access": "Access change",
   "agent.releases.accessNoRelease":
     "A change to repositories and GitHub settings. It makes no new release.",
@@ -774,7 +769,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.title": "Start a new session",
   "agent.newSession.description":
     "Starts a session on the active release and opens it.",
-  "agent.newSession.repository": "Repository:",
   "agent.newSession.message": "First message",
   "agent.newSession.messageRequired": "Enter a message.",
   "agent.newSession.cancel": "Cancel",
@@ -790,8 +784,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Only the responsible team's members and the agent's admins can start a session with it.",
   "agent.newSession.blocked.profile":
     "The active release's profile cannot be used, so no session can start. Release it again on a usable profile.",
-  "agent.newSession.blocked.repository":
-    "The active release has no repository it may use, so no session can start. Pick a repository and release it again.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -1105,7 +1097,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.byMember": "メンバー",
   "agent.releases.emptyBody":
     "プロファイルやカードの変更を保存すると、リリースがここに表示されます。",
-  "agent.releases.repositoryNone": "リポジトリなし",
   "agent.releases.access": "アクセスの変更",
   "agent.releases.accessNoRelease":
     "リポジトリと GitHub 設定の変更です。新しいリリースは作成しません。",
@@ -1222,7 +1213,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.newSession.title": "新しいセッションを開始",
   "agent.newSession.description":
     "有効なリリースでセッションを開始し、セッション画面に移動します。",
-  "agent.newSession.repository": "リポジトリ:",
   "agent.newSession.message": "最初のメッセージ",
   "agent.newSession.messageRequired": "メッセージを入力してください。",
   "agent.newSession.cancel": "キャンセル",
@@ -1238,8 +1228,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
   "agent.newSession.blocked.profile":
     "有効なリリースのプロファイルを使えないため、セッションを開始できません。使えるプロファイルでリリースし直してください。",
-  "agent.newSession.blocked.repository":
-    "有効なリリースが使えるリポジトリがないため、セッションを開始できません。リポジトリを選んでリリースし直してください。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",
