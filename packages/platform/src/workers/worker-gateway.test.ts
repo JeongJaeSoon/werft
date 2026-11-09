@@ -143,6 +143,7 @@ describe("WorkerGateway", () => {
                   inputId: "7",
                   message: "go",
                   deliveryStartedAt: input.now,
+                  actorId: null,
                 }
               : null,
         };
@@ -181,6 +182,116 @@ describe("WorkerGateway", () => {
     // 1s cap at 100ms per poll: ten sleeps, eleven attempts.
     expect(empty.slept).toHaveLength(10);
     expect(calls).toBe(11);
+  });
+
+  test("nextInput names the turn's requester as co-author, not the starter (94S-1304)", async () => {
+    const links: Record<string, { id: string; login: string }> = {
+      "user-a": { id: "583231", login: "octocat" },
+    };
+    const recorded: (string | null)[] = [];
+    const ask = async (actorId: string | null, attribution = true) => {
+      const instance = createWorkerGateway({
+        work: work({
+          async nextInputAtomic(input) {
+            return {
+              outcome: "ok",
+              leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+              input: {
+                turnId: "2",
+                inputId: "9",
+                message: "go",
+                deliveryStartedAt: input.now,
+                actorId,
+              },
+            };
+          },
+        }),
+        catalog: { profiles: {}, repositories: {} },
+        checkpoints: acceptAllCheckpoints,
+        ...(attribution
+          ? {
+              attribution: {
+                store: {
+                  attribution: async () => null,
+                  githubLinkOf: async (_sessionId: string, userId: string) =>
+                    links[userId] ?? null,
+                },
+                ledger: {
+                  record: async () => {},
+                  recordTurnCoAuthor: async (
+                    _sessionId: string,
+                    coAuthor: { name: string } | null,
+                  ) => {
+                    recorded.push(coAuthor?.name ?? null);
+                  },
+                  list: async () => [],
+                },
+                consoleOrigin: null,
+              },
+            }
+          : {}),
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+      return (await instance.nextInput(principal, scope)).input;
+    };
+    expect((await ask("user-a"))?.co_author).toEqual({
+      name: "octocat",
+      email: "583231+octocat@users.noreply.github.com",
+    });
+    // A requester without a link, and a turn nobody asked: no co-author.
+    expect((await ask("user-b"))?.co_author).toBeNull();
+    expect((await ask(null))?.co_author).toBeNull();
+    expect(recorded).toEqual(["octocat", null, null]);
+    // A control host without attribution leaves the claim's value in force.
+    expect("co_author" in ((await ask("user-a", false)) ?? {})).toBe(false);
+  });
+
+  test("nextInput does not hand out a co-author the ledger has not recorded", async () => {
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic(input) {
+          return {
+            outcome: "ok",
+            leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+            input: {
+              turnId: "2",
+              inputId: "9",
+              message: "go",
+              deliveryStartedAt: input.now,
+              actorId: "user-a",
+            },
+          };
+        },
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: {
+          attribution: async () => null,
+          githubLinkOf: async () => ({ id: "583231", login: "octocat" }),
+        },
+        ledger: {
+          record: async () => {},
+          recordTurnCoAuthor: async () => {
+            throw new Error("ledger down");
+          },
+          list: async () => [],
+        },
+        consoleOrigin: null,
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(instance.nextInput(principal, scope)).rejects.toThrow(
+      "ledger down",
+    );
   });
 
   test("nextInput without wait_ms asks once", async () => {
@@ -944,6 +1055,7 @@ describe("WorkerGateway", () => {
     // The commit trailers: the linked starter as co-author, then a session
     // no person started, which names only itself.
     const asked: string[] = [];
+    const recordedBundles: unknown[] = [];
     let starter: SessionAttributionRecord["starter"] = {
       userId: "user-1",
       github: { id: "583231", login: "octocat" },
@@ -960,6 +1072,7 @@ describe("WorkerGateway", () => {
       checkpoints: acceptAllCheckpoints,
       attribution: {
         store: {
+          githubLinkOf: async () => null,
           attribution: async (sessionId) => {
             asked.push(sessionId);
             return {
@@ -973,6 +1086,38 @@ describe("WorkerGateway", () => {
             };
           },
         },
+        // Earlier turns were issued these co-authors besides the starter's.
+        ledger: {
+          record: async (_sessionId: string, bundle: unknown) => {
+            recordedBundles.push(bundle);
+          },
+          recordTurnCoAuthor: async () => {},
+          list: async () => {
+            const author = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
+            const agentSession = "https://c/s/1";
+            return [
+              { author, coAuthor: null, agentSession },
+              {
+                author,
+                coAuthor: {
+                  name: "octocat",
+                  email: "583231+octocat@users.noreply.github.com",
+                },
+                agentSession,
+              },
+              {
+                author,
+                coAuthor: {
+                  name: "grace",
+                  email: "2+grace@users.noreply.github.com",
+                },
+                agentSession,
+              },
+            ];
+          },
+        },
+        // No bot found: the image's author is the one issued.
+        appBotUserId: async () => null,
         consoleOrigin: "https://console.example.com",
       },
       options: {
@@ -993,6 +1138,40 @@ describe("WorkerGateway", () => {
       session_url: sessionUrl,
     });
     expect(linked.git_strip).toEqual(["noreply@anthropic.com"]);
+    // The claim's author is also issued with each earlier turn's co-author.
+    const claimAuthor = (recordedBundles[0] as { author: unknown }).author;
+    expect(recordedBundles).toContainEqual({
+      author: claimAuthor,
+      coAuthor: { name: "grace", email: "2+grace@users.noreply.github.com" },
+      agentSession: `https://console.example.com/sessions/${scope.session_id}`,
+    });
+    // So is a turn nobody's link named.
+    expect(recordedBundles).toContainEqual({
+      author: claimAuthor,
+      coAuthor: null,
+      agentSession: `https://console.example.com/sessions/${scope.session_id}`,
+    });
+    // Every ledger bundle goes, an unlinked requester's (no co-author) too.
+    const issuedAuthor = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
+    expect(linked.git_issued).toEqual([
+      { author: issuedAuthor, co_author: null, agent_session: "https://c/s/1" },
+      {
+        author: issuedAuthor,
+        co_author: {
+          name: "octocat",
+          email: "583231+octocat@users.noreply.github.com",
+        },
+        agent_session: "https://c/s/1",
+      },
+      {
+        author: issuedAuthor,
+        co_author: {
+          name: "grace",
+          email: "2+grace@users.noreply.github.com",
+        },
+        agent_session: "https://c/s/1",
+      },
+    ]);
     starter = null;
     const agentKey = await attributed.bootstrapClaim(
       { kind: "bootstrap" },
@@ -1011,7 +1190,10 @@ describe("WorkerGateway", () => {
       catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       attribution: {
-        store: { attribution: async () => null },
+        store: {
+          attribution: async () => null,
+          githubLinkOf: async () => null,
+        },
         consoleOrigin: "https://console.example.com",
         sessionLink: async (workspaceId) => {
           linksAsked.push(workspaceId);
@@ -1037,7 +1219,10 @@ describe("WorkerGateway", () => {
       catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       attribution: {
-        store: { attribution: async () => null },
+        store: {
+          attribution: async () => null,
+          githubLinkOf: async () => null,
+        },
         consoleOrigin: "https://console.example.com",
         sessionLink: async () => {
           throw new Error("connection refused");
@@ -1052,8 +1237,8 @@ describe("WorkerGateway", () => {
     await expect(
       unreadable.bootstrapClaim({ kind: "bootstrap" }, request),
     ).rejects.toThrow("connection refused");
-    // No bot lookup wired: the claim leaves the image's author alone.
-    expect("git_author" in linked).toBe(false);
+    // No bot found: the claim leaves the image's author alone.
+    expect(linked.git_author ?? null).toBeNull();
 
     // The commit author: the console App's bot, only for a repository on
     // that App, and only once GitHub named the bot's id.
@@ -1080,6 +1265,7 @@ describe("WorkerGateway", () => {
         checkpoints: acceptAllCheckpoints,
         attribution: {
           store: {
+            githubLinkOf: async () => null,
             attribution: async () => ({
               ownerId: "owner-a",
               trigger: "personal_key",
@@ -1095,6 +1281,7 @@ describe("WorkerGateway", () => {
               if (ledgerDown) throw new Error("database down");
               ledgerRows.push([sessionId, expectation]);
             },
+            recordTurnCoAuthor: async () => {},
             list: async () => [],
           },
           consoleOrigin: null,
@@ -1200,6 +1387,7 @@ describe("WorkerGateway", () => {
         checkpoints: acceptAllCheckpoints,
         attribution: {
           store: {
+            githubLinkOf: async () => null,
             attribution: async () => ({
               ownerId: "owner-a",
               trigger: "web",

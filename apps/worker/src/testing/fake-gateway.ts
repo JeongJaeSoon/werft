@@ -82,7 +82,13 @@ export type FakeWorkerGatewayOptions = {
   workspace?: WorkspaceDescriptor;
 };
 
-type Queued = { inputId: string; message: string; turnId: string };
+type CoAuthor = { name: string; email: string } | null;
+type Queued = {
+  inputId: string;
+  message: string;
+  turnId: string;
+  coAuthor?: CoAuthor;
+};
 
 /**
  * An in-memory stand-in for the Worker Gateway that keeps the parts of the
@@ -209,10 +215,15 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   }
 
   /** Puts one message on the session queue and returns the turn it became. */
-  enqueue(message: string): string {
+  enqueue(message: string, options: { coAuthor?: CoAuthor } = {}): string {
     const turnId = String(this.nextTurn);
     this.nextTurn += 1;
-    this.queue.push({ inputId: `msg-${turnId}`, message, turnId });
+    this.queue.push({
+      inputId: `msg-${turnId}`,
+      message,
+      turnId,
+      ...(options.coAuthor === undefined ? {} : { coAuthor: options.coAuthor }),
+    });
     for (const wake of this.waiting.splice(0)) wake();
     return turnId;
   }
@@ -368,6 +379,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
               input_id: next.inputId,
               message: next.message,
               delivery_started_at: new Date().toISOString(),
+              ...(next.coAuthor === undefined
+                ? {}
+                : { co_author: next.coAuthor }),
             },
       lease_expires_at: this.leaseExpiresAt(),
     };

@@ -2611,6 +2611,7 @@ export function createPostgresWorkerUnitOfWork(
             // hold the old text; only a message equal to it is rewritten.
             message: followUpFact(turn.message),
             deliveryStartedAt,
+            actorId: turn.actorId,
           },
         };
       });

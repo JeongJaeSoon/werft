@@ -215,7 +215,7 @@ describe("session GitHub attribution", () => {
     };
   }
 
-  test("names the linked starter as the commits' co-author", async () => {
+  test("names the linked requester as the commits' co-author", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({
@@ -230,7 +230,7 @@ describe("session GitHub attribution", () => {
     ).toBeDefined();
   });
 
-  test("an unlinked starter is pointed at linked accounts", async () => {
+  test("an unlinked requester is pointed at linked accounts", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({ trigger: "slack", attribution: "unlinked", login: null }),
@@ -244,7 +244,7 @@ describe("session GitHub attribution", () => {
     ).toBe("/settings/linked-accounts");
   });
 
-  test("a session no person started says the App alone signs", async () => {
+  test("a request from no person says the App alone signs", async () => {
     renderAt(
       `/sessions/${SESSION_ID}`,
       attributed({
@@ -256,7 +256,7 @@ describe("session GitHub attribution", () => {
     await openOutputs();
     expect(
       await screen.findByText(
-        "시작한 사람이 없는 세션이라 commit은 App 이름으로만 남습니다.",
+        "마지막 요청에 사람이 없어 commit은 App 이름으로만 남습니다.",
       ),
     ).toBeDefined();
   });

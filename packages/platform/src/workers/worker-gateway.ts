@@ -154,7 +154,11 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
-import { appBotAuthor, claimGitOf } from "../sessions/git-attribution.ts";
+import {
+  appBotAuthor,
+  claimGitOf,
+  coAuthorOfLink,
+} from "../sessions/git-attribution.ts";
 import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import {
   hashTitleToken,
@@ -596,7 +600,7 @@ export function createWorkerGateway(deps: {
   neutralize?: NeutralizeEvent;
   // Absent, a claim carries no `git` and the worker adds no commit trailer.
   attribution?: {
-    store: SessionAttributionStore;
+    store: Pick<SessionAttributionStore, "attribution" | "githubLinkOf">;
     // Absent, a claim's commit values are not kept and a push is not checked
     // against them.
     ledger?: CommitAttributionLedger;
@@ -714,11 +718,62 @@ export function createWorkerGateway(deps: {
     if (ledger === undefined || git === undefined || gitAuthor === undefined) {
       return;
     }
+    const author = gitAuthor ?? IMAGE_GIT_AUTHOR;
+    const agentSession = git.session_url ?? sessionId;
     await ledger.record(sessionId, {
-      author: gitAuthor ?? IMAGE_GIT_AUTHOR,
+      author,
       coAuthor: git.co_author ?? null,
-      agentSession: git.session_url ?? sessionId,
+      agentSession,
     });
+    // An author the claim now names (the App's bot lookup can differ between
+    // claims) goes with the co-authors earlier turns were issued, none
+    // included, as a repair
+    // under this claim remakes their commits with this author.
+    const seen = new Set<string>();
+    for (const { coAuthor } of await ledger.list(sessionId)) {
+      const key =
+        coAuthor === null ? "" : `${coAuthor.name}\n${coAuthor.email}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      await ledger.record(sessionId, { author, coAuthor, agentSession });
+    }
+  }
+
+  // The bundles the push check will accept, as the ledger holds them: a worker
+  // that restarted has lost the earlier turns' and its own check would refuse
+  // a commit the push check accepts.
+  async function issuedBundlesOf(sessionId: string) {
+    const ledger = deps.attribution?.ledger;
+    if (ledger === undefined) return [];
+    return (await ledger.list(sessionId)).slice(0, 5000).map((bundle) => ({
+      author: { name: bundle.author.name, email: bundle.author.email },
+      co_author:
+        bundle.coAuthor === null
+          ? null
+          : { name: bundle.coAuthor.name, email: bundle.coAuthor.email },
+      agent_session: bundle.agentSession,
+    }));
+  }
+
+  // The co-author a turn's commits name is the turn's requester, not the
+  // session's starter, read now so a link made since shows from this turn on.
+  // Recorded with the issued values before the worker is told, so a push never
+  // sees a commit of this turn carry a co-author the server did not issue. A
+  // redelivered turn records the same bundle again, which is one row. Undefined
+  // without attribution, which leaves the claim's value in force.
+  async function turnCoAuthor(
+    sessionId: string,
+    actorId: string | null,
+  ): Promise<{ name: string; email: string } | null | undefined> {
+    const attribution = deps.attribution;
+    if (attribution === undefined) return undefined;
+    const link =
+      actorId === null
+        ? null
+        : await attribution.store.githubLinkOf(sessionId, actorId);
+    const coAuthor = coAuthorOfLink(link);
+    await attribution.ledger?.recordTurnCoAuthor(sessionId, coAuthor);
+    return coAuthor;
   }
 
   // A primary repository with no author pin yet gets the one a token issue
@@ -1702,6 +1757,7 @@ export function createWorkerGateway(deps: {
             binding.repository?.id ?? null,
           );
           await recordIssuedAttribution(binding.sessionId, git, gitAuthor);
+          const issued = await issuedBundlesOf(binding.sessionId);
           const additional = await additionalWorkspaceRepositories(
             binding.sessionId,
             repositoryToken,
@@ -1773,6 +1829,7 @@ export function createWorkerGateway(deps: {
               ? {}
               : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
             ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
+            ...(issued.length === 0 ? {} : { git_issued: issued }),
           };
         }
       }
@@ -2186,6 +2243,9 @@ export function createWorkerGateway(deps: {
           deps.options.stopWaiting?.aborted === true ||
           now().getTime() >= deadline
         ) {
+          const coAuthor = result.input
+            ? await turnCoAuthor(fence.sessionId, result.input.actorId)
+            : undefined;
           return {
             input: result.input
               ? {
@@ -2194,6 +2254,7 @@ export function createWorkerGateway(deps: {
                   message: result.input.message,
                   delivery_started_at:
                     result.input.deliveryStartedAt.toISOString(),
+                  ...(coAuthor === undefined ? {} : { co_author: coAuthor }),
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),
