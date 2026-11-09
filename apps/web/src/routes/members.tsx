@@ -559,10 +559,12 @@ function MemberTable({ items }: { readonly items: readonly MemberRow[] }) {
               return;
             }
             // The member was disabled while the dialog was open, so the row
-            // lost its opener: focus what the row still offers instead.
+            // lost its opener: focus what the row still offers instead, the
+            // button or, when the server withholds it, the box that says why.
+            const row = `[data-member-id="${editedId.current}"]`;
             document
               .querySelector<HTMLElement>(
-                `[data-member-id="${editedId.current}"] button`,
+                `${row} button:not(:disabled), ${row} [data-slot=disabled-reason]`,
               )
               ?.focus();
           }}

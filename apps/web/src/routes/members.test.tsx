@@ -1540,6 +1540,37 @@ describe("구성원 페이지와 서버 검색", () => {
     );
   });
 
+  test("편집을 연 채 계정이 정지되면 닫을 때 포커스가 막힌 버튼의 이유 상자로 간다", async () => {
+    let mate: MemberView = teammate;
+    const { services } = renderAt("/members", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner, mate], next_cursor: null })),
+      ...noInvites,
+    });
+    const user = await setupUser();
+    await openEdit(user, "Mate");
+    mate = {
+      ...teammate,
+      disabled_at: "2026-10-11T00:00:00.000Z",
+      actions: {
+        change_role: refusedActions("account_disabled").change_role,
+        disable: { allowed: true },
+        enable: { allowed: false, reason: "account_disabled" },
+      },
+    };
+    await act(() => services.queryClient.refetchQueries());
+    const enable = await screen.findByRole("button", {
+      name: "Mate 다시 활성화",
+      hidden: true,
+    });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement === lockOf(enable)).toBe(true),
+    );
+  });
+
   test("고르지 않은 열린 편집은 다시 받은 행의 역할을 따라, 바뀐 역할을 되돌리지 않는다", async () => {
     let mate: MemberView = teammate;
     const { api, services } = renderAt("/members", {
