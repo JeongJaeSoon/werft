@@ -784,12 +784,14 @@ jobs:
       - name: SDK_VERSION matches package.json
         run: |
           version=$(node -p 'require("./packages/sdk/package.json").version')
-          grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts
+          grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts \
+            || { echo "::error::SDK_VERSION does not match packages/sdk/package.json"; exit 1; }
       - run: bun run --cwd packages/sdk build:package
       - name: The bundle reports the version it is published as
         run: |
           version=$(node -p 'require("./packages/sdk/dist/package.json").version')
-          grep -qF "\"${version}\"" packages/sdk/dist/index.js
+          grep -qF "\"${version}\"" packages/sdk/dist/index.js \
+            || { echo "::error::SDK bundle does not carry its package version"; exit 1; }
       - name: Install, type-check and run the sample in an empty project
         run: bun scripts/sdk-pack-smoke.ts
 

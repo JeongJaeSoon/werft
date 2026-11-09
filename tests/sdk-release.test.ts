@@ -69,6 +69,19 @@ function gate(expression: string, context: object, success = true): boolean {
 }
 
 describe("SDK release contract", () => {
+  test("SDK tags do not match the image or UI release patterns", () => {
+    expect(new Bun.Glob("v*").match("sdk-v0.1.0")).toBe(false);
+    expect(new Bun.Glob("ui-v*").match("sdk-v0.1.0")).toBe(false);
+  });
+  test("release and consumer shell steps parse as bash", () => {
+    for (const job of [...Object.values(workflow.jobs), consumer]) {
+      for (const step of job.steps) {
+        if (!step.run) continue;
+        const result = Bun.spawnSync(["bash", "-n", "-c", step.run]);
+        expect(result.exitCode).toBe(0);
+      }
+    }
+  });
   test("only version-tag pushes and manual runs start either package release", () => {
     for (const [file, prefix] of [
       ["sdk", "sdk-v*"],
