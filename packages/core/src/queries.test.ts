@@ -390,3 +390,19 @@ for (const [list, path, query] of [
     ]);
   });
 }
+
+// A push is asked for after its turn ended and no event says so, so the list
+// is read often even while nothing is open.
+test("sessionGithubWorkQuery reads every 10 s while a push waits and every 15 s otherwise", () => {
+  const { client } = recordingClient();
+  const interval = queries.sessionGithubWorkQuery(client, "s-1")
+    .refetchInterval as unknown as (query: {
+    state: { data: unknown };
+  }) => number;
+  const request = (state: string) => ({ state, pr_state: null });
+  const at = (data: unknown) => interval({ state: { data } });
+  expect(at({ items: [request("requested")], intents: [] })).toBe(10_000);
+  expect(at({ items: [request("pushed")], intents: [] })).toBe(15_000);
+  expect(at({ items: [], intents: [] })).toBe(15_000);
+  expect(at(undefined)).toBe(15_000);
+});

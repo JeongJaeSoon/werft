@@ -88,6 +88,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     now: () => clock.getTime(),
   });
   const pendingChannels = new Set<string>();
+  const leftChannels = new Set<string>();
   const readyChannels = new Map<string, "public_channel" | "private_channel">();
   const rejectedChannels = new Set<string>();
   const service = createSlackEventsService({
@@ -99,6 +100,12 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     bindings: {
       findLiveSlackChannel: async (_installationId, channelId) => {
         const kind = readyChannels.get(channelId);
+        if (leftChannels.has(channelId)) {
+          return {
+            status: "left",
+            channelKind: "private_channel",
+          } as SurfaceBindingRecord;
+        }
         if (pendingChannels.has(channelId)) {
           return {
             status: "pending_approval",
@@ -187,6 +194,7 @@ function world(options: { linkTo?: string; withSecret?: boolean } = {}) {
     secrets,
     lookups,
     pendingChannels,
+    leftChannels,
     readyChannels,
     rejectedChannels,
     install,
@@ -561,6 +569,35 @@ describe("Slack events service", () => {
       ),
     );
     expect(result).toMatchObject({ status: "received" });
+  });
+
+  test("a channel the bot left drops every message and mention, with no text kept, whatever channel_type says", async () => {
+    const w = world();
+    await w.install();
+    w.leftChannels.add("G0GONE");
+    for (const [type, channelType] of [
+      ["message", "group"],
+      ["message", "channel"],
+      ["app_mention", undefined],
+    ] as const) {
+      const outcome = await w.service.receive(
+        w.signed(
+          w.event({
+            type,
+            user: "U0P",
+            text: `<@${BOT_USER}> the launch code is 1234`,
+            channel: "G0GONE",
+            ...(channelType === undefined ? {} : { channel_type: channelType }),
+            ts: "1.1",
+          }),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        status: "dropped",
+        reason: "channel_left",
+      });
+    }
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
   });
 
   test("a private channel keeps no text unless a ready private binding holds it: rejected and unbound are dropped, bound as public is kept without text", async () => {

@@ -63,9 +63,12 @@ ARG GIT_LFS_COMPRESS=1.20.2
 ARG GIT_LFS_GO=1.27.3
 ARG BUILDARCH
 ARG TARGETARCH
-ADD --checksum=sha256:1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
   https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-v${GIT_LFS_VERSION}.tar.gz \
-  /tmp/git-lfs-src.tar.gz
+  1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
+  /tmp/git-lfs-src.tar.gz \
+  https://api.github.com/repos/git-lfs/git-lfs/releases/assets/666389036
 ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
   https://dl.google.com/go/go${GIT_LFS_GO}.linux-amd64.tar.gz \
   /tmp/go-amd64.tar.gz
@@ -99,6 +102,8 @@ RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
     -o /tmp/git-lfs . \
   && cp LICENSE.md /tmp/git-lfs-LICENSE.md
 
+# Release browser URLs can persistently return an error document. The official
+# asset API is an independent route to the exact same SHA-pinned archive.
 # GitHub CLI, upstream's release binary pinned by version and per-arch sha256
 # (the release's checksums file). Only the binary and its license reach the
 # runtime stage. Bumped by hand with GH_VERSION in
@@ -106,12 +111,18 @@ RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
 FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS gh
 ARG GH_VERSION=2.103.3
 ARG TARGETARCH
-ADD --checksum=sha256:4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d \
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
   https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
-  /tmp/gh-amd64.tar.gz
-ADD --checksum=sha256:ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 \
+  4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d \
+  /tmp/gh-amd64.tar.gz \
+  https://api.github.com/repos/cli/cli/releases/assets/679195621
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
   https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.tar.gz \
-  /tmp/gh-arm64.tar.gz
+  ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 \
+  /tmp/gh-arm64.tar.gz \
+  https://api.github.com/repos/cli/cli/releases/assets/679195636
 RUN mkdir /tmp/gh \
   && tar -xzf "/tmp/gh-${TARGETARCH}.tar.gz" -C /tmp/gh --strip-components=1 \
     --no-same-owner

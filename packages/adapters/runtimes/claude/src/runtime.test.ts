@@ -829,7 +829,8 @@ describe("Claude SDK adapter options", () => {
         }
       ).permissions;
       expect(permissions?.allow).toContain(`Edit(/${config.cwd}/**)`);
-      expect(permissions?.allow).toContain("Bash(git commit *)");
+      expect(permissions?.allow).toContain("Bash(git *)");
+      expect(permissions?.allow).toContain("Bash(gh *)");
       expect(permissions?.ask).toContain(`Edit(/${config.cwd}/.git/**)`);
     }
     for (const permissionMode of ["plan", "auto"] as const) {
@@ -843,6 +844,22 @@ describe("Claude SDK adapter options", () => {
       allow,
     );
     expect(readOnly.settings).not.toHaveProperty("permissions");
+  });
+
+  test("the pre-approval settings stay well under one Linux argument", () => {
+    // The engine gets the settings as a single argument, and Linux refuses one
+    // over 128 KiB (E2BIG) when the engine starts; macOS does not, so a rule
+    // family that multiplies passes on a laptop and breaks every session in CI.
+    const settings = buildSdkOptions(
+      {
+        ...config,
+        cwd: `/${"w".repeat(200)}`,
+        permissionMode: "default",
+        tools: ["Write", "Edit", "Bash"],
+      },
+      { onPermission: async () => ({ behavior: "allow" as const }) },
+    ).settings;
+    expect(JSON.stringify(settings).length).toBeLessThan(100_000);
   });
 
   test("auto alone hands the engine the platform's auto mode rules", () => {

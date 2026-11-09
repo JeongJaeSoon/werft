@@ -61,6 +61,7 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import { channelLeft } from "./slack-channel-left.ts";
 import {
   createPostgresSlackThreadStatusStore,
   touchSlackThreadStatus,
@@ -123,9 +124,12 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
 };
 
 // Only the notice that a channel waits for approval may go to a channel
-// whose binding waits, or was rejected and has no live binding since.
+// whose binding waits, or was rejected and has no live binding since. A
+// channel the bot left takes nothing at all, a notice included: the bot is
+// not in it.
 const channelNotWaiting = (row: SQL) => sql`(
-  ${row}.kind = 'notice' OR NOT EXISTS (
+  NOT ${channelLeft(sql`${row}.installation_id`, sql`${row}.channel_id`)}
+  AND (${row}.kind = 'notice' OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
@@ -140,7 +144,7 @@ const channelNotWaiting = (row: SQL) => sql`(
           AND r.external_surface_id = b.external_surface_id
           AND r.status = 'ready' AND r.revoked_at IS NULL
       )
-  )
+  ))
 )`;
 
 // Where a row may still go: an installation not revoked, for a session's row
@@ -470,6 +474,7 @@ export function createPostgresSlackCardSettleStore(
             SELECT o.id, o.settle_claim_token IS NOT NULL AS inherited
             FROM slack_outbox o
             WHERE ${SENT_CARD}
+              AND NOT ${channelLeft(sql`o.installation_id`, sql`o.channel_id`)}
               AND o.settle_inflight_at IS NULL
               AND (o.settle_claim_token IS NULL
                 OR o.settle_lease_expires_at + ${ms(graceMs)} <= now())
@@ -544,6 +549,7 @@ export function createPostgresSlackCardSettleStore(
         sql`
           UPDATE slack_outbox SET settle_inflight_at = now()
           WHERE ${cardFenced(fence)}
+            AND NOT ${channelLeft(sql`slack_outbox.installation_id`, sql`slack_outbox.channel_id`)}
             AND settle_lease_expires_at > now() + ${ms(minLeaseLeftMs)}
           RETURNING settle_inflight_at`,
       );
