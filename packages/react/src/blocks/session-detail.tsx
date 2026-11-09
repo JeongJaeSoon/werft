@@ -139,6 +139,8 @@ export function SessionDetail({
     id: "session-panel",
     storageKey: PANEL_STORAGE_KEY,
     closeLabel: t("session.panel.close"),
+    // The route keeps this block mounted from one session to the next.
+    visit: id,
   });
 
   if (detail === undefined) {

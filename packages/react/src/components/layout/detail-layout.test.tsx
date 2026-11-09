@@ -98,11 +98,12 @@ function stubWide(wide: boolean): () => void {
   };
 }
 
-function Foldable() {
+function Foldable({ visit }: { readonly visit?: string }) {
   const toggle = useDetailRailToggle({
     id: "rail",
     storageKey: KEY,
     closeLabel: "요약 닫기",
+    visit,
   });
   return (
     <DetailLayout
@@ -183,6 +184,23 @@ describe("useDetailRailToggle", () => {
       expect(localStorage.getItem(KEY)).toBe("open");
     } finally {
       localStorage.removeItem(KEY);
+      restore();
+    }
+  });
+
+  test("a sheet opened on one visit starts closed on the next", async () => {
+    const restore = stubWide(false);
+    try {
+      const user = await setupUser();
+      const { getByRole, rerender } = render(<Foldable visit="a" />);
+      const button = getByRole("button", { name: "패널" });
+      await user.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      rerender(<Foldable visit="b" />);
+      expect(
+        getByRole("button", { name: "패널" }).getAttribute("aria-expanded"),
+      ).toBe("false");
+    } finally {
       restore();
     }
   });

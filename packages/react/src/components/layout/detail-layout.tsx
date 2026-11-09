@@ -247,15 +247,27 @@ export function useDetailRailToggle({
   id,
   storageKey,
   closeLabel,
+  visit,
 }: {
   readonly id: string;
   readonly storageKey: string;
   readonly closeLabel: string;
+  /**
+   * What the page shows, such as a session id. A host that keeps the page
+   * mounted while it moves to another item passes it, so the sheet starts
+   * closed on that visit too.
+   */
+  readonly visit?: string | undefined;
 }): DetailRailToggle {
   // Without matchMedia the rail is the column it always was.
   const wide = useMediaQuery(DETAIL_RAIL_WIDE, true);
   const [folded, setFolded] = useState(() => storedFolded(storageKey));
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetFor, setSheetFor] = useState(visit);
+  if (sheetFor !== visit) {
+    setSheetFor(visit);
+    setSheetOpen(false);
+  }
   const triggerRef = useRef<HTMLButtonElement>(null);
   const setColumn = (next: boolean) => {
     setFolded(next);
