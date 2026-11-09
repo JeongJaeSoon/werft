@@ -98,6 +98,8 @@ export const sessionsKo = {
   "session.slackLink": "Slack에서 보기",
   "session.slackLink.newTab": "(새 탭에서 열림)",
   "session.panel": "세션 요약",
+  "session.panel.close": "세션 요약 닫기",
+  "session.panel.waiting": "답변 대기 {count}건",
   "session.pending.emptyTitle": "기다리는 요청 없음",
   "session.pending.note.idle": "{status} · 다음 지시를 기다립니다.",
   "session.pending.note.running":
@@ -396,6 +398,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.slackLink": "View in Slack",
   "session.slackLink.newTab": "(opens in a new tab)",
   "session.panel": "Session summary",
+  "session.panel.close": "Close session summary",
+  "session.panel.waiting": "{count} waiting for an answer",
   "session.pending.emptyTitle": "No pending requests",
   "session.pending.note.idle": "{status} · waiting for the next instruction.",
   "session.pending.note.running": "{status} · a request shows here first.",
@@ -696,6 +700,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.slackLink": "Slack で表示",
   "session.slackLink.newTab": "(新しいタブで開きます)",
   "session.panel": "セッション概要",
+  "session.panel.close": "セッション概要を閉じる",
+  "session.panel.waiting": "回答待ち {count}件",
   "session.pending.emptyTitle": "保留中のリクエストなし",
   "session.pending.note.idle": "{status} · 次の指示を待っています。",
   "session.pending.note.running":

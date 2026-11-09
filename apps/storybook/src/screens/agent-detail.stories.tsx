@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Badge, Button, Heading, Skeleton, Text } from "@werft-ai/ui";
+import { Skeleton } from "@werft-ai/ui";
 import { expect, userEvent, within } from "storybook/test";
 
 import {
@@ -16,6 +16,7 @@ import {
   VersionHistory,
   type Viewer,
 } from "./agent-detail-parts.tsx";
+import { AgentSlackTab } from "./agent-slack-parts.tsx";
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
@@ -25,42 +26,7 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
  */
 
 type ScreenState = "released" | "draft" | "loading" | "error" | "not-found";
-const SLACK_SECTION = "slack-advanced";
-const SLACK_TITLE = `${SLACK_SECTION}-title`;
-
 type ShownTab = Extract<AgentTab, "overview" | "card" | "slack">;
-
-function SlackNotConnected({ active }: { readonly active: boolean }) {
-  return (
-    <div className="flex flex-col gap-8">
-      <section
-        id={SLACK_SECTION}
-        tabIndex={-1}
-        className="flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none"
-        aria-labelledby={SLACK_TITLE}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Heading id={SLACK_TITLE}>Slack 앱</Heading>
-          <Badge variant="gray">만들기 전</Badge>
-        </div>
-        <output tabIndex={-1} aria-live="polite" className="sr-only" />
-        {active ? null : (
-          <Text variant="sub">
-            에이전트를 먼저 켠 뒤 Slack 앱을 만들 수 있습니다.
-          </Text>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={!active}>
-            Slack 앱 만들고 설치
-          </Button>
-          <Button type="button" variant="outline">
-            새로고침
-          </Button>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function AgentDetailScreen({
   state,
@@ -108,7 +74,8 @@ function AgentDetailScreen({
               <VersionHistory detail={detail} />
             </>
           ) : (
-            <SlackNotConnected
+            <AgentSlackTab
+              state="none"
               active={detail.agent.active_release_id !== null}
             />
           )}

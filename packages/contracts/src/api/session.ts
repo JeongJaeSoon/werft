@@ -21,10 +21,16 @@ import {
   workspaceLimitModeSchema,
 } from "../shared/index.ts";
 import {
+  RUNTIME_KIND_VALUES,
+  runtimeKindSchema,
+} from "../shared/runtime-kind.ts";
+import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
   additionalRepositoryIdUsable,
 } from "./push-request.ts";
 import { receiptStatusSchema } from "./receipt.ts";
+
+export { RUNTIME_KIND_VALUES, runtimeKindSchema };
 
 export const SESSION_STATUS_VALUES = [
   "queued",
@@ -78,11 +84,6 @@ export const EXECUTION_STATE_VALUES = [
   "terminated",
   "unknown",
 ] as const;
-export const RUNTIME_KIND_VALUES = [
-  "claude_agent_sdk",
-  "codex_app_server",
-  "pi_coding_agent",
-] as const;
 export const EXECUTION_BACKEND_VALUES = [
   "local_docker",
   "kubernetes",
@@ -112,7 +113,6 @@ export const turnStatusSchema = z.enum(TURN_STATUS_VALUES);
 export const terminalTurnStatusSchema = z.enum(TERMINAL_TURN_STATUS_VALUES);
 export const attemptStateSchema = z.enum(ATTEMPT_STATE_VALUES);
 export const executionStateSchema = z.enum(EXECUTION_STATE_VALUES);
-export const runtimeKindSchema = z.enum(RUNTIME_KIND_VALUES);
 export const executionBackendSchema = z.enum(EXECUTION_BACKEND_VALUES);
 export const permissionModeSchema = z.enum(PERMISSION_MODE_VALUES);
 
@@ -646,7 +646,7 @@ export const createSessionRequestSchema = z
     }),
     repository_id: z.string().min(1).optional().meta({
       description:
-        "The catalog repository the session works on. Required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; omitted, the session works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
+        "The catalog repository the session works on. Where the catalog judges the pair, required when the profile's `repository_mode` is `required`, refused when it is `none`, either when it is `optional`; a session on the agent's GitHub settings or a workspace-scoped profile is judged by the workspace ceiling and the agent's list instead. Omitted, a session of an agent with GitHub settings starts without a repository and attaches what it needs, a session of an agent with none works on the release's `repository_id` when `agent_release_id` is sent, else starts in an empty workspace with no repository of its own, pushing only to those in `attached_repository_ids`.",
     }),
     attached_repository_ids: z
       .array(
@@ -662,7 +662,7 @@ export const createSessionRequestSchema = z
       })
       .optional()
       .meta({
-        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or on a profile whose \`repository_mode\` is \`none\`. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
+        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release, or for a profile whose \`repository_mode\` is \`none\` when the agent has no GitHub settings. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
       }),
     extensions: z
       .object({

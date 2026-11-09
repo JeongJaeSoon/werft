@@ -4,22 +4,27 @@ import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
+  Code,
   CopyButton,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  EmptyState,
   Field,
   FieldError,
   FieldLabel,
-  Heading,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Input,
   RowAction,
   RowList,
   RowListItem,
   SettingRow,
+  SettingsSection,
   Skeleton,
   Switch,
   Text,
@@ -37,7 +42,7 @@ import {
   type BindingChange,
   RECHECK_ID,
   SECTION,
-  SECTION_BOX,
+  SECTION_TARGET,
   slackFailure,
   slackReason,
 } from "./shared.ts";
@@ -150,6 +155,7 @@ export function SlackChannels({
   notify,
   homeStep = false,
   locked = false,
+  installed = true,
 }: {
   readonly agentId: string;
   /** The line to paste in a channel to add the bot. */
@@ -159,6 +165,11 @@ export function SlackChannels({
   readonly homeStep?: boolean;
   /** Slack has not checked the Request URL, so no channel would hear the bot. */
   readonly locked?: boolean;
+  /**
+   * An active bot to invite. After a disconnect the tab keeps its layout,
+   * but `/invite` would add a bot that hears nothing.
+   */
+  readonly installed?: boolean;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -275,200 +286,223 @@ export function SlackChannels({
         },
       });
   };
-  return (
-    <section
-      id={SECTION.channels}
-      tabIndex={-1}
-      className={SECTION_BOX}
-      aria-labelledby={`${SECTION.channels}-title`}
-    >
-      <div className="grid">
-        <div
-          inert={locked}
-          className={`col-start-1 row-start-1 flex flex-col gap-[var(--werft-space-block)]${locked ? " invisible" : ""}`}
+  const actions =
+    // Until the bindings load, it is not known which step this is.
+    bindings.isPending || !manages || locked ? null : (
+      <>
+        <Button
+          type="button"
+          variant={homeStep ? "default" : "outline"}
+          size="sm"
+          onClick={(event) => {
+            pickerOpener.current = event.currentTarget;
+            setPickHome(true);
+            setPicking(true);
+          }}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Heading id={`${SECTION.channels}-title`}>
-              {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
-            </Heading>
-            {/* Until the bindings load, it is not known which step this is. */}
-            {bindings.isPending || !manages ? null : (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  type="button"
-                  variant={homeStep ? "default" : "outline"}
-                  size="sm"
-                  onClick={(event) => {
-                    pickerOpener.current = event.currentTarget;
-                    setPickHome(true);
-                    setPicking(true);
-                  }}
-                >
-                  {t(homeStep ? "slack.pickHome" : "slack.setHome")}
-                </Button>
-                {homeStep ? null : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={(event) => {
-                      pickerOpener.current = event.currentTarget;
-                      setPickHome(false);
-                      setPicking(true);
-                    }}
-                  >
-                    <Plus aria-hidden="true" strokeWidth={1.5} />
-                    {t("slack.addChannel")}
-                  </Button>
-                )}
+          {t(homeStep ? "slack.pickHome" : "slack.setHome")}
+        </Button>
+        {homeStep ? null : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={(event) => {
+              pickerOpener.current = event.currentTarget;
+              setPickHome(false);
+              setPicking(true);
+            }}
+          >
+            <Plus aria-hidden="true" strokeWidth={1.5} />
+            {t("slack.addChannel")}
+          </Button>
+        )}
+      </>
+    );
+  const empty = !homeStep && bindings.isSuccess && rows.length === 0;
+  return (
+    <>
+      <SettingsSection
+        id={SECTION.channels}
+        tabIndex={-1}
+        className={SECTION_TARGET}
+        titleAs="h3"
+        title={t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
+        description={
+          <>
+            {homeStep ? <p className="m-0">{t("slack.homeStepHint")}</p> : null}
+            {/* A channel's replies follow no session sharing (agent-rbac (b)). */}
+            <p className="m-0">{t("slack.channelsAudience")}</p>
+          </>
+        }
+        actions={actions}
+        box={empty && !locked}
+        rows={
+          manages && installed ? (
+            <InviteRow command={invite} notify={notify} />
+          ) : undefined
+        }
+      >
+        <div className="grid">
+          <div
+            inert={locked}
+            className={`col-start-1 row-start-1 flex min-w-0 flex-col gap-[var(--werft-space-block)]${locked ? " invisible" : ""}`}
+          >
+            <output
+              aria-live="polite"
+              className={notice ? "text-control" : "sr-only"}
+            >
+              {notice}
+            </output>
+            {/* The card above reports a failed bindings read. */}
+            {channels.error ? (
+              <LoadFailure
+                error={channels.error}
+                guidance={slackReason(channels.error, t)}
+                kept={channels.data !== undefined}
+                onRetry={() => void channels.refetch()}
+              />
+            ) : null}
+            {update.error ? (
+              <div>
+                <FieldError>{slackFailure(update.error, t)}</FieldError>
               </div>
+            ) : null}
+            {/* FieldError is an alert, so a failed approval is announced too. */}
+            {approve.error ? (
+              <div>
+                <FieldError>{slackFailure(approve.error, t)}</FieldError>
+              </div>
+            ) : null}
+            {homeStep ? null : bindings.isPending ? (
+              <ChannelSkeleton />
+            ) : bindings.isError && !bindings.data ? null : empty ? (
+              <div className="flex flex-col gap-1">
+                <Text weight="medium">{t("slack.noConnectedChannels")}</Text>
+                <Text variant="sub">{t("slack.addChannelHint")}</Text>
+              </div>
+            ) : (
+              <GridTable
+                aria-label={t("slack.connectedChannels")}
+                columns={COLUMNS}
+                framed
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.channelColumn")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader align="end">
+                    {t("slack.useColumn")}
+                  </GridTableColumnHeader>
+                </GridTableHeader>
+                {rows.map((row) => {
+                  const known = row.external_surface_id
+                    ? names[row.external_surface_id]
+                    : undefined;
+                  const name =
+                    row.surface_kind === "dm"
+                      ? t("slack.dm")
+                      : known
+                        ? `#${known.name}`
+                        : t("slack.channelId", {
+                            id: row.external_surface_id ?? "",
+                          });
+                  const meta =
+                    row.status === "left" ? (
+                      <span className="flex flex-wrap items-center gap-1">
+                        <Text as="span" variant="sub">
+                          {t("slack.leftHint")}
+                        </Text>
+                        <InviteCopy command={invite} notify={notify} />
+                      </span>
+                    ) : row.status === "pending_approval" ? (
+                      <Text as="span" variant="sub">
+                        {t("slack.pendingApprovalHint")}
+                      </Text>
+                    ) : awaitsInvite(row, known) ? (
+                      <span className="flex flex-wrap items-center gap-1">
+                        <Badge variant="gray">{t("slack.privateInvite")}</Badge>
+                        <InviteCopy command={invite} notify={notify} />
+                      </span>
+                    ) : null;
+                  return (
+                    <GridTableRow key={row.id}>
+                      <GridTableCell className="py-3">
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Text as="span" weight="medium">
+                              <ChannelName>{name}</ChannelName>
+                            </Text>
+                            {row.surface_kind === "dm" ? null : (
+                              <VisibilityBadge
+                                isPrivate={
+                                  row.surface_kind === "private_channel"
+                                }
+                              />
+                            )}
+                            {row.home ? (
+                              <Badge variant="gray">{t("slack.home")}</Badge>
+                            ) : null}
+                            {row.status === "pending_approval" ? (
+                              <Badge variant="amber">
+                                {t("slack.pendingApproval")}
+                              </Badge>
+                            ) : row.status === "left" ? (
+                              <Badge variant="red">{t("slack.left")}</Badge>
+                            ) : null}
+                          </div>
+                          {meta}
+                        </div>
+                      </GridTableCell>
+                      <GridTableCell align="end">
+                        {
+                          // A left binding takes no input and sends nothing, so a
+                          // switch that reads "on" would be a lie.
+                          row.status === "left" ? (
+                            <Text as="span" variant="sub">
+                              {t("slack.inactive")}
+                            </Text>
+                          ) : manages ? (
+                            <>
+                              {row.status === "pending_approval" &&
+                              canApprove ? (
+                                <RowAction
+                                  aria-label={t("slack.approveChannel", {
+                                    channel: name,
+                                  })}
+                                  disabled={approve.isPending}
+                                  onClick={() => approve.mutate(row)}
+                                >
+                                  {t("slack.approve")}
+                                </RowAction>
+                              ) : null}
+                              <Switch
+                                aria-label={t("slack.inUseOf", {
+                                  channel: name,
+                                })}
+                                checked={row.mode !== "off"}
+                                aria-disabled={update.isPending}
+                                onCheckedChange={(checked) =>
+                                  change(row, checked ? "on" : "off")
+                                }
+                              />
+                            </>
+                          ) : (
+                            <Text as="span" variant="sub">
+                              {t(row.mode !== "off" ? "slack.on" : "slack.off")}
+                            </Text>
+                          )
+                        }
+                      </GridTableCell>
+                    </GridTableRow>
+                  );
+                })}
+              </GridTable>
             )}
           </div>
-          {homeStep ? (
-            <Text variant="sub">{t("slack.homeStepHint")}</Text>
-          ) : null}
-          {/* A channel's replies follow no session sharing (agent-rbac (b)). */}
-          <Text variant="sub">{t("slack.channelsAudience")}</Text>
-          <output
-            aria-live="polite"
-            className={notice ? "text-control" : "sr-only"}
-          >
-            {notice}
-          </output>
-          {/* The status section above reports a failed bindings read. */}
-          {channels.error ? (
-            <LoadFailure
-              error={channels.error}
-              guidance={slackReason(channels.error, t)}
-              kept={channels.data !== undefined}
-              onRetry={() => void channels.refetch()}
-            />
-          ) : null}
-          {update.error ? (
-            <div>
-              <FieldError>{slackFailure(update.error, t)}</FieldError>
-            </div>
-          ) : null}
-          {/* FieldError is an alert, so a failed approval is announced too. */}
-          {approve.error ? (
-            <div>
-              <FieldError>{slackFailure(approve.error, t)}</FieldError>
-            </div>
-          ) : null}
-          {homeStep ? null : bindings.isPending ? (
-            <ChannelSkeleton />
-          ) : bindings.isError && !bindings.data ? null : rows.length === 0 ? (
-            <EmptyState
-              title={t("slack.noConnectedChannels")}
-              description={t("slack.addChannelHint")}
-            />
-          ) : (
-            <RowList
-              variant="joined"
-              framed={false}
-              aria-label={t("slack.connectedChannels")}
-            >
-              {rows.map((row) => {
-                const known = row.external_surface_id
-                  ? names[row.external_surface_id]
-                  : undefined;
-                const name =
-                  row.surface_kind === "dm"
-                    ? t("slack.dm")
-                    : known
-                      ? `#${known.name}`
-                      : t("slack.channelId", {
-                          id: row.external_surface_id ?? "",
-                        });
-                const tag =
-                  row.surface_kind === "dm" ? null : (
-                    <VisibilityBadge
-                      isPrivate={row.surface_kind === "private_channel"}
-                    />
-                  );
-                return (
-                  <SettingRow
-                    key={row.id}
-                    title={<ChannelName>{name}</ChannelName>}
-                    badge={
-                      <>
-                        {tag}
-                        {row.home ? (
-                          <Badge variant="gray">{t("slack.home")}</Badge>
-                        ) : null}
-                        {row.status === "pending_approval" ? (
-                          <Badge variant="amber">
-                            {t("slack.pendingApproval")}
-                          </Badge>
-                        ) : row.status === "left" ? (
-                          <Badge variant="red">{t("slack.left")}</Badge>
-                        ) : null}
-                      </>
-                    }
-                    meta={
-                      row.status === "left" ? (
-                        <span className="flex flex-wrap items-center gap-1">
-                          <Text as="span" variant="sub">
-                            {t("slack.leftHint")}
-                          </Text>
-                          <InviteCopy command={invite} notify={notify} />
-                        </span>
-                      ) : row.status === "pending_approval" ? (
-                        <Text as="span" variant="sub">
-                          {t("slack.pendingApprovalHint")}
-                        </Text>
-                      ) : awaitsInvite(row, known) ? (
-                        <span className="flex flex-wrap items-center gap-1">
-                          <Badge variant="gray">
-                            {t("slack.privateInvite")}
-                          </Badge>
-                          <InviteCopy command={invite} notify={notify} />
-                        </span>
-                      ) : undefined
-                    }
-                    actions={
-                      // A left binding takes no input and sends nothing, so a
-                      // switch that reads "on" would be a lie.
-                      row.status === "left" ? (
-                        <Text as="span" variant="sub">
-                          {t("slack.inactive")}
-                        </Text>
-                      ) : manages ? (
-                        <span className="flex items-center gap-2">
-                          {row.status === "pending_approval" && canApprove ? (
-                            <RowAction
-                              aria-label={t("slack.approveChannel", {
-                                channel: name,
-                              })}
-                              disabled={approve.isPending}
-                              onClick={() => approve.mutate(row)}
-                            >
-                              {t("slack.approve")}
-                            </RowAction>
-                          ) : null}
-                          <Switch
-                            aria-label={t("slack.inUseOf", { channel: name })}
-                            checked={row.mode !== "off"}
-                            aria-disabled={update.isPending}
-                            onCheckedChange={(checked) =>
-                              change(row, checked ? "on" : "off")
-                            }
-                          />
-                        </span>
-                      ) : (
-                        <Text as="span" variant="sub">
-                          {t(row.mode !== "off" ? "slack.on" : "slack.off")}
-                        </Text>
-                      )
-                    }
-                  />
-                );
-              })}
-            </RowList>
-          )}
+          {locked ? <ChannelsLock action={lockAction} /> : null}
         </div>
-        {locked ? <ChannelsLock action={lockAction} /> : null}
-      </div>
+      </SettingsSection>
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
           onCloseAutoFocus={(event) => {
@@ -594,11 +628,67 @@ export function SlackChannels({
           </div>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }
 
-/** Covers the channels, pointing to the advanced section's Recheck. */
+// The channel, its state and what to do about it; then the in-use switch,
+// with room for an approve button beside it.
+const COLUMNS = "minmax(0,1fr) 136px";
+
+/** The `/invite` line, for any channel the bot should join. */
+function InviteRow({
+  command,
+  notify,
+}: {
+  readonly command: string;
+  readonly notify: Notify;
+}) {
+  const { t } = useI18n();
+  const [manual, setManual] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (manual) field.current?.focus();
+  }, [manual]);
+  return (
+    <SettingRow
+      title={t("slack.inviteTitle")}
+      description={t("slack.inviteHint")}
+      meta={<Code>{command}</Code>}
+      actions={
+        <>
+          <CopyButton
+            value={command}
+            variant="outline"
+            size="sm"
+            aria-label={t("slack.copyInvite")}
+            label={t("slack.copy")}
+            icon="copy"
+            iconClassName="stroke-[1.5]"
+            fallbackField={field}
+            onResult={(ok) => {
+              setManual(!ok);
+              notify(t(ok ? "slack.copied" : "slack.copyFailed"));
+            }}
+          />
+          {manual ? (
+            <Input
+              ref={field}
+              readOnly
+              value={command}
+              size={command.length}
+              aria-label={t("slack.inviteCommand")}
+              className="h-8 w-auto px-2 font-mono text-caption"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          ) : null}
+        </>
+      }
+    />
+  );
+}
+
+/** Covers the channels, pointing to the address section's Recheck. */
 function ChannelsLock({
   action,
 }: {
@@ -627,7 +717,7 @@ function ChannelsLock({
         onClick={() => {
           const target =
             document.getElementById(RECHECK_ID) ??
-            document.getElementById(SECTION.advanced);
+            document.getElementById(SECTION.addresses);
           target?.scrollIntoView({
             block: "center",
             behavior: matchMedia("(prefers-reduced-motion: reduce)").matches

@@ -645,7 +645,7 @@ export type EffectiveGitHubPolicy = {
    * this is the meet of that start and the agent's settings now.
    */
   settings: AgentGitHub | "invalid" | null;
-  /** The agent's start repository; a release's is `repository_id`. */
+  /** Kept for compatibility, not read to start a session; a release's is `repository_id`. */
   startRepositoryId: string | null;
   agentSettingsRevision: number | null;
   /**
@@ -843,7 +843,13 @@ export function newSessionGitHubPolicy(
     : policy;
 }
 
-/** The repository a session starts on: asked, else what its policy names. */
+/**
+ * The repository a session starts on: the one the caller named, else none.
+ * An agent with a settings row starts without a repository and attaches what
+ * the task needs; `start_repository_id` stays on the row but no longer starts
+ * anything. An agent with no row keeps its release's repository, because a
+ * profile that requires one cannot start without it.
+ */
 export function startRepositoryOf(
   requested: string | null | undefined,
   policy: EffectiveGitHubPolicy,
@@ -851,9 +857,7 @@ export function startRepositoryOf(
 ): string | null {
   return (
     requested ??
-    (policy.source === "agent"
-      ? policy.startRepositoryId
-      : releaseRepositoryId) ??
+    (policy.source === "release" ? releaseRepositoryId : null) ??
     null
   );
 }
@@ -918,8 +922,9 @@ export const agentReleaseSchema = z
     card_sha256: sha256HexSchema,
     runtime_profile_id: z.string().min(1).max(128),
     /**
-     * The catalog repository the release's sessions work on unless one
-     * names another; null runs them without one, as the profile allows.
+     * The catalog repository a session of the release starts on when it names
+     * none and the agent has no GitHub settings; an agent with settings starts
+     * without one. Null: none, as the profile allows.
      */
     repository_id: z.string().min(1).max(128).nullable(),
     profile_digest: z.string().min(1).max(128),

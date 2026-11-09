@@ -213,14 +213,17 @@ describe("with no settings row, every reader answers as before", () => {
 });
 
 describe("an `agent` session", () => {
-  test("a row moves new sessions off the pin, onto the row's start repository", () => {
+  test("a row moves new sessions off the pin and starts them without a repository", () => {
     const policy = newSessionGitHubPolicy(row(), SETTINGS);
     expect(policy).toMatchObject({
       source: "agent",
       startRepositoryId: "docs",
       agentSettingsRevision: 3,
     });
-    expect(startRepositoryOf(undefined, policy, "app")).toBe("docs");
+    // The row's start repository is still read, but no longer starts a session.
+    expect(startRepositoryOf(undefined, policy, "app")).toBeNull();
+    expect(startRepositoryOf(null, policy, "app")).toBeNull();
+    // A repository the caller names is still the session's own.
     expect(startRepositoryOf("app", policy, "app")).toBe("app");
     const none = newSessionGitHubPolicy(
       row({ startRepositoryId: null }),
@@ -283,6 +286,8 @@ describe("an `agent` session", () => {
   });
 
   test.each([
+    // A session of an agent with a row starts without a repository, so neither
+    // its start repository, its list nor the ceiling can stop it.
     {
       name: "start repository on the list, in the ceiling",
       agent: row(),
@@ -290,17 +295,17 @@ describe("an `agent` session", () => {
       starts: true,
     },
     {
-      name: "off the ceiling",
+      name: "start repository off the ceiling",
       agent: row(),
       ceiling: ceilingOf("app"),
-      starts: false,
+      starts: true,
     },
-    { name: "no ceiling", agent: row(), ceiling: null, starts: false },
+    { name: "no ceiling", agent: row(), ceiling: null, starts: true },
     {
-      name: "off the agent's list",
+      name: "start repository off the agent's list",
       agent: row({ repositories: ["app"] }),
       ceiling: ceilingOf("docs"),
-      starts: false,
+      starts: true,
     },
     {
       name: "a row this image cannot read",

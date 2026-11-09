@@ -73,12 +73,12 @@ export const slackKo = {
   "slack.state.reinstall": "재설치 필요",
   "slack.eventsPending.title": "Slack이 Request URL을 아직 확인하지 않았습니다",
   "slack.eventsPending.body":
-    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 그래도 남으면 앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
+    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 'Slack 앱에 넣을 주소'의 '다시 확인'으로 URL을 다시 보내세요. 그래도 남으면 앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
   "slack.eventsPending.open": "Event Subscriptions 열기",
   "slack.channelsLocked.title":
     "Request URL 확인 전에는 채널을 고를 수 없습니다",
   "slack.channelsLocked.body":
-    "Slack이 이 앱의 Request URL을 확인해야 채널에서 이벤트가 옵니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 확인되면 바로 풀립니다.",
+    "Slack이 이 앱의 Request URL을 확인해야 채널에서 이벤트가 옵니다. 'Slack 앱에 넣을 주소'의 '다시 확인'으로 URL을 다시 보내세요. 확인되면 바로 풀립니다.",
   "slack.channelsLocked.action": "다시 확인으로 이동",
   "slack.eventsUrl.title": "이벤트 Request URL",
   "slack.eventsUrl.hint":
@@ -93,7 +93,7 @@ export const slackKo = {
     "Request URL을 Slack에 다시 보냈습니다. Slack이 확인하면 상태가 바뀝니다.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
-    "활성 릴리스의 프로필({profile})은 세션마다 저장소가 필요한데 릴리스에 쓸 수 있는 저장소가 없습니다(고르지 않았거나 카탈로그에서 빠졌습니다). Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. 상세 설정에서 저장소를 쓸 수 있는 프로필로 저장하면 새 릴리스가 만들어집니다.",
+    "활성 릴리스(프로필 {profile})로는 Slack 세션이 시작되지 못합니다. 프로필이 저장소를 요구하는데 릴리스에 고른 저장소가 없거나, 릴리스의 저장소가 카탈로그에서 빠졌거나 프로필·워크스페이스 상한이 허용하지 않거나, 에이전트의 GitHub 설정을 읽을 수 없기 때문입니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. GitHub 설정을 확인하고, 상세 설정에서 저장소를 쓸 수 있는 프로필로 저장하면 새 릴리스가 만들어집니다.",
   "slack.issuerChanged.title": "다른 Slack 사용자가 만든 앱입니다",
   "slack.issuerChanged.body":
     "앱을 만든 Slack 사용자({previous})와 지금 App Configuration Token의 사용자({user})가 다릅니다. 이 토큰으로는 앱을 설치하거나 고치지 못할 수 있습니다. 설치가 실패하면 {previous}의 토큰을 다시 등록하거나 {user}를 앱 공동 작업자로 추가하세요. 앱을 Slack에서 이미 지웠다면 위험 구역에서 앱을 삭제하고 다시 설치하세요.",
@@ -149,6 +149,22 @@ export const slackKo = {
   "slack.noConnectedChannels": "연결된 채널이 없습니다",
   "slack.addChannelHint": "채널 추가에서 이 에이전트가 반응할 채널을 고르세요.",
   "slack.addChannel": "채널 추가",
+  "slack.cardHint":
+    "이 에이전트가 Slack에서 쓰는 앱, 주소, 채널입니다. 앱을 만드는 토큰은 워크스페이스의 연동 > Slack에 등록합니다.",
+  "slack.tokenHint":
+    "이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 > Slack에서 합니다.",
+  "slack.tokenManage": "연동 > Slack에서 관리",
+  "slack.addressesHint":
+    "이 에이전트의 앱이 쓰는 이벤트 요청 URL입니다. 콘솔이 앱을 만들 때 자동으로 넣고, Slack이 이 주소를 확인해야 채널 글을 받습니다.",
+  "slack.addressesNone": "앱을 만들면 이 에이전트의 주소가 정해집니다.",
+  "slack.appsHint":
+    "이 콘솔이 이 에이전트를 위해 만든 Slack 앱입니다. 설치와 다시 설치는 여기서, 연결 해제와 삭제는 위험 구역에서 합니다.",
+  "slack.appsEmpty": "이 에이전트의 Slack 앱이 아직 없습니다.",
+  "slack.appName": "{name} 앱",
+  "slack.appMenu": "Slack 앱 메뉴",
+  "slack.basicHint": "이 에이전트가 DM과 멘션에 반응하는 방식입니다.",
+  "slack.channelColumn": "채널",
+  "slack.useColumn": "사용",
   "slack.basic": "기본",
   "slack.advanced": "고급",
   "slack.connection": "연결",

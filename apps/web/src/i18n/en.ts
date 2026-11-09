@@ -66,12 +66,12 @@ export const slackEn = {
   "slack.state.reinstall": "Reinstall required",
   "slack.eventsPending.title": "Slack has not checked the Request URL yet",
   "slack.eventsPending.body":
-    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Advanced. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
+    "Slack sends no invites, mentions or DMs until it has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. If this notice stays, press Verify (or Retry) for the Request URL on the app's Event Subscriptions page. It goes away once Slack's check arrives.",
   "slack.eventsPending.open": "Open Event Subscriptions",
   "slack.channelsLocked.title":
     "Channels can't be picked until Slack checks the Request URL",
   "slack.channelsLocked.body":
-    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Advanced. This unlocks as soon as Slack checks it.",
+    "Channels send no events until Slack has checked this app's Request URL. Send the URL again with Recheck under Addresses for a Slack app. This unlocks as soon as Slack checks it.",
   "slack.channelsLocked.action": "Go to Recheck",
   "slack.eventsUrl.title": "Events Request URL",
   "slack.eventsUrl.hint":
@@ -86,7 +86,7 @@ export const slackEn = {
     "The Request URL was sent to Slack again. The status changes once Slack checks it.",
   "slack.repositoryRequired.title": "Sessions can't start from Slack",
   "slack.repositoryRequired.body":
-    "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. In Settings, choose a profile that can use a repository and save, and a new release is made.",
+    "Slack sessions can't start from the active release (profile {profile}). The profile needs a repository and the release has none chosen, the release's repository left the catalog or is not allowed by the profile or workspace ceiling, or the agent's GitHub settings can't be read. Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Check the GitHub settings, and in Settings choose a profile that can use a repository and save, and a new release is made.",
   "slack.issuerChanged.title": "Made by another Slack user",
   "slack.issuerChanged.body":
     "Slack user {previous} made this app, but the App Configuration Token now belongs to {user}. That token may not be able to install or change the app. If installing fails, register {previous}'s token again or add {user} as a collaborator on the app. If the app was already deleted in Slack, delete it under Danger zone and install again.",
@@ -143,6 +143,22 @@ export const slackEn = {
   "slack.addChannelHint":
     "Choose Add channel to select where this agent responds.",
   "slack.addChannel": "Add channel",
+  "slack.cardHint":
+    "The app, address and channels this agent uses in Slack. The token that makes the app is registered in the workspace's Integrations > Slack.",
+  "slack.tokenHint":
+    "The workspace token this agent's Slack app is made with. Register or replace it in Integrations > Slack.",
+  "slack.tokenManage": "Manage in Integrations > Slack",
+  "slack.addressesHint":
+    "The Events Request URL this agent's app uses. The console puts it in the app it makes; Slack must check it before channel messages reach the agent.",
+  "slack.addressesNone": "This agent gets its address once its app is made.",
+  "slack.appsHint":
+    "The Slack app this console made for this agent. Install and reinstall it here; disconnect and delete it in the danger zone.",
+  "slack.appsEmpty": "This agent has no Slack app yet.",
+  "slack.appName": "{name} app",
+  "slack.appMenu": "Slack app menu",
+  "slack.basicHint": "How this agent answers direct messages and mentions.",
+  "slack.channelColumn": "Channel",
+  "slack.useColumn": "In use",
   "slack.basic": "Basic",
   "slack.advanced": "Advanced",
   "slack.connection": "Connection",

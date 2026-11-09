@@ -1,5 +1,8 @@
 import { tmpdir } from "node:os";
-import { parsePermissionRules } from "@werft-ai/contracts";
+import {
+  PERMISSION_RULES_MAX,
+  parsePermissionRules,
+} from "@werft-ai/contracts";
 import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
 import {
   assertGitEnvironment,
@@ -65,21 +68,31 @@ export type RuntimePolicy = {
  * applied, so a run with one does not start. `mcp__` names are the
  * platform's own path, never the engine's.
  */
-function assertEngineRules(rules: readonly string[] | undefined): void {
+function assertEngineRules(
+  rules: readonly string[] | undefined,
+  kind: "Deny" | "Ask" = "Deny",
+  merged = false,
+): void {
   if (rules === undefined) return;
   const catalog = pinnedClaudeToolCatalog();
   if (catalog === undefined) {
     throw new Error("No tool catalog for the pinned engine to check rules by");
   }
-  const parsed = parsePermissionRules(catalog, rules);
-  if ("refusal" in parsed) {
-    throw new Error(`Deny rule refused: ${parsed.refusal.message}`);
-  }
-  const mcp = parsed.rules.find((rule) => rule.kind === "mcp");
-  if (mcp !== undefined) {
-    throw new Error(
-      `Deny rule ${mcp.rule} names an MCP tool, which the platform enforces and the engine is not given`,
-    );
+  // The checker caps one list. `engine_settings` holds the workspace's list
+  // and the agent's merged, so it is checked a list's worth at a time;
+  // `disallowed_tools` is one list whose contract cap is the same figure.
+  const size = merged ? PERMISSION_RULES_MAX : Math.max(rules.length, 1);
+  for (let i = 0; i < rules.length; i += size) {
+    const parsed = parsePermissionRules(catalog, rules.slice(i, i + size));
+    if ("refusal" in parsed) {
+      throw new Error(`${kind} rule refused: ${parsed.refusal.message}`);
+    }
+    const mcp = parsed.rules.find((rule) => rule.kind === "mcp");
+    if (mcp !== undefined) {
+      throw new Error(
+        `${kind} rule ${mcp.rule} names an MCP tool, which the platform enforces and the engine is not given`,
+      );
+    }
   }
 }
 
@@ -102,6 +115,13 @@ export function validateRuntimeConfig(
   // reason instead of a checkpoint that quietly never commits.
   describeComponents(config);
   assertEngineRules(config.disallowedTools);
+  // A deny the engine would drop is a policy not applied, and so is an ask:
+  // `Write(path)` matches nothing and the baseline's Edit allow then runs the
+  // write unasked. An allow is not checked here: no baseline rule depends on
+  // it, and what an allow may grant is the platform's save-time check to
+  // make, not a claim-time guarantee.
+  assertEngineRules(config.engineSettings?.permissions?.deny, "Deny", true);
+  assertEngineRules(config.engineSettings?.permissions?.ask, "Ask", true);
   if (
     config.repositoryClaudeMd !== undefined &&
     (config.settingSources ?? ["project"]).length > 0
