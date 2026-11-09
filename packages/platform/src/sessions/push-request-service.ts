@@ -429,24 +429,13 @@ export function createPushRequestService(deps: {
         return refuse(judged.refusal, judged.fields);
       }
       const { session, repositoryId, entry, attachedPush, repository } = judged;
-      if (body.checkpoint_revision === undefined) {
-        // Nothing here says the session's work after its latest saved
-        // revision was saved too, so the caller names the revision it means.
-        const latest = await source.readPushSource(sessionId);
-        if (latest.status === "none")
-          return refuse("no_checkpoint", repository);
-        if (latest.status === "unavailable") {
-          return refuse("checkpoint_unavailable", repository);
-        }
-        return refuse("checkpoint_revision_required", {
-          ...repository,
-          checkpoint_revision: latest.revision,
-        });
-      }
-      const pinned = await source.readPushSourceAt(
-        sessionId,
-        body.checkpoint_revision,
-      );
+      // Omitted, the latest committed revision, as before the field existed.
+      // Named, `store.create` refuses it as `checkpoint_moved` once a newer
+      // one has been saved, so a caller can pin the revision it looked at.
+      const pinned =
+        body.checkpoint_revision === undefined
+          ? await source.readPushSource(sessionId)
+          : await source.readPushSourceAt(sessionId, body.checkpoint_revision);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
         return refuse("checkpoint_unavailable", repository);

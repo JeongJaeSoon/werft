@@ -282,25 +282,9 @@ async function errorOf(response: Response | Promise<Response>) {
 }
 
 describe("push request routes", () => {
-  test("POST without checkpoint_revision is a 409 that names the latest committed one", async () => {
+  test("POST pins the latest checkpoint and the platform's branch", async () => {
     const target = app();
     const response = await post(target, "", {});
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      error: {
-        code: "PUSH_SOURCE_MISSING",
-        details: {
-          refusal: "checkpoint_revision_required",
-          checkpoint_revision: 2,
-        },
-      },
-    });
-    expect(target.seen.created).toEqual([]);
-  });
-
-  test("POST pins the named checkpoint revision and the platform's branch", async () => {
-    const target = app();
-    const response = await post(target, "", { checkpoint_revision: 2 });
     expect(response.status).toBe(201);
     expect(pushRequestSchema.parse(await response.json()).id).toBe(PUSH);
     expect(target.seen.created).toEqual([
@@ -327,10 +311,8 @@ describe("push request routes", () => {
 
   test("POST with a branch pins agent/<session-id>-<branch>; a bad branch is a 400", async () => {
     const target = app();
-    const send = (body: Record<string, unknown>, key: string) =>
-      post(target, "", { checkpoint_revision: 2, ...body }, undefined, {
-        "Idempotency-Key": key,
-      });
+    const send = (body: unknown, key: string) =>
+      post(target, "", body, undefined, { "Idempotency-Key": key });
     expect((await send({ branch: "docs-fix" }, "branch-1")).status).toBe(201);
     expect(target.seen.created.at(-1)?.targetBranch).toBe(
       `agent/${SESSION}-docs-fix`,
@@ -424,20 +406,13 @@ describe("push request routes", () => {
         }),
       },
     });
-    expect((await post(target, "", { checkpoint_revision: 2 })).status).toBe(
-      201,
-    );
+    expect((await post(target, "", {})).status).toBe(201);
     expect(target.seen.created).toMatchObject([{ policyApproval: approval }]);
   });
 
   test("an agent key's request and its receipt name the agent, and a refusal's too", async () => {
     const target = app();
-    const response = await post(
-      target,
-      "",
-      { checkpoint_revision: 2 },
-      AGENT_KEY,
-    );
+    const response = await post(target, "", {}, AGENT_KEY);
     expect(response.status).toBe(201);
     const actor = {
       principal: { kind: "api_key" as const, id: `key-${AGENT_KEY}` },
@@ -446,7 +421,7 @@ describe("push request routes", () => {
     };
     expect(target.seen.created.map((input) => input.actor)).toEqual([actor]);
     const refused = app({ source: { status: "none" } });
-    await post(refused, "", { checkpoint_revision: 2 }, AGENT_KEY);
+    await post(refused, "", {}, AGENT_KEY);
     expect(refused.seen.refusals.map((input) => input.actor)).toEqual([actor]);
   });
 
@@ -488,9 +463,7 @@ describe("push request routes", () => {
     ];
     for (const [options, code, refusal] of cases) {
       const target = app(options);
-      expect(
-        await errorOf(post(target, "", { checkpoint_revision: 2 })),
-      ).toEqual({
+      expect(await errorOf(post(target, "", {}))).toEqual({
         status: 409,
         code: code as never,
         details: { refusal, receipt_id: RECEIPT },
@@ -518,9 +491,7 @@ describe("push request routes", () => {
         }),
       },
     });
-    expect(
-      await errorOf(post(refusedOpen, "", { checkpoint_revision: 2 })),
-    ).toEqual({
+    expect(await errorOf(post(refusedOpen, "", {}))).toEqual({
       status: 409,
       code: "PUSH_REQUEST_OPEN",
       details: { refusal: "request_open", receipt_id: RECEIPT },
@@ -534,18 +505,14 @@ describe("push request routes", () => {
         }),
       },
     });
-    expect(
-      await errorOf(post(moved, "", { checkpoint_revision: 2 })),
-    ).toMatchObject({
+    expect(await errorOf(post(moved, "", {}))).toMatchObject({
       status: 409,
       code: "CHECKPOINT_MOVED",
     });
     const conflict = app({
       store: { create: async () => ({ outcome: "conflict" }) },
     });
-    expect(
-      await errorOf(post(conflict, "", { checkpoint_revision: 2 })),
-    ).toMatchObject({
+    expect(await errorOf(post(conflict, "", {}))).toMatchObject({
       status: 409,
       code: "IDEMPOTENCY_CONFLICT",
     });
@@ -553,9 +520,7 @@ describe("push request routes", () => {
 
   test("POST answers 404 for another owner's session, with no receipt", async () => {
     const target = app({ store: { findSession: async () => null } });
-    expect(
-      await errorOf(post(target, "", { checkpoint_revision: 2 })),
-    ).toMatchObject({
+    expect(await errorOf(post(target, "", {}))).toMatchObject({
       status: 404,
       code: "NOT_FOUND",
     });
@@ -569,7 +534,7 @@ describe("push request routes", () => {
       },
       source: { status: "unavailable", reason: "object store down" },
     });
-    const response = await post(target, "", { checkpoint_revision: 2 });
+    const response = await post(target, "", {});
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual(PINNED);
     expect(target.seen.refusals).toEqual([]);
@@ -854,7 +819,7 @@ describe("push receipts name the person behind the credential", () => {
           },
           body: JSON.stringify(body),
         });
-      expect((await send("", { checkpoint_revision: 2 })).status).toBe(201);
+      expect((await send("", {})).status).toBe(201);
       expect(
         (await send(`/${PUSH}/approve`, { git_commit: COMMIT })).status,
       ).toBe(200);
