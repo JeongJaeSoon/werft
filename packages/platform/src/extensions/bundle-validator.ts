@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import {
+  type BundleInputFile,
+  type BundleInputKind,
+  bundleDigest,
+  comparePaths,
+} from "@werft-ai/runtime-core";
 
 /**
  * Registration-time validator for skill-only extension bundles (94S-866).
@@ -10,21 +16,7 @@ import { createHash } from "node:crypto";
  * the only thing that is hashed, stored and handed to the engine.
  */
 
-export type BundleInputKind =
-  | "file"
-  | "directory"
-  | "symlink"
-  | "hardlink"
-  | "device";
-
-export type BundleInputFile = {
-  /** Slash-separated path relative to the bundle root, as found in the archive. */
-  path: string;
-  kind: BundleInputKind;
-  /** POSIX permission bits; only the execute bit is read. */
-  mode: number;
-  bytes: Uint8Array;
-};
+export type { BundleInputFile, BundleInputKind };
 
 export type BundleLimits = {
   maxFiles: number;
@@ -354,15 +346,7 @@ export function validateExtensionBundle(
   };
 }
 
-/** sha256 of one `<mode> <path> <file sha256>` line per file, in path order. */
-export function bundleDigest(
-  files: readonly Pick<CanonicalBundleFile, "path" | "mode" | "sha256">[],
-): string {
-  const lines = [...files]
-    .sort((a, b) => comparePaths(a.path, b.path))
-    .map((file) => `${file.mode.toString(8)} ${file.path} ${file.sha256}\n`);
-  return createHash("sha256").update(lines.join("")).digest("hex");
-}
+export { bundleDigest };
 
 const ALLOWED_SHAPES =
   "Only .claude-plugin/plugin.json and skills/<name>/... are accepted.";
@@ -446,10 +430,6 @@ function canonicalFile(
     bytes: owned,
     sha256: createHash("sha256").update(owned).digest("hex"),
   };
-}
-
-function comparePaths(a: string, b: string): number {
-  return Buffer.compare(Buffer.from(a), Buffer.from(b));
 }
 
 type Report = (path: string, code: BundleIssueCode, message: string) => void;
