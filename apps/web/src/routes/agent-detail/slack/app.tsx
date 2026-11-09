@@ -425,7 +425,7 @@ export function SlackDangerSection({ slack }: { readonly slack: SlackApp }) {
         id={SECTION.danger}
         tabIndex={-1}
         className={SECTION_TARGET}
-        title={t("slack.danger")}
+        title={t("workspace.danger")}
         titleAs="h3"
         titleId={`${SECTION.danger}-title`}
       >

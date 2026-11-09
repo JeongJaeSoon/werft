@@ -34,7 +34,7 @@ export const SECTION_LABEL = {
   token: "workspace.tokenSection",
   addresses: "workspace.addressesTitle",
   app: "workspace.slackApps",
-  danger: "slack.danger",
+  danger: "workspace.danger",
 } as const satisfies Record<string, MessageKey>;
 export type SectionKey = keyof typeof SECTION_LABEL;
 export const SLACK_WARNING_KEY = {
