@@ -669,7 +669,13 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       undefined,
       createLogger({
         level: "info",
-        sinks: [{ write: (r) => records.push(r) }],
+        sinks: [
+          {
+            write: (record) => {
+              records.push(record);
+            },
+          },
+        ],
       }),
     );
     await deliver(fixture, mention("100.000100"));

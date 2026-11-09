@@ -51,6 +51,7 @@ import {
   attempts,
   checkpoints,
   events,
+  executions,
   pendingRequests,
   permissionGrants,
   pushIntents,
@@ -2114,20 +2115,33 @@ integration("parked pending requests on PostgreSQL", () => {
     return { sessionId, worker, carriedId: carried.id };
   }
 
-  const giveUpLaunch = (worker: Worker, sessionId: string) =>
-    db.transaction((tx) =>
+  /**
+   * Reserves the launch that would carry the turn on, as the scheduler does,
+   * and gives that launch up: the execution the quarantine marks is the one
+   * reserved for this session now, not the worker already gone.
+   */
+  async function giveUpLaunch(sessionId: string) {
+    const launch = await launchSession(db, { sessionId });
+    await db.transaction((tx) =>
       quarantineLaunch(
         tx,
-        { executionId: worker.executionId, generation: 0 },
+        { executionId: launch.executionId, generation: launch.generation },
         sessionId,
         launchFailedCause("no worker could start"),
       ),
     );
+    const [execution] = await db
+      .select({ desiredState: executions.desiredState })
+      .from(executions)
+      .where(eq(executions.id, launch.executionId));
+    // The given-up launch is marked for the pass to kill.
+    expect(execution?.desiredState).toBe("terminated");
+  }
 
   test("a launch given up on fails the carrying turn, and the push ends with a reason, as its group is carried on and cannot reopen", async () => {
-    const { sessionId, worker, carriedId } = await carriedPush();
+    const { sessionId, carriedId } = await carriedPush();
     expect((await sessionRow(sessionId)).admissionState).toBe("active");
-    await giveUpLaunch(worker, sessionId);
+    await giveUpLaunch(sessionId);
     const [carried] = await db
       .select({ status: turns.status, reason: turns.terminalReason })
       .from(turns)
@@ -2142,9 +2156,9 @@ integration("parked pending requests on PostgreSQL", () => {
   });
 
   test("a resume whose launch is given up keeps the carrying turn queued, and the push waits with it", async () => {
-    const { sessionId, worker, carriedId } = await carriedPush(true);
+    const { sessionId, carriedId } = await carriedPush(true);
     expect((await sessionRow(sessionId)).admissionState).toBe("resuming");
-    await giveUpLaunch(worker, sessionId);
+    await giveUpLaunch(sessionId);
     // The resume failed for an operator to decide; the input it would run
     // is kept for whatever that decision resumes.
     expect((await sessionRow(sessionId)).admissionState).not.toBe("resuming");
