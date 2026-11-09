@@ -2116,7 +2116,7 @@ describe("Slack management", () => {
     ).toBeDefined();
     expect(document.body.textContent).not.toContain("비밀 저장소");
   });
-  test("names Slack's refusal and the unset events address in Japanese", async () => {
+  test("names the unset events address in Japanese", async () => {
     renderAt(
       DETAIL,
       {
