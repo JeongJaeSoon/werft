@@ -29,7 +29,15 @@ describe("설정 사이드바의 에이전트 연결 그룹", () => {
     expect(
       items.getByRole("link", { name: "MCP 서버" }).getAttribute("href"),
     ).toBe(MCP);
-    expect(items.getAllByRole("link").length).toBe(2);
+    expect(
+      items.getAllByRole("link").map((link) => link.getAttribute("href")),
+    ).toEqual([MODEL, MCP]);
+    expect(
+      (await sidebar())
+        .getAllByRole("group")
+        .map((g) => g.getAttribute("aria-labelledby"))
+        .map((id) => (id ? document.getElementById(id)?.textContent : null)),
+    ).toEqual(["워크스페이스", GROUP, "내 설정"]);
   });
 
   test("워크스페이스 그룹에는 두 항목이 없고 옛 주소를 가리키는 링크도 없다", async () => {
