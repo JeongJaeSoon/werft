@@ -47,7 +47,9 @@ export function attachedRepositoriesOf(
   return [...new Set(ids)]
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .map((id) => {
-      const listed = repositories[id];
+      const listed = Object.hasOwn(repositories, id)
+        ? repositories[id]
+        : undefined;
       return {
         id,
         full_name: listed ? (pathNameOf(listed.url) ?? id) : null,

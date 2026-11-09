@@ -2925,6 +2925,69 @@ describe("세션 상세 레이아웃", () => {
       },
     );
 
+    test.each([
+      ["failed", "push 요청을 만들지 못함"],
+      ["deferred", "작업이 끝나기를 기다리는 중"],
+    ])(
+      "예전 push가 끝난 뒤의 더 새로운 %s intent는 'push 완료'에 가려지지 않는다",
+      async (status, label) => {
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...attachedOnly([pushRequest({})]),
+          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+            json(200, {
+              items: [pushRequest({})],
+              intents: [
+                {
+                  id: "019a0000-0000-7000-8000-0000000000c2",
+                  session_id: SESSION_ID,
+                  repository_id: "web",
+                  target_branch: "feature/y",
+                  status,
+                  refusal_code: null,
+                  push_request_id: null,
+                  created_at: "2026-10-11T09:00:00.000Z",
+                },
+              ],
+            }),
+        });
+        await screen.findByRole("button", { name: "일시 정지" });
+        await setupInfo();
+        const tab = screen.getByRole("tabpanel", { name: "정보" });
+        expect(await within(tab).findByText(label)).toBeTruthy();
+        expect(tab.textContent).toContain("push 브랜치 feature/y");
+        expect(within(tab).queryByText("push 완료")).toBeNull();
+      },
+    );
+
+    test("push 요청에 이어진 intent는 요청이 대신 보이고, 더 오래된 intent는 요청을 가리지 않는다", async () => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...attachedOnly([
+          pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" }),
+        ]),
+        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+          json(200, {
+            items: [pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" })],
+            intents: [
+              {
+                id: "019a0000-0000-7000-8000-0000000000c3",
+                session_id: SESSION_ID,
+                repository_id: "web",
+                target_branch: "feature/x",
+                status: "failed",
+                refusal_code: null,
+                push_request_id: null,
+                created_at: AT,
+              },
+            ],
+          }),
+      });
+      await screen.findByRole("button", { name: "일시 정지" });
+      await setupInfo();
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      expect(await within(tab).findByText("push 완료")).toBeTruthy();
+      expect(within(tab).queryByText("push 요청을 만들지 못함")).toBeNull();
+    });
+
     test("push 요청을 읽지 못하면 이름은 두고 실패를 알리며 다시 불러올 수 있다", async () => {
       const user = await setupUser();
       let fail = true;

@@ -110,6 +110,15 @@ describe("attachedRepositoriesOf", () => {
     ]);
   });
 
+  test("an id that is an Object.prototype key is not read as a catalog entry", () => {
+    expect(
+      attachedRepositoriesOf(["constructor", "toString"], catalog),
+    ).toEqual([
+      { id: "constructor", full_name: null },
+      { id: "toString", full_name: null },
+    ]);
+  });
+
   test("lists an id once", () => {
     expect(attachedRepositoriesOf(["web", "web"], catalog)).toEqual([
       { id: "web", full_name: "acme/web" },

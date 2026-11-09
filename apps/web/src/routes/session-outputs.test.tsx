@@ -410,6 +410,35 @@ describe("the session's GitHub pull requests", () => {
     expect(screen.queryAllByText("아직 성과물이 없습니다.")).toHaveLength(0);
   });
 
+  test("a session with only attached repositories still lists its pull requests and counts them on the tab", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...pulled(pulls),
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          repository: null,
+          repository_id: null,
+          attached_repository_ids: ["demo"],
+          attached_repositories: [{ id: "demo", full_name: "acme/demo" }],
+        }),
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /^성과물/ }).textContent).toBe(
+        "성과물6",
+      ),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: /^근거/ });
+    expect(
+      within(area)
+        .getAllByRole("listitem")
+        .map((row) => row.querySelector("a")?.textContent),
+    ).toEqual(["acme/demo#1", "acme/demo#2", "acme/demo#3"]);
+    expect(api.calls.some((call) => call.path.endsWith("/outcomes"))).toBe(
+      true,
+    );
+  });
+
   test("a review the session submitted shows its pull request, its event and who opened that pull request", async () => {
     const review = (
       id: string,

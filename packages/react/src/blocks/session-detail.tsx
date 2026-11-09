@@ -728,10 +728,14 @@ function latestRequests(items: readonly PushRequest[]) {
   return latest;
 }
 
-/** The newest intent of each repository, for one that has no request yet. */
+/**
+ * The newest intent of each repository that never became a request. One that
+ * did is already shown through its request.
+ */
 function latestIntents(items: readonly PushIntent[]) {
   const latest = new Map<string, PushIntent>();
   for (const item of items) {
+    if (item.push_request_id !== null) continue;
     const seen = latest.get(item.repository_id);
     if (!seen || item.created_at > seen.created_at) {
       latest.set(item.repository_id, item);
@@ -784,6 +788,16 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
             const intent = repository.id
               ? intents.get(repository.id)
               : undefined;
+            // A failed or deferred ask made after the last request is the
+            // current state; the older request must not hide it.
+            const newerIntent =
+              intent &&
+              intent.status !== "requested" &&
+              (!request ||
+                Date.parse(intent.created_at) >
+                  Date.parse(request.requested_at))
+                ? intent
+                : null;
             const prLink =
               request?.pr_state === "opened" &&
               request.pr_number !== null &&
@@ -807,7 +821,22 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
                       <code>{repository.branch}</code>
                     </span>
                   ) : null}
-                  {request ? (
+                  {newerIntent ? (
+                    // Asked for in a turn, no request made (yet).
+                    <>
+                      <span>
+                        {t("session.repositories.pushBranch")}{" "}
+                        <code>{newerIntent.target_branch}</code>
+                      </span>
+                      <Badge
+                        variant={
+                          newerIntent.status === "failed" ? "red" : "gray"
+                        }
+                      >
+                        {t(`session.repositories.intent.${newerIntent.status}`)}
+                      </Badge>
+                    </>
+                  ) : request ? (
                     <>
                       <span>
                         {t("session.repositories.pushBranch")}{" "}
@@ -836,13 +865,6 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
                         </Badge>
                       ) : null}
                     </>
-                  ) : intent && intent.status !== "requested" ? (
-                    // Asked for in a turn, no request made (yet).
-                    <Badge
-                      variant={intent.status === "failed" ? "red" : "gray"}
-                    >
-                      {t(`session.repositories.intent.${intent.status}`)}
-                    </Badge>
                   ) : work.data ? (
                     <span>{t("session.repositories.noPush")}</span>
                   ) : null}
