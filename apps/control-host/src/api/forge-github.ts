@@ -424,6 +424,8 @@ export function createGitHubConnection(
               title: data.title,
               mergeCommitSha: data.merged_at ? data.merge_commit_sha : null,
               mergeableState: data.mergeable_state ?? null,
+              mergeable: data.mergeable ?? null,
+              draft: data.draft ?? null,
               additions: countOf(data.additions),
               deletions: countOf(data.deletions),
               changedFiles: countOf(data.changed_files),

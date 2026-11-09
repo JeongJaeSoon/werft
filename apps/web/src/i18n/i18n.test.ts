@@ -123,6 +123,28 @@ describe("i18n", () => {
     }
   });
 
+  test("the agent connections group and the guidance that names it read the same in each locale", () => {
+    // A key-set comparison passes when every locale drops or misspells a
+    // value together, so the words themselves are pinned.
+    const group = {
+      ko: "에이전트 연결",
+      en: "Agent connections",
+      ja: "エージェント接続",
+    };
+    const guidance = {
+      ko: "설정 › 에이전트 연결 › 모델 연결",
+      en: "Settings › Agent connections › Model connections",
+      ja: "設定 › エージェント接続 › モデル接続",
+    };
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      expect(catalog["shell.group.agentConnections"]).toBe(group[locale]);
+      expect(catalog["profiles.ceiling.connectionHint"]).toContain(
+        guidance[locale],
+      );
+    }
+  });
+
   test("no message sends people to the Release tab to make or turn on a release", () => {
     // A save makes the release now; the tab only lists them and rolls back.
     const pointsAtTab: Record<(typeof LOCALES)[number], RegExp> = {
@@ -400,4 +422,22 @@ describe("profile naming", () => {
     );
     expect(hits.map(([key]) => key)).toEqual([]);
   });
+
+  // Merging is set per workspace, not on the agent; the hint must say where
+  // and must not claim there is no merge at all.
+  test.each([
+    ["ko", agentGitHubKo, /연동 › GitHub/, /머지는 이 에이전트 설정에 없고/],
+    ["en", agentGitHubEn, /Settings › Integrations › GitHub/, /allows it/],
+    ["ja", agentGitHubJa, /連携 › GitHub/, /マージを許可したときだけ/],
+  ] as const)(
+    "%s agent GitHub hint points merging at the workspace setting",
+    (_locale, table, where, allowed) => {
+      const hint = table["agentGitHub.permissionsHint"];
+      expect(hint).toMatch(where);
+      expect(hint).toMatch(allowed);
+      expect(hint).not.toMatch(
+        /merge 권한은 없습니다|no merge permission|merge の権限はありません/i,
+      );
+    },
+  );
 });

@@ -9,7 +9,7 @@ not run as-is is ```sh or ```text.
 
 저장소를 clone한 머신에서 `scripts/local.sh`로 스택을 띄우고, curl만으로 세션의 전체 경로를 한 번 돈다: 생성 → 이벤트 관찰 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume.
 
-로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실제 Messages API를 부르는 스택을 띄운다. key는 콘솔의 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가에서 넣는 것이 기본이고, 셸의 `ANTHROPIC_API_KEY`는 대안이다. key 없이 뜬 스택은 fake로 바뀌지 않고 모델 연결이 없는 채로 남는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
+로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실제 Messages API를 부르는 스택을 띄운다. key는 콘솔의 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 넣는 것이 기본이고, 셸의 `ANTHROPIC_API_KEY`는 대안이다. key 없이 뜬 스택은 fake로 바뀌지 않고 모델 연결이 없는 채로 남는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
@@ -396,7 +396,7 @@ Git 서버의 compose 서비스 이름이 `fake-git`으로, 저장소 URL이 `ht
 | 증상 | 원인과 조치 |
 |---|---|
 | `local.sh up`이 `Docker Engine … is too old`로 끝나거나, scheduler가 재시작을 반복하고 로그에 `GatewayModeUnsupportedError`가 있다 | Docker Engine이 28 미만이다. 엔진을 올린다 |
-| `local.sh up`이 `no ANTHROPIC_API_KEY … the stack starts with no model connection`을 출력하고 세션이 `connection_missing`으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. 이 문서대로 모델 계정 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가에서 key를 넣는다 |
+| `local.sh up`이 `no ANTHROPIC_API_KEY … the stack starts with no model connection`을 출력하고 세션이 `connection_missing`으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. 이 문서대로 모델 계정 없이 하려면 `--fake-model`을 붙이고, 실제 Claude로 하려면 [real-claude.md](real-claude.md#key-입력과-폐기)대로 설정 > 에이전트 연결 > 모델 연결 > 연결 추가에서 key를 넣는다 |
 | `local.sh up`이 `127.0.0.1 port(s) … already in use`로 끝나거나 `bind: address already in use`가 나온다 | 0장의 포트 중 하나를 다른 프로세스나 다른 스택이 쓰고 있다. 0장의 `lsof` 루프로 찾는다 |
 | API가 기동하지 않고 로그에 `Checkpoint bucket … holds no object version, but the database still has checkpoints that restores read`가 있다 | 이전 LocalStack 설치의 S3가 유실됐거나, 새 S3 volume으로 전환하면서 postgres의 checkpoint 참조만 남았다. 계정과 key를 남기려면 `scripts/local.sh forget-lost-checkpoints` 뒤 `up`([7장](#재부팅이나-docker-재시작-뒤), 잃은 checkpoint의 세션은 `recovery_required`), 모두 지우고 새로 띄우려면 `scripts/local.sh reset --fake-model`(실제 Claude 스택이면 옵션 없이, 세션도 지워진다) |
 | scheduler가 재시작을 반복하고 로그에 `SCHEDULER_PASS_TIMEOUT_SEC must be greater than EXECUTION_DOCKER_STOP_TIMEOUT_SEC + EXECUTION_DOCKER_REQUEST_TIMEOUT_SEC` | 예전에 만든 `.env`에 옛 기본값(`SCHEDULER_PASS_TIMEOUT_SEC=120`)이 남아 있다. pass는 worker 정지 하나를 끝까지 기다릴 수 있어서 timeout이 그보다 길어야 한다. 두 줄을 지우거나 `.env.example`처럼 `SCHEDULER_PASS_TIMEOUT_SEC=180`·`SCHEDULER_HEALTH_STALE_SEC=200`으로 고친다. 새로 clone한 머신에는 `.env`가 없다 |

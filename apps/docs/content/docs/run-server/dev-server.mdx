@@ -46,7 +46,7 @@ scripts/local.sh up --fake-model
 {"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
 ```
 
-`--fake-model`을 붙이면 모델 호출을 compose 안의 fake Messages API가 받는다. worker 안에서는 진짜 Claude Code가 돌고, fake는 메시지에 적힌 대본대로 답한다([첫 세션 만들기](/getting-started/quickstart)). 옵션 없이 `scripts/local.sh up`으로 띄우면 실제 Claude를 부르고 비용이 든다. 모델 key는 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**에서 넣는 것이 기본이고, 셸의 `ANTHROPIC_API_KEY`로 주는 것은 대안이다. key 없이 띄우면 fake로 바뀌지 않고 모델 연결이 없는 상태로 뜬다.
+`--fake-model`을 붙이면 모델 호출을 compose 안의 fake Messages API가 받는다. worker 안에서는 진짜 Claude Code가 돌고, fake는 메시지에 적힌 대본대로 답한다([첫 세션 만들기](/getting-started/quickstart)). 옵션 없이 `scripts/local.sh up`으로 띄우면 실제 Claude를 부르고 비용이 든다. 모델 key는 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**에서 넣는 것이 기본이고, 셸의 `ANTHROPIC_API_KEY`로 주는 것은 대안이다. key 없이 띄우면 fake로 바뀌지 않고 모델 연결이 없는 상태로 뜬다.
 
 ## 상태 보기
 
@@ -92,7 +92,7 @@ scripts/local.sh down
 | --- | --- |
 | `Docker Engine … is too old` | Docker Engine을 28 이상으로 올린다 |
 | `127.0.0.1 port(s) … already in use` | 위 `lsof` 루프로 그 포트를 쓰는 프로세스를 찾는다 |
-| `up`이 `no ANTHROPIC_API_KEY … no model connection`을 출력하고 세션이 연결 없음(`connection_missing`)으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**에서 key를 넣는다. 모델 계정 없이 하려면 `--fake-model`을 붙인다 |
+| `up`이 `no ANTHROPIC_API_KEY … no model connection`을 출력하고 세션이 연결 없음(`connection_missing`)으로 거절된다 | 옵션 없는 `up`은 실제 Claude를 쓰고 key 없이도 뜬다. **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**에서 key를 넣는다. 모델 계정 없이 하려면 `--fake-model`을 붙인다 |
 | Docker를 재시작한 뒤 API가 뜨지 않는다 | S3 volume과 암호화 키를 확인하고 로그를 읽는다. 이전 LocalStack의 객체 유실이면 전환·백업 안내의 복구 결정을 따른다 |
 | pull 뒤 `up`이 `has neither an image nor a build context specified`나 `port is already allocated`로 끝난다 | Git 서버의 서비스 이름이 `fake-git`으로 바뀌었다. 포트 override 파일의 키를 고치고 `scripts/local.sh down --keep-volumes` 뒤 다시 `up`한다. 옛 세션은 `CATALOG_MISMATCH`로 멈추므로 새 세션을 연다 |
 

@@ -303,6 +303,8 @@ function harness(
           title: "t",
           mergeCommitSha: open.mergedAt === null ? null : "c".repeat(40),
           mergeableState: mergeable,
+          mergeable: mergeable === null ? null : mergeable === "clean",
+          draft: mergeable === "draft",
           additions: null,
           deletions: null,
           changedFiles: null,
@@ -2452,6 +2454,53 @@ describe("merging the pull request", () => {
     unread.setMergeable(null);
     expect((await refusal(merge(unread))).details).toMatchObject({
       refusal: "merge_blocked",
+    });
+  });
+
+  test("merge_blocked carries GitHub's state and a stated reason, with no instruction", async () => {
+    const expected: Record<string, RegExp> = {
+      dirty: /merge conflicts/,
+      blocked: /required reviews, required status checks/,
+      behind: /behind the base branch/,
+      draft: /is a draft/,
+      unknown: /not computed/,
+      weird: /mergeable_state `weird`/,
+    };
+    for (const [state, reason] of Object.entries(expected)) {
+      const h = withPullRequest();
+      h.setMergeable(state);
+      const { details } = await refusal(merge(h));
+      expect(details).toMatchObject({
+        refusal: "merge_blocked",
+        mergeable_state: state,
+        mergeable: false,
+        draft: state === "draft",
+      });
+      const text = (details as { reason: string }).reason;
+      expect(text).toMatch(reason);
+      expect(text).not.toMatch(/\b(please|should|try|retry|must)\b/i);
+    }
+    const unread = withPullRequest();
+    unread.setMergeable(null);
+    expect((await refusal(merge(unread))).details).toMatchObject({
+      mergeable_state: null,
+      mergeable: null,
+      draft: false,
+      reason: "GitHub reported no mergeable_state.",
+    });
+  });
+
+  test("a stacked base and a 405 from the merge request state their cause", async () => {
+    const stacked = withPullRequest();
+    stacked.stackOn("develop");
+    expect((await refusal(merge(stacked))).details).toMatchObject({
+      reason: expect.stringMatching(/head of another open pull request/),
+    });
+    const denied = withPullRequest();
+    denied.failMerge(405);
+    expect((await refusal(merge(denied))).details).toMatchObject({
+      mergeable_state: "clean",
+      reason: expect.stringMatching(/status 405/),
     });
   });
 

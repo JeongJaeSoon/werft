@@ -968,7 +968,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
     expect(screen.getByRole("main").querySelector("form") === null).toBe(true);
     const link = screen.getByRole("link", { name: "모델 연결로 가기" });
     expect(
-      link.getAttribute("href") === "/settings/workspace/connections",
+      link.getAttribute("href") === "/settings/workspace/model-connections",
     ).toBe(true);
   });
 
@@ -994,7 +994,8 @@ describe("프로필 만들기 (설치 프로필)", () => {
     expect(
       Array.from(screen.getByRole("main").querySelectorAll("a")).some(
         (anchor) =>
-          anchor.getAttribute("href") === "/settings/workspace/connections",
+          anchor.getAttribute("href") ===
+          "/settings/workspace/model-connections",
       ),
     ).toBe(false);
   });

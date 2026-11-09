@@ -84,7 +84,13 @@ function setup(
     unbound?: string[];
     contacts?: AgentContact[];
     /** What the acceptance finds: an earlier acceptance, or an unbind. */
-    accept?: "replayed" | "credential_unbound" | "unsupported";
+    accept?:
+      | "replayed"
+      | "credential_unbound"
+      | "unsupported"
+      | "variables_refused";
+    /** The names release rel-1's card declares; absent, the dep is left out. */
+    envNames?: string[];
     catalog?: SessionCatalog;
     releaseProfile?: string;
     /** The session getSession and appendMessage find. */
@@ -131,6 +137,14 @@ function setup(
             options.github === undefined ? {} : { github: options.github },
         };
       },
+      ...(options.envNames === undefined
+        ? {}
+        : {
+            envNames: async (workspaceId: string, releaseId: string) =>
+              workspaceId === WORKSPACE && releaseId === "rel-1"
+                ? (options.envNames ?? [])
+                : [],
+          }),
     },
     inputs: {
       async acceptInputAtomic(input) {
@@ -140,6 +154,13 @@ function setup(
           (input.credentialsUnbound && options.accept !== "replayed")
         ) {
           return { outcome: "credential_unbound", receiptId: RECEIPT };
+        }
+        if (options.accept === "variables_refused") {
+          return {
+            outcome: "variables_refused",
+            reason: "unresolved",
+            receiptId: RECEIPT,
+          };
         }
         return {
           outcome: options.accept ?? "accepted",
@@ -1353,5 +1374,70 @@ describe("a session recorded on the example git host", () => {
     });
     const { attention } = await service.getSession(caller, SESSION);
     expect(attention).toBeNull();
+  });
+});
+
+describe("a session pinned to a release whose card declares variables", () => {
+  const pinned = { ...body, agent_release_id: "rel-1" };
+
+  test("the acceptance is handed the declared names", async () => {
+    const { service, caller, accepted } = setup({
+      envNames: ["REGION", "TEAM"],
+    });
+    await service.createSession(caller, { idempotencyKey: "k", body: pinned });
+    expect(accepted[0]?.envNames).toEqual(["REGION", "TEAM"]);
+  });
+
+  test("a card that declares none, or a deployment that cannot read them, hands over nothing", async () => {
+    for (const options of [{ envNames: [] }, {}]) {
+      const { service, caller, accepted } = setup(options);
+      await service.createSession(caller, {
+        idempotencyKey: "k",
+        body: pinned,
+      });
+      expect(Object.keys(accepted[0] ?? {})).not.toContain("envNames");
+    }
+  });
+
+  test("a session that pins no release hands over nothing", async () => {
+    const { service, caller, accepted } = setup({ envNames: ["REGION"] });
+    await service.createSession(caller, { idempotencyKey: "k", body });
+    expect(Object.keys(accepted[0] ?? {})).not.toContain("envNames");
+  });
+
+  test("a name with no value is 409 VARIABLE_UNRESOLVED that names the administrators, never the name", async () => {
+    const admins: AgentContact[] = [
+      {
+        userId: "019a0000-0000-7000-8000-0000000000a2",
+        displayName: "관리자",
+        email: "admin@example.invalid",
+      },
+    ];
+    const { service, caller } = setup({
+      envNames: ["SECRET_REGION_NAME"],
+      accept: "variables_refused",
+      contacts: admins,
+    });
+    const error = await service
+      .createSession(caller, { idempotencyKey: "k", body: pinned })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error).toMatchObject({
+      code: "VARIABLE_UNRESOLVED",
+      details: {
+        reason_code: "variable_unresolved",
+        agent_id: AGENT,
+        admins: [
+          {
+            user_id: admins[0]?.userId,
+            display_name: "관리자",
+            email: "admin@example.invalid",
+          },
+        ],
+        admin_link: "mailto:admin%40example.invalid",
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain("SECRET_REGION_NAME");
+    expect((error as Error).message).not.toContain("SECRET_REGION_NAME");
   });
 });

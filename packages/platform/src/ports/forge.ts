@@ -54,6 +54,9 @@ export type ForgePullRequestDetail = ForgePullRequest & {
   mergeCommitSha: string | null;
   /** GitHub's `mergeable_state`; absent or null reads as not mergeable. */
   mergeableState?: string | null;
+  /** GitHub's `mergeable`; null while it has not computed the answer. */
+  mergeable?: boolean | null;
+  draft?: boolean | null;
   additions: number | null;
   deletions: number | null;
   changedFiles: number | null;

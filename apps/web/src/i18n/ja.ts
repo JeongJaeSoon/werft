@@ -159,6 +159,16 @@ export const slackJa = {
   "slack.search": "チャンネルを検索",
   "slack.invite": "参加待ち",
   "slack.privateInvite": "/invite が必要",
+  "slack.pendingApproval": "承認待ち",
+  "slack.pendingApprovalHint":
+    "オーナーまたは管理者が承認するまで、このチャンネルのメッセージには返信しません。",
+  "slack.approve": "承認",
+  "slack.approveChannel": "チャンネルを承認: {channel}",
+  "slack.approved": "チャンネルを承認しました。",
+  "slack.left": "退出",
+  "slack.inactive": "無効",
+  "slack.leftHint":
+    "ボットがチャンネルから退出したため、メッセージの受信も送信もしません。チャンネルに再度招待すると承認待ちに戻ります。",
   "slack.add": "接続",
   "slack.noChannels":
     "一致するチャンネルがありません。非公開チャンネルには、先に /invite でボットを招待してください。",
