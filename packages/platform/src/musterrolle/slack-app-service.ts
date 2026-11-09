@@ -60,12 +60,12 @@ const STORE_OFF = () =>
 const NO_CONSOLE_ORIGIN = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
-    "The console's address is not configured (SLACK_OIDC_REDIRECT_URI), so no OAuth redirect can be set",
+    "The console's address is not configured (CONSOLE_ORIGIN), so no OAuth redirect can be set",
   );
 const EVENTS_URL_UNSET = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
-    "The public events address is not configured (SLACK_EVENTS_PUBLIC_URL), so no Request URL can be sent to Slack",
+    "No https events address is known (CONSOLE_ORIGIN, or SLACK_EVENTS_PUBLIC_URL when events enter apart from the console), so no Request URL can be sent to Slack",
   );
 const creating = (app: SlackAppRecord, uncertain: boolean) =>
   new SessionServiceError(
@@ -137,7 +137,6 @@ export function createSlackAppService(deps: {
   apps: SlackAppStore | null;
   tokens: SlackConfigTokens | null;
   api: SlackConfigApi;
-  /** The console's origin, from SLACK_OIDC_REDIRECT_URI; null when unset. */
   consoleOrigin: string | null;
   eventsPublicUrl?: string | null;
   onAgentAppChanged?: (agentId: string) => void;

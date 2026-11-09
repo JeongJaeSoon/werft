@@ -24,7 +24,6 @@ export type SlackEventsFinalizeTarget = Pick<
 export function createSlackEventsFinalize(deps: {
   apps: Pick<SlackAppService, "updateAgentAppManifest">;
   agents: Pick<SlackAppStore, "manifestAgent">;
-  /** SLACK_EVENTS_PUBLIC_URL; null when unset. */
   publicUrl: string | null;
 }): (target: SlackEventsFinalizeTarget) => Promise<SlackFinalizeResult> {
   return async (target) => {

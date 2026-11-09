@@ -8,12 +8,14 @@ import {
 import type {
   PutSlackConfigTokenResponse,
   SlackConfigTokenSummary,
+  SlackPublicUrls,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
   ConfirmDialog,
+  CopyButton,
   cn,
   ErrorState,
   Field,
@@ -410,6 +412,9 @@ function SlackCard({
           <Text variant="meta">{t("workspace.tokenHint")}</Text>
         ) : null}
       </section>
+      {summary ? (
+        <SlackAddresses urls={summary.urls} onOutcome={onOutcome} />
+      ) : null}
       {withApps ? <SlackApps /> : null}
     </>
   );
@@ -444,6 +449,97 @@ function SlackCard({
         }}
       />
     </section>
+  );
+}
+
+function SlackAddresses({
+  urls,
+  onOutcome,
+}: {
+  readonly urls: SlackPublicUrls;
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-3">
+      <Heading id={titleId} level={3}>
+        {t("workspace.addressesTitle")}
+      </Heading>
+      <Text variant="sub">{t("workspace.addressesHint")}</Text>
+      <AddressField
+        label={t("workspace.addressRedirect")}
+        value={urls.redirect_url}
+        unset={t("workspace.addressNoConsole")}
+        onOutcome={onOutcome}
+      />
+      <AddressField
+        label={t("workspace.addressEvents")}
+        value={urls.events_url_template}
+        unset={t(
+          urls.redirect_url === null
+            ? "workspace.addressNoConsole"
+            : "workspace.addressNoHttps",
+        )}
+        hint={t("workspace.addressEventsHint")}
+        onOutcome={onOutcome}
+      />
+    </section>
+  );
+}
+
+function AddressField({
+  label,
+  value,
+  unset,
+  hint,
+  onOutcome,
+}: {
+  readonly label: string;
+  readonly value: string | null;
+  readonly unset: string;
+  readonly hint?: string;
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const fieldRef = useRef<HTMLInputElement>(null);
+  if (value === null) {
+    return (
+      <Field>
+        <FieldLabel>{label}</FieldLabel>
+        <Text variant="sub">{unset}</Text>
+      </Field>
+    );
+  }
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          ref={fieldRef}
+          className="font-mono sm:flex-1"
+          type="text"
+          readOnly
+          value={value}
+          onFocus={(event) => event.target.select()}
+        />
+        <CopyButton
+          value={value}
+          variant="outline"
+          label={t("workspace.addressCopy")}
+          description={label}
+          fallbackField={fieldRef}
+          onResult={(worked) =>
+            onOutcome(
+              worked
+                ? { kind: "notice", text: t("workspace.addressCopied") }
+                : { kind: "error", text: t("workspace.addressCopyFailed") },
+            )
+          }
+        />
+      </div>
+      {hint ? <FieldDescription>{hint}</FieldDescription> : null}
+    </Field>
   );
 }
 

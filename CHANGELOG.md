@@ -14,6 +14,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack 연동 env를 정리했다. 공개 주소는 `CONSOLE_ORIGIN` 하나다**(JeongJaeSoon/werft#PR_NUMBER). Slack 계정 연결의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)와 이벤트 주소(`<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>`)는 여기서 계산하고, 설정 > 연동 > Slack 화면에 복사할 수 있게 보인다. 올리기 전에 `CONSOLE_ORIGIN`을 api와 slack role에 넣는다.
+  - `SLACK_OIDC_REDIRECT_URI`: 이제 읽는 값이 아니다. `CONSOLE_ORIGIN`이 없을 때만 이번 릴리스에서 그 origin을 폴백으로 쓰고, 다음 릴리스에서 폴백도 없앤다. 시작할 때 "폐기 예정" 경고가 나온다. `CONSOLE_ORIGIN`을 넣은 뒤 지운다.
+  - `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`: 읽지 않는다. 이 값으로 손으로 만든 OIDC 앱에 연결하던 워크스페이스는 설정 > 연동 > Slack에서 App Configuration Token을 넣고 link 앱을 만들어야 구성원이 Slack 계정을 연결할 수 있다. 만들기 전에는 그 워크스페이스의 연결이 막힌다.
+  - `SLACK_EVENTS_PUBLIC_URL`: 이벤트 입구를 콘솔과 따로 둘 때만 남기는 선택 값이다. 없으면 콘솔 origin이 이벤트 주소다. 콘솔이 https가 아니면 이벤트 구독이 등록되지 않는다(`events_url_unset`; 이 호스트의 loopback과 mock은 예외). 계산값과 다르면 시작할 때 값 없이 "불일치" 경고만 나온다.
+  - `SLACK_API_URL`·`SLACK_OIDC_ISSUER`: mock Slack 시험 전용이다. 운영 설정에 두지 않는다. Slack이 아닌 곳을 가리키면 시작할 때 경고가 나오고, 동작은 그대로다.
+  - 이 버전보다 앞선 이미지로 되돌릴 수 있는 동안에는 지우려던 옛 env 줄(`SLACK_OIDC_REDIRECT_URI`, 따로 두는 이벤트 입구의 `SLACK_EVENTS_PUBLIC_URL`, 손으로 만든 앱의 `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`)을 남긴다. 앞선 이미지는 `SLACK_OIDC_REDIRECT_URI`가 없으면 Slack 연결이 503이고 `SLACK_EVENTS_PUBLIC_URL`이 없으면 이벤트 구독을 등록하지 않는다.
 - **에이전트 엔진 입력에서 플랫폼 지시문을 걷어냈다.** 시스템 프롬프트, 도구 설명과 응답, 후속 턴 메시지(Slack 승인·parked 재개 포함)에는 사실만 적고 채널(Slack·웹)은 말하지 않는다. 설치 설정 `SESSION_PROMPT_REVISION`과 `AGENT_ACTION_FLOWS`는 없어졌고 값을 줘도 읽지 않는다. 턴 안의 `request_push`는 언제나 의도 흐름이며 턴 밖에서는 `no_running_turn`으로 거절하고, 이어 턴(`push_continuations`)은 더 만들지 않는다. 옛 플랫폼 문단으로 만든 체크포인트는 worker가 동결한 문구로 지문을 다시 계산해 그대로 재개한다(JeongJaeSoon/werft#1401).
 - **worker는 이제 모든 세션의 체크포인트에 로컬 브랜치를 담는다**(`workspace.sources`, `refs/checkpoint/source/*`). 옛 API·검증기는 이를 거절하므로 API·검증기·GC·세션 보관 CronJob을 먼저 올리고 worker를 나중에 올린다. 순서가 어긋나면 새 worker의 체크포인트가 거절되는 동안 push가 막히지만 데이터는 잃지 않는다.
 

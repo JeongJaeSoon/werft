@@ -17,7 +17,10 @@ import {
   createAuthorizationPolicy,
 } from "./policy.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
-import { createSlackSecretService } from "./slack-secret-service.ts";
+import {
+  createSlackSecretService,
+  slackPublicUrlsOf,
+} from "./slack-secret-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000f2";
@@ -76,10 +79,34 @@ function serviceWith(
     tokens: options.off
       ? null
       : createSlackConfigTokens({ store: tokenStore.store, api: slack.api }),
+    urls: slackPublicUrlsOf(
+      "https://console.example.test",
+      "https://events.example.test/prefix",
+    ),
     appKind: async () => options.appKind ?? null,
   });
   return { service, secrets, slack, tokenStore };
 }
+
+describe("slackPublicUrlsOf", () => {
+  test("the redirect is the console origin plus the link page's fixed path", () => {
+    expect(slackPublicUrlsOf("https://console.example.test", null)).toEqual({
+      redirect_url:
+        "https://console.example.test/settings/linked-accounts/slack",
+      events_url_template: null,
+    });
+  });
+
+  test("the events address keeps a path prefix and leaves the agent id as a placeholder", () => {
+    expect(
+      slackPublicUrlsOf(null, "https://events.example.test/prefix/"),
+    ).toEqual({
+      redirect_url: null,
+      events_url_template:
+        "https://events.example.test/prefix/v1/slack/events/{agent_id}",
+    });
+  });
+});
 
 describe("Slack secret service", () => {
   test.each(["owner", "admin"] as const)(
@@ -113,6 +140,12 @@ describe("Slack secret service", () => {
         last4: set.last4,
         updated_at: "2026-10-23T00:00:00.000Z",
         updated_by: { user_id: OWNER, display_name: "Owner" },
+        urls: {
+          redirect_url:
+            "https://console.example.test/settings/linked-accounts/slack",
+          events_url_template:
+            "https://events.example.test/prefix/v1/slack/events/{agent_id}",
+        },
         state: "active",
         expires_at: set.expires_at,
         issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
@@ -127,6 +160,12 @@ describe("Slack secret service", () => {
         last4: null,
         updated_at: null,
         updated_by: null,
+        urls: {
+          redirect_url:
+            "https://console.example.test/settings/linked-accounts/slack",
+          events_url_template:
+            "https://events.example.test/prefix/v1/slack/events/{agent_id}",
+        },
         state: "unset",
         expires_at: null,
         issuer: null,

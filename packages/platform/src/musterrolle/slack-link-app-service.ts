@@ -37,12 +37,9 @@ const WAIT_POLL_MS = 250;
 
 /** The OIDC client Sign in with Slack runs as, for one workspace. */
 export type SlackLinkClient = {
-  /** `link_app`: the workspace's own app; `env`: the installation's fallback. */
-  source: "link_app" | "env";
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  /** The link app's `slack_apps` id; null for the fallback. */
   slackAppId: string | null;
 };
 
@@ -99,8 +96,8 @@ export type SlackLinkAppService = ReturnType<typeof createSlackLinkAppService>;
 
 /**
  * The workspace's account-linking Slack app and the OIDC client Sign in
- * with Slack runs as: the workspace's `created` link app, else the
- * installation's fallback client, else (on a start) a link app made now.
+ * with Slack runs as: the workspace's `created` link app, else (on a
+ * start) a link app made now.
  */
 export function createSlackLinkAppService(deps: {
   authorization: AuthorizationPolicy;
@@ -108,10 +105,7 @@ export function createSlackLinkAppService(deps: {
   apps: SlackAppStore | null;
   tokens: SlackConfigTokens | null;
   api: SlackConfigApi;
-  /** The console's origin, from SLACK_OIDC_REDIRECT_URI; null when unset. */
   consoleOrigin: string | null;
-  /** A hand-made OIDC app from the environment; null when none is set. */
-  fallback: Omit<SlackLinkClient, "source" | "slackAppId"> | null;
   now?: () => Date;
   newId?: () => string;
   sleep?: (ms: number) => Promise<void>;
@@ -129,16 +123,13 @@ export function createSlackLinkAppService(deps: {
     const own = await deps.apps?.linkAppClient(workspaceId);
     if (own && own.app.clientId !== null) {
       return {
-        source: "link_app",
         clientId: own.app.clientId,
         clientSecret: own.clientSecret,
         redirectUri: own.app.redirectUrl,
         slackAppId: own.app.id,
       };
     }
-    return deps.fallback === null
-      ? null
-      : { ...deps.fallback, source: "env", slackAppId: null };
+    return null;
   }
 
   async function finish(
@@ -256,8 +247,8 @@ export function createSlackLinkAppService(deps: {
     clientFor,
 
     /**
-     * The client a start sends the person to Slack with. With neither a
-     * link app nor a fallback, the link app is made now: on behalf of the
+     * The client a start sends the person to Slack with. Without a link
+     * app, the link app is made now: on behalf of the
      * workspace, for whoever may link their own account (the caller's
      * right to link is checked before this).
      */

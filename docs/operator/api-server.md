@@ -561,15 +561,14 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" 
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `SLACK_OIDC_REDIRECT_URI` | 없음(연결을 끔. 시작 요청은 `503`. Slack 앱 생성도 꺼진다) | 절대 http(s) URL. 웹의 연결 화면 `<CONSOLE_URL>/settings/linked-accounts/slack`이고, 그 origin이 콘솔 주소로 쓰인다(link 앱·에이전트 앱의 redirect). 이 값 하나만으로 연결이 켜진다 |
-| `SLACK_OIDC_CLIENT_ID` · `SLACK_OIDC_CLIENT_SECRET` | 없음 | 손으로 만든 OIDC 앱(fallback). 둘을 함께 설정한다. 하나만 있거나 redirect URI 없이 있으면 기동하지 않는다. link 앱이 없는 워크스페이스만 이 앱으로 연결한다 |
-| `SLACK_OIDC_ISSUER` | `https://slack.com` | 절대 http(s) URL. mock IdP(`infra/compose.mock-slack.yml`)에만 쓴다 |
+| `CONSOLE_ORIGIN` | 없음(연결을 끔. 시작 요청은 `503`. Slack 앱 생성도 꺼진다) | 절대 http(s) origin. 사람이 브라우저로 콘솔을 여는 공개 주소이고, 이 주소에서 모든 주소를 계산한다. Slack 연결의 redirect는 `<CONSOLE_ORIGIN>/settings/linked-accounts/slack`, 에이전트 앱의 redirect는 `<CONSOLE_ORIGIN>/agents/<agent_id>/slack/callback`이다. 설정 › 연동 › Slack 화면이 이 주소들을 복사할 수 있게 보여 준다 |
 
-연결은 워크스페이스마다 하나인 계정 연결용 Slack 앱(link 앱, `slack_apps.kind=link`)으로 한다. 어느 OIDC 앱으로 연결할지는 요청마다 이 순서로 정한다.
+`SLACK_OIDC_REDIRECT_URI`·`SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET`은 없어졌다. 옛 값이 남아 있으면 시작할 때 값 없이 경고만 남기고 무시한다(`CONSOLE_ORIGIN`이 없을 때만 옛 redirect의 origin을 이번 릴리스에 한해 쓴다). 지울 것과 되돌릴 때 남길 것은 `CHANGELOG.md`의 "운영자가 할 일"을 따른다.
 
-1. 상태가 `created`인 link 앱이 있으면 그 앱의 client id와, 서버가 저장소에 봉인한 client secret을 쓴다. fallback env가 있어도 link 앱이 이긴다.
-2. 없으면 `SLACK_OIDC_CLIENT_ID`·`SLACK_OIDC_CLIENT_SECRET` fallback 앱을 쓴다. 손으로 만든 기존 앱은 그대로 돈다.
-3. 둘 다 없으면 연결 시작이 그 자리에서 link 앱을 만든다(워크스페이스의 App Configuration Token으로 `apps.manifest.create`). 자기 계정 연결을 시작할 수 있는 사람(member 포함)이면 누구의 시작이든 만든다. 동시에 여러 시작이 와도 앱은 하나다. 쓸 수 있는 config token이 없거나(`unset`·`needs_reentry`) API가 master key 없이 떴으면 `409 SLACK_LINK_NOT_CONFIGURED`이고, 화면은 "워크스페이스 관리자에게 연동 › Slack 설정을 요청하세요"를 보여 준다.
+연결에 쓰는 Slack 앱은 워크스페이스마다 하나인 계정 연결용 앱(link 앱, `slack_apps.kind=link`)뿐이다. env로 넣는 OIDC client는 없다. 요청마다 이렇게 정한다.
+
+1. 상태가 `created`인 link 앱이 있으면 그 앱의 client id와, 서버가 저장소에 봉인한 client secret을 쓴다.
+2. 없으면 연결 시작이 그 자리에서 link 앱을 만든다(워크스페이스의 App Configuration Token으로 `apps.manifest.create`). 자기 계정 연결을 시작할 수 있는 사람(member 포함)이면 누구의 시작이든 만든다. 동시에 여러 시작이 와도 앱은 하나다. 쓸 수 있는 config token이 없거나(`unset`·`needs_reentry`) API가 master key 없이 떴으면 `409 SLACK_LINK_NOT_CONFIGURED`이고, 화면은 "워크스페이스 관리자에게 연동 › Slack 설정을 요청하세요"를 보여 준다.
 
 link 앱은 이름 "<워크스페이스 이름> 계정 연결"(Slack 한도 35자에 맞게 워크스페이스 이름을 자른다), 설명 "Werft 콘솔에서 Slack 계정을 연결합니다.", user scope `openid`·`profile`만 가진다. bot·bot scope·event 구독은 없고 redirect는 `<콘솔 origin>/settings/linked-accounts/slack`이다. 문구는 `packages/platform/src/musterrolle/slack-manifest.ts`의 `LINK_APP_COPY` 한 곳에 있다. config token을 저장할 때는 만들지 않는다. client secret·signing secret은 응답·로그·receipt에 나오지 않고, 그 앱의 per-app secret PUT은 `403`(`reason_code` `server_managed_secret`)이다. owner·admin이 `DELETE /v1/workspaces/{id}/slack/apps/{app_id}`로 지울 수 있고, 지운 뒤 다음 연결 시작이 새로 만든다.
 
@@ -585,7 +584,7 @@ bun run apps/control-host/src/api/slack-app.ts create --kind link --workspace "$
 흐름은 다음과 같다.
 
 1. `POST /v1/linked-accounts/slack/start`가 `authorize_url`을 돌려주고, state·nonce를 HttpOnly cookie `werft_slack_link`(path `/v1/linked-accounts/slack`, 10분)에 둔다. 워크스페이스에 확인된 Slack 설치(`slack_installations`)가 없으면 `409 SLACK_NOT_INSTALLED`다. 설치가 하나면 그 team을 `team` 파라미터로 고정한다. 위 순서로 OIDC 앱을 정하고, 필요하면 이때 link 앱을 만든다.
-2. Slack이 그 앱의 redirect(link 앱은 `<콘솔 origin>/settings/linked-accounts/slack`, fallback 앱은 `SLACK_OIDC_REDIRECT_URI`)로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·불일치·IdP 거절은 모두 `400`(다시 시작 안내)이다.
+2. Slack이 그 앱의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)로 `code`·`state`를 붙여 돌려보낸다. 이 주소는 웹 화면이며, 화면이 둘을 `POST /v1/linked-accounts/slack/callback`에 `{code, state}`로 넘긴다. cookie는 이때 한 번 쓰고 지운다. 만료·불일치·IdP 거절은 모두 `400`(다시 시작 안내)이다.
 3. API가 `code`를 id_token으로 바꾸고 서명(JWKS, RS256)·`iss`·`aud`·`nonce`를 검증한 뒤 `https://slack.com/team_id`·`https://slack.com/user_id`로 연결한다. 설치된 team이 아니면 `409 LINK_TEAM_MISMATCH`, 그 Slack 계정이 다른 사람에게 연결돼 있으면 `409 LINK_TAKEN`, 같은 team에 이미 내 연결이 있으면 `409 LINK_EXISTS`다. 성공하면 `201`과 `link_account` receipt가 남는다.
 4. `GET /v1/linked-accounts`로 내 연결을 보고, `DELETE /v1/linked-accounts/{id}`로 해제한다(`unlink_account` receipt). 해제한 뒤에는 이미 대기 중인 입력도 처리 시점 재판정에서 거절된다. 목록 항목과 callback의 `linked_account`에 있는 `expires_at`은 provider 토큰의 만료 시각이다. 토큰을 보관하지 않거나 만료가 없으면 `null`이고, Slack 연결은 토큰을 보관하지 않으므로 늘 `null`이다. 1의 시작 응답에 있는 `expires_at`(연결 요청이 유효한 시각)과는 다른 값이다.
 
@@ -597,8 +596,8 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
 
 0. 콘솔을 https origin 하나로 연다. Slack은 https redirect URI만 받고, `werft_slack_link` cookie는 `Secure`라 시작(`/v1/linked-accounts/slack/start`)과 callback이 같은 https origin에서 불려야 cookie가 따라간다. 로컬 스택이면 API 포트를 tailnet 안에만 https로 내보낸다: `tailscale serve --bg --https=<port> http://127.0.0.1:<API_PORT>` → `<CONSOLE_URL>` = `https://<host>.ts.net:<port>`. 웹 콘솔은 API와 같은 origin에서 나오므로 이 주소 하나로 로그인·연결·callback이 모두 된다. funnel(인터넷 공개)은 쓰지 않는다. 끝나면 `tailscale serve --https=<port> off`. 콘솔의 POST는 `Origin`과 `Host`가 같아야 통과하므로(`auth.ts` `browserRequestViolation`), 앞단 프록시는 원래 `Host`를 그대로 넘겨야 한다.
 1. 그 Slack 워크스페이스에 설치된 Slack 앱이 있어야 한다(설치 등록은 4). 설치 등록이 bot을 확인하므로 bot scope `users:read`가 있어야 한다. 계정 연결용 앱은 손으로 만들지 않는다. owner·admin이 설정 › 연동 › Slack에 App Configuration Token을 넣어 두면 5의 첫 "Slack 연결"이 link 앱을 만든다. 미리 만들려면 위 CLI `--kind link`를 쓴다.
-2. (fallback, link 앱 대신 손으로 만든 OIDC 앱을 쓸 때만) 그 앱의 **OAuth & Permissions → Redirect URLs**에 `<CONSOLE_URL>/settings/linked-accounts/slack`을 넣고(`SLACK_OIDC_REDIRECT_URI`와 글자까지 같아야 한다) user scope `openid`·`profile`을 둔다(email은 쓰지 않는다). 그 워크스페이스에 link 앱이 생기면 link 앱이 이긴다.
-3. `SLACK_OIDC_REDIRECT_URI=<CONSOLE_URL>/settings/linked-accounts/slack` 한 줄을(2의 fallback이면 **Basic Information**의 `SLACK_OIDC_CLIENT_ID=…`·`SLACK_OIDC_CLIENT_SECRET=…`도) repo 밖 파일 `~/.config/werft/slack-dev.env`(권한 `0600`)에 둔다. 띄우는 셸에서 `set -a; . ~/.config/werft/slack-dev.env; set +a`로 읽은 뒤 `scripts/local.sh up`(이미 떠 있으면 `docker compose --profile apps up -d --no-deps --force-recreate api`)을 실행한다. compose는 셸 env로 `SLACK_OIDC_*`를 채운다. `SLACK_OIDC_ISSUER`는 비워 둔다. mock overlay는 겹치지 않는다.
+2. 손으로 만든 OIDC 앱은 더 쓰지 않는다. 연결은 link 앱으로만 한다. 설정 › 연동 › Slack에서 App Configuration Token을 넣으면 첫 "Slack 연결"이 link 앱을 만든다.
+3. `CONSOLE_ORIGIN=<CONSOLE_URL>` 한 줄을 repo 밖 파일 `~/.config/werft/slack-dev.env`(권한 `0600`)에 둔다. 띄우는 셸에서 `set -a; . ~/.config/werft/slack-dev.env; set +a`로 읽은 뒤 `scripts/local.sh up`(이미 떠 있으면 `docker compose --profile apps up -d --no-deps --force-recreate api`)을 실행한다. `SLACK_OIDC_ISSUER`·`SLACK_API_URL`은 비워 둔다(mock 시험 전용). mock overlay는 겹치지 않는다.
 4. 설치를 등록한다. **OAuth & Permissions**의 Bot User OAuth Token을 셸 env `SLACK_BOT_TOKEN`에만 넣고(인자로 넘기지 않는다), **Basic Information**의 App ID로 CLI를 실행한다. CLI가 `auth.test`·`bots.info`로 team·bot 사용자·앱을 확인하고 `slack_installations`에 `verified` 행을 남긴다. 출력은 JSON 한 줄이고 token은 어디에도 쓰지 않는다.
 
    ```bash
@@ -611,7 +610,7 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
    | 종료 코드 | 뜻 |
    |---|---|
    | `0` | `verified`. 다시 실행하면 같은 행을 다시 확인한다(`registration: existing`) |
-   | `2` | 인자·env가 잘못됐다(`SLACK_BOT_TOKEN`·`DATABASE_URL` 없음, `SLACK_API_URL`이 https가 아님. http는 `localhost`·`127.0.0.1`·`[::1]`·`mock-slack`만) |
+   | `2` | 인자·env가 잘못됐다(`SLACK_BOT_TOKEN`·`DATABASE_URL` 없음) |
    | `3` | `slack_auth_failed`: token 거절(`invalid_auth` 등), bot token이 아님, Slack 불통, Slack id 모양이 아님 |
    | `4` | `workspace_conflict`: 그 앱·team이 다른 워크스페이스의 것이다(거기서 해제됐어도 같다) |
    | `5` | `revoked`: 등록과 확인 사이에 해제됐다. 다시 실행하면 같은 행을 다시 연다 |
@@ -619,7 +618,7 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
    | `7` | `app_mismatch`: token이 `--app-id`와 다른 앱의 것이다(`bots.info`로 대조) |
    | `1` | 그 밖의 오류(DB 등) |
 
-   `4`에서 그 행이 다른 워크스페이스에서 해제(`revoked`)된 것이면 메시지가 그렇게 말한다. 해제된 행도 원래 워크스페이스만 다시 등록할 수 있다. `SLACK_API_URL`(기본 `https://slack.com/api`)은 mock IdP를 쓸 때만 바꾼다. Kubernetes에는 아직 `:k8s` 스크립트가 없다. `kubectl exec -it <api pod> -c api -- bash`로 들어가(`sh`는 `read -s`가 없다) 그 안에서 `read -rs SLACK_BOT_TOKEN`으로 넣고 `bun run apps/control-host/src/api/slack-install.ts register …`를 실행한다. token을 `kubectl` 인자(`env SLACK_BOT_TOKEN=…` 등)에 쓰지 않는다.
+   `4`에서 그 행이 다른 워크스페이스에서 해제(`revoked`)된 것이면 메시지가 그렇게 말한다. 해제된 행도 원래 워크스페이스만 다시 등록할 수 있다. Kubernetes에는 아직 `:k8s` 스크립트가 없다. `kubectl exec -it <api pod> -c api -- bash`로 들어가(`sh`는 `read -s`가 없다) 그 안에서 `read -rs SLACK_BOT_TOKEN`으로 넣고 `bun run apps/control-host/src/api/slack-install.ts register …`를 실행한다. token을 `kubectl` 인자(`env SLACK_BOT_TOKEN=…` 등)에 쓰지 않는다.
    설치가 `verified`가 되면 그 앱을 에이전트에 연결한다: 에이전트를 만든 뒤 `POST /v1/agents/{id}/identities`(`provider: slack_bot`, `app_id`, `team_id`, bot token의 `credential_ref`)를 보낸다(아래 "에이전트의 Slack 앱 연결"). 연결이 없으면 그 앱으로 온 이벤트는 `unidentified`로 버려진다. 계정 연결(5)에는 필요 없다.
 5. owner로 `<CONSOLE_URL>`에 로그인하고 **연동 계정** 화면에서 Slack 연결 → Slack 동의 → 콜백 순으로 연결한다. `GET /v1/linked-accounts`에 `active` 행(`external_tenant` = 그 team id)과 `link_account` receipt가 보이는지 확인한다.
 6. 다른 워크스페이스 계정으로 시도해 `LINK_TEAM_MISMATCH`, 다른 웹 사용자로 같은 Slack 계정을 시도해 `LINK_TAKEN`을 확인한다. Grid 설치라면 연결이 되는지 보고, 됐으면 `linked_accounts.external_tenant`를 `slack_installations.team_id`와 비교해 P5를 판정한다. `LINK_TEAM_MISMATCH`로 거절되면 id_token의 team이 org id라는 뜻이다.
@@ -634,7 +633,7 @@ curl -s -b jar "$CONSOLE_URL/v1/linked-accounts"
 curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: werft-web'
 ```
 
-로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. overlay는 fallback client를 비워 두므로, `POST http://mock-slack:4020/fake/config-tokens`로 받은 token을 owner가 `PUT /v1/workspaces/{id}/slack/config-token`으로 넣은 뒤의 첫 연결 시작이 Web API 가짜로 link 앱을 만든다(master key가 있어야 한다). mock IdP는 그 앱의 client를 받는다. 예전처럼 고정 client로 돌리려면 `MOCK_SLACK_FALLBACK_CLIENT_ID=mock-client-id`·`MOCK_SLACK_FALLBACK_CLIENT_SECRET=mock-client-secret`을 주고 띄운다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. `MOCK_SLACK_TEAM_NAME`·`MOCK_SLACK_USER_NAME`(기본 빈 값)을 주면 id_token에 워크스페이스 이름(`https://slack.com/team_name`)과 표시 이름(`name`)을 싣고, `authorize_url`의 `mock_team_name`·`mock_user_name`이 그 값을 바꾼다(빈 값이면 이름 없음). 설치 등록 CLI가 부르는 `auth.test`·`bots.info`도 답한다: bot token `mock-bot-token`이면 team `MOCK_SLACK_TEAM_ID`, app `A0MOCK`, bot 사용자 `U0MOCKBOT`. 그때는 `SLACK_API_URL=http://mock-slack:4020/api`로 CLI를 실행한다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
+로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. overlay는 `CONSOLE_ORIGIN=http://127.0.0.1:3000`과, mock 시험 전용인 `SLACK_OIDC_ISSUER`·`SLACK_API_URL`을 api에 준다. `POST http://mock-slack:4020/fake/config-tokens`로 받은 token을 owner가 `PUT /v1/workspaces/{id}/slack/config-token`으로 넣은 뒤의 첫 연결 시작이 Web API 가짜로 link 앱을 만든다(master key가 있어야 한다). mock IdP는 그 앱의 client를 받는다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. `MOCK_SLACK_TEAM_NAME`·`MOCK_SLACK_USER_NAME`(기본 빈 값)을 주면 id_token에 워크스페이스 이름(`https://slack.com/team_name`)과 표시 이름(`name`)을 싣고, `authorize_url`의 `mock_team_name`·`mock_user_name`이 그 값을 바꾼다(빈 값이면 이름 없음). 설치 등록 CLI가 부르는 `auth.test`·`bots.info`도 답한다: bot token `mock-bot-token`이면 team `MOCK_SLACK_TEAM_ID`, app `A0MOCK`, bot 사용자 `U0MOCKBOT`. 그때는 `SLACK_API_URL=http://mock-slack:4020/api`로 CLI를 실행한다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
 
 ### 역할, 에이전트 관리자, 권한별 API key
 
@@ -787,7 +786,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `CONSOLE_ORIGIN` | 없음(`SLACK_OIDC_REDIRECT_URI`의 origin을 쓴다) | 절대 http(s) origin. GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 둘 다 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit에 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다 |
+| `CONSOLE_ORIGIN` | 없음(옛 `SLACK_OIDC_REDIRECT_URI`가 있으면 이번 릴리스에 한해 그 origin을 쓰고 "폐기 예정" 경고를 낸다. 다음 릴리스에서 이 폴백은 없어진다) | 절대 http(s) origin. 공개 주소의 유일한 소스다. Slack 연결·이벤트 주소도 여기서 계산한다(위 "Slack 계정 연결"). GitHub 연결 콜백 `<콘솔 origin>/settings/linked-accounts/github`와 commit·PR의 세션 URL `<콘솔 origin>/sessions/<id>`에 쓴다. 둘 다 없으면 콜백 URL이 없어 연결을 시작할 수 없고(`409 GITHUB_LINK_NOT_CONFIGURED`), commit에 `Agent-Session` 트레일러가 들어가지 않으며 PR 꼬리는 세션 id만 싣는다 |
 
 **준비(owner·admin, 사람이 한다).** 작성용 App이 콘솔에 등록돼 있어야 한다(위 "GitHub 저장소").
 
@@ -908,7 +907,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 
 **에이전트의 Slack 앱 만들기**
 
-활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. `slack` 역할은 이 가운데 `users:read`(`users.info`), `assistant:write`(`agents.sessions.setStatus`)를, binding 설정은 `channels:read`·`groups:read`(`conversations.info`)를, 공개 채널 자동 참가는 `channels:join`(`conversations.join`)을 쓴다. 메시지는 `message.channels`·`message.groups`·`message.im` 구독(`*:history` scope)으로 받는다. 생성 manifest에는 event subscription이 없다. 설치가 끝날 때 마무리 ①이 manifest를 다시 보내 붙인다(아래 "Slack 이벤트 수신"). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `SLACK_OIDC_REDIRECT_URI`의 origin이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
+활성 release가 있는 에이전트마다 Slack 앱을 하나 만든다. 앱 이름은 에이전트 이름, bot 이름은 slug, agent view 설명은 활성 release의 role이다. bot scope는 `assistant:write`·`app_mentions:read`·`chat:write`·`im:history`·`channels:history`·`groups:history`·`channels:read`·`groups:read`·`users:read`·`channels:join`·`groups:write`이고 user scope는 없다. `slack` 역할은 이 가운데 `users:read`(`users.info`), `assistant:write`(`agents.sessions.setStatus`)를, binding 설정은 `channels:read`·`groups:read`(`conversations.info`)를, 공개 채널 자동 참가는 `channels:join`(`conversations.join`)을 쓴다. 메시지는 `message.channels`·`message.groups`·`message.im` 구독(`*:history` scope)으로 받는다. 생성 manifest에는 event subscription이 없다. 설치가 끝날 때 마무리 ①이 manifest를 다시 보내 붙인다(아래 "Slack 이벤트 수신"). OAuth redirect는 `<콘솔 origin>/agents/{id}/slack/callback`이고, 콘솔 origin은 `CONSOLE_ORIGIN`이다. 이 값이 없으면 앱을 만들지 않는다(`503`).
 
 | 요청 | 하는 일 |
 |---|---|
@@ -923,7 +922,7 @@ owner·admin이 콘솔 세션(cookie)으로만 쓴다. 값은 돌려주지 않�
 - Slack 응답을 잃으면(시간 초과, 연결 끊김, 저장 실패) 행이 `creating`으로 남고 `503`이다. 다음 요청은 `409 SLACK_APP_CREATING`이고, 60초가 지나면 `details.uncertain: true`가 붙는다. 그때 api.slack.com/apps에서 그 시각에 만들어진 앱을 지운 뒤 `replace_uncertain: true`로 다시 요청하면 옛 행을 `abandoned`로 두고 새로 만든다. Slack이 manifest를 거절하면 행은 `failed`가 되고 `503`(`details.slack_error`)이다.
 - 만들기·지우기는 아직 receipt를 남기지 않는다.
 
-운영자는 CLI로도 만든다. API 컨테이너 안에서(DB, master key, `SLACK_OIDC_REDIRECT_URI`, `SLACK_API_URL`이 이미 있다) 실행하고, 출력은 JSON 한 줄이다. 비밀값은 출력하지 않는다.
+운영자는 CLI로도 만든다. API 컨테이너 안에서(DB, master key, `CONSOLE_ORIGIN`이 이미 있다) 실행하고, 출력은 JSON 한 줄이다. 비밀값은 출력하지 않는다.
 
 ```bash
 docker compose --profile apps exec -T api \
@@ -937,14 +936,14 @@ docker compose --profile apps exec -T api \
 |---|---|
 | `0` | 만들었거나 이미 있다(`outcome: created`·`exists`). `--kind link`도 같다 |
 | `1` | 예상하지 못한 오류 |
-| `2` | 인자·env가 잘못됐다(`DATABASE_URL`·`SLACK_OIDC_REDIRECT_URI`·master key 없음, `SLACK_API_URL`이 https가 아님) |
+| `2` | 인자·env가 잘못됐다(`DATABASE_URL`·`CONSOLE_ORIGIN`·master key 없음) |
 | `3` | config token이 없거나 Slack이 더는 받지 않는다. 콘솔에서 새로 붙여 넣는다 |
 | `4` | 에이전트나 workspace가 없다 |
 | `5` | 에이전트에 활성 release가 없다 |
 | `6` | 앱이 아직 만들어지는 중이거나 지워지는 중이다. Slack에서 확인한 뒤 `--replace-uncertain`으로 잃어버린 생성을 포기한다 |
 | `7` | Slack이 거절했거나 닿지 않는다 |
 
-로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`, `local` target으로 빌드한 control-host 이미지에서 돈다. 게시 이미지에는 testkit이 없어 쓸 수 없다)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. `GET http://mock-slack:4020/fake/oauth/authorize?<설치 URL의 query>`는 동의 화면 대신 `{ok, code, state}`를 JSON으로 돌려준다(아래 설치 흐름을 curl로 돌릴 때). 실제 Slack은 부르지 않는다.
+로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`, `local` target으로 빌드한 control-host 이미지에서 돈다. 게시 이미지에는 testkit이 없어 쓸 수 없다)는 mock 시험 전용 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. `GET http://mock-slack:4020/fake/oauth/authorize?<설치 URL의 query>`는 동의 화면 대신 `{ok, code, state}`를 JSON으로 돌려준다(아래 설치 흐름을 curl로 돌릴 때). 실제 Slack은 부르지 않는다.
 
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 
@@ -971,7 +970,7 @@ printf '{"value":"%s"}' "$(cat ~/.config/werft/slack-config-token)" |
 - 통과하면 이 순서다: bot token을 `slack_app:<id>/slack_bot_token`에 저장하고 `slack_apps.bot_token_ref`를 채운다 → 그 token으로 `auth.test`·`bots.info`를 불러 app·team을 다시 확인한다 → 설치 행을 등록·확인한다 → `agent_identities`에 연결한다(`credential_ref`는 bot token의 이름 `slack_app:<id>/slack_bot_token`, `link_agent_identity` receipt). 같은 설치가 다른 workspace에 있으면 `409 SLACK_INSTALL_CONFLICT`, 앱이 다른 에이전트에 연결돼 있으면 `409 AGENT_IDENTITY_TAKEN`이다.
 - bot token을 저장한 뒤의 모든 거절(`auth.test`·`bots.info` 불일치나 무응답, `SLACK_INSTALL_CONFLICT`, `AGENT_IDENTITY_TAKEN`, `CREDENTIAL_REF_IN_USE`, `REVISION_CONFLICT`, 보관된 에이전트, 그 사이 권한을 잃은 사람의 `403` 등)에는 저장한 token이 남고, 설치를 등록한 뒤의 거절이면 확인된 설치 행도 남는다. 그래서 `secrets.slack_bot_token.configured`는 설치됐다는 뜻이 아니다. 설치됐는지는 에이전트의 `slack_bot` 신원으로 본다. 원인을 고친 뒤 start부터 다시 하면 token이 바뀐다.
 - 다시 설치하면 bot token이 새 버전으로 바뀌고 설치 행·연결은 그대로 하나다(`receipt_id: null`).
-- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. 지금은 ① 이벤트 연결뿐이다(아래 "Slack 이벤트 수신"). 환영 메시지는 뒤 티켓이다. 마무리가 실패하거나 `SLACK_EVENTS_PUBLIC_URL`이 없으면 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
+- 끝나면 마무리 단계(`SlackInstallFinalize`)를 한 번 부른다. 지금은 ① 이벤트 연결뿐이다(아래 "Slack 이벤트 수신"). 환영 메시지는 뒤 티켓이다. 마무리가 실패하거나 https 이벤트 주소를 알 수 없으면(`CONSOLE_ORIGIN`이 없거나 https가 아니고 `SLACK_EVENTS_PUBLIC_URL`도 없음) 설치는 남고 `finalized: false`다. 이유는 `warnings`(`events_url_unset`, `reinstall_required`, 단계가 실패하면 `finalize_failed`)에 온다.
 - complete 응답에는 `Referrer-Policy: no-referrer`가 붙는다. bot token·code·state는 응답·로그·오류·receipt에 나오지 않는다. 로그는 `Slack app installed`와 id만 남긴다.
 
 **Slack 이벤트 수신**
@@ -980,7 +979,7 @@ Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 
 
 | 변수 | 기본값 | 허용 범위 |
 |---|---|---|
-| `SLACK_EVENTS_PUBLIC_URL` | 없음(마무리 ①을 건너뛴다. `finalized: false`, `warnings: [{code: "events_url_unset"}]`) | query 없는 https URL. Slack이 닿는 공개 origin(path가 있으면 그 아래)이다. request URL은 `<값>/v1/slack/events/<agent_id>`이다. 콘솔 주소와 따로 둔다 |
+| `SLACK_EVENTS_PUBLIC_URL` | 없음(`CONSOLE_ORIGIN`에서 계산한다. 계산할 수 없으면 마무리 ①을 건너뛴다. `finalized: false`, `warnings: [{code: "events_url_unset"}]`) | **이벤트 입구를 콘솔과 따로 둘 때만** 쓴다. query 없는 https URL. Slack이 닿는 공개 origin(path가 있으면 그 아래)이다. 있으면 `CONSOLE_ORIGIN`에서 계산한 주소 대신 이 값을 쓰고, 두 값이 다르면 시작할 때 값 없이 "불일치" 경고를 낸다. request URL은 `<주소>/v1/slack/events/<agent_id>`이다. 콘솔 주소가 https이면(로컬 loopback은 예외) 이 값 없이 `<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>`가 request URL이다 |
 
 - 검사 순서: 레이트 리미터(전체 분당 1000, 에이전트마다 분당 600. 넘으면 `429 RATE_LIMITED`와 `Retry-After`) → 본문 256 KiB(넘으면 서명을 보기 전에 `413`) → 서명(그 앱의 signing secret으로 HMAC-SHA256, 상수 시간 비교) → 시각(±300초) → JSON 파싱(`400`) → `event_id` 중복. 리미터는 DB를 읽기 전에 돈다.
 - 모르는 에이전트, 앱이 없는 에이전트, signing secret이 없는 앱, 틀리거나 오래된 서명은 모두 같은 `401 UNAUTHORIZED`("Request signature is not valid")다. 응답으로 에이전트가 있는지 알 수 없다. signing secret은 성공한 조회만 60초 동안 프로세스에 둔다. 앱을 만들거나 지우면 그 프로세스의 캐시를 바로 지운다. 다른 replica는 60초 안에 따라온다.
@@ -1002,7 +1001,7 @@ bun run apps/control-host/src/api/slack-app.ts finalize --agent "$AGENT_ID"
 # {"outcome":"finalized","slack_app_id":"…","app_id":"A…","agent_id":"…","request_url":"https://…/v1/slack/events/<agent_id>","warnings":[]}
 ```
 
-종료 코드는 위 `create`와 같고, 더해서 `4`는 그 에이전트에 만든 앱이 없음, `8`은 `SLACK_EVENTS_PUBLIC_URL`이 없어 아무것도 보내지 않음이다.
+종료 코드는 위 `create`와 같고, 더해서 `4`는 그 에이전트에 만든 앱이 없음, `8`은 https 이벤트 주소를 알 수 없어(`CONSOLE_ORIGIN`이 없거나 https가 아님) 아무것도 보내지 않음이다.
 
 로컬 스택에서 실제 Slack이 이벤트와 버튼·답변 창을 보내게 하려면 Slack의 두 path(`/v1/slack/events`, `/v1/slack/interactions`)만 인터넷에 연다. 콘솔은 위 0처럼 tailnet 안(`tailscale serve`)에 둔다. Funnel은 path가 아니라 port 단위로 켜진다. 콘솔을 funnel과 같은 port(443·8443·10000)에 serve하면 콘솔과 `/v1` 전체가 인터넷에 열리니, 콘솔은 그 셋이 아닌 port에 둔다.
 
@@ -1012,7 +1011,7 @@ scripts/slack-funnel.sh status
 scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path로 내린다
 ```
 
-공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events`와 `/v1/slack/interactions` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다.
+공개 port는 `SLACK_FUNNEL_HTTPS_PORT`(443 기본, 8443, 10000)다. 그 뒤 API에 `SLACK_EVENTS_PUBLIC_URL=https://<host>.ts.net`(443이 아니면 `:<port>`)을 주고 다시 띄운 다음, 설치를 하거나 `slack-app finalize`를 실행한다. Helm chart의 Ingress는 사내 전용이라 Slack이 닿지 않는다. Slack용 입구는 `/v1/slack/events`와 `/v1/slack/interactions` Prefix만 넘기는 인터넷 쪽 Ingress·LB를 따로 두고, 그 주소를 `api.extraEnv.SLACK_EVENTS_PUBLIC_URL`에 준다(이벤트 입구가 콘솔과 다를 때만 필요한 값이다).
 
 로컬 mock overlay의 가짜 Slack은 서명된 이벤트도 보낸다. `POST http://mock-slack:4020/fake/events` `{url, app_id, team_id, event, event_id?, age_seconds?, retry_num?}`는 그 앱의 signing secret으로 서명해 `url`로 보내고 `{ok, status, body, event_id}`를 돌려준다. `challenge`를 주면 `url_verification`을 보낸다. signing secret은 출력하지 않는다. 같은 가짜가 `slack` 역할의 bot 호출에도 답한다: `users.info`(모르는 사용자는 `MOCK_SLACK_TEAM_ID`의 정회원), `conversations.info`(id가 `D`로 시작하면 DM, `G`면 비공개, 나머지는 공개. `/fake/channels`로 만든 채널은 `is_member`·`is_archived`도 답하고, 그 밖의 채널은 bot이 이미 있는 것으로 답한다), `conversations.join`(`/fake/channels`로 만든 공개 채널만. 비공개는 `method_not_supported_for_channel_type`, 보관된 채널은 `is_archived`), `agents.sessions.setStatus`(받은 상태는 `GET http://mock-slack:4020/fake/statuses`가 돌려준다), `chat.postMessage`·`chat.postEphemeral`(받은 글과 요청 필드는 `GET http://mock-slack:4020/fake/messages`가 돌려준다). 모두 그 가짜가 발급한 bot token만 받는다. `POST http://mock-slack:4020/fake/rate-limits` `{method, retry_after_seconds, times?, after?}`는 그 method가 429와 `Retry-After`로 답하게 하고, `POST http://mock-slack:4020/fake/missing-ts` `{method}`(`chat.postMessage`·`chat.postEphemeral`)는 그 method의 다음 한 번을 ts 없는 `ok:true`로 답하게 한다. `POST http://mock-slack:4020/fake/answers` `{method, status, body}`는 그 method의 다음 한 번을 `status`와 `body`(문자열이면 text, 아니면 JSON)로 답하게 한다. install 실패(5xx, `ok:false`, 스키마가 다른 답)를 재현할 때 쓴다. `POST http://mock-slack:4020/fake/invites` `{app_id, channel_id}`는 그 앱의 bot을 채널에 넣고(`/invite`) `{ok, bot_user_id}`를 돌려준다. `POST http://mock-slack:4020/fake/removals` `{app_id, channel_id}`는 반대로 그 앱의 bot을 채널에서 빼고 `{ok, bot_user_id}`를 돌려준다(그 뒤 비공개 채널은 bot에게 `channel_not_found`로 보인다). `member_joined_channel`·`member_left_channel` 이벤트는 따로 `/fake/events`로 보낸다. 두 이벤트의 순서는 `event.event_ts`(마이크로초)로 가리므로, 순서를 시험할 때는 `event`에 `event_ts`를 직접 넣는다. `POST http://mock-slack:4020/fake/interactions` `{url, app_id, payload}`는 `payload`에 그 앱의 `api_app_id`를 넣어 Slack의 interactivity form(`payload=<JSON>`)으로 서명해 `url`로 보내고 `{ok, status, body}`를 돌려준다. bot의 `chat.update`·`views.open`·`views.update`는 `GET http://mock-slack:4020/fake/updates`가 `{updates, views, viewUpdates}`로 돌려준다.
 
@@ -1030,7 +1029,7 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 | `SLACK_ROLE_BATCH_SIZE` | 10 | claim 한 번에 잡는 행 수 상한 |
 | `SLACK_ROLE_LEASE_SEC` | 60 | claim한 행을 쥐는 시간. 역할이 죽으면 이 시간이 지난 뒤 다른 pass가 이어 잡는다 |
 
-prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_API_URL`·`SLACK_OIDC_*`·`SLACK_EVENTS_PUBLIC_URL`이 api의 설정이기 때문이다.
+prefix가 `SLACK_`가 아니라 `SLACK_ROLE_`인 것은 `SLACK_EVENTS_PUBLIC_URL`이 api의 설정이기 때문이다.
 
 - claim(한 transaction, advisory lock으로 claimer 하나씩): `received`이고, lease가 없거나 끝났고, `next_attempt_at`이 없거나 지났고, 같은 `conversation_key`에 더 이른 `received` 행도, lease가 살아 있는 행도 없는 행을 `(event_time, received_at, id)` 순서로 `FOR UPDATE SKIP LOCKED`로 잡는다. 잡으면 `claim_token`을 새로 쓰고 `lease_expires_at = now() + lease`, `attempts + 1`이다. 그래서 한 스레드에서는 앞 이벤트가 끝나야 다음 이벤트를 잡고(뒤늦게 온 더 이른 이벤트도 처리 중인 이벤트를 기다린다), 다른 스레드는 함께 처리한다.
 - 끝내기·실패 쓰기는 `id`·`claim_token`이 같고 `lease_expires_at > now()`일 때만 쓴다. lease를 잃은 쪽은 아무것도 쓰지 않고 `Slack event lease lost` 한 줄만 남긴다. lease 판정은 모두 DB의 `now()`다(앱 해제의 superseded 판정과 같은 시계).
@@ -1069,8 +1068,9 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 
 | 설정 | 기본 | 의미 |
 |---|---|---|
-| `SLACK_API_URL` | `https://slack.com/api` | bot 호출(`users.info`·`conversations.info`·`agents.sessions.setStatus`·`chat.postMessage`·`chat.postEphemeral`)이 가는 곳. mock overlay는 `http://mock-slack:4020/api` |
-| `SLACK_OIDC_REDIRECT_URI` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)와 답의 세션 링크(`<콘솔 origin>/sessions/<id>`)를 이 값의 origin으로 만든다. 없으면 링크 없이 문구만 남는다 |
+| `CONSOLE_ORIGIN` | 없음 | 안내의 연결 링크(`<콘솔 origin>/settings/linked-accounts`)와 답의 세션 링크(`<콘솔 origin>/sessions/<id>`)를 이 값으로 만든다. 없으면 링크 없이 문구만 남는다 |
+
+`SLACK_API_URL`과 `SLACK_OIDC_ISSUER`는 운영 설정이 아니다. Slack을 가짜로 바꾸는 mock Slack 시험 전용(`infra/compose.mock-slack.yml`)이라 운영 설정 목록에 싣지 않는다. 운영에서 Slack이 아닌 곳을 가리키면 시작할 때 경고를 남기고, 동작은 그대로다.
 
 **Slack outbox**
 

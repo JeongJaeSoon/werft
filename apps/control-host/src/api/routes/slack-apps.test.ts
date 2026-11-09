@@ -163,6 +163,7 @@ function appWith(enabled: boolean) {
           authorization,
           store: enabled ? secrets.store : null,
           tokens,
+          urls: { redirect_url: null, events_url_template: null },
           appKind: async (workspaceId, slackAppId) => {
             kindLookups.push(slackAppId);
             const row = apps.rows.get(slackAppId);

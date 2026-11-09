@@ -18,6 +18,7 @@ import {
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
+  slackPublicUrlsOf,
 } from "@werft-ai/platform";
 import {
   createFakeSlackConfigApi,
@@ -117,6 +118,7 @@ function appWith(enabled: boolean) {
                 api: slack.api,
               })
             : null,
+          urls: slackPublicUrlsOf("https://console.example.test", null),
           appKind: async () => null,
         }),
       ),
@@ -188,6 +190,11 @@ describe("the Slack config token API", () => {
     const read = await call("GET", { cookie: owner });
     expect(slackConfigTokenSummarySchema.parse(read.json)).toMatchObject({
       configured: true,
+      urls: {
+        redirect_url:
+          "https://console.example.test/settings/linked-accounts/slack",
+        events_url_template: null,
+      },
       state: "active",
       issuer: { user_id: "U0ISSUER", team_id: "T0FAKE" },
     });

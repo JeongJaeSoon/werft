@@ -295,18 +295,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
       PLATFORM_SECRET_KEY:
-      # Sign in with Slack, for linking a person's Slack account
-      # (docs/operator/api-server.md). Unset REDIRECT_URI keeps linking off;
-      # it alone is enough when the workspace's link app is used. The client
-      # id and secret are an optional fallback, set as a pair, and also need
-      # REDIRECT_URI.
-      # SLACK_OIDC_ISSUER is for a mock IdP only.
-      SLACK_OIDC_CLIENT_ID: ${SLACK_OIDC_CLIENT_ID:-}
-      SLACK_OIDC_CLIENT_SECRET: ${SLACK_OIDC_CLIENT_SECRET:-}
-      SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
-      # The console's origin, for the GitHub link callback and the session
-      # URL in commits and PRs; empty takes SLACK_OIDC_REDIRECT_URI's origin.
+      # The console's public origin, the one source of the addresses people
+      # and Slack come back to: the GitHub link callback, Sign in with Slack's
+      # redirect, the Slack events address and the session URL in commits and
+      # PRs (docs/operator/api-server.md). Unset keeps Slack linking off.
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
+      # Retired. Passed through for this release only so a stack that still
+      # sets it keeps its origin and gets a startup warning; delete the line
+      # with the fallback in the next release.
+      SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       # The egress proxy's authorizer. Not published and not on
       # any worker allowlist: only the proxy, on this compose network, calls
       # it. Without both the API starts, and every worker's provider and
@@ -589,6 +586,8 @@ services:
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       <<: *installation-limits
+      CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-}
+      # Retired; same one-release pass-through as the api's.
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       BUN_OPTIONS: *pass-loop-bun-options

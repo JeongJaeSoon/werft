@@ -142,13 +142,18 @@ api:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-  # Plain environment variables for the api, name: value. Slack's events
-  # need SLACK_EVENTS_PUBLIC_URL: the https base (no query) Slack reaches
-  # /v1/slack/events/<agent_id> under. Unset, an install leaves the app without
-  # an event subscription (events_url_unset). The Ingress here is in-house
-  # only, so that origin is a separate internet-facing entrance routing just
-  # /v1/slack/events and /v1/slack/interactions (docs/operator/api-server.md).
+  # Plain environment variables for the api, name: value. CONSOLE_ORIGIN is
+  # the console's public origin; Slack's redirect and events addresses are
+  # computed from it (docs/operator/api-server.md). Unset, Slack accounts
+  # cannot be linked and an install leaves the app without an event
+  # subscription (events_url_unset).
+  # Only when this Ingress is in-house and Slack's events enter on a separate
+  # internet-facing entrance routing just /v1/slack/events and
+  # /v1/slack/interactions, set that entrance's https base (no query) as
+  # SLACK_EVENTS_PUBLIC_URL; it replaces the address computed from
+  # CONSOLE_ORIGIN for events.
   #   extraEnv:
+  #     CONSOLE_ORIGIN: https://werft.example.com
   #     SLACK_EVENTS_PUBLIC_URL: https://slack-events.example.com
   extraEnv: {}
 

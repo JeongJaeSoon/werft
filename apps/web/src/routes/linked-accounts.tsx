@@ -632,7 +632,7 @@ export function slackLinkSearch(
 }
 
 /**
- * Where Slack sends the browser back (SLACK_OIDC_REDIRECT_URI). It sits
+ * Where Slack sends the browser back (the console origin plus this path). It sits
  * behind the login, so someone whose session ended signs in and lands here
  * again with the same code.
  */

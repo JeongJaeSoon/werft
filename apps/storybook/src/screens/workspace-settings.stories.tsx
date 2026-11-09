@@ -97,10 +97,16 @@ const OWNER = { user_id: VIEWER.id, display_name: VIEWER.name };
 const ISSUER = { user_id: "U07QF3K2M1A", team_id: "T07QF3J8Z4B" };
 const CHECKED_AT = "2026-10-23T04:58:00Z";
 
+const ADDRESSES = {
+  redirect_url: "https://werft.example/settings/linked-accounts/slack",
+  events_url_template: "https://werft.example/v1/slack/events/{agent_id}",
+};
+
 // GET /v1/workspaces/{id}/slack/config-token.
 const TOKEN: Record<SlackConfigTokenSummary["state"], SlackConfigTokenSummary> =
   {
     active: {
+      urls: ADDRESSES,
       state: "active",
       configured: true,
       last4: "a9Qe",
@@ -110,6 +116,7 @@ const TOKEN: Record<SlackConfigTokenSummary["state"], SlackConfigTokenSummary> =
       issuer: ISSUER,
     },
     needs_reentry: {
+      urls: ADDRESSES,
       state: "needs_reentry",
       configured: true,
       last4: "a9Qe",
@@ -119,6 +126,7 @@ const TOKEN: Record<SlackConfigTokenSummary["state"], SlackConfigTokenSummary> =
       issuer: ISSUER,
     },
     unset: {
+      urls: ADDRESSES,
       state: "unset",
       configured: false,
       last4: null,
