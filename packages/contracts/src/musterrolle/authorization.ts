@@ -343,6 +343,9 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "agent.restore",
   "agent.admin.manage",
   "credential.bind",
+  // User variables (E-41): a workspace's own, and one agent's.
+  "variable.workspace.manage",
+  "variable.agent.manage",
   "binding.manage",
   "binding.approve",
   "routine.manage",
@@ -419,6 +422,8 @@ const ACTION_RESOURCE_KINDS: Record<
   "agent.restore": new Set(["agent"]),
   "agent.admin.manage": new Set(["agent"]),
   "credential.bind": new Set(["agent"]),
+  "variable.workspace.manage": new Set(["workspace"]),
+  "variable.agent.manage": new Set(["agent"]),
   "binding.manage": new Set(["workspace", "agent", "surface_binding"]),
   "binding.approve": new Set(["workspace", "agent", "surface_binding"]),
   "routine.manage": new Set(["workspace", "agent", "routine"]),

@@ -20,9 +20,9 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
+  Heading,
   Input,
   Link,
-  Page,
   RadioGroup,
   RadioGroupItem,
 } from "@werft-ai/ui";
@@ -30,6 +30,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import type { Translate } from "../i18n/i18n.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { IntegrationsLayout } from "./integrations.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
@@ -327,7 +328,7 @@ export function gitHubNewAppSearch(
  */
 export function GitHubNewAppCallback() {
   const search = useSearch({
-    from: "/authed/settings/workspace/github/new-app",
+    from: "/authed/settings/workspace/integrations/github/new-app",
   });
   // Kept from the first render: the address bar loses them right after.
   const [sent] = useState(() => search);
@@ -373,7 +374,7 @@ export function GitHubNewAppCallback() {
     if (!missing) complete.mutate();
     // Through the router, so its own location drops them too.
     void navigate({
-      to: "/settings/workspace/github/new-app",
+      to: "/settings/workspace/integrations/github/new-app",
       search: {},
       replace: true,
     });
@@ -404,7 +405,7 @@ export function GitHubNewAppCallback() {
             </Link>
           ) : null}
           <Button asChild variant="outline">
-            <RouterLink to="/settings/workspace/github">
+            <RouterLink to="/settings/workspace/integrations/github">
               {t("github.newApp.back")}
             </RouterLink>
           </Button>
@@ -414,12 +415,12 @@ export function GitHubNewAppCallback() {
   );
 }
 
-/** Kept apart from the body so a tab layout can host the body without this frame. */
 export function GitHubNewAppRoute() {
   const { t } = useI18n();
   return (
-    <Page title={t("github.newApp")}>
+    <IntegrationsLayout tab="github">
+      <Heading level={2}>{t("github.newApp")}</Heading>
       <GitHubNewAppCallback />
-    </Page>
+    </IntegrationsLayout>
   );
 }

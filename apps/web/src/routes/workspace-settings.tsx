@@ -51,41 +51,21 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
 // GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
 // a title over a rule, labels above their fields and help under them.
-const SECTIONS = "flex flex-col gap-[var(--werft-space-section)]";
+export const SECTIONS = "flex flex-col gap-[var(--werft-space-section)]";
 const ICON = "size-3.5 shrink-0";
 export const SETTINGS_CARD = "flex flex-col gap-4";
 
 export type OnOutcome = (outcome: Outcome | null) => void;
 
-export function WorkspacePage({
-  page,
-  children,
-}: {
-  readonly page: "general" | "slack" | "github";
-  readonly children: ReactNode;
-}) {
+export function WorkspacePage({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   const workspaceManage = useHasPermission("workspace.manage");
   const retentionManage = useHasPermission("audit_retention.manage");
   const editable = workspaceManage || retentionManage;
   return (
     <Page
-      title={t(
-        page === "general"
-          ? "workspace.general"
-          : page === "slack"
-            ? "workspace.slack"
-            : "github.nav",
-      )}
-      description={t(
-        page === "slack"
-          ? "workspace.slackDescription"
-          : page === "github"
-            ? "github.description"
-            : editable
-              ? "workspace.description"
-              : "workspace.readOnly",
-      )}
+      title={t("workspace.general")}
+      description={t(editable ? "workspace.description" : "workspace.readOnly")}
     >
       <div className={SECTIONS}>{children}</div>
     </Page>
@@ -99,7 +79,7 @@ export function WorkspaceSettingsScreen() {
   const retentionManage = useHasPermission("audit_retention.manage");
   const editable = workspaceManage || retentionManage;
   return (
-    <WorkspacePage page="general">
+    <WorkspacePage>
       <OutcomeLine outcome={outcome} />
       <Basics />
       <AllowedModels />

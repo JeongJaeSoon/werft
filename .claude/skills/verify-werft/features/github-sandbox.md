@@ -17,7 +17,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 ## How to get to it (user POV)
 
-- 웹: 설정 › 워크스페이스 › GitHub 연결(App 등록·상한), 에이전트 상세 GitHub 탭. 이 파일은 같은 API를 cookie와 key로 몬다. 화면은 [web-settings.md](./web-settings.md)·[web-members-agents.md](./web-members-agents.md)의 `browser.mjs`로 본다.
+- 웹: 설정 › 연동 › GitHub(`/settings/workspace/integrations/github`, App 등록·상한), 에이전트 상세 GitHub 탭. 이 파일은 같은 API를 cookie와 key로 몬다. 화면은 [web-settings.md](./web-settings.md)·[web-members-agents.md](./web-members-agents.md)의 `browser.mjs`로 본다.
 - push·PR·dispatch는 콘솔에 화면이 없다. 세션 API로만 한다.
 - GitHub 쪽 확인과 정리는 이 머신에 로그인된 `gh`로 한다.
 

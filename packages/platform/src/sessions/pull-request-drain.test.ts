@@ -185,7 +185,12 @@ function harness(
     catalog: CATALOG,
     gate,
     redact: (line) => line,
-    attribution: { attribution: async () => null },
+    attribution: {
+      attribution: async () => null,
+      githubLinkOf: async () => null,
+      lastRequesterOf: async () => null,
+      requesterOfPushRequest: async () => null,
+    },
     settings: {
       get: async () => ({
         settings: DEFAULT_PULL_REQUEST_SETTINGS,

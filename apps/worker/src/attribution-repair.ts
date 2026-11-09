@@ -27,7 +27,10 @@ const GIT_TIMEOUT_MS = 30_000;
  * they were made under earlier claims, so they are neither remade nor judged
  * against this claim's values.
  */
-type Ran = { protectedCommits: readonly string[] };
+type Ran = {
+  protectedCommits: readonly string[];
+  head?: string | undefined;
+};
 
 export type RepairOutcome =
   | ({ status: "clean" } & Ran)
@@ -54,6 +57,42 @@ export function claimExpectation(
   };
 }
 
+type CoAuthor = { name: string; email: string } | null;
+
+const turnCoAuthors = new WeakMap<object, Map<string, CoAuthor>>();
+
+export function noteTurnCoAuthor(claim: object, coAuthor: CoAuthor): void {
+  const seen = turnCoAuthors.get(claim) ?? new Map<string, CoAuthor>();
+  seen.set(
+    coAuthor === null ? "" : `${coAuthor.name}\n${coAuthor.email}`,
+    coAuthor,
+  );
+  turnCoAuthors.set(claim, seen);
+}
+
+/**
+ * Every bundle a commit of this claim may carry: the claim's own, and one for
+ * each co-author a turn named. The server keeps the same set for the push.
+ */
+export function claimExpectations(
+  claim: Pick<
+    BootstrapClaimResponse,
+    "session_id" | "git" | "git_author" | "git_issued"
+  >,
+): AttributionExpectation[] {
+  const base = claimExpectation(claim);
+  if (base === null) return [];
+  const issued = (claim.git_issued ?? []).map((bundle) => ({
+    author: bundle.author,
+    coAuthor: bundle.co_author,
+    agentSession: bundle.agent_session,
+  }));
+  const turns = [...(turnCoAuthors.get(claim)?.values() ?? [])].map(
+    (coAuthor) => ({ ...base, coAuthor }),
+  );
+  return [base, ...issued, ...turns];
+}
+
 /**
  * At a turn's end, with the checkpoint lease held and the engine stopped:
  * remakes this session's own commits whose attribution is wrong. The tool
@@ -70,6 +109,7 @@ export async function repairAttribution(input: {
   scope: WorkerScope;
   /** A directory this call may write one file into. */
   spool: string;
+  judged?: readonly string[];
   logger: WorkerLogger;
 }): Promise<RepairOutcome> {
   const { tool, gateway } = input;
@@ -90,7 +130,10 @@ export async function repairAttribution(input: {
     };
   }
   const file = `${input.spool}/protected-commits`;
-  await writeFile(file, `${commits.join("\n")}\n`);
+  await writeFile(
+    file,
+    `${[...commits, ...(input.judged ?? [])].join("\n")}\n`,
+  );
   try {
     const { stdout } = await run(tool, [input.root, file], {
       env: {
@@ -105,9 +148,17 @@ export async function repairAttribution(input: {
       timeout: REPAIR_TIMEOUT_MS,
     });
     const line = stdout.trim();
+    const head = await run("git", ["rev-parse", "HEAD"], {
+      cwd: input.root,
+      env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
+      timeout: GIT_TIMEOUT_MS,
+    }).then(
+      ({ stdout: tip }) => tip.trim(),
+      () => undefined,
+    );
     return line.startsWith("repaired ")
-      ? { status: "repaired", protectedCommits: commits }
-      : { status: "clean", protectedCommits: commits };
+      ? { status: "repaired", protectedCommits: commits, head }
+      : { status: "clean", protectedCommits: commits, head };
   } catch (error) {
     const failure = error as { code?: number; stdout?: string };
     if (failure.code === 2) {
@@ -134,7 +185,7 @@ export async function repairAttribution(input: {
 export async function workspaceMismatches(input: {
   root: string;
   tip: string;
-  expectation: AttributionExpectation | null;
+  expectations: readonly AttributionExpectation[];
   stripEmails: readonly string[];
   /**
    * The server's protected commits, made under earlier claims whose values
@@ -143,7 +194,9 @@ export async function workspaceMismatches(input: {
    */
   protectedCommits: readonly string[] | null;
 }): Promise<AttributionMismatch[]> {
-  if (input.expectation === null || input.protectedCommits === null) return [];
+  if (input.expectations.length === 0 || input.protectedCommits === null) {
+    return [];
+  }
   try {
     const git = async (args: readonly string[]) => {
       try {
@@ -200,7 +253,7 @@ export async function workspaceMismatches(input: {
     const judged = await rangeAttribution(git, {
       tip: input.tip,
       not: ["--remotes", ...held],
-      expectations: [input.expectation],
+      expectations: input.expectations,
       stripEmails: input.stripEmails,
       trailersOf: isolatedTrailers,
     });

@@ -257,6 +257,91 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     }
   });
 
+  describe("a turn's requester (94S-1304)", () => {
+    const octocat = {
+      name: "octocat",
+      email: "583231+octocat@users.noreply.github.com",
+    };
+    const git = { co_author: null, session_url: "https://c/s/1" };
+
+    async function runTurns(
+      inputs: { coAuthor?: typeof octocat | null }[],
+      writes: (given: unknown, calls: number) => Promise<void>,
+    ) {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => finish(run, sent);
+      const gateway = new FakeWorkerGateway();
+      const claim = gateway.bootstrapClaim.bind(gateway);
+      gateway.bootstrapClaim = async (request) => ({
+        ...(await claim(request)),
+        git,
+      });
+      const handed: unknown[] = [];
+      const warnings: string[] = [];
+      const worker = new WorkerHost({
+        checkpoints: unwiredCheckpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        gateway,
+        gitTrailers: async (given) => {
+          handed.push(given.git?.co_author);
+          await writes(given.git?.co_author, handed.length);
+        },
+        logger: {
+          info: () => {},
+          warn: (event) => warnings.push(event),
+          error: () => {},
+        },
+        runtimes: { launcherFor: () => ({ start: () => run }) },
+        timeouts,
+        workspace: noWorkspace,
+      });
+      for (const input of inputs) gateway.enqueue("go", input);
+      const summary = await worker.runLoop();
+      return { handed, warnings, summary };
+    }
+
+    test("the files change at each turn's start, so one claim's turns name their own requesters", async () => {
+      const { handed, summary } = await runTurns(
+        [{ coAuthor: null }, { coAuthor: octocat }, { coAuthor: null }],
+        async () => {},
+      );
+      expect(handed).toEqual([null, null, octocat, null]);
+      expect(summary.turns.map((turn) => turn.status)).toEqual([
+        "completed",
+        "completed",
+        "completed",
+      ]);
+    });
+
+    test("an old control host sends no field: the claim's files stand", async () => {
+      const { handed } = await runTurns([{}, {}], async () => {});
+      expect(handed).toEqual([null]);
+    });
+
+    test("an input without the field after one that had it goes back to the claim's value", async () => {
+      const { handed } = await runTurns(
+        [{ coAuthor: octocat }, {}],
+        async () => {},
+      );
+      expect(handed).toEqual([null, octocat, null]);
+    });
+
+    test("a turn whose files cannot be written is not started", async () => {
+      const { handed, warnings, summary } = await runTurns(
+        [{ coAuthor: octocat }],
+        async (_given, calls) => {
+          if (calls > 1) throw new Error("read-only home");
+        },
+      );
+      expect(handed[1]).toEqual(octocat);
+      expect(warnings).toContain("worker.git_trailers.turn_not_started");
+      expect(summary.turns).toEqual([]);
+      // The attempt stops instead of being handed the same input again.
+      expect(summary.outcome).toBe("failed");
+      expect(handed).toHaveLength(2);
+    });
+  });
+
   test("starts the engine with the git settings made from its claim", async () => {
     const git_author = {
       name: "werft-dev[bot]",

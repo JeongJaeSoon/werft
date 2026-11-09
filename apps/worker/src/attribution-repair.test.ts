@@ -18,6 +18,8 @@ import {
 import { ATTRIBUTION_PROBLEMS } from "@werft-ai/runtime-core";
 import {
   claimExpectation,
+  claimExpectations,
+  noteTurnCoAuthor,
   repairAttribution,
   workspaceMismatches,
 } from "./attribution-repair.ts";
@@ -257,6 +259,186 @@ describe("repairAttribution", () => {
     expect(git(["rev-parse", "HEAD"])).not.toBe(wrong);
     expect(git(["log", "-1", "--format=%an"])).toBe(BOT.name);
   });
+
+  test("a later turn's repair does not give its co-author to commits an earlier turn's repair judged (94S-1304)", async () => {
+    writeFileSync(
+      join(root, "gitconfig"),
+      `[user]\n\tname = Werft\n\temail = noreply@werft.invalid\n[include]\n\tpath = ~/${GIT_IDENTITY_PATH}\n`,
+    );
+    const octocat = {
+      name: "octocat",
+      email: "583231+octocat@users.noreply.github.com",
+    };
+    const turn = (co_author: typeof octocat | null) =>
+      writeGitTrailers(home, {
+        session_id: SESSION_ID,
+        git: { co_author, session_url: "https://c/s/1" },
+        git_author: BOT,
+        git_strip: ENGINE_COAUTHOR_EMAILS,
+      });
+    const repair = async (judged: readonly string[]) => {
+      process.env.GIT_CONFIG_SYSTEM = join(root, "gitconfig");
+      try {
+        return await repairAttribution({
+          ...base,
+          root: repo,
+          home,
+          spool,
+          tool: TOOL,
+          gateway: { protectedCommits: async () => ({ commits: [] }) },
+          judged,
+        });
+      } finally {
+        delete process.env.GIT_CONFIG_SYSTEM;
+      }
+    };
+    const coAuthors = (revision: string) =>
+      git(["show", "-s", "--format=%B", revision])
+        .split("\n")
+        .filter((line) => line.startsWith("Co-authored-by:"));
+
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    await turn(null);
+    commit("turn 1 work");
+    const first = await repair([]);
+    expect(first.status).toBe("repaired");
+    const judgedTip = "head" in first ? first.head : undefined;
+    expect(judgedTip).toBe(git(["rev-parse", "HEAD"]));
+    await turn(octocat);
+    commit("turn 2 work");
+    const second = await repair(judgedTip === undefined ? [] : [judgedTip]);
+    expect(second.status).toBe("repaired");
+    expect(coAuthors("HEAD~1")).toEqual([]);
+    expect(coAuthors("HEAD")).toEqual([
+      `Co-authored-by: ${octocat.name} <${octocat.email}>`,
+    ]);
+    expect(git(["show", "-s", "--format=%B", "HEAD"])).toContain(
+      "Agent-Session: https://c/s/1",
+    );
+  });
+
+  test("a commit remade after its turn keeps its own co-author when another requester's repair runs", async () => {
+    writeFileSync(
+      join(root, "gitconfig"),
+      `[user]\n\tname = Werft\n\temail = noreply@werft.invalid\n[include]\n\tpath = ~/${GIT_IDENTITY_PATH}\n`,
+    );
+    const octocat = {
+      name: "octocat",
+      email: "583231+octocat@users.noreply.github.com",
+    };
+    const hubot = {
+      name: "hubot",
+      email: "1+hubot@users.noreply.github.com",
+    };
+    const turn = (co_author: typeof octocat) =>
+      writeGitTrailers(home, {
+        session_id: SESSION_ID,
+        git: { co_author, session_url: "https://c/s/1" },
+        git_author: BOT,
+        git_strip: ENGINE_COAUTHOR_EMAILS,
+      });
+    const repair = async (judged: readonly string[]) => {
+      process.env.GIT_CONFIG_SYSTEM = join(root, "gitconfig");
+      try {
+        return await repairAttribution({
+          ...base,
+          root: repo,
+          home,
+          spool,
+          tool: TOOL,
+          gateway: { protectedCommits: async () => ({ commits: [] }) },
+          judged,
+        });
+      } finally {
+        delete process.env.GIT_CONFIG_SYSTEM;
+      }
+    };
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    await turn(octocat);
+    commit("octocat's work");
+    const first = await repair([]);
+    const judgedTip = "head" in first ? first.head : undefined;
+    // The next turn rewrites that commit (a rebase onto new work does the
+    // same): its hash is no longer under the judged tip.
+    await turn(hubot);
+    git([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "user.name=someone",
+      "-c",
+      "user.email=a@b.c",
+      "commit",
+      "-q",
+      "--amend",
+      "--no-edit",
+      "--reset-author",
+    ]);
+    expect(git(["rev-parse", "HEAD"])).not.toBe(judgedTip);
+    await repair(judgedTip === undefined ? [] : [judgedTip]);
+    const trailers = git(["show", "-s", "--format=%B", "HEAD"])
+      .split("\n")
+      .filter((line) => line.startsWith("Co-authored-by:"));
+    expect(trailers).toEqual([
+      `Co-authored-by: ${octocat.name} <${octocat.email}>`,
+    ]);
+  });
+});
+
+describe("claimExpectations", () => {
+  const claim = {
+    session_id: SESSION_ID,
+    git: { co_author: null, session_url: "https://c/s/1" },
+    git_author: BOT,
+  };
+  const octocat = {
+    name: "octocat",
+    email: "583231+octocat@users.noreply.github.com",
+  };
+
+  test("is the claim's bundle alone until a turn names a co-author", () => {
+    expect(claimExpectations(claim)).toEqual([
+      { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
+    ]);
+  });
+
+  test("a restarted claim carries the bundles the server issued, as issued", () => {
+    const earlier = {
+      name: "grace",
+      email: "2+grace@users.noreply.github.com",
+    };
+    const old = { name: "Werft", email: "noreply@werft.invalid" };
+    expect(
+      claimExpectations({
+        ...claim,
+        git_issued: [
+          { author: old, co_author: earlier, agent_session: "https://c/s/1" },
+          { author: BOT, co_author: null, agent_session: "https://c/s/1" },
+        ],
+      }),
+    ).toEqual([
+      { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
+      { author: old, coAuthor: earlier, agentSession: "https://c/s/1" },
+      { author: BOT, coAuthor: null, agentSession: "https://c/s/1" },
+    ]);
+  });
+
+  test("adds one bundle for each co-author the turns named, once", () => {
+    noteTurnCoAuthor(claim, octocat);
+    noteTurnCoAuthor(claim, octocat);
+    noteTurnCoAuthor(claim, null);
+    expect(claimExpectations(claim).map((e) => e.coAuthor)).toEqual([
+      null,
+      octocat,
+      null,
+    ]);
+  });
+
+  test("a claim that asks for nothing checkable stays unchecked", () => {
+    const bare = { session_id: SESSION_ID };
+    noteTurnCoAuthor(bare, octocat);
+    expect(claimExpectations(bare)).toEqual([]);
+  });
 });
 
 describe("workspaceMismatches", () => {
@@ -273,7 +455,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation,
+        expectations: [expectation],
         stripEmails: [],
         protectedCommits: [],
       }),
@@ -288,7 +470,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation,
+        expectations: [expectation],
         stripEmails: [],
         protectedCommits: [earlier, "f".repeat(40)],
       }),
@@ -305,11 +487,13 @@ describe("workspaceMismatches", () => {
       workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation: {
-          author: { name: "good", email: "a@b.c" },
-          coAuthor: null,
-          agentSession: null,
-        },
+        expectations: [
+          {
+            author: { name: "good", email: "a@b.c" },
+            coAuthor: null,
+            agentSession: null,
+          },
+        ],
         stripEmails: [],
         protectedCommits,
       });
@@ -336,7 +520,7 @@ describe("workspaceMismatches", () => {
     await workspaceMismatches({
       root: repo,
       tip: "HEAD",
-      expectation,
+      expectations: [expectation],
       stripEmails: [],
       protectedCommits: ["e".repeat(40)],
     });
@@ -350,7 +534,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation,
+        expectations: [expectation],
         stripEmails: [],
         protectedCommits: null,
       }),
@@ -363,7 +547,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation,
+        expectations: [expectation],
         stripEmails: [],
         protectedCommits: [],
       }),
@@ -381,11 +565,13 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation: {
-          author: { name: "good", email: "a@b.c" },
-          coAuthor: null,
-          agentSession: "s1",
-        },
+        expectations: [
+          {
+            author: { name: "good", email: "a@b.c" },
+            coAuthor: null,
+            agentSession: "s1",
+          },
+        ],
         stripEmails: ["noreply@anthropic.com"],
         protectedCommits: [],
       }),
@@ -398,7 +584,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: repo,
         tip: "HEAD",
-        expectation: null,
+        expectations: [],
         stripEmails: [],
         protectedCommits: [],
       }),
@@ -411,7 +597,7 @@ describe("workspaceMismatches", () => {
       await workspaceMismatches({
         root: join(root, "missing"),
         tip,
-        expectation,
+        expectations: [expectation],
         stripEmails: [],
         protectedCommits: [],
       }),

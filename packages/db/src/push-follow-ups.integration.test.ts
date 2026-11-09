@@ -22,11 +22,13 @@ import * as schema from "./schema.ts";
 import {
   pullRequests,
   pushFollowUps,
+  pushIntents,
   pushRequests,
   receipts,
   sessions,
   turns,
   unassignedSessions,
+  users,
 } from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -276,6 +278,49 @@ integration("push follow-ups on PostgreSQL", () => {
     const next = await gateway.nextInput(worker.principal, worker.scope);
     expect(next.input?.message).toBe(MESSAGE);
     expect(await db.select().from(pushFollowUps)).toEqual([]);
+  });
+
+  test("the follow-up turn keeps the person who asked for the push as its actor", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const [asker] = await db
+      .insert(users)
+      .values({
+        id: crypto.randomUUID(),
+        email: `${crypto.randomUUID()}@example.invalid`,
+        passwordHash: "x",
+        displayName: "asker",
+      })
+      .returning({ id: users.id });
+    await db
+      .update(turns)
+      .set({ actorId: asker?.id ?? null })
+      .where(eq(turns.sessionId, sessionId));
+    const push = await pushRequest(ownerId, sessionId);
+    const [asked] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    await db.insert(pushIntents).values({
+      id: crypto.randomUUID(),
+      ownerId,
+      sessionId,
+      turnId: asked?.id ?? 0,
+      attemptId: worker.scope.attempt_id,
+      repositoryId: "sample-app",
+      targetBranch: `agent/${sessionId}`,
+      status: "requested",
+      pinnedRevision: 0,
+      pushRequestId: push,
+      actor: { kind: "user", id: "u" },
+    });
+    expect(await hold(sessionId, push)).toBe("held");
+
+    await finalize(worker, turnId, 0);
+
+    expect((await turnsOf(sessionId)).map((t) => t.actorId)).toEqual([
+      asker?.id ?? null,
+      asker?.id ?? null,
+    ]);
   });
 
   test("a running turn that opens the pull request leaves no follow-up turn", async () => {

@@ -1,5 +1,4 @@
 export const githubKo = {
-  "github.nav": "GitHub 연결 설정",
   "github.description":
     "에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub 연결입니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다.",
   "github.newTab": "(새 탭에서 열림)",
@@ -125,7 +124,7 @@ export const githubKo = {
   "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
   "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
   "github.newApp.stateInvalid":
-    "이 링크는 만료되었거나 이미 쓰였습니다. GitHub 연결에서 다시 시작하세요.",
+    "이 링크는 만료되었거나 이미 쓰였습니다. 연동 › GitHub에서 다시 시작하세요.",
   "github.newApp.codeRejected":
     "GitHub가 이 요청을 받지 않았습니다(만료되었거나 이미 쓰였습니다). 다시 시작하세요.",
   "github.newApp.changed":
@@ -133,7 +132,7 @@ export const githubKo = {
   "github.newApp.storeFailed":
     "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 개인 키를 만들어 '이미 있는 App 연결'로 연결하세요.",
   "github.newApp.openApp": "GitHub에서 App 열기",
-  "github.newApp.back": "GitHub 연결 설정으로",
+  "github.newApp.back": "연동 › GitHub로",
   "github.install.done": "GitHub 설치를 연결했습니다.",
   "github.install.stateInvalid":
     "설치는 GitHub에 있지만, 시작한 지 1시간이 지났거나 이미 쓰인 링크라 연결한 사람을 기록하지 않았습니다.",
@@ -292,7 +291,6 @@ export const githubKo = {
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
-  "github.nav": "GitHub connection",
   "github.description":
     "The GitHub connection agents use to clone repositories, push approved results and open pull requests. Each agent picks its repositories in its own GitHub tab.",
   "github.newTab": "(opens in a new tab)",
@@ -419,7 +417,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.working": "Storing the App created on GitHub.",
   "github.newApp.done": "Saved the App. Going to the install screen.",
   "github.newApp.stateInvalid":
-    "This link has expired or was already used. Start again from GitHub connection.",
+    "This link has expired or was already used. Start again from Integrations › GitHub.",
   "github.newApp.codeRejected":
     "GitHub did not accept this request (it expired or was already used). Start again.",
   "github.newApp.changed":
@@ -427,7 +425,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.storeFailed":
     "The App was created on GitHub but its key could not be stored. Generate a new private key in the App's settings and connect it with 'Connect an existing App'.",
   "github.newApp.openApp": "Open the App on GitHub",
-  "github.newApp.back": "Back to GitHub settings",
+  "github.newApp.back": "Back to Integrations › GitHub",
   "github.install.done": "Connected the GitHub installation.",
   "github.install.stateInvalid":
     "The installation is on GitHub, but the link was over an hour old or already used, so who connected it was not recorded.",
@@ -590,7 +588,6 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
-  "github.nav": "GitHub 連携設定",
   "github.description":
     "エージェントがリポジトリを clone し、承認された結果を push し、PR を開くときに使う GitHub 連携です。エージェントごとに使うリポジトリは、エージェントの GitHub タブで選びます。",
   "github.newTab": "(新しいタブで開きます)",
@@ -717,7 +714,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.working": "GitHub で作成した App を保存しています。",
   "github.newApp.done": "App を保存しました。インストール画面に移動します。",
   "github.newApp.stateInvalid":
-    "このリンクは期限切れか、すでに使われています。GitHub 連携からやり直してください。",
+    "このリンクは期限切れか、すでに使われています。連携 › GitHub からやり直してください。",
   "github.newApp.codeRejected":
     "GitHub がこのリクエストを受け付けませんでした (期限切れか使用済み)。やり直してください。",
   "github.newApp.changed":
@@ -725,7 +722,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.storeFailed":
     "App は GitHub に作成されましたが、鍵を保存できませんでした。App 設定で新しい秘密鍵を作成し、「既存の App を接続」で接続してください。",
   "github.newApp.openApp": "GitHub で App を開く",
-  "github.newApp.back": "GitHub 連携設定に戻る",
+  "github.newApp.back": "連携 › GitHub に戻る",
   "github.install.done": "GitHub のインストールを接続しました。",
   "github.install.stateInvalid":
     "インストールは GitHub にありますが、開始から 1 時間が過ぎたか使用済みのリンクのため、接続した人を記録しませんでした。",

@@ -18,6 +18,7 @@ import {
   createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresEnvVariableStore,
   createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
@@ -87,6 +88,7 @@ import {
   createAuthorizationPolicy,
   createCredentialBindingService,
   createDecisionsClient,
+  createEnvVariableService,
   createGitHubAppService,
   createGitHubConnectionResolver,
   createGitHubGate,
@@ -232,6 +234,7 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerCloseRoutes } from "./routes/close.ts";
 import { registerCredentialBindingRoutes } from "./routes/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/env-variables.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerGitHubAppRoutes } from "./routes/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github-packages.ts";
@@ -733,6 +736,10 @@ const slackLinkApps = createSlackLinkAppService({
 const credentialBindingService = createCredentialBindingService({
   authorization,
   store: credentialBindings,
+});
+const envVariableService = createEnvVariableService({
+  authorization,
+  store: createPostgresEnvVariableStore(db),
 });
 const apiKeys = createApiKeyService({
   authorization,
@@ -1366,6 +1373,7 @@ const app = createApiApp({
     registerApiKeyRoutes(router, apiKeys);
     registerTeamRoutes(router, teams, agentAdmins);
     registerCredentialBindingRoutes(router, credentialBindingService);
+    registerEnvVariableRoutes(router, envVariableService);
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,
