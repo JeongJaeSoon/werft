@@ -2087,14 +2087,52 @@ describe("Slack management", () => {
       ),
     ).toBeDefined();
   });
-  test("does not call an unnamed non-retryable 503 a secret store problem", async () => {
+  test("shows the code of an unknown reason instead of try-again or the secret store", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "new cause", false, {
+          reason_code: "something_new",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: something_new). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+    expect(document.body.textContent).not.toContain("잠시 뒤 다시 시도");
+  });
+  test("shows the error code when a non-retryable 503 names no reason", async () => {
     renderAt(DETAIL, {
       ...routes(),
       [`GET ${PATH}/slack/app`]: () =>
         apiError(503, "BACKEND_UNAVAILABLE", "unavailable"),
     });
-    await screen.findByText("오류");
+    expect(
+      await screen.findByText(
+        "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: BACKEND_UNAVAILABLE). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
     expect(document.body.textContent).not.toContain("비밀 저장소");
+  });
+  test("names Slack's refusal and the unset events address in Japanese", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
+            reason_code: "events_url_unset",
+          }),
+      },
+      "ja",
+    );
+    expect(
+      await screen.findByText(
+        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN(イベントをコンソールと別に受ける場合は SLACK_EVENTS_PUBLIC_URL)の設定を依頼してください。",
+      ),
+    ).toBeDefined();
   });
   test("keeps the try-again text for a 503 a retry can clear", async () => {
     renderAt(DETAIL, {

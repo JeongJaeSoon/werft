@@ -30,6 +30,8 @@ export const slackEn = {
     "Slack app creation needs workspace configuration. Ask an administrator to configure it.",
   "slack.error.refused":
     "Slack refused the request (code: {code}). Give the code to an administrator.",
+  "slack.error.unknown":
+    "The request could not be processed, and trying again may not help (code: {code}). Give the code to an administrator.",
   "slack.error.consoleOrigin":
     "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
   "slack.error.eventsUrl":
