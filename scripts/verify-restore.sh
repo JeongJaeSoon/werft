@@ -22,6 +22,16 @@
 # incompatible. Without --image each plan is asked with the checkpoint's own
 # runtime, and the image check is printed as SKIP.
 #
+# --record (with --image) writes one checkpoint_restore_check row per live
+# checkpoint of the image's engine build: ok, mismatch or error, bound to the
+# manifest sha256 it read and the image's content id. A checkpoint a pointer
+# names is judged by its restore plan; the others by whether their digest is
+# one the image offers for the session. One sealed on another engine build is
+# left for the image of that build, so run once per retained image.
+# assert_checkpoint_restore_verified() (migration 0255) then passes only when
+# every live checkpoint's latest check is ok; the migration that deletes the
+# profile tables calls it.
+#
 # Exit 0 when every row passes, 5 when any fails. A database with no
 # checkpoints passes with a warning: there was nothing to disagree.
 #
@@ -30,7 +40,7 @@
 #
 # Usage: scripts/verify-restore.sh --project <project> [--bucket claude-sessions]
 #                                  [--object-store localstack|env]
-#                                  [--image <worker image>]
+#                                  [--image <worker image> [--record]]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -38,9 +48,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 PROJECT=""
 BUCKET=claude-sessions
 IMAGE=""
+RECORD=""
 
 usage() {
-  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -50,16 +61,19 @@ while [ $# -gt 0 ]; do
     --bucket) BUCKET="$2"; shift 2 ;;
     --object-store) set_object_store "$2"; shift 2 ;;
     --image) [ -n "${2:-}" ] || usage; IMAGE="$2"; shift 2 ;;
+    --record) RECORD=1; shift ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
 done
 [ -n "$PROJECT" ] || usage
 require_tools docker jq git bun
+[ -z "$RECORD" ] || [ -n "$IMAGE" ] || die "--record needs --image: only a worker image can say whether it restores a checkpoint"
 PLANS_ARGS=()
 if [ -n "$IMAGE" ]; then
   log "verify: plans asked for image $IMAGE with the database's settings"
   PLANS_ARGS=(--image "$IMAGE")
+  [ -z "$RECORD" ] || PLANS_ARGS+=(--record)
 fi
 
 WORK="$(mktemp -d)"

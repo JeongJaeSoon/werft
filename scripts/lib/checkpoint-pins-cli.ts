@@ -45,6 +45,7 @@ import {
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
+  candidatesDigest,
   captureArchiveObjects,
   captureCheckpointObjects,
   claimedSessionOf,
@@ -58,6 +59,7 @@ import {
   planRuntime,
   restoreClaims,
   type SessionRow,
+  sealedMatchesCandidates,
   sessionClaim,
   sha256Hex,
 } from "./checkpoint-pins.ts";
@@ -72,8 +74,11 @@ function env(name: string): string {
 }
 
 const [command, objectsDir, imageName, ...extra] = process.argv.slice(2);
+// Only a run against an image can say whether the image set that stays can
+// restore a checkpoint, so only that run is recorded.
+const record = extra.length === 1 && extra[0] === "--record";
 if (
-  extra.length > 0 ||
+  (extra.length > 0 && !(record && objectsDir === "--image")) ||
   !(
     (command === "capture" && objectsDir && imageName === undefined) ||
     (command === "repin" && objectsDir && imageName === undefined) ||
@@ -82,7 +87,7 @@ if (
   )
 ) {
   console.error(
-    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--image <worker image>]",
+    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--image <worker image> [--record]]",
   );
   process.exit(2);
 }
@@ -282,11 +287,12 @@ async function plans(image: { name: string } | undefined): Promise<number> {
   const { rows: pointers } = await pool.query<
     SessionRow & {
       manifest_ref: string | null;
+      manifest_sha256: string | null;
       manifest_version: string | null;
       revision: number;
     }
   >(
-    `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
+    `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_sha256, c.manifest_version,
             s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
             s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools,
             r.policy_pins ? 'github' AS release_github,
@@ -358,12 +364,107 @@ async function plans(image: { name: string } | undefined): Promise<number> {
     }
     imageRuntime = await readImageRuntime(image.name, claims);
   }
+  // The checkpoints a restore may fall back to carry no plan of their own:
+  // the digest they were sealed with must be one the image offers for the
+  // session, the way the worker matches it.
+  const fallbackVerdict = async (
+    row: CheckpointRow,
+    target: ImageRuntime,
+  ): Promise<
+    | { ok: true; offered: string }
+    | {
+        ok: false;
+        outcome: RestoreCheck["outcome"] | "other_build";
+        detail: string;
+        offered?: string;
+      }
+  > => {
+    const claimError = claimErrors.get(row.sessionId);
+    if (claimError !== undefined) {
+      return {
+        ok: false,
+        outcome: "error",
+        detail: `no claim for the target image: ${claimError}`,
+      };
+    }
+    const bytes = await objects.get(
+      row.manifestRef,
+      row.manifestVersion ?? undefined,
+    );
+    if (bytes === undefined) {
+      return {
+        ok: false,
+        outcome: "error",
+        detail: `no manifest at ${row.manifestRef}`,
+      };
+    }
+    try {
+      const sealed = claudeCheckpointCodec.decode(bytes).runtime;
+      const runtime = planRuntime(sealed, target, row.sessionId);
+      const alternates = [
+        ...new Set(
+          alternateDigests(target, [
+            row.sessionId,
+            ...(earlierKeys.get(row.sessionId) ?? []),
+          ]).filter((digest) => digest !== runtime.profileSha256),
+        ),
+      ];
+      const offered = candidatesDigest(runtime, alternates);
+      const found = sealedMatchesCandidates(sealed, runtime, alternates);
+      if (found.ok) return { ok: true, offered };
+      return {
+        ok: false,
+        outcome: found.kind === "build" ? "other_build" : "mismatch",
+        detail: found.detail,
+        offered,
+      };
+    } catch (error) {
+      return { ok: false, outcome: "error", detail: (error as Error).message };
+    }
+  };
+  // What `--record` keeps for the gate in migration 0255: one verdict per
+  // live checkpoint, bound to the manifest it read.
+  const checks: RestoreCheck[] = [];
+  const note = (
+    session: string,
+    revision: number,
+    manifestSha256: string | null,
+    outcome: RestoreCheck["outcome"],
+    detail: string | null,
+    offered: string = candidatesDigest(EMPTY_RUNTIME, []),
+  ) => {
+    if (record && manifestSha256 !== null) {
+      checks.push({
+        session,
+        revision,
+        manifestSha256,
+        candidates: offered,
+        outcome,
+        detail,
+      });
+    }
+  };
   for (const pointer of pointers) {
     const tag = `${pointer.id}@${pointer.revision} plan`;
     if (pointer.manifest_ref === null || pointer.manifest_version === null) {
       fail(`${tag}: pointer has no versioned checkpoints row`);
       continue;
     }
+    const failPlan = (
+      message: string,
+      outcome: RestoreCheck["outcome"],
+      offered?: string,
+    ) => {
+      fail(message);
+      note(
+        pointer.id,
+        pointer.revision,
+        pointer.manifest_sha256,
+        outcome,
+        message,
+        offered,
+      );
+    };
     // The plan is judged on storage, not on this host's engine build: the
     // runtime asked for is the target image's, or with none the one the
     // manifest was sealed under. A pointer whose version is gone still gets
@@ -376,12 +477,15 @@ async function plans(image: { name: string } | undefined): Promise<number> {
     const runtimeSource =
       manifestBytes ?? (await objects.get(pointer.manifest_ref));
     if (runtimeSource === undefined) {
-      fail(`${tag}: no manifest at ${pointer.manifest_ref} at all`);
+      failPlan(
+        `${tag}: no manifest at ${pointer.manifest_ref} at all`,
+        "error",
+      );
       continue;
     }
     const claimError = claimErrors.get(pointer.id);
     if (claimError !== undefined) {
-      fail(`${tag}: no claim for the target image: ${claimError}`);
+      failPlan(`${tag}: no claim for the target image: ${claimError}`, "error");
       continue;
     }
     let runtime: RuntimeFingerprint;
@@ -392,7 +496,7 @@ async function plans(image: { name: string } | undefined): Promise<number> {
         pointer.id,
       );
     } catch (error) {
-      fail(`${tag}: ${(error as Error).message}`);
+      failPlan(`${tag}: ${(error as Error).message}`, "error");
       continue;
     }
     const alternates =
@@ -406,6 +510,7 @@ async function plans(image: { name: string } | undefined): Promise<number> {
               ]).filter((digest) => digest !== runtime.profileSha256),
             ),
           ];
+    const offered = candidatesDigest(runtime, alternates);
     const result = await service.getRestorePlan({
       runtime,
       ...(alternates.length === 0
@@ -414,37 +519,85 @@ async function plans(image: { name: string } | undefined): Promise<number> {
       sessionId: pointer.id,
     });
     if (result.status === "incompatible") {
-      fail(
-        `${tag}: incompatible with the target image (checkpoint → image): ${describeMismatches(result.mismatches)}`,
-      );
+      const message = `${tag}: incompatible with the target image (checkpoint → image): ${describeMismatches(result.mismatches)}`;
+      // Sealed on another engine build is another retained image's checkpoint:
+      // it is not recorded here, so it stays unchecked until that image has
+      // been run, instead of failing for being on the wrong one.
+      if (result.mismatches.some(({ field }) => field !== "profileSha256")) {
+        fail(message);
+      } else failPlan(message, "mismatch", offered);
       continue;
     }
     if (result.status !== "ready" || manifestBytes === undefined) {
-      fail(`${tag}: ${JSON.stringify(result)}`);
+      failPlan(`${tag}: ${JSON.stringify(result)}`, "error", offered);
       continue;
     }
     const { plan } = result;
-    let ok = true;
+    const problems: string[] = [];
     if (plan.manifestVersion !== pointer.manifest_version) {
-      fail(
-        `${tag}: plan names manifest version ${plan.manifestVersion}, the pointer ${pointer.manifest_version}`,
+      problems.push(
+        `plan names manifest version ${plan.manifestVersion}, the pointer ${pointer.manifest_version}`,
       );
-      ok = false;
     }
     const pinned = pinnedObjectsOf(
       plan,
       claudeCheckpointCodec.decode(manifestBytes),
       manifestBytes,
     );
-    for (const problem of await planProblems(objects, pinned)) {
-      fail(`${tag}: ${problem}`);
-      ok = false;
-    }
-    if (ok) {
+    problems.push(...(await planProblems(objects, pinned)));
+    for (const problem of problems) fail(`${tag}: ${problem}`);
+    if (problems.length === 0) {
       console.log(
         `PASS ${tag}: ready under locked${image === undefined ? "" : ` for image ${image.name}`}, ${pinned.length} versions read back and held`,
       );
     }
+    note(
+      pointer.id,
+      pointer.revision,
+      pointer.manifest_sha256,
+      problems.length === 0 ? "ok" : "error",
+      problems.length === 0 ? null : problems.join("; "),
+      offered,
+    );
+  }
+  // The checkpoints a restore may fall back to, which no plan is asked for:
+  // each must carry a digest the target image offers for its session.
+  if (record && imageRuntime !== undefined) {
+    const pointed = new Set(
+      pointers.map((pointer) => `${pointer.id}@${pointer.revision}`),
+    );
+    for (const row of await readRows()) {
+      if (pointed.has(`${row.sessionId}@${row.revision}`)) continue;
+      const tag = `${row.sessionId}@${row.revision} fallback`;
+      const verdict = await fallbackVerdict(row, imageRuntime);
+      if (verdict.ok) {
+        console.log(`PASS ${tag}: sealed under a digest the image offers`);
+        note(
+          row.sessionId,
+          row.revision,
+          row.manifestSha256,
+          "ok",
+          null,
+          verdict.offered,
+        );
+      } else if (verdict.outcome === "other_build") {
+        // Another build's checkpoint is another retained image's to verify.
+        console.log(`SKIP ${tag}: ${verdict.detail}`);
+      } else {
+        fail(`${tag}: ${verdict.detail}`);
+        note(
+          row.sessionId,
+          row.revision,
+          row.manifestSha256,
+          verdict.outcome,
+          verdict.detail,
+          verdict.offered,
+        );
+      }
+    }
+  }
+  if (record && image !== undefined && imageRuntime !== undefined) {
+    await recordChecks(checks, image.name, imageRuntime);
   }
   if (pointers.length === 0) {
     console.error("plans: warning — no session has a checkpoint pointer");
@@ -471,6 +624,84 @@ async function plans(image: { name: string } | undefined): Promise<number> {
     console.log(`PASS ${tag}: read back and held`);
   }
   return failed;
+}
+
+type RestoreCheck = {
+  candidates: string;
+  detail: string | null;
+  manifestSha256: string;
+  outcome: "ok" | "mismatch" | "error";
+  revision: number;
+  session: string;
+};
+
+// A run that never reached a digest comparison offers none.
+const EMPTY_RUNTIME: RuntimeFingerprint = {
+  cliVersion: "",
+  engine: "",
+  profileSha256: "",
+  sdkVersion: "",
+};
+
+/** The image's content id, which is what a deployment pins and the gate binds to. */
+async function imageDigestOf(name: string): Promise<string> {
+  const child = Bun.spawn(
+    ["docker", "image", "inspect", "--format", "{{.Id}}", name],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (code !== 0 || !stdout.trim()) {
+    throw new Error(`could not inspect image ${name}: ${stderr.trim()}`);
+  }
+  return stdout.trim();
+}
+
+/**
+ * Appends one row per checked checkpoint to `checkpoint_restore_check`. Rows
+ * are never updated: the gate reads the latest per checkpoint and manifest.
+ */
+async function recordChecks(
+  checks: readonly RestoreCheck[],
+  imageName: string,
+  runtime: ImageRuntime,
+) {
+  if (checks.length === 0) return;
+  const imageDigest = await imageDigestOf(imageName);
+  const { profiles: _profiles, ...printed } = runtime;
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    for (const check of checks) {
+      await db.query(
+        `INSERT INTO checkpoint_restore_check
+           (session_id, revision, manifest_sha256, candidates_digest, image_digest, image_runtime, outcome, detail)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+        [
+          check.session,
+          check.revision,
+          check.manifestSha256,
+          check.candidates,
+          imageDigest,
+          JSON.stringify(printed),
+          check.outcome,
+          check.detail,
+        ],
+      );
+    }
+    await db.query("COMMIT");
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  } finally {
+    db.release();
+  }
+  console.log(
+    `recorded ${checks.length} check(s) for image ${imageName} (${imageDigest})`,
+  );
 }
 
 /**

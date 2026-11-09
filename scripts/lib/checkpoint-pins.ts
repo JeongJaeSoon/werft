@@ -95,7 +95,12 @@ export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
   readonly profiles: Readonly<
     Record<
       string,
-      | { profileSha256: string; legacyProfileSha256?: string }
+      | {
+          profileSha256: string;
+          legacyProfileSha256?: string;
+          /** What the earlier digest schemes the image resumes compute. */
+          earlierSchemeProfileSha256s?: readonly string[];
+        }
       | { error: string }
     >
   >;
@@ -477,10 +482,57 @@ export function alternateDigests(
       ? image.profiles[key]
       : undefined;
     if (profile === undefined || !("profileSha256" in profile)) return [];
-    return profile.legacyProfileSha256 === undefined
-      ? [profile.profileSha256]
-      : [profile.profileSha256, profile.legacyProfileSha256];
+    return [
+      profile.profileSha256,
+      ...(profile.legacyProfileSha256 === undefined
+        ? []
+        : [profile.legacyProfileSha256]),
+      ...(profile.earlierSchemeProfileSha256s ?? []),
+    ];
   });
+}
+
+/** Which digests a restore on the target image offers, as one comparable string. */
+export function candidatesDigest(
+  runtime: RuntimeFingerprint,
+  alternates: readonly string[],
+): string {
+  const offered = [...new Set([runtime.profileSha256, ...alternates])].sort();
+  return createHash("sha256").update(offered.join("\n")).digest("hex");
+}
+
+/**
+ * Whether the digest a checkpoint was sealed with is one the target image
+ * offers, the engine build being the same. For a checkpoint no restore plan
+ * is asked for (one a pointer does not name): the same match the worker
+ * makes in `runtimeFor`, short of the gateway's verdict.
+ */
+export function sealedMatchesCandidates(
+  sealed: RuntimeFingerprint,
+  runtime: RuntimeFingerprint,
+  alternates: readonly string[],
+): { ok: true } | { ok: false; kind: "build" | "digest"; detail: string } {
+  const build = (["engine", "sdkVersion", "cliVersion"] as const).filter(
+    (field) => sealed[field] !== runtime[field],
+  );
+  if (build.length > 0) {
+    return {
+      ok: false,
+      kind: "build",
+      detail: `sealed on another engine build (${build.join(", ")} differ)`,
+    };
+  }
+  if (
+    sealed.profileSha256 !== runtime.profileSha256 &&
+    !alternates.includes(sealed.profileSha256)
+  ) {
+    return {
+      ok: false,
+      kind: "digest",
+      detail: `sealed under profile digest ${sealed.profileSha256}, which the target image does not compute for any config of the session`,
+    };
+  }
+  return { ok: true };
 }
 
 export function describeMismatches(

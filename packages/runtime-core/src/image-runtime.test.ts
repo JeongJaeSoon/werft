@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { imageRuntimeVersions, parseImageRuntime } from "./image-runtime.ts";
+import {
+  imageRuntimeVersions,
+  parseImageRuntime,
+  restorableSchemesOf,
+} from "./image-runtime.ts";
 
 const stamped = {
   cliVersion: "2.1.270",
@@ -21,6 +25,43 @@ describe("parseImageRuntime", () => {
       ...stamped,
       profileDigestScheme: 1,
     });
+  });
+
+  test("an image names the schemes it resumes; one that says nothing resumes only its own", () => {
+    expect(
+      parseImageRuntime(
+        JSON.stringify({
+          ...stamped,
+          profileDigestScheme: 2,
+          restorableSchemes: [1, 2, 2],
+        }),
+      ),
+    ).toEqual({
+      ...stamped,
+      profileDigestScheme: 2,
+      restorableSchemes: [1, 2],
+    });
+    expect(
+      restorableSchemesOf(
+        parseImageRuntime(
+          JSON.stringify({ ...stamped, profileDigestScheme: 2 }),
+        ),
+      ),
+    ).toEqual([2]);
+  });
+
+  test("refuses restorableSchemes that leave out the image's own scheme", () => {
+    for (const restorableSchemes of [[1], [], "1", [0, 2], [1.5, 2]]) {
+      expect(() =>
+        parseImageRuntime(
+          JSON.stringify({
+            ...stamped,
+            profileDigestScheme: 2,
+            restorableSchemes,
+          }),
+        ),
+      ).toThrow("restorableSchemes");
+    }
   });
 
   test("refuses anything that is not that shape", () => {

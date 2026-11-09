@@ -410,9 +410,11 @@ export const WORKER_EXIT_LEASE_LOST = 75;
 export const MAX_RESTORE_PROFILES = 16;
 
 // What a restore plan request may list: for the claim's config and each earlier
-// profile, the digest of its current form and of the form an older session was
-// stamped with.
-export const MAX_RESTORE_ALTERNATES = 2 * MAX_RESTORE_PROFILES + 1;
+// profile, the digest of its current form, of the form an older session was
+// stamped with, and of each of those under the one earlier digest scheme an
+// image still resumes. Platform deploys before worker, so a gateway that
+// reads this limit is up before a worker sends past the old one.
+export const MAX_RESTORE_ALTERNATES = 4 * (MAX_RESTORE_PROFILES + 1);
 
 export const permissionGrantSchema = z
   .object({

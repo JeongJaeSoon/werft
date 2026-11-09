@@ -172,6 +172,12 @@ import {
 import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import { allowedOwners, isGitHubNpmTarball } from "./github-packages.ts";
 import { createGitHubPackagesEgress } from "./github-packages-egress.ts";
+import {
+  appendNew,
+  earlierProfileConfigs,
+  legacyConfigsFromRow,
+  servedLegacyConfig,
+} from "./legacy-runtime-configs.ts";
 import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
 import {
   GITHUB_PACKAGE_REGISTRIES,
@@ -1268,6 +1274,7 @@ export function createWorkerGateway(deps: {
       | "model"
       | "restoreProfiles"
       | "repository"
+      | "legacyRuntimeConfigs"
       | keyof ReleaseRun
     >,
     current: ToolConfigs,
@@ -1275,44 +1282,20 @@ export function createWorkerGateway(deps: {
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
-    const alternates = binding.restoreProfiles.flatMap((made) => {
-      if (
-        made.profileId === binding.profileId &&
-        made.profileFingerprint === binding.profileFingerprint &&
-        (made.model === null || made.model === binding.model)
-      ) {
-        return [];
-      }
-      const listed = catalogProfile(catalog, made.profileId);
-      const moved = listed
-        ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
-            (pin) =>
-              pin.fromFingerprint === made.profileFingerprint &&
-              // A version 1 pin names its model, so its column may be empty.
-              (made.model === pin.from ||
-                (made.model === null &&
-                  pin.fromFingerprint !== pin.toFingerprint)) &&
-              pin.to === binding.model,
-          )?.asFrom ?? null)
-        : null;
-      const profile = listed
-        ? (sessionProfile(
-            listed,
-            { fingerprint: made.profileFingerprint, model: made.model },
-            acceptedRuntimeVersions(catalog),
-          ) ?? moved)
-        : null;
-      return profile
-        ? [
-            toolConfigsOf(
-              profile,
-              binding,
-              providerToken,
-              binding.repository !== null,
-            ),
-          ]
-        : [];
-    });
+    const alternates = earlierProfileConfigs(binding, catalog, (profile) =>
+      toolConfigsOf(
+        profile,
+        binding,
+        providerToken,
+        binding.repository !== null,
+      ),
+    );
+    // Configs the session's earlier checkpoints were made under, kept on its
+    // row for when no profile can rebuild them. After the rebuilt ones, so
+    // the cap drops them first.
+    const kept = legacyConfigsFromRow(binding.legacyRuntimeConfigs).map(
+      (config) => servedLegacyConfig(config, providerToken),
+    );
     // Checkpoints made before the built-in `github` server was attached
     // name only the catalog server; they resume into a run that has both.
     // Every profile list before any release list (claimToolLists), each
@@ -1332,9 +1315,12 @@ export function createWorkerGateway(deps: {
         ];
       }),
     );
-    return configs.length === 0
-      ? {}
-      : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
+    const stored = kept.flatMap((config) => [
+      withMcp(config, mcp, mcpToken),
+      ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+    ]);
+    const offered = appendNew(configs, stored).slice(0, MAX_RESTORE_PROFILES);
+    return offered.length === 0 ? {} : { restore_runtime_configs: offered };
   }
 
   // What each egress token is held to, taken from the catalog at the moment

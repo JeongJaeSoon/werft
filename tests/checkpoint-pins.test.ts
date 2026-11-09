@@ -50,6 +50,7 @@ import {
   applyRepin,
   CheckpointPinError,
   type CheckpointRow,
+  candidatesDigest,
   captureArchiveObjects,
   captureCheckpointObjects,
   claimedSessionOf,
@@ -65,6 +66,7 @@ import {
   planRuntime,
   refsOf,
   restoreClaims,
+  sealedMatchesCandidates,
   sessionClaim,
   sha256Hex,
 } from "../scripts/lib/checkpoint-pins.ts";
@@ -1186,6 +1188,61 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ).status,
     ).toBe("ready");
     expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
+  });
+
+  test("a checkpoint no plan is asked for matches when its digest is one the image offers", () => {
+    const runtime = {
+      cliVersion: "2",
+      engine: "claude",
+      profileSha256: "a".repeat(64),
+      sdkVersion: "1",
+    };
+    const sealed = { ...runtime, profileSha256: "b".repeat(64) };
+    expect(sealedMatchesCandidates(sealed, runtime, ["b".repeat(64)])).toEqual({
+      ok: true,
+    });
+    expect(sealedMatchesCandidates(runtime, runtime, [])).toEqual({ ok: true });
+    const lost = sealedMatchesCandidates(sealed, runtime, ["c".repeat(64)]);
+    expect(lost.ok).toBe(false);
+    const rebuilt = sealedMatchesCandidates(
+      { ...sealed, sdkVersion: "0" },
+      runtime,
+      ["b".repeat(64)],
+    );
+    expect(rebuilt).toMatchObject({ ok: false });
+    expect(!rebuilt.ok && rebuilt.detail).toContain("sdkVersion");
+    // Order and repeats in what is offered do not move the digest the gate keeps.
+    expect(candidatesDigest(runtime, ["c".repeat(64), "b".repeat(64)])).toBe(
+      candidatesDigest(runtime, [
+        "b".repeat(64),
+        "c".repeat(64),
+        "b".repeat(64),
+      ]),
+    );
+    expect(candidatesDigest(runtime, [])).not.toBe(
+      candidatesDigest(runtime, ["b".repeat(64)]),
+    );
+  });
+
+  test("an image that resumes an earlier digest scheme offers that scheme's digests too", () => {
+    const image = {
+      cliVersion: "2",
+      engine: "claude",
+      sdkVersion: "1",
+      profiles: {
+        s: {
+          profileSha256: "a".repeat(64),
+          legacyProfileSha256: "b".repeat(64),
+          earlierSchemeProfileSha256s: ["c".repeat(64), "d".repeat(64)],
+        },
+      },
+    };
+    expect(alternateDigests(image, ["s"])).toEqual([
+      "a".repeat(64),
+      "b".repeat(64),
+      "c".repeat(64),
+      "d".repeat(64),
+    ]);
   });
 
   test("a session row's release tools reach its claims; a row without a release has none", () => {

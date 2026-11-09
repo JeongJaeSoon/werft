@@ -98,6 +98,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "env_start",
     // 0251
     "extensions",
+    // 0255
+    "legacy_runtime_configs",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",

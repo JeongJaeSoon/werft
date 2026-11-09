@@ -63,7 +63,16 @@ export interface RuntimeModule {
   readonly checkpointCodec: CheckpointCodec;
   /** Throws `RuntimeMismatch` for a session made for another build. */
   assertCompatible(runtime: SessionRuntime): void;
-  fingerprint(profile: RuntimeProfileInput): RuntimeFingerprint;
+  /**
+   * The fingerprint a checkpoint of this profile is stamped with. With a
+   * `scheme`, the digest an image of that earlier scheme stamped instead
+   * (one of `imageFingerprint()`'s `restorableSchemes`), for the candidates
+   * of a restore.
+   */
+  fingerprint(
+    profile: RuntimeProfileInput,
+    scheme?: number,
+  ): RuntimeFingerprint;
   createRuntime(deps: RuntimeHostDeps): AgentRuntime;
   imageFingerprint(): string;
   /** Where this engine's transcripts are mirrored to and restored from. */

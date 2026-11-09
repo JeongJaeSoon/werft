@@ -113,6 +113,7 @@ export function createWorkerHost(
       new SessionCheckpoints({
         fingerprint: claimFingerprint(config),
         legacyFingerprint: claimFingerprint(config, true),
+        earlierSchemeFingerprints: earlierSchemeFingerprints(config),
         gateway,
         instructionsCommit: () => workspace.instructionsCommit(),
         logger: checkpointLogger,
@@ -408,6 +409,7 @@ function mcpServersOf(
 export function claimFingerprint(
   config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
   legacyPrompt = false,
+  scheme?: number,
 ): (
   claim: Pick<BootstrapClaimResponse, "principal" | "runtime_config"> & {
     workspace?: BootstrapClaimResponse["workspace"] | undefined;
@@ -429,7 +431,31 @@ export function claimFingerprint(
         () => null,
         legacyPrompt,
       ),
+      scheme,
     );
+}
+
+/**
+ * The fingerprints an image of each earlier digest scheme this one resumes
+ * would have stamped a config's checkpoints with, under the platform prompt
+ * as it is and as it was. Empty for an image that resumes only its own.
+ */
+export function earlierSchemeFingerprints(
+  config: Pick<WorkerConfig, "egressCredentialUrl" | "runtime">,
+): (
+  claim: Parameters<ReturnType<typeof claimFingerprint>>[0],
+) => RuntimeFingerprint[] {
+  const { profileDigestScheme, restorableSchemes } = parseImageRuntime(
+    imageRuntime().imageFingerprint(),
+  );
+  const earlier = (restorableSchemes ?? []).filter(
+    (scheme) => scheme !== profileDigestScheme,
+  );
+  const fingerprints = earlier.flatMap((scheme) => [
+    claimFingerprint(config, false, scheme),
+    claimFingerprint(config, true, scheme),
+  ]);
+  return (claim) => fingerprints.map((fingerprint) => fingerprint(claim));
 }
 
 /**

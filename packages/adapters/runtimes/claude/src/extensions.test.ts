@@ -42,8 +42,9 @@ const bundleAt = (home: string, digest = DIGEST) => ({
 });
 
 const deps = { stateDir: "/tenant/config" };
+// Digest scheme 1, the one the constants below were captured under.
 const fingerprintOf = (s: RuntimeStart) =>
-  claudeRuntimeModule.fingerprint(s).profileSha256;
+  claudeRuntimeModule.fingerprint(s, 1).profileSha256;
 
 // Captured from this code before the extension change: a session without
 // bundles must keep the digest its checkpoints were taken under.

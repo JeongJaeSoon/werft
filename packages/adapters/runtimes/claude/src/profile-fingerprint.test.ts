@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { UnidentifiedComponentError } from "./component-identity.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
-import { claudeProfileFingerprint } from "./profile-fingerprint.ts";
+import {
+  CLAUDE_PROFILE_DIGEST_SCHEME,
+  CLAUDE_RESTORABLE_SCHEMES,
+  claudeProfileFingerprint,
+} from "./profile-fingerprint.ts";
 
 const config: Pick<
   ClaudeRuntimeConfig,
@@ -475,7 +479,7 @@ describe("Claude profile fingerprint", () => {
     );
     // Off is the digest this config had before the switch existed (main at
     // a609d02), so checkpoints taken then still resume.
-    expect(claudeProfileFingerprint(config)).toBe(
+    expect(claudeProfileFingerprint(config, 1)).toBe(
       "eab5b7b8016c7fd35dcf94b9e9aef27c727964b297789e2eee65d5d8a4631ae3",
     );
   });
@@ -487,36 +491,101 @@ describe("Claude profile fingerprint", () => {
   // apart (`serverA` and `server_a`, say).
   test("keeps digests stamped by the legacy localeCompare encoder", () => {
     expect(
-      claudeProfileFingerprint({
-        model: "claude-sonnet-4-5",
-        permissionMode: "acceptEdits",
-        profile: {
-          kind: "anthropic",
-          endpoint: "https://api.anthropic.test/",
-          auth: {
-            kind: "egress_token",
-            token: "t",
-            transport: "http://proxy:8080",
+      claudeProfileFingerprint(
+        {
+          model: "claude-sonnet-4-5",
+          permissionMode: "acceptEdits",
+          profile: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.test/",
+            auth: {
+              kind: "egress_token",
+              token: "t",
+              transport: "http://proxy:8080",
+            },
+            principal: { ownerScope: "owner-a" },
           },
-          principal: { ownerScope: "owner-a" },
+          repositoryClaudeMd: { contents: null },
+          settingSources: [],
+          tools: ["Read", "Bash"],
         },
-        repositoryClaudeMd: { contents: null },
-        settingSources: [],
-        tools: ["Read", "Bash"],
-      }),
+        1,
+      ),
     ).toBe("81196b9a1cf5206c655fb55fccd357a197963438e20429e09011a7ff661f9898");
     expect(
-      claudeProfileFingerprint({
-        ...config,
-        profile: { ...config.profile, auth: { kind: "api_key", value: "x" } },
-        tools: ["Bash"],
-      }),
+      claudeProfileFingerprint(
+        {
+          ...config,
+          profile: { ...config.profile, auth: { kind: "api_key", value: "x" } },
+          tools: ["Bash"],
+        },
+        1,
+      ),
     ).toBe("922926b3a10d21c4a177a3ac988fae6e02c5095ccac209d8e8655e8a493b39de");
   });
 
   test("treats an explicit default permission mode as the default", () => {
     expect(
-      claudeProfileFingerprint({ ...config, permissionMode: "default" }),
-    ).toBe(claudeProfileFingerprint(config));
+      claudeProfileFingerprint({ ...config, permissionMode: "default" }, 1),
+    ).toBe(claudeProfileFingerprint(config, 1));
+  });
+});
+
+describe("Claude profile fingerprint, scheme 2", () => {
+  const modes = ["default", "acceptEdits", "dontAsk", "plan", "auto"] as const;
+
+  test("is the scheme an image of this build stamps", () => {
+    expect(CLAUDE_PROFILE_DIGEST_SCHEME).toBe(2);
+    expect(CLAUDE_RESTORABLE_SCHEMES).toEqual([1, 2]);
+  });
+
+  test("leaves the permission mode out, so a policy change keeps a checkpoint resumable", () => {
+    const digests = new Set(
+      modes.map((permissionMode) =>
+        claudeProfileFingerprint({ ...config, permissionMode }, 2),
+      ),
+    );
+    expect(digests.size).toBe(1);
+    expect(claudeProfileFingerprint(config)).toBe(
+      claudeProfileFingerprint({ ...config, permissionMode: "plan" }),
+    );
+  });
+
+  test("still moves with what changes how a transcript replays", () => {
+    const own = claudeProfileFingerprint(config, 2);
+    expect(claudeProfileFingerprint({ ...config, model: "other" }, 2)).not.toBe(
+      own,
+    );
+    expect(
+      claudeProfileFingerprint({ ...config, tools: ["Bash"] }, 2),
+    ).not.toBe(own);
+    expect(
+      claudeProfileFingerprint(
+        {
+          ...config,
+          profile: { ...config.profile, principal: { ownerScope: "owner-b" } },
+        },
+        2,
+      ),
+    ).not.toBe(own);
+    expect(
+      claudeProfileFingerprint({ ...config, appendSystemPrompt: "extra" }, 2),
+    ).not.toBe(own);
+  });
+
+  test("scheme 1 still hashes the permission mode, to the digest checkpoints were stamped with", () => {
+    const one = (permissionMode: "default" | "acceptEdits") =>
+      claudeProfileFingerprint({ ...config, permissionMode }, 1);
+    expect(one("acceptEdits")).not.toBe(one("default"));
+    expect(claudeProfileFingerprint(config, 1)).toBe(
+      "eab5b7b8016c7fd35dcf94b9e9aef27c727964b297789e2eee65d5d8a4631ae3",
+    );
+    expect(claudeProfileFingerprint(config, 2)).not.toBe(
+      claudeProfileFingerprint(config, 1),
+    );
+  });
+
+  test("refuses a scheme it has no hashing for", () => {
+    expect(() => claudeProfileFingerprint(config, 3)).toThrow(/scheme 3/);
   });
 });

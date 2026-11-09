@@ -16,7 +16,11 @@
 import { bootstrapClaimResponseSchema } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 
-import { claimFingerprint, imageRuntime } from "./composition.ts";
+import {
+  claimFingerprint,
+  earlierSchemeFingerprints,
+  imageRuntime,
+} from "./composition.ts";
 import type { WorkerConfig } from "./config.ts";
 
 // `workspace` only tells a session without a repository apart; absent, the
@@ -28,7 +32,12 @@ const claimSchema = bootstrapClaimResponseSchema
 // `legacyProfileSha256` is the digest under the frozen pre-strip prompt, which
 // a worker sends as an alternate when it restores an older checkpoint.
 type ImageProfile =
-  | { profileSha256: string; legacyProfileSha256: string }
+  | {
+      profileSha256: string;
+      legacyProfileSha256: string;
+      /** What the earlier digest schemes this image resumes compute. */
+      earlierSchemeProfileSha256s: string[];
+    }
   | { error: string };
 
 // Where the engine runs is the launcher's per host, not the claim's; these
@@ -45,6 +54,7 @@ const HOST_STAND_IN: Pick<WorkerConfig, "egressCredentialUrl" | "runtime"> = {
 
 export const imageClaimFingerprint = claimFingerprint(HOST_STAND_IN);
 const imageLegacyClaimFingerprint = claimFingerprint(HOST_STAND_IN, true);
+const imageEarlierSchemeFingerprints = earlierSchemeFingerprints(HOST_STAND_IN);
 
 export function imageRuntimeOf(
   claims: unknown,
@@ -54,6 +64,9 @@ export function imageRuntimeOf(
   legacyFingerprint: (
     claim: Parameters<typeof imageClaimFingerprint>[0],
   ) => RuntimeFingerprint = imageLegacyClaimFingerprint,
+  earlierFingerprints: (
+    claim: Parameters<typeof imageClaimFingerprint>[0],
+  ) => RuntimeFingerprint[] = imageEarlierSchemeFingerprints,
 ) {
   if (typeof claims !== "object" || claims === null || Array.isArray(claims)) {
     throw new Error("claims must be an object keyed by session id");
@@ -66,6 +79,9 @@ export function imageRuntimeOf(
         ? {
             profileSha256: fingerprint(parsed.data).profileSha256,
             legacyProfileSha256: legacyFingerprint(parsed.data).profileSha256,
+            earlierSchemeProfileSha256s: earlierFingerprints(parsed.data).map(
+              (found) => found.profileSha256,
+            ),
           }
         : {
             error: `claim refused: ${parsed.error.issues

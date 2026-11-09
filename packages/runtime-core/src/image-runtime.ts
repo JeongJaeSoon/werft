@@ -8,7 +8,19 @@ import type { RuntimeFingerprint } from "./checkpoint-manifest.ts";
  */
 export type ImageRuntime = Omit<RuntimeFingerprint, "profileSha256"> & {
   readonly profileDigestScheme: number;
+  /**
+   * The schemes whose checkpoints the image can still resume: it computes
+   * their digests for a restore's candidates. Absent on an image that says
+   * nothing, which resumes only its own scheme. The scheme it stamps new
+   * checkpoints with is always among them.
+   */
+  readonly restorableSchemes?: readonly number[];
 };
+
+/** The schemes an image resumes checkpoints of, its own included. */
+export function restorableSchemesOf(runtime: ImageRuntime): readonly number[] {
+  return runtime.restorableSchemes ?? [runtime.profileDigestScheme];
+}
 
 /**
  * The scheme of an image that does not name one: every image from before
@@ -36,6 +48,7 @@ export function parseImageRuntime(text: string): ImageRuntime {
     engine,
     profileDigestScheme = FIRST_PROFILE_DIGEST_SCHEME,
     profiles: _profiles,
+    restorableSchemes,
     sdkVersion,
     ...rest
   } = value as Record<string, unknown>;
@@ -63,10 +76,28 @@ export function parseImageRuntime(text: string): ImageRuntime {
       "image runtime profileDigestScheme must be a positive integer",
     );
   }
+  if (
+    restorableSchemes !== undefined &&
+    (!Array.isArray(restorableSchemes) ||
+      !restorableSchemes.every(
+        (scheme) =>
+          typeof scheme === "number" &&
+          Number.isInteger(scheme) &&
+          scheme >= FIRST_PROFILE_DIGEST_SCHEME,
+      ) ||
+      !restorableSchemes.includes(profileDigestScheme))
+  ) {
+    throw new Error(
+      "image runtime restorableSchemes must be positive integers that include profileDigestScheme",
+    );
+  }
   return {
     cliVersion: cliVersion as string,
     engine: engine as string,
     profileDigestScheme,
+    ...(restorableSchemes === undefined
+      ? {}
+      : { restorableSchemes: [...new Set(restorableSchemes as number[])] }),
     sdkVersion: sdkVersion as string,
   };
 }
