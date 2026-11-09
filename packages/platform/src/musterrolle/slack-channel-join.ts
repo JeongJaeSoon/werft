@@ -84,8 +84,9 @@ const memberJoinedSchema = z.object({
 /**
  * The `slack` role's handler for `member_joined_channel`: when the one who
  * joined is this app's bot, the channel is bound if it was not (an invite
- * is how a person adds the agent to a channel), the binding is `joined`,
- * and a home hears the welcome it was waiting for. Every other event goes
+ * is how a person adds the agent to a channel), the binding is `joined`, a
+ * channel the bot had left waits for approval again, and a home hears the
+ * welcome it was waiting for. Every other event goes
  * to `next`.
  */
 export function createSlackMemberJoinedHandler(deps: {
@@ -137,9 +138,13 @@ export function createSlackMemberJoinedHandler(deps: {
       channel,
       kind,
     );
+    // A `left` binding passes: recordJoin brings it back to approval when
+    // this join is newer than the leave.
     if (
       binding === null ||
-      (binding.status !== "ready" && binding.status !== "pending_approval")
+      (binding.status !== "ready" &&
+        binding.status !== "pending_approval" &&
+        binding.status !== "left")
     ) {
       return;
     }
@@ -195,8 +200,9 @@ function lifecycleTime(claim: SlackInboundClaim): number | null {
 /**
  * The `slack` role's handler for `member_left_channel`: when the one who
  * left is this app's bot (it was removed, or left), a private channel's
- * binding waits for approval again, so a later invite does not bring back
- * the old approval. Every other event goes to `next`.
+ * binding becomes `left`: inactive until the bot is invited again, and then
+ * it waits for approval, so the old approval does not come back. Every other
+ * event goes to `next`.
  */
 export function createSlackMemberLeftHandler(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;

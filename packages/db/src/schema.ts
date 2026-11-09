@@ -3725,7 +3725,9 @@ export const surfaceBindings = pgTable(
       .notNull()
       .default("deny"),
     status: text()
-      .$type<"ready" | "pending_approval" | "partial" | "failed" | "revoked">()
+      .$type<
+        "ready" | "pending_approval" | "left" | "partial" | "failed" | "revoked"
+      >()
       .notNull()
       .default("ready"),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -3817,6 +3819,12 @@ export const surfaceBindings = pgTable(
     check(
       "surface_bindings_pending_check",
       sql`${table.status} <> 'pending_approval' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND ${table.surfaceKind} = 'private_channel' AND NOT ${table.home})`,
+    ),
+    // A channel the bot left is inactive and holds no approval; COALESCE keeps
+    // a NULL kind from passing the check as an unknown.
+    check(
+      "surface_bindings_left_check",
+      sql`${table.status} <> 'left' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND COALESCE(${table.surfaceKind} = 'private_channel', false) AND NOT ${table.home} AND ${table.approvedAt} IS NULL AND ${table.approvedLifecycleUs} IS NULL)`,
     ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
   ],

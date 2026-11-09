@@ -94,6 +94,7 @@ export type SlackSessionHandlerDeps = {
     | "resolveSlackChannel"
     | "ensureDmBinding"
     | "findPendingApproval"
+    | "findLiveSlackChannel"
     | "requireApproval"
   >;
   /** Whether the agent waits for a mention in every channel in use. */
@@ -338,6 +339,11 @@ export function createSlackSessionHandler(
           agent.installationId,
           event.channel,
         );
+    // The bot left between the decision and now: nothing is taken or said.
+    if (!dm && allowedOn === null) {
+      deps.logger.info("Slack channel is no longer in use; input ignored", ids);
+      return;
+    }
     if (
       allowedOn?.approvedAt != null &&
       Number(event.ts) * 1000 < allowedOn.approvedAt.getTime()

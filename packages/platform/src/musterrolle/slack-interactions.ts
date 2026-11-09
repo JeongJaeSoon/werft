@@ -33,6 +33,7 @@ import {
   type SessionService,
   SessionServiceError,
 } from "../sessions/session-service.ts";
+import { agentForSlackEvent } from "./agent-identity-service.ts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import {
@@ -89,7 +90,7 @@ export type SlackInteractionDeps = {
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
     SurfaceBindingStore,
-    "resolveSlackChannel" | "findPendingApproval"
+    "resolveSlackChannel" | "findPendingApproval" | "findLiveSlackChannel"
   >;
   pending: Pick<
     PendingRequestService,
@@ -255,6 +256,26 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /** Whether the pressed card's channel is one the bot was removed from. */
+  async function channelLeftFor(
+    agentId: string,
+    app: { appId: string },
+    input: { teamId: string; channelId: string },
+  ): Promise<boolean> {
+    if (input.channelId.startsWith("D")) return false;
+    const agent = await agentForSlackEvent(deps.agents, {
+      appId: app.appId,
+      teamId: input.teamId,
+      agentId,
+    });
+    if (agent.status === "dropped") return false;
+    const live = await deps.bindings.findLiveSlackChannel(
+      agent.installationId,
+      input.channelId,
+    );
+    return live?.status === "left";
   }
 
   /** Who pressed and how to answer them; null when the app has no bot. */
@@ -619,6 +640,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         );
       });
       return ok("accepted");
+    }
+    // Before the loading modal: a channel the bot left shows nothing.
+    if (await channelLeftFor(agentId, app, input)) {
+      return ok("refused:channel_left");
     }
     const pressed = await pressedFor(agentId, app, input);
     if (pressed === null) return ok("refused:no_bot_token");

@@ -1050,7 +1050,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await sessionsOf(fixture)).toHaveLength(1);
   });
 
-  test("the bot removed from an approved private channel and invited again waits for a new approval before it answers", async () => {
+  test("the bot removed from an approved private channel leaves it inactive and silent; invited again it waits for a new approval before it answers", async () => {
     const fixture = await agentInSlack("general", {
       channelKind: "private_channel",
     });
@@ -1086,11 +1086,19 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     );
     await drain(handle);
     expect(await stateOf()).toMatchObject({
-      status: "pending_approval",
+      status: "left",
       membership: "awaiting_invite",
       approvedAt: null,
       revision: 3,
     });
+
+    // Inactive: a mention opens nothing and is not answered, not even told.
+    await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
+    await drain(handle);
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    // A left channel is not approvable: nothing waits to be approved.
+    expect((await approveAt(3)).outcome).toBe("conflict");
 
     await deliver(
       fixture,
@@ -1107,7 +1115,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await stateOf()).toMatchObject({
       status: "pending_approval",
       membership: "joined",
-      revision: 3,
+      revision: 4,
     });
 
     await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
@@ -1117,7 +1125,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       "pending_approval",
     ]);
 
-    expect((await approveAt(3)).outcome).toBe("resolved");
+    expect((await approveAt(4)).outcome).toBe("resolved");
     await deliver(
       fixture,
       mention(`${Math.floor(Date.now() / 1000) + 60}.000100`),

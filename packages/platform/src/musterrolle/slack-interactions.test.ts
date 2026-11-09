@@ -211,6 +211,9 @@ function deps(): SlackInteractionDeps {
       async findPendingApproval() {
         return null;
       },
+      async findLiveSlackChannel() {
+        return null;
+      },
       async resolveSlackChannel(installationId, channelId) {
         if (installationId !== INSTALLATION || channelId !== CHANNEL) {
           return null;
