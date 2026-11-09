@@ -78,6 +78,25 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
   expect(skipping).toBe(3);
 });
 
+test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {
+  const { PARTS, partOf, pick } = await import(
+    "../.github/scripts/unit-part.ts"
+  );
+  expect(partOf("apps/control-host/src/slack/outbox.test.ts")).toBe(
+    "control-slack",
+  );
+  expect(partOf("apps/control-host/src/slack-extra/a.test.ts")).toBe("rest");
+  expect(partOf("apps/control-host/src/api/auth.test.ts")).toBe("rest");
+  const units = workflow.jobs["check-part"]?.strategy?.matrix.include.map(
+    (entry) => entry.unit,
+  );
+  expect(units?.sort()).toEqual([...PARTS].sort());
+  expect(new Set(units).size).toBe(PARTS.length);
+  for (const part of PARTS) {
+    expect(() => pick([], part)).toThrow(`unit part ${part} has no files`);
+  }
+});
+
 test("static checks keep one cache writer and report independent failures", () => {
   const parts = workflow.jobs["check-part"];
   expect(
