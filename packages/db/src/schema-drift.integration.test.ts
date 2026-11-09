@@ -46,9 +46,9 @@ const MIGRATIONS_ONLY = [
   "constraint sessions.sessions_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
-  // 0137, 0139: agent versions, releases and their audit rows are
-  // insert-only; a release takes its first approval and nothing else.
-  "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
+  // 0137, 0139, 0255: agent versions, releases and their audit rows are
+  // insert-only; a release takes its first approval and its first spec.
+  "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 db737d5f3eaabc9ffd18e671ab6bd4da",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
   // 0225: every installation settings write raises the one generation.
