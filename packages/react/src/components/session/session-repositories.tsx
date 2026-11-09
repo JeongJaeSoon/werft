@@ -144,7 +144,8 @@ export function RepositorySummary({
           <TooltipTrigger asChild={true}>
             <button
               type="button"
-              aria-label={messages.more(more.length)}
+              // The visible "+N" must open the name (WCAG 2.5.3, label in name).
+              aria-label={`+${more.length} ${messages.more(more.length)}`}
               className="relative flex-none rounded-full border bg-background px-2 font-mono text-caption text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1"
             >
               +{more.length}

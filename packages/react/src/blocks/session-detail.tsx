@@ -796,7 +796,7 @@ function RepositoryList({ session }: { readonly session: SessionDetailData }) {
               (!request ||
                 Date.parse(intent.created_at) >
                   Date.parse(request.requested_at))
-                ? intent
+                ? { ...intent, status: intent.status }
                 : null;
             const prLink =
               request?.pr_state === "opened" &&

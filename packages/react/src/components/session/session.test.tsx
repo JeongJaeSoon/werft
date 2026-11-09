@@ -528,7 +528,7 @@ describe("SessionOverviewRow", () => {
       // id order, not the session's own first: api, web, zed.
       const first = container.querySelector("code");
       expect(first?.textContent).toBe("acme/api");
-      const more = getByRole("button", { name: "more:2" });
+      const more = getByRole("button", { name: "+2 more:2" });
       expect(more.textContent).toBe("+2");
       expect(more.getAttribute("type")).toBe("button");
       // Above the row's opener, so it takes its own hover and focus.
@@ -549,7 +549,7 @@ describe("SessionOverviewRow", () => {
       });
       expect(queryByText("no repository")).toBeNull();
       expect(container.querySelector("code")?.textContent).toBe("acme/api");
-      expect(getByRole("button", { name: "more:1" })).toBeTruthy();
+      expect(getByRole("button", { name: "+1 more:1" })).toBeTruthy();
     });
 
     test("하나면 단추가 없고, 하나도 없으면 단추 없이 문구만 둔다", () => {
@@ -573,7 +573,7 @@ describe("SessionOverviewRow", () => {
         attached_repository_ids: ["web", "api", "api"],
       });
       expect(container.querySelector("code")?.textContent).toBe("api");
-      expect(getByRole("button", { name: "more:1" })).toBeTruthy();
+      expect(getByRole("button", { name: "+1 more:1" })).toBeTruthy();
     });
   });
 
