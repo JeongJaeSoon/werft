@@ -652,6 +652,7 @@ export function createAgentService(deps: {
     fields: {
       name?: string;
       description?: string | null;
+      auto_model_migration?: boolean;
       card?: AgentCard;
       runtime_profile_id?: string;
       model_source?: ModelSource;
@@ -672,6 +673,9 @@ export function createAgentService(deps: {
       ...(fields.description === undefined
         ? {}
         : { description: fields.description }),
+      ...(fields.auto_model_migration === undefined
+        ? {}
+        : { autoModelMigration: fields.auto_model_migration }),
     } as const;
     const versionOfCard = (
       record: AgentRecord,
@@ -1582,6 +1586,9 @@ export function createAgentService(deps: {
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
+        ...(request.auto_model_migration === undefined
+          ? {}
+          : { auto_model_migration: request.auto_model_migration }),
         ...(request.card === undefined ? {} : { card: request.card }),
         ...(request.runtime_profile_id === undefined
           ? {}

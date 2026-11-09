@@ -312,6 +312,12 @@ export const agentSchema = z
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
     activation_revision: activationRevisionSchema,
+    /**
+     * Off: nothing moves the agent to the next model of its series when its
+     * model leaves the profile's list, neither its release, nor its sessions
+     * at their next turn, nor a new session.
+     */
+    auto_model_migration: z.boolean(),
     created_by: userIdSchema.nullable(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
@@ -1181,6 +1187,8 @@ export const updateAgentRequestSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
     description: agentDescriptionSchema.nullable().optional(),
+    /** Changes the row only, at once; no release is made. */
+    auto_model_migration: z.boolean().optional(),
     card: agentCardRequestSchema.optional(),
     /** Absent: the profile the agent runs on, else the one its draft names. */
     runtime_profile_id: z.string().min(1).max(128).optional(),

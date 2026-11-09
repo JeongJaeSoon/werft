@@ -125,6 +125,7 @@ export function agentOf(row: AgentRow, managingTeamName: string): Agent {
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
+    auto_model_migration: row.autoModelMigration,
     created_by: row.createdBy,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
@@ -654,6 +655,26 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             .returning({ id: agents.id });
           changed ||= described.length > 0;
         }
+        let switched: boolean | null = null;
+        if (input.autoModelMigration !== undefined) {
+          const flipped = await tx
+            .update(agents)
+            .set({
+              autoModelMigration: input.autoModelMigration,
+              updatedAt: DB_NOW,
+            })
+            .where(
+              and(
+                eq(agents.id, agent.id),
+                sql`${agents.autoModelMigration} IS DISTINCT FROM ${input.autoModelMigration}`,
+              ),
+            )
+            .returning({ id: agents.id });
+          if (flipped.length > 0) {
+            changed = true;
+            switched = input.autoModelMigration;
+          }
+        }
         if (input.card !== undefined) {
           const [latest] = await tx
             .select({ versionNo: max(agentVersions.versionNo) })
@@ -739,6 +760,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             operation: "update_agent",
             workspaceId: input.workspaceId,
             agentId: agent.id,
+            ...(switched === null
+              ? {}
+              : { result: { auto_model_migration: switched } }),
           });
         }
         const detail = await detailOf(tx, input.workspaceId, agent.id);

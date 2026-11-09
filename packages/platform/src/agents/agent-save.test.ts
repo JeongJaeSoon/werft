@@ -121,6 +121,7 @@ function record(): AgentRecord {
       status: "active",
       active_release_id: active.id,
       activation_revision: 3,
+      auto_model_migration: true,
       created_by: OWNER,
       created_at: AT,
       updated_at: AT,

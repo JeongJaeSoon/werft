@@ -104,6 +104,7 @@ function recordOn(
       status: "active",
       active_release_id: active.id,
       activation_revision: revisions.activation,
+      auto_model_migration: true,
       created_by: OWNER,
       created_at: AT,
       updated_at: AT,

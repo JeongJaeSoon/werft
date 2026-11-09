@@ -282,6 +282,8 @@ export interface AgentStore {
       name?: string;
       /** `null` clears it. */
       description?: string | null;
+      /** Row only, like the two above: it applies at once, through no release. */
+      autoModelMigration?: boolean;
       card?: { card: AgentCard; contentSha256: string };
       /**
        * Makes the save a change of behavior (needs `card`): it takes a

@@ -94,6 +94,7 @@ const detail: AgentRecord = {
     status: "active",
     active_release_id: null,
     activation_revision: -1,
+    auto_model_migration: true,
     created_by: OWNER,
     created_at: AT,
     updated_at: AT,

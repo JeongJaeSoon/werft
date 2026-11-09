@@ -3179,6 +3179,9 @@
               }
             ]
           },
+          "auto_model_migration": {
+            "type": "boolean"
+          },
           "card": {
             "type": "object",
             "properties": {
@@ -20394,6 +20397,9 @@
                   "minimum": -1,
                   "maximum": 2147483647
                 },
+                "auto_model_migration": {
+                  "type": "boolean"
+                },
                 "created_by": {
                   "anyOf": [
                     {
@@ -20575,6 +20581,7 @@
                 "status",
                 "active_release_id",
                 "activation_revision",
+                "auto_model_migration",
                 "created_by",
                 "created_at",
                 "updated_at"
@@ -23343,6 +23350,9 @@
                 "minimum": -1,
                 "maximum": 2147483647
               },
+              "auto_model_migration": {
+                "type": "boolean"
+              },
               "created_by": {
                 "anyOf": [
                   {
@@ -23377,6 +23387,7 @@
               "status",
               "active_release_id",
               "activation_revision",
+              "auto_model_migration",
               "created_by",
               "created_at",
               "updated_at"
@@ -24524,6 +24535,9 @@
                 "minimum": -1,
                 "maximum": 2147483647
               },
+              "auto_model_migration": {
+                "type": "boolean"
+              },
               "created_by": {
                 "anyOf": [
                   {
@@ -24558,6 +24572,7 @@
               "status",
               "active_release_id",
               "activation_revision",
+              "auto_model_migration",
               "created_by",
               "created_at",
               "updated_at"
@@ -27179,6 +27194,9 @@
                 "minimum": -1,
                 "maximum": 2147483647
               },
+              "auto_model_migration": {
+                "type": "boolean"
+              },
               "created_by": {
                 "anyOf": [
                   {
@@ -27213,6 +27231,7 @@
               "status",
               "active_release_id",
               "activation_revision",
+              "auto_model_migration",
               "created_by",
               "created_at",
               "updated_at"
@@ -27313,6 +27332,9 @@
                   "minimum": -1,
                   "maximum": 2147483647
                 },
+                "auto_model_migration": {
+                  "type": "boolean"
+                },
                 "created_by": {
                   "anyOf": [
                     {
@@ -27347,6 +27369,7 @@
                 "status",
                 "active_release_id",
                 "activation_revision",
+                "auto_model_migration",
                 "created_by",
                 "created_at",
                 "updated_at"

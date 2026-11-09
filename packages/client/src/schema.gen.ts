@@ -5057,6 +5057,7 @@ export interface components {
         UpdateAgentRequest: {
             name?: string;
             description?: string | null;
+            auto_model_migration?: boolean;
             card?: {
                 role?: string;
                 instructions?: string;
@@ -8447,6 +8448,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9005,6 +9007,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9217,6 +9220,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9692,6 +9696,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9716,6 +9721,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
