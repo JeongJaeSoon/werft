@@ -1072,6 +1072,34 @@
       "when": 1794165257317,
       "tag": "0243_agent_managing_team_required",
       "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1794174792510,
+      "tag": "0244_push_intent_source_ref",
+      "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1794184791415,
+      "tag": "0245_slack_private_approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1794184804358,
+      "tag": "0246_slack_inbound_drop_reason_validate",
+      "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1794188791363,
+      "tag": "0247_extension_bundles",
+      "breakpoints": true
     }
   ]
 }

@@ -1737,10 +1737,10 @@ describe("session detail", () => {
       expect(link.getAttribute("aria-current")).toBeNull();
       link.focus();
       expect(document.activeElement).toBe(link);
-      // The rail's session info names the agent the same way.
+      // The rail no longer repeats the header's agent.
       expect(
         screen.getAllByRole("link", { name: "Release helper" }),
-      ).toHaveLength(2);
+      ).toHaveLength(1);
     });
 
     // Plain text is what a read still in flight shows too, so wait for the
@@ -1830,7 +1830,12 @@ describe("session profile", () => {
     const header = (
       await screen.findByRole("button", { name: "일시 정지" })
     ).closest("header") as HTMLElement;
-    expect(header.textContent).toContain("model-default");
+    // The model is on the info tab only, not repeated in the header.
+    expect(header.textContent).not.toContain("model-default");
+    await setupInfo();
+    expect(
+      screen.getByRole("tabpanel", { name: "정보" }).textContent,
+    ).toContain("model-default");
     expect(screen.queryByRole("button", { name: "프로필 바꾸기" })).toBeNull();
     expect(
       screen.queryByRole("combobox", { name: "다음 작업부터 쓸 프로필" }),
@@ -2711,7 +2716,7 @@ describe("세션 상세 레이아웃", () => {
     },
   );
 
-  test("헤더는 라벨 붙은 제어를 종료가 마지막인 순서로 두고 맨 끝에 세션 목록 버튼을, 메타 줄에 저장소·모델·사용량을 둔다", async () => {
+  test("헤더는 라벨 붙은 제어를 종료가 마지막인 순서로 두고 맨 끝에 세션 목록 버튼을, 메타 줄에 저장소·사용량을 둔다", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     const pause = await screen.findByRole("button", { name: "일시 정지" });
     const header = pause.closest("header") as HTMLElement;
@@ -2741,7 +2746,7 @@ describe("세션 상세 레이아웃", () => {
     ).toBeTruthy();
     expect(heading.textContent).toContain("답변 대기");
     expect(header.textContent).toContain("demo");
-    expect(header.textContent).toContain("model-default");
+    expect(header.textContent).not.toContain("model-default");
     await waitFor(() => expect(header.textContent).toContain("<$0.01"));
 
     const panel = screen.getByRole("complementary", { name: "세션 요약" });
@@ -2749,14 +2754,16 @@ describe("세션 상세 레이아웃", () => {
     expect(
       await within(panel).findByText("나는 이 세션의 요청에 답할 수 있습니다."),
     ).toBeTruthy();
-    // The rail repeats the facts the header carries, as rows.
-    const info = within(panel).getByRole("region", { name: "세션 정보" });
-    expect(info.textContent).toContain("model-default");
-    expect(info.textContent).toContain("demo");
-    await waitFor(() => expect(info.textContent).toContain("<$0.01"));
+    // The rail no longer repeats what the header and the info tab carry.
+    expect(
+      within(panel).queryByRole("region", { name: "세션 정보" }),
+    ).toBeNull();
     await setupInfo();
-    // The session's API carries no branch yet.
-    expect(screen.getAllByText("아직 볼 수 없습니다")).toHaveLength(1);
+    const tab = screen.getByRole("tabpanel", { name: "정보" });
+    expect(tab.textContent).toContain("model-default");
+    expect(tab.textContent).toContain("저장소 1개");
+    expect(within(tab).getByText("demo")).toBeTruthy();
+    expect(tab.textContent).not.toContain("아직 볼 수 없습니다");
   });
 
   test("머리·세션 정보·정보 탭은 에이전트와 시작한 사람·경로를 보인다", async () => {
@@ -2784,15 +2791,251 @@ describe("세션 상세 레이아웃", () => {
     expect(opened.getAttribute("href")).toBe(SLACK_PERMALINK);
     expect(opened.getAttribute("target")).toBe("_blank");
     expect(opened.getAttribute("rel")).toBe("noopener noreferrer");
-    const info = within(
-      screen.getByRole("complementary", { name: "세션 요약" }),
-    ).getByRole("region", { name: "세션 정보" });
-    expect(info.textContent).toContain("에이전트코드 리뷰");
-    expect(info.textContent).toContain("시작한 사람·경로Demo Owner · Slack");
     await setupInfo();
     const tab = screen.getByRole("tabpanel", { name: "정보" });
     expect(tab.textContent).toContain("에이전트코드 리뷰");
     expect(tab.textContent).toContain("시작한 사람·경로Demo Owner · Slack");
+  });
+
+  describe("정보 탭의 저장소 목록", () => {
+    const pushRequest = (fields: Record<string, unknown>) => ({
+      id: "019a0000-0000-7000-8000-0000000000a1",
+      session_id: SESSION_ID,
+      repository_id: "web",
+      checkpoint_revision: 2,
+      git_commit: "a".repeat(40),
+      target_branch: "feature/x",
+      state: "pushed",
+      requested_by: {
+        principal: { kind: "api_key", id: "key-1" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requested_at: AT,
+      resolved_by: null,
+      resolved_at: null,
+      resolution_reason: null,
+      request_receipt_id: "019a0000-0000-7000-8000-0000000000b1",
+      resolution_receipt_id: null,
+      finished_at: AT,
+      push_receipt_id: null,
+      origin: "direct",
+      flow: "actions",
+      pr_state: null,
+      pr_error: null,
+      pr_number: null,
+      pr_url: null,
+      ...fields,
+    });
+    const attachedOnly = (requests: unknown[]) => ({
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          repository: null,
+          repository_id: null,
+          attached_repository_ids: ["web", "api"],
+          attached_repositories: [
+            { id: "api", full_name: "acme/api" },
+            { id: "web", full_name: "acme/web" },
+          ],
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+        json(200, { items: requests, intents: [] }),
+    });
+
+    test("자기 저장소 없이 추가만 있는 세션도 id 순으로 보이고 PR에만 링크를 건다", async () => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        attachedOnly([
+          pushRequest({
+            pr_state: "opened",
+            pr_number: 7,
+            pr_url: "https://github.com/acme/web/pull/7",
+          }),
+        ]),
+      );
+      await screen.findByRole("button", { name: "일시 정지" });
+      await setupInfo();
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      expect(await within(tab).findByText("push 완료")).toBeTruthy();
+      expect(tab.textContent).toContain("저장소 2개");
+      const names = within(tab)
+        .getAllByText(/^acme\//)
+        .map((node) => node.textContent);
+      expect(names).toEqual(["acme/api", "acme/web"]);
+      expect(tab.textContent).toContain("push 브랜치 feature/x");
+      expect(within(tab).getByText("아직 push 요청 없음")).toBeTruthy();
+      const links = within(tab).getAllByRole("link");
+      expect(links.map((link) => link.getAttribute("href"))).toEqual([
+        "https://github.com/acme/web/pull/7",
+      ]);
+      expect(links[0]?.textContent).toContain("PR 생성됨 #7");
+    });
+
+    test("https가 아닌 PR 주소는 링크로 걸지 않고 단계만 보인다", async () => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        attachedOnly([
+          pushRequest({
+            pr_state: "opened",
+            pr_number: 9,
+            pr_url: "javascript:alert(1)",
+          }),
+        ]),
+      );
+      await screen.findByRole("button", { name: "일시 정지" });
+      await setupInfo();
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      expect(await within(tab).findByText("PR 생성됨")).toBeTruthy();
+      expect(within(tab).queryAllByRole("link")).toHaveLength(0);
+    });
+
+    test.each([
+      ["deferred", "작업이 끝나기를 기다리는 중"],
+      ["failed", "push 요청을 만들지 못함"],
+    ])(
+      "요청 없이 intent만 %s이면 '아직 push 요청 없음' 대신 그 상태를 보인다",
+      async (status, label) => {
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...attachedOnly([]),
+          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+            json(200, {
+              items: [],
+              intents: [
+                {
+                  id: "019a0000-0000-7000-8000-0000000000c1",
+                  session_id: SESSION_ID,
+                  repository_id: "web",
+                  target_branch: "feature/x",
+                  status,
+                  refusal_code: null,
+                  push_request_id: null,
+                  created_at: AT,
+                },
+              ],
+            }),
+        });
+        await screen.findByRole("button", { name: "일시 정지" });
+        await setupInfo();
+        const tab = screen.getByRole("tabpanel", { name: "정보" });
+        expect(await within(tab).findByText(label)).toBeTruthy();
+        // The repository without an intent still says no request yet.
+        expect(within(tab).getAllByText("아직 push 요청 없음")).toHaveLength(1);
+      },
+    );
+
+    test.each([
+      ["failed", "push 요청을 만들지 못함"],
+      ["deferred", "작업이 끝나기를 기다리는 중"],
+    ])(
+      "예전 push가 끝난 뒤의 더 새로운 %s intent는 'push 완료'에 가려지지 않는다",
+      async (status, label) => {
+        renderAt(`/sessions/${SESSION_ID}`, {
+          ...attachedOnly([pushRequest({})]),
+          [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+            json(200, {
+              items: [pushRequest({})],
+              intents: [
+                {
+                  id: "019a0000-0000-7000-8000-0000000000c2",
+                  session_id: SESSION_ID,
+                  repository_id: "web",
+                  target_branch: "feature/y",
+                  status,
+                  refusal_code: null,
+                  push_request_id: null,
+                  created_at: "2026-10-11T09:00:00.000Z",
+                },
+              ],
+            }),
+        });
+        await screen.findByRole("button", { name: "일시 정지" });
+        await setupInfo();
+        const tab = screen.getByRole("tabpanel", { name: "정보" });
+        expect(await within(tab).findByText(label)).toBeTruthy();
+        expect(tab.textContent).toContain("push 브랜치 feature/y");
+        expect(within(tab).queryByText("push 완료")).toBeNull();
+      },
+    );
+
+    test("push 요청에 이어진 intent는 요청이 대신 보이고, 더 오래된 intent는 요청을 가리지 않는다", async () => {
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...attachedOnly([
+          pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" }),
+        ]),
+        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+          json(200, {
+            items: [pushRequest({ requested_at: "2026-10-11T09:00:00.000Z" })],
+            intents: [
+              {
+                id: "019a0000-0000-7000-8000-0000000000c3",
+                session_id: SESSION_ID,
+                repository_id: "web",
+                target_branch: "feature/x",
+                status: "failed",
+                refusal_code: null,
+                push_request_id: null,
+                created_at: AT,
+              },
+            ],
+          }),
+      });
+      await screen.findByRole("button", { name: "일시 정지" });
+      await setupInfo();
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      expect(await within(tab).findByText("push 완료")).toBeTruthy();
+      expect(within(tab).queryByText("push 요청을 만들지 못함")).toBeNull();
+    });
+
+    test("push 요청을 읽지 못하면 이름은 두고 실패를 알리며 다시 불러올 수 있다", async () => {
+      const user = await setupUser();
+      let fail = true;
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...attachedOnly([pushRequest({})]),
+        [`GET /v1/sessions/${SESSION_ID}/push-requests`]: () =>
+          fail
+            ? json(500, {
+                error: {
+                  code: "INTERNAL",
+                  message: "boom",
+                  retryable: false,
+                  request_id: "r1",
+                  details: null,
+                },
+              })
+            : json(200, { items: [pushRequest({})], intents: [] }),
+      });
+      await screen.findByRole("button", { name: "일시 정지" });
+      await user.click(await screen.findByRole("tab", { name: "정보" }));
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      const alert = await within(tab).findByRole("alert");
+      expect(alert.textContent).toContain(
+        "push·PR 상태를 불러오지 못했습니다.",
+      );
+      expect(tab.textContent).toContain("acme/web");
+      fail = false;
+      await user.click(
+        within(alert).getByRole("button", { name: "다시 불러오기" }),
+      );
+      expect(await within(tab).findByText("push 완료")).toBeTruthy();
+      expect(within(tab).queryByRole("alert")).toBeNull();
+    });
+
+    test("저장소가 없는 세션은 없다고 말하고 push 요청을 묻지 않는다", async () => {
+      const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}`]: () =>
+          json(200, { ...detail, repository: null, repository_id: null }),
+      });
+      await screen.findByRole("button", { name: "일시 정지" });
+      await setupInfo();
+      const tab = screen.getByRole("tabpanel", { name: "정보" });
+      expect(within(tab).getByText("기록된 저장소가 없습니다.")).toBeTruthy();
+      expect(
+        api.calls.some((call) => call.path.endsWith("/push-requests")),
+      ).toBe(false);
+    });
   });
 
   test.each([
@@ -2913,7 +3156,7 @@ describe("세션 상세 레이아웃", () => {
         .getAllByRole("region")
         .filter((region) => region.dataset.slot === "detail-rail-section")
         .map((region) => region.querySelector("h2")?.textContent),
-    ).toEqual(["답변 대기 요청", "운영", "세션 정보"]);
+    ).toEqual(["답변 대기 요청", "운영"]);
     expect(
       within(ops)
         .getAllByRole("heading", { level: 3 })

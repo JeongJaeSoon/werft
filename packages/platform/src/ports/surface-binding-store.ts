@@ -22,6 +22,7 @@ export type SurfaceBindingRecord = {
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
   status: SurfaceBindingStatus;
+  approvedAt: Date | null;
   /** Null until Slack was asked; always null on the DM binding. */
   membership: SurfaceMembership | null;
   muted: boolean;
@@ -37,6 +38,24 @@ export type SetSurfaceBindingResult =
   | { outcome: "not_installed" }
   // A concurrent write took the channel, the DM row or the home first.
   | { outcome: "conflict" }
+  | { outcome: "pending_home" }
+  | { outcome: "actor_inactive" }
+  | { outcome: "outranked" };
+
+export type ResolveSurfaceBindingInput = {
+  principal: Principal;
+  workspaceId: string;
+  agentId: string;
+  bindingId: string;
+  revision: number;
+  approverRoles: readonly WorkspaceRole[];
+};
+
+export type ResolveSurfaceBindingResult =
+  | { outcome: "resolved"; binding: SurfaceBindingRecord; receiptId: string }
+  | { outcome: "replayed"; binding: SurfaceBindingRecord }
+  | { outcome: "not_found" }
+  | { outcome: "conflict" }
   | { outcome: "actor_inactive" }
   | { outcome: "outranked" };
 
@@ -45,7 +64,9 @@ export interface SurfaceBindingStore {
    * Replaces the live binding of one channel of the agent's install, or its
    * DM binding when `channelId` is null, and moves the agent's home here
    * when `home` is set. Re-reads the caller's right in the same transaction
-   * and writes a `set_surface_binding` receipt.
+   * and writes a `set_surface_binding` receipt. A private channel not yet
+   * bound, or bound as a public one, waits for approval
+   * (`request_surface_binding` receipt); one already approved stays so.
    */
   set(input: {
     principal: Principal;
@@ -82,15 +103,53 @@ export interface SurfaceBindingStore {
   /**
    * The live binding of a channel the install's bot was invited to, made
    * when it has none (in use with the agent's default mode, the default
-   * ceiling, `joined`, no receipt: no person set it). A binding already there is returned as it is, so a
-   * channel someone switched off stays off. Null when the install has no
-   * live agent identity.
+   * ceiling, `joined`; a private channel starts `pending_approval`, with a
+   * `request_surface_binding` receipt for the installation, since no person
+   * set it). A binding already there is returned as it is whatever its
+   * status, so a channel someone switched off stays off. Null when the
+   * install has no live agent identity.
    */
   ensureInvitedChannel(
     installationId: string,
     channelId: string,
     channelKind: "public_channel" | "private_channel",
   ): Promise<SurfaceBindingRecord | null>;
+  /**
+   * The live binding of a channel whatever its status, for the membership
+   * record and the receive-time privacy guard; input is only ever resolved
+   * through `resolveSlackChannel`.
+   */
+  findLiveSlackChannel(
+    installationId: string,
+    channelId: string,
+  ): Promise<SurfaceBindingRecord | null>;
+  /**
+   * Whether the channel's last binding was a private one rejected before it
+   * was ever approved; for a channel with no live binding.
+   */
+  wasRejected(installationId: string, channelId: string): Promise<boolean>;
+  /**
+   * The binding of a private channel that waits for approval, or null.
+   * `revision` changes every time it waits again, so a notice can be sent
+   * once per wait.
+   */
+  findPendingApproval(
+    installationId: string,
+    channelId: string,
+  ): Promise<{ id: string; revision: number } | null>;
+  /**
+   * A ready binding set for a public channel whose channel Slack now says
+   * is private: kind `private_channel`, `pending_approval`, no longer home,
+   * a `request_surface_binding` receipt for the installation. Null when
+   * the binding is no longer ready.
+   */
+  requireApproval(bindingId: string): Promise<SurfaceBindingRecord | null>;
+  approve(
+    input: ResolveSurfaceBindingInput,
+  ): Promise<ResolveSurfaceBindingResult>;
+  reject(
+    input: ResolveSurfaceBindingInput,
+  ): Promise<ResolveSurfaceBindingResult>;
   /**
    * Records what Slack said about the bot's place in a live binding's
    * channel. Observed state, not a setting: no revision, no receipt.

@@ -440,14 +440,18 @@ export async function webReactLazyCalls(directory: string): Promise<string[]> {
 }
 
 /** Parsed rather than matched, so comments, strings and JSX text never pass for code. */
-async function parse(file: string): Promise<ts.SourceFile> {
+function parseText(file: string, text: string): ts.SourceFile {
   return ts.createSourceFile(
     file,
-    await readFile(file, "utf8"),
+    text,
     ts.ScriptTarget.Latest,
     true,
     /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+}
+
+async function parse(file: string): Promise<ts.SourceFile> {
+  return parseText(file, await readFile(file, "utf8"));
 }
 
 function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
@@ -567,21 +571,30 @@ async function testingHelperImports(
   directory: string,
 ): Promise<Array<{ file: string; specifier: string }>> {
   const found: Array<{ file: string; specifier: string }> = [];
-  for (const entry of await readdir(directory, {
-    recursive: true,
-    withFileTypes: true,
-  })) {
-    const file = join(entry.parentPath, entry.name);
-    const path = relative(directory, file).split(sep);
-    if (
-      !entry.isFile() ||
-      !scriptFile.test(entry.name) ||
-      entry.name.includes(".test.") ||
-      path[0] === "testing" ||
-      path.includes("node_modules")
-    )
-      continue;
-    walk(await parse(file), (node) => {
+  const files = (
+    await readdir(directory, { recursive: true, withFileTypes: true })
+  )
+    .filter((entry) => {
+      const path = relative(
+        directory,
+        join(entry.parentPath, entry.name),
+      ).split(sep);
+      return (
+        entry.isFile() &&
+        scriptFile.test(entry.name) &&
+        !entry.name.includes(".test.") &&
+        path[0] !== "testing" &&
+        !path.includes("node_modules")
+      );
+    })
+    .map((entry) => join(entry.parentPath, entry.name));
+  // A specifier with a `testing` segment spells that word in the text unless
+  // an escape (a backslash) builds it, so only files with either get parsed.
+  const texts = await Promise.all(files.map((file) => readFile(file, "utf8")));
+  for (const [index, file] of files.entries()) {
+    const text = texts[index] as string;
+    if (!text.includes("testing") && !text.includes("\\")) continue;
+    walk(parseText(file, text), (node) => {
       let reference: ts.Node | undefined;
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
         reference = node.moduleSpecifier;
@@ -902,6 +915,8 @@ describe("architecture", () => {
         ["literal.ts", 'export type Route = "./testing/a";'],
         ["wrapped.ts", 'export const g = () => require(("./testing/w"));'],
         ["typed.ts", 'export type T = typeof import("./testing/t");'],
+        ["escaped.ts", 'import "./test\\u0069ng/a";'],
+        ["plain.ts", "export const x = 1;"],
         ["unit.test.tsx", 'import "./testing/a.ts";'],
         [join("testing", "a.ts"), 'import "@werft-ai/db/testing/b";'],
       ];
@@ -915,6 +930,7 @@ describe("architecture", () => {
           .sort(),
       ).toEqual([
         `${join("src", "dynamic.ts")} ./testing/a`,
+        `${join("src", "escaped.ts")} ./testing/a`,
         `${join("src", "reexport.mts")} @werft-ai/db/testing/a`,
         `${join("src", "required.js")} ../src/testing/a`,
         `${join("src", "static.ts")} @werft-ai/db/testing/a`,

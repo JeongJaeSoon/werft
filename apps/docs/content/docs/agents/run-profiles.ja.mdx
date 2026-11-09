@@ -52,7 +52,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
-  "runtime_version": "0.3.270",
+  "runtime_version": "0.3.319",
   "billing": "metered",
   "repository_mode": "required"
 }
@@ -77,6 +77,8 @@ provider のアドレスと認証情報は一覧に表示されない。その�
 
 セッションを作成するとき、`profile_id` で選ぶ。プロファイルが複数のモデルを許可している場合は `model` でその中の 1 つを選び、省略するとデフォルトのモデルで動く。
 
+実行中のセッションのモデルが許可リストから外れると、モデルへのリクエストはまもなく切断される。セッションのイベントに `error` イベント(`code: MODEL_NOT_ALLOWED`、`model`)が 1 回残り、セッション詳細のタイムラインに「… がプロファイルの許可リストから外れたため、このセッションのモデルリクエストがブロックされました」と表示される。許可リストを元に戻すか、別のモデルで新しいセッションを開始する。
+
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
@@ -94,7 +96,7 @@ console.log((await werft.sessions.get(sessionId)).runtime);
 ```text
 {
   kind: 'claude_agent_sdk',
-  version: '0.3.270',
+  version: '0.3.319',
   profile_id: 'claude-coding-local',
   model: 'claude-sonnet-5',
   permission_mode: 'default'
@@ -118,7 +120,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 ```text
 {
   "kind": "claude_agent_sdk",
-  "version": "0.3.270",
+  "version": "0.3.319",
   "profile_id": "claude-coding-local",
   "model": "claude-sonnet-5",
   "permission_mode": "default"
@@ -164,7 +166,7 @@ curl -sS "$API/v1/installation-profiles/options" "${WEB[@]}" \
 
 ```bash
 next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
-  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.319",
   model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
   repository_ids: ["sample-app"], deny: ["WebSearch"]}')
 curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'

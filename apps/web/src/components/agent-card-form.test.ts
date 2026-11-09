@@ -43,26 +43,6 @@ describe("카드 폼 변환", () => {
 
   test("카드를 폼으로 옮겼다가 되돌리면 같은 카드다", () => {
     expect<unknown>(cardFromDraft(draftFromCard(CARD), CARD)).toEqual(CARD);
-    const withInstructions = { ...CARD, agent_instructions: "짧게 답한다." };
-    expect<unknown>(
-      cardFromDraft(draftFromCard(withInstructions), withInstructions),
-    ).toEqual(withInstructions);
-  });
-
-  test("에이전트 지시문은 쓴 그대로 싣고, 비우면 빼며, 이전 지시 사항은 옮기지 않는다", () => {
-    const typed = "  한국어로 답한다.\n";
-    const card = cardFromDraft(
-      { ...draftFromCard(CARD), agentInstructions: typed },
-      CARD,
-    );
-    expect(card.agent_instructions).toBe(typed);
-    expect(card.instructions).toBe(CARD.instructions);
-    const cleared = cardFromDraft(
-      { ...draftFromCard(card as AgentCard), agentInstructions: "  " },
-      card as AgentCard,
-    );
-    expect("agent_instructions" in cleared).toBe(false);
-    expect(draftFromCard(CARD).agentInstructions).toBe("");
   });
 
   test("카드에는 도구 칸이 없다: 새 카드의 capabilities는 mcp와 forbidden뿐이다", () => {
@@ -155,7 +135,6 @@ describe("카드 폼 변환", () => {
     };
     const card = cardFromDraft(
       {
-        agentInstructions: "새 지시",
         language: "en",
         model: "claude-haiku-5",
       },
@@ -164,7 +143,6 @@ describe("카드 폼 변환", () => {
     expect<unknown>(card).toEqual({
       role: CARD.role,
       instructions: CARD.instructions,
-      agent_instructions: "새 지시",
       language: "en",
       model: "claude-haiku-5",
       capabilities: {
@@ -191,7 +169,10 @@ describe("카드 폼 변환", () => {
     expect(
       cardDraftOf({ ...EMPTY_DRAFT, role: "역할", instructions: "지시" }),
     ).toEqual(EMPTY_DRAFT);
-    expect(cardDraftOf({ ...EMPTY_DRAFT, agentInstructions: 1 })).toBeNull();
+    // Input kept while the agent instructions field existed.
+    expect(
+      cardDraftOf({ ...EMPTY_DRAFT, agentInstructions: "짧게 답한다." }),
+    ).toEqual(EMPTY_DRAFT);
     expect(cardDraftOf({ ...EMPTY_DRAFT, language: "fr" })).toBeNull();
     expect(cardDraftOf("x")).toBeNull();
   });

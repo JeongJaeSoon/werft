@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { launchNonceFingerprint } from "@werft-ai/platform";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -71,9 +71,8 @@ async function seedLaunch(
 }
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   logSink = new MemoryLogSink();
   store = createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,

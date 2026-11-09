@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { sessionRepositoryOf } from "./session-repository.ts";
+import {
+  attachedRepositoriesOf,
+  sessionRepositoryOf,
+} from "./session-repository.ts";
 
 describe("sessionRepositoryOf", () => {
   test("names a GitHub repository owner/name and keeps the row's branch", () => {
@@ -80,5 +83,59 @@ describe("sessionRepositoryOf", () => {
         branch: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("attachedRepositoriesOf", () => {
+  const catalog = {
+    web: { url: "https://github.com/acme/web.git" },
+    api: { url: "https://github.com/acme/api" },
+    local: { url: "file:///srv/git/deep/path/local.git" },
+    leaky: {
+      url: "https://agent:userinfo-mark@github.example.com/acme/leaky.git?access_token=query-mark",
+    },
+  };
+
+  test("names each id from the catalog URL, in id order", () => {
+    expect(attachedRepositoriesOf(["web", "api"], catalog)).toEqual([
+      { id: "api", full_name: "acme/api" },
+      { id: "web", full_name: "acme/web" },
+    ]);
+  });
+
+  test("an id without an owner/name URL is named by its key, one the catalog dropped by null", () => {
+    expect(attachedRepositoriesOf(["gone", "local"], catalog)).toEqual([
+      { id: "gone", full_name: null },
+      { id: "local", full_name: "local" },
+    ]);
+  });
+
+  test("an id that is an Object.prototype key is not read as a catalog entry", () => {
+    expect(
+      attachedRepositoriesOf(["constructor", "toString"], catalog),
+    ).toEqual([
+      { id: "constructor", full_name: null },
+      { id: "toString", full_name: null },
+    ]);
+  });
+
+  test("lists an id once", () => {
+    expect(attachedRepositoriesOf(["web", "web"], catalog)).toEqual([
+      { id: "web", full_name: "acme/web" },
+    ]);
+  });
+
+  test("never carries userinfo, a token in the query or the host", () => {
+    const text = JSON.stringify(attachedRepositoriesOf(["leaky"], catalog));
+    expect(text).toContain("acme/leaky");
+    for (const leak of ["userinfo-mark", "query-mark", "agent", "example"]) {
+      expect(text).not.toContain(leak);
+    }
+  });
+
+  test("none attached is [], an unknown list is absent", () => {
+    expect(attachedRepositoriesOf([], catalog)).toEqual([]);
+    expect(attachedRepositoriesOf(null, catalog)).toBeUndefined();
+    expect(attachedRepositoriesOf(undefined, catalog)).toBeUndefined();
   });
 });

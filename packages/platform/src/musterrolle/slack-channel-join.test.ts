@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { SurfaceMembership } from "@werft-ai/contracts";
+import type {
+  SurfaceChannelKind,
+  SurfaceMembership,
+} from "@werft-ai/contracts";
 import type { SlackInboundClaim } from "../ports/slack-inbound-event-store.ts";
 import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
 import {
@@ -177,7 +180,17 @@ describe("joining a bound channel", () => {
 });
 
 describe("the bot's invite", () => {
-  function handler(bound: Partial<SurfaceBindingRecord> | null) {
+  function handler(
+    bound: Partial<SurfaceBindingRecord> | null,
+    kinds: Record<string, SurfaceChannelKind | Error> = {
+      G1: "private_channel",
+      G2: "private_channel",
+      C3: "public_channel",
+    },
+    botToken: string | null = "xoxb-test",
+  ) {
+    const asked: string[] = [];
+    const demoted: string[] = [];
     const recorded: [string, SurfaceMembership][] = [];
     const welcomed: string[] = [];
     const passed: string[] = [];
@@ -194,29 +207,41 @@ describe("the bot's invite", () => {
         }),
       } as never,
       bindings: {
-        resolveSlackChannel: async () =>
-          bound === null
-            ? null
-            : ({
-                id: "b1",
-                workspaceId: WORKSPACE,
-                agentId: AGENT,
-                home: false,
-                ...bound,
-              } as SurfaceBindingRecord),
         ensureInvitedChannel: async (_installation, channelId, kind) => {
           invited.push([channelId, kind]);
           return {
-            id: "b2",
+            id: bound === null ? "b2" : "b1",
             workspaceId: WORKSPACE,
             agentId: AGENT,
             home: false,
+            status: kind === "private_channel" ? "pending_approval" : "ready",
+            channelKind: kind,
+            ...bound,
+          } as SurfaceBindingRecord;
+        },
+        requireApproval: async (id) => {
+          demoted.push(id);
+          return {
+            id,
+            workspaceId: WORKSPACE,
+            agentId: AGENT,
+            home: false,
+            status: "pending_approval",
+            channelKind: "private_channel",
           } as SurfaceBindingRecord;
         },
         setMembership: async (id, membership) => {
           recorded.push([id, membership]);
         },
       },
+      slack: {
+        channelKind: async (_token, channelId) => {
+          asked.push(channelId);
+          if (kinds[channelId] instanceof Error) throw kinds[channelId];
+          return (kinds[channelId] as SurfaceChannelKind | undefined) ?? "dm";
+        },
+      },
+      botToken: async () => botToken,
       welcome: {
         welcome: async (_workspace, agentId) => {
           welcomed.push(agentId);
@@ -227,7 +252,7 @@ describe("the bot's invite", () => {
         passed.push(claim.eventType);
       },
     });
-    return { handle, recorded, welcomed, passed, invited };
+    return { handle, recorded, welcomed, passed, invited, asked, demoted };
   }
 
   const claim = (event: Record<string, unknown>) =>
@@ -241,8 +266,12 @@ describe("the bot's invite", () => {
       payload: { event },
     }) as unknown as SlackInboundClaim;
 
-  test("the bot invited to its home: joined, then the welcome", async () => {
-    const h = handler({ home: true });
+  test("the bot invited to its approved home: joined, then the welcome", async () => {
+    const h = handler({
+      home: true,
+      status: "ready",
+      channelKind: "private_channel",
+    });
     await h.handle(
       claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
     );
@@ -259,24 +288,20 @@ describe("the bot's invite", () => {
     expect(h.welcomed).toEqual([]);
   });
 
-  test("the bot invited to an unbound channel binds it, joined, with no welcome", async () => {
+  test("the bot invited to an unbound channel binds it with the kind Slack reports, joined, with no welcome", async () => {
     const h = handler(null);
     await h.handle(
       claim({
         type: "member_joined_channel",
         user: BOT,
         channel: "G2",
-        channel_type: "G",
-      }),
-    );
-    await h.handle(
-      claim({
-        type: "member_joined_channel",
-        user: BOT,
-        channel: "C3",
         channel_type: "C",
       }),
     );
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "C3" }),
+    );
+    expect(h.asked).toEqual(["G2", "C3"]);
     expect(h.invited).toEqual([
       ["G2", "private_channel"],
       ["C3", "public_channel"],
@@ -286,26 +311,63 @@ describe("the bot's invite", () => {
       ["b2", { state: "joined", error: null }],
     ]);
     expect(h.welcomed).toEqual([]);
+    expect(h.demoted).toEqual([]);
   });
 
-  test("someone else joining, or a channel of no known kind, binds nothing; a message goes on", async () => {
+  test("a private channel waiting for approval is joined but never welcomed, even as the home", async () => {
+    const h = handler({ status: "pending_approval", home: true });
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.recorded).toEqual([["b1", { state: "joined", error: null }]]);
+    expect(h.welcomed).toEqual([]);
+  });
+
+  test("a channel bound as public that Slack now calls private waits for approval", async () => {
+    const h = handler({
+      status: "ready",
+      channelKind: "public_channel",
+      home: true,
+    });
+    await h.handle(
+      claim({ type: "member_joined_channel", user: BOT, channel: "G1" }),
+    );
+    expect(h.demoted).toEqual(["b1"]);
+    expect(h.recorded).toEqual([["b1", { state: "joined", error: null }]]);
+    expect(h.welcomed).toEqual([]);
+  });
+
+  test("a read of the kind that fails, or an app with no token, binds nothing and the event fails", async () => {
+    const unread = handler(null, { G2: new Error("slack down") });
+    await expect(
+      unread.handle(
+        claim({ type: "member_joined_channel", user: BOT, channel: "G2" }),
+      ),
+    ).rejects.toThrow("slack down");
+    const tokenless = handler(null, undefined, null);
+    await expect(
+      tokenless.handle(
+        claim({ type: "member_joined_channel", user: BOT, channel: "G2" }),
+      ),
+    ).rejects.toThrow("no bot token");
+    expect([...unread.invited, ...tokenless.invited]).toEqual([]);
+    expect([...unread.recorded, ...tokenless.recorded]).toEqual([]);
+  });
+
+  test("someone else joining binds nothing; a message goes on", async () => {
     const h = handler({ home: true });
     await h.handle(
       claim({
         type: "member_joined_channel",
         user: "U0PERSON",
         channel: "G1",
-        channel_type: "G",
       }),
     );
-    const unbound = handler(null);
-    await unbound.handle(
-      claim({ type: "member_joined_channel", user: BOT, channel: "G2" }),
-    );
     await h.handle(claim({ type: "app_mention", user: "U0PERSON" }));
-    expect([...h.invited, ...unbound.invited]).toEqual([]);
-    expect([...h.recorded, ...unbound.recorded]).toEqual([]);
-    expect([...h.welcomed, ...unbound.welcomed]).toEqual([]);
+    expect(h.asked).toEqual([]);
+    expect(h.invited).toEqual([]);
+    expect(h.recorded).toEqual([]);
+    expect(h.welcomed).toEqual([]);
     expect(h.passed).toEqual(["app_mention"]);
   });
 });

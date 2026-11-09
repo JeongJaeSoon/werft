@@ -4,6 +4,7 @@ import {
   listSlackBindingsResponseSchema,
   putSlackBindingResponseSchema,
   REQUEST_BODY_MAX_BYTES,
+  resolveSlackBindingResponseSchema,
   type SurfaceBinding,
 } from "@werft-ai/contracts";
 import {
@@ -161,6 +162,131 @@ describe("PUT /v1/agents/{id}/slack-bindings", () => {
     );
   });
 });
+
+describe.each(["approve", "reject"] as const)(
+  "POST /v1/agents/{id}/slack-bindings/{binding_id}/%s",
+  (decision) => {
+    const method =
+      decision === "approve" ? "approveSlackBinding" : "rejectSlackBinding";
+    const post = (
+      api: ReturnType<typeof app>,
+      body: unknown,
+      path = `/v1/agents/${AGENT}/slack-bindings/${BINDING}/${decision}`,
+    ) =>
+      api.request(path, {
+        method: "POST",
+        headers: owner,
+        body: JSON.stringify(body),
+      });
+
+    test("passes the revision the caller read and answers 200 with the binding", async () => {
+      let asked: unknown;
+      const response = await post(
+        app({
+          [method]: async (
+            _caller: unknown,
+            agentId: string,
+            bindingId: string,
+            request: unknown,
+          ) => {
+            asked = { agentId, bindingId, request };
+            return { slack_binding: VIEW, receipt_id: RECEIPT };
+          },
+        }),
+        { revision: 3 },
+      );
+      expect(response.status).toBe(200);
+      expect(
+        resolveSlackBindingResponseSchema.parse(await response.json()),
+      ).toEqual({ slack_binding: VIEW, receipt_id: RECEIPT });
+      expect(asked).toEqual({
+        agentId: AGENT,
+        bindingId: BINDING,
+        request: { revision: 3 },
+      });
+    });
+
+    test("a decision already made answers 200 with a null receipt", async () => {
+      const response = await post(
+        app({
+          [method]: async () => ({ slack_binding: VIEW, receipt_id: null }),
+        }),
+        { revision: 3 },
+      );
+      expect(response.status).toBe(200);
+      expect((await response.json()).receipt_id).toBeNull();
+    });
+
+    test("a malformed body or id never reaches the service", async () => {
+      const untouched = app({});
+      for (const body of [
+        {},
+        { revision: -1 },
+        { revision: "3" },
+        { revision: 3, extra: 1 },
+      ]) {
+        expect((await post(untouched, body)).status).toBe(400);
+      }
+      expect(
+        (
+          await post(
+            untouched,
+            { revision: 3 },
+            `/v1/agents/${AGENT}/slack-bindings/not-a-binding/${decision}`,
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await post(
+            untouched,
+            { revision: 3 },
+            `/v1/agents/not-an-agent/slack-bindings/${BINDING}/${decision}`,
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await post(untouched, {
+            revision: 3,
+            pad: "x".repeat(REQUEST_BODY_MAX_BYTES),
+          })
+        ).status,
+      ).toBe(413);
+    });
+
+    test("each refusal keeps its code and status", async () => {
+      const cases: [SessionServiceError, number][] = [
+        [
+          new SessionServiceError("FORBIDDEN", "no", undefined, {
+            reason_code: "role",
+          }),
+          403,
+        ],
+        [new SessionServiceError("NOT_FOUND", "Resource not found"), 404],
+        [new SessionServiceError("REVISION_CONFLICT", "바뀌었어요"), 409],
+      ];
+      for (const [error, status] of cases) {
+        const response = await post(
+          app({
+            [method]: async () => {
+              throw error;
+            },
+          }),
+          { revision: 3 },
+        );
+        expect(response.status).toBe(status);
+        expect(await errorOf(response)).toMatchObject({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      expect(
+        (await post(app({ [method]: outage }), { revision: 3 })).status,
+      ).toBe(503);
+    });
+  },
+);
 
 describe("GET /v1/agents/{id}/slack-bindings", () => {
   test("lists, refuses and fails closed", async () => {

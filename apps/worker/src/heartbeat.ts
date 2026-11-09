@@ -11,8 +11,6 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
-import { settledWithin } from "./waits.ts";
-
 /**
  * A lease as the gateway granted it: what was left of it on the database
  * clock, and the monotonic instant the request that won it was sent. The
@@ -21,6 +19,36 @@ import { settledWithin } from "./waits.ts";
  * clock, the worker's or the database's, enters the sum.
  */
 export type LeaseGrant = { remainingMs: number; sentAt: number };
+
+export function leaseTimeLeft(
+  deadline: number,
+  marginMs: number,
+  now: number,
+): number {
+  return Math.max(0, deadline - marginMs - now);
+}
+
+export function renewedLeaseDeadline(
+  deadline: number,
+  grant: LeaseGrant,
+): number {
+  return Math.max(deadline, grant.sentAt + grant.remainingMs);
+}
+
+export function nextHeartbeatDelay(
+  intervalMs: number,
+  leaseLeftMs: number,
+): number {
+  return Math.min(intervalMs, Math.floor(leaseLeftMs / 2));
+}
+
+/** Schedules a callback and returns its cancellation function. */
+export type HeartbeatTimer = (callback: () => void, ms: number) => () => void;
+
+const scheduleTimer: HeartbeatTimer = (callback, ms) => {
+  const timer = setTimeout(callback, ms);
+  return () => clearTimeout(timer);
+};
 
 /**
  * The least time between beats sent over one still unanswered, so that a
@@ -57,6 +85,7 @@ export type HeartbeatOptions = {
   transcript?: () => TranscriptReport | undefined;
   /** Milliseconds on a clock that never jumps; `performance.now` by default. */
   monotonicNow?: () => number;
+  scheduleTimer?: HeartbeatTimer;
 };
 
 /**
@@ -68,6 +97,7 @@ export type HeartbeatOptions = {
 export class Heartbeat {
   private readonly options: HeartbeatOptions;
   private readonly clock: () => number;
+  private readonly schedule: HeartbeatTimer;
   /** When the lease runs out, on `clock`. */
   private deadline: number;
   private readonly marginMs: number;
@@ -85,6 +115,7 @@ export class Heartbeat {
   constructor(options: HeartbeatOptions) {
     this.options = options;
     this.clock = options.monotonicNow ?? (() => performance.now());
+    this.schedule = options.scheduleTimer ?? scheduleTimer;
     this.deadline = options.lease.sentAt + options.lease.remainingMs;
     // Not clamped to the grant: a margin the lease cannot cover loses the
     // attempt at its first beat and says so, rather than quietly running
@@ -103,7 +134,7 @@ export class Heartbeat {
    * back an ownership this attempt already stopped acting on.
    */
   get leaseLeftMs(): number {
-    return Math.max(0, this.deadline - this.marginMs - this.clock());
+    return leaseTimeLeft(this.deadline, this.marginMs, this.clock());
   }
 
   /**
@@ -164,7 +195,7 @@ export class Heartbeat {
   }
 
   private nextBeatInMs(): number {
-    return Math.min(this.options.intervalMs, Math.floor(this.leaseLeftMs / 2));
+    return nextHeartbeatDelay(this.options.intervalMs, this.leaseLeftMs);
   }
 
   /**
@@ -201,10 +232,19 @@ export class Heartbeat {
           if (waiting || !this.stopped) this.refused(error);
         },
       );
-    const settled = await settledWithin(
-      answered,
-      Math.min(patienceMs, this.leaseLeftMs),
-    );
+    let cancel: (() => void) | undefined;
+    const expired = new Promise<false>((resolve) => {
+      cancel = this.schedule(
+        () => resolve(false),
+        Math.min(patienceMs, this.leaseLeftMs),
+      );
+    });
+    let settled: boolean;
+    try {
+      settled = await Promise.race([answered.then(() => true), expired]);
+    } finally {
+      cancel?.();
+    }
     waiting = false;
     if (settled || this.lost) return true;
     // The request timeout can be longer than what is left of the lease, and
@@ -230,10 +270,10 @@ export class Heartbeat {
     }
     // Overlapping beats can answer out of order; neither shortens the
     // lease the other already granted, as on the database side.
-    this.deadline = Math.max(
-      this.deadline,
-      sentAt + response.lease_remaining_ms,
-    );
+    this.deadline = renewedLeaseDeadline(this.deadline, {
+      sentAt,
+      remainingMs: response.lease_remaining_ms,
+    });
     this.lastRefusal = undefined;
     if (transcript?.mirror_error != null) this.mirrorErrorAnswered = true;
     if (response.control_pending) this.options.onControlPending?.();
@@ -273,12 +313,12 @@ export class Heartbeat {
 
   private pause(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
+      const cancel = this.schedule(() => {
         this.wake = undefined;
         resolve();
       }, ms);
       this.wake = () => {
-        clearTimeout(timer);
+        cancel();
         this.wake = undefined;
         resolve();
       };

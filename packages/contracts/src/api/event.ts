@@ -22,6 +22,8 @@ export const SESSION_EVENT_NAMES = [
   "error",
 ] as const;
 export const SSE_SCHEMA_VERSION = 1;
+/** The `error` event code for an attempt cut because its model left the list. */
+export const MODEL_NOT_ALLOWED_EVENT_CODE = "MODEL_NOT_ALLOWED";
 // A status event reports the session's projected status, or a control step
 // that no stored status names: an interrupt the worker has taken and is
 // waiting on the engine's terminal for (`interrupting`), and the engine
@@ -191,6 +193,8 @@ export const sessionEventVariants = {
     event: z.literal("error"),
     data: z.looseObject({
       message: z.string().min(1),
+      // MODEL_NOT_ALLOWED: the proxy cut the attempt because its model left
+      // the profile's list; `model` names it.
       code: z.string().min(1).optional(),
     }),
   }),

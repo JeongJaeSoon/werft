@@ -13,12 +13,12 @@ import {
 import { and, count, eq, gt, notInArray, sql } from "drizzle-orm";
 import {
   earliestUnknownTurn,
-  hasRestorePoint,
   type IdempotencyScope,
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import { closeParkedGroup } from "./parked-group.ts";
 import { openPauseReceipt } from "./pause-control.ts";
+import { pausedResumeRefusal } from "./pause-policy.ts";
 import { awaitingInputAt, publicStatus } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -265,11 +265,8 @@ async function resumePaused(
 ): Promise<ResumeSessionResult> {
   const { now } = context;
   const unknown = await earliestUnknownTurn(tx, session.id);
-  if (unknown !== null) {
-    return { outcome: "recovery_required", unconfirmedTurnId: unknown };
-  }
-  if (!hasRestorePoint(session)) return { outcome: "checkpoint_unavailable" };
-  if (session.podId !== null) return { outcome: "unsupported" };
+  const refusal = pausedResumeRefusal(session, unknown);
+  if (refusal !== null) return refusal;
   // A parked turn is carried on by this resume, once nothing it asked is
   // still open: an answer or an expiry stands for each.
   const parked = await closeParkedGroup(tx, session, {

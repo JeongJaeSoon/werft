@@ -17,8 +17,6 @@ import {
  */
 const api = new Api(e2eEnv());
 const TIMEOUT = 600_000;
-/** pause-control.ts PAUSE_DRAIN_DEADLINE_MS, plus a few reconciler passes. */
-const PAUSE_BLOCKED_WITHIN = 60_000 + 60_000;
 
 async function completed(
   sessionId: string,
@@ -116,7 +114,7 @@ describe("pause coverage branches", () => {
   );
 
   test(
-    "the last turn has no checkpoint: the pause stays pausing with PAUSE_BLOCKED checkpoint_unavailable",
+    "a capture refusal leaves the worker pausing until resume cancels the pause",
     async () => {
       const sessionId = await coveredSession("pn1");
       const skipped = await uncoveredTurn(sessionId, "pn2");
@@ -129,21 +127,9 @@ describe("pause coverage branches", () => {
       expect(paused.body).toMatchObject({ receipt_status: "accepted" });
       const pausing = await api.session(sessionId);
       expect(pausing.admission_state).toBe("pausing");
-      // Before the drain deadline nothing is reported yet.
+      // Deadline attention is covered by the database-clock integration test.
       expect(pausing.attention).toBeNull();
-
-      const blocked = await api.sessionUntil(
-        sessionId,
-        "shows the pause blocked",
-        (s) => s.attention !== null,
-        PAUSE_BLOCKED_WITHIN,
-      );
-      expect(blocked.admission_state).toBe("pausing");
-      expect(blocked.attention).toEqual({
-        code: "PAUSE_BLOCKED",
-        reason: "checkpoint_unavailable",
-      });
-      expect(blocked.durability).toMatchObject({
+      expect(pausing.durability).toMatchObject({
         last_completed_turn_id: skipped,
         last_checkpointed_turn_id: "1",
         checkpoint_pending_reason: "publish_failed",
@@ -153,7 +139,7 @@ describe("pause coverage branches", () => {
       // The way out short of terminate: a resume cancels the pause, and the
       // worker that held its lease takes input again.
       const cancel = await api.control(sessionId, "resume", {
-        expected_revision: blocked.revision,
+        expected_revision: pausing.revision,
       });
       expect(cancel.status).toBe(202);
       expect(cancel.body).toMatchObject({ receipt_status: "succeeded" });

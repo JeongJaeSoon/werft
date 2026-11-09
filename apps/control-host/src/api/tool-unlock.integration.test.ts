@@ -160,7 +160,6 @@ integration("tool_unlock rollout on PostgreSQL (Z3)", () => {
 
   const card = (tools: string[] | null = null): AgentCardRequest =>
     agentCardRequestSchema.parse({
-      agent_instructions: "analyse",
       model: "claude-sonnet-5",
       capabilities: { tools, mcp: null, forbidden: [] },
     });

@@ -43,6 +43,15 @@ export interface WorkspaceBundleVerifier {
     readonly commit: string;
     readonly key: string;
     readonly path: string;
+    /**
+     * The local branches the manifest names as push sources. A verifier that
+     * reads the pack must find exactly these among the bundle's source refs,
+     * each restorable.
+     */
+    readonly sources?: ReadonlyArray<{
+      readonly name: string;
+      readonly commit: string;
+    }>;
   }): Promise<WorkspaceBundleVerdict>;
 }
 

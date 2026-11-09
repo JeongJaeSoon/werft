@@ -92,6 +92,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "revoke_agent_identity",
   // Setting how an agent answers in one Slack channel or its DMs (94S-177).
   "set_surface_binding",
+  "request_surface_binding",
+  "resolve_surface_binding",
   // Changing who sees a session (94S-584).
   "share_session",
   // A push request, a human's decision on one (or a refused attempt at
@@ -195,6 +197,12 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_env_variable_grants",
   "resolve_session_env",
   "reject_session_env",
+  // Skill-only extension bundles (94S-865). Names, digests and review states
+  // only; a bundle's files are never written to a receipt.
+  "register_extension",
+  "approve_extension",
+  "attach_extension",
+  "detach_extension",
 ] as const;
 
 export const receiptStatusSchema = z.enum(RECEIPT_STATUS_VALUES);

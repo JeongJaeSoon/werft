@@ -19,7 +19,6 @@ const card = (over: Partial<AgentCard> = {}): AgentCard => ({
     credential_refs: ["github-token"],
   },
   rules: [],
-  agent_instructions: "PR을 리뷰한다.",
   ...over,
 });
 
@@ -97,7 +96,6 @@ const cards = new Map([
     "v2",
     card({
       model: "claude-opus-5",
-      agent_instructions: "PR을 리뷰한다.\nagent-skills도 본다.",
       capabilities: {
         mcp: null,
         forbidden: [],
@@ -137,13 +135,6 @@ describe("releaseChanges", () => {
         kind: "list",
         added: ["Bash: allow", "Edit: ask"],
         removed: ["Bash: ask"],
-      },
-      {
-        area: "prompt",
-        field: { key: "instructions" },
-        kind: "text",
-        before: "PR을 리뷰한다.",
-        after: "PR을 리뷰한다.\nagent-skills도 본다.",
       },
       {
         area: "settings",

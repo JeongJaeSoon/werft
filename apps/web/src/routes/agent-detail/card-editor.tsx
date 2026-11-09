@@ -37,7 +37,6 @@ import { useRole } from "../../auth/guard.tsx";
 import {
   AGENT_FORM,
   AgentCardFields,
-  AgentInstructionsField,
   type CardDraft,
   cardFromDraft,
   draftFromCard,
@@ -312,13 +311,6 @@ export function CardEditor({
             <FieldSet className="gap-4">
               <FieldLegend>{t("agent.card.run")}</FieldLegend>
               <FieldDescription>{t("agent.card.runHint")}</FieldDescription>
-              <AgentInstructionsField
-                value={draft.agentInstructions ?? ""}
-                earlier={base?.card.instructions}
-                onChange={(agentInstructions) =>
-                  setDraft({ ...draft, agentInstructions })
-                }
-              />
               <AgentCardFields
                 draft={draft}
                 catalog={catalog}
