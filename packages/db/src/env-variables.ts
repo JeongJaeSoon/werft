@@ -525,6 +525,25 @@ function storedEntries(envStart: unknown): StoredEntry[] | null {
 }
 
 /**
+ * The plain values a session's snapshot hands the engine, by name; undefined
+ * when there are none. A secret entry holds no value and is not read here.
+ * Call it after `envStartRefusal` said null: an unreadable snapshot gives none.
+ */
+export function plainEnvOf(
+  envStart: unknown,
+): Record<string, string> | undefined {
+  const entries = storedEntries(envStart);
+  if (entries === null) return undefined;
+  const env: Record<string, string> = {};
+  for (const entry of entries) {
+    if (entry.kind === "plain" && entry.value !== undefined) {
+      env[entry.name] = entry.value;
+    }
+  }
+  return Object.keys(env).length === 0 ? undefined : env;
+}
+
+/**
  * The refusal a snapshot's own contents earn, whoever wrote it, or null.
  * `now` is the database's clock: retention is judged where it was stamped.
  */
