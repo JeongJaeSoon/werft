@@ -48,6 +48,8 @@ gh workflow run CI --ref <branch> -f allow_parallel=true        # 진행 중 수
 
 bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`이 쓰는 `bun-root-*`는 root lockfile만(unit 부분·문서 검사·integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다. 의존성을 설치하지 않는 job(`forbidden-terms`, `helm-chart`, `supply-chain`)은 `restore-cache: "false"`로 복원을 건너뛴다. 이 입력은 복원과 저장을 한 번에 하는 단계를 건너뛰므로 `save-cache: "true"`와 함께 쓰면 job이 실패한다. 스크립트가 `node:` 내장과 이 repo의 파일만 import한다는 것이 소스로 확인된 job에만 쓴다. 그 밖의 import는 Bun이 이 캐시로 내려받는다.
 
+PR 이벤트에서는 `save-cache: "true"`를 요청해도 Bun 의존성 캐시를 복원만 하고 저장하지 않는다. 따라서 lockfile 변경 PR의 별도 ref에 새 캐시가 쌓이지 않는다. setup-bun의 실행 파일 캐시는 기존대로 재사용한다. CI의 main·수동 실행 및 agent-sdk-compat 실행에서 지정한 writer는 의존성 캐시를 저장한다. `Cache restore result`는 요청 키와 `exact-hit=true/false`, 실행 파일 캐시 hit를 출력한다. exact-hit=false는 완전한 cache miss 또는 prefix 복원이며, 설치 성공 여부를 뜻하지 않는다. Images workflow의 이미지 캐시는 기존 앱·아키텍처별 `cache-from`을 유지하고, PR은 읽기만 한다. main·태그·예약·수동 실행의 export는 `mode=min`으로 최종 release stage의 레이어만 보존한다. 중간 빌드 stage까지 저장하던 `mode=max`보다 보존 범위가 작으며, 공용 캐시 한도 안에서 최종 이미지 재사용을 우선한다. 중간 stage 재빌드로 시간이 늘 수 있어 main Images의 job 시간과 `CACHED` 로그도 함께 비교한다. 공용 사용량은 `gh api repos/JeongJaeSoon/werft/actions/cache/usage`로 확인한다.
+
 서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러)).
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
