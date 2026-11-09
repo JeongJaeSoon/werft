@@ -28,6 +28,7 @@ export function registerAgentRoutes(
     | "resolveRelease"
     | "envNames"
     | "rolloutRelease"
+    | "migrateModel"
     | "migrateAgent"
     | "unlockTools"
     | "revertMigration"

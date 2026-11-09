@@ -5057,6 +5057,7 @@ export interface components {
         UpdateAgentRequest: {
             name?: string;
             description?: string | null;
+            auto_model_migration?: boolean;
             card?: {
                 role?: string;
                 instructions?: string;
@@ -8447,6 +8448,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9005,6 +9007,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9217,6 +9220,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9692,6 +9696,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -9716,6 +9721,7 @@ export interface components {
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
                 activation_revision: number;
+                auto_model_migration: boolean;
                 created_by: string | null;
                 /** Format: date-time */
                 created_at: string;
@@ -25523,6 +25529,7 @@ export interface operations {
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
+                     *           "auto_model_migration": true,
                      *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *           "created_at": "2026-10-11T08:00:00Z",
                      *           "updated_at": "2026-10-11T08:00:00Z"
@@ -34014,6 +34021,7 @@ export interface operations {
                      *         "status": "active",
                      *         "active_release_id": null,
                      *         "activation_revision": -1,
+                     *         "auto_model_migration": true,
                      *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
                      *         "created_at": "2026-10-11T08:00:00Z",
                      *         "updated_at": "2026-10-11T08:00:00Z"

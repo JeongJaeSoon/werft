@@ -174,6 +174,7 @@ export function agentServer({
         status: "active",
         active_release_id: active,
         activation_revision: revision,
+        auto_model_migration: true,
         created_by: USER_ID,
         created_at: "2026-10-11T00:00:00.000Z",
         updated_at: "2026-10-11T00:00:00.000Z",

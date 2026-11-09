@@ -1135,6 +1135,13 @@
       "when": 1794206923056,
       "tag": "0252_slack_channel_left",
       "breakpoints": true
+    },
+    {
+      "idx": 253,
+      "version": "7",
+      "when": 1794216044790,
+      "tag": "0253_agent_auto_model_migration",
+      "breakpoints": true
     }
   ]
 }

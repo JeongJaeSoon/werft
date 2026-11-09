@@ -163,6 +163,7 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   repository_mode: "repository" | "none";
   github_policy_source: string;
   profile_fingerprint: string | null;
+  auto_model_migration: boolean;
 };
 
 export interface SessionUnitOfWork {

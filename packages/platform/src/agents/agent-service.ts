@@ -82,6 +82,7 @@ import {
   SessionServiceError,
   viewerOf,
 } from "../sessions/session-service.ts";
+import type { ModelMoveStep } from "./model-move-runner.ts";
 import {
   assertReleaseIdentity,
   cardContentSha256,
@@ -97,7 +98,7 @@ import { sameToolSet } from "./tool-unlock.ts";
  */
 export async function resolveAgentRelease(
   deps: {
-    store: Pick<AgentStore, "findRelease">;
+    store: Pick<AgentStore, "findRelease" | "autoModelMigration">;
     catalog: Pick<
       SessionCatalogView,
       "profiles" | "workspace_profiles" | "runtime_versions"
@@ -131,7 +132,8 @@ export async function resolveAgentRelease(
   if (
     model !== undefined &&
     !profileModels(profile).includes(model) &&
-    modelSuccessor(profile, model) === null
+    (modelSuccessor(profile, model) === null ||
+      !(await deps.store.autoModelMigration(workspaceId, release.agent_id)))
   ) {
     throw new SessionServiceError(
       "PROFILE_DIGEST_MISMATCH",
@@ -696,6 +698,7 @@ export function createAgentService(deps: {
     fields: {
       name?: string;
       description?: string | null;
+      auto_model_migration?: boolean;
       card?: AgentCard;
       runtime_profile_id?: string;
       model_source?: ModelSource;
@@ -717,6 +720,9 @@ export function createAgentService(deps: {
       ...(fields.description === undefined
         ? {}
         : { description: fields.description }),
+      ...(fields.auto_model_migration === undefined
+        ? {}
+        : { autoModelMigration: fields.auto_model_migration }),
     } as const;
     const versionOfCard = (
       record: AgentRecord,
@@ -1395,9 +1401,111 @@ export function createAgentService(deps: {
     }
   }
 
+  async function migrateModel(input: {
+    workspaceId: string;
+    agentId: string;
+  }): Promise<ModelMoveStep> {
+    const { workspaceId, agentId } = input;
+    let move: {
+      from: string;
+      to: string;
+      releaseId: string;
+      revision: number;
+    } | null = null;
+    try {
+      const record = await store.get(workspaceId, agentId);
+      const active = record?.active_release ?? null;
+      if (!record || !active) return { status: "skipped" };
+      const from = releaseModel(active);
+      if (from === undefined) return { status: "skipped" };
+      let profile: CatalogProfile;
+      try {
+        profile = await usableProfile(workspaceId, active.runtime_profile_id, {
+          retiredAllowed: true,
+        });
+      } catch (error) {
+        if (refusalCode(error) === null) throw error;
+        return { status: "skipped" };
+      }
+      const to = modelSuccessor(profile, from);
+      if (to === null) return { status: "skipped" };
+      const found = {
+        from,
+        to,
+        releaseId: active.id,
+        revision: record.agent.activation_revision,
+      };
+      move = found;
+      const failed = (reason: string): ModelMoveStep => ({
+        status: "failed",
+        reason,
+        ...found,
+      });
+      const actorUserId =
+        (await store.activationActor(workspaceId, agentId, active.id)) ??
+        active.approved_by;
+      if (actorUserId === null) return failed("actor_inactive");
+      const principal = migrationPrincipal(workspaceId, actorUserId);
+      const activeVersion = record.versions.find(
+        (version) => version.id === active.version_id,
+      );
+      if (!activeVersion) return failed("release_refused");
+      const card = { ...activeVersion.card, model: to };
+      const contentSha256 = cardContentSha256(card);
+      const saved = await store.update({
+        principal,
+        workspaceId,
+        agentId,
+        card: { card, contentSha256 },
+        updatedBy: actorUserId,
+        managerRoles: AGENT_MANAGERS,
+        requireRoles: ROLLOUT_ROLES,
+      });
+      if (saved.outcome === "stale") return { status: "superseded" };
+      if (saved.outcome === "not_found") return { status: "skipped" };
+      if (saved.outcome !== "updated") return failed("actor_inactive");
+      const version = saved.detail.versions.find(
+        (candidate) => candidate.content_sha256 === contentSha256,
+      );
+      if (!version) throw new Error("a model-only card version is stored");
+      const outcome = await releaseAgent(principal, actorUserId, {
+        agentId,
+        version,
+        profileId: active.runtime_profile_id,
+        active,
+        expectedActivationRevision: record.agent.activation_revision,
+        intent: {
+          kind: "model_migration",
+          expected: {
+            activeReleaseId: active.id,
+            activationRevision: record.agent.activation_revision,
+            behaviorRevision: record.behavior_revision,
+          },
+          from,
+          to,
+        },
+        reason: "model_migration",
+        requireRoles: ROLLOUT_ROLES,
+        retiredAllowed: true,
+      });
+      if (outcome.status === "applied") return { status: "applied", from, to };
+      if (outcome.status === "failed") return failed(outcome.reason);
+      return { status: "superseded" };
+    } catch (error) {
+      if (error instanceof SessionServiceError) {
+        if (error.code === "NOT_FOUND") return { status: "skipped" };
+        if (error.code === "FORBIDDEN" && move !== null) {
+          return { status: "failed", reason: "actor_inactive", ...move };
+        }
+      }
+      throw error;
+    }
+  }
+
   return {
     resolveRelease,
     rolloutRelease,
+    migrateModel,
     migrateAgent,
     unlockTools,
     revertMigration,
@@ -1535,6 +1643,9 @@ export function createAgentService(deps: {
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
+        ...(request.auto_model_migration === undefined
+          ? {}
+          : { auto_model_migration: request.auto_model_migration }),
         ...(request.card === undefined ? {} : { card: request.card }),
         ...(request.runtime_profile_id === undefined
           ? {}

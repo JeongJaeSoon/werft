@@ -1207,6 +1207,7 @@ const EXAMPLE_AGENT = {
   status: "active",
   active_release_id: null,
   activation_revision: -1,
+  auto_model_migration: true,
   created_by: EXAMPLE_USER_ID,
   created_at: "2026-10-11T08:00:00Z",
   updated_at: "2026-10-11T08:00:00Z",

@@ -46,6 +46,7 @@ function agent(
     status: "active",
     active_release_id: release,
     activation_revision: release === null ? -1 : 0,
+    auto_model_migration: true,
     created_by: USER_ID,
     created_at: "2026-10-20T00:00:00.000Z",
     updated_at: "2026-10-20T00:00:00.000Z",

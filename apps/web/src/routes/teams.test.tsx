@@ -1250,6 +1250,7 @@ describe("팀 화면", () => {
               status: "active",
               active_release_id: null,
               activation_revision: 0,
+              auto_model_migration: true,
               created_by: USER_ID,
               created_at: AT,
               updated_at: AT,

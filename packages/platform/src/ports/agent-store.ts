@@ -100,6 +100,7 @@ export type ReleaseReason =
   | "profile_rollout"
   | "profile_migration"
   | "tool_unlock"
+  | "model_migration"
   | "direct";
 
 /**
@@ -165,6 +166,16 @@ export type ActivationIntent =
         behaviorRevision: number;
       };
       tools: { before: string[]; after: string[] };
+    }
+  | {
+      kind: "model_migration";
+      expected: {
+        activeReleaseId: string;
+        activationRevision: number;
+        behaviorRevision: number;
+      };
+      from: string;
+      to: string;
     }
   | {
       kind: "direct";
@@ -264,6 +275,7 @@ export interface AgentStore {
       name?: string;
       /** `null` clears it. */
       description?: string | null;
+      autoModelMigration?: boolean;
       card?: { card: AgentCard; contentSha256: string };
       /**
        * Makes the save a change of behavior (needs `card`): it takes a
@@ -328,6 +340,34 @@ export interface AgentStore {
   ): Promise<InsertReleaseResult>;
   /** Whether the agent has an `agent_github_settings` row. */
   hasGitHubSettings(agentId: string): Promise<boolean>;
+  modelMigrationCandidates(input: {
+    after: string | null;
+    limit: number;
+  }): Promise<
+    {
+      workspaceId: string;
+      agentId: string;
+      profileId: string;
+      model: string;
+    }[]
+  >;
+  autoModelMigration(workspaceId: string, agentId: string): Promise<boolean>;
+  /** The user who last activated this release of the agent, if recorded. */
+  activationActor(
+    workspaceId: string,
+    agentId: string,
+    releaseId: string,
+  ): Promise<string | null>;
+  /** Writes nothing unless the agent is still on `releaseId` at `revision`. */
+  notifyModelMigrationFailed(input: {
+    workspaceId: string;
+    agentId: string;
+    from: string;
+    to: string;
+    reason: string;
+    releaseId: string;
+    revision: number;
+  }): Promise<number>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.

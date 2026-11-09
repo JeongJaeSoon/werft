@@ -291,7 +291,7 @@ export function AgentReadiness({
         </Badge>
       }
     >
-      <ModelRemovedAlert release={detail.active_release} />
+      <ModelRemovedAlert agent={detail.agent} release={detail.active_release} />
       <Card className="gap-0 p-4">
         <Steps
           completedLabel={t("agent.ready.stepDone")}

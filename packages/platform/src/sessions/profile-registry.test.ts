@@ -611,6 +611,58 @@ describe("releases and sessions over the registry", () => {
     expect(again.release.id).toBe(release.id);
   });
 
+  test("a release whose model left resolves while the agent allows the move and is refused once it opted out", async () => {
+    const families = {
+      "claude-sonnet-5": { family: "sonnet", rank: 0 },
+      "claude-sonnet-5-1": { family: "sonnet", rank: 1 },
+    };
+    const yamlOf = (coding: CatalogProfileConfig) =>
+      ({
+        ...withSeededInstallation(
+          resolveSessionCatalog(
+            { profiles: { coding }, repositories: REPOSITORIES },
+            () => KEY,
+          ),
+        ),
+        workspace_profiles: createWorkspaceProfiles({
+          listAll: async () => [],
+        }),
+      }) as unknown as ReturnType<typeof replica>;
+    const { store } = agentStore();
+    const { release } = await releasesOver(
+      yamlOf(definition({ model_families: families })),
+      store,
+    ).create("coding");
+    const cut = yamlOf(
+      definition({
+        model: "claude-sonnet-5-1",
+        models: ["claude-sonnet-5-1", "claude-haiku-5"],
+        model_families: families,
+      }),
+    );
+    const allowing = { ...store, autoModelMigration: async () => true };
+    const optedOut = { ...store, autoModelMigration: async () => false };
+
+    expect(
+      (
+        await resolveAgentRelease(
+          { store: allowing, catalog: cut },
+          WORKSPACE,
+          release.id,
+        )
+      ).id,
+    ).toBe(release.id);
+    expect(
+      await codeOf(
+        resolveAgentRelease(
+          { store: optedOut, catalog: cut },
+          WORKSPACE,
+          release.id,
+        ),
+      ),
+    ).toBe("PROFILE_DIGEST_MISMATCH");
+  });
+
   test("a console row put in directly runs a release, its own repositories only, on its connection's key", async () => {
     const coding = definition();
     const wide = consoleRow(

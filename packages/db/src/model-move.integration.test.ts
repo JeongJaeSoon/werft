@@ -16,7 +16,13 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { events, sessions, unassignedSessions } from "./schema.ts";
+import {
+  agentReleases,
+  agents,
+  events,
+  sessions,
+  unassignedSessions,
+} from "./schema.ts";
 import { launchSession } from "./testing/launches.ts";
 import {
   createPostgresWorkerUnitOfWork,
@@ -188,6 +194,67 @@ integration("a model moved at the next turn's claim", () => {
         from: "sonnet-5-0",
         to: "sonnet-5-1",
       });
+    },
+    TIMEOUT_MS,
+  );
+
+  async function ofAgent(sessionId: string, autoModelMigration: boolean) {
+    const client = await pool.connect();
+    try {
+      await client.query("SET session_replication_role = replica");
+      const scoped = drizzle(client, { schema });
+      const agentId = crypto.randomUUID();
+      const releaseId = `rel-${crypto.randomUUID()}`;
+      await scoped.insert(agents).values({
+        id: agentId,
+        workspaceId: crypto.randomUUID(),
+        managingTeamId: crypto.randomUUID(),
+        slug: `a-${agentId.slice(0, 8)}`,
+        name: "agent",
+        autoModelMigration,
+      });
+      await scoped.insert(agentReleases).values({
+        id: releaseId,
+        agentId,
+        versionId: crypto.randomUUID(),
+        cardSha256: "0".repeat(64),
+        runtimeProfileId: "p",
+        profileDigest: "digest",
+        runtimeConfigSnapshot: {},
+        effectiveTools: { tools: [], mcp: [] },
+      });
+      await scoped
+        .update(sessions)
+        .set({ agentReleaseId: releaseId })
+        .where(eq(sessions.id, sessionId));
+      return agentId;
+    } finally {
+      await client.query("SET session_replication_role = DEFAULT");
+      client.release();
+    }
+  }
+
+  test(
+    "a session of an agent that switched the move off stays blocked where it is, and one of an agent that left it on moves",
+    async () => {
+      const profile = catalogProfile(["sonnet-5-1", "haiku-5-0"], SERIES);
+      const partition = `optout-${crypto.randomUUID()}`;
+      const off = await waiting(partition, "sonnet-5-0", profile);
+      await ofAgent(off, false);
+      const on = await waiting(partition, "sonnet-5-0", profile);
+      await ofAgent(on, true);
+
+      const offLaunch = await launchSession(db, { sessionId: off });
+      await expect(
+        claimOf(gatewayFor(profile), offLaunch),
+      ).rejects.toBeDefined();
+      expect((await rowOf(off)).model).toBe("sonnet-5-0");
+      expect(await migrations(off)).toEqual([]);
+
+      const onLaunch = await launchSession(db, { sessionId: on });
+      await claimOf(gatewayFor(profile), onLaunch);
+      expect((await rowOf(on)).model).toBe("sonnet-5-1");
+      expect(await migrations(on)).toHaveLength(1);
     },
     TIMEOUT_MS,
   );
