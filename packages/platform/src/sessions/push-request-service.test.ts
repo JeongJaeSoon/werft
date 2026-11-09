@@ -537,7 +537,10 @@ describe("a push to another repository", () => {
       push
         .create(actor, SESSION, {
           idempotencyKey: `k-${repository_id}`,
-          body: repository_id === undefined ? {} : { repository_id },
+          body: {
+            checkpoint_revision: 1,
+            ...(repository_id === undefined ? {} : { repository_id }),
+          },
         })
         .then(
           () => null,
@@ -817,6 +820,7 @@ describe("a release with push_approval off", () => {
       authorization: createAuthorizationPolicy(),
       store: {
         replayCreate: async () => null,
+        recordRefusal: async () => "receipt-1",
         findSession: async () => ({
           repositoryId: "sample-app",
           policyApproval:
@@ -869,7 +873,11 @@ describe("a release with push_approval off", () => {
       catalog: CATALOG,
       intents: {} as never,
       source: {
-        readPushSourceAt: async () => ({ status: "none" }),
+        readPushSourceAt: async () => ({
+          status: "ready",
+          revision: 3,
+          gitCommit: "a".repeat(40),
+        }),
         readPushSource: async () => ({
           status: "ready",
           revision: 3,
@@ -892,9 +900,26 @@ describe("a release with push_approval off", () => {
     return { push, actor, created };
   }
 
+  test("without checkpoint_revision the latest committed revision is named and nothing is created", async () => {
+    const { push, actor, created } = creating(RELEASE);
+    const error = await push
+      .create(actor, SESSION, { idempotencyKey: "k" })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect((error as SessionServiceError).code).toBe("PUSH_SOURCE_MISSING");
+    expect((error as SessionServiceError).details).toMatchObject({
+      refusal: "checkpoint_revision_required",
+      checkpoint_revision: 3,
+    });
+    expect(created).toEqual([]);
+  });
+
   test("creates a request already approved by the release's policy", async () => {
     const { push, actor, created } = creating(RELEASE);
-    const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
+    const request = await push.create(actor, SESSION, {
+      idempotencyKey: "k",
+      body: { checkpoint_revision: 3 },
+    });
     expect(created[0]?.policyApproval?.releaseId).toBe(RELEASE);
     expect(request).toMatchObject({
       state: "approved",
@@ -904,7 +929,10 @@ describe("a release with push_approval off", () => {
 
   test("a release that keeps push approval creates a requested one", async () => {
     const { push, actor, created } = creating(null);
-    const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
+    const request = await push.create(actor, SESSION, {
+      idempotencyKey: "k",
+      body: { checkpoint_revision: 3 },
+    });
     expect(created[0]?.policyApproval).toBeNull();
     expect(request.state).toBe("requested");
   });

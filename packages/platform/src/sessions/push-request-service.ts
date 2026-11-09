@@ -104,6 +104,7 @@ function refused(
   receiptId: string | null,
   mismatches?: readonly AttributionMismatchDetail[],
   reason?: string,
+  checkpointRevision?: number,
 ): never {
   const { code, message } = PUSH_REFUSAL_ERRORS[refusal];
   throw new SessionServiceError(code, message, undefined, {
@@ -111,6 +112,9 @@ function refused(
     ...(receiptId === null ? {} : { receipt_id: receiptId }),
     ...(mismatches === undefined ? {} : { mismatches }),
     ...(reason === undefined ? {} : { reason }),
+    ...(checkpointRevision === undefined
+      ? {}
+      : { checkpoint_revision: checkpointRevision }),
   });
 }
 
@@ -381,6 +385,7 @@ export function createPushRequestService(deps: {
         fields: {
           repository_id?: string;
           mismatches?: AttributionMismatchDetail[];
+          checkpoint_revision?: number;
         } = {},
       ) =>
         refused(
@@ -397,7 +402,7 @@ export function createPushRequestService(deps: {
               verdict: "refuse",
               refusal,
               repository_id: fields.repository_id ?? null,
-              checkpoint_revision: null,
+              checkpoint_revision: fields.checkpoint_revision ?? null,
               git_commit: null,
               target_branch: null,
               ...(fields.mismatches === undefined
@@ -406,6 +411,8 @@ export function createPushRequestService(deps: {
             },
           }),
           fields.mismatches,
+          undefined,
+          fields.checkpoint_revision,
         );
       const replay = await store.replayCreate({
         ownerId: actor.ownerId,
@@ -422,7 +429,24 @@ export function createPushRequestService(deps: {
         return refuse(judged.refusal, judged.fields);
       }
       const { session, repositoryId, entry, attachedPush, repository } = judged;
-      const pinned = await source.readPushSource(sessionId);
+      if (body.checkpoint_revision === undefined) {
+        // Nothing here says the session's work after its latest saved
+        // revision was saved too, so the caller names the revision it means.
+        const latest = await source.readPushSource(sessionId);
+        if (latest.status === "none")
+          return refuse("no_checkpoint", repository);
+        if (latest.status === "unavailable") {
+          return refuse("checkpoint_unavailable", repository);
+        }
+        return refuse("checkpoint_revision_required", {
+          ...repository,
+          checkpoint_revision: latest.revision,
+        });
+      }
+      const pinned = await source.readPushSourceAt(
+        sessionId,
+        body.checkpoint_revision,
+      );
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
         return refuse("checkpoint_unavailable", repository);

@@ -47,6 +47,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
     code: "PUSH_SOURCE_MISSING",
     message: "The session has no committed checkpoint to push",
   },
+  checkpoint_revision_required: {
+    code: "PUSH_SOURCE_MISSING",
+    message:
+      "checkpoint_revision names the saved revision to push; the latest committed one is in the details",
+  },
   checkpoint_unavailable: {
     code: "CHECKPOINT_UNAVAILABLE",
     message: "The session's latest checkpoint could not be verified",

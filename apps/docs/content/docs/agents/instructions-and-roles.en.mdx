@@ -7,10 +7,10 @@ An agent has values people read and values a run uses, and they live in differen
 
 | Value | Where | When you change it | Does the model read it |
 | --- | --- | --- | --- |
-| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | Only in sessions that have the [platform paragraph](#what-the-model-reads-today) |
+| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | No |
 | Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. Used by sessions started on a release of that version | The instructions, yes |
 
-Name and description help people recognise the agent in lists and on its page. In a session that has the platform paragraph, the model reads both as written too, so keep them factual. How the agent should work goes in the agent instructions.
+Name and description help people recognise the agent in lists and on its page. Neither is passed to the model. How the agent should work goes in the agent instructions.
 
 ## Agent instructions
 
@@ -77,24 +77,16 @@ In card editing (the "What it does" step of a new agent, and Edit settings on th
 
 The worker adds these instructions to the model's system prompt, in this order.
 
-1. The platform paragraph, in sessions created while the installation setting `SESSION_PROMPT_REVISION` is `1`. Sessions created with the default `0` do not get it. Changing the setting later leaves existing sessions as they are.
-2. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
-3. The agent instructions of the session's release.
-4. `AGENTS.md` at the repository root, else `CLAUDE.md`. When the profile has `project_settings.claude_md: true`, the committed content is read. A `CLAUDE.md` that links to `AGENTS.md`, or is only an `@AGENTS.md` line, is read once. The local profile `claude-coding-local` has it on.
+1. For a session without a repository, a single line stating that `out/` is the directory whose files a checkpoint collects as outputs.
+2. The agent instructions of the session's release.
+3. `AGENTS.md` at the repository root, else `CLAUDE.md`. When the profile has `project_settings.claude_md: true`, the committed content is read. A `CLAUDE.md` that links to `AGENTS.md`, or is only an `@AGENTS.md` line, is read once. The local profile `claude-coding-local` has it on.
 
-The text of items 1 to 3 is also placed at the workspace root as `AGENTS.md`, with `CLAUDE.md` a link to it. Both are listed in `.git/info/exclude`, so they never get into a commit. When the repository already has an `AGENTS.md` or a `CLAUDE.md`, neither is overwritten. The model still gets the same text in its system prompt.
+The text of items 1 and 2 is also placed at the workspace root as `AGENTS.md`, with `CLAUDE.md` a link to it. Both are listed in `.git/info/exclude`, so they never get into a commit. When the repository already has an `AGENTS.md` or a `CLAUDE.md`, neither is overwritten. The model still gets the same text in its system prompt.
 
-The platform paragraph has no sentences that set a role or personality. It holds only facts the platform alone knows and safety rules:
-
-- The agent's name and description, passed on as written.
-- Where the session started, the answer language (the card's `language`), and the GitHub name of the session's repository.
-- The tools for GitHub work and how to use them.
-- Safety rules: which branches can be pushed, not asking anyone for a token, and that agent instructions cannot change which tools the agent has.
-
-These values are saved when the session is created. Changing the name or description does not change the paragraph of a session in progress.
+The platform adds no other paragraph to the model's prompt. It writes no sentences that set a role or behavior and passes on facts only. The platform paragraph that earlier builds added is gone; the worker still recognizes the checkpoint fingerprints made with it, so existing sessions resume as before.
 
 <Callout type="warn">
-The card's `role`, `instructions`, and `rules` are not passed to the model. A session without the platform paragraph does not get the name, the description, or the card's `language` either. To set the answer language of such a session, write it in the agent instructions.
+The card's `role`, `instructions`, and `rules`, the agent's name and description, and the card's `language` are not passed to the model. Write anything the model must know, such as the answer language, in the agent instructions.
 </Callout>
 
 ## Editing and versions

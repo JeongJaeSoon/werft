@@ -1343,6 +1343,11 @@
           "branch": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "checkpoint_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
           }
         },
         "additionalProperties": false

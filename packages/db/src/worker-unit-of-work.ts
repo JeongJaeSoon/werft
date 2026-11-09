@@ -135,7 +135,6 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
-import { queuePushContinuation } from "./push-continuations.ts";
 import { queuePushFollowUps } from "./push-follow-ups.ts";
 import { settleTurnPushIntents } from "./push-intents.ts";
 import type { Database } from "./queries.ts";
@@ -2938,24 +2937,13 @@ export function createPostgresWorkerUnitOfWork(
         );
         // Intents the turn left deferred are pinned to the checkpoint this
         // finalize just advanced to, or cancelled when the turn left none.
-        // They are made only while AGENT_ACTION_FLOWS is on, but settled
-        // whatever it is now. A parked turn keeps them: the answer starts a
-        // turn that takes them over (continueParkedTurn).
+        // A parked turn keeps them: the answer starts a turn that takes
+        // them over (continueParkedTurn).
         if (terminal !== undefined && parked.length === 0) {
           await settleTurnPushIntents(tx, {
             turnRowId: terminal.id,
             completedRevision:
               input.terminal.status === "completed" ? checkpointRevision : null,
-          });
-        }
-        if (
-          terminal !== undefined &&
-          input.terminal.status === "completed" &&
-          checkpointRevision !== null
-        ) {
-          await queuePushContinuation(tx, {
-            session: fenced.session,
-            turnRowId: terminal.id,
           });
         }
         // A parked turn resumes later and may still open the pull request;

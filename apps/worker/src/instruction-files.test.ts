@@ -248,6 +248,19 @@ describe("placeInstructionFiles", () => {
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("second\n");
   });
 
+  test("without text, the files an earlier attempt placed are removed, and the repository's own are not", async () => {
+    expect(await place("old directive text\n")).toBe("placed");
+
+    expect(await place("")).toBe("skipped");
+    expect(await exists("AGENTS.md")).toBe(false);
+    expect(await exists("CLAUDE.md")).toBe(false);
+
+    await rm(join(root, ".git", "info", "exclude"), { force: true });
+    await writeFile(join(root, "AGENTS.md"), "mine\n");
+    expect(await place("")).toBe("skipped");
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("mine\n");
+  });
+
   test("writes nothing without text, or where .git is not a directory", async () => {
     expect(await place("  \n")).toBe("skipped");
     expect(await exists("AGENTS.md")).toBe(false);

@@ -387,6 +387,11 @@ export const WORKER_EXIT_LEASE_LOST = 75;
 // checkpoints still reachable from the pointer went through, at most.
 export const MAX_RESTORE_PROFILES = 16;
 
+// What a restore plan request may list: for the claim's config and each earlier
+// profile, the digest of its current form and of the form an older session was
+// stamped with.
+export const MAX_RESTORE_ALTERNATES = 2 * MAX_RESTORE_PROFILES + 1;
+
 export const permissionGrantSchema = z
   .object({
     request_id: requestIdSchema,
@@ -982,7 +987,7 @@ export const restorePlanRequestSchema = workerScopeSchema
     alternate_profile_sha256s: z
       .array(z.string().regex(/^[0-9a-f]{64}$/))
       .min(1)
-      .max(MAX_RESTORE_PROFILES)
+      .max(MAX_RESTORE_ALTERNATES)
       .optional(),
   })
   .strict();

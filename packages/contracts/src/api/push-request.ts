@@ -259,6 +259,10 @@ export const createPushRequestRequestSchema = z
     repository_id: z.string().min(1).max(128).optional(),
     // Omitted: `agent/<session-id>`; else `agent/<session-id>-<branch>`.
     branch: z.string().regex(PUSH_BRANCH_SUFFIX_PATTERN).optional(),
+    // The saved revision to push. Omitted, the request is refused as
+    // `checkpoint_revision_required` and names the latest committed one: this
+    // route does not know whether the session's work after it was saved.
+    checkpoint_revision: revisionSchema.optional(),
   })
   .strict();
 
@@ -322,6 +326,9 @@ export const PUSH_REFUSAL_VALUES = [
   // A request made from a pinned revision whose checkpoint no longer verifies
   // for this session, or whose commit is not the request's.
   "pinned_source_invalid",
+  // `POST /push-requests` named no saved revision; the answer carries the
+  // latest committed one as `checkpoint_revision`.
+  "checkpoint_revision_required",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 

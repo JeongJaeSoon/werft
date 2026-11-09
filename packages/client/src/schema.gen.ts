@@ -4460,6 +4460,7 @@ export interface components {
         CreatePushRequestRequest: {
             repository_id?: string;
             branch?: string;
+            checkpoint_revision?: number;
         };
         ResolvePushRequestRequest: {
             git_commit: string;

@@ -274,9 +274,9 @@ type WorkspaceCaptureInput = {
    */
   markNewFiles?: boolean;
   /**
-   * Carry every local branch (`CHECKPOINT_SOURCE_PREFIX`). Only sessions made
-   * after the API learned `workspace.sources` set it: an older API refuses the
-   * manifest field, and an older verifier refuses the refs.
+   * Carry every local branch (`CHECKPOINT_SOURCE_PREFIX`). An older API
+   * refuses the manifest field and an older verifier refuses the refs, so the
+   * API is rolled out before the workers that set this.
    */
   keepBranches?: boolean;
   /** For tests that need procfs to be missing. */

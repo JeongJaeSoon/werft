@@ -44,9 +44,12 @@ export async function placeInstructionFiles(input: {
   signal: AbortSignal;
 }): Promise<InstructionPlacement> {
   const { root, signal } = input;
-  if (input.text.trim() === "") return "skipped";
   const gitDir = join(root, ".git");
   if (!(await lstat(gitDir).catch(() => null))?.isDirectory()) return "skipped";
+  if (input.text.trim() === "") {
+    await removePlacedFiles(root, gitDir);
+    return "skipped";
+  }
 
   if (await repositoryTracks(root, signal)) return "kept";
 
@@ -111,6 +114,28 @@ export async function placeInstructionFiles(input: {
     }
   }
   return agents === null && link === null ? "placed" : "refreshed";
+}
+
+/**
+ * A workspace restored from an earlier attempt may hold the files that
+ * attempt placed, with text this one no longer sends. Only files carrying
+ * the marker, in the shape placeInstructionFiles leaves them, are removed.
+ */
+async function removePlacedFiles(root: string, gitDir: string): Promise<void> {
+  const excludes = await readFile(
+    join(gitDir, "info", "exclude"),
+    "utf8",
+  ).catch(() => "");
+  if (!excludes.includes(EXCLUDE_MARKER)) return;
+  const link = await lstat(join(root, LINK)).catch(() => null);
+  if (
+    link?.isSymbolicLink() &&
+    (await readlink(join(root, LINK)).catch(() => null)) === CANONICAL
+  ) {
+    await rm(join(root, LINK), { force: true });
+  }
+  const agents = await lstat(join(root, CANONICAL)).catch(() => null);
+  if (agents?.isFile()) await rm(join(root, CANONICAL), { force: true });
 }
 
 function ensureNewline(text: string): string {

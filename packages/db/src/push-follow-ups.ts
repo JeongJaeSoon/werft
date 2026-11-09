@@ -52,6 +52,24 @@ async function pullRequestRecorded(
  * running (it may open the pull request itself; the next turn end decides),
  * `now` when the caller should queue it at once.
  */
+const LEGACY_FOLLOW_UP =
+  /^Platform note: a person (approved|rejected) (push request \S+ \(repository [^,]+, branch [^)]+\))/;
+
+/**
+ * Rows held before the wording became facts carry directives; the held text
+ * is what the turn will say, so it is rewritten when it is queued.
+ */
+export function followUpFact(message: string): string {
+  const legacy = LEGACY_FOLLOW_UP.exec(message);
+  if (legacy === null) return message;
+  const [, verb, subject] = legacy;
+  return `A person ${verb} ${subject}. ${
+    verb === "approved"
+      ? "The push runs in the background."
+      : "Nothing was pushed."
+  }`;
+}
+
 export function holdPushFollowUp(
   db: Database,
   input: { sessionId: string; pushRequestId: string; message: string },
@@ -104,6 +122,7 @@ export async function queuePushFollowUps(
     if (await pullRequestRecorded(tx, session.id, hold.pushRequestId)) {
       continue;
     }
+    const message = followUpFact(hold.message);
     const [last] = await tx
       .select({ sequence: max(turns.sequence) })
       .from(turns)
@@ -113,7 +132,7 @@ export async function queuePushFollowUps(
       .values({
         sessionId: session.id,
         sequence: (last?.sequence ?? 0) + 1,
-        message: hold.message,
+        message,
         status: "queued",
         createdAt: sql`clock_timestamp()`,
         actorId: null,
@@ -123,7 +142,7 @@ export async function queuePushFollowUps(
     await enqueueWithin(tx, {
       sessionId: session.id,
       turnId: turn.id,
-      payload: { message: hold.message },
+      payload: { message },
     });
     queued += 1;
   }
