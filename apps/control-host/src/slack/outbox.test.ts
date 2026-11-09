@@ -1175,6 +1175,75 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(await outbox.beginSend(claim)).toBe(false);
   });
 
+  // The bot left the private channel: inactive, so nothing goes there.
+  const leaveChannel = () =>
+    db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "left",
+      home: false,
+      approvedAt: null,
+      approvedLifecycleUs: null,
+    });
+
+  test("a reply to a channel the bot left is not sent", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    await leaveChannel();
+
+    expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
+    expect(posted()).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a reply claimed before the bot left its channel does not start sending", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    if (!claim) throw new Error("nothing claimed");
+    await leaveChannel();
+    expect(await outbox.beginSend(claim)).toBe(false);
+  });
+
+  test("a thread's status is not set in a channel the bot left", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await outboxPass();
+    // The baseline: a status does go out while the bot is in the channel.
+    expect(slack.statuses).toEqual([
+      { channelId: CHANNEL, threadTs: THREAD, status: "processing" },
+    ]);
+
+    // The turn ends, so the status is due to change; the channel is left
+    // before that change is sent.
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
+    await leaveChannel();
+    await outboxPass();
+    expect(slack.statuses).toHaveLength(1);
+  });
+
+  test("a notice to a channel the bot left is not sent either, unlike one to a channel waiting for approval", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD, STRANGER);
+    await leaveChannel();
+
+    await outboxPass();
+    await outboxPass();
+    expect(slack.messages).toEqual([]);
+    expect((await rows())[0]).toMatchObject({
+      kind: "notice",
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
   test("rejecting a channel fails the replies still waiting for it, claimed or not", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
