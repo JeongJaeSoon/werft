@@ -13,6 +13,7 @@ import {
   meetPushAttached,
   newSessionGitHubPolicy,
   pushAttachedOf,
+  pushDecisionOf,
 } from "./agents.ts";
 
 const PIN: AgentGitHub = {
@@ -608,5 +609,58 @@ describe("newSessionGitHubPolicy", () => {
     const read = newSessionGitHubPolicy(ROW, PIN);
     expect(read.source).toBe("agent");
     expect(read.startRepositoryId).toBe("infra");
+  });
+});
+
+describe("pushDecisionOf: one rule for every repository", () => {
+  type Decision = "allow" | "ask" | "deny";
+  const TABLE: Array<[boolean, Decision, Decision]> = [
+    [true, "allow", "allow"],
+    [true, "ask", "ask"],
+    [true, "deny", "deny"],
+    [false, "allow", "ask"],
+    [false, "ask", "ask"],
+    [false, "deny", "deny"],
+  ];
+
+  for (const [off, attached, expected] of TABLE) {
+    test(`push_approval ${off ? "false" : "true"} × push_attached ${attached}`, () => {
+      const policy = {
+        settings: { ...PIN, push_approval: !off },
+        pushAttached: attached,
+      };
+      expect(pushDecisionOf(policy)).toBe(expected);
+    });
+  }
+
+  test("settings that cannot be applied ask, and deny still denies", () => {
+    for (const settings of ["invalid", null] as const) {
+      expect(pushDecisionOf({ settings, pushAttached: "allow" })).toBe("ask");
+      expect(pushDecisionOf({ settings, pushAttached: "deny" })).toBe("deny");
+    }
+  });
+
+  test("a snapshot that started open and is narrowed meets to the stricter value", () => {
+    const row = { ...ROW, pushApproval: false, updatedBy: PERSON };
+    const start: GitHubPolicyStart = {
+      enabled: true,
+      revision: 2,
+      settings: { ...PIN, push_approval: false },
+      push_attached: "allow",
+    };
+    const asked = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...row, pushApproval: true, pushAttached: "allow" },
+      start,
+    });
+    expect(pushDecisionOf(asked)).toBe("ask");
+    const denied = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...row, pushAttached: "deny" },
+      start,
+    });
+    expect(pushDecisionOf(denied)).toBe("deny");
   });
 });

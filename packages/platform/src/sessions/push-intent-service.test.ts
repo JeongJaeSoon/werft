@@ -65,13 +65,19 @@ const actor = {
   verified: true,
 };
 
+const APPROVAL = {
+  releaseId: "019a0000-0000-7000-8000-0000000000d1",
+  source: "release" as const,
+  settingsRevision: null,
+};
+
 function harness(
   options: {
     githubEnabled?: boolean;
     pinned?: PushSourceResult;
     turnRunning?: boolean;
     takenTarget?: string;
-    pushAttached?: "allow" | "ask" | "deny";
+    push?: "allow" | "ask" | "deny";
     request?: Partial<PushRequest> | null;
   } = {},
 ) {
@@ -102,9 +108,8 @@ function harness(
         github_app_repositories: "listed",
       },
       githubEnabled: options.githubEnabled ?? true,
-      policyApproval: null,
-      pushAttached: options.pushAttached ?? "ask",
-      attachedApproval: null,
+      push: options.push ?? "ask",
+      policyApproval: APPROVAL,
       policyFields: { policy_source: "release" },
     }),
     recordRefusal: async (input: PushRefusalRecord) => {
@@ -202,7 +207,7 @@ describe("requestIntent", () => {
         attemptId: "attempt-1",
         repositoryId: "sample-app",
         targetBranch: `agent/${SESSION}`,
-        pushClass: "push.primary",
+        pushClass: "push",
         pullRequest: { title: "t" },
       },
     ]);
@@ -268,7 +273,7 @@ describe("requestIntent", () => {
 
 describe("push.attached = deny on the intent path", () => {
   test("requestIntent refuses an allowed attached repository with a receipt and records no intent", async () => {
-    const { push, deferred, refusals } = harness({ pushAttached: "deny" });
+    const { push, deferred, refusals } = harness({ push: "deny" });
     const error = await push
       .requestIntent(actor, SESSION, {
         attemptId: "attempt-1",
@@ -293,17 +298,55 @@ describe("push.attached = deny on the intent path", () => {
     });
     expect(result).toMatchObject({ status: "deferred" });
     expect(deferred).toMatchObject([
-      { repositoryId: "docs", pushClass: "push.attached" },
+      { repositoryId: "docs", pushClass: "push" },
     ]);
   });
 
   test("createFromIntent fails an intent whose attached repository became deny, with no transition", async () => {
-    const { push, ended, transitions } = harness({ pushAttached: "deny" });
+    const { push, ended, transitions } = harness({ push: "deny" });
     await push.createFromIntent(
       job({ repositoryId: "docs", pushClass: "push.attached" }),
     );
     expect(ended).toEqual([["failed", "repository_not_allowed"]]);
     expect(transitions).toEqual([]);
+  });
+});
+
+describe("one push class, and a stored class is never a permission", () => {
+  const STORED = ["push.primary", "push.attached", "push"] as const;
+
+  test("requestIntent records `push` for every repository", async () => {
+    const { push, deferred } = harness();
+    for (const repository_id of ["sample-app", "docs"]) {
+      await push.requestIntent(actor, SESSION, {
+        attemptId: "attempt-1",
+        turnId: 7,
+        body: { repository_id },
+      });
+    }
+    expect(deferred.map((input) => input.pushClass)).toEqual(["push", "push"]);
+  });
+
+  test("an own-repository push is denied for any stored class once the store says deny", async () => {
+    for (const pushClass of STORED) {
+      const { push, ended, transitions } = harness({ push: "deny" });
+      await push.createFromIntent(job({ pushClass }));
+      expect(ended).toEqual([["failed", "repository_not_allowed"]]);
+      expect(transitions).toEqual([]);
+    }
+  });
+
+  test("the approval follows the decision at run time, not the class stored with the intent", async () => {
+    for (const pushClass of STORED) {
+      for (const repositoryId of ["sample-app", "docs"]) {
+        const open = harness({ push: "allow" });
+        await open.push.createFromIntent(job({ repositoryId, pushClass }));
+        expect(open.transitions).toMatchObject([{ policyApproval: APPROVAL }]);
+        const narrowed = harness({ push: "ask" });
+        await narrowed.push.createFromIntent(job({ repositoryId, pushClass }));
+        expect(narrowed.transitions).toMatchObject([{ policyApproval: null }]);
+      }
+    }
   });
 });
 
