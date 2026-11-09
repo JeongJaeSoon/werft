@@ -64,7 +64,7 @@ type NavPath =
   | "/settings/workspace/achievement-rules"
   | "/settings/workspace/integrations/slack"
   | "/settings/workspace/api-keys"
-  | "/settings/workspace/connections"
+  | "/settings/workspace/model-connections"
   | "/settings/workspace/mcp-servers"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
@@ -222,13 +222,15 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       icon: SettingsIcon,
     });
   }
+  // What an agent picks from: only the installation owner registers it.
+  const agentConnections: NavItem[] = [];
   if (useHasPermission("installation.settings.manage")) {
-    workspace.push({
-      to: "/settings/workspace/connections",
+    agentConnections.push({
+      to: "/settings/workspace/model-connections",
       label: "settings.connections.nav",
       icon: SettingsIcon,
     });
-    workspace.push({
+    agentConnections.push({
       to: "/settings/workspace/mcp-servers",
       label: "settings.mcp.nav",
       icon: SettingsIcon,
@@ -244,6 +246,7 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
   }
   const groups: NavGroup[] = [
     { label: "shell.group.workspace", items: workspace },
+    { label: "shell.group.agentConnections", items: agentConnections },
     {
       label: "shell.group.personal",
       items: [
