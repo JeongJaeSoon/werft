@@ -645,7 +645,7 @@ export type EffectiveGitHubPolicy = {
    * this is the meet of that start and the agent's settings now.
    */
   settings: AgentGitHub | "invalid" | null;
-  /** The agent's start repository; a release's is `repository_id`. */
+  /** Kept for compatibility, not read to start a session; a release's is `repository_id`. */
   startRepositoryId: string | null;
   agentSettingsRevision: number | null;
   /**
@@ -922,8 +922,9 @@ export const agentReleaseSchema = z
     card_sha256: sha256HexSchema,
     runtime_profile_id: z.string().min(1).max(128),
     /**
-     * The catalog repository the release's sessions work on unless one
-     * names another; null runs them without one, as the profile allows.
+     * The catalog repository a session of the release starts on when it names
+     * none and the agent has no GitHub settings; an agent with settings starts
+     * without one. Null: none, as the profile allows.
      */
     repository_id: z.string().min(1).max(128).nullable(),
     profile_digest: z.string().min(1).max(128),
