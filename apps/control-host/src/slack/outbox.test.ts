@@ -3663,3 +3663,76 @@ describe.each(ENGINES)("action notices on %s", (engine) => {
     expect((await notices())[0]?.kind).toBe("action_notice");
   });
 });
+
+describe.each(ENGINES)("model notices on %s", (engine) => {
+  useDatabase(engine);
+
+  test("a model_notice goes to the person as a direct message with the session's link, though the session has no thread to answer in", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [link] = await db.select().from(sessionLinks);
+    if (!link) throw new Error("no link");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "model_notice",
+      channelId: PERSON,
+      threadTs: "",
+      slackUserId: null,
+      sessionId,
+      body: { text: "The session stopped.", locale: "en" },
+      dedupeKey: `model-not-allowed:${fixture.workspaceId}:${sessionId}:${PERSON}`,
+    });
+    // The thread is muted: a reply there would stop, this notice must not.
+    await db.update(sessionLinks).set({ muted: true });
+
+    expect(await outboxPass()).toMatchObject({
+      claimed: 1,
+      sent: 1,
+      failed: 0,
+    });
+    expect(posted()).toEqual([
+      expect.objectContaining({
+        channelId: PERSON,
+        threadTs: null,
+        text: `The session stopped.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.en.link}>`,
+      }),
+    ]);
+    expect((await rows())[0]).toMatchObject({
+      kind: "model_notice",
+      status: "sent",
+    });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+  });
+
+  test("a revoked installation still stops it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [link] = await db.select().from(sessionLinks);
+    if (!link) throw new Error("no link");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "model_notice",
+      channelId: PERSON,
+      threadTs: "",
+      slackUserId: null,
+      sessionId,
+      body: { text: "The session stopped." },
+      dedupeKey: `model-not-allowed:${fixture.workspaceId}:${sessionId}:${PERSON}`,
+    });
+    await db.execute(
+      sql`UPDATE slack_installations SET status = 'revoked', revoked_at = now()`,
+    );
+    expect(await outboxPass()).toMatchObject({ claimed: 0, failed: 1 });
+    expect(posted()).toEqual([]);
+  });
+});
