@@ -181,6 +181,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
     "PUT /v1/agents/{id}/github/settings",
+    "PUT /v1/agents/{id}/github/repository-access",
     "GET /v1/agents/{id}/github/activity",
   ],
   "routes/agent-mcp.test.ts": [

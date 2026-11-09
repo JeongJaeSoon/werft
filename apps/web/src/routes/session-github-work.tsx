@@ -8,6 +8,7 @@ import type {
 } from "@werft-ai/contracts";
 import { sessionGithubWorkQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
+import { sessionRepositoriesOf } from "@werft-ai/react/components";
 import {
   Badge,
   Code,
@@ -89,16 +90,20 @@ export function shortBranch(branch: string): string {
   return branch.replace(/^(agent\/[0-9a-f]{8})[0-9a-f-]{20,}$/i, "$1…");
 }
 
+type Names = ReadonlyMap<string, string | null>;
+
 function Target({
   repositoryId,
+  names,
   branch,
 }: {
   readonly repositoryId: string;
+  readonly names: Names;
   readonly branch: string;
 }) {
   return (
     <Code className="[overflow-wrap:anywhere]" title={branch}>
-      {repositoryId} ← {shortBranch(branch)}
+      {names.get(repositoryId) ?? repositoryId} ← {shortBranch(branch)}
     </Code>
   );
 }
@@ -120,15 +125,21 @@ function groupsOf(rows: Row[]): [key: string, rows: Row[]][] {
   return [...groups];
 }
 
-function BranchGroup({ rows }: { readonly rows: Row[] }) {
+function BranchGroup({
+  rows,
+  names,
+}: {
+  readonly rows: Row[];
+  readonly names: Names;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [latest, ...earlier] = rows;
   const render = (row: Row) =>
     row.kind === "request" ? (
-      <RequestRow key={row.request.id} request={row.request} />
+      <RequestRow key={row.request.id} request={row.request} names={names} />
     ) : (
-      <IntentRow key={row.intent.id} intent={row.intent} />
+      <IntentRow key={row.intent.id} intent={row.intent} names={names} />
     );
   return (
     <>
@@ -150,7 +161,13 @@ function BranchGroup({ rows }: { readonly rows: Row[] }) {
   );
 }
 
-function RequestRow({ request }: { readonly request: PushRequest }) {
+function RequestRow({
+  request,
+  names,
+}: {
+  readonly request: PushRequest;
+  readonly names: Names;
+}) {
   const { t, locale } = useI18n();
   return (
     <RowListItem>
@@ -158,6 +175,7 @@ function RequestRow({ request }: { readonly request: PushRequest }) {
         <Text as="span" className="flex min-w-0 flex-wrap items-center gap-2">
           <Target
             repositoryId={request.repository_id}
+            names={names}
             branch={request.target_branch}
           />
           <Badge variant={REQUEST_BADGE[request.state]}>
@@ -190,7 +208,13 @@ function RequestRow({ request }: { readonly request: PushRequest }) {
   );
 }
 
-function IntentRow({ intent }: { readonly intent: PushIntent }) {
+function IntentRow({
+  intent,
+  names,
+}: {
+  readonly intent: PushIntent;
+  readonly names: Names;
+}) {
   const { t, locale } = useI18n();
   return (
     <RowListItem>
@@ -198,6 +222,7 @@ function IntentRow({ intent }: { readonly intent: PushIntent }) {
         <Text as="span" className="flex min-w-0 flex-wrap items-center gap-2">
           <Target
             repositoryId={intent.repository_id}
+            names={names}
             branch={intent.target_branch}
           />
           <Badge variant={intent.status === "failed" ? "red" : "gray"}>
@@ -228,9 +253,11 @@ export function SessionGitHubWork({
   const { t } = useI18n();
   const { client } = useWerft();
   const titleId = useId();
+  // A session may hold only attached repositories, with none of its own.
+  const repositories = sessionRepositoriesOf(session);
   const work = useQuery(
     sessionGithubWorkQuery(client, session.id, {
-      enabled: Boolean(session.repository),
+      enabled: repositories.length > 0,
     }),
   );
   if (work.error && !isApiError(work.error, "NOT_FOUND")) {
@@ -239,14 +266,19 @@ export function SessionGitHubWork({
     );
   }
   const rows = work.data === undefined ? [] : rowsOf(work.data);
-  if (!session.repository || rows.length === 0) return null;
+  if (repositories.length === 0 || rows.length === 0) return null;
+  const names: Names = new Map(
+    repositories.flatMap((repository) =>
+      repository.id === null ? [] : [[repository.id, repository.name] as const],
+    ),
+  );
   return (
     <section className="flex flex-col gap-2" aria-labelledby={titleId}>
       <Heading id={titleId}>{t("session.github.title")}</Heading>
       <Text variant="sub">{t("session.github.description")}</Text>
       <RowList variant="joined">
         {groupsOf(rows).map(([key, group]) => (
-          <BranchGroup key={key} rows={group} />
+          <BranchGroup key={key} rows={group} names={names} />
         ))}
       </RowList>
     </section>

@@ -82,6 +82,7 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
+import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
 export const viewerOf = (actor: Caller): SessionViewer => ({
@@ -615,8 +616,13 @@ export function createSessionService(deps: {
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
     const block = sessionBlock(actor.ownerId, profile_id);
+    const attached = attachedRepositoriesOf(
+      detail.attached_repository_ids,
+      catalog.repositories,
+    );
     return {
       ...detail,
+      ...(attached === undefined ? {} : { attached_repositories: attached }),
       attention:
         detail.attention ??
         (block ? { code: "PROFILE_BLOCKED", ...block } : null) ??
@@ -1430,14 +1436,23 @@ export function createSessionService(deps: {
       );
       return {
         items: page.items.map(
-          ({ profile_id, profile_fingerprint, ...item }) => ({
-            ...item,
-            runtime: runtimeFor({
-              profile_id,
-              profile_fingerprint,
-              model: item.model,
-            }),
-          }),
+          ({ profile_id, profile_fingerprint, ...item }) => {
+            const attached = attachedRepositoriesOf(
+              item.attached_repository_ids,
+              catalog.repositories,
+            );
+            return {
+              ...item,
+              ...(attached === undefined
+                ? {}
+                : { attached_repositories: attached }),
+              runtime: runtimeFor({
+                profile_id,
+                profile_fingerprint,
+                model: item.model,
+              }),
+            };
+          },
         ),
         next_cursor: page.next_cursor,
       };

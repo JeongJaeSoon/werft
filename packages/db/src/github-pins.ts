@@ -85,7 +85,18 @@ function claimPinReceipt(input: {
   };
 }
 
-export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
+type PinFirstInput = Parameters<GitHubPinStore["pinFirst"]>[0];
+
+export type PostgresGitHubPinStore = GitHubPinStore & {
+  pinFirst(
+    input: PinFirstInput,
+    joined?: Database,
+  ): ReturnType<GitHubPinStore["pinFirst"]>;
+};
+
+export function createPostgresGitHubPinStore(
+  db: Database,
+): PostgresGitHubPinStore {
   return {
     async get(repositoryId, role) {
       const [row] = await db
@@ -101,8 +112,10 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
       return rows.map(pinOf);
     },
 
-    pinFirst(input) {
-      return db.transaction(async (tx) => {
+    pinFirst(input: PinFirstInput, joined?: Database) {
+      // `joined` is a caller's transaction this one then belongs to; it
+      // takes the App lock after the catalog's and before the agent's.
+      const run = async (tx: Database) => {
         const connectionId = input.connectionId.toLowerCase();
         const held = async () => {
           const [row] = await tx
@@ -181,7 +194,8 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
         const kept = await held();
         if (kept.pin === null) throw new Error("GitHub pin vanished");
         return kept;
-      });
+      };
+      return joined === undefined ? db.transaction(run) : run(joined);
     },
 
     set(input) {

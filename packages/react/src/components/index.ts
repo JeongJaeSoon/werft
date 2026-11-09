@@ -159,6 +159,15 @@ export {
   shortSessionId,
 } from "./session/session-overview.tsx";
 export {
+  RepositoryName,
+  RepositorySummary,
+  type RepositorySummaryMessages,
+  repositoryLabel,
+  type SessionRepositoryEntry,
+  type SessionRepositorySource,
+  sessionRepositoriesOf,
+} from "./session/session-repositories.tsx";
+export {
   SESSION_NARROW_TEMPLATE,
   SESSION_TEMPLATE,
   SessionRow,

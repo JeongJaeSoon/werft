@@ -2699,6 +2699,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{id}/github/repository-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn one GitHub repository on or off for the agent
+         * @description One toggle, one change, no release: a new session reads it at once, and turning a repository off reaches running sessions too. `repository` is a `ref` from `GET …/github` (`selected_repositories`, `options.repositories`) to turn a repository the catalog holds on or off, or `installation_id` with `github_repository_id` from `GET …/github/repositories` to turn on one the catalog may not hold yet; a repository is turned off by its `ref` only. The catalog row (added, or moved to a new name after a rename on GitHub), the settings, the receipts and the author App pin are written in one transaction, so a refusal or a failure anywhere leaves none of them. The change is applied to the row as it stands, so toggles of other repositories are kept and the last one of a repository stays. `expected_revision` is optional: left out, nothing is compared; given (null when there was no row) and different, the answer is 409 `REVISION_CONFLICT` with `details.revision`, and the caller reads `GET …/github` again. Turning off the repository sessions start on clears `start_repository_id`. An agent with no settings row starts from its active release's GitHub pins, read under the agent's lock; with no active release, or pins this image cannot read, that is 409 `REVISION_CONFLICT` with `reason_code: settings_seed_unavailable`. 400 `reason_code`: `invalid_ref`, `repository_not_found`, `repository_not_allowed` (the workspace's repository ceiling; a repository picked from an installation also needs a ceiling that runs on the App's repositories), `app_required`, `name_held` (another row has that name), `no_author_app` or `not_installed` (as `POST …/github/repositories`). Writes a `set_agent_github` receipt with `result.change = "repository"` when the settings changed; `receipt_id` is null when the repository already was in that state. Agent managers with a web session only; API keys are refused.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putAgentGitHubRepositoryAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{id}/mcp/settings": {
         parameters: {
             query?: never;
@@ -4627,6 +4649,16 @@ export interface components {
             /** @enum {string} */
             push_attached?: "allow" | "ask" | "deny";
         };
+        PutAgentGitHubRepositoryAccessRequest: {
+            repository: {
+                ref: string;
+            } | {
+                installation_id: number;
+                github_repository_id: number;
+            };
+            enabled: boolean;
+            expected_revision?: number | null;
+        };
         PutAgentMcpSettingsRequest: {
             expected_revision: number | null;
             settings: {
@@ -5218,6 +5250,13 @@ export interface components {
             repository: components["schemas"]["SessionRepository"] | null;
             /** @description The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
             attached_repository_ids?: string[] | null;
+            /** @description `attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable). */
+            attached_repositories?: {
+                /** @description The catalog key. */
+                id: string;
+                /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
+                full_name: string | null;
+            }[];
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -5381,6 +5420,13 @@ export interface components {
             repository: components["schemas"]["SessionRepository"] | null;
             /** @description The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field. */
             attached_repository_ids?: string[] | null;
+            /** @description `attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable). */
+            attached_repositories?: {
+                /** @description The catalog key. */
+                id: string;
+                /** @description A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository. */
+                full_name: string | null;
+            }[];
             current_turn_id: string | null;
             queued_turn_count: number;
             last_event_at: string | null;
@@ -6901,6 +6947,16 @@ export interface components {
         PutAgentGitHubSettingsResponse: {
             settings_revision: number;
             receipt_id: string | null;
+        };
+        PutAgentGitHubRepositoryAccessResponse: {
+            settings_revision: number;
+            receipt_id: string | null;
+            enabled: boolean;
+            repository: {
+                ref: string;
+                repository: string;
+                private: boolean | null;
+            };
         };
         AgentMcpResponse: {
             /** @enum {string} */
@@ -28544,6 +28600,193 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putAgentGitHubRepositoryAccess: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "repository": {
+                 *         "ref": "r1.d2Vyc3QtYXBw"
+                 *       },
+                 *       "enabled": true
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutAgentGitHubRepositoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description The repository is in the requested state. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "settings_revision": 4,
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "enabled": true,
+                     *       "repository": {
+                     *         "ref": "r1.d2Vyc3QtYXBw",
+                     *         "repository": "octo/werft-app",
+                     *         "private": null
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PutAgentGitHubRepositoryAccessResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {

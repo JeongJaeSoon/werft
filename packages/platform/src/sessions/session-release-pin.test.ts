@@ -6,6 +6,7 @@ import {
   type AuthorizationRequest,
   type CreateSessionRequest,
   GITHUB_FEATURES_NONE,
+  listSessionsQuerySchema,
   type RepositoryCeiling,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
@@ -15,6 +16,7 @@ import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type {
   AcceptSessionInput,
   SessionDetailRecord,
+  SessionRecord,
 } from "../ports/session-unit-of-work.ts";
 import {
   attachCatalog,
@@ -85,6 +87,8 @@ function setup(
     releaseProfile?: string;
     /** The session getSession and appendMessage find. */
     session?: SessionDetailRecord;
+    /** What listSessions finds. */
+    listed?: SessionRecord[];
     /** Idempotency keys of messages accepted earlier. */
     appendedKeys?: string[];
     /** The release's GitHub settings. */
@@ -178,7 +182,10 @@ function setup(
           : [],
     },
     reader: {
-      listSessions: unreached,
+      listSessions: async () => ({
+        items: options.listed ?? [],
+        next_cursor: null,
+      }),
       countSessions: unreached,
       getSession: async () => options.session ?? null,
       listTurns: unreached,
@@ -1094,6 +1101,66 @@ function sessionOn(profileId: string): SessionDetailRecord {
     profile_fingerprint: null,
   };
 }
+
+describe("attached repositories in a session read", () => {
+  const withDocs: SessionCatalog = {
+    ...catalog,
+    repositories: {
+      ...catalog.repositories,
+      docs: {
+        url: "https://github.com/acme/docs.git",
+        branch: "main",
+        profiles: ["coding-v1"],
+        auth: { kind: "github_app", registered: true },
+      },
+      tools: {
+        url: "file:///srv/git/tools.git",
+        branch: "main",
+        profiles: ["coding-v1"],
+        auth: { kind: "github_app", registered: true },
+      },
+    },
+  };
+  const read = async (ids: string[] | null) => {
+    const record = {
+      ...sessionOn("coding-v1"),
+      attached_repository_ids: ids,
+    };
+    const { service, caller } = setup({
+      catalog: withDocs,
+      session: record,
+      // The list reads the same record; the detail-only fields are ignored.
+      listed: [record as unknown as SessionRecord],
+    });
+    return {
+      detail: await service.getSession(caller, SESSION),
+      listed: (
+        await service.listSessions(caller, listSessionsQuerySchema.parse({}))
+      ).items[0],
+    };
+  };
+
+  test("name each id from the catalog, in id order, in both reads", async () => {
+    const { detail, listed } = await read(["tools", "docs"]);
+    const expected = [
+      { id: "docs", full_name: "acme/docs" },
+      { id: "tools", full_name: "tools" },
+    ];
+    expect(detail.attached_repositories).toEqual(expected);
+    expect(listed?.attached_repositories).toEqual(expected);
+  });
+
+  test("none attached reads [], a list the session does not hold reads absent", async () => {
+    const none = await read([]);
+    expect(none.detail.attached_repositories).toEqual([]);
+    expect(none.listed?.attached_repositories).toEqual([]);
+    const unknown = await read(null);
+    expect("attached_repositories" in unknown.detail).toBe(false);
+    expect(unknown.listed && "attached_repositories" in unknown.listed).toBe(
+      false,
+    );
+  });
+});
 
 // Session records keep the repo_url they started with, so moving the example
 // repository to another host or path would strand every one of them.
