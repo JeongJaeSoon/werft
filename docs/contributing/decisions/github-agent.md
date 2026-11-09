@@ -599,7 +599,7 @@ export const agentGitHubSchema = z.object({
 
 ### 설정 > 워크스페이스 > GitHub 연결
 
-`/settings/workspace/github`(`router.tsx:355`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 설계 문서 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
+`/settings/workspace/integrations/github`(`router.tsx`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 설계 문서 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
 
 1. **GitHub 카드**
    - 머리: GitHub 타일, "App N개 · 계정 N곳", 주 버튼 **조직 추가**. App이 여럿이면 설치할 App을 고르는 메뉴가 열린다. 콘솔이 일회용 상태(`POST …/github-apps/{connectionId}/installations/start`)를 만들어 그 App의 설치 화면으로 보내고, 돌아오면 `POST …/github-apps/installations/complete`로 연결한 사람을 남긴다.

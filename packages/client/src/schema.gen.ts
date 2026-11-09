@@ -423,7 +423,7 @@ export interface paths {
         put?: never;
         /**
          * Start making the author GitHub App from a manifest (owner or admin)
-         * @description Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field `manifest`), with a new single-use `state` in that URL, valid 60 minutes and bound to the caller and the workspace. `owner` picks an organization (its owners can create the App) or the caller's own account; a private App (`public: false`, the default) installs only on that account. The manifest asks for `contents` and `pull_requests` write and `metadata` read, plus `actions` and `workflows` write with `actions: true`; its webhook is off, its redirect is the console's `/settings/workspace/github/new-app` and its callback the account-link page. The App it makes is always another author connection, beside any registered: `replace` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.
+         * @description Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field `manifest`), with a new single-use `state` in that URL, valid 60 minutes and bound to the caller and the workspace. `owner` picks an organization (its owners can create the App) or the caller's own account; a private App (`public: false`, the default) installs only on that account. The manifest asks for `contents` and `pull_requests` write and `metadata` read, plus `actions` and `workflows` write with `actions: true`; its webhook is off, its redirect is the console's `/settings/workspace/integrations/github/new-app` and its callback the account-link page. The App it makes is always another author connection, beside any registered: `replace` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -14872,7 +14872,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking.
+             * @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
              */
             409: {
@@ -24660,7 +24660,7 @@ export interface operations {
             };
             /**
              * @description - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
-             *     - `SLACK_LINK_NOT_CONFIGURED`: Slack account linking cannot start: the workspace has no link app, nothing to make one with (no usable App Configuration Token, or the API runs without its master key) and no fallback OIDC app. `error.details.reason_code` is `config_token`, `store_off` or `no_console`. Ask an owner or admin to set up the Slack connection.
+             *     - `SLACK_LINK_NOT_CONFIGURED`: Slack account linking cannot start: the workspace has no link app, nothing to make one with (no usable App Configuration Token, or the API runs without its master key) and no fallback OIDC app. `error.details.reason_code` is `config_token`, `store_off` or `no_console`. Ask an owner or admin to set up Slack in Integrations.
              *     - `SLACK_APP_CREATING`: The Slack app (the agent's, or the workspace's link app) is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
              */
@@ -24910,7 +24910,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking. */
+            /** @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub. */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25055,7 +25055,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish the GitHub connection's user linking.
+             * @description - `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.
              *     - `LINK_TAKEN`: The Slack account is already linked to another person.
              *     - `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.
              */

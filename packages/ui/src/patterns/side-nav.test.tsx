@@ -20,11 +20,11 @@ function settings(onPick?: () => void) {
   return (
     <SideNavLayout
       nav={
-        <SideNav aria-label="설정" current="Slack 연결 설정" onPick={onPick}>
+        <SideNav aria-label="설정" current="Slack 앱" onPick={onPick}>
           <SideNavGroup label="워크스페이스">
             <SideNavLink href="/settings/workspace">일반</SideNavLink>
-            <SideNavLink href="/settings/workspace/slack" current>
-              Slack 연결 설정
+            <SideNavLink href="/settings/workspace/integrations/slack" current>
+              Slack 앱
             </SideNavLink>
           </SideNavGroup>
           <SideNavGroup label="내 설정">
@@ -35,7 +35,7 @@ function settings(onPick?: () => void) {
         </SideNav>
       }
     >
-      <h1>Slack 연결 설정</h1>
+      <h1>Slack 앱</h1>
     </SideNavLayout>
   );
 }
@@ -156,7 +156,7 @@ describe("SideNav", () => {
   test("접힌 버튼은 이름과 지금 항목을 읽고 목록을 열고 닫는다", async () => {
     const user = await setupUser();
     const { getByRole } = render(settings());
-    const toggle = getByRole("button", { name: /^설정 · Slack 연결 설정/ });
+    const toggle = getByRole("button", { name: /^설정 · Slack 앱/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     const list = document.getElementById(
       toggle.getAttribute("aria-controls") ?? "",

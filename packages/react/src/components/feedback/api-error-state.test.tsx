@@ -186,4 +186,33 @@ describe("오류 문구", () => {
       );
     }
   });
+
+  test.each([
+    [
+      "ko",
+      "연동 › Slack",
+      "연동 › GitHub",
+      ["Slack 연결 설정", "GitHub 연결 설정"],
+    ],
+    [
+      "en",
+      "Slack in Integrations",
+      "Integrations › GitHub",
+      ["Slack connection", "GitHub connection"],
+    ],
+    ["ja", "連携 › Slack", "連携 › GitHub", ["Slack 接続", "GitHub 接続"]],
+  ] as const)(
+    "%s 안내는 연동 메뉴 이름을 쓰고 옛 메뉴 이름은 없다",
+    (locale, slack, github, old) => {
+      const texts = [
+        guidanceFor("SLACK_LINK_NOT_CONFIGURED", locale),
+        guidanceFor("GITHUB_LINK_NOT_CONFIGURED", locale),
+      ];
+      expect(texts[0]?.includes(slack)).toBe(true);
+      expect(texts[1]?.includes(github)).toBe(true);
+      for (const label of old) {
+        expect(texts.some((text) => text?.includes(label))).toBe(false);
+      }
+    },
+  );
 });
