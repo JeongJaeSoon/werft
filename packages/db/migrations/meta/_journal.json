@@ -1107,6 +1107,13 @@
       "when": 1794188792363,
       "tag": "0248_model_notice_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 249,
+      "version": "7",
+      "when": 1794193725603,
+      "tag": "0249_slack_channel_lifecycle",
+      "breakpoints": true
     }
   ]
 }
