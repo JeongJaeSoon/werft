@@ -8,10 +8,12 @@ import { z } from "zod";
 // credential: the connection is named by id and endpoint, and the worker
 // gets its token at claim.
 //
-// The enums below repeat api/session.ts and api/profiles.ts, which this
-// module cannot import without a cycle (api/session.ts imports the agents
-// contract that will import this). runtime-spec.test.ts holds them to the
-// originals.
+// The mode and repository enums below repeat api/session.ts and
+// api/profiles.ts, which this module cannot import without a cycle
+// (api/session.ts imports the agents contract that will import this).
+// runtime-spec.test.ts holds them to the originals. The runtime kind is data
+// (architecture guard G2): it is a string here, and `runtimeKindSchema` in
+// api/session.ts is what says which kinds exist.
 
 export const RUNTIME_SPEC_VERSION = 1;
 export const SPEC_DERIVATION_VERSION = 1;
@@ -20,11 +22,6 @@ export const EXECUTION_MODE_VALUES = ["auto", "bypass"] as const;
 export const executionModeSchema = z.enum(EXECUTION_MODE_VALUES);
 export type ExecutionMode = z.infer<typeof executionModeSchema>;
 
-const runtimeKindSchema = z.enum([
-  "claude_agent_sdk",
-  "codex_app_server",
-  "pi_coding_agent",
-]);
 const legacyPermissionModeSchema = z.enum([
   "default",
   "acceptEdits",
@@ -57,9 +54,7 @@ const endpointSchema = z.string().refine((value) => {
   );
 }, "must be an http(s) URL with no credential, query or fragment");
 
-const runtimeSchema = z
-  .object({ kind: runtimeKindSchema, version: nonEmpty })
-  .strict();
+const runtimeSchema = z.object({ kind: nonEmpty, version: nonEmpty }).strict();
 
 // Where the model is called. The connection is named by id: it is what picks
 // the credential, and a provider that matches no connection row runs nothing

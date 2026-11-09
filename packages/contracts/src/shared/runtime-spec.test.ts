@@ -35,8 +35,20 @@ describe("runtime spec contract", () => {
   test("the repeated enums match the originals", () => {
     const shape = specSourceSchema.shape;
     expect(shape.permission_mode.options).toEqual([...PERMISSION_MODE_VALUES]);
-    expect(shape.runtime.shape.kind.options).toEqual([...RUNTIME_KIND_VALUES]);
     expect(shape.repository_mode.options).toEqual(repositoryModeSchema.options);
+  });
+
+  // The kind is a plain string here (guard G2), so a kind the session
+  // contract knows is never refused by this one.
+  test("every runtime kind the session contract names is accepted", () => {
+    for (const kind of RUNTIME_KIND_VALUES) {
+      expect(
+        specSourceSchema.safeParse({
+          ...source,
+          runtime: { ...source.runtime, kind },
+        }).success,
+      ).toBe(true);
+    }
   });
 
   test("only bypassPermissions stays bypass; every other mode is auto", () => {
