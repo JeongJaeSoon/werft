@@ -857,7 +857,7 @@ function TeamRoleSelect({
       <NativeSelect
         // w-auto, not fit: a select in a table cell collapses at 390px.
         // Same 820px container query as the table's narrow tracks.
-        className="w-auto ps-2 pe-8 [@container(max-width:820px)]:ps-1.5 [@container(max-width:820px)]:pe-6"
+        className="w-auto ps-2 pe-8 [@container(max-width:820px)]:ps-1 [@container(max-width:820px)]:pe-6"
         aria-label={t("teams.changeRoleFor", { name })}
         value={shown}
         disabled={save.isPending}
