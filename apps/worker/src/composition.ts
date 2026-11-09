@@ -261,6 +261,9 @@ export function runtimeStart(
       ...(launch.runtimeConfig.disallowed_tools === undefined
         ? {}
         : { disallowedTools: launch.runtimeConfig.disallowed_tools }),
+      ...(launch.runtimeConfig.engine_settings === undefined
+        ? {}
+        : { engineSettings: launch.runtimeConfig.engine_settings }),
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
       ...(launch.gitEnvironment === undefined
         ? {}

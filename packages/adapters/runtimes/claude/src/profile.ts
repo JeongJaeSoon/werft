@@ -102,6 +102,9 @@ export function validateRuntimeConfig(
   // reason instead of a checkpoint that quietly never commits.
   describeComponents(config);
   assertEngineRules(config.disallowedTools);
+  // A deny the engine would drop is a policy not applied. An allow or ask it
+  // drops only narrows what runs, so those are not checked here.
+  assertEngineRules(config.engineSettings?.permissions?.deny);
   if (
     config.repositoryClaudeMd !== undefined &&
     (config.settingSources ?? ["project"]).length > 0

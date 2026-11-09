@@ -209,6 +209,9 @@ export function claudeStartConfig(
     ...(config.disallowedTools === undefined
       ? {}
       : { disallowedTools: config.disallowedTools }),
+    ...(config.engineSettings === undefined
+      ? {}
+      : { engineSettings: config.engineSettings }),
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),

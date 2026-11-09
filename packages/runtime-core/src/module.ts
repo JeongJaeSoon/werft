@@ -17,6 +17,7 @@ export type RuntimeProfileInput = {
     RuntimeStart["config"],
     | "correlationId"
     | "disallowedTools"
+    | "engineSettings"
     | "gitEnvironment"
     | "localTranscriptResume"
     | "maxBudgetUsd"

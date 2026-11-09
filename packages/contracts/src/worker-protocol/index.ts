@@ -85,6 +85,9 @@ export const checkpointRefSchema = z.object({
 //     process is started with
 //   permission_rules: `runtime_config` may carry `disallowed_tools`, the deny
 //     rules the engine is started with in every permission mode
+//   engine_settings: `runtime_config` may carry `engine_settings`, the
+//     merged permission and auto mode rules the engine's settings are
+//     extended with
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -94,6 +97,7 @@ export const workerCapabilitiesSchema = z
     platform_tool_trust: z.literal(true).optional(),
     user_env: z.literal(true).optional(),
     permission_rules: z.literal(true).optional(),
+    engine_settings: z.literal(true).optional(),
   })
   .strict();
 
@@ -321,6 +325,58 @@ export const runtimeExtensionSchema = z
   })
   .strict();
 
+// The settings the platform merged for one claim: the workspace's and the
+// agent's permission rules, and the auto mode classifier's rules in that
+// order. The worker appends them after its own baseline rules; it never
+// replaces the baseline and never reorders what the platform merged.
+// `permissions.deny` takes the pattern form (`Bash(rm:*)`); a rule that names
+// a whole tool or an MCP server goes in `disallowed_tools`.
+const ENGINE_SETTINGS_RULES_MAX = 128;
+// Classifier rules are sentences, not patterns.
+const ENGINE_CLASSIFIER_RULES_MAX = 64;
+const ENGINE_CLASSIFIER_RULE_MAX_LENGTH = 1024;
+const settingsRuleListSchema = z
+  .array(z.string().min(1).max(PERMISSION_RULE_MAX_LENGTH))
+  .min(1)
+  .max(ENGINE_SETTINGS_RULES_MAX);
+const classifierRuleListSchema = z
+  .array(z.string().min(1).max(ENGINE_CLASSIFIER_RULE_MAX_LENGTH))
+  .min(1)
+  .max(ENGINE_CLASSIFIER_RULES_MAX);
+
+export const engineSettingsSchema = z
+  .object({
+    permissions: z
+      .object({
+        allow: settingsRuleListSchema.optional(),
+        ask: settingsRuleListSchema.optional(),
+        deny: settingsRuleListSchema.optional(),
+      })
+      .strict()
+      .refine((rules) => Object.keys(rules).length > 0, {
+        message: "must not be empty",
+      })
+      .optional(),
+    autoMode: z
+      .object({
+        allow: classifierRuleListSchema.optional(),
+        soft_deny: classifierRuleListSchema.optional(),
+        // A rule in the classifier's prompt, not a deterministic permission
+        // rule: what must hold goes in `permissions.deny`.
+        hard_deny: classifierRuleListSchema.optional(),
+        environment: classifierRuleListSchema.optional(),
+      })
+      .strict()
+      .refine((rules) => Object.keys(rules).length > 0, {
+        message: "must not be empty",
+      })
+      .optional(),
+  })
+  .strict()
+  .refine((settings) => Object.keys(settings).length > 0, {
+    message: "must not be empty",
+  });
+
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
@@ -338,6 +394,12 @@ export const runtimeConfigSchema = z
       .min(1)
       .max(PERMISSION_RULES_MAX)
       .optional(),
+    // Workspace and agent settings merged for this claim. Absent when
+    // neither sets any, so a claim without them stays what it was. In the
+    // strict claim config, so a worker that does not know the field refuses
+    // the claim instead of running without a deny. Not part of any
+    // fingerprint: the workspace's settings can change between claims.
+    engine_settings: engineSettingsSchema.optional(),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),
@@ -1232,6 +1294,7 @@ export type AdditionalWorkspaceRepository = z.infer<
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+export type EngineSettings = z.infer<typeof engineSettingsSchema>;
 export type RuntimeExtension = z.infer<typeof runtimeExtensionSchema>;
 export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
 export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
