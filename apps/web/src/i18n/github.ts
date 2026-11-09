@@ -20,6 +20,12 @@ export const githubKo = {
     "PR에 리뷰를 남깁니다. GitHub는 PR을 연 App의 승인을 받지 않으므로 작성용과 다른 App이어야 합니다.",
   "github.apps.title": "GitHub App",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "에이전트가 GitHub에 접근할 때 쓰는 App입니다. 여기서 연결한 App만 에이전트가 쓸 수 있습니다.",
+  "github.apps.label": "워크스페이스에 연결한 GitHub App",
+  "github.apps.removeRow": "{name} 연결 해제",
+  "github.apps.removeRowHint":
+    "이 워크스페이스에서 App을 뗍니다. GitHub의 App과 설치는 그대로 남습니다.",
   "github.apps.keyLine": "App ID {id} · 키 {at} {by} 저장",
   "github.apps.keyLineAt": "App ID {id} · 키 {at} 저장",
   "github.apps.state.ok": "연결됨",
@@ -65,7 +71,7 @@ export const githubKo = {
     "GitHub에서 새 App을 만들거나, 이미 있는 App을 App ID와 개인 키로 연결합니다.",
   "github.add.existing": "이미 있는 App 연결",
   "github.add.existingHint":
-    "App ID와 개인 키 파일로 연결합니다. GitHub는 키의 공개 부분만 보관해서 예전에 받은 .pem을 다시 내려받을 수 없습니다. 파일이 없으면 App 설정 › Private keys에서 새로 만드세요.",
+    "App ID와 개인 키 파일로 연결합니다. GitHub는 키의 공개 부분만 보관해서 예전에 받은 .pem을 다시 내려받을 수 없습니다. 파일이 없으면 App 설정 > Private keys에서 새로 만드세요.",
   "github.add.role": "이 App으로 할 일",
   "github.add.riskTitle": "같은 에이전트의 작성과 승인",
   "github.add.risk":
@@ -77,7 +83,7 @@ export const githubKo = {
     "리뷰 승인용 App을 연결하려면 작성용 App이 먼저 있어야 합니다.",
   "github.newKey.title": "{name}의 새 키 등록",
   "github.newKey.hint":
-    "GitHub의 App 설정 › Private keys에서 새 키를 만들어 여기에 저장합니다. 새 키로 동작하는 것을 확인한 뒤 GitHub에서 옛 키를 지우세요.",
+    "GitHub의 App 설정 > Private keys에서 새 키를 만들어 여기에 저장합니다. 새 키로 동작하는 것을 확인한 뒤 GitHub에서 옛 키를 지우세요.",
   "github.newKey.saved": "새 키를 저장했습니다.",
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App 설정 페이지 위쪽에 있는 숫자입니다.",
@@ -124,7 +130,7 @@ export const githubKo = {
   "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
   "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
   "github.newApp.stateInvalid":
-    "이 링크는 만료되었거나 이미 쓰였습니다. 연동 › GitHub에서 다시 시작하세요.",
+    "이 링크는 만료되었거나 이미 쓰였습니다. 연동 > GitHub에서 다시 시작하세요.",
   "github.newApp.codeRejected":
     "GitHub가 이 요청을 받지 않았습니다(만료되었거나 이미 쓰였습니다). 다시 시작하세요.",
   "github.newApp.changed":
@@ -132,13 +138,16 @@ export const githubKo = {
   "github.newApp.storeFailed":
     "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 개인 키를 만들어 '이미 있는 App 연결'로 연결하세요.",
   "github.newApp.openApp": "GitHub에서 App 열기",
-  "github.newApp.back": "연동 › GitHub로",
+  "github.newApp.back": "연동 > GitHub로",
   "github.install.done": "GitHub 설치를 연결했습니다.",
   "github.install.stateInvalid":
     "설치는 GitHub에 있지만, 시작한 지 1시간이 지났거나 이미 쓰인 링크라 연결한 사람을 기록하지 않았습니다.",
   "github.install.notRecorded":
     "설치는 GitHub에 있지만 연결한 사람을 기록하지 못했습니다.",
+  "github.table.title": "설치",
   "github.table.label": "GitHub App을 설치한 조직과 개인 계정",
+  "github.table.hint":
+    "연결한 App을 설치한 조직과 개인 계정입니다. 계정을 더하면 그 계정의 저장소를 에이전트가 쓸 수 있습니다.",
   "github.table.name": "이름",
   "github.table.type": "유형",
   "github.table.repositories": "저장소",
@@ -164,6 +173,8 @@ export const githubKo = {
   "github.table.empty": "아직 GitHub App을 설치한 계정이 없습니다.",
   "github.table.readAt": "GitHub에서 읽음",
   "github.repos.title": "에이전트가 쓰는 저장소",
+  "github.repos.hint":
+    "설치마다 GitHub가 허용한 저장소와, 브랜치와 저장소를 맡을 App을 정합니다.",
   "github.repos.counts": "에이전트가 고른 저장소 {count}개",
   "github.repos.countsOutside":
     "에이전트가 고른 저장소 {count}개 · 설치 밖 {outside}개",
@@ -312,6 +323,12 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Reviews pull requests. GitHub refuses an approval from the App that opened the pull request, so it must be another App.",
   "github.apps.title": "GitHub Apps",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "The Apps agents reach GitHub with. Agents can use only the Apps connected here.",
+  "github.apps.label": "GitHub Apps connected to the workspace",
+  "github.apps.removeRow": "Disconnect {name}",
+  "github.apps.removeRowHint":
+    "Removes the App from this workspace. The App and its installations stay on GitHub.",
   "github.apps.keyLine": "App ID {id} · key saved {at} by {by}",
   "github.apps.keyLineAt": "App ID {id} · key saved {at}",
   "github.apps.state.ok": "Connected",
@@ -357,7 +374,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Create a new App on GitHub, or connect one that exists with its App ID and private key.",
   "github.add.existing": "Connect an existing App",
   "github.add.existingHint":
-    "Connect with the App ID and a private key file. GitHub keeps only the public part of a key, so a .pem downloaded before cannot be downloaded again. Without the file, generate a new one under the App's settings › Private keys.",
+    "Connect with the App ID and a private key file. GitHub keeps only the public part of a key, so a .pem downloaded before cannot be downloaded again. Without the file, generate a new one under the App's settings > Private keys.",
   "github.add.role": "What this App does",
   "github.add.riskTitle": "One agent opening and approving",
   "github.add.risk":
@@ -368,7 +385,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.add.noAuthorApp": "Connect an author App before a reviewer App.",
   "github.newKey.title": "New key for {name}",
   "github.newKey.hint":
-    "Generate a new key under the App's settings › Private keys on GitHub and save it here. Once the new key works, delete the old one on GitHub.",
+    "Generate a new key under the App's settings > Private keys on GitHub and save it here. Once the new key works, delete the old one on GitHub.",
   "github.newKey.saved": "Saved the new key.",
   "github.appId": "App ID",
   "github.appIdHint":
@@ -417,7 +434,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.working": "Storing the App created on GitHub.",
   "github.newApp.done": "Saved the App. Going to the install screen.",
   "github.newApp.stateInvalid":
-    "This link has expired or was already used. Start again from Integrations › GitHub.",
+    "This link has expired or was already used. Start again from Integrations > GitHub.",
   "github.newApp.codeRejected":
     "GitHub did not accept this request (it expired or was already used). Start again.",
   "github.newApp.changed":
@@ -425,14 +442,17 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.newApp.storeFailed":
     "The App was created on GitHub but its key could not be stored. Generate a new private key in the App's settings and connect it with 'Connect an existing App'.",
   "github.newApp.openApp": "Open the App on GitHub",
-  "github.newApp.back": "Back to Integrations › GitHub",
+  "github.newApp.back": "Back to Integrations > GitHub",
   "github.install.done": "Connected the GitHub installation.",
   "github.install.stateInvalid":
     "The installation is on GitHub, but the link was over an hour old or already used, so who connected it was not recorded.",
   "github.install.notRecorded":
     "The installation is on GitHub, but who connected it could not be recorded.",
+  "github.table.title": "Installations",
   "github.table.label":
     "Organizations and personal accounts the GitHub Apps are installed on",
+  "github.table.hint":
+    "The organizations and personal accounts the connected Apps are installed on. Adding an account lets agents use its repositories.",
   "github.table.name": "Name",
   "github.table.type": "Type",
   "github.table.repositories": "Repositories",
@@ -458,6 +478,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.table.empty": "No account has installed a GitHub App yet.",
   "github.table.readAt": "Read from GitHub",
   "github.repos.title": "Repositories agents use",
+  "github.repos.hint":
+    "The repositories GitHub allows on each installation, and which App handles their branches.",
   "github.repos.counts": "{count} repositories picked by agents",
   "github.repos.countsOutside":
     "{count} repositories picked by agents · {outside} outside installations",
@@ -609,6 +631,12 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "PR にレビューを残します。GitHub は PR を開いた App の承認を受け付けないため、作成用とは別の App にしてください。",
   "github.apps.title": "GitHub App",
   "github.apps.idLine": "App ID {id}",
+  "github.apps.hint":
+    "エージェントが GitHub にアクセスするときに使う App です。ここで接続した App だけをエージェントが使えます。",
+  "github.apps.label": "ワークスペースに接続した GitHub App",
+  "github.apps.removeRow": "{name} の接続を解除",
+  "github.apps.removeRowHint":
+    "このワークスペースから App を外します。GitHub の App とインストールはそのまま残ります。",
   "github.apps.keyLine": "App ID {id} · 鍵 {at} {by} が保存",
   "github.apps.keyLineAt": "App ID {id} · 鍵 {at} 保存",
   "github.apps.state.ok": "接続済み",
@@ -654,7 +682,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "GitHub で新しい App を作成するか、既存の App を App ID と秘密鍵で接続します。",
   "github.add.existing": "既存の App を接続",
   "github.add.existingHint":
-    "App ID と秘密鍵ファイルで接続します。GitHub は鍵の公開部分しか保管しないため、以前取得した .pem を再ダウンロードすることはできません。ファイルがなければ App 設定 › Private keys で新しく作成してください。",
+    "App ID と秘密鍵ファイルで接続します。GitHub は鍵の公開部分しか保管しないため、以前取得した .pem を再ダウンロードすることはできません。ファイルがなければ App 設定 > Private keys で新しく作成してください。",
   "github.add.role": "この App の役割",
   "github.add.riskTitle": "同じエージェントによる作成と承認",
   "github.add.risk":
@@ -666,7 +694,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "レビュー承認用 App を接続するには、先に作成用 App が必要です。",
   "github.newKey.title": "{name} の新しい鍵を登録",
   "github.newKey.hint":
-    "GitHub の App 設定 › Private keys で新しい鍵を作成し、ここに保存します。新しい鍵で動くことを確かめてから、GitHub で古い鍵を削除してください。",
+    "GitHub の App 設定 > Private keys で新しい鍵を作成し、ここに保存します。新しい鍵で動くことを確かめてから、GitHub で古い鍵を削除してください。",
   "github.newKey.saved": "新しい鍵を保存しました。",
   "github.appId": "App ID",
   "github.appIdHint": "GitHub App の設定ページ上部にある数字です。",
@@ -714,7 +742,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.working": "GitHub で作成した App を保存しています。",
   "github.newApp.done": "App を保存しました。インストール画面に移動します。",
   "github.newApp.stateInvalid":
-    "このリンクは期限切れか、すでに使われています。連携 › GitHub からやり直してください。",
+    "このリンクは期限切れか、すでに使われています。連携 > GitHub からやり直してください。",
   "github.newApp.codeRejected":
     "GitHub がこのリクエストを受け付けませんでした (期限切れか使用済み)。やり直してください。",
   "github.newApp.changed":
@@ -722,13 +750,16 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.newApp.storeFailed":
     "App は GitHub に作成されましたが、鍵を保存できませんでした。App 設定で新しい秘密鍵を作成し、「既存の App を接続」で接続してください。",
   "github.newApp.openApp": "GitHub で App を開く",
-  "github.newApp.back": "連携 › GitHub に戻る",
+  "github.newApp.back": "連携 > GitHub に戻る",
   "github.install.done": "GitHub のインストールを接続しました。",
   "github.install.stateInvalid":
     "インストールは GitHub にありますが、開始から 1 時間が過ぎたか使用済みのリンクのため、接続した人を記録しませんでした。",
   "github.install.notRecorded":
     "インストールは GitHub にありますが、接続した人を記録できませんでした。",
+  "github.table.title": "インストール",
   "github.table.label": "GitHub App をインストールした組織と個人アカウント",
+  "github.table.hint":
+    "接続した App をインストールした組織と個人アカウントです。アカウントを追加すると、そのアカウントのリポジトリをエージェントが使えます。",
   "github.table.name": "名前",
   "github.table.type": "種類",
   "github.table.repositories": "リポジトリ",
@@ -755,6 +786,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "GitHub App をインストールしたアカウントはまだありません。",
   "github.table.readAt": "GitHub から読み取り",
   "github.repos.title": "エージェントが使うリポジトリ",
+  "github.repos.hint":
+    "インストールごとに GitHub が許可したリポジトリと、ブランチとリポジトリを担当する App を決めます。",
   "github.repos.counts": "エージェントが選んだリポジトリ {count} 件",
   "github.repos.countsOutside":
     "エージェントが選んだリポジトリ {count} 件 · インストール外 {outside} 件",

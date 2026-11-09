@@ -83,6 +83,34 @@ describe("PageHeader", () => {
     expect(lg.head).not.toContain("md:flex-row");
   });
 
+  test("wrap이면 제목 칸이 최소 폭을 지키고 동작은 자리가 모자라면 아래 줄로 감싼다", () => {
+    const { container } = render(
+      <PageHeader
+        title="의존성 업데이트 영향 확인"
+        actions={<button type="button">세션 종료</button>}
+        stackBelow="wrap"
+      />,
+    );
+    const header = container.querySelector('[data-slot="page-header"]');
+    const head = header?.className.split(" ") ?? [];
+    const title = header?.firstElementChild?.className.split(" ") ?? [];
+    const actions = header?.lastElementChild?.className.split(" ") ?? [];
+    // No breakpoint: one wrapping row at every width.
+    expect(head).toContain("flex-row");
+    expect(head).toContain("flex-wrap");
+    expect(head.some((name) => name.startsWith("md:"))).toBe(false);
+    expect(title).toContain("grow-[999]");
+    expect(title).toContain("basis-80");
+    expect(title).toContain("min-w-[min(100%,20rem)]");
+    // Never fixed at its content width: wider than the row, it wraps inside.
+    expect(actions).toContain("max-w-full");
+    // Alone on their line they fill it, so a trailing ms-auto item ends at
+    // the right edge.
+    expect(actions).toContain("grow");
+    expect(actions).not.toContain("md:flex-none");
+    expect(actions).not.toContain("md:flex-nowrap");
+  });
+
   test("breadcrumb은 제목 위 줄에 위치 nav로 놓이고, 마지막이 지금 페이지다", () => {
     const { getByRole, container } = render(
       <PageHeader

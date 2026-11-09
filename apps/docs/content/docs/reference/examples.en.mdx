@@ -23,7 +23,7 @@ Run `bun install --frozen-lockfile` at the repository root. The samples use the 
 
 1. Start your own stack with `scripts/local.sh up --fake-model` ([Run a development server](/run-server/dev-server)). No real model key is needed. The `GATE-SPEC` in a message is a script the FAKE model replays, so do not use it with a real model.
 2. Sign in to the web console as an owner.
-3. Issue a personal key in the console under Settings → API keys, with the scopes of that sample. An owner can grant all five scopes.
+3. Issue a personal key in the console under Settings > API keys, with the scopes of that sample. An owner can grant all five scopes.
 4. For the samples that need an agent key (`sdk-events`, `sdk-push`, `sdk-approver`), create an agent in the console, create and enable a release with the `claude-coding-local` profile and the `sample-app` repository, then issue that agent's key with `sessions:read`, `sessions:write` and `sessions:control`. An agent key cannot be given `sessions:approve`, so a separate personal key does the approving.
 
 Each sample's README lists its environment variables. Only two are used by all of them. Never paste a key into source, a README or output.

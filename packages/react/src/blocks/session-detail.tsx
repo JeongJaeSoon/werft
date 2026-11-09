@@ -8,12 +8,11 @@ import type {
 import {
   Badge,
   Button,
-  Checkbox,
-  Field,
-  FieldLabel,
   formatTimestamp,
   KeyValueList,
   PageHeader,
+  SegmentedControl,
+  SegmentedControlItem,
   Tabs,
   TabsContent,
   TabsList,
@@ -27,6 +26,8 @@ import {
   Folder,
   Gauge,
   type LucideIcon,
+  PanelRightClose,
+  PanelRightOpen,
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -35,12 +36,14 @@ import {
   DetailLayout,
   DetailRail,
   DetailRailSection,
+  type DetailRailToggle,
   OPERATIONS_MESSAGES,
   RepositoryName,
   RepositorySummary,
   SessionStatusLabel,
   StatusLabel,
   sessionRepositoriesOf,
+  useDetailRailToggle,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
 import { useWerft } from "../provider.tsx";
@@ -60,7 +63,11 @@ import {
   SessionComposer,
   SessionControls,
 } from "./session-actions.tsx";
-import { listedRequests, SessionTimeline } from "./session-timeline.tsx";
+import {
+  listedRequests,
+  SessionTimeline,
+  useTimelineView,
+} from "./session-timeline.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
 
@@ -106,7 +113,7 @@ export function SessionDetail({
   const { t } = useBlockText();
   const session = useSession(id);
   const [tab, setTab] = useState("timeline");
-  const [debug, setDebug] = useState(false);
+  const [view, setView] = useTimelineView();
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState(id);
   if (draftFor !== id) {
@@ -128,6 +135,13 @@ export function SessionDetail({
     id,
     `${events.events.at(-1)?.id ?? ""}/${turns.data?.items.length ?? 0}`,
   );
+  const panel = useDetailRailToggle({
+    id: "session-panel",
+    storageKey: PANEL_STORAGE_KEY,
+    closeLabel: t("session.panel.close"),
+    // The route keeps this block mounted from one session to the next.
+    visit: id,
+  });
 
   if (detail === undefined) {
     // The host leaves the gutters to this layout, rail or not.
@@ -172,15 +186,19 @@ export function SessionDetail({
           <TabsTrigger value="info">{t("session.tabs.info")}</TabsTrigger>
         </TabsList>
         {tab === "timeline" ? (
-          <Field orientation="horizontal" className="w-auto gap-2 text-caption">
-            <Checkbox
-              checked={debug}
-              onCheckedChange={(checked) => setDebug(checked === true)}
-            />
-            <FieldLabel className="text-caption">
-              {t("session.events.debug")}
-            </FieldLabel>
-          </Field>
+          <SegmentedControl
+            aria-label={t("session.events.view")}
+            value={view}
+            onValueChange={(next) => setView(next === "all" ? "all" : "focus")}
+            className="mb-1"
+          >
+            <SegmentedControlItem value="focus">
+              {t("session.events.view.focus")}
+            </SegmentedControlItem>
+            <SegmentedControlItem value="all">
+              {t("session.events.view.all")}
+            </SegmentedControlItem>
+          </SegmentedControl>
         ) : null}
       </div>
       {/* Kept mounted on other tabs: the composer holds a send in flight. */}
@@ -215,7 +233,7 @@ export function SessionDetail({
             <SessionTimeline
               events={events.events}
               state={events.state}
-              debug={debug}
+              view={view}
               pending={listedRequests(pending)}
               turns={turns.data?.items}
             />
@@ -266,7 +284,7 @@ export function SessionDetail({
     </Tabs>
   );
   const rail = (
-    <DetailRail label={t("session.panel")}>
+    <DetailRail label={t("session.panel")} toggle={panel}>
       <DetailRailSection title={t("session.pending")}>
         <div
           // With nothing to show, the answers block keeps its live region
@@ -335,6 +353,10 @@ export function SessionDetail({
       }
     >
       <PageHeader
+        // The commands run from one to four buttons: they go under the title
+        // when the row cannot hold both, so the title, status and meta line
+        // keep a readable width.
+        stackBelow="wrap"
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* A server from before titles sends none at all. */}
@@ -347,6 +369,7 @@ export function SessionDetail({
               status={detail.status}
               label={t(`sessions.status.${detail.status}`)}
               axisLabel={t("sessions.column.status")}
+              className="shrink-0 whitespace-nowrap"
             />
             {/* A paused session otherwise reads the same as an idle one. */}
             {detail.admission_state === "active" ? null : (
@@ -355,6 +378,7 @@ export function SessionDetail({
                 state={detail.admission_state}
                 label={t(`sessions.admission.${detail.admission_state}`)}
                 axisLabel={t("sessions.column.admission")}
+                className="shrink-0 whitespace-nowrap"
               />
             )}
           </span>
@@ -372,12 +396,70 @@ export function SessionDetail({
             unavailable={unavailable}
             refusal={refusal}
             variant="head"
-            trailing={back}
+            trailing={
+              <span className="flex flex-wrap gap-2">
+                <PanelToggle panel={panel} waiting={pendingCount ?? 0} />
+                {back}
+              </span>
+            }
           />
         }
       />
       {body}
     </DetailLayout>
+  );
+}
+
+/** One browser remembers whether the reader folds the wide column away. */
+export const PANEL_STORAGE_KEY = "ap.session.panel";
+
+/**
+ * Opens and folds the rail. Folded, the requests waiting for an answer stay
+ * in sight as a count on the button, so an approval is two clicks away.
+ */
+function PanelToggle({
+  panel,
+  waiting,
+}: {
+  readonly panel: DetailRailToggle;
+  readonly waiting: number;
+}) {
+  const { t } = useBlockText();
+  // Open, the rail shows the requests itself, and the head keeps its room.
+  const shown = waiting > 0 && !panel.open;
+  const Icon = panel.open ? PanelRightClose : PanelRightOpen;
+  return (
+    <>
+      <Button
+        ref={panel.triggerRef}
+        type="button"
+        variant="outline"
+        size={shown ? "sm" : "icon-sm"}
+        aria-expanded={panel.open}
+        aria-controls={panel.id}
+        // The head's commands already crowd the title on a narrow page, so
+        // the button is an icon with the count; the native tooltip names it
+        // as it does the commands' icons.
+        title={t("session.panel")}
+        onClick={panel.toggle}
+      >
+        <Icon strokeWidth={1.5} aria-hidden="true" />
+        <span className="sr-only">{t("session.panel")}</span>
+        {shown ? (
+          <Badge variant="amber" className="tabular-nums">
+            <span aria-hidden="true">{waiting}</span>
+            <span className="sr-only">
+              {t("session.panel.waiting", { count: waiting })}
+            </span>
+          </Badge>
+        ) : null}
+      </Button>
+      {/* Folded, the rail's own live region is gone from the page; a new
+          request is still announced. */}
+      <output className="sr-only">
+        {shown ? t("session.panel.waiting", { count: waiting }) : ""}
+      </output>
+    </>
   );
 }
 

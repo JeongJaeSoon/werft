@@ -15,6 +15,8 @@ import {
   ConfirmDialog,
   CopyButton,
   cn,
+  DangerZone,
+  DangerZoneRow,
   formatTimestamp,
   GridTable,
   GridTableCell,
@@ -28,14 +30,20 @@ import {
   PopoverContent,
   PopoverTrigger,
   RelativeTime,
-  RowList,
-  RowListItem,
+  SettingsSection,
   Skeleton,
   Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { ArrowUpRight, Plus } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
   refusalText,
@@ -82,6 +90,7 @@ import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
 import {
   SETTINGS_CARD as CARD,
   type OnOutcome,
+  SECTIONS,
 } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
@@ -92,6 +101,11 @@ const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
 // At and under 760px of table: name (with the rest moved under it), status, menu.
 const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
 const MEMBER_NARROW = "minmax(0,1fr) 88px";
+// App | state | menu; the role and key line stay in the App cell.
+const APP_COLUMNS = "minmax(0,1fr) 152px 44px";
+const APP_COLUMNS_READ = "minmax(0,1fr) 152px";
+const APP_NARROW = "minmax(0,1fr) 120px 44px";
+const APP_NARROW_READ = "minmax(0,1fr) 120px";
 // Shown only while the table is narrow: the columns it dropped, in the name.
 const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
 
@@ -123,7 +137,7 @@ const dateOf = (iso: string, locale: TimestampLocale) =>
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
 
-/** Integrations › GitHub: the Apps agents reach GitHub with and where they are installed. */
+/** Integrations > GitHub: the Apps agents reach GitHub with and where they are installed. */
 export function WorkspaceGitHubScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const settings = useGitHubSettings();
@@ -143,20 +157,26 @@ export function WorkspaceGitHubScreen() {
         />
       ) : (
         <>
-          <GitHubCard settings={settings.data} onOutcome={setOutcome} />
-          {connected ? (
-            <FeaturesCard settings={settings} onOutcome={setOutcome} />
-          ) : null}
-          {connected ? (
-            <PullRequestSettingsCard
-              key={settings.data.pull_request_revision}
-              settings={settings.data}
-              onOutcome={setOutcome}
-            />
-          ) : null}
-          {connected ? (
-            <GitHubUserLinkRow settings={settings} onOutcome={setOutcome} />
-          ) : null}
+          <GitHubCard
+            settings={settings.data}
+            onOutcome={setOutcome}
+            after={
+              connected ? (
+                <>
+                  <FeaturesCard settings={settings} onOutcome={setOutcome} />
+                  <PullRequestSettingsCard
+                    key={settings.data.pull_request_revision}
+                    settings={settings.data}
+                    onOutcome={setOutcome}
+                  />
+                  <GitHubUserLinkRow
+                    settings={settings}
+                    onOutcome={setOutcome}
+                  />
+                </>
+              ) : null
+            }
+          />
         </>
       )}
     </>
@@ -239,9 +259,12 @@ function useKeyLines(enabled: boolean) {
 function GitHubCard({
   settings,
   onOutcome,
+  after,
 }: {
   readonly settings: GitHubSettingsResponse;
   readonly onOutcome: OnOutcome;
+  /** The sections between the card and the danger zone, which ends the page. */
+  readonly after: ReactNode;
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
@@ -256,8 +279,12 @@ function GitHubCard({
     setOpener(from);
     setAdding(step);
   };
+  const [removing, setRemoving] = useState<GitHubSettingsConnection | null>(
+    null,
+  );
   const titleId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const appsHeadingRef = useRef<HTMLHeadingElement>(null);
   const connections = settings.connections;
   const accounts = new Set(
     connections.flatMap((connection) =>
@@ -277,104 +304,130 @@ function GitHubCard({
   const empty = connections.length === 0;
 
   return (
-    <section aria-labelledby={titleId} className={CARD}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Heading
-            id={titleId}
-            ref={headingRef}
-            level={2}
-            tabIndex={-1}
-            className="focus-visible:outline-none"
-          >
-            GitHub
-          </Heading>
-          <Text variant="sub">
-            {empty
-              ? t("github.card.none")
-              : t("github.card.counts", {
-                  apps: connections.length,
-                  accounts: accounts.size,
-                })}
-          </Text>
-        </div>
-        {canManage && !empty ? (
-          // Under 640px it drops to its own line, where the text starts.
-          <div className="max-sm:basis-full max-sm:pl-[calc(var(--werft-size-tile-two-line)+0.75rem)]">
-            <AddAccount connections={connections} onOutcome={onOutcome} />
-          </div>
-        ) : null}
-      </div>
-      <Text variant="sub" className="border-b pb-2">
-        {t("github.card.hint")}
-      </Text>
-      {empty ? (
-        <div className="flex flex-col items-start gap-3">
-          <Text weight="medium">{t("github.empty.title")}</Text>
-          <Text variant="sub">{t("github.empty.hint")}</Text>
-          {canManage ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={(event) => add("new", event.currentTarget)}
+    <>
+      <section aria-labelledby={titleId} className={SECTIONS}>
+        <div className={CARD}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+            <IconTile icon={TileMark} hue="slate" size="two-line" />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Heading
+                id={titleId}
+                ref={headingRef}
+                level={2}
+                tabIndex={-1}
+                className="focus-visible:outline-none"
               >
-                {t("github.empty.create")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={(event) => add("existing", event.currentTarget)}
-              >
-                {t("github.add.existing")}
-              </Button>
+                GitHub
+              </Heading>
+              <Text variant="sub">
+                {empty
+                  ? t("github.card.none")
+                  : t("github.card.counts", {
+                      apps: connections.length,
+                      accounts: accounts.size,
+                    })}
+              </Text>
             </div>
-          ) : null}
+          </div>
+          <Text variant="sub">{t("github.card.hint")}</Text>
         </div>
-      ) : (
-        <>
-          <AppList
-            settings={settings}
-            onAdd={(from) => add("choose", from)}
-            onOutcome={onOutcome}
-            onChanged={refresh}
-          />
-          <Installations connections={connections} />
-          {canManage ? (
-            <RepositoriesLine
-              connections={connections}
-              onOpen={(from) => {
-                setOpener(from);
-                setSheet(true);
+        {empty ? (
+          <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
+            <Text weight="medium">{t("github.empty.title")}</Text>
+            <Text variant="sub">{t("github.empty.hint")}</Text>
+            {canManage ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={(event) => add("new", event.currentTarget)}
+                >
+                  {t("github.empty.create")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={(event) => add("existing", event.currentTarget)}
+                >
+                  {t("github.add.existing")}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <AppList
+              settings={settings}
+              headingRef={appsHeadingRef}
+              onAdd={(from) => add("choose", from)}
+              onOutcome={onOutcome}
+              onChanged={refresh}
+            />
+            <Installations connections={connections} onOutcome={onOutcome} />
+            {canManage ? (
+              <RepositoriesLine
+                connections={connections}
+                onOpen={(from) => {
+                  setOpener(from);
+                  setSheet(true);
+                }}
+              />
+            ) : null}
+          </>
+        )}
+        {canManage ? (
+          <>
+            <AddAppDialog
+              step={adding}
+              onStep={setAdding}
+              blocked={settings.oauth.callback_url === null}
+              opener={opener}
+              onOutcome={onOutcome}
+              onAdded={() => {
+                // The first App replaces the empty state and the button with it.
+                setOpener(headingRef.current);
+                void refresh();
               }}
             />
-          ) : null}
-        </>
-      )}
-      {canManage ? (
-        <>
-          <AddAppDialog
-            step={adding}
-            onStep={setAdding}
-            blocked={settings.oauth.callback_url === null}
-            opener={opener}
-            onOutcome={onOutcome}
-            onAdded={() => {
-              // The first App replaces the empty state and the button with it.
-              setOpener(headingRef.current);
-              void refresh();
-            }}
-          />
-          <RepositorySheet
-            open={sheet}
-            onOpenChange={setSheet}
-            opener={opener}
-            connections={connections}
-            onOutcome={onOutcome}
-          />
-        </>
+            <RepositorySheet
+              open={sheet}
+              onOpenChange={setSheet}
+              opener={opener}
+              connections={connections}
+              onOutcome={onOutcome}
+            />
+          </>
+        ) : null}
+      </section>
+      {after}
+      {canManage && !empty ? (
+        <DangerZone title={t("workspace.danger")}>
+          {connections.map((connection) => (
+            <DangerZoneRow
+              key={connection.connection_id}
+              title={t("github.apps.removeRow", { name: connection.name })}
+              description={t("github.apps.removeRowHint")}
+              actionLabel={t("github.apps.remove")}
+              actionName={t("github.apps.removeRow", { name: connection.name })}
+              onAction={() => setRemoving(connection)}
+            />
+          ))}
+        </DangerZone>
       ) : null}
-    </section>
+      {canManage ? (
+        <RemoveApp
+          connection={removing}
+          connections={connections}
+          onClose={() => setRemoving(null)}
+          onOutcome={onOutcome}
+          onRemoved={async () => {
+            await refresh();
+            // The row and its button are gone; the App list (or, with the
+            // last App gone, the card) takes the focus.
+            (appsHeadingRef.current ?? headingRef.current)?.focus();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -481,11 +534,13 @@ function appState(
 
 function AppList({
   settings,
+  headingRef,
   onAdd,
   onOutcome,
   onChanged,
 }: {
   readonly settings: GitHubSettingsResponse;
+  readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onAdd: (from: HTMLElement) => void;
   readonly onOutcome: OnOutcome;
   readonly onChanged: () => Promise<unknown>;
@@ -496,51 +551,65 @@ function AppList({
   const [newKey, setNewKey] = useState<GitHubSettingsConnection | null>(null);
   // Kept past the close: the dialog reads it as it closes.
   const [keyOpener, setKeyOpener] = useState<HTMLElement | null>(null);
-  const [removing, setRemoving] = useState<GitHubSettingsConnection | null>(
-    null,
-  );
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const titleId = useId();
   return (
-    <div className="flex flex-col gap-2">
-      <Heading
-        id={titleId}
-        ref={headingRef}
-        level={3}
-        tabIndex={-1}
-        className="focus-visible:outline-none"
+    <>
+      <SettingsSection
+        titleAs="h3"
+        titleRef={headingRef}
+        title={t("github.apps.title")}
+        description={t("github.apps.hint")}
+        actions={
+          canManage ? (
+            <Button
+              type="button"
+              size="sm"
+              aria-haspopup="dialog"
+              onClick={(event) => onAdd(event.currentTarget)}
+            >
+              <Plus aria-hidden="true" />
+              {t("github.apps.add")}
+            </Button>
+          ) : null
+        }
       >
-        {t("github.apps.title")}
-      </Heading>
-      <RowList variant="joined" framed={false} aria-labelledby={titleId}>
-        {settings.connections.map((connection) => (
-          <AppRow
-            key={connection.connection_id}
-            connection={connection}
-            settings={settings}
-            keyLine={keys.data?.github_apps.find(
-              (app) => app.connection_id === connection.connection_id,
-            )}
-            onNewKey={(opener) => {
-              setKeyOpener(opener);
-              setNewKey(connection);
-            }}
-            onRemove={() => setRemoving(connection)}
-          />
-        ))}
-      </RowList>
-      {canManage ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-fit text-link"
-          aria-haspopup="dialog"
-          onClick={(event) => onAdd(event.currentTarget)}
+        <GridTable
+          aria-label={t("github.apps.label")}
+          columns={canManage ? APP_COLUMNS : APP_COLUMNS_READ}
+          narrowAt={480}
+          narrowColumns={canManage ? APP_NARROW : APP_NARROW_READ}
+          framed
         >
-          <Plus aria-hidden="true" />
-          {t("github.apps.add")}
-        </Button>
-      ) : null}
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("github.table.app")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("github.table.status")}
+            </GridTableColumnHeader>
+            {canManage ? (
+              <GridTableColumnHeader>
+                <Text as="span" className="sr-only">
+                  {t("github.table.menu")}
+                </Text>
+              </GridTableColumnHeader>
+            ) : null}
+          </GridTableHeader>
+          {settings.connections.map((connection) => (
+            <AppRow
+              key={connection.connection_id}
+              connection={connection}
+              settings={settings}
+              keyLine={keys.data?.github_apps.find(
+                (app) => app.connection_id === connection.connection_id,
+              )}
+              onNewKey={(opener) => {
+                setKeyOpener(opener);
+                setNewKey(connection);
+              }}
+            />
+          ))}
+        </GridTable>
+      </SettingsSection>
       <NewKeyDialog
         connection={newKey}
         opener={keyOpener}
@@ -548,17 +617,7 @@ function AppList({
         onOutcome={onOutcome}
         onSaved={() => void onChanged()}
       />
-      <RemoveApp
-        connection={removing}
-        connections={settings.connections}
-        onClose={() => setRemoving(null)}
-        onOutcome={onOutcome}
-        onRemoved={async () => {
-          await onChanged();
-          headingRef.current?.focus();
-        }}
-      />
-    </div>
+    </>
   );
 }
 
@@ -567,13 +626,11 @@ function AppRow({
   settings,
   keyLine,
   onNewKey,
-  onRemove,
 }: {
   readonly connection: GitHubSettingsConnection;
   readonly settings: GitHubSettingsResponse;
   readonly keyLine: GitHubApp | undefined;
   readonly onNewKey: (opener: HTMLElement | null) => void;
-  readonly onRemove: () => void;
 }) {
   const { t, locale } = useI18n();
   const canManage = useHasPermission("workspace.manage");
@@ -596,40 +653,68 @@ function AppRow({
         })
     : t("github.apps.idLine", { id: String(connection.app_id) });
   return (
-    <RowListItem className="flex-col items-stretch gap-2">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Text as="span" weight="medium" truncate>
-              {connection.name}
+    <GridTableRow>
+      {/* Not a `lines` cell: that truncates every line after the first,
+          and what the App needs from its owner has to wrap. */}
+      <GridTableCell {...{ role: "rowheader" }}>
+        <div className="flex w-full min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-(--werft-row-line-gap)">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Text as="span" weight="medium" truncate>
+                {connection.name}
+              </Text>
+              <Badge>{t(`github.role.${connection.role}`)}</Badge>
+              <WideBadge connection={connection} />
+            </div>
+            <Text as="span" variant="meta">
+              {meta}
             </Text>
-            <Badge>{t(`github.role.${connection.role}`)}</Badge>
-            <WideBadge connection={connection} />
           </div>
-          <Text variant="meta">{meta}</Text>
+          <AppNotes
+            connection={connection}
+            state={state}
+            shortfalls={shortfalls}
+            pending={pending}
+            canManage={canManage}
+          />
         </div>
+      </GridTableCell>
+      <GridTableCell>
         <AppStateBadge state={state} pending={pending.length} />
-        {canManage ? (
+      </GridTableCell>
+      {canManage ? (
+        <GridTableCell align="end">
+          {/* Disconnecting lives in the page's danger zone. */}
           <RowMenu label={t("github.apps.menu", { name: connection.name })}>
             {(close) => (
-              <>
-                <RowMenuItem onSelect={() => onNewKey(close())}>
-                  {t("github.apps.newKey")}
-                </RowMenuItem>
-                <RowMenuItem
-                  tone="danger"
-                  onSelect={() => {
-                    close();
-                    onRemove();
-                  }}
-                >
-                  {t("github.apps.remove")}
-                </RowMenuItem>
-              </>
+              <RowMenuItem onSelect={() => onNewKey(close())}>
+                {t("github.apps.newKey")}
+              </RowMenuItem>
             )}
           </RowMenu>
-        ) : null}
-      </div>
+        </GridTableCell>
+      ) : null}
+    </GridTableRow>
+  );
+}
+
+/** What the App needs from its owner, under its name in the table. */
+function AppNotes({
+  connection,
+  state,
+  shortfalls,
+  pending,
+  canManage,
+}: {
+  readonly connection: GitHubSettingsConnection;
+  readonly state: AppState;
+  readonly shortfalls: readonly Shortfall[];
+  readonly pending: readonly GitHubSettingsInstallation[];
+  readonly canManage: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
       {state === "rejected" ? (
         <Text className="text-(color:--werft-tone-danger-fg)">
           {t("github.apps.rejected")}
@@ -652,7 +737,7 @@ function AppRow({
           ) : null}
         </>
       )}
-    </RowListItem>
+    </>
   );
 }
 
@@ -959,8 +1044,10 @@ type Row = {
 /** One row an installation (an account × an App), the account first. */
 function Installations({
   connections,
+  onOutcome,
 }: {
   readonly connections: readonly GitHubSettingsConnection[];
+  readonly onOutcome: OnOutcome;
 }) {
   const { t, locale } = useI18n();
   const canManage = useHasPermission("workspace.manage");
@@ -980,8 +1067,27 @@ function Installations({
     .map((connection) => connection.installations_read_at)
     .filter((at): at is string => at !== null)
     .sort()[0];
+  const addAccount = (
+    <AddAccount connections={connections} onOutcome={onOutcome} />
+  );
+  const section = (body: ReactNode) => (
+    <SettingsSection
+      titleAs="h3"
+      title={t("github.table.title")}
+      description={t("github.table.hint")}
+      actions={canManage && rows.length > 0 ? addAccount : null}
+    >
+      {body}
+    </SettingsSection>
+  );
   if (rows.length === 0) {
-    return <Text variant="sub">{t("github.table.empty")}</Text>;
+    // No list yet: the call to action lives in the empty box.
+    return section(
+      <div className="flex flex-col items-start gap-3 rounded-card border bg-card p-4">
+        <Text variant="sub">{t("github.table.empty")}</Text>
+        {canManage ? addAccount : null}
+      </div>,
+    );
   }
 
   const type = (installation: GitHubSettingsInstallation) =>
@@ -1010,14 +1116,14 @@ function Installations({
       : "—";
   };
 
-  return (
+  return section(
     <div className="flex flex-col gap-2">
       <GridTable
         aria-label={t("github.table.label")}
         columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
         narrowAt={760}
         narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
-        framed={false}
+        framed
       >
         <GridTableHeader>
           <GridTableColumnHeader>
@@ -1128,7 +1234,7 @@ function Installations({
           <RelativeTime value={readAt} locale={locale} />
         </Text>
       ) : null}
-    </div>
+    </div>,
   );
 }
 
@@ -1165,9 +1271,24 @@ function RepositoriesLine({
   const catalog = list.data?.catalog ?? [];
   const outside = outsideInstallations(catalog).length;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Text weight="medium">{t("github.repos.title")}</Text>
+    <SettingsSection
+      titleAs="h3"
+      title={t("github.repos.title")}
+      description={t("github.repos.hint")}
+      box
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-haspopup="dialog"
+          onClick={(event) => onOpen(event.currentTarget)}
+        >
+          {t("github.repos.manage")}
+        </Button>
+      }
+    >
+      <div>
         <Text variant="sub">
           {list.data
             ? outside > 0
@@ -1179,15 +1300,7 @@ function RepositoriesLine({
             : " "}
         </Text>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        aria-haspopup="dialog"
-        onClick={(event) => onOpen(event.currentTarget)}
-      >
-        {t("github.repos.manage")}
-      </Button>
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -1199,16 +1312,12 @@ function FeaturesCard({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className={CARD}>
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <Heading id={titleId} level={2}>
-          {t("github.ceiling.title")}
-        </Heading>
-        <Text variant="sub">{t("github.ceiling.hint")}</Text>
-      </div>
+    <SettingsSection
+      title={t("github.ceiling.title")}
+      description={t("github.ceiling.hint")}
+    >
       <FeatureList settings={settings} onOutcome={onOutcome} />
-    </section>
+    </SettingsSection>
   );
 }

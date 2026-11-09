@@ -597,7 +597,7 @@ export const agentGitHubSchema = z.object({
 
 `/settings/linked-accounts`의 서비스 목록에 GitHub 행을 더한다. 미연결이면 "GitHub 계정 연결" 버튼이 GitHub 동의 화면으로 간다. 연결되면 login과 "공동 작성자 이메일 `<id>+<login>@users.noreply.github.com`" 한 줄, "해제" 버튼을 보인다. 작성용 App이나 client secret이 없으면 버튼은 비활성이고 "owner·admin이 GitHub 연결 설정에서 사용자 연결을 켜야 합니다"를 보인다.
 
-### 설정 > 워크스페이스 > GitHub 연결
+### 설정 > 워크스페이스 > 연동 > GitHub
 
 `/settings/workspace/integrations/github`(`router.tsx`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 설계 문서 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
 

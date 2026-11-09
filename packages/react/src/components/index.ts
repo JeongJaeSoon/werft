@@ -10,12 +10,15 @@ export {
   guidanceFor,
 } from "./feedback/error-guidance.ts";
 export {
+  DETAIL_RAIL_WIDE,
   DetailLayout,
   type DetailLayoutProps,
   DetailRail,
   type DetailRailProps,
   DetailRailSection,
   type DetailRailSectionProps,
+  type DetailRailToggle,
+  useDetailRailToggle,
 } from "./layout/detail-layout.tsx";
 export {
   ListToolbar,
@@ -194,8 +197,14 @@ export {
   type TimelineKind,
   type TimelineMessages,
   type TimelineProps,
+  type TimelineView,
   timelineKind,
 } from "./session/timeline.tsx";
+export {
+  WORK_KINDS,
+  type WorkCounts,
+  type WorkKind,
+} from "./session/timeline-focus.ts";
 export {
   type FormatTurnMessage,
   turnPreviewText,

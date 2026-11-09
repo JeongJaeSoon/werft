@@ -20,10 +20,10 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
-  Heading,
   Input,
   NativeSelect,
   NativeSelectOption,
+  SettingsSection,
   Text,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
@@ -126,27 +126,8 @@ export function GitHubUserLinkRow({
     (connection) => connection.connection_id === oauth.connection_id,
   );
   const ready = userLinkReady(data);
-  const titleId = `${selectId}-title`;
-
-  return (
-    <section
-      aria-labelledby={titleId}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b pb-2"
-    >
-      <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1">
-        <Heading id={titleId} level={2}>
-          {t("githubUserLink.title")}
-        </Heading>
-        <Text variant="sub">
-          {chosen
-            ? t("githubUserLink.via", { name: chosen.name })
-            : t(
-                authors.length > 1
-                  ? "githubUserLink.choose"
-                  : "githubUserLink.noApp",
-              )}
-        </Text>
-      </div>
+  const controls = (
+    <>
       {canManage && authors.length > 1 ? (
         <NativeSelect
           id={selectId}
@@ -203,6 +184,23 @@ export function GitHubUserLinkRow({
           )}
         </RowMenu>
       ) : null}
+    </>
+  );
+
+  return (
+    <SettingsSection
+      title={t("githubUserLink.title")}
+      description={
+        chosen
+          ? t("githubUserLink.via", { name: chosen.name })
+          : t(
+              authors.length > 1
+                ? "githubUserLink.choose"
+                : "githubUserLink.noApp",
+            )
+      }
+      actions={controls}
+    >
       <SecretDialog
         open={dialog === "secret"}
         clientId={oauth.client_id}
@@ -268,7 +266,7 @@ export function GitHubUserLinkRow({
           if (switching && !choose.isPending) choose.mutate(switching);
         }}
       />
-    </section>
+    </SettingsSection>
   );
 }
 

@@ -45,11 +45,11 @@ import {
   NativeSelect,
   NativeSelectOption,
   RowAction,
-  Section,
+  SettingsSection,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronRight, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   agentSummariesQuery,
@@ -63,6 +63,7 @@ import {
   refusalText,
   roleLabel,
   useHasPermission,
+  usePermissionReason,
   useRole,
 } from "../auth/guard.tsx";
 import {
@@ -81,11 +82,9 @@ import {
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useNotify } from "../components/toast.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
-// The name and its button share a row; the button drops under the field only
-// when the row is too narrow for both.
-const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
-const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
+const NAME_FIELD = "min-w-0 max-w-xl";
 
 type TeamMember = TeamDetail["members"][number];
 
@@ -147,6 +146,23 @@ export function TeamsScreen() {
   });
   const items = teams.data?.pages.flatMap((page) => page.items) ?? [];
   const search = useRef<HTMLInputElement>(null);
+  const notify = useNotify();
+  // The unsearched first page is the permission probe: a search changes
+  // `teams`' key, and the button must not lock while that reads. Until a
+  // search starts it is the same query as `teams`.
+  const probe = useInfiniteQuery({
+    ...teamPagesQuery(client),
+    enabled: manages,
+  });
+  const reason = usePermissionReason("team.manage", probe);
+  // A refused or failed first page leaves no list to add a team to.
+  const createFailed = probe.isError && !isApiError(probe.error, "FORBIDDEN");
+  const createButton = createFailed ? null : (
+    <TeamCreateDialog
+      reason={reason}
+      onCreated={(name) => notify(t("teams.created", { name }))}
+    />
+  );
   const clear = () => {
     setQuery("");
     search.current?.focus();
@@ -160,12 +176,19 @@ export function TeamsScreen() {
     );
   }
 
-  // Creating a team is the page head's button (TeamCreateDialog). The intro
-  // is the page's description line here, so the tab opens on the search box
-  // like the 구성원 tab does.
-  return (
-    <div className="flex flex-col gap-[var(--werft-space-block)]">
-      {isApiError(teams.error, "FORBIDDEN") ? null : (
+  // Creating a team is the section's title-row button (TeamCreateDialog),
+  // also while the list is empty: a button that moved into the empty box
+  // would remount. The intro is the page's description line here, so the tab
+  // opens on the search box like the 구성원 tab does.
+  const listEmpty =
+    !teams.isPending && !teams.error && items.length === 0 && query === "";
+  const section = (
+    <SettingsSection
+      title={t("members.tab.teams")}
+      actions={createButton}
+      box={listEmpty}
+    >
+      {isApiError(teams.error, "FORBIDDEN") || listEmpty ? null : (
         <ListToolbar
           filter={null}
           search={{
@@ -202,7 +225,13 @@ export function TeamsScreen() {
           <PagedListFooter list={teams} />
         </div>
       )}
-      {isApiError(teams.error, "FORBIDDEN") ? <MyTeams showEmpty /> : null}
+    </SettingsSection>
+  );
+  if (!isApiError(teams.error, "FORBIDDEN")) return section;
+  return (
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
+      {section}
+      <MyTeams showEmpty />
     </div>
   );
 }
@@ -291,53 +320,21 @@ export function TeamDetailScreen() {
   return <TeamPage key={teamId} id={teamId} />;
 }
 
-/**
- * The page head's one primary action on a team's page: adding members. The
- * head lives in the 구성원 layout above the route, so it reads the team the
- * address names; the page below shares the same cached read.
- */
-export function TeamHeadAction() {
-  const { teamId } = useParams({ strict: false });
-  const { client } = useWerft();
-  const manages = useHasPermission("team.manage");
-  const team = useQuery({
-    ...teamQuery(client, teamId ?? ""),
-    enabled: manages && teamId !== undefined,
-  });
-  // A failed read keeps the last data in the cache, but the page below turns
-  // into the failure: the button goes with it. The key ties the dialog's
-  // picks to one team, so going back to another team never carries them over.
-  if (!manages || !team.data || team.isError) return null;
-  return <AddMembersDialog key={team.data.id} team={team.data} />;
-}
-
 function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const { client } = useWerft();
   const team = useQuery(teamQuery(client, id));
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
-  // A plain link, not a button: the way back is an address.
-  const back = (
-    <TextLink asChild className="inline-flex w-fit items-center gap-1">
-      <Link to="/members/teams">
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        {t("teams.back")}
-      </Link>
-    </TextLink>
-  );
-
   if (team.isPending) return <StatusScreen kind="loading" />;
-  // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
-  // heads the tab with the way back beside it.
+  // Inside the 팀 tab (v3 M-03): the page head stays 구성원 and the team's
+  // name heads the tab. The way back is the 팀 tab above, which stays current
+  // on a team's address, or the browser's back.
   return (
     <div className="flex flex-col gap-[var(--werft-space-section)]">
-      <div className="flex flex-col gap-2">
-        {back}
-        <Heading className="min-w-0 [overflow-wrap:anywhere]">
-          {team.error ? t("teams.title") : team.data.name}
-        </Heading>
-      </div>
+      <Heading className="min-w-0 [overflow-wrap:anywhere]">
+        {team.error ? t("teams.title") : team.data.name}
+      </Heading>
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
@@ -388,26 +385,36 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // SettingsSection's form is noValidate, so `required` no longer stops an
+    // empty name here.
+    if (name.trim() === "") return;
     rename.mutate(name.trim());
   };
 
   return (
-    <Section title={t("teams.settings")} titleAs="h3">
-      <form className={INLINE_FORM} onSubmit={submit}>
-        <TeamNameField
-          value={name}
-          onChange={setName}
-          error={name.trim() === taken ? t("teams.nameTaken") : undefined}
-        />
+    <SettingsSection
+      title={t("teams.settings")}
+      titleAs="h3"
+      box
+      onSubmit={submit}
+      foot={
         <Button
           type="submit"
           variant="outline"
-          disabled={rename.isPending || name.trim() === team.name}
+          disabled={
+            rename.isPending || name.trim() === "" || name.trim() === team.name
+          }
         >
           {t("teams.rename")}
         </Button>
-      </form>
-    </Section>
+      }
+    >
+      <TeamNameField
+        value={name}
+        onChange={setName}
+        error={name.trim() === taken ? t("teams.nameTaken") : undefined}
+      />
+    </SettingsSection>
   );
 }
 
@@ -619,8 +626,15 @@ function TeamMembers({
     search.current?.focus();
   };
 
+  // The key ties the dialog's picks to one team, so going back to another
+  // team never carries them over.
+  const addMembers = manages ? (
+    <AddMembersDialog key={team.id} team={team} />
+  ) : null;
+  const listEmpty = team.members.length === 0;
+
   return (
-    <Section
+    <SettingsSection
       title={t("teams.members")}
       titleAs="h3"
       badge={
@@ -628,8 +642,10 @@ function TeamMembers({
           {t("teams.memberTotal", { count: team.members.length })}
         </Badge>
       }
+      actions={addMembers}
+      box={listEmpty}
     >
-      {team.members.length === 0 ? (
+      {listEmpty ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
@@ -743,7 +759,9 @@ function TeamMembers({
                       </GridTableCell>
                     )}
                     <GridTableCell>
-                      {manages ? (
+                      {/* The server refuses a role change or a removal on a
+                          disabled member; the row reads, it does not edit. */}
+                      {manages && !inactive ? (
                         <TeamRoleSelect team={team} member={member} />
                       ) : (
                         <TeamRoleBadge role={member.role} />
@@ -757,13 +775,15 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell raised={true} align="end">
-                        <RowAction
-                          disabled={remove.isPending}
-                          aria-label={t("teams.removeMemberFor", { name })}
-                          onClick={() => setRemoving(member)}
-                        >
-                          {t("teams.removeMember")}
-                        </RowAction>
+                        {inactive ? null : (
+                          <RowAction
+                            disabled={remove.isPending}
+                            aria-label={t("teams.removeMemberFor", { name })}
+                            onClick={() => setRemoving(member)}
+                          >
+                            {t("teams.removeMember")}
+                          </RowAction>
+                        )}
                       </GridTableCell>
                     )}
                   </GridTableRow>
@@ -791,7 +811,7 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
-    </Section>
+    </SettingsSection>
   );
 }
 

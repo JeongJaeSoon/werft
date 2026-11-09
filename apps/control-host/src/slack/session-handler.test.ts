@@ -44,7 +44,7 @@ import {
   workspaces,
 } from "@werft-ai/db";
 import { migrate } from "@werft-ai/db/migrate";
-import { createLogger } from "@werft-ai/observability";
+import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
   type CatalogProfile,
@@ -410,7 +410,10 @@ const message = (ts: string, extra: Record<string, unknown> = {}) => ({
 const rootMessage = (ts: string) =>
   message(ts, { text: `<@${BOT_USER}> summarize the thread` });
 
-function handler(inbox?: Pick<SlackInboundEventStore, "renew">) {
+function handler(
+  inbox?: Pick<SlackInboundEventStore, "renew">,
+  log: typeof logger = logger,
+) {
   const notices = createMemorySlackNoticeSink();
   return {
     notices: notices.notices,
@@ -422,7 +425,7 @@ function handler(inbox?: Pick<SlackInboundEventStore, "renew">) {
         },
       },
       environment: LIMITS,
-      logger,
+      logger: log,
       secretKey: key,
       leaseMs: 30_000,
       notices: notices.sink,
@@ -661,7 +664,20 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
 
   test("a reply in a thread whose profile the operator blocked since queues nothing and says so", async () => {
     const fixture = await agentInSlack("general");
-    const { handle, notices } = handler();
+    const records: LogRecord[] = [];
+    const { handle, notices } = handler(
+      undefined,
+      createLogger({
+        level: "info",
+        sinks: [
+          {
+            write: (record) => {
+              records.push(record);
+            },
+          },
+        ],
+      }),
+    );
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
     await db
@@ -684,6 +700,15 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(notices[0]).toMatchObject({
       reason: "profile_unavailable",
       notice: { message: "profileUnavailable" },
+    });
+    // The refusal's log names why, not only the error code.
+    const refused = records.filter(
+      (record) => record.message === "Slack input refused by the session",
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({
+      level: "warn",
+      fields: { code: "PROFILE_BLOCKED", reason_code: "blocked" },
     });
   });
 

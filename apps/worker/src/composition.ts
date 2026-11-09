@@ -17,7 +17,6 @@ import {
   type RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { installedRuntimes } from "@werft-ai/runtime-registry";
-
 import { REPAIR_TOOL_PATH } from "./attribution-repair.ts";
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
@@ -42,6 +41,7 @@ import {
 } from "./legacy-platform-prompt.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
+import { createPushPrecheck } from "./push-precheck.ts";
 import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
@@ -220,6 +220,7 @@ export function workerRuntimeRegistry(
         processObserver: engines,
         stateDir: config.runtime.claudeConfigDir,
         providerMaxRetries: config.runtime.providerMaxRetries,
+        precheckTool: createPushPrecheck(config.runtime.cwd),
         ...(config.timeouts?.toolUseFrameWaitMs === undefined
           ? {}
           : { toolCallWaitMs: config.timeouts.toolUseFrameWaitMs }),
@@ -258,6 +259,12 @@ export function runtimeStart(
       ...profile.config,
       ...mode,
       correlationId,
+      ...(launch.runtimeConfig.disallowed_tools === undefined
+        ? {}
+        : { disallowedTools: launch.runtimeConfig.disallowed_tools }),
+      ...(launch.runtimeConfig.engine_settings === undefined
+        ? {}
+        : { engineSettings: launch.runtimeConfig.engine_settings }),
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
       ...(launch.gitEnvironment === undefined
         ? {}

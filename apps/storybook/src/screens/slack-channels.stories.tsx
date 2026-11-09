@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   Badge,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Heading,
   RowAction,
   RowList,
@@ -13,9 +18,9 @@ import { expect, within } from "storybook/test";
 import { MOBILE } from "./screen-kit.tsx";
 
 /*
- * apps/web routes/agent-detail/slack/channels.tsx: the connected-channel list
- * and the add-channel picker rows. The public/private tag sits in the row's
- * right column, on the name's line, in both.
+ * apps/web routes/agent-detail/slack/channels.tsx: the connected-channel
+ * table and the add-channel picker rows. In the table the public/private tag
+ * sits on the name's line; in the picker, beside the row's action.
  */
 
 type Visibility = "public" | "private";
@@ -58,27 +63,33 @@ function SlackChannels() {
     <div className="flex flex-col gap-8 p-4">
       <section className="flex flex-col gap-[var(--werft-space-block)]">
         <Heading level={2}>연결된 채널</Heading>
-        <RowList variant="joined" aria-label="연결된 채널">
+        <GridTable
+          aria-label="연결된 채널"
+          columns="minmax(0,1fr) 136px"
+          framed
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>채널</GridTableColumnHeader>
+            <GridTableColumnHeader align="end">사용</GridTableColumnHeader>
+          </GridTableHeader>
           {CHANNELS.map((channel) => (
-            <SettingRow
-              key={channel.name}
-              title={<ChannelName name={channel.name} />}
-              actions={
-                <div className="flex items-center gap-2">
+            <GridTableRow key={channel.name}>
+              <GridTableCell className="py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ChannelName name={channel.name} />
                   <Tag visibility={channel.visibility} />
-                  <Text as="span" aria-hidden="true">
-                    사용 중
-                  </Text>
-                  <Switch
-                    aria-label={`#${channel.name} 사용 중`}
-                    checked
-                    onCheckedChange={() => {}}
-                  />
                 </div>
-              }
-            />
+              </GridTableCell>
+              <GridTableCell align="end">
+                <Switch
+                  aria-label={`#${channel.name}에서 사용`}
+                  checked
+                  onCheckedChange={() => {}}
+                />
+              </GridTableCell>
+            </GridTableRow>
           ))}
-        </RowList>
+        </GridTable>
       </section>
       <section className="flex flex-col gap-[var(--werft-space-block)]">
         <Heading level={2}>채널 추가</Heading>
@@ -110,8 +121,11 @@ const meta = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     // Each tag is text in the same row as its control.
-    for (const list of ["연결된 채널", "추가할 채널"]) {
-      const rows = within(canvas.getByRole("list", { name: list }));
+    for (const [role, name] of [
+      ["table", "연결된 채널"],
+      ["list", "추가할 채널"],
+    ] as const) {
+      const rows = within(canvas.getByRole(role, { name }));
       expect(rows.getAllByText("공개")).toHaveLength(2);
       expect(rows.getAllByText("비공개")).toHaveLength(1);
     }

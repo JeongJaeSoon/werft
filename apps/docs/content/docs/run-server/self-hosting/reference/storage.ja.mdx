@@ -33,9 +33,9 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-`kubectl get storageclass` で、使う StorageClass の provisioner が容量を強制する volume を作るか確認します（例えば EBS gp3 では要求サイズがそのままブロックデバイスのサイズです）。PVC の `REQUEST` は Werft の要求値、`CAPACITY` は provisioner が作成したサイズです。`df -h` の総量はファイルシステムの overhead により異なる場合があるため、一致するかでは判断しません。確認するのは、`CAPACITY` が `REQUEST` 以上であることと、同じ StorageClass の試験 PVC に `REQUEST` を超えて書くと `ENOSPC` になることです。`df -i` で inode 総数を確認します。これら Kubernetes コマンド、容量強制、AZ 再接続は実行確認していません。値はコード（`specs.ts`、`config.ts`）と chart に基づきます。
+`kubectl get storageclass` で、使う StorageClass の provisioner が容量を強制する volume を作るか確認します（例えば EBS gp3 では要求サイズがそのままブロックデバイスのサイズです）。PVC の `REQUEST` は Werft の要求値、`CAPACITY` は provisioner が作成したサイズです。`df -h` の総量はファイルシステムの overhead により異なる場合があるため、一致するかでは判断しません。確認するのは、`CAPACITY` が `REQUEST` 以上であることと、同じ StorageClass の試験 PVC に `REQUEST` を超えて書くと `ENOSPC` になることです。`df -i` で inode 総数を確認します。これら Kubernetes コマンド、容量強制、AZ 再接続は実行確認していません。値はコードと chart に基づきます。
 
-- **PVC は必須です。** worker Pod の workspace volume は PVC だけで（`specs.ts`）、emptyDir や hostPath に変える設定はありません。セッションの PVC は Pod と独立して存続し、Pod が置き換わっても同名の PVC に再接続します。scheduler がセッションごとに Pod と PVC を作成します。
+- **PVC は必須です。** worker Pod の workspace volume は PVC だけで、emptyDir や hostPath に変える設定はありません。セッションの PVC は Pod と独立して存続し、Pod が置き換わっても同名の PVC に再接続します。scheduler がセッションごとに Pod と PVC を作成します。
 - **StorageClass による容量の強制は Werft は検証しません。** コードは `requests.storage` を要求し、その値を `werft.workspace-size` annotation に記録して設定と比較します。PVC の `status.capacity` を読み worker に渡し、worker は workspace 使用量とファイルシステムの総量・inode を観測します。この観測は実際の強制の検証ではありません。強制の有無は CSI ドライバーとファイルシステムにより異なるため、設置前にインフラ側へ確認します。
 - kind の既定 StorageClass（local-path 系）は PVC サイズを強制しないことが知られています。kind で `Bound` になっても上限が設定されたとは限りません。
 - **既知の制限。** inode 上限がなく、容量上限は StorageClass に委ねられています。上限を強制しない StorageClass を選んでも chart は拒否しません。この制限を解消するコード変更はこのページの範囲外です。
@@ -81,7 +81,7 @@ PVC がまだ bind されていないか、scheduler に PVC の `get` 権限が
 <a id="성과물out-색인-상한" />
 ## 成果物（`out/`）の索引上限
 
-worker は checkpoint ごとに作業ディレクトリの `out/` 配下の通常ファイルを git 状態に関係なく索引化して manifest の `outputs` に入れ、ファイルごとに object を一つ upload します。上限は `apps/worker/src/workspace-outputs.ts` の `DEFAULT_OUTPUT_LIMITS` です。
+worker は checkpoint ごとに作業ディレクトリの `out/` 配下の通常ファイルを git 状態に関係なく索引化して manifest の `outputs` に入れ、ファイルごとに object を一つ upload します。上限は worker の既定の出力上限です。
 
 | 値 | 既定値 | 超過時 |
 |---|---|---|
@@ -142,7 +142,7 @@ M に上限はありません。reuse の成功には M 分の quota 余裕が�
 
 **inode 上限も同じ project に設定します。** byte 上限だけでは、数百万個の空ファイルで inode を使い切る経路が残ります。xfs は inode を project の block 使用量に含めないため、4GiB 内でも起こせます。その場合、同じ daemon の他のセッションや Postgres がファイルを作れなくなります。`local` ドライバーには inode オプションがなく、`o=loop` でセッションごとにファイルシステムを作る経路も使えません。ドライバーは `mount(8)` ではなく mount syscall を呼ぶためです（`data: loop: invalid argument`）。そのため Docker が `size` で作った xfs project に、こちらで `ihard`・`isoft`（`EXECUTION_WORKSPACE_QUOTA_INODES`、既定 1,000,000）を直接設定します。
 
-- 設定するのは短時間動く helper コンテナ（`workspace-inodes.ts`）です。`CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`、`NetworkMode none`、read-only rootfs で、privileged ではありません。
+- 設定するのは短時間動く helper コンテナです。`CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`、`NetworkMode none`、read-only rootfs で、privileged ではありません。
 - helper は volume の project id を読みます。project 0（= project なし）なら拒否します。0 に上限を設定するとファイルシステム全体を制限するためです。
 - helper は mount 元の block device ノードを自分専用の `/dev` に `mknod` で作り、`xfs_quota` を呼びます。
 - `xfs_quota` は失敗しても 0 で終了します。そのため成功は quota 報告の hard・soft limit と statfs の `f_files` を読むことだけで判断します。
@@ -182,7 +182,7 @@ resume は commit 済み checkpoint がある場合だけ受理し、worker は 
 * mount 中（409）または別の設置環境のものなら claim だけを解除します。
 * 削除呼び出しが throw した場合（timeout を含む）は claim を残します。volume が削除されたか不明なためです。次の pass は volume 一覧とは別に、未完了 claim から先に再処理します。削除済み volume は一覧に再び現れないためです。
 
-claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。逆に resume が先に commit すると、セッションが `active` になって `updated_at` が変わるため claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は `packages/db/src/workspace-reclaim.integration.test.ts` が実際の PostgreSQL 上で固定しています。
+claim が残る間、resume は **503 `BACKEND_UNAVAILABLE`（`retryable: true`）** で拒否します。このとき receipt も idempotency 記録も残さないため、同じ要求を再送すれば回収後に正常処理されます。逆に resume が先に commit すると、セッションが `active` になって `updated_at` が変わるため claim は拒否され、次の launch が volume をそのまま使います。再開成功時に `workspace_reclaimed_at` は消去します。順序別の動作は統合テストが実際の PostgreSQL 上で固定しています。
 
 <a id="공통-object-store-보호" />
 ## 共通の object store 保護

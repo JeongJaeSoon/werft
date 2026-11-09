@@ -7,7 +7,7 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 
 ## 運用者がやること
 
-認証情報は GitHub App で、owner か admin がコンソールの **設定 → 連携 → GitHub** で扱う。
+認証情報は GitHub App で、owner か admin がコンソールの **設定 > ワークスペース > 連携 > GitHub** で扱う。
 
 - **App を追加**: GitHub で新しい App を作成する(コンソールが App ID と鍵を受け取って保存する)か、既存の App を App ID と private key(PEM ファイル)で接続する。作成用 App とレビュー承認用 App を複数置けて、一覧では役割のバッジで見分ける。鍵は暗号化して保存し、画面にも API の応答にも二度と出ない。鍵を替えるときは App の行の ⋯ メニューの **新しい鍵を登録** を使う。
 - **組織を追加**: App を組織か個人アカウントにインストールする。インストールの表にアカウントごとの種類・リポジトリの範囲・App・接続した人・状態が出て、行の ⋯ メニューの **GitHub で管理** がそのインストールの設定画面を開く。
@@ -22,6 +22,10 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
 `Workflows` 権限は「ワークフローファイルの変更」機能を有効にするときだけ App に加える。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく。設定方法は運用ドキュメントにある。
+
+### App の Setup URL
+
+コンソールで作った App は、Setup URL が `<CONSOLE_ORIGIN>/settings/workspace/integrations/github` で入る。すでにあった App を連携した場合は、GitHub の App 設定（Developer settings > GitHub Apps > その App > General）で **Setup URL** をこの住所に合わせる。組織を追加すると GitHub がブラウザーをこの住所へ戻し、コンソールは戻ってきた値でインストールを記録する。Setup URL が古い `/settings/workspace/github` を指している App は新しい住所に変える。その経路はなくなった。すでにインストール済みのアカウントで、インストールの設定を保存したあとコンソールへ戻るのは、App の **Redirect on update** がオンのときだけである。
 
 ## ユーザーがやること
 
@@ -130,8 +134,8 @@ PR の段階は push リクエストごとに 1 つで、状態は次のよう�
 
 コミットの作成者は常に GitHub App の bot アカウント(`<App slug>[bot]`)だ。自分の GitHub アカウントを連携しておくと、自分が依頼したターンのコミットに `Co-authored-by:` トレーラーで自分の名前も入り、GitHub でそのコミットが自分の貢献としても表示される。
 
-1. owner か admin が **設定 → 連携 → GitHub** の「メンバーの GitHub アカウント連携」の行で、連携に使う作成用 App を選び(App が複数あるとき)、⋯ メニューの callback URL をその App の Callback URL に入れ、その App で作った client secret を入力する。この準備がないと連携ボタンは無効になっている。
-2. **設定 → 連携アカウント** の GitHub の行で「連携」を押し、GitHub の同意画面で承認する。プラットフォームは GitHub アカウントの id と login だけを読み、GitHub のトークンは保管しない。
+1. owner か admin が **設定 > ワークスペース > 連携 > GitHub** の「メンバーの GitHub アカウント連携」の行で、連携に使う作成用 App を選び(App が複数あるとき)、⋯ メニューの callback URL をその App の Callback URL に入れ、その App で作った client secret を入力する。この準備がないと連携ボタンは無効になっている。
+2. **設定 > 連携アカウント** の GitHub の行で「連携」を押し、GitHub の同意画面で承認する。プラットフォームは GitHub アカウントの id と login だけを読み、GitHub のトークンは保管しない。
 3. 連携した行に、コミットに入る行(`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`)が表示される。連携を解除すると、それ以降に依頼するターンからは入らない。
 
 Web コンソール、個人 API キー、Slack から依頼したターンは、そのターンを依頼した人の連携に従う。一つのセッションで複数の人が続けて依頼した場合、コミットごとにそのターンの依頼者が入る。エージェントキーや運用者キーで依頼したターンには依頼した人がいないため、共同作成者は入らない。どちらの場合も、コミットには `Agent-Session:` トレーラーが付く。運用者がコンソールのアドレスを設定した環境ならセッションのアドレス、そうでなければセッション id だ。セッション詳細の成果物タブの最後の行で、そのセッションがどちらかを確認できる。

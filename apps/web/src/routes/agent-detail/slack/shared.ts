@@ -4,7 +4,7 @@ import {
   type MessageKey,
   type Translate,
 } from "../../../i18n/i18n.tsx";
-import { storeOff } from "../../workspace-slack.tsx";
+import { reasonCodeOf, storeOff } from "../../workspace-slack.tsx";
 
 export type Binding =
   components["schemas"]["ListSlackBindingsResponse"]["items"][number];
@@ -20,16 +20,23 @@ export const dmOn = (dm: Binding | undefined) =>
 export const SECTION = {
   channels: "slack-channels",
   basic: "slack-basic",
-  advanced: "slack-advanced",
+  token: "slack-token",
+  addresses: "slack-addresses",
+  app: "slack-app",
   danger: "slack-danger",
+  /** The new-agent flow's one section. */
+  advanced: "slack-advanced",
 } as const;
-export type SectionKey = keyof typeof SECTION;
+/** The tab's sections, in the side list's words. */
 export const SECTION_LABEL = {
   channels: "slack.channels",
   basic: "slack.basic",
-  advanced: "slack.advanced",
-  danger: "slack.danger",
-} as const;
+  token: "workspace.tokenSection",
+  addresses: "workspace.addressesTitle",
+  app: "workspace.slackApps",
+  danger: "workspace.danger",
+} as const satisfies Record<string, MessageKey>;
+export type SectionKey = keyof typeof SECTION_LABEL;
 export const SLACK_WARNING_KEY = {
   config_token_issuer_changed: {
     title: "slack.issuerChanged.title",
@@ -53,6 +60,8 @@ export const SLACK_WARNING_KEY = {
 >;
 export const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none";
+/** A section the side list jumps to, clear of the sticky header. */
+export const SECTION_TARGET = "scroll-mt-4 outline-none";
 export const RECHECK_ID = "slack-events-recheck";
 export const UNVERIFIED_POLL_MS = 10_000;
 export const EVENTS_BADGE = {
@@ -76,6 +85,24 @@ export function slackReason(error: unknown, t: Translate): string | undefined {
     return t("slack.error.rejected");
   if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
   if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
+  if (code === "BACKEND_UNAVAILABLE") {
+    const reason = reasonCodeOf(error);
+    if (reason === "slack_refused") {
+      const slack = (error as { details?: { slack_error?: unknown } }).details
+        ?.slack_error;
+      return t("slack.error.refused", {
+        code: typeof slack === "string" ? slack : "unknown",
+      });
+    }
+    if (reason === "console_origin_unset")
+      return t("slack.error.consoleOrigin");
+    if (reason === "events_url_unset") return t("slack.error.eventsUrl");
+    if (reason === "slack_no_answer") return t("slack.error.noAnswer");
+    // A cause this screen has no words for: a retry cannot help, so name the
+    // code instead of "try again shortly".
+    if ((error as { retryable?: unknown }).retryable === false)
+      return t("slack.error.unknown", { code: reason ?? code });
+  }
   return undefined;
 }
 

@@ -209,7 +209,7 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
     ).toBeNull();
   });
 
-  test("앱 목록 절은 Slack 카드 안 토큰 아래에 오고, 게스트 카드가 뒤따른다", async () => {
+  test("앱 목록 절은 Slack 카드 안 토큰 아래에 오고, 게스트 카드와 위험 구역이 뒤따른다", async () => {
     harness.renderAt(SLACK, {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${CONFIG}`]: () =>
@@ -237,8 +237,7 @@ describe("연동 › Slack의 자동으로 만든 Slack 앱", () => {
       screen
         .getAllByRole("heading", { level: 2 })
         .map((heading) => heading.textContent),
-    ).toEqual(["Slack", "Slack 게스트"]);
-    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
+    ).toEqual(["Slack", "Slack 게스트", "위험 구역"]);
   });
 
   test.each(["/settings/workspace/slack-apps", "/settings/workspace/slack"])(

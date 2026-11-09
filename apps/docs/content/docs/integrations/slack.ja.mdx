@@ -35,7 +35,7 @@ curl -sS "$API/v1/workspaces/$WS/slack-guest" "${WEB[@]}" \
 
 ## Slack アカウントの連携
 
-Sign in with Slack(OpenID Connect)で連携する。運用者がコンソールの公開アドレス `CONSOLE_ORIGIN` を設定し、ワークスペース管理者が設定 › 連携 › Slack に App Configuration Token を入れてアカウント連携用アプリを作れるようにし、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックには `CONSOLE_ORIGIN` がないため、開始リクエストは 503 になる。
+Sign in with Slack(OpenID Connect)で連携する。運用者がコンソールの公開アドレス `CONSOLE_ORIGIN` を設定し、ワークスペース管理者が設定 > ワークスペース > 連携 > Slack に App Configuration Token を入れてアカウント連携用アプリを作れるようにし、そのワークスペースに確認済みの Slack インストールがある必要がある。ローカルスタックには `CONSOLE_ORIGIN` がないため、開始リクエストは 503 になる。
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API/v1/linked-accounts/slack/start" "${WEB[@]}"
@@ -123,7 +123,7 @@ unset SLACK_BOT_TOKEN
 
 owner・admin を含むエージェント管理者が Web セッションで呼び出す。`GET /v1/agents/{id}/slack/app` は `event_url` と `events` を返す。イベント URL は、サーバーがコンソールの公開アドレス(`CONSOLE_ORIGIN`)から計算した https アドレスに `/v1/slack/events/{agent_id}` を付けた絶対 URL である。イベントの入口をコンソールと別にしているサーバーは、その入口のアドレス(`SLACK_EVENTS_PUBLIC_URL`)を使う。計算できなければ null になる。`events.state` は `pending`・`verified`・`failed` である。インストール finalize が manifest にこのアドレスを Request URL として入れると `pending` になり、`events.url` に送ったアドレスが残る(送る前は null)。すでに `verified` のアプリに同じアドレスをもう一度入れても `verified` のままで、アドレスが変わると再び `pending` になる。そのアプリの signing secret で署名されたリクエスト(`url_verification` またはイベント)が初めて届くと `verified` になる。`url_verification` には署名と時刻を確認したうえで challenge の値だけを返す。manifest 登録に失敗すると `failed` になり、秘密値を含まない `error` コードを返す。`checked_at` は状態が最後に変わった時刻(まだなければ null)である。
 
-finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **詳細** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の Event Subscriptions 画面で Request URL の Verify(または Retry)を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
+finalize 後も `pending` なら、Slack はまだこのアドレスを確認できていない。公開 DNS がまだアドレスを解決できないこともあれば、Slack が manifest で入れた URL を確認していないこともある。`POST /v1/agents/{id}/slack/app/events/recheck`(コンソールの Slack タブ **Slack アプリに入れるアドレス** の **再確認**)は manifest を Request URL とともにもう一度送る。それでも `pending` なら、Slack アプリ設定の Event Subscriptions 画面で Request URL の Verify(または Retry)を押す。コンソールの Slack タブは、アドレスを送った後 `pending` の間、同じ案内とその画面へのリンクを表示する。ローカルスタックで `scripts/slack-funnel.sh on` でアドレスを公開した場合は、最後の行の公開 DNS チェック(dns.google・cloudflare-dns.com)の警告が消えるまで待ってから Slack アプリを作成する。
 
 `GET /v1/agents/{id}/slack/app/manifest` は現在のエージェントとサーバー設定から生成した `manifest_yaml` を返す。秘密値は含まない。
 

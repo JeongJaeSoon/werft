@@ -292,7 +292,7 @@ describe("GitHub에서 돌아온 화면", () => {
       await screen.findByText(/만료되었거나 이미 쓰였습니다/),
     ).toBeDefined();
     expect(api.calls.some((call) => call.method === "POST")).toBe(false);
-    expect(screen.getByRole("link", { name: "연동 › GitHub로" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "연동 > GitHub로" })).toBeDefined();
   });
 
   test("서버가 state를 거절하면 다시 시작하라고 알리고, 바뀐 App이면 GitHub의 App 링크를 준다", async () => {

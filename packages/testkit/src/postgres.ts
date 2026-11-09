@@ -15,10 +15,19 @@ export type TempDatabaseOptions = {
    * `QUEUE_DATABASE_URL`, the opt-in variable docs/contributing/development.md and CI already use.
    */
   adminUrl?: string;
-  /** Apply the Drizzle migrations right after creation. Defaults to true. */
+  /**
+   * Apply the Drizzle migrations right after creation. Defaults to true, or to
+   * false with `template`, whose copy already carries its migrations.
+   */
   migrate?: boolean;
   /** Prefix of the generated database name. */
   prefix?: string;
+  /**
+   * Name of a database on the same server to copy instead of starting empty.
+   * Copying a migrated template takes a fraction of the time the migrations
+   * do. PostgreSQL refuses the copy while anyone is connected to the template.
+   */
+  template?: string;
 };
 
 /** The opt-in URL for real PostgreSQL integration tests, if set. */
@@ -42,8 +51,12 @@ export async function createTempDatabase(
   const target = new URL(adminUrl);
   target.pathname = `/${name}`;
 
+  const from =
+    options.template === undefined
+      ? ""
+      : ` TEMPLATE "${options.template.replaceAll('"', '""')}"`;
   await withAdminPool(admin.toString(), (pool) =>
-    pool.query(`CREATE DATABASE ${quoted}`),
+    pool.query(`CREATE DATABASE ${quoted}${from}`),
   );
   let dropped = false;
   const drop = async () => {
@@ -53,7 +66,7 @@ export async function createTempDatabase(
     );
     dropped = true;
   };
-  if (options.migrate ?? true) {
+  if (options.migrate ?? options.template === undefined) {
     try {
       await migrateDatabase(target.toString());
     } catch (error) {

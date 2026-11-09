@@ -457,6 +457,8 @@ export function createGitHubSettingsService(deps: {
         throw new SessionServiceError(
           "BACKEND_UNAVAILABLE",
           "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+          undefined,
+          { reason_code: "secret_store_off" },
         );
       }
       // Refused before the secret is read; the store checks again under its lock.
@@ -506,6 +508,8 @@ export function createGitHubSettingsService(deps: {
         throw new SessionServiceError(
           "BACKEND_UNAVAILABLE",
           "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+          undefined,
+          { reason_code: "secret_store_off" },
         );
       }
       const body = await readBody();

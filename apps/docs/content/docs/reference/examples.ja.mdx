@@ -23,7 +23,7 @@ description: ユースケースごとに SDK を実際に呼ぶ小さな CLI サ
 
 1. 自分のスタックを `scripts/local.sh up --fake-model` で起動します([開発用サーバーの実行](/run-server/dev-server))。実際のモデル key は要りません。メッセージ中の `GATE-SPEC` は FAKE モデルが再生する台本なので、実際のモデルでは使いません。
 2. Web コンソールに owner でログインします。
-3. 個人 key は、コンソールの設定 → API key で、そのサンプルの scope を付けて発行します。owner は 5 つの scope をすべて付けられます。
+3. 個人 key は、コンソールの設定 > API キー で、そのサンプルの scope を付けて発行します。owner は 5 つの scope をすべて付けられます。
 4. エージェント key が必要なサンプル(`sdk-events`、`sdk-push`、`sdk-approver`)は、コンソールでエージェントを作り、`claude-coding-local` プロファイルと `sample-app` リポジトリでリリースを作って有効にしてから、そのエージェントの key を `sessions:read`、`sessions:write`、`sessions:control` で発行します。エージェント key には `sessions:approve` を付けられないので、承認は別の個人 key が行います。
 
 環境変数はサンプルごとの README にあります。すべてのサンプルが使うのは次の 2 つです。key をソース・README・出力に貼り付けないでください。

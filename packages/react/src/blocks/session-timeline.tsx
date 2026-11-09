@@ -1,4 +1,5 @@
 import {
+  eventToolCall,
   presentTurnEvent,
   type TurnEventPart,
   type TurnEventPresentation,
@@ -9,7 +10,10 @@ import {
   Message,
   Timeline,
   type TimelineEntry,
+  type TimelineView,
   turnSummaryText,
+  WORK_KINDS,
+  type WorkCounts,
 } from "../components/index.ts";
 import {
   type EventStreamState,
@@ -119,6 +123,54 @@ export function heldToolCalls(
   return held;
 }
 
+/** The tool a call or a result belongs to, as the focus view counts it. */
+function toolNameOf(frame: SessionEventFrame): string | undefined {
+  const { payload } = frame;
+  if (payload.event === "tool_use" || payload.event === "assistant") {
+    return eventToolCall(payload.data)?.name ?? undefined;
+  }
+  return frame.toolName;
+}
+
+/** A focus fold's line: each kind of work it did, with its count. */
+export function workText(counts: WorkCounts, t: Translate): string {
+  return WORK_KINDS.flatMap((kind) => {
+    const count = counts[kind];
+    if (count === 0) return [];
+    return [
+      count === 1
+        ? t(`session.events.work.${kind}.one`)
+        : t(`session.events.work.${kind}`, { count }),
+    ];
+  }).join(" · ");
+}
+
+const VIEW_KEY = "werft.session.timeline.view";
+
+/** The reader's last choice of view on this browser; focus until one. */
+export function storedTimelineView(): TimelineView {
+  try {
+    if (globalThis.localStorage?.getItem(VIEW_KEY) === "all") return "all";
+  } catch {
+    // Storage can be blocked; focus is the default.
+  }
+  return "focus";
+}
+
+/** The timeline view, remembered across sessions as a convenience. */
+export function useTimelineView() {
+  const [view, setView] = useState(storedTimelineView);
+  const choose = (next: TimelineView) => {
+    setView(next);
+    try {
+      globalThis.localStorage?.setItem(VIEW_KEY, next);
+    } catch {
+      // Storage can be blocked; the choice then lasts for this page only.
+    }
+  };
+  return [view, choose] as const;
+}
+
 /** A pending requests query as `SessionTimeline`'s `pending` reads it. */
 export function listedRequests(query: {
   readonly data?:
@@ -139,6 +191,7 @@ export function SessionTimeline({
   events,
   state,
   debug = false,
+  view,
   request,
   pending,
   turns,
@@ -146,6 +199,8 @@ export function SessionTimeline({
   readonly events: readonly SessionEventFrame[];
   readonly state: EventStreamState;
   readonly debug?: boolean;
+  /** See `TimelineView`; it overrides `debug`. Without it, noise folds. */
+  readonly view?: TimelineView | undefined;
   /** Drawn under a request's line; see `Timeline`. */
   readonly request?: ((requestId: string) => ReactNode) | undefined;
   /**
@@ -173,6 +228,7 @@ export function SessionTimeline({
             locale,
           ),
           toolCallId: eventToolCallId(frame.payload),
+          toolName: toolNameOf(frame),
           ...questionOf(frame),
         }),
       ),
@@ -232,7 +288,11 @@ export function SessionTimeline({
           closed: t("session.events.closed"),
           turn: (turn) => t("session.events.turn", { turn }),
           kind: (kind) => t(`session.events.kind.${kind}`),
-          folded: (count) => t("session.events.folded", { count }),
+          folded: (count) =>
+            count === 1
+              ? t("session.events.folded.one")
+              : t("session.events.folded", { count }),
+          work: (counts) => workText(counts, t),
           running: t("session.events.running"),
           waiting: t("sessions.status.needs_input"),
           options: t("session.events.options"),
@@ -243,6 +303,7 @@ export function SessionTimeline({
         }}
         state={state}
         showDebug={debug}
+        view={view}
         locale={locale}
         request={request}
         held={held}

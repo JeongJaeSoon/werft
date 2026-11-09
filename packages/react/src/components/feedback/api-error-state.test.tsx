@@ -190,17 +190,17 @@ describe("오류 문구", () => {
   test.each([
     [
       "ko",
-      "연동 › Slack",
-      "연동 › GitHub",
+      "연동 > Slack",
+      "연동 > GitHub",
       ["Slack 연결 설정", "GitHub 연결 설정"],
     ],
     [
       "en",
       "Slack in Integrations",
-      "Integrations › GitHub",
+      "Integrations > GitHub",
       ["Slack connection", "GitHub connection"],
     ],
-    ["ja", "連携 › Slack", "連携 › GitHub", ["Slack 接続", "GitHub 接続"]],
+    ["ja", "連携 > Slack", "連携 > GitHub", ["Slack 接続", "GitHub 接続"]],
   ] as const)(
     "%s 안내는 연동 메뉴 이름을 쓰고 옛 메뉴 이름은 없다",
     (locale, slack, github, old) => {
@@ -215,4 +215,17 @@ describe("오류 문구", () => {
       }
     },
   );
+
+  test("menu paths in guidance use '>' in every locale", () => {
+    // The console catalog and the public docs write "연동 > GitHub"; a "›" in
+    // one of these reads as a different menu. apps/web's i18n guard cannot
+    // see this table.
+    const withChevron = Object.entries(ERROR_GUIDANCE_BY_LOCALE).flatMap(
+      ([locale, table]) =>
+        Object.entries(table)
+          .filter(([, text]) => text.includes("›"))
+          .map(([code]) => `${locale}:${code}`),
+    );
+    expect(withChevron).toEqual([]);
+  });
 });

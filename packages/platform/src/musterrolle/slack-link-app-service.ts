@@ -83,7 +83,7 @@ const slackRefused = (error: SlackApiError) =>
     "BACKEND_UNAVAILABLE",
     `Slack refused ${error.method}: ${error.code}`,
     undefined,
-    { slack_error: error.code },
+    { reason_code: "slack_refused", slack_error: error.code },
   );
 const answerLost = () =>
   new SessionServiceError(

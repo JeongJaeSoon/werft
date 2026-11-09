@@ -32,19 +32,36 @@ export interface PageHeaderProps {
    * Below this breakpoint the actions go under the description, so the
    * title and description keep the full width (owner decision 2026-10-29).
    * `lg` for a head whose title needs more room beside its actions.
+   * `wrap` for a head whose actions change in number and width, such as a
+   * session's commands: no breakpoint, the title column keeps at least
+   * 20rem (or the whole row when narrower) and the actions go under it
+   * whenever the row cannot hold both.
    */
-  readonly stackBelow?: "md" | "lg" | undefined;
+  readonly stackBelow?: "md" | "lg" | "wrap" | undefined;
   readonly className?: string | undefined;
 }
 
 const STACK = {
   md: {
     head: "md:flex-row md:items-start md:justify-between md:gap-4",
+    title: "",
     actions: "md:flex-none md:flex-nowrap",
   },
   lg: {
     head: "lg:flex-row lg:items-start lg:justify-between lg:gap-4",
+    title: "",
     actions: "lg:flex-none lg:flex-nowrap",
+  },
+  // The title grows from a 20rem basis and never gives that up, so the
+  // actions wrap to the next line instead of squeezing it; a row of actions
+  // wider than the page then wraps inside itself. Beside the title the
+  // actions take almost none of the spare width (1 to the title's 999);
+  // alone on their line they fill it, so an `ms-auto` item still reaches
+  // the right edge as it did in the stacked column.
+  wrap: {
+    head: "flex-row flex-wrap items-start justify-between gap-x-4",
+    title: "grow-[999] basis-80 min-w-[min(100%,20rem)]",
+    actions: "grow max-w-full",
   },
 } as const;
 
@@ -84,7 +101,9 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="flex min-w-0 flex-col gap-1">
+      <div
+        className={cn("flex min-w-0 flex-col gap-1", STACK[stackBelow].title)}
+      >
         {breadcrumb}
         {titleAside ? (
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">

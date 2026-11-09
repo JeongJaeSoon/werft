@@ -12,14 +12,14 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Heading,
   linkVariants,
   RelativeTime,
   RowLines,
+  SettingsSection,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
@@ -53,7 +53,6 @@ export function useWorkspaceSlackApps() {
 export function SlackApps() {
   const { t } = useI18n();
   const { client } = useWerft();
-  const titleId = useId();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
   const apps = useWorkspaceSlackApps();
@@ -77,14 +76,13 @@ export function SlackApps() {
   }, [anchored, loading]);
 
   return (
-    <section
+    <SettingsSection
       id={SLACK_APPS_ANCHOR}
-      aria-labelledby={titleId}
-      className="flex flex-col gap-2"
+      titleAs="h3"
+      title={t("workspace.slackApps")}
+      description={t("workspace.slackAppsHint")}
+      box={apps.isPending || apps.isError || apps.data.items.length === 0}
     >
-      <Heading id={titleId} level={3}>
-        {t("workspace.slackApps")}
-      </Heading>
       {apps.isPending ? (
         <Skeleton width="50%" />
       ) : apps.isError ? (
@@ -94,8 +92,7 @@ export function SlackApps() {
       ) : (
         <AppTable items={apps.data.items} />
       )}
-      <Text variant="meta">{t("workspace.slackAppsHint")}</Text>
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -107,7 +104,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
       columns={COLUMNS[0]}
       narrowAt={640}
       narrowColumns={COLUMNS[1]}
-      framed={false}
+      framed
     >
       <GridTableHeader>
         <GridTableColumnHeader>

@@ -1142,6 +1142,13 @@
       "when": 1794216044790,
       "tag": "0253_agent_auto_model_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 254,
+      "version": "7",
+      "when": 1794235950916,
+      "tag": "0254_profile_removal_read_compat",
+      "breakpoints": true
     }
   ]
 }

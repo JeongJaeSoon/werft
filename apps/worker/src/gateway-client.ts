@@ -52,7 +52,12 @@ import type { WorkerGatewaySession } from "./worker-host.ts";
 
 // The capability keys a control-host older than the key refuses as a 400.
 // `approval_remember` is not among them: no server old enough exists.
-const REFUSABLE_CAPABILITIES = ["platform_tool_trust", "user_env"] as const;
+const REFUSABLE_CAPABILITIES = [
+  "platform_tool_trust",
+  "user_env",
+  "permission_rules",
+  "engine_settings",
+] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.
 type Decoder<T> = { parse(value: unknown): T };

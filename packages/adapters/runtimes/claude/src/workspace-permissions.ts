@@ -255,86 +255,80 @@ function workspaceRoots(cwd: string): string[] {
 }
 
 /**
- * The rules for a session whose tool surface is `tools`. A rule for a tool
- * the profile does not list is never produced: the allowlist stays the only
- * thing that widens the surface.
+ * The rules for a session, whatever its tool surface. They are written for
+ * every tool and widen nothing: a tool the profile or an organization denies
+ * is out of the model's list, and a deny beats an allow in every layer.
  */
-export function workspaceRules(
-  cwd: string,
-  tools: ReadonlySet<string>,
-): WorkspaceRules {
+export function workspaceRules(cwd: string): WorkspaceRules {
   const allow: string[] = [];
   const ask: string[] = [];
   // The engine applies an Edit rule to every file-writing tool.
-  if (["Write", "Edit", "NotebookEdit"].some((tool) => tools.has(tool))) {
-    for (const root of workspaceRoots(cwd)) {
-      allow.push(`Edit(/${root}/**)`);
-      for (const path of policy.sensitiveEditPaths) {
-        ask.push(`Edit(/${root}/${path})`);
-      }
+  for (const root of workspaceRoots(cwd)) {
+    allow.push(`Edit(/${root}/**)`);
+    for (const path of policy.sensitiveEditPaths) {
+      ask.push(`Edit(/${root}/${path})`);
     }
   }
-  if (tools.has("Bash")) {
-    for (const command of [
-      ...policy.git.allow,
-      ...policy.read.allow,
-      ...policy.fs.allow,
-      ...policy.dev.commands,
-    ]) {
-      allow.push(`Bash(${command})`, `Bash(${command} *)`);
-    }
-    ask.push(
-      ...[
-        ...policy.git.ask,
-        // `git --no-pager add .env` puts a global option before the verb.
-        ...policy.git.askWhenSecretNamed.flatMap((command) =>
-          policy.secretNameParts.flatMap((part) => [
-            `${command} *${part}*`,
-            `git * ${command.slice("git ".length)} *${part}*`,
-          ]),
-        ),
-      ].map((pattern) => `Bash(${pattern})`),
-    );
-    const letters = [...policy.read.inPlaceLetters];
-    const bundles = letters.flatMap((a) => [
-      a,
-      ...letters.map((b) => `${a}${b}`),
-    ]);
-    ask.push(
-      ...[
-        ...policy.read.ask,
-        ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
-        ...[...policy.read.addressChars].flatMap((c) => [
-          `sed *${c}w*`,
-          `sed *${c}W*`,
-          // A space or a tab may follow the command letter.
-          `sed *${c}e *`,
-          `sed *${c}e\t*`,
-        ]),
-      ].map((pattern) => `Bash(${pattern})`),
-    );
-    ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
-    for (const command of policy.secretRead.readers) {
-      ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
-    }
-    for (const verb of policy.secretRead.gitReaders) {
-      ask.push(
-        ...secretReadPatterns(`git *${verb}*`, {
-          clusters: verb === "grep",
-          git: true,
-        }).map((p) => `Bash(${p})`),
-      );
-    }
-    ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
-    for (const command of policy.dev.commands) {
-      // `*` stands for the operands before the flag, which may be none.
-      for (const flag of policy.dev.ask) {
-        ask.push(
-          `Bash(${command}${flag.slice(1)})`,
-          `Bash(${command} ${flag})`,
-        );
-      }
-    }
-  }
+  addBashRules(allow, ask);
   return { allow, ask };
+}
+
+function addBashRules(allow: string[], ask: string[]): void {
+  for (const command of [
+    ...policy.git.allow,
+    ...policy.read.allow,
+    ...policy.fs.allow,
+    ...policy.dev.commands,
+  ]) {
+    allow.push(`Bash(${command})`, `Bash(${command} *)`);
+  }
+  ask.push(
+    ...[
+      ...policy.git.ask,
+      // `git --no-pager add .env` puts a global option before the verb.
+      ...policy.git.askWhenSecretNamed.flatMap((command) =>
+        policy.secretNameParts.flatMap((part) => [
+          `${command} *${part}*`,
+          `git * ${command.slice("git ".length)} *${part}*`,
+        ]),
+      ),
+    ].map((pattern) => `Bash(${pattern})`),
+  );
+  const letters = [...policy.read.inPlaceLetters];
+  const bundles = letters.flatMap((a) => [
+    a,
+    ...letters.map((b) => `${a}${b}`),
+  ]);
+  ask.push(
+    ...[
+      ...policy.read.ask,
+      ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
+      ...[...policy.read.addressChars].flatMap((c) => [
+        `sed *${c}w*`,
+        `sed *${c}W*`,
+        // A space or a tab may follow the command letter.
+        `sed *${c}e *`,
+        `sed *${c}e\t*`,
+      ]),
+    ].map((pattern) => `Bash(${pattern})`),
+  );
+  ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
+  for (const command of policy.secretRead.readers) {
+    ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
+  }
+  for (const verb of policy.secretRead.gitReaders) {
+    ask.push(
+      ...secretReadPatterns(`git *${verb}*`, {
+        clusters: verb === "grep",
+        git: true,
+      }).map((p) => `Bash(${p})`),
+    );
+  }
+  ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
+  for (const command of policy.dev.commands) {
+    // `*` stands for the operands before the flag, which may be none.
+    for (const flag of policy.dev.ask) {
+      ask.push(`Bash(${command}${flag.slice(1)})`, `Bash(${command} ${flag})`);
+    }
+  }
 }

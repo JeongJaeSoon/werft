@@ -36,6 +36,16 @@ import { workspaceKo } from "./workspace.ts";
 export const slackKo = {
   "slack.error.config":
     "워크스페이스의 Slack 앱 생성 설정이 필요합니다. 관리자에게 설정을 요청하세요.",
+  "slack.error.refused":
+    "Slack이 요청을 거절했습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
+  "slack.error.noAnswer":
+    "Slack이 응답하지 않아 설치를 끝내지 못했습니다. Slack 탭에서 설치를 처음부터 다시 시작하세요.",
+  "slack.error.unknown":
+    "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: {code}). 코드를 관리자에게 알려 주세요.",
+  "slack.error.consoleOrigin":
+    "콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 Slack 앱을 만들 수 없습니다. 관리자에게 설정을 요청하세요.",
+  "slack.error.eventsUrl":
+    "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN(이벤트를 콘솔과 따로 받으면 SLACK_EVENTS_PUBLIC_URL) 설정을 요청하세요.",
   "slack.error.creating":
     "앱 생성 결과를 확인 중입니다. Slack에 앱이 있는지 관리자에게 확인한 뒤 새로고침하세요.",
   "slack.error.notInstalled": "Slack 앱을 설치한 뒤 채널을 연결하세요.",
@@ -63,12 +73,12 @@ export const slackKo = {
   "slack.state.reinstall": "재설치 필요",
   "slack.eventsPending.title": "Slack이 Request URL을 아직 확인하지 않았습니다",
   "slack.eventsPending.body":
-    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 그래도 남으면 앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
+    "Slack이 이 앱의 Request URL을 확인하기 전에는 초대·멘션·DM 이벤트가 오지 않습니다. 'Slack 앱에 넣을 주소'의 '다시 확인'으로 URL을 다시 보내세요. 그래도 남으면 앱 설정의 Event Subscriptions에서 Request URL의 Verify(또는 Retry)를 누르세요. 확인 요청이 도착하면 이 안내는 사라집니다.",
   "slack.eventsPending.open": "Event Subscriptions 열기",
   "slack.channelsLocked.title":
     "Request URL 확인 전에는 채널을 고를 수 없습니다",
   "slack.channelsLocked.body":
-    "Slack이 이 앱의 Request URL을 확인해야 채널에서 이벤트가 옵니다. 고급의 '다시 확인'으로 URL을 다시 보내세요. 확인되면 바로 풀립니다.",
+    "Slack이 이 앱의 Request URL을 확인해야 채널에서 이벤트가 옵니다. 'Slack 앱에 넣을 주소'의 '다시 확인'으로 URL을 다시 보내세요. 확인되면 바로 풀립니다.",
   "slack.channelsLocked.action": "다시 확인으로 이동",
   "slack.eventsUrl.title": "이벤트 Request URL",
   "slack.eventsUrl.hint":
@@ -99,7 +109,7 @@ export const slackKo = {
     "워크스페이스에 App Configuration Token이 등록되지 않아 앱을 만들 수 없습니다.",
   "slack.configToken.needs_reentry":
     "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
-  "slack.configToken.settings": "연동 › Slack에서 토큰 등록",
+  "slack.configToken.settings": "연동 > Slack에서 토큰 등록",
   "slack.configToken.askAdmin": "소유자나 관리자에게 토큰 등록을 요청하세요.",
   "slack.install": "Slack 앱 설치",
   "slack.reinstall": "다시 설치",
@@ -139,6 +149,22 @@ export const slackKo = {
   "slack.noConnectedChannels": "연결된 채널이 없습니다",
   "slack.addChannelHint": "채널 추가에서 이 에이전트가 반응할 채널을 고르세요.",
   "slack.addChannel": "채널 추가",
+  "slack.cardHint":
+    "이 에이전트가 Slack에서 쓰는 앱, 주소, 채널입니다. 앱을 만드는 토큰은 워크스페이스의 연동 > Slack에 등록합니다.",
+  "slack.tokenHint":
+    "이 에이전트의 Slack 앱을 만들 때 쓰는 워크스페이스의 토큰입니다. 등록과 교체는 연동 > Slack에서 합니다.",
+  "slack.tokenManage": "연동 > Slack에서 관리",
+  "slack.addressesHint":
+    "이 에이전트의 앱이 쓰는 이벤트 요청 URL입니다. 콘솔이 앱을 만들 때 자동으로 넣고, Slack이 이 주소를 확인해야 채널 글을 받습니다.",
+  "slack.addressesNone": "앱을 만들면 이 에이전트의 주소가 정해집니다.",
+  "slack.appsHint":
+    "이 콘솔이 이 에이전트를 위해 만든 Slack 앱입니다. 설치와 다시 설치는 여기서, 연결 해제와 삭제는 위험 구역에서 합니다.",
+  "slack.appsEmpty": "이 에이전트의 Slack 앱이 아직 없습니다.",
+  "slack.appName": "{name} 앱",
+  "slack.appMenu": "Slack 앱 메뉴",
+  "slack.basicHint": "이 에이전트가 DM과 멘션에 반응하는 방식입니다.",
+  "slack.channelColumn": "채널",
+  "slack.useColumn": "사용",
   "slack.basic": "기본",
   "slack.advanced": "고급",
   "slack.connection": "연결",

@@ -57,10 +57,18 @@ export type DeleteTeamResult =
 /**
  * `not_member`: the person is not a live member of the team's workspace.
  * `unchanged`: already in (add) or already out (remove); no receipt.
+ * `member_disabled`: the person's membership or account is off, so a remove
+ * or a role change on them is refused and nothing is written.
  */
 export type TeamMembershipResult =
   | { outcome: "added" | "removed" | "changed" | "unchanged"; team: Team }
-  | { outcome: "not_found" | "not_member" | "actor_inactive" };
+  | {
+      outcome:
+        | "not_found"
+        | "not_member"
+        | "actor_inactive"
+        | "member_disabled";
+    };
 
 export interface TeamStore {
   create(

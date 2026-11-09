@@ -31,9 +31,9 @@ kubectl -n werft exec <worker-pod> -- df -h /workspace
 kubectl -n werft exec <worker-pod> -- df -i /workspace
 ```
 
-`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 Kubernetes 명령과 용량 강제·AZ 재연결은 실행 확인하지 않았다. 값은 코드(`specs.ts`, `config.ts`)와 chart를 기준으로 한다.
+`kubectl get storageclass`에서 쓸 StorageClass의 provisioner가 용량을 강제하는 볼륨(예: EBS gp3는 요청한 크기가 곧 블록 장치 크기다)을 만드는지 확인한다. PVC의 `REQUEST`는 Werft가 요청한 값이고 `CAPACITY`는 프로비저너가 만든 크기다. `df -h`의 총량은 파일시스템 오버헤드 때문에 이 값과 다를 수 있으므로 일치 여부로 판정하지 않는다. 확인할 것은 `CAPACITY`가 `REQUEST` 이상인지와, 같은 StorageClass로 만든 시험 PVC에 `REQUEST`보다 많이 썼을 때 `ENOSPC`가 나는지다. `df -i`로 inode 총량을 본다. 이 Kubernetes 명령과 용량 강제·AZ 재연결은 실행 확인하지 않았다. 값은 코드와 chart를 기준으로 한다.
 
-- **PVC는 필수다.** worker Pod가 쓰는 workspace 볼륨은 PVC뿐이고(`specs.ts`), emptyDir나 hostPath로 바꾸는 설정은 없다. 세션의 PVC는 Pod와 따로 살아서, Pod가 교체돼도 같은 이름의 PVC에 다시 붙는다. scheduler가 세션마다 Pod와 PVC를 만든다.
+- **PVC는 필수다.** worker Pod가 쓰는 workspace 볼륨은 PVC뿐이고, emptyDir나 hostPath로 바꾸는 설정은 없다. 세션의 PVC는 Pod와 따로 살아서, Pod가 교체돼도 같은 이름의 PVC에 다시 붙는다. scheduler가 세션마다 Pod와 PVC를 만든다.
 - **StorageClass가 크기를 하드로 강제하는지는 Werft가 검증하지 않는다.** 코드는 `requests.storage`를 요청하고 그 값을 `werft.workspace-size` annotation에 적어 설정과 비교한다. PVC의 `status.capacity`를 읽어 worker에 전달하고, worker는 workspace 사용량과 파일시스템 총량·inode를 관찰한다. 이 관찰은 실제 강제 검증이 아니다. 강제 여부는 CSI 드라이버와 파일시스템마다 다르므로 설치 전에 인프라 쪽에 확인한다.
 - kind의 기본 StorageClass(local-path 계열)는 PVC 크기를 강제하지 않는 것으로 알려져 있다. kind에서 `Bound`가 됐다고 상한이 선 것은 아니다.
 - **알려진 한계.** inode 상한이 없고, 용량 상한은 StorageClass에 맡겨져 있다. 상한을 강제하지 않는 StorageClass를 골라도 chart는 거부하지 않는다. 이 한계를 막을 코드 변경은 이 페이지의 범위 밖이다.
@@ -75,7 +75,7 @@ checkpoint 하나에 담기는 transcript(root와 모든 subagent의 합)가 512
 <a id="결과물out-색인-상한" />
 ## 성과물(`out/`) 색인 상한
 
-worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을 git 상태와 상관없이 색인해 manifest `outputs`에 넣고, 파일마다 객체를 하나 올린다. 상한은 `apps/worker/src/workspace-outputs.ts`의 `DEFAULT_OUTPUT_LIMITS`다.
+worker는 checkpoint마다 작업 디렉터리의 `out/` 아래 일반 파일을 git 상태와 상관없이 색인해 manifest `outputs`에 넣고, 파일마다 객체를 하나 올린다. 상한은 worker의 기본 출력 한도다.
 
 | 값 | 기본값 | 넘으면 |
 |---|---|---|
@@ -135,7 +135,7 @@ M에는 상한이 없다. M만큼 quota 여유가 있어야 reuse가 성공하�
 
 **inode 상한도 같은 project에 건다.** byte 상한만으로는 빈 파일 수백만 개로 inode를 소진하는 경로가 남는다. xfs는 inode를 project의 block 사용량에 매기지 않으므로 4GiB 안에서도 된다. 그러면 같은 daemon의 다른 세션과 Postgres가 파일을 만들지 못한다. `local` 드라이버에는 inode 옵션이 없고, `o=loop`로 세션마다 파일시스템을 만드는 길도 막혀 있다. 드라이버가 `mount(8)`이 아니라 mount syscall을 부르기 때문이다(`data: loop: invalid argument`). 그래서 Docker가 `size`로 만든 xfs project에 우리가 `ihard`·`isoft`(`EXECUTION_WORKSPACE_QUOTA_INODES`, 기본 1,000,000)를 직접 건다.
 
-- 거는 주체는 짧게 도는 helper 컨테이너(`workspace-inodes.ts`)다. 설정은 `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs이고 privileged는 아니다.
+- 거는 주체는 짧게 도는 helper 컨테이너다. 설정은 `CapDrop ALL` + `CapAdd SYS_ADMIN, MKNOD`, `NetworkMode none`, read-only rootfs이고 privileged는 아니다.
 - helper는 volume의 project id를 읽는다. project 0(= project 없음)이면 거절한다. 0에 한도를 걸면 파일시스템 전체가 묶이기 때문이다.
 - helper는 마운트 소스의 block device 노드를 자기 전용 `/dev`에 `mknod`로 만든 뒤 `xfs_quota`를 부른다.
 - `xfs_quota`는 실패해도 0으로 끝난다. 그래서 성공 여부는 quota 보고의 hard·soft limit과 statfs `f_files`를 읽어서만 판정한다.
@@ -175,7 +175,7 @@ resume은 committed checkpoint가 있어야만 받아들여지고, 워커는 cla
 * 마운트돼 있거나(409) 다른 설치 것이면 claim만 푼다.
 * 삭제 호출이 던지면(timeout 포함) claim을 그대로 둔다. volume이 지워졌는지 알 수 없기 때문이다. 다음 pass는 volume 목록과 별개로 끝나지 않은 claim부터 다시 처리한다. 지워진 volume은 목록에 다시 나오지 않기 때문이다.
 
-claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 `packages/db/src/workspace-reclaim.integration.test.ts`가 실제 PostgreSQL 위에서 고정한다.
+claim이 남아 있는 동안 resume은 **503 `BACKEND_UNAVAILABLE`(`retryable: true`)**로 거절된다. 이때 receipt도 idempotency 기록도 남기지 않으므로, 같은 요청을 다시 보내면 회수가 끝난 뒤 정상 처리된다. 반대로 resume이 먼저 commit되면 세션이 `active`가 되고 `updated_at`이 바뀌므로 claim이 거절되고, volume은 다음 launch가 그대로 쓴다. 재개에 성공하면 `workspace_reclaimed_at`은 지워진다. 순서별 동작은 통합 시험이 실제 PostgreSQL 위에서 고정한다.
 
 ## 공통 object store 보호
 

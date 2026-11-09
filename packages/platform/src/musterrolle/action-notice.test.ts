@@ -21,8 +21,15 @@ describe("action notices", () => {
       for (const result of ACTION_NOTICE_RESULTS) {
         const text = actionNoticeText(locale, { ...base, result });
         expect(text).toContain("app");
-        if (result === "opened" || result === "pr_closed") {
+        if (
+          result === "opened" ||
+          result === "pr_updated" ||
+          result === "pr_closed"
+        ) {
           expect(text).toContain("12");
+        }
+        if (result === "pushed" || result === "pr_updated") {
+          expect(text).toContain("aaaaaaa");
         }
         if (result.endsWith("failed") || result === "pr_uncertain") {
           expect(text).toContain("head_moved");

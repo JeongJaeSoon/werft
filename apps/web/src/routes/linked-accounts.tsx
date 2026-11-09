@@ -223,7 +223,12 @@ export function LinkedAccountsScreen() {
   return (
     <Page title={t("linked.title")} description={t("linked.intro")}>
       <OutcomeLine outcome={outcome} live />
-      <RowList ref={listRef} variant="joined" framed={false}>
+      <RowList
+        ref={listRef}
+        variant="joined"
+        // The settings layout zeroes the row inset; a framed list needs it.
+        className="[--werft-row-padding-x:var(--werft-space-4)]"
+      >
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
           unlinking={unlink.isPending ? unlink.variables?.id : undefined}
@@ -367,7 +372,7 @@ const noreplyOf = (account: LinkedAccount) =>
 /**
  * GitHub, linked through the workspace's author App: the commits of sessions
  * the person starts name them as co-author. Until an owner or admin finishes
- * user linking in Integrations › GitHub, the row says so and offers nothing.
+ * user linking in Integrations > GitHub, the row says so and offers nothing.
  */
 function GitHubService({
   accounts,

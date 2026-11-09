@@ -341,6 +341,76 @@ integration("teams and teams as agent admins on PostgreSQL", () => {
     expect(await isMember(mine, kept.id)).toBe(false);
   });
 
+  test("a disabled member's team row is frozen: no removal, no role change, no receipt", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const off = await person(workspaceId, "member");
+    const suspended = await person(workspaceId, "member");
+    const team = await newTeam(owner);
+    await member(owner, team.id, off);
+    await member(owner, team.id, suspended);
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, idOf(off)));
+    await db
+      .update(users)
+      .set({ disabledAt: new Date() })
+      .where(eq(users.id, idOf(suspended)));
+
+    // The detail reads either kind of off as inactive, so the page offers
+    // neither edit on the row.
+    const detail = await teams().get(workspaceId, team.id);
+    expect(
+      Object.fromEntries(
+        (detail?.members ?? []).map((m) => [m.userId, m.disabledAt !== null]),
+      ),
+    ).toEqual({ [idOf(off)]: true, [idOf(suspended)]: true });
+
+    const receiptsBefore = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.ownerId, workspaceId));
+    for (const who of [off, suspended]) {
+      expect(await member(owner, team.id, who, false)).toEqual({
+        outcome: "member_disabled",
+      });
+      expect(
+        await teams().setMemberRole({
+          actor: acting(owner),
+          receiptId: randomUUID(),
+          teamId: team.id,
+          userId: idOf(who),
+          role: "lead",
+        }),
+      ).toEqual({ outcome: "member_disabled" });
+    }
+
+    const rows = await db
+      .select()
+      .from(memberTeamMembers)
+      .where(eq(memberTeamMembers.teamId, team.id));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.removedAt).toBeNull();
+      expect(row.role).toBe("member");
+    }
+    const receiptsAfter = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.ownerId, workspaceId));
+    expect(receiptsAfter).toHaveLength(receiptsBefore.length);
+
+    // Reactivation is not blocked: the same removal then goes through.
+    await db
+      .update(memberships)
+      .set({ disabledAt: null })
+      .where(eq(memberships.userId, idOf(off)));
+    expect(await member(owner, team.id, off, false)).toMatchObject({
+      outcome: "removed",
+    });
+  });
+
   // Seeds live teams straight into the table; 200+ creates through the store
   // would spend a receipt each.
   async function seedTeams(workspaceId: string, names: string[]) {

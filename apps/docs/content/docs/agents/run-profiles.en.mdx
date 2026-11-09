@@ -110,7 +110,7 @@ When a release's model left but a candidate exists, the release still starts ses
 
 The agent's active release moves to the candidate too. The server creates and activates a new release with the reason `model_migration`, and the audit receipt records the earlier and later model with `automatic: true`. No person triggers it, so the actor is the person who last activated that release (an owner or admin is required). If that person is inactive or no longer an owner or admin, nothing moves, the agent stays blocked, and the administrators get a failure DM. After a move the agent's administrators get a DM. Setting `auto_model_migration` on the agent to `false` (`PATCH /v1/agents/{id}`, default `true`) stops the release rewrite, the session move and the use of a candidate for new sessions, and the agent stays blocked. The warning on the agent overview has the same switch.
 
-This covers a change to the model list of an operator profile. Workspace and installation profile versions keep their model list once made.
+This covers a change to the model list of an operator profile. Workspace profile versions keep their model list once made.
 
 The first block also sends one Slack DM, and the DM names the model too. It goes to the person who created the session and to the agent's administrators (the administrators set directly, members of an administrator team, and the managing team's leads), each only if they have linked a Slack account in the team where this agent's Slack app is installed. Each person gets one per session, so a later attempt of the same session being blocked sends nothing more. Sessions that ended for other reasons send none.
 
@@ -268,7 +268,7 @@ If the new profile differs in runtime kind, version, or billing mode, or does no
 
 ## Make a workspace profile
 
-Workspace owners and admins can make a profile that only this workspace uses, based on an operator profile. In the console, open **Workspace › Profiles** and press **Create profile**.
+Workspace owners and admins can make a profile that only this workspace uses, based on an operator profile. In the console, open **Workspace > Profiles** and press **Create profile**.
 
 - It can only reduce. Models and tools are picked from the base profile's, and the permission mode is the base profile's own or one that has a person check more. A new profile starts at `auto` when the base profile allows it (a base in `auto` or `bypassPermissions`), and **Create profile** picks such a base first. `auto` and `bypassPermissions` that the base does not allow show as unavailable choices. A `bypassPermissions` base exists only where the operator turned on the installation setting. Picking `bypassPermissions` shows a risk notice. The runtime, provider, credential and repository pairing stay the base profile's.
 - A saved version never changes. Each save after **Edit** makes a new version id `ws_<workspace slug>_<name>_v<n>`, which the screen shows before you save. A release on an earlier version changes only when you make a new release on the new version. The list shows one row per name with its latest version; press **Earlier versions (N)** to unfold the rest.

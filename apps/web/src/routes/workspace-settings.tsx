@@ -17,12 +17,10 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  Heading,
   Input,
   Page,
   RadioGroup,
   RadioGroupItem,
-  RowList,
   SecretField,
   SettingRow,
   SettingsSection,
@@ -124,7 +122,7 @@ function Basics() {
   const workspace = useMe()?.workspace;
   const inputId = useId();
   return (
-    <SettingsSection title={t("workspace.basics")} foot={<ReadOnlyMark />}>
+    <SettingsSection title={t("workspace.basics")} box foot={<ReadOnlyMark />}>
       <Field>
         <FieldLabel htmlFor={inputId}>{t("workspace.name")}</FieldLabel>
         <Input
@@ -167,6 +165,7 @@ function AllowedModels() {
     <SettingsSection
       title={t("workspace.models")}
       description={t("workspace.modelsHint")}
+      box
       foot={
         <>
           <Text as="div" variant="meta">
@@ -209,6 +208,7 @@ function ReadOnlySettings() {
       <SettingsSection
         title={t("workspace.retention")}
         description={t("workspace.retentionHint")}
+        box
       >
         <div>
           {settings
@@ -221,6 +221,7 @@ function ReadOnlySettings() {
       <SettingsSection
         title={t("workspace.guest")}
         description={t("workspace.guestHint")}
+        box
       >
         <div>
           {t(
@@ -299,6 +300,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   return (
     <SettingsSection
       title={t("workspace.retention")}
+      box
       onSubmit={submit}
       foot={
         <ReasonButton
@@ -509,6 +511,7 @@ function AgentAccess({ onOutcome }: { readonly onOutcome: OnOutcome }) {
     <SettingsSection
       title={t("workspace.access")}
       description={t("workspace.accessHint")}
+      box
       onSubmit={submit}
       foot={
         <ReasonButton
@@ -591,6 +594,7 @@ function AgentAccessValues() {
     <SettingsSection
       title={t("workspace.access")}
       description={t("workspace.accessHint")}
+      box
     >
       {AGENT_ACCESS_KEYS.map((key) => {
         const { legend, choices } = AGENT_ACCESS[key];
@@ -621,7 +625,6 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const role = useRole();
   const workspaceId = me?.workspace?.id ?? "";
   const enabled = me?.workspace?.settings.slack_guest_enabled ?? false;
-  const titleId = useId();
   const hintId = useId();
   const reasonId = useId();
   const reason = useHasPermission("workspace.manage")
@@ -656,16 +659,11 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   });
 
   return (
-    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <Heading id={titleId} level={2}>
-          {t("workspace.guest")}
-        </Heading>
-        <Text variant="sub" id={hintId}>
-          {t("workspace.guestHint")}
-        </Text>
-      </div>
-      <RowList variant="joined" framed={false}>
+    <SettingsSection
+      title={t("workspace.guest")}
+      description={t("workspace.guestHint")}
+      descriptionId={hintId}
+      rows={
         <SettingRow
           title={t("workspace.guestLabel")}
           meta={
@@ -698,7 +696,7 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             />
           }
         />
-      </RowList>
-    </section>
+      }
+    />
   );
 }

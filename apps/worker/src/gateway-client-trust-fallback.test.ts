@@ -102,6 +102,8 @@ describe("claim against a control-host older than platform_tool_trust", () => {
     expect(sent[0]?.body.capabilities).toEqual({
       approval_remember: true,
       platform_tool_trust: true,
+      permission_rules: true,
+      engine_settings: true,
       user_env: true,
     });
   });
@@ -115,8 +117,19 @@ describe("claim against a control-host older than platform_tool_trust", () => {
     const claim = await gateway.bootstrapClaim(claimRequest);
     expect(claim.session_credential).toBe("session-token");
     expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      { approval_remember: true, platform_tool_trust: true, user_env: true },
-      { approval_remember: true, user_env: true },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
     ]);
   });
 
@@ -140,9 +153,25 @@ describe("claim against a control-host older than platform_tool_trust", () => {
     await gateway.pendingControl(scope);
     await gateway.pendingControl(scope);
     expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      { approval_remember: true, platform_tool_trust: true, user_env: true },
-      { approval_remember: true, user_env: true },
-      { approval_remember: true, user_env: true },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
     ]);
   });
 
@@ -204,8 +233,19 @@ describe("claim against a control-host older than user_env", () => {
     );
     await gateway.bootstrapClaim(withUserEnv);
     expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      { approval_remember: true, platform_tool_trust: true, user_env: true },
-      { approval_remember: true, platform_tool_trust: true },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+      },
     ]);
   });
 
@@ -217,8 +257,18 @@ describe("claim against a control-host older than user_env", () => {
     );
     await gateway.bootstrapClaim(withUserEnv);
     expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      { approval_remember: true, platform_tool_trust: true, user_env: true },
-      { approval_remember: true },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        permission_rules: true,
+        engine_settings: true,
+      },
     ]);
   });
 
@@ -248,10 +298,54 @@ describe("claim against a control-host older than user_env", () => {
     await gateway.bootstrapClaim(withUserEnv);
     await gateway.bootstrapClaim(withUserEnv);
     expect(sent.map((entry) => entry.body.capabilities)).toEqual([
-      { approval_remember: true, platform_tool_trust: true, user_env: true },
-      { approval_remember: true, platform_tool_trust: true },
-      { approval_remember: true, platform_tool_trust: true },
-      { approval_remember: true },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+      },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+      },
+      {
+        approval_remember: true,
+        permission_rules: true,
+        engine_settings: true,
+      },
+    ]);
+  });
+
+  test("a control-host that does not know engine_settings is claimed again without it only", async () => {
+    const { gateway, sent } = gatewayAgainst((request) =>
+      lacks(request, "engine_settings")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("engine_settings")),
+    );
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent.map((entry) => entry.body.capabilities)).toEqual([
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        engine_settings: true,
+        user_env: true,
+      },
+      {
+        approval_remember: true,
+        platform_tool_trust: true,
+        permission_rules: true,
+        user_env: true,
+      },
     ]);
   });
 

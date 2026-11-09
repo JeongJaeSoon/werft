@@ -6,11 +6,19 @@ import {
   useId,
 } from "react";
 
+import { cn } from "../foundations/cn.ts";
 import { RowList } from "../primitives/row-list.tsx";
 
 export interface SettingsSectionProps {
   /** A fragment others link to. */
   readonly id?: string | undefined;
+  /**
+   * -1 for a page whose section list moves focus to the section itself, so
+   * a screen reader starts at its name.
+   */
+  readonly tabIndex?: -1 | undefined;
+  /** Added to the section, e.g. a scroll margin under a sticky header. */
+  readonly className?: string | undefined;
   readonly title: string;
   /** `h3` under a page whose own sections are `h2`. */
   readonly titleAs?: "h2" | "h3" | undefined;
@@ -19,7 +27,17 @@ export interface SettingsSectionProps {
   readonly description?: ReactNode | undefined;
   readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   readonly descriptionId?: string | undefined;
-  /** SettingRows under the body, edge to edge like the foot. */
+  /**
+   * The section's main action (an "add" button), on the right of the title
+   * row so it reads as belonging to this section's list.
+   */
+  readonly actions?: ReactNode | undefined;
+  /**
+   * Draws the body in one bordered box, for content that is not already a
+   * framed table or row list (a form, a paragraph, an empty state).
+   */
+  readonly box?: boolean | undefined;
+  /** SettingRows in their own bordered box under the body. */
   readonly rows?: ReactNode | undefined;
   readonly foot?: ReactNode | undefined;
   /** Wraps the body, rows and foot in a form. */
@@ -33,12 +51,16 @@ export interface SettingsSectionProps {
  */
 export function SettingsSection({
   id,
+  tabIndex,
+  className,
   title,
   titleAs: Heading = "h2",
   badge,
   description,
   descriptionId,
   titleRef,
+  actions,
+  box = false,
   rows,
   foot,
   onSubmit,
@@ -47,9 +69,15 @@ export function SettingsSection({
   const titleId = useId();
   const content = (
     <>
-      {children}
+      {children && box ? (
+        <div className="flex min-w-0 flex-col gap-4 rounded-card border bg-card p-4">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
       {rows ? (
-        <RowList variant="joined" framed={false}>
+        <RowList variant="joined" aria-labelledby={titleId}>
           {rows}
         </RowList>
       ) : null}
@@ -63,20 +91,36 @@ export function SettingsSection({
   return (
     <section
       id={id}
+      tabIndex={tabIndex}
       aria-labelledby={titleId}
-      className="flex min-w-0 flex-col gap-4"
+      // A page may zero the row padding so unframed rows sit on its edge;
+      // the section's rows and tables are in a box, which needs it back.
+      className={cn(
+        "flex min-w-0 flex-col gap-4 [--werft-row-padding-x:var(--werft-space-4)]",
+        tabIndex === -1 && "outline-none",
+        className,
+      )}
     >
       <div className="flex flex-col gap-1 border-b pb-2">
-        <div className="flex items-center gap-2">
-          <Heading
-            id={titleId}
-            ref={titleRef}
-            tabIndex={titleRef ? -1 : undefined}
-            className="m-0 font-semibold text-body leading-6"
-          >
-            {title}
-          </Heading>
-          {badge}
+        {/* Wraps so a wide action (a select, several buttons) drops under the
+            title at 390px instead of pushing the page sideways. */}
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Heading
+              id={titleId}
+              ref={titleRef}
+              tabIndex={titleRef ? -1 : undefined}
+              className="m-0 font-semibold text-body leading-6"
+            >
+              {title}
+            </Heading>
+            {badge}
+          </div>
+          {actions ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {actions}
+            </div>
+          ) : null}
         </div>
         {description ? (
           // The rule above runs to the page's edge; the text keeps to a

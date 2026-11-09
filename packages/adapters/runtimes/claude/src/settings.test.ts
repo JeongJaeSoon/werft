@@ -64,13 +64,5 @@ describe("settings files", () => {
       expect(settings).toHaveProperty("permissions");
       expect(settings).not.toHaveProperty("autoMode");
     }
-    // No Bash and no file-writing tool: nothing to pre-approve.
-    expect(
-      modeSettings({
-        ...base,
-        tools: new Set(["Read"]),
-        permissionMode: "default",
-      }),
-    ).toEqual({});
   });
 });

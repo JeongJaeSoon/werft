@@ -262,7 +262,7 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 | 도구 | 부류 | 멱등 | 더하는 코드 | 바뀌는 것 | 단위 |
 |---|---|---|---|---|---|
 | `update_pull_request` | `pull_request.write` | 같은 내용이면 같은 본문 | `no_pull_request`(platform, false) | 구조화 필드로 본문 다시 렌더 | PR 4 |
-| `comment_pull_request` | `pull_request.write` | 같은 marker는 같은 댓글 | `no_pull_request` | 엔진 서명 줄 제거, `replaced` | PR 4, L1 |
+| `comment_pull_request` | `pull_request.write` | 같은 marker는 같은 댓글 | `no_pull_request` | 엔진 서명 줄 제거, 같은 marker 댓글을 고쳤으면 `created: false` | PR 4, L1 |
 | T9 `close_pull_request`, `reopen_pull_request` | `pull_request.write` | 이미 그 상태면 쓰지 않고 `changed: false` | `pull_request_merged`(platform, false), `no_pull_request`, `forge_failed` | 새 도구(아래 T9) | T9 |
 | `submit_review` | `review` | 아님 | `stale_commit`(github, false) | 본문 정리, head 확인 | L6 |
 | `dispatch_workflow`, `rerun_workflow` | `workflow` | 아님 | - | 봉투만 | L1 |
@@ -318,10 +318,11 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 |---|---|---|---|
 | commit author·committer | App bot `<slug>[bot]` | 같음 | 같음 |
 | commit 트레일러 | `Co-authored-by: <login> <id+login@users.noreply.github.com>` + `Agent-Session` | `Agent-Session`만 | `Agent-Session`만 |
-| PR 본문 꼬리 | `- Requested by: @<login> (<surface>)`와 `Co-authored-by` | `- Requested by: a person without a linked GitHub account (<surface>)` | `- Requested by: none (App only)` |
+| PR 본문 꼬리 | `- Requested by: <login> (<surface>)`와 `Co-authored-by` | `- Requested by: a person without a linked GitHub account (<surface>)` | `- Requested by: none (App only)` |
 | PR 작성자 | App bot | 같음 | 같음 |
 
 - 연결하지 않은 요청자의 이름은 어디에도 넣지 않는다. 공개 저장소 PR에 사람 이름이 남고, 플랫폼 표시 이름은 GitHub에서 아무 계정도 가리키지 않기 때문이다.
+- 꼬리는 `<!-- werft:pr-tail -->` 줄부터 `<!-- /werft:pr-tail -->` 줄까지이고 줄은 영어로 쓴다(`pullRequestTail`, `packages/platform/src/sessions/git-attribution.ts`). login 앞에 `@`를 붙이지 않는다. 꼬리가 사람에게 알림을 보내지 않게 하려는 것이다. 위 표의 값이 쓰는 그대로의 문구다.
 - `<surface>`는 `Slack`·`web console`·`API key`·`platform`이다. 꼬리의 `Started by` 줄은 그대로 두고 `Requested by` 줄을 더한다. 꼬리 인식은 옛 꼬리와 새 꼬리를 둘 다 플랫폼 꼬리로 읽고, 다시 써도 두 번 붙지 않는다.
 - 예약된 PR(L5)은 예약한 턴의 호출자이고, 예약 행에 그 값을 저장한다. 여러 턴의 commit이 든 PR은 commit마다 그 턴의 호출자가 트레일러에 남는다.
 - 값이 가는 길: control-host가 턴 입력에 `co_author`와 `requester`를 싣고, worker가 그 턴을 시작할 때 `~/.werft/git-trailers`를 다시 쓴다. claim 하나에서 턴이 여럿 돌기 때문이다. PR 3의 세션별 발급값 기록에 턴마다 낸 값을 더해, 다른 사람 턴의 commit이 "발급되지 않은 공동 작성자"로 막히지 않게 한다. 트레일러는 귀속 표시이고 보안 경계가 아니다.
@@ -360,7 +361,7 @@ MCP에서 `not_pushed`는 flag on(actions 흐름)에서만 나오지 않는다(�
 2. `gitEnvironment`가 엔진이 띄운 셸에 command line 수준으로 보인다(PR 2).
 3. `platform: true` MCP 서버의 `trusted` 도구는 사람 판단·분류기 없이 실행되고, 나머지 도구는 엔진의 권한 단계를 지난다(L2). allow는 허용 목록 검사, checkpoint admission guard, 도구 시작 기록 **뒤에** 돌려준다. 건너뛰는 것은 권한 판정 하나뿐이고, 허용 목록 밖이면 deny가 이긴다.
 4. 엔진의 사람 판단(도구 허용, 질문)은 runtime-core `ApprovalRequested`·`ApprovalAnswer`로만 나온다. 질문 도구가 없는 엔진은 기능 표에 그렇게 적는다.
-5. 도구 거부를 엔진에 알릴 때 `ApprovalAnswer.message`를 그대로 쓴다(사람의 사유와 주체를 바꾸지 않는다).
+5. 도구 거부를 엔진에 알릴 때 `ApprovalAnswer.message`의 사유를 바꾸지 않는다. 앞뒤 공백만 잘라도 되고, 그 결과가 비면 사유가 없는 것으로 본다. 사람의 거부는 사람이 거부했다는 것을 밝히는 문장으로 감싸 전해도 된다(Claude 어댑터의 `personDenial`: "The user denied this request. Their reason: …", 사유가 비면 사유 없이 거부했다고 적는다). 취소는 메시지를 그대로 쓴다. 어댑터 적합성은 이 셋(사유 본문 보존, 앞뒤 공백 정리, 주체 표시)으로 판정한다.
 
 T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 없다. 엔진이 셸 명령에 거는 판정을 그대로 받는다.
 
@@ -394,6 +395,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | F2 | 이어 턴(`push_continuations`)과 Slack 승인 후속 턴 | 호환 경로. push 요청 행은 만들 때의 흐름 `flow`(`legacy` \| `actions`)를 적고, 이어 턴과 후속 턴은 `flow = 'legacy'` 요청에만 생긴다. `AGENT_ACTION_FLOWS`가 off인 동안 만든 직접 요청만 `legacy`다. 의도에서 바뀐 요청(`origin = 'intent'`)은 늘 `actions`이고, 이미 만든 요청은 설정을 바꿔도 동작이 바뀌지 않는다. 모든 배포에서 설정을 켜고 남은 `legacy` 요청이 0이 된 뒤 후속 PR이 지운다 |
 | F3 | `request_push({ pull_request })` 한 번으로 push와 PR 예약 | 선택 복합 호출(L12). L12 전 replica는 strict 입력이라 이 칸을 `validation_error`로 거절한다. 그래서 설치 설정 `AGENT_ACTION_PR_IN_PUSH`(기본 off)는 모든 replica가 L12 이상일 때만 켜고, 꺼져 있으면 이 칸은 `validation_error`다. 켜져 있어도 PR 도구가 `trusted`가 아닌 세션은 `pull_request_needs_tool_call`(platform, false, 부작용 없음)이다 |
 | F5 | 지연 완료 결과를 사람에게(`action_notice`) | 모델이 부른 push·PR 호출에 딸린 고정 알림. 바깥 효과를 새로 만들지 않는다 |
+| F6 | park 뒤 이어 턴의 재개 안내(`continuationMessage`) | 후속. 지금은 "허용된 호출을 다시 하라"는 영어 지시문이다(`packages/db/src/parked-group.ts`). [2절](#2-원칙) 5번에 맞춰 무엇이 답해졌는지의 사실(요청 id, 답, 결과)로 바꾼다. F2와 달리 `flow`와 상관없이 모든 park에 남는 경로라 F2의 후속 PR이 지우지 않으므로 따로 둔다. [14.1](#141-표) E5 행이 이것을 가리킨다 |
 
 > **갱신(2026-11-09).** 이 절과 아래 표에서 말하는 `AGENT_ACTION_FLOWS`와 `SESSION_PROMPT_REVISION`은 없어졌다. 턴 안의 `request_push`는 언제나 의도(intent) 흐름이고, 턴 밖에서 부르면 `no_running_turn`으로 거절한다. 이어 턴(`push_continuations`)은 더 만들지 않으며, 엔진에 가는 프롬프트·도구 설명·응답·후속 턴 메시지에는 사실만 적는다. 아래는 당시 결정의 기록이다.
 
@@ -458,7 +460,7 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 | G9 | PR 리뷰 | L | 현재 계약 | `submit_review`(`review` 부류). 본문은 `cleanBody`로 정리하고 `commit_id`가 PR head가 아니면 `stale_commit`이다(`packages/platform/src/sessions/github-work-service.ts:357-387`). [5.9](#59-그-밖의-기존-도구)의 L6 |
 | G10 | workflow 입력·재실행·결과 확인 | L | 현재 계약 | `dispatch_workflow`·`rerun_workflow`·`get_workflow_run`(`workflow` 부류). `wait_seconds`와 `final`은 `packages/contracts/src/api/github-mcp.ts:151`, `:457`. [5.9](#59-그-밖의-기존-도구)의 L7 |
 | G11 | GitHub 행동 허용 판단 | L(정책) | 현재 계약 | [6절](#6-행동-부류-정책). 부류 값과 도구별 부류는 `ACTION_CLASS_VALUES`·`GITHUB_MCP_TOOL_CLASSES`(`github-mcp.ts:329`, `:343`). 부류가 없는 도구는 노출되지 않는다 |
-| G12 | PR 댓글 | L | 현재 계약 + 후속 | 같은 marker의 댓글을 갱신한다(`comment_pull_request`, `pull-request-service.ts:1117-1170`). 결과의 `replaced` 칸은 main의 응답 스키마(`packages/contracts/src/api/pull-request.ts:274`)에 없다 → [5.9](#59-그-밖의-기존-도구) 표의 "PR 4, L1" 항목 |
+| G12 | PR 댓글 | L | 현재 계약 | 같은 marker의 댓글을 갱신한다(`comment_pull_request`, `pull-request-service.ts:1117-1170`). 설계의 `replaced` 칸은 응답 스키마(`pullRequestCommentSchema`, `packages/contracts/src/api/pull-request.ts:274`)의 `created`가 대신한다: 같은 marker 댓글을 고쳤으면 `false`(HTTP 200), 새로 달았으면 `true`(201)다. [5.9](#59-그-밖의-기존-도구) 표도 이 값으로 고쳤다 |
 | G13 | push 거절 뒤 재요청·거절 답 | F | 현재 계약 + 후속 | 같은 commit의 재요청은 `rejected_before`(`packages/db/src/push-intents.ts:345`, `packages/contracts/src/api/push-request.ts:100`). 거절 알림은 Slack 카드의 처리 뒤 한 줄이다([8절](#8-slack-경계와-pushapprovability)). 거절 문장을 모델 세션에 넣는 `slackPushFollowUp`(`slack-interactions.ts:71-78`, 호출 `:493`)은 `legacy` 요청에만 남는다 → F2의 후속 PR |
 | S2 | 질문과 선택지 | E(어댑터가 옮김) | 현재 계약 + 후속 | 엔진 질문은 runtime-core `ApprovalRequested{kind:"question"}`으로 나온다(`packages/runtime-core/src/approval.ts:39`). [5.3](#53-t3-의사결정-폼), [9절](#9-어댑터-적합성-항목) 4번. 질문 도구가 없는 엔진의 `ask_person`은 후속 L9(2단계) |
 | S3 | 도구 허용 요청이 오는지·카드 | E(push·PR 도구는 뺌) | 현재 계약 | [6절](#6-행동-부류-정책)의 "엔진 권한 단계" 열과 [9절](#9-어댑터-적합성-항목) 3번. push·PR·저장소 읽기 도구는 `trusted`로 엔진이 묻지 않는다(L2, `apps/worker/src/gateway-client.ts`, `packages/runtime-core/src/agent-runtime.ts:111`). 리뷰·workflow 도구는 엔진이 묻는다 |
@@ -471,16 +473,16 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 | E2 | 관리자 지시·저장소 `CLAUDE.md` | E | 현재 계약 | 형식·정책을 이 경로에 두지 않는다. worker가 저장소 루트의 `AGENTS.md`(없으면 `CLAUDE.md`)를 git 객체에서 읽어 세션 지시의 정본으로 쓴다(`apps/worker/src/workspace.ts:851`, `apps/worker/src/instruction-files.ts`) |
 | E3 | 메모리 읽기 안내 | E | 현재 계약 | Claude 어댑터 안의 안내다: `MEMORY_READ_GUIDANCE`(`packages/adapters/runtimes/claude/src/memory-read.ts:11`), 적용 `runtime.ts:128`. 플랫폼 계약이 아니다 |
 | E4 | 첨부 저장소 지시 파일 무시 | E | 현재 계약(문서 근거) | 사용자 문서가 "붙인 저장소의 CLAUDE.md는 지시문으로 읽지 않는다"고 적는다(`apps/docs/content/docs/integrations/github.mdx:124`, 영어·일본어판 같음). 설계가 근거로 든 문장(`github-mcp-server.ts:120`)은 main의 서버·계약 설명에 없고, worker는 주 저장소 루트의 지시 파일만 읽는다(E2). 첨부 저장소는 remote ref로만 fetch한다(`github-mcp.ts:463`) |
-| E5 | 멈춘 턴 뒤 허용된 호출 다시 하기 | E | 현재 계약 + 후속 | [6절](#6-행동-부류-정책) 끝줄과 [9절](#9-어댑터-적합성-항목) 3번: L2가 뺀 세 부류는 park되지 않고, 리뷰·workflow는 park될 수 있다. park된 push 의도는 `carryPushIntents`(`packages/db/src/parked-group.ts:354`)가 잇고, 허용된 엔진 호출을 다시 하라는 재개 안내는 `continuationMessage`(같은 파일 `:396`, 허용된 호출을 다시 하라는 문장 `:408`)가 만든다. 이 재개 문구를 구조화하는 일은 main에 없고 카탈로그 단위도 정해지지 않았다. F2의 후속 PR은 push 이어 턴 제거라 이 문구를 다루지 않는다 |
+| E5 | 멈춘 턴 뒤 허용된 호출 다시 하기 | E | 현재 계약 + 후속 | [6절](#6-행동-부류-정책) 끝줄과 [9절](#9-어댑터-적합성-항목) 3번: L2가 뺀 세 부류는 park되지 않고, 리뷰·workflow는 park될 수 있다. park된 push 의도는 `carryPushIntents`(`packages/db/src/parked-group.ts:354`)가 잇고, 허용된 엔진 호출을 다시 하라는 재개 안내는 `continuationMessage`(같은 파일 `:396`, 허용된 호출을 다시 하라는 문장 `:408`)가 만든다. 이 재개 문구를 구조화하는 일은 main에 없다. 문구를 쓰는 것은 엔진이 아니라 플랫폼의 park 흐름(`continuationMessage`)이므로 담당은 흐름 쪽이다. 이 일은 [11절](#11-도구-위에-얹는-것) F6이 맡는다. F2의 후속 PR은 push 이어 턴 제거라 이 문구를 다루지 않는다 |
 | E6 | 도구 시작 기록 실패 뒤 재시도 | E | 현재 계약 | 어댑터 내부 문구다: `ADMISSION_GUARD_REFUSED`(`runtime.ts:42`, 사용 `:219`). 플랫폼 도구 봉투의 `retryable`과는 별개다 |
 | E7 | 세션 제목 | F(이미 엔진 밖) | 현재 계약 | `createSessionTitler`(`packages/platform/src/sessions/session-titler.ts:32`)와 `deriveSessionTitle`(`session-title.ts:13`). 이 레이어의 도구가 아니다 |
 | E8 | 첨부 fetch 완료 재조회 | L | 현재 계약 | `attach_repository`의 `wait_seconds`·`final`(`github-mcp.ts:172`, 설명 `:463`). [5.9](#59-그-밖의-기존-도구)의 L7 |
-| E9 | 거부·만료·취소 뒤 대응 | E | 현재 계약 + 후속 | 엔진 도구의 거부 사유는 `ApprovalAnswer.message`에서 오지만 그대로 전하지는 않는다. 사람의 거부는 `personDenial`이 사유를 trim하고 `The user denied this request. Their reason: …`으로 감싼다(`packages/adapters/runtimes/claude/src/contract.ts:607`, `:639-643`). 취소는 명시 메시지를 그대로 쓴다(`:616`). [9절](#9-어댑터-적합성-항목) 5번의 "그대로 쓴다"와 구현이 다르므로 그 항목이나 코드 중 하나를 고치는 일이 후속이다. 플랫폼 도구의 거절은 봉투의 `by`([4절](#4-결과-봉투와-공통-규칙)) |
+| E9 | 거부·만료·취소 뒤 대응 | E | 현재 계약 | 엔진 도구의 거부 사유는 `ApprovalAnswer.message`에서 오지만 그대로 전하지는 않는다. 사람의 거부는 `personDenial`이 사유를 trim하고 `The user denied this request. Their reason: …`으로 감싼다(`packages/adapters/runtimes/claude/src/contract.ts:607`, `:639-643`). 취소는 명시 메시지를 그대로 쓴다(`:616`). [9절](#9-어댑터-적합성-항목) 5번은 이 구현에 맞췄다: 사유 본문은 바꾸지 않고, 앞뒤 공백을 자르는 것과 사람의 거부임을 밝혀 감싸는 것은 허용한다. 플랫폼 도구의 거절은 봉투의 `by`([4절](#4-결과-봉투와-공통-규칙)) |
 
 ### 14.2 합계
 
 - 설계 분류의 합계는 레이어 10(G1, G2, G8, G9, G10, G11, G12, A2, A3, E8), 흐름 7(G5, G6, G7, G13, S4, A1, E7), 엔진 12(G3, G4, S2, S3, S5, E1~E6, E9)다.
-- 상태: 현재 계약만 있는 행 17, 현재 계약에 후속이 딸린 행 9(G4, G6, G8, G12, G13, S2, A3, E5, E9), 후속만 있는 행 1(A2), 현재 계약(부분)·설계와 다르게 대체된 행 2(S5, G7), 근거 없음 0이다. 설계가 E4의 근거로 든 코드 문장은 main에 없고 사용자 문서(`github.mdx:124`)가 같은 규칙을 적는다.
+- 상태: 현재 계약만 있는 행 19, 현재 계약에 후속이 딸린 행 7(G4, G6, G8, G13, S2, A3, E5), 후속만 있는 행 1(A2), 현재 계약(부분)·설계와 다르게 대체된 행 2(S5, G7), 근거 없음 0이다. 설계가 E4의 근거로 든 코드 문장은 main에 없고 사용자 문서(`github.mdx:124`)가 같은 규칙을 적는다.
 - 이 문서가 추적하던 도구 가운데 표에서 빠져 있던 것은 `declare_deliverable`(A2·A3, L8)뿐이다. `ask_person`(L9)과 `send_message`(L11)는 2단계로 이미 적혀 있다([5절](#5-도구), [LATER](#later)).
 
 ### 14.3 도구 밖 행동의 경계

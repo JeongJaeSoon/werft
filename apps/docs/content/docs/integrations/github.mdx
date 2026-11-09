@@ -7,7 +7,7 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 ## 운영자가 할 일
 
-자격 증명은 GitHub App이다. owner나 admin이 콘솔의 **설정 → 연동 → GitHub**에서 다룬다.
+자격 증명은 GitHub App이다. owner나 admin이 콘솔의 **설정 > 워크스페이스 > 연동 > GitHub**에서 다룬다.
 
 - **App 추가**: GitHub에서 새 App을 만들거나(콘솔이 App ID와 키를 받아 저장한다), 이미 있는 App을 App ID와 private key(PEM 파일)로 연결한다. 작성용 App과 리뷰 승인용 App을 여럿 둘 수 있고, 목록에서 역할 배지로 구분한다. 키는 암호화해 저장하고 화면과 API 응답에 다시 나오지 않는다. 키를 바꿀 때는 App 행의 ⋯ 메뉴에서 **새 키 등록**을 쓴다.
 - **조직 추가**: App을 조직이나 개인 계정에 설치한다. 설치 표에 계정마다 유형·저장소 범위·App·연결한 사람·상태가 나오고, 행의 ⋯ 메뉴 **GitHub에서 관리**가 그 설치의 설정 화면으로 간다.
@@ -22,6 +22,10 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
 `Workflows` 권한은 "워크플로 파일 수정" 기능을 켤 때만 App에 더한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다. 설정 방법은 운영 문서에 있다.
+
+### App의 Setup URL
+
+콘솔에서 만든 App은 Setup URL이 `<CONSOLE_ORIGIN>/settings/workspace/integrations/github`로 채워진다. 이미 있던 App을 연결했다면 GitHub의 App 설정(Developer settings > GitHub Apps > 그 App > General)에서 **Setup URL**을 이 주소에 맞춘다. 조직을 추가하고 나면 GitHub가 브라우저를 이 주소로 돌려보내고, 콘솔은 돌아온 값으로 설치를 기록한다. Setup URL이 옛 `/settings/workspace/github`를 가리키는 App은 새 주소로 바꾼다. 그 경로는 없어졌다. 이미 설치한 계정에서 설치 설정을 저장한 뒤 콘솔로 돌아오는 것은 App의 **Redirect on update**가 켜져 있을 때만이다.
 
 ## 사용자가 할 일
 
@@ -130,8 +134,8 @@ PR 단계는 push 요청마다 하나이고, 상태가 아래처럼 바뀐다.
 
 commit 작성자는 늘 GitHub App의 bot 계정(`<App slug>[bot]`)이다. 내 GitHub 계정을 연결해 두면 내가 요청한 턴의 commit에 `Co-authored-by:` 트레일러로 내 이름이 함께 들어가, GitHub에서 그 commit이 내 기여로도 보인다.
 
-1. owner나 admin이 **설정 → 연동 → GitHub**의 "구성원 GitHub 계정 연결" 줄에서 연결에 쓸 작성용 App을 고르고(App이 여럿일 때), ⋯ 메뉴로 callback URL을 App의 Callback URL에 넣고 그 App에서 만든 client secret을 입력한다. 이 준비가 없으면 연결 버튼이 꺼져 있다.
-2. **설정 → 연동 계정**의 GitHub 줄에서 "연결"을 누르고 GitHub의 동의 화면에서 승인한다. 플랫폼은 GitHub 계정의 id와 login만 읽고 GitHub token은 보관하지 않는다.
+1. owner나 admin이 **설정 > 워크스페이스 > 연동 > GitHub**의 "구성원 GitHub 계정 연결" 줄에서 연결에 쓸 작성용 App을 고르고(App이 여럿일 때), ⋯ 메뉴로 callback URL을 App의 Callback URL에 넣고 그 App에서 만든 client secret을 입력한다. 이 준비가 없으면 연결 버튼이 꺼져 있다.
+2. **설정 > 연동 계정**의 GitHub 줄에서 "연결"을 누르고 GitHub의 동의 화면에서 승인한다. 플랫폼은 GitHub 계정의 id와 login만 읽고 GitHub token은 보관하지 않는다.
 3. 연결된 줄에 commit에 들어갈 줄(`Co-authored-by: <login> <<id>+<login>@users.noreply.github.com>`)이 보인다. 해제하면 그 뒤에 요청하는 턴부터 들어가지 않는다.
 
 웹 콘솔, 개인 API key, Slack으로 요청한 턴은 그 턴을 요청한 사람의 연결을 따른다. 한 세션에서 여러 사람이 이어 요청하면 commit마다 그 턴의 요청자가 들어간다. 에이전트 key나 운영자 key로 요청한 턴은 요청한 사람이 없어 공동 작성자를 넣지 않는다. 어느 경우든 commit에는 `Agent-Session:` 트레일러가 붙는다. 운영자가 콘솔 주소를 설정한 설치라면 세션 주소이고, 아니면 세션 id다. 세션 상세의 성과물 탭 맨 아래 줄에서 그 세션이 어느 쪽인지 볼 수 있다.

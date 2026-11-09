@@ -31056,6 +31056,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -31066,6 +31067,7 @@
             "name": "userId",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -31421,6 +31423,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -31738,6 +31741,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -32055,6 +32059,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -32380,6 +32385,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -32587,6 +32593,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -32961,6 +32968,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -33201,6 +33209,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -33424,6 +33433,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -33796,6 +33806,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -34036,6 +34047,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -34046,6 +34058,7 @@
             "name": "role",
             "in": "path",
             "required": true,
+            "description": "A GitHub App role, or the id of one connection of a role.",
             "schema": {
               "anyOf": [
                 {
@@ -34328,6 +34341,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -34338,6 +34352,7 @@
             "name": "role",
             "in": "path",
             "required": true,
+            "description": "A GitHub App role, or the id of one connection of a role.",
             "schema": {
               "anyOf": [
                 {
@@ -34729,6 +34744,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -34739,6 +34755,7 @@
             "name": "role",
             "in": "path",
             "required": true,
+            "description": "A GitHub App role, or the id of one connection of a role.",
             "schema": {
               "anyOf": [
                 {
@@ -35025,6 +35042,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -35320,6 +35338,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -35633,6 +35652,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -35643,6 +35663,7 @@
             "name": "connectionId",
             "in": "path",
             "required": true,
+            "description": "The GitHub App connection's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -35884,6 +35905,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -36210,6 +36232,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -36401,6 +36424,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -36787,6 +36811,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -36797,6 +36822,7 @@
             "name": "installation_id",
             "in": "query",
             "required": false,
+            "description": "The GitHub App installation to list. Required while the role has several connections.",
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -36807,6 +36833,7 @@
             "name": "page",
             "in": "query",
             "required": false,
+            "description": "The page of GitHub's listing, from 1.",
             "schema": {
               "default": 1,
               "type": "integer",
@@ -36818,6 +36845,7 @@
             "name": "per_page",
             "in": "query",
             "required": false,
+            "description": "How many repositories GitHub puts on a page.",
             "schema": {
               "default": 30,
               "type": "integer",
@@ -37121,6 +37149,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -37131,6 +37160,7 @@
             "name": "repositoryId",
             "in": "path",
             "required": true,
+            "description": "The repository's id in the workspace's repository catalog.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -37463,6 +37493,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -37473,6 +37504,7 @@
             "name": "repositoryId",
             "in": "path",
             "required": true,
+            "description": "The repository's id in the workspace's repository catalog.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -37641,6 +37673,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -37651,6 +37684,7 @@
             "name": "repositoryId",
             "in": "path",
             "required": true,
+            "description": "The repository's id in the workspace's repository catalog.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -37661,6 +37695,7 @@
             "name": "role",
             "in": "path",
             "required": true,
+            "description": "The GitHub App role the pin is for.",
             "schema": {
               "type": "string",
               "enum": [
@@ -38024,6 +38059,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -38302,6 +38338,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -38750,6 +38787,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -39121,6 +39159,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -39355,6 +39394,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -39588,7 +39628,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.\n- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -39720,6 +39760,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -40049,6 +40090,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -40262,6 +40304,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -40596,6 +40639,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -40846,6 +40890,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -41193,6 +41238,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -41203,6 +41249,7 @@
             "name": "app_id",
             "in": "path",
             "required": true,
+            "description": "The Slack app's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -41510,6 +41557,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -41520,6 +41568,7 @@
             "name": "app_id",
             "in": "path",
             "required": true,
+            "description": "The Slack app's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -41530,6 +41579,7 @@
             "name": "purpose",
             "in": "path",
             "required": true,
+            "description": "Which of the Slack app's secrets.",
             "schema": {
               "type": "string",
               "enum": [
@@ -42999,6 +43049,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -43008,6 +43059,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -43530,6 +43582,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -43783,6 +43836,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -44168,6 +44222,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -44356,6 +44411,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -44708,6 +44764,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -45169,6 +45226,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -45573,6 +45631,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -45987,6 +46046,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -46206,6 +46266,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -46457,6 +46518,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -46467,6 +46529,7 @@
             "name": "path",
             "in": "path",
             "required": true,
+            "description": "The `path` the outputs list gives, percent-encoded as one segment (`out/report.md` is `out%2Freport.md`).",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -46713,6 +46776,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -47140,6 +47204,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -47150,6 +47215,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -47159,6 +47225,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -47432,6 +47499,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -47442,6 +47510,7 @@
             "name": "turn_id",
             "in": "path",
             "required": true,
+            "description": "The turn's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -47676,6 +47745,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -48006,6 +48076,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -48225,6 +48296,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -48621,6 +48693,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49023,6 +49096,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49250,6 +49324,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49260,6 +49335,7 @@
             "name": "push_request_id",
             "in": "path",
             "required": true,
+            "description": "The push request's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49483,6 +49559,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49493,6 +49570,7 @@
             "name": "push_request_id",
             "in": "path",
             "required": true,
+            "description": "The push request's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49901,6 +49979,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -49911,6 +49990,7 @@
             "name": "push_request_id",
             "in": "path",
             "required": true,
+            "description": "The push request's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -50319,6 +50399,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -50329,6 +50410,7 @@
             "name": "push_request_id",
             "in": "path",
             "required": true,
+            "description": "The push request's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -50339,6 +50421,7 @@
             "name": "schedule",
             "in": "query",
             "required": false,
+            "description": "`true` holds the call until a push that is not finished yet is pushed, instead of refusing it.",
             "schema": {
               "type": "string",
               "const": "true"
@@ -50738,6 +50821,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -50748,6 +50832,7 @@
             "name": "push_request_id",
             "in": "path",
             "required": true,
+            "description": "The push request's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -51135,6 +51220,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -51510,6 +51596,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -51520,6 +51607,7 @@
             "name": "run_id",
             "in": "path",
             "required": true,
+            "description": "The GitHub Actions workflow run's id.",
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -51762,6 +51850,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -51772,6 +51861,7 @@
             "name": "run_id",
             "in": "path",
             "required": true,
+            "description": "The GitHub Actions workflow run's id.",
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -52139,6 +52229,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -52342,6 +52433,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -52551,6 +52643,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -52798,6 +52891,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -53038,6 +53132,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -53279,6 +53374,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The achievement's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -53675,6 +53771,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -53685,6 +53782,7 @@
             "name": "number",
             "in": "path",
             "required": true,
+            "description": "The pull request's number on its repository.",
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -54057,6 +54155,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -54471,6 +54570,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -54874,7 +54974,7 @@
           "Session control"
         ],
         "summary": "Finish the session: drain, checkpoint, close for good",
-        "description": "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. `docs/api-guide.md` compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.\n\n**Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Ends a session whose work is done. Unlike terminate, nothing is killed: the running turn finishes, its checkpoint commits, and the session ends `closed`, which nothing reopens. Unlike a recovery close (`POST /v1/sessions/{id}/recovery-decisions`, `decision: close`), it is the owner's call on a healthy session, needs `sessions:control` rather than `sessions:recover`, and its receipt operation is `close` rather than `recovery_decision`. [The API guide](https://jeongjaesoon.github.io/werft/en/reference/api-guide/#ending-a-session-close-terminate-and-recovery-close) compares the three.\n\n- **`active` with a live worker:** the worker drains as for a pause and the session goes `closing`. The receipt stays `accepted` until the execution is observed gone with a checkpoint covering every turn that ran; then the session is `closed` and the receipt `succeeded`. A drain over 60 seconds shows `attention.code: CLOSE_BLOCKED` with the reason; nothing is killed for it. An open question or approval holds the close until it is answered or the turn interrupted. If the drain cannot commit, the receipt fails and the session goes back to `active` (or `recovery_required` for a turn whose outcome is unknown), with its queued input intact; a terminate overtakes it (`CONTROL_SUPERSEDED`).\n- **`active` with no live worker, `paused`, or a `stopped` session that can be resumed:** closed in this request. With an execution still bound the receipt is `accepted` until it is observed gone; otherwise `succeeded` in the response.\n\nQueued input is cancelled in the transaction that closes the session (each input's receipt fails with `SESSION_CLOSED`). Push requests are left alone; request a push of the result after the close has succeeded, since a push requested inside the last turn is refused `CHECKPOINT_MOVED` once the close commits that turn's checkpoint. The receipt result is `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`. The stream carries a `status` event for `closing` and for `closed`, and a `system` event `{subtype: session_closed, closed_by: close, close_receipt_id, checkpoint_revision, cancelled_turn_count}`. A caller closing its own session from inside a turn must not wait on the receipt: the drain waits for that turn to end. After the close, messages and controls answer `409 SESSION_CLOSED`.\n\n**Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:control",
         "security": [
           {
@@ -54893,6 +54993,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -55315,6 +55416,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -55736,6 +55838,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -56158,6 +56261,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -56580,6 +56684,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -57411,6 +57516,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The invite's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -58052,6 +58158,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -58061,6 +58168,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -58274,6 +58382,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -58630,6 +58739,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -58984,6 +59094,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -59338,6 +59449,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The user's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -59657,6 +59769,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The user's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -60119,6 +60232,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The session's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -61146,7 +61260,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61438,7 +61552,7 @@
             }
           },
           "409": {
-            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations › GitHub.\n- `LINK_TAKEN`: The Slack account is already linked to another person.\n- `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.",
+            "description": "- `GITHUB_LINK_NOT_CONFIGURED`: GitHub account linking is not set up: `error.details.reason_code` is `no_author_app` (the workspace has no author GitHub App) or `github_oauth_unset` (the App's client id or client secret, or the console's origin, is missing). Ask an owner or admin to finish user linking in Integrations > GitHub.\n- `LINK_TAKEN`: The Slack account is already linked to another person.\n- `LINK_EXISTS`: The caller already linked a different Slack account in this team; unlink it first.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -61715,6 +61829,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The linked account's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -61960,6 +62075,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -61969,6 +62085,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -61980,6 +62097,7 @@
             "name": "include",
             "in": "query",
             "required": false,
+            "description": "`summary` adds to each agent what its card shows.",
             "schema": {
               "type": "string",
               "const": "summary"
@@ -62715,6 +62833,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -62903,6 +63022,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -63255,6 +63375,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -63643,6 +63764,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -63998,6 +64120,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -64186,6 +64309,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -64538,6 +64662,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -64548,6 +64673,7 @@
             "name": "binding_id",
             "in": "path",
             "required": true,
+            "description": "The credential binding's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -64947,6 +65073,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The variable's name.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -65367,6 +65494,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The variable's name.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -65722,6 +65850,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The variable's name.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -66131,6 +66260,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -66340,6 +66470,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -66350,6 +66481,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The variable's name.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -66805,6 +66937,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -66815,6 +66948,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The variable's name.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -67170,6 +67304,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -67523,6 +67658,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -67713,6 +67849,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -67723,6 +67860,7 @@
             "name": "identity_id",
             "in": "path",
             "required": true,
+            "description": "The agent identity's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -67960,6 +68098,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -68148,6 +68287,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -68501,6 +68641,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -68511,6 +68652,7 @@
             "name": "binding_id",
             "in": "path",
             "required": true,
+            "description": "The Slack binding's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -68863,6 +69005,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -68873,6 +69016,7 @@
             "name": "binding_id",
             "in": "path",
             "required": true,
+            "description": "The Slack binding's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -69225,6 +69369,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -69235,6 +69380,7 @@
             "name": "ids",
             "in": "query",
             "required": true,
+            "description": "The Slack channel ids to look up, comma-separated, at most 50.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -69504,6 +69650,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -69525,6 +69672,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -69535,6 +69683,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 20,
               "type": "integer",
@@ -69816,6 +69965,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -70009,6 +70159,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -70200,6 +70351,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -70534,6 +70686,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -70788,6 +70941,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -70798,6 +70952,7 @@
             "name": "installation_id",
             "in": "query",
             "required": false,
+            "description": "The GitHub App installation to list. Required while the role has several connections.",
             "schema": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -70808,6 +70963,7 @@
             "name": "page",
             "in": "query",
             "required": false,
+            "description": "The page of GitHub's listing, from 1.",
             "schema": {
               "default": 1,
               "type": "integer",
@@ -70819,6 +70975,7 @@
             "name": "per_page",
             "in": "query",
             "required": false,
+            "description": "How many repositories GitHub puts on a page.",
             "schema": {
               "default": 30,
               "type": "integer",
@@ -71105,6 +71262,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -71465,6 +71623,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -71844,6 +72003,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -72247,6 +72407,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -72456,6 +72617,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -72824,6 +72986,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -73020,6 +73183,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -73389,6 +73553,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -73713,6 +73878,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -73906,6 +74072,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -74136,6 +74303,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -74530,6 +74698,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -74844,6 +75013,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -75530,6 +75700,7 @@
             "name": "agent_id",
             "in": "path",
             "required": true,
+            "description": "The agent whose Slack app sends the events.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -75817,6 +75988,7 @@
             "name": "agent_id",
             "in": "path",
             "required": true,
+            "description": "The agent whose Slack app sends the interactions.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -76402,6 +76574,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -76411,6 +76584,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -76602,6 +76776,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The API key's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -77159,6 +77334,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -77168,6 +77344,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -77384,6 +77561,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -77393,6 +77571,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 50,
               "type": "integer",
@@ -77594,6 +77773,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -77811,6 +77991,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -78176,6 +78357,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -78451,6 +78633,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -78772,7 +78955,7 @@
           "Teams"
         ],
         "summary": "Take a member out of a team",
-        "description": "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "What the person held through the team ends from their next request. A disabled member is not changed: 409 MEMBER_DISABLED, nothing written; reactivate them first. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -78783,6 +78966,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -78793,6 +78977,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -78980,6 +79165,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "MEMBER_DISABLED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           },
@@ -79029,7 +79249,7 @@
           "Teams"
         ],
         "summary": "Make a team member a lead or a member",
-        "description": "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404; a disabled member is 409 MEMBER_DISABLED with nothing written. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -79040,6 +79260,7 @@
             "name": "team_id",
             "in": "path",
             "required": true,
+            "description": "The team's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -79050,6 +79271,7 @@
             "name": "user_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -79285,6 +79507,41 @@
               }
             }
           },
+          "409": {
+            "description": "- `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "MEMBER_DISABLED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "413": {
             "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
             "headers": {
@@ -79382,6 +79639,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -79589,6 +79847,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -79931,6 +80190,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -79941,6 +80201,7 @@
             "name": "kind",
             "in": "path",
             "required": true,
+            "description": "`users` for an admin who is a member, `teams` for one that is a team.",
             "schema": {
               "type": "string",
               "enum": [
@@ -79953,6 +80214,7 @@
             "name": "subject_id",
             "in": "path",
             "required": true,
+            "description": "The member's user id or the team's id, by `kind`.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -80205,6 +80467,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The agent's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -81289,6 +81552,7 @@
             "name": "profile_id",
             "in": "path",
             "required": true,
+            "description": "The workspace profile's id.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -82042,6 +82306,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The achievement category's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -82410,6 +82675,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The achievement category's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -83186,6 +83452,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The achievement type's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -83520,6 +83787,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The achievement type's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -84309,6 +84577,7 @@
             "name": "family_id",
             "in": "path",
             "required": true,
+            "description": "The rule family's id: every version of one rule shares it.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -84687,6 +84956,7 @@
             "name": "family_id",
             "in": "path",
             "required": true,
+            "description": "The rule family's id: every version of one rule shares it.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -84943,6 +85213,7 @@
             "name": "family_id",
             "in": "path",
             "required": true,
+            "description": "The rule family's id: every version of one rule shares it.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -85277,6 +85548,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -85477,6 +85749,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The workspace's id.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -86392,6 +86665,7 @@
             "name": "profile_id",
             "in": "path",
             "required": true,
+            "description": "The installation profile's id.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -86675,6 +86949,7 @@
             "name": "profile_id",
             "in": "path",
             "required": true,
+            "description": "The installation profile's id.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -86958,6 +87233,7 @@
             "name": "profile_id",
             "in": "path",
             "required": true,
+            "description": "The installation profile's id.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -87241,6 +87517,7 @@
             "name": "profile_id",
             "in": "path",
             "required": true,
+            "description": "The installation profile's id.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -87673,6 +87950,7 @@
             "name": "dry_run",
             "in": "query",
             "required": false,
+            "description": "`true` checks the document and answers as an import would, writing nothing.",
             "schema": {
               "type": "string",
               "enum": [
@@ -88492,6 +88770,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The model connection's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -88688,6 +88967,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The model connection's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -89011,6 +89291,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The model connection's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -89334,6 +89615,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The model connection's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -89609,6 +89891,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The model connection's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -90331,6 +90614,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The MCP server's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -90657,6 +90941,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The MCP server's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -90980,6 +91265,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The MCP server's id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -91263,6 +91549,7 @@
             "name": "scope",
             "in": "query",
             "required": false,
+            "description": "`installation` (the default) for the limits and the installation-wide usage, `me` for the per-session limits alone.",
             "schema": {
               "default": "installation",
               "type": "string",
@@ -91497,6 +91784,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -91510,6 +91798,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -91529,6 +91818,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -91548,6 +91838,7 @@
             "name": "agent_id",
             "in": "query",
             "required": false,
+            "description": "With `scope=agent`, the agent whose sessions to count; refused with any other scope.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -91558,6 +91849,7 @@
             "name": "group_by",
             "in": "query",
             "required": false,
+            "description": "Adds `groups`: the same sessions under their agent, the user holding them or their current profile.",
             "schema": {
               "type": "string",
               "enum": [
@@ -91812,6 +92104,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -91825,6 +92118,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -91844,6 +92138,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -91863,6 +92158,7 @@
             "name": "agent_id",
             "in": "query",
             "required": false,
+            "description": "With `scope=agent`, the agent whose sessions to count; refused with any other scope.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -91873,6 +92169,7 @@
             "name": "group_by",
             "in": "query",
             "required": false,
+            "description": "`agent` adds `groups`, the same figures per agent.",
             "schema": {
               "type": "string",
               "enum": [
@@ -92126,6 +92423,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -92139,6 +92437,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -92158,6 +92457,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -92177,6 +92477,7 @@
             "name": "agent_id",
             "in": "query",
             "required": false,
+            "description": "Counts only the sessions of this agent, any of its releases.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -92187,6 +92488,7 @@
             "name": "type_id",
             "in": "query",
             "required": false,
+            "description": "Counts only the achievements of this achievement type.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -92197,6 +92499,7 @@
             "name": "category_id",
             "in": "query",
             "required": false,
+            "description": "Counts only the achievements of this category.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -92505,6 +92808,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -92517,6 +92821,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -92536,6 +92841,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -92555,6 +92861,7 @@
             "name": "bucket",
             "in": "query",
             "required": false,
+            "description": "The size of one bucket; `day` is the only one.",
             "schema": {
               "default": "day",
               "type": "string",
@@ -92788,6 +93095,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -92800,6 +93108,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -92819,6 +93128,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -92838,6 +93148,7 @@
             "name": "by",
             "in": "query",
             "required": true,
+            "description": "Groups by the model the metered calls named, or by agent.",
             "schema": {
               "type": "string",
               "enum": [
@@ -93073,6 +93384,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -93085,6 +93397,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -93104,6 +93417,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -93123,6 +93437,7 @@
             "name": "agent_id",
             "in": "query",
             "required": false,
+            "description": "Counts only the sessions of this agent, any of its releases.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -93357,6 +93672,7 @@
             "name": "name",
             "in": "path",
             "required": true,
+            "description": "The tool's name as its `tool_use` event recorded it.",
             "schema": {
               "type": "string",
               "minLength": 1,
@@ -93367,6 +93683,7 @@
             "name": "scope",
             "in": "query",
             "required": true,
+            "description": "Whose sessions to count. The description says who may read each scope.",
             "schema": {
               "type": "string",
               "enum": [
@@ -93379,6 +93696,7 @@
             "name": "since",
             "in": "query",
             "required": true,
+            "description": "Start of the period, inclusive: a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, moved to UTC.",
             "schema": {
               "anyOf": [
                 {
@@ -93398,6 +93716,7 @@
             "name": "until",
             "in": "query",
             "required": false,
+            "description": "End of the period, exclusive, in the same forms as `since`. Without it the period ends when the figures are read.",
             "schema": {
               "anyOf": [
                 {
@@ -93417,6 +93736,7 @@
             "name": "agent_id",
             "in": "query",
             "required": false,
+            "description": "Counts only the sessions of this agent, any of its releases.",
             "schema": {
               "type": "string",
               "format": "uuid",
@@ -93427,6 +93747,7 @@
             "name": "sort",
             "in": "query",
             "required": false,
+            "description": "`recent` lists the latest call first, `slowest` the longest first.",
             "schema": {
               "default": "recent",
               "type": "string",
@@ -93440,6 +93761,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
+            "description": "How many items a page holds at most.",
             "schema": {
               "default": 20,
               "type": "integer",
@@ -93451,6 +93773,7 @@
             "name": "cursor",
             "in": "query",
             "required": false,
+            "description": "The `next_cursor` of the page before; omit it for the first page.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -93679,6 +94002,7 @@
             "name": "id",
             "in": "path",
             "required": true,
+            "description": "The receipt's id.",
             "schema": {
               "type": "string",
               "format": "uuid",

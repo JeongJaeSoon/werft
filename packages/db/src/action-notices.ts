@@ -4,10 +4,12 @@ import {
   type ActionNotice,
   actionNoticeDedupeKey,
   actionNoticeText,
+  intentNoticeDedupeKey,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
+  pushIntents,
   sessionLinks,
   slackApps,
   slackInstallations,
@@ -28,6 +30,57 @@ import {
 export async function enqueueActionNotice(
   tx: Database,
   input: { sessionId: string; pushRequestId: string; notice: ActionNotice },
+): Promise<"enqueued" | "duplicate" | "no_thread"> {
+  return enqueueNotice(tx, {
+    sessionId: input.sessionId,
+    notice: input.notice,
+    dedupeKey: actionNoticeDedupeKey(input.pushRequestId, input.notice.result),
+  });
+}
+
+/**
+ * Tells the thread about each push intent that ended (`failed` or
+ * `cancelled`) before it became a push request, in the caller's transaction.
+ * Every writer that ends an intent calls this with the ids it ended; ids
+ * that are not ended, or already told, write nothing.
+ */
+export async function enqueueEndedIntentNotices(
+  tx: Database,
+  intentIds: readonly string[],
+): Promise<void> {
+  if (intentIds.length === 0) return;
+  const ended = await tx
+    .select({
+      id: pushIntents.id,
+      sessionId: pushIntents.sessionId,
+      repositoryId: pushIntents.repositoryId,
+      targetBranch: pushIntents.targetBranch,
+      refusalCode: pushIntents.refusalCode,
+    })
+    .from(pushIntents)
+    .where(
+      and(
+        inArray(pushIntents.id, [...intentIds]),
+        inArray(pushIntents.status, ["failed", "cancelled"]),
+      ),
+    );
+  for (const intent of ended) {
+    await enqueueNotice(tx, {
+      sessionId: intent.sessionId,
+      notice: {
+        result: "push_cancelled",
+        repository: intent.repositoryId,
+        branch: intent.targetBranch,
+        ...(intent.refusalCode === null ? {} : { reason: intent.refusalCode }),
+      },
+      dedupeKey: intentNoticeDedupeKey(intent.id),
+    });
+  }
+}
+
+async function enqueueNotice(
+  tx: Database,
+  input: { sessionId: string; notice: ActionNotice; dedupeKey: string },
 ): Promise<"enqueued" | "duplicate" | "no_thread"> {
   const [link] = await tx
     .select({
@@ -85,10 +138,7 @@ export async function enqueueActionNotice(
           : { link_url: input.notice.url }),
         ...(link.locale === null ? {} : { locale: link.locale }),
       },
-      dedupeKey: actionNoticeDedupeKey(
-        input.pushRequestId,
-        input.notice.result,
-      ),
+      dedupeKey: input.dedupeKey,
     })
     .onConflictDoNothing({ target: slackOutbox.dedupeKey })
     .returning({ id: slackOutbox.id });

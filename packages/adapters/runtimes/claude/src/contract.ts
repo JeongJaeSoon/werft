@@ -206,6 +206,12 @@ export function claudeStartConfig(
       ? {}
       : { userEnvironment: config.userEnvironment }),
     ...trustedToolsOf(start.bundle.mcpServers),
+    ...(config.disallowedTools === undefined
+      ? {}
+      : { disallowedTools: config.disallowedTools }),
+    ...(config.engineSettings === undefined
+      ? {}
+      : { engineSettings: config.engineSettings }),
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),
@@ -241,11 +247,19 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       },
       this.deps.processObserver,
     );
-    return claudeContractRun((hooks) => driver.start(config, hooks), {
-      ...(this.deps.toolCallWaitMs === undefined
-        ? {}
-        : { toolCallWaitMs: this.deps.toolCallWaitMs }),
-    });
+    const precheckTool = this.deps.precheckTool;
+    return claudeContractRun(
+      (hooks) =>
+        driver.start(
+          config,
+          precheckTool === undefined ? hooks : { ...hooks, precheckTool },
+        ),
+      {
+        ...(this.deps.toolCallWaitMs === undefined
+          ? {}
+          : { toolCallWaitMs: this.deps.toolCallWaitMs }),
+      },
+    );
   }
 }
 

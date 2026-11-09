@@ -1,3 +1,4 @@
+import type { EngineSettings } from "@werft-ai/contracts";
 import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
@@ -78,6 +79,21 @@ export type ComponentIdentities = {
 export type ClaudeRuntimeConfig = DriverConfig & {
   appendSystemPrompt?: string;
   claudeConfigDir: string;
+  /**
+   * Deny rules, in the engine's own spelling, given to the engine as
+   * `disallowedTools` in every permission mode. Checked against the pinned
+   * tool catalog before the run starts; a run whose rules the engine would
+   * drop or that do not fit its arguments does not start. Not part of the
+   * checkpoint fingerprint.
+   */
+  disallowedTools?: readonly string[];
+  /**
+   * The platform's merged permission and auto mode rules for this claim,
+   * appended to the mode's baseline settings. `permissions.deny` is checked
+   * like `disallowedTools` before the run starts. Not part of the checkpoint
+   * fingerprint.
+   */
+  engineSettings?: EngineSettings;
   /** Put into the engine's environment as it is; never into its arguments. */
   gitEnvironment?: GitEnvironment;
   /**

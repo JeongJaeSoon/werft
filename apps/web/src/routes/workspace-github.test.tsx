@@ -216,13 +216,9 @@ describe("GitHub 연결 › 카드와 설치 표", () => {
   test("없애야 할 것이 화면에 없다", async () => {
     renderAt(PATH, routes(twoAccounts()));
     await installationTable();
-    expect(screen.getAllByRole("table")).toHaveLength(1);
-    for (const gone of [
-      /위험 구역/,
-      /repositories\.yaml/,
-      /키 교체/,
-      /최대 권한/,
-    ]) {
+    // The App list and the installation table.
+    expect(screen.getAllByRole("table")).toHaveLength(2);
+    for (const gone of [/repositories\.yaml/, /키 교체/, /최대 권한/]) {
       expect(screen.queryByText(gone) === null).toBe(true);
     }
     expect(screen.queryByRole("alert") === null).toBe(true);
@@ -405,8 +401,11 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
 
   test("App마다 역할 배지가 붙고 역할별 구획은 없다", async () => {
     renderAt(PATH, routes(settingsWith([githubConnection(), reviewer])));
-    const list = await screen.findByRole("list", { name: "GitHub App" });
-    const items = within(list).getAllByRole("listitem");
+    const table = await screen.findByRole("table", {
+      name: "워크스페이스에 연결한 GitHub App",
+    });
+    // The header row, then one row per App.
+    const items = within(table).getAllByRole("row").slice(1);
     expect(items).toHaveLength(2);
     expect(within(items[0] as HTMLElement).getByText("작성용")).toBeDefined();
     expect(
@@ -445,10 +444,7 @@ describe("GitHub 연결 › App 연결 해제", () => {
     );
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: "연결 해제" }),
+      await screen.findByRole("button", { name: "werft-agent 연결 해제" }),
     );
     const dialog = await screen.findByRole("dialog", {
       name: "App 연결을 해제할까요?",
@@ -482,10 +478,7 @@ describe("GitHub 연결 › App 연결 해제", () => {
     );
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: "연결 해제" }),
+      await screen.findByRole("button", { name: "werft-agent 연결 해제" }),
     );
     const dialog = await screen.findByRole("dialog", {
       name: "App 연결을 해제할까요?",
@@ -509,10 +502,7 @@ describe("GitHub 연결 › App 연결 해제", () => {
     );
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: "연결 해제" }),
+      await screen.findByRole("button", { name: "werft-agent 연결 해제" }),
     );
     const dialog = await screen.findByRole("dialog", {
       name: "App 연결을 해제할까요?",
@@ -528,6 +518,46 @@ describe("GitHub 연결 › App 연결 해제", () => {
         api.calls.filter((call) => call.method === "DELETE").map((c) => c.path),
       ).toEqual([`${APPS}/${AUTHOR_CONNECTION}`]),
     );
+  });
+});
+
+describe("GitHub 연결 › 구역의 추가 버튼 위치", () => {
+  // The heading's row holds the section's main action; a button elsewhere
+  // would read as belonging to another list.
+  const titleRowOf = (name: string) =>
+    screen.getByRole("heading", { level: 3, name }).parentElement
+      ?.parentElement as HTMLElement;
+
+  test("App 추가와 조직 추가는 각 목록의 제목 줄에 있다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    await screen.findByRole("table", {
+      name: "GitHub App을 설치한 조직과 개인 계정",
+    });
+    expect(
+      within(titleRowOf("GitHub App")).getByRole("button", {
+        name: "App 추가",
+      }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).getByRole("button", { name: "조직 추가" }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).queryByRole("button", { name: "App 추가" }),
+    ).toBeNull();
+  });
+
+  test("설치가 없으면 조직 추가는 빈 상자 안에 있다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection()])));
+    const empty = await screen.findByText(
+      "아직 GitHub App을 설치한 계정이 없습니다.",
+    );
+    const box = empty.parentElement as HTMLElement;
+    expect(
+      within(box).getByRole("button", { name: "조직 추가" }),
+    ).toBeDefined();
+    expect(
+      within(titleRowOf("설치")).queryByRole("button", { name: "조직 추가" }),
+    ).toBeNull();
   });
 });
 
@@ -617,5 +647,35 @@ describe("GitHub 연결 › 설치를 마치고 돌아오면", () => {
     expect(
       await screen.findByText(/1시간이 지났거나 이미 쓰인 링크/),
     ).toBeDefined();
+  });
+});
+
+describe("GitHub 연결 › 위험 구역", () => {
+  test("App 연결 해제는 행 메뉴가 아니라 페이지 맨 아래 위험 구역에 App마다 있다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection(), reviewer])));
+    const zone = await screen.findByRole("region", { name: "위험 구역" });
+    expect(
+      within(zone)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["werft-agent 연결 해제", "werft-review 연결 해제"]);
+    // Nothing follows the danger zone on the page.
+    const sections = Array.from(
+      document.querySelectorAll("main section, main [data-slot=danger-zone]"),
+    ).filter((element) => element.parentElement?.closest("section") === null);
+    expect(sections.at(-1)).toBe(zone);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "werft-agent 메뉴" }));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["새 키 등록"]);
+  });
+
+  test("구성원과 App이 없는 워크스페이스에는 위험 구역이 없다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection()]), {}, memberMe()));
+    await screen.findByRole("table", {
+      name: "워크스페이스에 연결한 GitHub App",
+    });
+    expect(screen.queryByRole("region", { name: "위험 구역" })).toBeNull();
   });
 });

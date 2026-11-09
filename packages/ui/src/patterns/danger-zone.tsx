@@ -45,7 +45,13 @@ export function DangerZone({
     <section
       data-slot="danger-zone"
       aria-labelledby={headingId}
-      className={cn("flex flex-col gap-3", className)}
+      // A page may zero the row padding so unframed rows sit on its edge;
+      // rows inside the red box need it back, as in SettingsSection.
+      className={cn(
+        "flex flex-col gap-3",
+        framed && "[--werft-row-padding-x:var(--werft-space-4)]",
+        className,
+      )}
       {...props}
     >
       <Heading

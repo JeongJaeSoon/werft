@@ -167,6 +167,22 @@ async function openSection(
   await user.click(within(nav).getByRole("link", { name }));
 }
 
+/** The title row's add button opens the dialog; its own button adds. */
+async function addWorkflow(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  workflow: string,
+  ref = "",
+) {
+  await user.click(screen.getByRole("button", { name: "워크플로 추가" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.type(within(dialog).getByLabelText("워크플로 파일"), workflow);
+  if (ref !== "") {
+    await user.type(within(dialog).getByLabelText("ref 패턴(선택)"), ref);
+  }
+  await user.click(within(dialog).getByRole("button", { name: "추가" }));
+  return dialog;
+}
+
 describe("에이전트 GitHub 탭", () => {
   test("받은 설정이 있는 중 다시 읽기가 실패하면 설정을 남기고 위에 알린다", async () => {
     const { server } = await activeAgent();
@@ -211,7 +227,7 @@ describe("에이전트 GitHub 탭", () => {
       });
       const user = await setupUser();
       if (read === "github/activity") {
-        await screen.findByRole("heading", { name: "저장소" });
+        await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
         await openSection(user, "최근 기록");
       }
       const alert = await screen.findByRole("alert");
@@ -301,11 +317,13 @@ describe("에이전트 GitHub 탭", () => {
     expect(api77.getAttribute("aria-checked")).toBe("false");
     expect(
       within(
-        repoSwitch("werft-sandbox").closest("li") as HTMLElement,
+        repoSwitch("werft-sandbox").closest('[role="row"], li') as HTMLElement,
       ).getByText("비공개"),
     ).toBeTruthy();
     expect(
-      within(api77.closest("li") as HTMLElement).queryByText("비공개"),
+      within(api77.closest('[role="row"], li') as HTMLElement).queryByText(
+        "비공개",
+      ),
     ).toBeNull();
     expect(screen.queryByText("목록에 있음")).toBeNull();
     expect(screen.queryByRole("button", { name: /고르기/ })).toBeNull();
@@ -429,7 +447,7 @@ describe("에이전트 GitHub 탭", () => {
       routesFor(server, TAB, { [ACCESS]: () => accessed() }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     const puts = () =>
       api.calls.filter((c) => c.path.endsWith("/repository-access"));
     await user.click(repoSwitch("werft-sandbox"));
@@ -456,7 +474,7 @@ describe("에이전트 GitHub 탭", () => {
         options: { ...TAB.options, repository_ceiling_unset: true },
       }),
     );
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     expect(screen.getByText(/저장하면 기본 허용 목록/)).toBeTruthy();
     expect(repoSwitch("werft-sandbox").disabled).toBe(false);
     expect(screen.queryByText(/저장소 범위 밖/)).toBeNull();
@@ -505,9 +523,9 @@ describe("에이전트 GitHub 탭", () => {
         },
       }),
     );
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     const rowOf = (name: string) =>
-      switchNamed(name).closest("li") as HTMLElement;
+      switchNamed(name).closest('[role="row"], li') as HTMLElement;
     const expectLocked = (name: string, text: RegExp) => {
       expect(switchNamed(name).disabled).toBe(true);
       expect(within(rowOf(name)).getByText(text)).toBeTruthy();
@@ -534,12 +552,12 @@ describe("에이전트 GitHub 탭", () => {
     // A ceiling reason links to where it is lifted; the host one does not.
     expect(
       within(rowOf("워크플로 파일 수정"))
-        .getByRole("link", { name: "연동 › GitHub" })
+        .getByRole("link", { name: "연동 > GitHub" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     expect(
       within(rowOf("Actions 실행")).queryByRole("link", {
-        name: "연동 › GitHub",
+        name: "연동 > GitHub",
       }),
     ).toBeNull();
   });
@@ -561,9 +579,9 @@ describe("에이전트 GitHub 탭", () => {
         },
       }),
     );
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     const rowOf = (name: string) =>
-      switchNamed(name).closest("li") as HTMLElement;
+      switchNamed(name).closest('[role="row"], li') as HTMLElement;
     expect(
       within(rowOf("acme/docs-site 사용")).getByText("App 미설치"),
     ).toBeTruthy();
@@ -579,7 +597,7 @@ describe("에이전트 GitHub 탭", () => {
     ).toBeTruthy();
     expect(
       within(review)
-        .getByRole("link", { name: "연동 › GitHub" })
+        .getByRole("link", { name: "연동 > GitHub" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     // A warning, not a lock: GitHub decides per repository.
@@ -590,19 +608,21 @@ describe("에이전트 GitHub 탭", () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     Element.prototype.scrollIntoView ??= () => {};
 
     const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
     if (!nav) throw new Error("no section nav");
-    // The permission, allow-list and push sections live in the collapsed
-    // details, so the nav stops at the details itself.
+    // The workspace's Integrations > GitHub names and order, then what only
+    // an agent has; the danger zone sits under "manage" with the receipts.
     const sections = [
-      ["사용", "github-use"],
-      ["저장소", "github-repositories"],
-      ["Pull request 서식", "github-pull-request"],
-      ["세부 설정", "github-details"],
+      ["GitHub", "github-overview"],
+      ["에이전트가 쓰는 저장소", "github-repositories"],
+      ["에이전트가 쓸 수 있는 기능", "github-features"],
+      ["Pull request", "github-pull-request"],
+      ["push 승인", "github-push"],
       ["최근 기록", "github-activity"],
+      ["위험 구역", "github-danger"],
     ] as const;
     expect(
       within(nav)
@@ -617,22 +637,22 @@ describe("에이전트 GitHub 탭", () => {
       expect(section.getAttribute("tabindex")).toBe("-1");
       expect(document.activeElement === section).toBe(true);
     }
-    for (const id of ["github-details", "github-activity"]) {
-      expect(document.getElementById(id)?.hasAttribute("open")).toBe(true);
-    }
   });
 
-  test("구역은 사용, 저장소, PR 서식, 세부 설정, 최근 기록 순이고 세부 설정과 최근 기록은 접혀 있다", async () => {
+  test("구역은 워크스페이스 연동 화면의 순서대로 펼쳐져 있고, 위험한 동작은 맨 아래 위험 구역에 있다", async () => {
     const { server } = await activeAgent();
-    const { api } = renderAt(DETAIL, routesFor(server, TAB));
-    await screen.findByRole("heading", { name: "저장소" });
-    await screen.findByRole("heading", { name: "Pull request 서식" });
+    renderAt(DETAIL, routesFor(server, TAB));
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await screen.findByRole("heading", { name: "Pull request" });
     const ids = [
-      "github-use",
+      "github-overview",
       "github-repositories",
+      "github-features",
+      "github-allowlist",
       "github-pull-request",
-      "github-details",
+      "github-push",
       "github-activity",
+      "github-danger",
     ];
     const nodes = ids.map((id) => document.getElementById(id) as HTMLElement);
     for (const [i, node] of nodes.entries()) {
@@ -644,15 +664,36 @@ describe("에이전트 GitHub 탭", () => {
           0,
       ).toBe(true);
     }
-    expect(nodes[3]?.hasAttribute("open")).toBe(false);
-    expect(nodes[4]?.hasAttribute("open")).toBe(false);
+    // Nothing is folded away any more.
+    expect(nodes.map((node) => node.tagName)).not.toContain("DETAILS");
+    // The repositories sit under GitHub, as on the workspace screen.
+    expect(nodes[0]?.contains(nodes[1] as Node)).toBe(true);
+    // Lists are tables.
     expect(
-      api.calls.filter((c) => c.path === `${PATH}/github/activity`),
-    ).toEqual([]);
+      screen.getByRole("table", { name: "에이전트가 쓰는 저장소" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("table", { name: "Actions 허용 목록" }),
+    ).toBeTruthy();
+    // The add button is on its own section's title row.
+    const allowlist = screen
+      .getByRole("heading", { name: "Actions 허용 목록" })
+      .closest("section") as HTMLElement;
+    expect(
+      within(allowlist).getByRole("button", { name: "워크플로 추가" }),
+    ).toBeTruthy();
+    // Turning GitHub off is in the danger zone, not a switch at the top.
+    expect(screen.queryByRole("switch", { name: "GitHub 사용" })).toBeNull();
+    const danger = screen
+      .getByRole("heading", { name: "위험 구역" })
+      .closest("section") as HTMLElement;
+    expect(
+      within(danger).getByRole("button", { name: "GitHub 사용 끄기" }),
+    ).toBeTruthy();
     expect(screen.queryByText("다음 세션부터")).toBeNull();
   });
 
-  test("최근 기록은 열 때 읽고, 열어야 행이 보인다", async () => {
+  test("최근 기록은 한 번 읽어 표로 보인다", async () => {
     const { server } = await activeAgent();
     const { api } = renderAt(
       DETAIL,
@@ -678,9 +719,10 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await openSection(user, "최근 기록");
     expect(await screen.findByText("GitHub 설정 저장")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "최근 기록" })).toBeTruthy();
     expect(
       api.calls.filter((c) => c.path === `${PATH}/github/activity`),
     ).toHaveLength(1);
@@ -690,20 +732,22 @@ describe("에이전트 GitHub 탭", () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
     expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
 
     await user.click(switchNamed("push 전 사람 승인"));
     await screen.findByText("저장하지 않은 변경 1건");
-    await user.type(screen.getByLabelText("워크플로 파일"), "deploy.yml");
-    await user.type(screen.getByLabelText("ref 패턴(선택)"), "main");
-    await user.click(screen.getByRole("button", { name: "워크플로 추가" }));
+    await addWorkflow(user, "deploy.yml", "main");
     await screen.findByText("저장하지 않은 변경 2건");
-    const added = screen.getByText("deploy.yml").closest("li") as HTMLElement;
+    const added = screen
+      .getByText("deploy.yml")
+      .closest('[role="row"], li') as HTMLElement;
     expect(within(added).getByText("저장 전")).toBeTruthy();
     // A held entry carries no such badge.
-    const held = screen.getByText("ci.yml").closest("li") as HTMLElement;
+    const held = screen
+      .getByText("ci.yml")
+      .closest('[role="row"], li') as HTMLElement;
     expect(within(held).queryByText("저장 전")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "되돌리기" }));
@@ -727,14 +771,13 @@ describe("에이전트 GitHub 탭", () => {
         legacy_defaults: { ...SETTINGS, push_approval: false },
       }),
     );
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
       "false",
     );
-    const status = screen.getByText("push 전 승인")
-      .parentElement as HTMLElement;
-    expect(within(status).getByText("켜짐")).toBeTruthy();
-    expect(within(status).queryByText("꺼짐")).toBeNull();
+    // The GitHub header's summary line.
+    expect(screen.getByText(/push 전 승인 켜짐/)).toBeTruthy();
+    expect(screen.queryByText(/push 전 승인 꺼짐/)).toBeNull();
   });
 
   test("설정이 없으면 바꾼 것이 없어도 기본값을 PUT으로 저장하고 새 릴리스는 만들지 않는다", async () => {
@@ -768,7 +811,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await screen.findByText("GitHub 설정을 아직 저장하지 않았습니다");
     // Nothing drafted yet, so there is nothing to revert.
     expect(screen.queryByRole("button", { name: "되돌리기" })).toBeNull();
@@ -821,7 +864,7 @@ describe("에이전트 GitHub 탭", () => {
       ),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     const region = () =>
       screen.getByRole("region", {
         name: "GitHub 설정을 아직 저장하지 않았습니다",
@@ -868,7 +911,7 @@ describe("에이전트 GitHub 탭", () => {
         legacy_defaults: { ...SETTINGS, push_approval: false },
       }),
     );
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
     expect(
       screen.queryByText("GitHub 설정을 아직 저장하지 않았습니다"),
@@ -879,9 +922,13 @@ describe("에이전트 GitHub 탭", () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
     const user = await setupUser();
-    const file = await screen.findByLabelText("워크플로 파일");
-    const ref = screen.getByLabelText("ref 패턴(선택)");
-    const add = screen.getByRole("button", { name: "워크플로 추가" });
+    await user.click(
+      await screen.findByRole("button", { name: "워크플로 추가" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const file = within(dialog).getByLabelText("워크플로 파일");
+    const ref = within(dialog).getByLabelText("ref 패턴(선택)");
+    const add = within(dialog).getByRole("button", { name: "추가" });
 
     await user.type(file, ".github/workflows/ci.yml");
     await user.click(add);
@@ -911,7 +958,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(await screen.findByRole("button", { name: "저장" }));
 
@@ -950,7 +997,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     const select = screen.getByLabelText(
       "첨부 저장소 push",
     ) as HTMLSelectElement;
@@ -1007,7 +1054,7 @@ describe("에이전트 GitHub 탭", () => {
       ),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     expect(screen.queryByRole("heading", { name: "시작 저장소" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "시작 저장소" })).toBeNull();
     await user.click(switchNamed("push 전 사람 승인"));
@@ -1032,7 +1079,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     expect(repoSwitch("werft-sandbox").getAttribute("aria-checked")).toBe(
       "true",
     );
@@ -1072,16 +1119,18 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
-    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
     expect(
       await within(row).findByText(/저장소를 바꾸지 못했습니다/),
     ).toBeTruthy();
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("false");
     expect(
       within(
-        repoSwitch("werft-sandbox").closest("li") as HTMLElement,
+        repoSwitch("werft-sandbox").closest('[role="row"], li') as HTMLElement,
       ).queryByText(/저장소를 바꾸지 못했습니다/),
     ).toBeNull();
     // The refusal stays reachable from the switch after the alert is read.
@@ -1112,7 +1161,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("werft-sandbox"));
     await waitFor(() => expect(bodies).toHaveLength(1));
     await user.click(repoSwitch("werft-sandbox"));
@@ -1149,7 +1198,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("werft-sandbox"));
     await user.click(repoSwitch("docs-site"));
     await waitFor(() => expect(bodies).toHaveLength(2));
@@ -1179,7 +1228,7 @@ describe("에이전트 GitHub 탭", () => {
       },
     });
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
@@ -1216,12 +1265,14 @@ describe("에이전트 GitHub 탭", () => {
       },
     });
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
     await screen.findByRole("alert");
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
     await user.click(repoSwitch("docs-site"));
-    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
     expect(
       await within(row).findByText(/저장소를 바꾸지 못했습니다/),
     ).toBeTruthy();
@@ -1260,13 +1311,15 @@ describe("에이전트 GitHub 탭", () => {
       },
     });
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
     await screen.findByRole("alert");
     await user.click(repoSwitch("docs-site"));
     await user.click(repoSwitch("docs-site"));
     release();
-    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
     expect(
       await within(row).findByText(/저장소를 바꾸지 못했습니다/),
     ).toBeTruthy();
@@ -1400,7 +1453,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.selectOptions(screen.getByLabelText("첨부 저장소 push"), "deny");
     await screen.findByText(/저장하지 않은 변경 1건/);
     await user.click(repoSwitch("docs-site"));
@@ -1440,17 +1493,24 @@ describe("에이전트 GitHub 탭", () => {
   test("저장소 행은 owner/repo 링크와 스위치 하나뿐이다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
-    await screen.findByRole("heading", { name: "저장소" });
-    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const row = repoSwitch("docs-site").closest(
+      '[role="row"], li',
+    ) as HTMLElement;
     const link = within(row).getByRole("link", { name: "acme/docs-site" });
     expect(link.getAttribute("href")).toBe("https://github.com/acme/docs-site");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(row.textContent).toBe("acme/docs-site");
     expect(within(row).getAllByRole("switch")).toHaveLength(1);
-    expect(screen.queryByText("사용 중")).toBeNull();
-    expect(screen.queryByText("안 씀")).toBeNull();
-    expect(screen.queryByText(/\.git/)).toBeNull();
+    expect(within(row).queryByText("사용 중")).toBeNull();
+    expect(within(row).queryByText("안 씀")).toBeNull();
+    // Repository URLs are not shown; the feature hints may name .github/.
+    expect(
+      within(
+        screen.getByRole("table", { name: "에이전트가 쓰는 저장소" }),
+      ).queryByText(/\.git/),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /고르기/ })).toBeNull();
   });
 
@@ -1470,7 +1530,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     const save = (await screen.findByRole("button", {
       name: "저장",
@@ -1492,7 +1552,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     await screen.findByText("저장하지 않은 변경 1건");
     live = {
@@ -1544,7 +1604,7 @@ describe("에이전트 GitHub 탭", () => {
       ),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     expect(
       screen.getByText(/이 에이전트에는 저장한 GitHub 설정이 아직/),
     ).toBeTruthy();
@@ -1594,7 +1654,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(await screen.findByRole("button", { name: "저장" }));
     await screen.findByText(/다른 곳에서 GitHub 설정이 먼저 바뀌어/);
@@ -1620,7 +1680,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     // Someone else saves while the draft is open.
     live = {
@@ -1663,7 +1723,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "권한" });
+    await screen.findByRole("heading", { name: "에이전트가 쓸 수 있는 기능" });
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(switchNamed("push 전 사람 승인"));
     expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
@@ -1723,8 +1783,13 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
-    await user.click(switchNamed("GitHub 사용"));
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    const danger = screen
+      .getByRole("heading", { name: "위험 구역" })
+      .closest("section") as HTMLElement;
+    await user.click(
+      within(danger).getByRole("button", { name: "GitHub 사용 끄기" }),
+    );
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(/진행 중인 세션도 다음 GitHub 요청부터/),
@@ -1737,6 +1802,15 @@ describe("에이전트 GitHub 탭", () => {
     expect(puts).toEqual([{ enabled: false }]);
     expect(repoSwitch("docs-site").disabled).toBe(true);
     expect(switchNamed("push 전 사람 승인").disabled).toBe(true);
+    // Off, there is nothing dangerous left; turning on is in the header.
+    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "GitHub 켜기" }));
+    await waitFor(() =>
+      expect(puts).toEqual([{ enabled: false }, { enabled: true }]),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "GitHub 켜기" })).toBeNull(),
+    );
   });
 
   test("기록은 세션으로 잇고, 설정 저장 기록은 따로 이름 붙인다", async () => {
@@ -1785,9 +1859,9 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "저장소" });
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await openSection(user, "최근 기록");
-    const rows = await screen.findByRole("list", { name: "최근 기록" });
+    const rows = await screen.findByRole("table", { name: "최근 기록" });
     expect(within(rows).getByText("GitHub 설정 저장")).toBeTruthy();
     expect(within(rows).getByText("워크플로 실행 거절")).toBeTruthy();
     expect(
@@ -1838,7 +1912,7 @@ describe("에이전트 GitHub 탭 › Pull request 서식", () => {
       "feature.md",
     );
     const card = screen
-      .getByRole("heading", { name: "Pull request 서식" })
+      .getByRole("heading", { name: "Pull request" })
       .closest("section") as HTMLElement;
     await user.click(within(card).getByRole("button", { name: "서식 저장" }));
     await waitFor(() =>
@@ -1867,7 +1941,7 @@ describe("에이전트 GitHub 탭 › Pull request 서식", () => {
     const user = await setupUser();
     await user.selectOptions(await screen.findByLabelText("서식"), "off");
     const card = screen
-      .getByRole("heading", { name: "Pull request 서식" })
+      .getByRole("heading", { name: "Pull request" })
       .closest("section") as HTMLElement;
     await user.click(within(card).getByRole("button", { name: "서식 저장" }));
     expect(

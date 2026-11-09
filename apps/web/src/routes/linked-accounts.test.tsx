@@ -666,7 +666,7 @@ describe("연동 계정", () => {
       await screen.findByRole("button", { name: "Slack 계정 연결" }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 › Slack 설정을 요청하세요.",
+      "Slack 계정 연결을 아직 쓸 수 없습니다 — 워크스페이스 관리자에게 연동 > Slack 설정을 요청하세요.",
     );
   });
 

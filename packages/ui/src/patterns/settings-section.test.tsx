@@ -60,6 +60,64 @@ describe("SettingsSection", () => {
     getByRole("button", { name: "저장" }).click();
     expect(sent).toEqual(["90/on"]);
   });
+
+  test("actions는 제목과 같은 줄에 있고 본문보다 앞선다", () => {
+    const { getByRole } = render(
+      <SettingsSection
+        title="앱"
+        actions={<button type="button">앱 추가</button>}
+        rows={<SettingRow title="행" />}
+      />,
+    );
+    const heading = getByRole("heading", { name: "앱" });
+    const add = getByRole("button", { name: "앱 추가" });
+    expect(heading.parentElement?.parentElement).toBe(
+      add.parentElement?.parentElement,
+    );
+    const text = getByRole("region", { name: "앱" }).textContent ?? "";
+    expect(text.indexOf("앱 추가")).toBeLessThan(text.indexOf("행"));
+    // 390px: a wide action wraps under the title instead of overflowing.
+    expect(heading.parentElement?.parentElement?.className).toContain(
+      "flex-wrap",
+    );
+    expect(add.parentElement?.className).toContain("flex-wrap");
+  });
+
+  test("rows는 테두리 상자 안에, box는 본문을 상자로 감싼다", () => {
+    const { getByRole, container } = render(
+      <SettingsSection title="상자" box rows={<SettingRow title="행" />}>
+        <p>본문</p>
+      </SettingsSection>,
+    );
+    expect(
+      container
+        .querySelector("[data-slot=row-list]")
+        ?.getAttribute("data-framed"),
+    ).toBe("true");
+    const boxed = getByRole("region", { name: "상자" }).querySelector(
+      ".border.rounded-card, .rounded-card.border",
+    );
+    expect(boxed?.textContent).toContain("본문");
+    const plain = render(
+      <SettingsSection title="맨몸">
+        <p>본문</p>
+      </SettingsSection>,
+    );
+    expect(plain.container.querySelector(".rounded-card")).toBeNull();
+  });
+
+  test("tabIndex -1이면 섹션이 포커스를 받고 className을 더한다", () => {
+    const { getByRole } = render(
+      <SettingsSection title="채널" tabIndex={-1} className="scroll-mt-4">
+        <p>본문</p>
+      </SettingsSection>,
+    );
+    const section = getByRole("region", { name: "채널" });
+    section.focus();
+    expect(document.activeElement === section).toBe(true);
+    expect(section.className).toContain("scroll-mt-4");
+    expect(section.className).toContain("outline-none");
+  });
 });
 
 describe("Section titleProps", () => {

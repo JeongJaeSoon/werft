@@ -13,16 +13,16 @@ import {
   Badge,
   Button,
   Code,
-  Heading,
   Link,
   RelativeTime,
   RowAction,
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import {
   errorKey,
@@ -347,7 +347,6 @@ export function SessionGitHubWork({
 }) {
   const { t } = useI18n();
   const { client } = useWerft();
-  const titleId = useId();
   // A session may hold only attached repositories, with none of its own.
   const repositories = sessionRepositoriesOf(session);
   const work = useQuery(
@@ -368,9 +367,10 @@ export function SessionGitHubWork({
     ),
   );
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <Heading id={titleId}>{t("session.github.title")}</Heading>
-      <Text variant="sub">{t("session.github.description")}</Text>
+    <Section
+      title={t("session.github.title")}
+      description={t("session.github.description")}
+    >
       <RowList variant="joined">
         {groupsOf(rows).map(([key, group]) => (
           <BranchGroup
@@ -381,6 +381,6 @@ export function SessionGitHubWork({
           />
         ))}
       </RowList>
-    </section>
+    </Section>
   );
 }

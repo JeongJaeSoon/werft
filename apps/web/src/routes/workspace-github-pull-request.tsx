@@ -133,6 +133,7 @@ export function PullRequestSettingsCard({
     <SettingsSection
       title={t("github.pullRequest.title")}
       description={t("github.pullRequest.hint")}
+      box
       onSubmit={submit}
       foot={
         <ReasonButton

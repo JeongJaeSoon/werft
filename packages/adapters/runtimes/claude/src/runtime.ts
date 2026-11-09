@@ -12,7 +12,7 @@ import {
 import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
-import { modeSettings } from "./engine-settings.ts";
+import { modeSettings, withEngineSettings } from "./engine-settings.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
 import { expectedPluginSkills } from "./plugin-skills.ts";
@@ -31,6 +31,28 @@ import { offerableRules } from "./session-rules.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
+
+// The inline settings and the deny rules both travel as engine arguments,
+// and a Linux argument is one string of at most 128 KiB: the settings once
+// reached 132 KB and the engine failed to start (E2BIG). The settings plus
+// the rules, in the bytes the arguments hold after merging, stay under the
+// figure the default settings are already tested against; over it the run
+// does not start, and no rule is cut to fit.
+const ENGINE_ARGUMENT_BUDGET_BYTES = 100_000;
+
+function assertEngineArgumentBudget(
+  settings: unknown,
+  disallowed: readonly string[],
+): void {
+  const bytes =
+    Buffer.byteLength(JSON.stringify(settings), "utf8") +
+    Buffer.byteLength(JSON.stringify(disallowed), "utf8");
+  if (bytes > ENGINE_ARGUMENT_BUDGET_BYTES) {
+    throw new Error(
+      `The engine's settings and deny rules take ${bytes} bytes of arguments, over the ${ENGINE_ARGUMENT_BUDGET_BYTES} the engine starts with`,
+    );
+  }
+}
 
 // The platform attributes commits and pull requests itself. Flag settings
 // outrank a repository's `.claude/settings.json`, so a project cannot turn
@@ -125,6 +147,20 @@ export function buildSdkOptions(
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
+  const settings = {
+    attribution: ENGINE_ATTRIBUTION_OFF,
+    ...withEngineSettings(
+      modeSettings({
+        cwd: config.cwd,
+        permissionMode: config.permissionMode,
+        trusted: trustedTools.size > 0,
+      }),
+      config.permissionMode,
+      config.engineSettings,
+    ),
+  };
+  const disallowed = [...(config.disallowedTools ?? [])];
+  assertEngineArgumentBudget(settings, disallowed);
   const settle: HookCallback = async (input) => {
     if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
     return {};
@@ -213,6 +249,21 @@ export function buildSdkOptions(
               ) {
                 return deny("Tool is outside the server allowlist");
               }
+              // The host's advice, before the call is admitted: a refusal
+              // here is a call that never ran. A check that throws refuses
+              // nothing.
+              if ("tool_name" in input && hooks.precheckTool !== undefined) {
+                const toolInput =
+                  "tool_input" in input &&
+                  typeof input.tool_input === "object" &&
+                  input.tool_input !== null
+                    ? (input.tool_input as Record<string, unknown>)
+                    : {};
+                const refusal = await hooks
+                  .precheckTool(input.tool_name, toolInput)
+                  .catch(() => null);
+                if (refusal !== null) return deny(refusal);
+              }
               // A guard that lands while another is awaited is awaited too:
               // the call is admitted only past whichever the host holds now.
               let passed: ((id: string) => Promise<void>) | undefined;
@@ -289,15 +340,10 @@ export function buildSdkOptions(
           sessionStore: config.sessionStore,
           sessionStoreFlush: "eager" as const,
         }),
-    settings: {
-      attribution: ENGINE_ATTRIBUTION_OFF,
-      ...modeSettings({
-        cwd: config.cwd,
-        permissionMode: config.permissionMode,
-        tools: permittedTools,
-        trusted: trustedTools.size > 0,
-      }),
-    },
+    settings,
+    // A key of its own, beside the mode's settings: auto and plan modes
+    // build theirs without permission rules, and a deny must hold in them too.
+    ...(disallowed.length === 0 ? {} : { disallowedTools: disallowed }),
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,
     systemPrompt: {

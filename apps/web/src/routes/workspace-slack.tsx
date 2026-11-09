@@ -17,6 +17,8 @@ import {
   ConfirmDialog,
   CopyButton,
   cn,
+  DangerZone,
+  DangerZoneRow,
   ErrorState,
   Field,
   FieldDescription,
@@ -28,8 +30,8 @@ import {
   IconTile,
   Input,
   Link,
-  RowList,
   RowListItem,
+  SettingsSection,
   Skeleton,
   Steps,
   Text,
@@ -59,6 +61,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { IntegrationsLayout } from "./integrations.tsx";
 import {
   type OnOutcome,
+  SECTIONS,
   SETTINGS_CARD,
   SlackGuest,
 } from "./workspace-settings.tsx";
@@ -87,7 +90,7 @@ function useConfigToken() {
 }
 
 /**
- * Integrations › Slack, laid out like Integrations › GitHub: one Slack card (the
+ * Integrations > Slack, laid out like Integrations > GitHub: one Slack card (the
  * app-making token, then the apps it made) and the guest card. Until a token
  * works and no app exists, nothing else can take effect, so only the card's
  * start is shown.
@@ -114,9 +117,9 @@ export function WorkspaceSlackScreen() {
         start={tokenOnly && token.data?.state === "unset"}
         deciding={deciding}
         withApps={!tokenOnly && !deciding}
+        after={canManage && !tokenOnly && !deciding ? guest : null}
         onOutcome={setOutcome}
       />
-      {canManage && !tokenOnly && !deciding ? guest : null}
     </>
   );
 }
@@ -140,7 +143,7 @@ const focusFirst = (...refs: RefObject<HTMLElement | null>[]) =>
     ?.focus();
 
 /** Slack's mark in the tile's one colour, as GitHub's is on its card. */
-function TileMark({ className }: { readonly className?: string }) {
+export function TileMark({ className }: { readonly className?: string }) {
   return (
     <SlackMark
       className={cn(
@@ -159,6 +162,7 @@ function SlackCard({
   start,
   deciding,
   withApps,
+  after,
   onOutcome,
 }: {
   /** No token and no app yet: the card holds only the way to start. */
@@ -167,6 +171,8 @@ function SlackCard({
   readonly deciding: boolean;
   /** The apps the token made, under the token. */
   readonly withApps: boolean;
+  /** The sections between the card and the danger zone, which ends the page. */
+  readonly after?: ReactNode;
   readonly onOutcome: OnOutcome;
 }) {
   const { t, locale } = useI18n();
@@ -177,7 +183,6 @@ function SlackCard({
   const canManage = useHasPermission("workspace.manage");
   const apps = useWorkspaceSlackApps();
   const titleId = useId();
-  const tokenTitleId = useId();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -334,35 +339,51 @@ function SlackCard({
     menuRef.current = menu;
     setEditing(true);
   };
-  const onDelete = (menu: HTMLButtonElement | null) => {
-    menuRef.current = menu;
+  // The token goes from the page's danger zone; with no menu behind it, focus
+  // returns to the token's button or heading.
+  const onDelete = () => {
+    menuRef.current = null;
     setDeleting(true);
   };
 
   const body = !canManage ? null : start ? (
-    <div className="flex flex-col items-start gap-3">
-      <Text weight="medium">{t("workspace.slackEmpty")}</Text>
-      <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
-      {form ?? (
-        <Button ref={actionRef} type="button" onClick={() => setEditing(true)}>
-          {t("workspace.tokenAdd")}
-        </Button>
-      )}
-    </div>
+    // No list yet: the call to action lives in the section's empty box.
+    <SettingsSection
+      titleAs="h3"
+      titleRef={tokenHeadingRef}
+      title={t("workspace.tokenSection")}
+      description={t("workspace.tokenSectionHint")}
+      box
+    >
+      <div className="flex flex-col items-start gap-3">
+        <Text weight="medium">{t("workspace.slackEmpty")}</Text>
+        <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
+        {form ?? (
+          <Button
+            ref={actionRef}
+            type="button"
+            onClick={() => setEditing(true)}
+          >
+            {t("workspace.tokenAdd")}
+          </Button>
+        )}
+      </div>
+    </SettingsSection>
   ) : (
     <>
-      <section aria-labelledby={tokenTitleId} className="flex flex-col gap-2">
-        <Heading
-          id={tokenTitleId}
-          ref={tokenHeadingRef}
-          level={3}
-          tabIndex={-1}
-          className="focus-visible:outline-none"
-        >
-          {t("workspace.tokenSection")}
-        </Heading>
-        <RowList variant="joined" framed={false} aria-labelledby={tokenTitleId}>
-          {token.isPending || deciding ? (
+      <SettingsSection
+        titleAs="h3"
+        titleRef={tokenHeadingRef}
+        title={t("workspace.tokenSection")}
+        description={t("workspace.tokenSectionHint")}
+        foot={
+          // Says what the row's "last token check" means; no token, no check.
+          summary?.updated_at ? (
+            <Text variant="meta">{t("workspace.tokenHint")}</Text>
+          ) : undefined
+        }
+        rows={
+          token.isPending || deciding ? (
             <RowListItem>
               <Skeleton width="50%" />
             </RowListItem>
@@ -381,19 +402,8 @@ function SlackCard({
                   />
                 )}
               </RowListItem>
-              {/* A token read before the failure can still be deleted. */}
-              {summary?.configured ? (
-                <RowListItem>
-                  <Text as="span" weight="medium" className="flex-1" truncate>
-                    {t("workspace.token")}
-                  </Text>
-                  <TokenMenu
-                    active={false}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                  />
-                </RowListItem>
-              ) : null}
+              {/* A token read before the failure can still be deleted,
+                  from the danger zone. */}
             </>
           ) : (
             <TokenRow
@@ -401,17 +411,12 @@ function SlackCard({
               editing={editing}
               actionRef={actionRef}
               onEdit={onEdit}
-              onDelete={onDelete}
               form={form}
               locale={locale}
             />
-          )}
-        </RowList>
-        {/* Says what the row's "last token check" means; no token, no check. */}
-        {summary?.updated_at ? (
-          <Text variant="meta">{t("workspace.tokenHint")}</Text>
-        ) : null}
-      </section>
+          )
+        }
+      />
       {summary ? (
         <SlackAddresses urls={summary.urls} onOutcome={onOutcome} />
       ) : null}
@@ -419,21 +424,39 @@ function SlackCard({
     </>
   );
 
-  return (
-    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex items-center gap-3">
-        <IconTile icon={TileMark} hue="slate" size="two-line" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Heading id={titleId} level={2}>
-            Slack
-          </Heading>
-          <Text variant="sub">{status}</Text>
+  const card = (
+    <section aria-labelledby={titleId} className={SECTIONS}>
+      <div className={SETTINGS_CARD}>
+        <div className="flex items-center gap-3">
+          <IconTile icon={TileMark} hue="slate" size="two-line" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Heading id={titleId} level={2}>
+              Slack
+            </Heading>
+            <Text variant="sub">{status}</Text>
+          </div>
         </div>
+        <Text variant="sub">{t("workspace.slackCardHint")}</Text>
       </div>
-      <Text variant="sub" className="border-b pb-2">
-        {t("workspace.slackCardHint")}
-      </Text>
       {body}
+    </section>
+  );
+  return (
+    <>
+      {card}
+      {after}
+      {canManage && summary?.configured ? (
+        <DangerZone title={t("workspace.danger")}>
+          <DangerZoneRow
+            title={t("workspace.tokenDelete")}
+            description={t("workspace.tokenDeleteHint")}
+            actionLabel={t("workspace.delete")}
+            actionName={t("workspace.tokenDelete")}
+            disabled={remove.isPending}
+            onAction={onDelete}
+          />
+        </DangerZone>
+      ) : null}
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -448,7 +471,7 @@ function SlackCard({
           if (!remove.isPending) remove.mutate();
         }}
       />
-    </section>
+    </>
   );
 }
 
@@ -460,13 +483,13 @@ function SlackAddresses({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3">
-      <Heading id={titleId} level={3}>
-        {t("workspace.addressesTitle")}
-      </Heading>
-      <Text variant="sub">{t("workspace.addressesHint")}</Text>
+    <SettingsSection
+      titleAs="h3"
+      title={t("workspace.addressesTitle")}
+      description={t("workspace.addressesHint")}
+      box
+    >
       <AddressField
         label={t("workspace.addressRedirect")}
         value={urls.redirect_url}
@@ -484,7 +507,7 @@ function SlackAddresses({
         hint={t("workspace.addressEventsHint")}
         onOutcome={onOutcome}
       />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -553,7 +576,6 @@ function TokenRow({
   editing,
   actionRef,
   onEdit,
-  onDelete,
   form,
   locale,
 }: {
@@ -561,7 +583,6 @@ function TokenRow({
   readonly editing: boolean;
   readonly actionRef: RefObject<HTMLButtonElement | null>;
   readonly onEdit: (menu: HTMLButtonElement | null) => void;
-  readonly onDelete: (menu: HTMLButtonElement | null) => void;
   readonly form: ReactNode;
   readonly locale: ReturnType<typeof useI18n>["locale"];
 }) {
@@ -592,9 +613,7 @@ function TokenRow({
             )}
           </Button>
         )}
-        {summary?.configured ? (
-          <TokenMenu active={active} onEdit={onEdit} onDelete={onDelete} />
-        ) : null}
+        {active ? <TokenMenu onEdit={onEdit} /> : null}
       </div>
       {summary?.state === "needs_reentry" ? (
         <Text className="text-(color:--werft-tone-danger-fg)">
@@ -606,30 +625,22 @@ function TokenRow({
   );
 }
 
-/** Replace (a working token only) and delete, behind the row's ⋯. */
+/**
+ * Replacing a working token, behind the row's ⋯. Deleting it lives in the
+ * page's danger zone.
+ */
 function TokenMenu({
-  active,
   onEdit,
-  onDelete,
 }: {
-  readonly active: boolean;
   readonly onEdit: (menu: HTMLButtonElement | null) => void;
-  readonly onDelete: (menu: HTMLButtonElement | null) => void;
 }) {
   const { t } = useI18n();
   return (
     <RowMenu label={t("workspace.tokenMenu")}>
       {(close) => (
-        <>
-          {active ? (
-            <RowMenuItem onSelect={() => onEdit(close())}>
-              {t("workspace.tokenReplace")}
-            </RowMenuItem>
-          ) : null}
-          <RowMenuItem tone="danger" onSelect={() => onDelete(close())}>
-            {t("workspace.tokenDelete")}
-          </RowMenuItem>
-        </>
+        <RowMenuItem onSelect={() => onEdit(close())}>
+          {t("workspace.tokenReplace")}
+        </RowMenuItem>
       )}
     </RowMenu>
   );
@@ -766,7 +777,17 @@ function tokenLine(
     .join(" · ");
 }
 
-// The API answers this way when it runs without its secret key; a retry
-// cannot help, an administrator has to configure the store.
+/** `details.reason_code` of an error, when the server named one. */
+export const reasonCodeOf = (error: unknown): string | undefined => {
+  if (!isApiError(error)) return undefined;
+  const code = (error.details as { reason_code?: unknown } | null)?.reason_code;
+  return typeof code === "string" ? code : undefined;
+};
+
+// The API names this reason when it runs without its secret key; a retry
+// cannot help, an administrator has to configure the store. Other
+// non-retryable BACKEND_UNAVAILABLE answers (Slack refusing a call, an unset
+// address) are not this.
 export const storeOff = (error: unknown) =>
-  isApiError(error, "BACKEND_UNAVAILABLE") && error.retryable === false;
+  isApiError(error, "BACKEND_UNAVAILABLE") &&
+  reasonCodeOf(error) === "secret_store_off";
