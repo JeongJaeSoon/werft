@@ -1,10 +1,16 @@
 import { realpathSync } from "node:fs";
+import { z } from "zod";
+import defaultSettings from "./settings/default.json" with { type: "json" };
 
 /**
  * What a session needs to make a pull request, decided without asking a
  * person: file edits under its own workspace and the local git and test
  * commands. Handed to the engine as flag settings, which a repository's
  * `.claude/settings.json` cannot widen or drop.
+ *
+ * The lists live in `settings/default.json`: adding a command to allow or a
+ * pattern to ask is an edit of that file. This module holds what the lists
+ * mean, which the file cannot say.
  *
  * The engine judges deny, then ask, then allow, and the first match wins, so
  * the `ask` list carves the paths and flags that must still reach a person out
@@ -20,240 +26,154 @@ import { realpathSync } from "node:fs";
  * proxy are what hold that.
  */
 
-/**
- * File name parts that mark a secret. A command line is matched by text, so
- * this list is what `git add` and `git commit` are checked against; keep it
- * in step with SENSITIVE_PATHS below.
- */
-const SECRET_NAME_PARTS = [
-  ".env",
-  ".npmrc",
-  ".yarnrc",
-  ".pypirc",
-  ".netrc",
-  ".pem",
-  ".key",
-  ".p12",
-  ".pfx",
-  ".keystore",
-  "id_rsa",
-  "id_ecdsa",
-  "id_ed25519",
-  "credentials",
-  "service-account",
-];
+const patterns = z.array(z.string().min(1));
 
-/** Edits under the workspace that still go to a person. */
-const SENSITIVE_PATHS = [
-  ".git/**",
-  ".claude/**",
-  ".mcp.json",
-  ".aws/**",
-  ".ssh/**",
-  ".docker/**",
-  ".kube/**",
-  "**/.env",
-  "**/.env.*",
-  "**/.npmrc",
-  "**/.yarnrc.yml",
-  "**/.pypirc",
-  "**/.netrc",
-  "**/*.pem",
-  "**/*.key",
-  "**/*.p12",
-  "**/*.pfx",
-  "**/*.keystore",
-  "**/id_rsa*",
-  "**/id_ecdsa*",
-  "**/id_ed25519*",
-  "**/credentials*",
-  "**/service-account*.json",
-];
+const policySchema = z
+  .object({
+    /**
+     * File name parts that mark a secret. A command line is matched by text,
+     * so this list is what `git add` and `git commit` are checked against;
+     * keep it in step with `sensitiveEditPaths`.
+     */
+    secretNameParts: patterns,
+    /** Edits under the workspace that still go to a person. */
+    sensitiveEditPaths: patterns,
+    git: z
+      .object({
+        /**
+         * Git that stays on this machine. Each entry is the narrowest shape
+         * that does its job, because the way to stay safe is to allow little:
+         * whatever is not listed (`git checkout <path>`, `git restore` of the
+         * working tree, `git switch -f`, `git stash drop`, `git reset`,
+         * `git clean`, ...) is not allowed and so asks, however its flags are
+         * spelled. A listed shape is followed by an ask pattern for any
+         * further option, so an abbreviated or bundled flag (`--forc`, `-fA`,
+         * `-df`) cannot slip past.
+         */
+        allow: patterns,
+        /** Bare forms that must not also take the `*` of the shapes above. */
+        exact: patterns,
+        /**
+         * Options that turn a listed shape into one that discards work,
+         * stages a secret or reaches beyond the repository. An option can
+         * come after the operands, so each is matched anywhere in the line.
+         */
+        ask: patterns,
+        /**
+         * `git commit <path>` commits that file's current content without an
+         * add, so each of these asks when a secret name is on the line.
+         */
+        askWhenSecretNamed: patterns,
+      })
+      .strict(),
+    fs: z
+      .object({
+        /**
+         * A sample PR starts with `mkdir -p notes && echo ... > notes/x`, and
+         * the engine does not run `mkdir` unasked outside acceptEdits. An
+         * empty directory is cheap to undo; a path that leaves the workspace
+         * still asks.
+         */
+        allow: patterns,
+        ask: patterns,
+      })
+      .strict(),
+    /**
+     * Read-only inspection (`ls`, `cat`, `grep`, `git remote -v`,
+     * `git branch -a`, `find`, ...) is not listed in `allow`: the engine runs
+     * those unasked inside the workspace and itself asks for an outside path,
+     * `find -exec|-delete|-fprint`, `tree -o` and `rg --pre`. What it does not
+     * see is that `.env` is a secret, so the readers of file content ask when
+     * a secret's name is on the line. By name only: `cat .e*`, `grep -r . .`
+     * and a symlink named innocently get past it, as they do past the Read
+     * tool, which the engine allows in the workspace. The container and the
+     * egress proxy are what hold the content in.
+     */
+    secretRead: z
+      .object({
+        readers: patterns,
+        /**
+         * Where a file name begins in a command line: the first operand, or
+         * after one of these. Matching them anywhere would ask for
+         * `process.env` and `src/credentials.ts`, which are code and not
+         * secrets. `-f` and `-<letter>f` are a pattern file named right after
+         * the flag (`grep -f.env`, `grep -nf.env`).
+         */
+        nameStarts: patterns,
+        /** The usual one-letter flags that can come before `f` or `uu`. */
+        clusterLetters: z.string().min(1),
+        /** Matched where the name ends, so `object.keys.ts` is not a key. */
+        extensions: patterns,
+        extensionEnds: patterns,
+        /** Name parts that are code as often as secrets; see `extraNames`. */
+        notAReadName: patterns,
+        /** Names matched from where they begin, beside the secret parts. */
+        extraNames: patterns,
+      })
+      .strict(),
+    /**
+     * `rg` skips hidden files (dotenv files among them) unless told not to,
+     * and `-uu` turns that off. It can be spelled `-uu`, `-nuu`, `-u -u` or
+     * `-unu`, so any flag that starts with `-u` asks, and so does one letter
+     * then `uu`. `*` crosses spaces, so a bare `-*uu*` would ask for
+     * `rg -n uuid src`. A `u` in the middle of a longer cluster (`-nunu`,
+     * `-ninuu`) is not caught.
+     */
+    rgHidden: z
+      .object({ ask: patterns, letterBeforeUU: z.string().min(1) })
+      .strict(),
+    dev: z
+      .object({
+        /** Test and script runners; the workspace's own code runs through them. */
+        commands: patterns,
+        /** Ways those runners are pointed at code or a shell outside it. */
+        ask: patterns,
+      })
+      .strict(),
+  })
+  .strict();
 
-/**
- * Git that stays on this machine. Each entry is the narrowest shape that does
- * its job, because the way to stay safe is to allow little: whatever is not
- * listed (`git checkout <path>`, `git restore` of the working tree,
- * `git switch -f`, `git stash drop`, `git reset`, `git clean`, ...) is not
- * allowed and so asks, however its flags are spelled. A listed shape is
- * followed by an ask pattern for any further option.
- */
-const LOCAL_GIT = [
-  "git status",
-  "git diff",
-  "git log",
-  "git show",
-  "git add",
-  "git commit",
-  "git checkout -b",
-  "git switch -c",
-  "git switch --create",
-  // Unstaging only; restoring the working tree discards edits that no object
-  // or reflog keeps.
-  "git restore --staged",
-  "git stash list",
-  "git stash show",
-  "git stash push",
-  "git stash pop",
-  "git stash apply",
-];
+const policy = policySchema.parse(defaultSettings);
 
-/**
- * A sample PR starts with `mkdir -p notes && echo ... > notes/x`, and the
- * engine does not run `mkdir` unasked outside acceptEdits. An empty directory
- * is cheap to undo; a path that leaves the workspace still asks.
- */
-const LOCAL_FS = ["mkdir"];
-const LOCAL_FS_ASK = [
-  "mkdir /*",
-  "mkdir * /*",
-  "mkdir *..*",
-  "mkdir ~*",
-  "mkdir * ~*",
-  "mkdir *$*",
-  "mkdir *`*",
-];
-
-/** Bare forms that must not also take the `*` of the shapes above. */
-const GIT_EXACT = ["git stash"];
-
-/**
- * Options that turn a listed shape into one that discards work, stages a
- * secret or reaches beyond the repository, and secret names. An option can
- * come after the operands, so each is matched anywhere in the line.
- */
-const GIT_ASK = [
-  "git * --force*",
-  "git * --discard-changes*",
-  "git * --output*",
-  "git * --ext-diff*",
-  // Any further option on a shape that is only safe without one, so an
-  // abbreviated or bundled flag (`--forc`, `-fA`, `-df`) cannot slip past.
-  "git add --*",
-  "git add * --*",
-  "git add -*f*",
-  "git add * -*f*",
-  "git checkout -b * -*",
-  "git switch -c * -*",
-  "git switch --create * -*",
-  "git restore --staged -*",
-  "git restore --staged * -*",
-  // `git commit <path>` commits that file's current content without an add.
-  ...["git add", "git commit"].flatMap((command) =>
-    SECRET_NAME_PARTS.map((part) => `${command} *${part}*`),
-  ),
-];
-
-/**
- * Read-only inspection (`ls`, `cat`, `grep`, `git remote -v`, `git branch -a`,
- * `find`, ...) is not listed in `allow`: the engine runs those unasked inside
- * the workspace and itself asks for an outside path, `find -exec|-delete|-fprint`,
- * `tree -o` and `rg --pre`. What it does not see is that `.env` is a secret, so
- * the readers of file content ask when a secret's name is on the line. By
- * name only: `cat .e*`, `grep -r . .` and a symlink named innocently get past
- * it, as they do past the Read tool, which the engine allows in the workspace.
- * The container and the egress proxy are what hold the content in.
- */
-const SECRET_READERS = ["cat", "head", "tail", "grep", "rg"];
-
-/**
- * Where a file name begins in a command line: the first operand, or after a
- * space, a slash or a quote. Matching them anywhere would ask for
- * `process.env` and `src/credentials.ts`, which are code and not secrets.
- */
-const CLUSTER_LETTERS = [..."nHiswNlcoF"];
-const NAME_STARTS = [
-  " ",
-  "/",
-  '"',
-  "'",
-  "=",
-  // `grep -f.env`, `grep -nf.env`: a pattern file named right after the flag.
-  "-f",
-  ...CLUSTER_LETTERS.map((letter) => `-${letter}f`),
-];
-
-/** Matched where the name ends, so `object.keys.ts` is not a key file. */
-const SECRET_EXTENSIONS = [".pem", ".key", ".p12", ".pfx", ".keystore"];
-
-/** File names that are secrets, matched from where the name begins. */
-const SECRET_READ_NAMES = [
-  ...SECRET_NAME_PARTS.filter(
-    (part) =>
-      part !== "credentials" &&
-      part !== "service-account" &&
-      !SECRET_EXTENSIONS.includes(part),
-  ),
-  // Only the JSON key files, as in SENSITIVE_PATHS; `service-account.ts` is code.
-  "service-account*.json",
-  ".git/config",
-];
-
-/** The ask patterns for one reader and every spelling above. */
+/** The ask patterns for one reader and every spelling of a secret's name. */
 function secretReadPatterns(command: string): string[] {
-  const names = SECRET_READ_NAMES.flatMap((name) => [
+  const read = policy.secretRead;
+  const letters = [...read.clusterLetters];
+  const starts = [...read.nameStarts, ...letters.map((l) => `-${l}f`)];
+  const names = [
+    ...policy.secretNameParts.filter(
+      (part) =>
+        !read.notAReadName.includes(part) && !read.extensions.includes(part),
+    ),
+    ...read.extraNames,
+  ].flatMap((name) => [
     `${command} ${name}*`,
-    ...NAME_STARTS.map((start) => `${command} *${start}${name}*`),
+    ...starts.map((start) => `${command} *${start}${name}*`),
   ]);
-  const extensions = SECRET_EXTENSIONS.flatMap((extension) => [
+  const extensions = read.extensions.flatMap((extension) => [
     `${command} *${extension}`,
-    ...[" ", '"', "'"].map((end) => `${command} *${extension}${end}*`),
+    ...read.extensionEnds.map((end) => `${command} *${extension}${end}*`),
   ]);
   return [...names, ...extensions];
 }
 
-/**
- * `rg` skips hidden files (dotenv files among them) unless told not to, and
- * `-uu` turns that off. It can be spelled `-uu`, `-nuu`, `-u -u` or `-unu`, so
- * any flag that starts with `-u` asks, and so does one letter then `uu`. `*`
- * crosses spaces, so a bare `-*uu*` would ask for `rg -n uuid src`. A `u` in the
- * middle of a longer cluster (`-nunu`, `-ninuu`) is not caught.
- */
-const FLAG_LETTERS = [
-  ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-];
-const RG_HIDDEN_ASK = [
-  "rg *--hidden*",
-  "rg *--no-ignore*",
-  "rg *--unrestricted*",
-  "rg -u*",
-  "rg * -u*",
-  ...FLAG_LETTERS.flatMap((letter) => [
-    `rg -${letter}uu*`,
-    `rg * -${letter}uu*`,
-  ]),
-  // Two of the usual flags before `uu` (`-nHuu`).
-  ...CLUSTER_LETTERS.flatMap((first) =>
-    CLUSTER_LETTERS.flatMap((second) => [
-      `rg -${first}${second}uu*`,
-      `rg * -${first}${second}uu*`,
+function rgHiddenPatterns(): string[] {
+  const letters = [...policy.secretRead.clusterLetters];
+  return [
+    ...policy.rgHidden.ask,
+    ...[...policy.rgHidden.letterBeforeUU].flatMap((letter) => [
+      `rg -${letter}uu*`,
+      `rg * -${letter}uu*`,
     ]),
-  ),
-  // Two of the usual flags before `uu` (`-nHuu`).
-];
-
-/** Test and script runners; the workspace's own code runs through them. */
-const DEV_COMMANDS = [
-  "bun test",
-  "bun run",
-  "npm test",
-  "npm run",
-  "pnpm test",
-  "pnpm run",
-  "yarn test",
-  "yarn run",
-];
-
-/** Ways those runners are pointed at code or a shell outside the workspace. */
-const DEV_ASK = [
-  "* --prefix*",
-  "* --script-shell*",
-  "* --cwd*",
-  "* -C *",
-  "* /*",
-  "* ..*",
-  "* */../*",
-];
+    // Two of the usual flags before `uu` (`-nHuu`).
+    ...letters.flatMap((first) =>
+      letters.flatMap((second) => [
+        `rg -${first}${second}uu*`,
+        `rg * -${first}${second}uu*`,
+      ]),
+    ),
+  ];
+}
 
 export type WorkspaceRules = { allow: string[]; ask: string[] };
 
@@ -296,23 +216,36 @@ export function workspaceRules(
   if (["Write", "Edit", "NotebookEdit"].some((tool) => tools.has(tool))) {
     for (const root of workspaceRoots(cwd)) {
       allow.push(`Edit(/${root}/**)`);
-      for (const path of SENSITIVE_PATHS) ask.push(`Edit(/${root}/${path})`);
+      for (const path of policy.sensitiveEditPaths) {
+        ask.push(`Edit(/${root}/${path})`);
+      }
     }
   }
   if (tools.has("Bash")) {
-    for (const command of [...LOCAL_GIT, ...LOCAL_FS, ...DEV_COMMANDS]) {
+    for (const command of [
+      ...policy.git.allow,
+      ...policy.fs.allow,
+      ...policy.dev.commands,
+    ]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
-    allow.push(...GIT_EXACT.map((command) => `Bash(${command})`));
-    ask.push(...GIT_ASK.map((pattern) => `Bash(${pattern})`));
-    ask.push(...LOCAL_FS_ASK.map((pattern) => `Bash(${pattern})`));
-    for (const command of SECRET_READERS) {
+    allow.push(...policy.git.exact.map((command) => `Bash(${command})`));
+    ask.push(
+      ...[
+        ...policy.git.ask,
+        ...policy.git.askWhenSecretNamed.flatMap((command) =>
+          policy.secretNameParts.map((part) => `${command} *${part}*`),
+        ),
+      ].map((pattern) => `Bash(${pattern})`),
+    );
+    ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
+    for (const command of policy.secretRead.readers) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
     }
-    ask.push(...RG_HIDDEN_ASK.map((pattern) => `Bash(${pattern})`));
-    for (const command of DEV_COMMANDS) {
+    ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
+    for (const command of policy.dev.commands) {
       // `*` stands for the operands before the flag, which may be none.
-      for (const flag of DEV_ASK) {
+      for (const flag of policy.dev.ask) {
         ask.push(
           `Bash(${command}${flag.slice(1)})`,
           `Bash(${command} ${flag})`,
