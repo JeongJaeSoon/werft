@@ -473,6 +473,15 @@ export function createAgentService(deps: {
       status: "failed",
       reason,
     });
+    // Rollout, migration and unlock re-release a stored card without a save,
+    // so the reserved-name check cannot live only on the save path.
+    if (
+      declaredEnvNames(version.card).some(
+        (name) => envNameProblem(name) === "reserved",
+      )
+    ) {
+      return failed("variable_name_reserved");
+    }
     let profile: CatalogProfile;
     try {
       profile = await usableProfile(caller.ownerId, profileId, {
