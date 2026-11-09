@@ -78,6 +78,8 @@ const MIGRATIONS_ONLY = [
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
+  // 0259: a live session needs a spec pin once the cutover flag is on.
+  "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 dabbdd14148a7ec61247fb6977ac869f",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
@@ -124,6 +126,8 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER provider_usage_count_truncate AFTER TRUNCATE ON public.provider_usage FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_clear() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_env_values_trg BEFORE UPDATE OF admission_state ON public.sessions FOR EACH ROW WHEN (((new.admission_state = 'closed'::admission_state) AND (old.admission_state IS DISTINCT FROM 'closed'::admission_state) AND (new.env_start IS NOT NULL))) EXECUTE FUNCTION sessions_clear_env_values() enabled=O",
   "trigger CREATE TRIGGER sessions_clear_pause_reason BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN (((new.pause_reason IS NOT NULL) AND (new.admission_state <> ALL (ARRAY['pausing'::admission_state, 'paused'::admission_state])))) EXECUTE FUNCTION sessions_clear_pause_reason() enabled=O",
+  "trigger CREATE TRIGGER sessions_pin_required_insert BEFORE INSERT ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
+  "trigger CREATE TRIGGER sessions_pin_required_update BEFORE UPDATE OF status, model, agent_release_id, runtime_spec, spec_source, spec_source_digest, spec_digest ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_delete AFTER DELETE ON public.tool_calls REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_recount() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_truncate AFTER TRUNCATE ON public.tool_calls FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_clear() enabled=O",
