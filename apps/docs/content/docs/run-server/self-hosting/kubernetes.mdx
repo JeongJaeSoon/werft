@@ -54,7 +54,7 @@ Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)�
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
 | `BOOTSTRAP_TOKEN` | 기본 API replica 2개에 같은 32–256자 토큰을 공급해야 한다. Secret에 만들고 아래 values의 `secrets.catalogEnv`에 포함한다 |
-| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 아래 values의 `secrets.catalogEnv`에서 이 이름만 뺀다. `BOOTSTRAP_TOKEN`은 남긴다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
+| `ANTHROPIC_API_KEY` | 선택. 세션이 쓸 Anthropic key의 기본 경로는 설치 뒤 콘솔의 **설정 > 에이전트 연결 > 모델 연결 > 연결 추가**다. 이 키는 환경 변수로 주는 대안이고, 두면 api에만 간다. 두지 않으면 아래 values의 `secrets.catalogEnv`에서 이 이름만 뺀다. `BOOTSTRAP_TOKEN`은 남긴다. chart 기본값은 이 키를 api에 넘기므로 Secret에 없으면 Pod가 뜨지 않는다 |
 
 ```bash
 kubectl create namespace werft

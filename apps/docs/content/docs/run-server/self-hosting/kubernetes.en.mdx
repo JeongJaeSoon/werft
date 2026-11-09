@@ -59,7 +59,7 @@ Create the Secret from a directory containing one file per key (`0700`, filename
 | `PLATFORM_SECRET_KEY` | 64-character hex from `openssl rand -hex 32`, used to seal stored credentials. Without it, Pods cannot start |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Object store keys. To sign through IRSA, omit both and set `secrets.objectStoreKeys: false` and `serviceAccounts.api.annotations` in values |
 | `BOOTSTRAP_TOKEN` | Supply the same 32–256-character token to the default 2 API replicas. Create it in the Secret and include it in `secrets.catalogEnv` below |
-| `ANTHROPIC_API_KEY` | Optional. The default path for session Anthropic keys is console **Settings > Workspace settings > Model connections > Add connection** after installation. This key is the environment-variable alternative and goes only to api. If omitted, remove only this name from `secrets.catalogEnv` below; retain `BOOTSTRAP_TOKEN`. The chart defaults pass this key to api, so a missing Secret key prevents Pods from starting |
+| `ANTHROPIC_API_KEY` | Optional. The default path for session Anthropic keys is console **Settings > Agent connections > Model connections > Add connection** after installation. This key is the environment-variable alternative and goes only to api. If omitted, remove only this name from `secrets.catalogEnv` below; retain `BOOTSTRAP_TOKEN`. The chart defaults pass this key to api, so a missing Secret key prevents Pods from starting |
 
 ```bash
 kubectl create namespace werft
