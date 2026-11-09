@@ -527,7 +527,6 @@ function AgentView({
   });
   const releaseTab = useRef<HTMLButtonElement>(null);
   const tabRow = useRef<HTMLDivElement>(null);
-  // The row scrolls on a phone, so a tab opened by link may sit off screen.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the tab changes
   useEffect(() => {
     tabRow.current
@@ -565,10 +564,9 @@ function AgentView({
       onValueChange={(next) => openTab(next as AgentTab)}
       className="min-w-0 gap-[var(--werft-space-block)]"
     >
-      {/* Seven tabs outgrow a phone in en/ja: scroll the row, not the page.
-          overflow-y-hidden because the active underline overhangs the row by
-          1px, and overflow-x alone makes y `auto` (a vertical scrollbar where
-          scrollbars take space). */}
+      {/* overflow-y-hidden: the active underline overhangs the row by 1px, and
+          overflow-x alone makes y `auto` (a vertical scrollbar where scrollbars
+          take space). */}
       <div ref={tabRow} className="overflow-x-auto overflow-y-hidden border-b">
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (

@@ -143,7 +143,6 @@ function routesFor(
 
 const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
-/** The repository switch of `acme/<repo>`. */
 const repoSwitch = (repo: string) => switchNamed(`acme/${repo} 사용`);
 const ACCESS = `PUT ${PATH}/github/repository-access`;
 const accessed = (revision = 4) =>
@@ -153,7 +152,6 @@ const accessed = (revision = 4) =>
     enabled: true,
     repository: { ref: "r1.x", repository: "acme/x", private: null },
   });
-/** Opens a folded section the way the side nav does. */
 async function openSection(
   user: Awaited<ReturnType<typeof setupUser>>,
   name: string,
@@ -207,7 +205,6 @@ describe("에이전트 GitHub 탭", () => {
         },
       });
       const user = await setupUser();
-      // Closed, the activity asks for nothing; opening it is what reads.
       if (read === "github/activity") {
         await screen.findByRole("heading", { name: "저장소" });
         await openSection(user, "최근 기록");
@@ -267,7 +264,6 @@ describe("에이전트 GitHub 탭", () => {
                 full_name: "acme/api",
                 default_branch: "main",
                 private: false,
-                // Once turned on, the server's page names the catalog row.
                 catalog_id: tab.options.repositories.some((r) => r.id === "api")
                   ? "api"
                   : null,
@@ -276,7 +272,6 @@ describe("에이전트 GitHub 탭", () => {
             unavailable: null,
           }),
         [ACCESS]: () => {
-          // Turned on, the catalog now holds it and the tab follows.
           tab.options.repositories.push({
             id: "api",
             url: "https://github.com/acme/api.git",
@@ -292,7 +287,6 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     const user = await setupUser();
-    // One list: the catalog's rows and the installation's page together.
     await screen.findByRole("switch", { name: "acme/werft-sandbox 사용" });
     expect(repoSwitch("werft-sandbox").getAttribute("aria-checked")).toBe(
       "true",
@@ -300,7 +294,6 @@ describe("에이전트 GitHub 탭", () => {
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("false");
     const api77 = await screen.findByRole("switch", { name: "acme/api 사용" });
     expect(api77.getAttribute("aria-checked")).toBe("false");
-    // The installation says which repository is private; a public one has no tag.
     expect(
       within(
         repoSwitch("werft-sandbox").closest("li") as HTMLElement,
@@ -325,7 +318,6 @@ describe("에이전트 GitHub 탭", () => {
       repository: { installation_id: 77, github_repository_id: 12 },
       enabled: true,
     });
-    // Saved at once: no draft box, no settings PUT.
     expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
     expect(
       api.calls.filter((c) => c.path.endsWith("/github/settings")),
@@ -490,7 +482,6 @@ describe("에이전트 GitHub 탭", () => {
       ["세부 설정", "github-details"],
       ["최근 기록", "github-activity"],
     ] as const;
-    // The nav lists them in the order they sit on the page.
     expect(
       within(nav)
         .getAllByRole("link")
@@ -504,7 +495,6 @@ describe("에이전트 GitHub 탭", () => {
       expect(section.getAttribute("tabindex")).toBe("-1");
       expect(document.activeElement === section).toBe(true);
     }
-    // A jump to a folded section opens it first.
     for (const id of ["github-details", "github-activity"]) {
       expect(document.getElementById(id)?.hasAttribute("open")).toBe(true);
     }
@@ -534,11 +524,9 @@ describe("에이전트 GitHub 탭", () => {
     }
     expect(nodes[3]?.hasAttribute("open")).toBe(false);
     expect(nodes[4]?.hasAttribute("open")).toBe(false);
-    // Folded, the record reads nothing.
     expect(
       api.calls.filter((c) => c.path === `${PATH}/github/activity`),
     ).toEqual([]);
-    // No badge says "from the next session" any more.
     expect(screen.queryByText("다음 세션부터")).toBeNull();
   });
 
@@ -927,7 +915,6 @@ describe("에이전트 GitHub 탭", () => {
       "true",
     );
     await user.click(repoSwitch("werft-sandbox"));
-    // The click shows at once, before the server answers.
     await waitFor(() =>
       expect(repoSwitch("werft-sandbox").getAttribute("aria-checked")).toBe(
         "false",
@@ -947,7 +934,6 @@ describe("에이전트 GitHub 탭", () => {
       ).toBeGreaterThan(1),
     );
     expect(puts()).toHaveLength(1);
-    // No draft: no box, no save button, no settings PUT.
     expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull();
     expect(screen.queryByRole("button", { name: "저장" })).toBeNull();
     expect(
@@ -971,7 +957,6 @@ describe("에이전트 GitHub 탭", () => {
       await within(row).findByText(/저장소를 바꾸지 못했습니다/),
     ).toBeTruthy();
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("false");
-    // The other row carries no message.
     expect(
       within(
         repoSwitch("werft-sandbox").closest("li") as HTMLElement,
@@ -1000,12 +985,10 @@ describe("에이전트 GitHub 탭", () => {
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "저장소" });
-    // Off, on again, then another row: three clicks while the first is out.
     await user.click(repoSwitch("werft-sandbox"));
     await waitFor(() => expect(bodies).toHaveLength(1));
     await user.click(repoSwitch("werft-sandbox"));
     await user.click(repoSwitch("docs-site"));
-    // The row shows the newest wish while earlier requests are still on the way.
     expect(repoSwitch("werft-sandbox").getAttribute("aria-checked")).toBe(
       "true",
     );
@@ -1073,10 +1056,7 @@ describe("에이전트 GitHub 탭", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(screen.queryByText(/저장소를 바꾸지 못했습니다/)).toBeNull();
-    // The cache still says off, but the save went through.
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
-    // Once a re-read succeeds the server's answer wins again (here: someone
-    // else turned it off), instead of the kept click showing forever.
     saved = false;
     await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
     await waitFor(() =>
@@ -1084,6 +1064,41 @@ describe("에이전트 GitHub 탭", () => {
         "false",
       ),
     );
+  });
+
+  test("저장은 됐는데 다시 읽기가 실패한 뒤 끄기가 거절되면 저장된 켠 상태로 돌아간다", async () => {
+    const { server } = await activeAgent();
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
+    const key = `GET ${PATH}/github`;
+    let saved = false;
+    let calls = 0;
+    renderAt(DETAIL, {
+      ...base,
+      [key]: (request: Request) =>
+        saved
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : (base[key] as NonNullable<(typeof base)[string]>)(request),
+      [ACCESS]: () => {
+        calls += 1;
+        saved = true;
+        return calls === 1 ? accessed() : apiError(403, "FORBIDDEN", "no");
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    await user.click(repoSwitch("docs-site"));
+    await screen.findByRole("alert");
+    expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
+    await user.click(repoSwitch("docs-site"));
+    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    expect(
+      await within(row).findByText(/저장소를 바꾸지 못했습니다/),
+    ).toBeTruthy();
+    // The server still holds "on": the failed re-read must not show "off".
+    expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
   });
 
   test("설치 목록에만 있던 저장소를 켠 뒤 설치 목록만 새로 읽혀도 켠 채로 보인다", async () => {
@@ -1122,7 +1137,6 @@ describe("에이전트 GitHub 탭", () => {
               full_name: "acme/api",
               default_branch: "main",
               private: false,
-              // The installation page already knows the catalog took it.
               catalog_id: saved ? "api" : null,
             },
           ],
@@ -1138,7 +1152,6 @@ describe("에이전트 GitHub 탭", () => {
       await screen.findByRole("switch", { name: "acme/api 사용" }),
     );
     await screen.findByRole("alert");
-    // Only the installation page moved on: the saved choice is still shown.
     expect(switchNamed("acme/api 사용").getAttribute("aria-checked")).toBe(
       "true",
     );
@@ -1176,16 +1189,12 @@ describe("에이전트 GitHub 탭", () => {
     );
     const rowOf = (rows: typeof before) =>
       rows.find((row) => row.name === "acme/api");
-    // Installed-only, then taken by the catalog: the React key (focus) holds.
     expect(rowOf(before)?.key).toBe("gh:12");
     expect(rowOf(after)?.anchor).toBe(rowOf(before)?.anchor ?? "");
-    // The switch state key (the anchor) is the name: the same whether the
-    // catalog holds the repository yet and whichever page is showing.
     expect(rowOf(after)?.anchor).toBe("acme/api");
     expect(rowOf(repositoryRows(taken, [], [], null))?.anchor).toBe("acme/api");
     expect(rowOf(before)?.anchor).toBe("acme/api");
 
-    // A dropped row and a re-registered one with the same name stay apart.
     const twins = structuredClone(taken);
     twins.selected_repositories = [
       {
@@ -1229,7 +1238,6 @@ describe("에이전트 GitHub 탭", () => {
           ?.getAttribute("aria-checked"),
       ).toBe("true"),
     );
-    // Settled: the draft's older repository list does not undo it.
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
   });
@@ -1262,7 +1270,6 @@ describe("에이전트 GitHub 탭", () => {
     await screen.findByRole("heading", { name: "저장소" });
     const row = repoSwitch("docs-site").closest("li") as HTMLElement;
     const link = within(row).getByRole("link", { name: "acme/docs-site" });
-    // The clone URL's ".git" never reaches the person.
     expect(link.getAttribute("href")).toBe("https://github.com/acme/docs-site");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
@@ -1598,7 +1605,6 @@ describe("에이전트 GitHub 탭", () => {
                 error: null,
               },
             ],
-            // The receipt only holds the catalog id; the name comes beside it.
             receipt_repositories: [
               { receipt_id: RECEIPT_ID, repository: "acme/werft-sandbox" },
             ],
@@ -1616,7 +1622,6 @@ describe("에이전트 GitHub 탭", () => {
         /^deploy\.yml @ main · acme\/werft-sandbox · 허용 목록 밖 ·$/,
       ),
     ).toBeTruthy();
-    // The alias is not shown anywhere on the row.
     expect(within(rows).queryByText(/(^| )werft-sandbox( |$)/)).toBeNull();
     expect(
       within(rows).getByRole("link", { name: /세션/ }).getAttribute("href"),
@@ -1721,11 +1726,9 @@ describe("GitHub 탭 계산", () => {
       pendingCount(SETTINGS, {
         ...SETTINGS,
         features: { ...SETTINGS.features, review: true },
-        // Added and removed: one entry each way.
         actions_allow: [{ workflow: "ci.yml" }],
       }),
     ).toBe(3);
-    // Each repository switch saves on its own, so the list is not drafted.
     expect(
       pendingCount(SETTINGS, { ...SETTINGS, repositories: ["docs-site"] }),
     ).toBe(0);

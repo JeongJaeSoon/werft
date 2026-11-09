@@ -32,41 +32,29 @@ type GitHubTabData = components["schemas"]["AgentGitHubResponse"];
 type Option = GitHubTabData["options"]["repositories"][number];
 
 export type RepositoryRow = {
-  /** Stable across a toggle: the catalog id once there is one. */
   readonly key: string;
   /**
-   * The row's identity in the list: the React key and the key of its switch
-   * state. The name, because it is the one thing that stays the same when the
-   * catalog takes an installed-only repository (`key` changes then) and
-   * whichever installation page is showing; the id is added only for two rows
-   * that share a name.
+   * The React key and the key of the row's switch state. The name, because it
+   * survives the catalog taking an installed-only repository (`key` changes
+   * then); the id is added only for two rows that share a name.
    */
   readonly anchor: string;
-  /** `owner/repo`. */
   readonly name: string;
   readonly href: string;
   readonly private: boolean;
   readonly on: boolean;
-  /** Why it cannot be turned on, when it cannot. */
   readonly blocked: Option["reason"] | "no_target" | null;
   readonly appMissing: boolean;
-  /** Null: the server has no handle for it yet and no installation lists it. */
   readonly target: RepositoryTarget | null;
 };
 
 const GITHUB = "https://github.com/";
 
-/** The repository's page, from its clone URL when that is a web address. */
 function pageOf(url: string | undefined, name: string): string {
   if (url?.startsWith("https://")) return url.replace(/\.git$/, "");
   return `${GITHUB}${name}`;
 }
 
-/**
- * One row per repository the agent may use: the catalog's, the selected ones
- * the catalog no longer lists, and the page of the App installation the
- * person is looking at. Sorted by name so a switch never moves its row.
- */
 export function repositoryRows(
   data: GitHubTabData,
   chosen: readonly string[],
@@ -113,7 +101,6 @@ export function repositoryRows(
   const byName = new Map<string, RepositoryRow>();
   for (const row of rows.values()) {
     const name = row.name.toLowerCase();
-    // The catalog's row, which comes first, wins over a dropped one.
     if (!byName.has(name)) byName.set(name, row);
   }
   for (const listed of installed) {
@@ -132,7 +119,6 @@ export function repositoryRows(
                 installation_id: installationId,
                 github_repository_id: listed.github_repository_id,
               }),
-        // Listed by the installation, so there is a handle after all.
         blocked:
           known.blocked === "no_target" && installationId !== null
             ? null
@@ -176,10 +162,6 @@ export function repositoryRows(
   });
 }
 
-/**
- * The agent's repositories in one list: a link to each on GitHub and one
- * switch, saved as soon as it is flipped.
- */
 export function RepositoryList({
   agentId,
   data,
@@ -190,7 +172,6 @@ export function RepositoryList({
 }: {
   readonly agentId: string;
   readonly data: GitHubTabData;
-  /** Catalog ids the settings name. */
   readonly chosen: readonly string[];
   readonly manages: boolean;
   readonly editable: boolean;
@@ -200,7 +181,6 @@ export function RepositoryList({
   const { client } = useWerft();
   const [installation, setInstallation] = useState<number | undefined>();
   const [page, setPage] = useState(1);
-  // Only someone who manages the agent may read the App's installations.
   const list = useQuery({
     queryKey: [
       ...queryKeysOf(client).agent(agentId),
@@ -235,7 +215,6 @@ export function RepositoryList({
     setPage(1);
   }, [gone]);
 
-  // A listed ceiling offers the tab's own repositories only.
   const own =
     list.data?.unavailable === "ceiling_listed" ||
     list.data?.unavailable === "no_active_release";
@@ -285,9 +264,7 @@ export function RepositoryList({
               !editable || row.blocked !== null || row.target === null;
             return (
               <SettingRow
-                // The anchor, not the catalog id: that changes once the
-                // catalog takes the repository, and a new key would drop the
-                // switch's focus.
+                // Not the catalog id: a new key after adoption drops focus.
                 key={row.anchor}
                 title={
                   <Link

@@ -104,8 +104,6 @@ function InviteCopy({
   );
 }
 
-// The tag sits beside the channel name, as the private tag does on the GitHub
-// tab's repository rows.
 function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
   const { t } = useI18n();
   return (

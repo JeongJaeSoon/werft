@@ -5,11 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { errorKey, type MessageKey, useI18n } from "../../i18n/i18n.tsx";
 import { githubKey } from "./github-activity.ts";
 
-/**
- * How the server finds the repository: by the `ref` a response gave, or, to
- * turn on one the catalog may not hold yet, by the App installation that
- * lists it.
- */
 export type RepositoryTarget =
   | { readonly ref: string }
   | {
@@ -23,7 +18,7 @@ const REFUSALS: Partial<Record<string, MessageKey>> = {
   name_held: "github.repo.pickNameHeld",
 };
 
-/** Per agent and outside React, so a remount still queues behind a request in flight. */
+/** Per agent and outside React: a remount still waits behind a request in flight. */
 const queues = new Map<string, Promise<void>>();
 
 const without = <V>(
@@ -35,12 +30,11 @@ const without = <V>(
 };
 
 /**
- * One request per switch, sent one after another for the whole agent: the
- * server keeps a single settings revision, so two in flight at once would
- * race for it. A click shows at once (`wanted`); it goes back to what the
- * server holds when the request is refused, with the reason in `errors`.
- * Each request carries the state the person asked for, never a flip of
- * whatever the server held when its turn came.
+ * One request per switch, run one after another for the whole agent: the
+ * server keeps a single settings revision, so two at once would race for it.
+ * A click shows at once (`wanted`) and goes back when refused, with the
+ * reason in `errors`. A request carries the state asked for, never a flip of
+ * what the server held when its turn came.
  */
 export function useRepositoryToggles(agentId: string) {
   const { client } = useWerft();
@@ -49,17 +43,19 @@ export function useRepositoryToggles(agentId: string) {
   const [wanted, setWanted] = useState<Readonly<Record<string, boolean>>>({});
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   const [pending, setPending] = useState(0);
-  // The newest click per row: an older request finishing must not clear it.
   const newest = useRef(new Map<string, number>());
   const clicks = useRef(0);
-  // Rows shown from a save whose re-read failed, until a re-read succeeds.
   const kept = useRef(new Set<string>());
+  // What the server last confirmed while the tab's re-read keeps failing: a
+  // refused request goes back to this, not to the stale cache.
+  const confirmed = useRef(new Map<string, boolean>());
 
   useEffect(() => {
     const own = JSON.stringify(githubKey(client, agentId));
     return cache.getQueryCache().subscribe((event) => {
       if (event.type !== "updated" || event.action.type !== "success") return;
       if (JSON.stringify(event.query.queryKey) !== own) return;
+      confirmed.current.clear();
       if (kept.current.size === 0) return;
       const done = [...kept.current];
       kept.current.clear();
@@ -89,6 +85,7 @@ export function useRepositoryToggles(agentId: string) {
     setPending((count) => count + 1);
     const queued = queues.get(agentId) ?? Promise.resolve();
     const next = queued.then(async () => {
+      // An older request finishing must not clear a newer click on the row.
       const latest = () => newest.current.get(key) === click;
       try {
         await unwrap(
@@ -97,21 +94,27 @@ export function useRepositoryToggles(agentId: string) {
             body: { repository, enabled },
           }),
         );
-        // A failed re-read is the tab's own error, not this switch's.
         await cache.invalidateQueries({
           queryKey: githubKey(client, agentId),
         });
-        // The save went through: while the re-read failed the cache still
-        // holds the old value, so keep showing what was saved.
         const reread = cache.getQueryState(githubKey(client, agentId));
         if (latest()) {
-          if (reread?.status === "error") kept.current.add(key);
-          else setWanted((held) => without(held, key));
+          // The save went through but the re-read failed: the cache still
+          // holds the old value, so keep showing what was saved.
+          if (reread?.status === "error") {
+            kept.current.add(key);
+            confirmed.current.set(key, enabled);
+          } else setWanted((held) => without(held, key));
         }
       } catch (error) {
         const message = refuse(error as ApiError);
         if (latest()) {
-          setWanted((held) => without(held, key));
+          const known = confirmed.current.get(key);
+          if (known === undefined) setWanted((held) => without(held, key));
+          else {
+            kept.current.add(key);
+            setWanted((held) => ({ ...held, [key]: known }));
+          }
           setErrors((held) => ({ ...held, [key]: message }));
         }
         await cache.invalidateQueries({
@@ -122,8 +125,6 @@ export function useRepositoryToggles(agentId: string) {
       }
     });
     queues.set(agentId, next);
-    // Leaving the screen must not drop the queue: the next mount of the tab
-    // waits behind whatever is still in flight.
     void next.then(() => {
       if (queues.get(agentId) === next) queues.delete(agentId);
     });

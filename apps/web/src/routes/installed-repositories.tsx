@@ -45,7 +45,6 @@ export const installationUnusable = (error: unknown) =>
 export const retryUnlessUnusable = (failures: number, error: unknown) =>
   !installationUnusable(error) && failures < 3;
 
-/** The text for a page GitHub could not list, or null when it listed. */
 export function installedUnavailableKey(
   unavailable: string | null,
 ): MessageKey | null {
@@ -54,7 +53,6 @@ export function installedUnavailableKey(
     : (UNAVAILABLE[unavailable] ?? "github.repo.pickNoInstallation");
 }
 
-/** The installation picker; nothing while there is only one to read. */
 export function InstallationSelect({
   page,
   onInstallation,
@@ -64,7 +62,6 @@ export function InstallationSelect({
 }) {
   const { t } = useI18n();
   const selectId = useId();
-  // An empty default page may still list installations another can be read from.
   if (page.installations.length <= (page.installation_id === null ? 0 : 1)) {
     return null;
   }
@@ -101,14 +98,12 @@ export function InstallationSelect({
   );
 }
 
-/** Previous/next under a page; nothing while one page holds everything. */
 export function InstalledPageNav({
   page,
   shown,
   onPage,
 }: {
   readonly page: Pick<Page<never>, "page" | "per_page" | "total_count">;
-  /** How many rows this page lists. */
   readonly shown: number;
   readonly onPage: (page: number) => void;
 }) {

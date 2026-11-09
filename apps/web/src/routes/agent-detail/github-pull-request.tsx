@@ -22,7 +22,6 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import type { Notify } from "../../components/toast.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 
-/** The anchor the tab's side nav jumps to. */
 export const PULL_REQUEST_SECTION = "github-pull-request";
 const SECTION_PROPS = {
   id: PULL_REQUEST_SECTION,

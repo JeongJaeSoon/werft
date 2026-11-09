@@ -80,7 +80,6 @@ type Draft = {
   };
 };
 
-// In the order they sit on the page.
 const SECTION = {
   use: "github-use",
   repositories: "github-repositories",
@@ -121,10 +120,6 @@ export function refusesAgentRef(ref: string): boolean {
 const sameEntry = (a: AllowEntry, b: AllowEntry) =>
   a.workflow === b.workflow && (a.ref ?? null) === (b.ref ?? null);
 
-/**
- * How many things the draft changes from the settings it was made from.
- * Repositories are not drafted: each switch saves on its own.
- */
 export function pendingCount(
   base: Settings,
   draft: Settings,
@@ -156,7 +151,6 @@ function ReceiptRow({
 }: {
   readonly receipt: Receipt;
   readonly detail: AgentDetail;
-  /** `owner/repo` the receipt is about, when the server named one. */
   readonly repository: string | undefined;
 }) {
   const { t, locale } = useI18n();
@@ -233,7 +227,6 @@ function ReceiptRow({
   );
 }
 
-/** A `<details>` the page can also open from outside, with its open state. */
 type Fold = {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -246,7 +239,6 @@ function Activity({
   onOpenChange,
 }: { readonly agentId: string; readonly detail: AgentDetail } & Fold) {
   const { t } = useI18n();
-  // Closed, it asks for nothing.
   const activity = useAgentGitHubActivity(agentId, open);
   const repositories = new Map(
     (activity.data?.receipt_repositories ?? []).map((held) => [
@@ -562,7 +554,6 @@ function GitHubSettings({
     }
     setDraft({
       settings: next,
-      // Kept as read: a save sends the start repository the server holds.
       start: baseStart,
       pushAttached: nextAttached,
       from: draft?.from ?? {
@@ -656,8 +647,6 @@ function GitHubSettings({
             <Button
               type="button"
               size="sm"
-              // A switch still on its way changes the revision this save
-              // would be checked against.
               disabled={
                 (pending === 0 && !firstSave) ||
                 stale ||
@@ -737,8 +726,6 @@ function GitHubSettings({
               <RepositoryList
                 agentId={agentId}
                 data={data}
-                // What the server holds, not the draft: a toggle saves at
-                // once, so an older draft's list would show it undone.
                 chosen={
                   (data.github ?? data.legacy_defaults)?.repositories ?? []
                 }
@@ -1138,7 +1125,6 @@ export default function GitHubTab({
       onClick={(event) => {
         // Stay off the URL hash: the router owns the location.
         event.preventDefault();
-        // A folded section opens first, or the jump lands on a closed lid.
         if (key === "details" || key === "activity") {
           setOpened((held) => ({ ...held, [key]: true }));
         }

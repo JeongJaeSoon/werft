@@ -587,7 +587,6 @@ describe("Slack management", () => {
     });
     const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
-    // The list row carries its tag beside the channel name, not by the switch.
     const use = within(list).getByRole("switch");
     const connected = within(use.closest("li") as HTMLElement);
     const tag = connected.getByText("공개");
