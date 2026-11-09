@@ -356,6 +356,8 @@ integration("action_notice rows on PostgreSQL", () => {
     ["given up on", { status: "failed", errorCode: "not_addressed" }],
     // Waiting in backoff: the update could overtake it.
     ["still waiting to be sent", { status: "pending" }],
+    // A send that may have died before Slack got it.
+    ["whose send is uncertain", { status: "uncertain" }],
   ] as const) {
     test(`an opening notice ${state} does not count as told`, async () => {
       const sessionId = await threadedSession("en");

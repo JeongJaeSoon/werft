@@ -8,7 +8,7 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
 } from "@werft-ai/platform";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
@@ -328,11 +328,12 @@ async function write(
         eq(slackOutbox.sessionId, job.sessionId),
         eq(slackOutbox.kind, "action_notice"),
         sql`${slackOutbox.body} ->> 'link_url' = ${opened.url}`,
-        // Only a notice Slack took counts (`uncertain`: sent, unconfirmed).
-        // One still pending may wait in backoff while this one overtakes
-        // it, or be given up on later; the thread hears "opened" again then,
-        // which is true, rather than "updated" first or alone.
-        inArray(slackOutbox.status, ["sent", "uncertain"]),
+        // Only a notice Slack took counts. `uncertain` may be a send that
+        // died before it reached Slack; one still pending may wait in
+        // backoff while this one overtakes it, or be given up on later. The
+        // thread hears "opened" again then, which is true, rather than
+        // "updated" first or alone.
+        eq(slackOutbox.status, "sent"),
       ),
     )
     .limit(1);
