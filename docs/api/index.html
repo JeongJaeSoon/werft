@@ -4670,6 +4670,37 @@
               }
             ]
           },
+          "attached_repositories": {
+            "description": "`attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The catalog key."
+                },
+                "full_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository."
+                }
+              },
+              "required": [
+                "id",
+                "full_name"
+              ],
+              "additionalProperties": false
+            }
+          },
           "current_turn_id": {
             "anyOf": [
               {
@@ -5318,6 +5349,37 @@
                 "type": "null"
               }
             ]
+          },
+          "attached_repositories": {
+            "description": "`attached_repository_ids` with a name for each, in id order. `[]` is a session confirmed to attach none; absent when the server cannot tell (a server older than the field, or a session whose `attached_repository_ids` is null, where the repositories of its agent release may be reachable).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The catalog key."
+                },
+                "full_name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A name to show, chosen as `repository.full_name` is: the path of the catalog URL's http(s) address, or else the catalog key; null when the catalog no longer lists the repository."
+                }
+              },
+              "required": [
+                "id",
+                "full_name"
+              ],
+              "additionalProperties": false
+            }
           },
           "current_turn_id": {
             "anyOf": [

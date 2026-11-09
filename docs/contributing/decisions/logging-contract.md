@@ -59,7 +59,7 @@ git grep -c -E "instanceof Error \? [a-zA-Z]+\.message" -- '*.ts' ':!*.test.ts'
 |---|---|
 | `apps/control-host/src/pass-loop/loop.ts:481` `console.error(error)` | **로그.** scheduler·reconciler pass 자식 프로세스가 pass 실패를 stack 그대로 stderr에 쓴다. 같은 역할의 다른 줄은 구조화 logger다 |
 | `apps/control-host/src/main.ts:44` | 인자 오류를 쓰고 2로 끝난다(사용법 출력) |
-| `apps/control-host/src/api/auth.ts:214` | bootstrap token을 운영자 터미널에 그대로 보인다. logger는 `*token*` 필드를 가리므로 일부러 logger를 쓰지 않는다(`:205-209` 주석) |
+| `apps/control-host/src/api/auth.ts:214` | `BOOTSTRAP_TOKEN_FILE`이 없을 때 bootstrap token을 운영자 터미널에 그대로 보인다(있으면 파일에만 쓴다). logger는 `*token*` 필드를 가리므로 일부러 logger를 쓰지 않는다(`:205-209` 주석) |
 | `apps/control-host/src/api/{keys,grants,settings,forget-lost-checkpoints,demo-accounts,demo-data,slack-app,slack-install,upgrade-check}.ts`, `apps/control-host/src/scheduler/migrate-workspace.ts:174` | 운영자 CLI의 결과·거절 출력 |
 | `apps/worker/src/image-runtime.ts:72` | 이미지 빌드 때 쓰는 CLI의 JSON 출력 |
 | `apps/egress-proxy/src/healthcheck.ts:74` | Docker healthcheck의 실패 이유 |

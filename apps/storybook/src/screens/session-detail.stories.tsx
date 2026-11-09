@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionDetail } from "@werft-ai/react/blocks";
 import { Button, EmptyState, Section, Text } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
+import { expect } from "storybook/test";
 import { I18nProvider } from "../../../web/src/i18n/i18n.tsx";
 import { SessionWorkspaceLimit } from "../../../web/src/routes/session-workspace-limit.tsx";
 
@@ -267,5 +268,133 @@ export const OwnerMobileDark: Story = {
 export const MemberMobile: Story = {
   ...Member,
   name: "공유받은 구성원 (390px)",
+  globals: MOBILE,
+};
+
+const PUSHED_AT = "2026-10-21T01:00:00.000Z";
+
+const pushRequest = (fields: Record<string, unknown>) => ({
+  id: "019a0000-0000-7000-8000-0000000000a1",
+  session_id: SESSION.id,
+  repository_id: "api",
+  checkpoint_revision: 2,
+  git_commit: "a".repeat(40),
+  target_branch: "agent/session-1",
+  state: "pushed",
+  requested_by: {
+    principal: { kind: "api_key", id: "key-1" },
+    actor_user_id: null,
+    agent_id: null,
+  },
+  requested_at: PUSHED_AT,
+  resolved_by: null,
+  resolved_at: null,
+  resolution_reason: null,
+  request_receipt_id: "019a0000-0000-7000-8000-0000000000b1",
+  resolution_receipt_id: null,
+  finished_at: PUSHED_AT,
+  push_receipt_id: null,
+  origin: "direct",
+  flow: "actions",
+  pr_state: "opened",
+  pr_error: null,
+  pr_number: 12,
+  pr_url: "https://github.com/acme/api/pull/12",
+  ...fields,
+});
+
+const infoRoutes = (
+  repositories: { id: string; full_name: string | null }[],
+  work: { items: unknown[]; intents: unknown[] },
+  own: boolean,
+): FakeRoutes => ({
+  ...routes({
+    detail: {
+      ...TITLED,
+      repository: own ? TITLED.repository : null,
+      repository_id: own ? TITLED.repository_id : null,
+      attached_repository_ids: repositories.map((item) => item.id),
+      attached_repositories: repositories,
+    },
+  }),
+  [`GET ${base}/push-requests`]: () => json(200, work),
+});
+
+const openInfo: Story["play"] = async ({ canvas, userEvent }) => {
+  await userEvent.click(await canvas.findByRole("tab", { name: /^정보/ }));
+  await expect(await canvas.findByRole("tabpanel")).toBeVisible();
+};
+
+/** Zero repositories: the list says none and asks nothing of GitHub. */
+export const InfoRepositoriesNone: Story = {
+  name: "정보 탭: 저장소 0개",
+  parameters: { api: infoRoutes([], { items: [], intents: [] }, false) },
+  play: openInfo,
+};
+
+/** One repository, the session's own, with no push asked for yet. */
+export const InfoRepositoriesOne: Story = {
+  name: "정보 탭: 저장소 1개",
+  parameters: { api: infoRoutes([], { items: [], intents: [] }, true) },
+  play: openInfo,
+};
+
+/**
+ * Three: a pushed branch with its pull request, a newer failed ask hiding
+ * behind an older push (the newer one shows), and one never asked for.
+ */
+export const InfoRepositoriesThree: Story = {
+  name: "정보 탭: 저장소 3개",
+  parameters: {
+    api: infoRoutes(
+      [
+        { id: "api", full_name: "acme/api" },
+        { id: "docs", full_name: "acme/docs" },
+      ],
+      {
+        items: [
+          pushRequest({}),
+          pushRequest({
+            id: "019a0000-0000-7000-8000-0000000000a2",
+            repository_id: "docs",
+            pr_state: null,
+            pr_number: null,
+            pr_url: null,
+          }),
+        ],
+        intents: [
+          {
+            id: "019a0000-0000-7000-8000-0000000000c1",
+            session_id: SESSION.id,
+            repository_id: "docs",
+            target_branch: "agent/session-1-fix",
+            status: "failed",
+            refusal_code: null,
+            push_request_id: null,
+            created_at: "2026-10-21T01:00:30.000Z",
+          },
+        ],
+      },
+      true,
+    ),
+  },
+  play: openInfo,
+};
+
+export const InfoRepositoriesNoneMobile: Story = {
+  ...InfoRepositoriesNone,
+  name: "정보 탭: 저장소 0개 (390px)",
+  globals: MOBILE,
+};
+
+export const InfoRepositoriesOneMobile: Story = {
+  ...InfoRepositoriesOne,
+  name: "정보 탭: 저장소 1개 (390px)",
+  globals: MOBILE,
+};
+
+export const InfoRepositoriesThreeMobile: Story = {
+  ...InfoRepositoriesThree,
+  name: "정보 탭: 저장소 3개 (390px)",
   globals: MOBILE,
 };

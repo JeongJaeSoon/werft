@@ -1,9 +1,5 @@
 import type { ReceiptActor } from "@werft-ai/contracts";
-import {
-  type Principal,
-  type SessionBudget,
-  storedPendingReasonBlocks,
-} from "@werft-ai/platform";
+import type { Principal, SessionBudget } from "@werft-ai/platform";
 import {
   and,
   asc,
@@ -376,50 +372,7 @@ export function controlClock(callerNow: Date, startedAt: number): Date {
   return new Date(callerNow.getTime() + Math.max(0, Date.now() - startedAt));
 }
 
-/**
- * Whether the checkpoint the session points at can be restored from. A
- * blocking reason (a dropped transcript mirror batch) means the
- * pointer may have been taken by the run whose mirror is missing entries, so
- * it is not trusted until a later run commits past it. An advisory one (the
- * run was not quiescent) only says the newest turn went uncaptured; the
- * pointer it left is still the one to resume from — distrusting
- * it would wedge a stopped session, which no later commit ever reaches. A
- * pointer at or below the revision a start_fresh decision retired
- * belongs to an engine session the operator already gave up on.
- *
- * Deliberately coarse: a pointer committed by an earlier, healthy run would
- * be safe, but checkpoints do not record their attempt. If that case shows
- * up in practice, key the check on the pointer's attempt against
- * checkpoint_pending_attempt_id instead.
- */
-export function hasRestorePoint<
-  T extends {
-    checkpointRevision: number | null;
-    checkpointPendingReason: string | null;
-    contextResetCheckpointRevision: number | null;
-  },
->(session: T): session is T & { checkpointRevision: number } {
-  return (
-    session.checkpointRevision !== null &&
-    !storedPendingReasonBlocks(session.checkpointPendingReason) &&
-    (session.contextResetCheckpointRevision === null ||
-      session.checkpointRevision > session.contextResetCheckpointRevision)
-  );
-}
-
-/**
- * The checkpoint revision the session's state is actually based on: the
- * pointer's, unless the last restore fell back to an earlier revision
- * because the pointer's checkpoint was damaged and nothing has
- * committed since. Coverage is judged on this one — the pointer's turn
- * watermark describes work the running session no longer has.
- */
-export function restoreBaseRevision(session: {
-  checkpointRevision: number | null;
-  checkpointFallbackRevision: number | null;
-}): number | null {
-  return session.checkpointFallbackRevision ?? session.checkpointRevision;
-}
+export { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
 
 /**
  * Reports accepted receipts matching `overdue` as unknown, at most `limit`

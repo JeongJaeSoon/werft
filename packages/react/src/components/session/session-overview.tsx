@@ -9,13 +9,16 @@ import {
   GridTableRow,
   RelativeTime,
   StatusDot,
-  Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import { createContext, type JSX, type ReactNode, useContext } from "react";
 import { GitBranch } from "../console-icons.ts";
 import { statusDot } from "../status/vocabulary.ts";
+import {
+  RepositorySummary,
+  sessionRepositoriesOf,
+} from "./session-repositories.tsx";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
 
@@ -129,6 +132,8 @@ export interface SessionOverviewRowMessages {
   /** The axis name a screen reader hears before the status. */
   readonly statusAxis: string;
   readonly noRepository: string;
+  /** Names the "+N" button after the first repository, e.g. "저장소 2개 더". */
+  readonly moreRepositories: (count: number) => string;
   /** Stands in for a value the session does not have: agent, model, starter. */
   readonly unknown: string;
   /** Heard before the time, which the row shows as a value only. */
@@ -178,12 +183,8 @@ export function SessionOverviewRow({
   // Untitled, the row shows the id's head; the opener's name keeps it whole.
   const name = session.title ?? session.id;
   const at = session.last_event_at ?? session.created_at;
-  // A server older than the repository field sends only the catalog key.
-  const repositoryName = session.repository
-    ? (session.repository.full_name ?? messages.unknown)
-    : session.repository_id;
-  const branch = session.repository?.branch;
-  const RepositoryIcon = repositoryName ? GitBranch : Folder;
+  const repositories = sessionRepositoriesOf(session);
+  const RepositoryIcon = repositories.length > 0 ? GitBranch : Folder;
   const statusLabel = messages.status(session.status);
   return (
     <GridTableRow
@@ -255,25 +256,14 @@ export function SessionOverviewRow({
           strokeWidth={1.5}
           aria-hidden="true"
         />
-        {repositoryName ? (
-          // A long name gives way first, so the branch stays in sight. Above
-          // the opener, so hovering shows the whole name.
-          <Code
-            className="relative flex min-w-0"
-            title={branch ? `${repositoryName} · ${branch}` : repositoryName}
-          >
-            <span className="min-w-0 truncate">{repositoryName}</span>
-            {branch ? (
-              <span className="max-w-[50%] flex-none overflow-hidden text-ellipsis whitespace-pre">
-                {` · ${branch}`}
-              </span>
-            ) : null}
-          </Code>
-        ) : (
-          <Text as="span" variant="meta" className="truncate">
-            {messages.noRepository}
-          </Text>
-        )}
+        <RepositorySummary
+          repositories={repositories}
+          messages={{
+            none: messages.noRepository,
+            unknown: messages.unknown,
+            more: messages.moreRepositories,
+          }}
+        />
       </GridTableCell>
       {startedBy ? (
         <GridTableCell hideNarrow={true}>
