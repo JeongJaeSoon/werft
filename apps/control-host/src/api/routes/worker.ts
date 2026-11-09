@@ -198,8 +198,6 @@ export function registerWorkerRoutes(
     (principal, body) => gateway.release(principal, body),
   );
 
-  // The one GET of the protocol: it names no body to carry a fence, so the
-  // attempt id is in the path and the fence is the token's own.
   router.get(
     `${WORKER_ROUTE_PREFIX}/attempts/:attempt_id/extensions/:digest`,
     async (context) => {

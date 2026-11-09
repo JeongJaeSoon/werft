@@ -76,8 +76,6 @@ export type WorkerBinding = {
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;
-  // The bundles the session row pinned at create, never the workspace's or
-  // the agent's current ones. Null, empty or absent: none.
   extensions?: readonly SessionExtension[] | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
@@ -444,7 +442,6 @@ export type ExtensionsStateInput = { fence: WorkerFence; now: Date };
 export type ExtensionsStateResult =
   | {
       outcome: "ok";
-      // The partition the session's bundles are stored under.
       ownerScope: string;
       extensions: readonly SessionExtension[];
     }
@@ -618,8 +615,6 @@ export interface WorkerUnitOfWork {
   checkpointStateAtomic(
     input: CheckpointStateInput,
   ): Promise<CheckpointStateResult>;
-  // What the bundle route is held to: the caller still owns the session, and
-  // these are the bundles its row pinned.
   extensionsStateAtomic(
     input: ExtensionsStateInput,
   ): Promise<ExtensionsStateResult>;

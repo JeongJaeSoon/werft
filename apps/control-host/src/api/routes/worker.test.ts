@@ -45,7 +45,6 @@ let db: PgliteDatabase<typeof schema>;
 let app: ReturnType<typeof createApiApp>;
 let gateway: ReturnType<typeof createWorkerGateway>;
 let clock: Date;
-// What the bundle route reads, by `<workspace>/<digest>`.
 const archives = new Map<string, Uint8Array>();
 
 beforeEach(async () => {
@@ -783,7 +782,6 @@ describe("/internal/worker bundles", () => {
       execution_generation: launch.generation,
       credential: { kind: "launch_nonce", nonce },
     });
-    // A replay issues a new credential and revokes the first.
     const again = bootstrapClaimResponseSchema.parse(await replay.json());
     expect(again.runtime_config.extensions).toEqual([LINT]);
     archives.set(`owner-a/${LINT.digest}`, bytes);

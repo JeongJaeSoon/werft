@@ -341,9 +341,6 @@ export type JudgmentEgressGrant = {
   upstream: EgressUpstream;
 };
 
-// What the session row pinned, as the claim names it. The gateway never asks
-// the workspace's or the agent's current bundles: a session claims the list it
-// was created with, however many times it is claimed again.
 function claimedExtensionsOf(
   binding: Pick<WorkerBinding, "extensions">,
 ): RuntimeConfig["extensions"] {
@@ -360,8 +357,6 @@ function withExtensions(
   return extensions === undefined ? config : { ...config, extensions };
 }
 
-// The configs an earlier profile's checkpoints are accepted under run with the
-// same bundles, or a resume would fail the fingerprint it just passed.
 function withRestoreExtensions(
   restore: { restore_runtime_configs?: RuntimeConfig[] },
   extensions: RuntimeConfig["extensions"],
@@ -608,9 +603,7 @@ export function createWorkerGateway(deps: {
     error: unknown,
     cut: { sessionId: string; attemptId: string },
   ) => void;
-  // Absent, the extension bundle route answers 404.
   extensions?: {
-    // The validated, re-packed bundle, or null for a digest nobody stored.
     archive(workspaceId: string, digest: string): Promise<Uint8Array | null>;
   };
   // Absent, the built-in `github` MCP route is refused.
@@ -1825,9 +1818,6 @@ export function createWorkerGateway(deps: {
       }
     },
 
-    // A bundle's bytes for the attempt that holds the session. The digest has
-    // to be one the session's row pinned: the workspace's other bundles, and
-    // what the egress object store route reaches, stay out of this path.
     async extensionBundle(
       principal: WorkerPrincipal,
       request: { attemptId: string; digest: string },

@@ -309,11 +309,6 @@ export function archivedEventSource(
   return { get: (key, version) => objects.get(key, version) };
 }
 
-/**
- * Where the worker route reads a pinned bundle from: the registered bundle's
- * object, under the same bucket and checks `register` wrote it with. Absent
- * without a store, and the route then answers 404.
- */
 export function extensionBundleSource(
   config: CheckpointStorageConfig | "disabled",
   db: Database,

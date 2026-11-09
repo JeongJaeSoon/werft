@@ -306,8 +306,6 @@ export const platformPromptSchema = z
   })
   .strict();
 
-// A bundle the session runs with, as its row pinned it at create. The bytes
-// come from the gateway's extension route, named by `digest`.
 export const runtimeExtensionSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
@@ -346,10 +344,8 @@ export const runtimeConfigSchema = z
     // so a session without variables claims exactly as before. Not part of
     // any fingerprint: changing a value must not break a running session.
     env: runtimeEnvSchema.optional(),
-    // The bundles pinned on the session row, absent when there are none, so
-    // a session without them claims exactly as before. Here, like
-    // `platform_prompt`, so a worker that does not know the field refuses the
-    // claim instead of running without a required bundle.
+    // In the strict claim config, so a worker that does not know the field
+    // refuses the claim instead of running without a required bundle.
     extensions: z
       .array(runtimeExtensionSchema)
       .min(1)

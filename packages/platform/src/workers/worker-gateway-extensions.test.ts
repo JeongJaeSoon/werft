@@ -125,7 +125,6 @@ function claim(binding: WorkerBinding) {
   );
 }
 
-// The strict schema of a worker image from before the field.
 const olderRuntimeConfig = runtimeConfigSchema.omit({ extensions: true });
 
 describe("the claim carries the bundles the session row pinned", () => {
@@ -152,8 +151,6 @@ describe("the claim carries the bundles the session row pinned", () => {
     expect(response.runtime_config.extensions).toEqual([LINT, DOCS]);
     expect(JSON.stringify(response)).not.toContain("0000000e0001");
     expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
-    // A worker built before the field refuses the claim instead of running
-    // without the bundles.
     expect(olderRuntimeConfig.safeParse(response.runtime_config).success).toBe(
       false,
     );
@@ -184,8 +181,6 @@ describe("the claim carries the bundles the session row pinned", () => {
     const pinned = bindingWith([
       { bundle_id: "019a0000-0000-7000-8000-0000000e0001", ...LINT },
     ]);
-    // The gateway has no other source: the unit of work's only other methods
-    // throw when touched, so this passing means no attachment was consulted.
     const first = await claim(pinned);
     const again = await claim(pinned);
     expect(again.runtime_config.extensions).toEqual(

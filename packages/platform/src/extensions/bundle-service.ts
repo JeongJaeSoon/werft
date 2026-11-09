@@ -197,10 +197,6 @@ export function createExtensionBundleService(deps: {
       return validation.bundle;
     },
 
-    /**
-     * The bytes a worker unpacks: the tree `read` validated, packed again, so
-     * what leaves is what the validator rebuilt and not the stored object.
-     */
     async archive(
       workspaceId: string,
       digest: string,

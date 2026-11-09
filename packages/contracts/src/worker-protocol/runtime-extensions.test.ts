@@ -26,8 +26,6 @@ describe("runtime_config.extensions", () => {
   test("a bundle list parses, and the schema of a worker built before the field refuses it", () => {
     const parsed = runtimeConfigSchema.parse({ ...base, extensions: [bundle] });
     expect(parsed.extensions).toEqual([bundle]);
-    // The same strict object without the key: the claim fails closed there,
-    // so the worker never runs without a bundle it was not built to fetch.
     const older = runtimeConfigSchema.omit({ extensions: true });
     expect(older.safeParse(base).success).toBe(true);
     expect(older.safeParse({ ...base, extensions: [bundle] }).success).toBe(
