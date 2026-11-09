@@ -1082,6 +1082,38 @@ describe("activation and the agent's extension bundles", () => {
     expect(memory.activations()).toBe(0);
   });
 
+  test("a release whose tool snapshot lacks Skill is refused though the profile lists it", async () => {
+    const memory = memoryStore();
+    const { release: made } = await serviceOver(
+      memory.store,
+      WITH_SKILL,
+    ).createRelease(owner, AGENT, release);
+    // The snapshot a claim would run instead of the profile's list.
+    const narrowed: AgentRelease = {
+      ...made,
+      runtime_config_snapshot: {
+        ...made.runtime_config_snapshot,
+        tools: ["Read"],
+      },
+    };
+    const narrowedId = deriveReleaseId(narrowed);
+    memory.releases.set(narrowedId, { ...narrowed, id: narrowedId });
+    const error = await overWith(memory.store, WITH_SKILL)
+      .activateAgent(owner, AGENT, {
+        release_id: narrowedId,
+        expected_revision: -1,
+      })
+      .then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+    expect((error as SessionServiceError).details).toMatchObject({
+      reason_code: "skill_tool_not_allowed",
+      bundle: "tools",
+    });
+    expect(memory.activations()).toBe(0);
+  });
+
   test("the same release on a default-mode profile activates", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(

@@ -122,7 +122,9 @@ function setup(options: {
   extensions?: SessionExtensionsDeps;
   accept?: "accepted" | "replayed";
   session?: SessionDetailRecord;
-  changeProfile?: (input: { profile: unknown }) => never;
+  changeProfile?: (input: { profile: unknown }) => unknown;
+  /** The release's tool snapshot; by default the profile's own tools. */
+  releaseTools?: string[];
 }) {
   const accepted: AcceptSessionInput[] = [];
   const policy = createAuthorizationPolicy({
@@ -140,7 +142,9 @@ function setup(options: {
           agent_id: AGENT,
           runtime_profile_id: "coding-v1",
           repository_id: null,
-          runtime_config_snapshot: {},
+          runtime_config_snapshot: {
+            tools: options.releaseTools ?? base.tools,
+          },
           policy_pins: {},
         };
       },
@@ -243,6 +247,39 @@ describe("a profile that does not list Skill", () => {
       bundle: "lint",
     });
     expect(error.message).toContain('Add "Skill" to the profile');
+  });
+
+  test("a release whose tool snapshot lacks Skill is refused though the profile lists it, as the claim would run the snapshot", async () => {
+    const { service, caller } = setup({
+      extensions: extensionDeps([attach(lint, "required")]),
+      releaseTools: ["Read"],
+    });
+    const error = await refusalOf(
+      service.createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      }),
+    );
+    expect(error.details).toMatchObject({
+      reason_code: "skill_tool_not_allowed",
+      bundle: "lint",
+    });
+  });
+
+  test("a snapshot this image cannot read allows no tool, so it is refused too", async () => {
+    const { service, caller } = setup({
+      extensions: extensionDeps([attach(lint, "required")]),
+      releaseTools: "garbled" as never,
+    });
+    const error = await refusalOf(
+      service.createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      }),
+    );
+    expect(error.details).toMatchObject({
+      reason_code: "skill_tool_not_allowed",
+    });
   });
 
   test("still runs a session with no bundles", async () => {
@@ -572,6 +609,27 @@ describe("a profile change judges the bundles the session is pinned to", () => {
 
   test("a scripted bundle accepted on default does not move to an unattended profile", async () => {
     expect(await change([tools], "unattended-v1")).toBeNull();
+  });
+
+  test("the refusal carries the same details as creation and activation", async () => {
+    const { service, caller } = setup({
+      extensions: extensionDeps([]),
+      session: pinnedTo([lint]),
+      // With no profile to move to, the store answers as it does in production.
+      changeProfile: (input) =>
+        input.profile === null ? { outcome: "unsupported" } : { outcome: "ok" },
+    });
+    const error = await refusalOf(
+      service.changeSessionProfile(caller, SESSION, {
+        idempotencyKey: "k",
+        body: { profile_id: "no-skill-v1", expected_revision: 1 },
+      }),
+    );
+    expect(error.code).toBe("UNSUPPORTED_CAPABILITY");
+    expect(error.details).toEqual({
+      reason_code: "skill_tool_not_allowed",
+      bundle: "lint",
+    });
   });
 
   test("a session pinned to bundles does not move to a profile without Skill", async () => {
