@@ -70,6 +70,7 @@ import {
   allowedRun,
   catalogProfile,
   isUnmetered,
+  modelSuccessor,
   type ProfilePin,
   profileFingerprint,
   profileGone,
@@ -493,11 +494,17 @@ export function createSessionService(deps: {
       (run.repository === null ||
         (run.repository.url === record.repo_url &&
           run.repository.branch === record.branch)) &&
-      sessionProfile(
+      (sessionProfile(
         run.profile,
         pinOf(record),
         acceptedRuntimeVersions(catalog),
-      ) !== null
+      ) !== null ||
+        // The next turn's claim moves a session off a dropped model onto its
+        // successor (a row pinned to the profile as it is now), so nothing
+        // blocks it.
+        (record.model !== null &&
+          record.profile_fingerprint === profileFingerprint(run.profile) &&
+          modelSuccessor(run.profile, record.model) !== null))
     );
   }
 
@@ -823,8 +830,18 @@ export function createSessionService(deps: {
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
       const wantedModel = input.body.model ?? releaseModel(release);
+      // A release whose model the profile dropped starts on its successor:
+      // the row keeps the release's model and the first claim moves it, like
+      // any waiting session. A model the body names is the caller's choice
+      // and is refused when not offered.
+      const successor =
+        allowed &&
+        input.body.model === undefined &&
+        wantedModel !== undefined
+          ? modelSuccessor(allowed.profile, wantedModel)
+          : null;
       const runs = allowed
-        ? profileWithModel(allowed.profile, wantedModel)
+        ? profileWithModel(allowed.profile, successor ?? wantedModel)
         : null;
       const staleRuntime =
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
@@ -855,7 +872,10 @@ export function createSessionService(deps: {
         ...(pair
           ? {
               profileFingerprint: profileFingerprint(pair.profile),
-              model: pair.profile.model,
+              model:
+                successor === null || wantedModel === undefined
+                  ? pair.profile.model
+                  : wantedModel,
               unmetered: isUnmetered(pair.profile),
             }
           : {}),

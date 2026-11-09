@@ -504,6 +504,105 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
+  describe("a model the profile dropped while a newer one of its series is listed", () => {
+    const families = {
+      "claude-opus-5-5": { family: "opus", rank: 5 },
+      "claude-opus-5-6": { family: "opus", rank: 6 },
+      "claude-haiku-5-5": { family: "haiku", rank: 5 },
+    };
+    const moved = (models: string[]): SessionCatalog => ({
+      ...catalog,
+      profiles: {
+        ...catalog.profiles,
+        "coding-v1": { ...profile, models, model_families: families },
+      },
+    });
+
+    test("a new session on the release starts on the successor's row, the release untouched", async () => {
+      const { service, caller, accepted } = setup({
+        catalog: moved(["claude-opus-5-6", "claude-haiku-5-5"]),
+      });
+      await service.createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      });
+      // The row names the release's model; the first claim moves it and
+      // writes the timeline event, as for any waiting session.
+      expect(accepted[0]?.model).toBe("claude-opus-5-5");
+      expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+    });
+
+    test("a model the request names is still its own choice and is refused", async () => {
+      const { service, caller, accepted } = setup({
+        accept: "unsupported",
+        catalog: moved(["claude-opus-5-6", "claude-haiku-5-5"]),
+      });
+      const error = await service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: {
+            ...body,
+            agent_release_id: "rel-1",
+            model: "claude-opus-5-5",
+          },
+        })
+        .catch((e: unknown) => e);
+      expect(error).toMatchObject({
+        code: "UNSUPPORTED_CAPABILITY",
+        message: expect.stringContaining("claude-opus-5-5"),
+      });
+      expect(accepted[0]?.repository).toBeNull();
+    });
+
+    test("a newer model of another family is no successor: the release is refused as before", async () => {
+      const { service, caller } = setup({
+        accept: "unsupported",
+        catalog: moved(["claude-haiku-5-5"]),
+      });
+      const error = await service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: { ...body, agent_release_id: "rel-1" },
+        })
+        .catch((e: unknown) => e);
+      expect(error).toMatchObject({
+        code: "UNSUPPORTED_CAPABILITY",
+        message: expect.stringContaining("claude-opus-5-5"),
+      });
+    });
+
+    test("a waiting session shows no attention while one with no successor still does", async () => {
+      const row = (model: string, narrowed: SessionCatalog) => {
+        const listed = narrowed.profiles["coding-v1"];
+        if (!listed) throw new Error("profile missing");
+        return {
+          ...sessionOn("coding-v1"),
+          model,
+          profile_fingerprint: profileFingerprint(listed),
+        };
+      };
+      const withSuccessor = moved(["claude-opus-5-6"]);
+      const a = setup({
+        catalog: withSuccessor,
+        session: row("claude-opus-5-5", withSuccessor),
+      });
+      expect((await a.service.getSession(a.caller, SESSION)).attention).toBe(
+        null,
+      );
+      const without = moved(["claude-haiku-5-5"]);
+      const b = setup({
+        catalog: without,
+        session: row("claude-opus-5-5", without),
+      });
+      expect(
+        (await b.service.getSession(b.caller, SESSION)).attention,
+      ).toMatchObject({
+        code: "CATALOG_MISMATCH",
+        reason: expect.stringContaining("claude-opus-5-5"),
+      });
+    });
+  });
+
   test("a profile naming a runtime the current worker image does not ship takes no new session", async () => {
     const on = (current: string[]) =>
       setup({
