@@ -1018,23 +1018,22 @@ function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
 }
 
 /**
- * The session's model when its profile is still offered under the settings
- * the session was created with, but no longer with that model; null when
- * anything else moved (a changed profile, a dropped pair, a row without a pin).
+ * The session's model when its profile is still offered here, with models of
+ * its own, but none of them is the session's; null when anything else moved
+ * (a dropped pair, a row without a model). Read from the pairs' models, not
+ * their fingerprints: a version 1 fingerprint names its model, so it stops
+ * matching whichever way the list changed.
  */
-function removedModelOf(
+export function removedModelOf(
   session: RunnableFields,
   runnable: readonly RunnablePair[],
 ): string | null {
-  const { model, profileFingerprint } = session;
-  if (model === null || profileFingerprint === null) return null;
-  const offered = runnable.filter(
-    (pair) =>
-      allowsPair(pair, session) &&
-      pair.profileFingerprint === profileFingerprint,
+  const { model } = session;
+  if (model === null) return null;
+  const named = runnable.filter(
+    (pair) => allowsPair(pair, session) && pair.model !== null,
   );
-  return offered.length > 0 &&
-    offered.every((pair) => pair.model !== null && pair.model !== model)
+  return named.length > 0 && named.every((pair) => pair.model !== model)
     ? model
     : null;
 }
