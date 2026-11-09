@@ -25,11 +25,8 @@ const TABS: readonly {
   },
 ];
 
-/**
- * Where the workspace meets outside systems: one page, one tab per system,
- * each tab its own address. The route says which tab is current, so the
- * GitHub App callback under the GitHub address keeps the GitHub tab lit.
- */
+// The route passes `tab` because the GitHub App callback lives under the
+// GitHub address and must keep the GitHub tab current.
 export function IntegrationsLayout({
   tab,
   children,

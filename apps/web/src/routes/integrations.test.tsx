@@ -23,6 +23,7 @@ describe("연동 페이지의 탭", () => {
     [`${GITHUB}/`, "GitHub", "Slack"],
     // The App callback sits under the GitHub address and keeps its tab lit.
     [CALLBACK, "GitHub", "Slack"],
+    [`${CALLBACK}/`, "GitHub", "Slack"],
   ])("%s에서는 %s 탭만 현재 페이지다", async (path, current, other) => {
     renderAt(path, owner);
     const nav = await tabs();

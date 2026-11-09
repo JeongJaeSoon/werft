@@ -215,8 +215,6 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     icon: SettingsIcon,
   });
   if (workspaceManage) {
-    // One item for both tabs; `match` keeps it current on the GitHub tab and
-    // under the GitHub App callback.
     workspace.push({
       to: "/settings/workspace/integrations/slack",
       match: "/settings/workspace/integrations",
