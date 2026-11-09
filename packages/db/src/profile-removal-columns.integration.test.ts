@@ -50,13 +50,11 @@ integration("columns the profile removal reads before it writes", () => {
   });
 
   // The release row's foreign keys are not what this test is about.
-  const release = async (
-    id: string,
-    spec: [unknown, unknown, string, string],
-  ) => {
+  const insertRelease = async (id: string, spec: boolean[] | null) => {
     const client = await pool.connect();
     try {
       await client.query("SET session_replication_role = replica");
+      const [runtimeSpec, specSource, sourceDigest, specDigest] = spec ?? [];
       await client.query(
         `INSERT INTO agent_releases
            (id, agent_id, version_id, card_sha256, runtime_profile_id, profile_digest,
@@ -66,10 +64,10 @@ integration("columns the profile removal reads before it writes", () => {
                  '{}'::jsonb, '{}'::jsonb, $2::jsonb, $3::jsonb, $4, $5)`,
         [
           id,
-          spec[0] === null ? null : JSON.stringify(spec[0]),
-          spec[1] === null ? null : JSON.stringify(spec[1]),
-          spec[2],
-          spec[3],
+          runtimeSpec ? "{}" : null,
+          specSource ? "{}" : null,
+          sourceDigest ? "d" : null,
+          specDigest ? "d" : null,
         ],
       );
     } finally {
@@ -79,28 +77,30 @@ integration("columns the profile removal reads before it writes", () => {
   };
 
   test("a release holds all four spec columns or none", async () => {
-    // An existing release: none of them.
-    const client = await pool.connect();
-    try {
-      await client.query("SET session_replication_role = replica");
-      await client.query(
-        `INSERT INTO agent_releases
-           (id, agent_id, version_id, card_sha256, runtime_profile_id, profile_digest,
-            runtime_config_snapshot, effective_tools)
-         VALUES ('rel-none', gen_random_uuid(), gen_random_uuid(), 'sha', 'p', 'd',
-                 '{}'::jsonb, '{}'::jsonb)`,
-      );
-    } finally {
-      await client.query("SET session_replication_role = DEFAULT");
-      client.release();
+    // A release written before the columns existed sets none of them.
+    await insertRelease("rel-legacy", null);
+
+    // Every set/null combination of the four columns: only 0000 and 1111 pass.
+    for (let mask = 0; mask < 16; mask++) {
+      const spec = [0, 1, 2, 3].map((bit) => (mask & (1 << bit)) !== 0);
+      const attempt = insertRelease(`rel-${mask}`, spec);
+      if (mask === 0 || mask === 15) {
+        await attempt;
+      } else {
+        await expect(attempt).rejects.toThrow(/agent_releases_spec_check/);
+      }
     }
-    await release("rel-all", [{ a: 1 }, { b: 2 }, "sd", "d"]);
-    // Each column set without the others is refused.
-    await expect(
-      release("rel-spec-only", [{ a: 1 }, null, "sd", "d"]),
-    ).rejects.toThrow(/agent_releases_spec_check/);
-    await expect(
-      release("rel-digest-only", [null, null, "sd", "d"]),
-    ).rejects.toThrow(/agent_releases_spec_check/);
+  });
+
+  test("the checks are added NOT VALID, so the migration never scans the tables", async () => {
+    const { rows } = await pool.query(
+      `SELECT conname, convalidated FROM pg_constraint
+       WHERE conname IN ('agent_releases_spec_check', 'provider_connections_auto_mode_check')
+       ORDER BY conname`,
+    );
+    expect(rows).toEqual([
+      { conname: "agent_releases_spec_check", convalidated: false },
+      { conname: "provider_connections_auto_mode_check", convalidated: false },
+    ]);
   });
 });
