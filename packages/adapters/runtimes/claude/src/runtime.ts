@@ -47,14 +47,11 @@ export class ClaudeSdkRuntime {
   constructor(
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
-    // Replaceable so a test can answer the engine's initialization itself.
     private readonly launch: typeof query = query,
   ) {}
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
     validateRuntimeConfig(config, this.policy);
-    // Before the engine exists: a tree that cannot be read fails the start
-    // instead of launching a process that would run without its bundle.
     const expectedSkills =
       config.plugins === undefined || config.plugins.length === 0
         ? undefined
@@ -276,7 +273,6 @@ export function buildSdkOptions(
     ...(config.plugins === undefined || config.plugins.length === 0
       ? {}
       : {
-          // The platform owns MCP: a bundle's own MCP declarations never load.
           plugins: config.plugins.map((plugin) => ({
             ...plugin,
             skipMcpDiscovery: true,

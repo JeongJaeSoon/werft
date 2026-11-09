@@ -15,8 +15,6 @@ export function runtimeRequirementsOf(
 ): RuntimeRequirements {
   const features: FeatureKey[] = [];
   if ((runtimeConfig.mcp_servers ?? []).length > 0) features.push("mcp");
-  // A bundle is skills; an engine that cannot load them must refuse the claim
-  // rather than run the session without them.
   if ((runtimeConfig.extensions ?? []).length > 0) features.push("skills");
   if (runtimeConfig.permission_mode === "auto") {
     features.push("classifier_review");

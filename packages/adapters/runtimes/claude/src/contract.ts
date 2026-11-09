@@ -119,8 +119,6 @@ export function claudeProfileConfig(
   };
 }
 
-// MCP servers and extension plugins both name themselves in `identities`, so
-// they merge here: spreading two partial results would drop one of them.
 function componentConfig(
   bundle: RuntimeStart["bundle"],
 ): Pick<ClaudeProfileConfig, "identities" | "mcpServers" | "plugins"> {
@@ -131,8 +129,6 @@ function componentConfig(
     ...mcp,
     identities: {
       ...mcp.identities,
-      // A bundle is its content digest: a different tree is a different tool
-      // surface, and the same digest is the same one whichever path it sits at.
       plugins: Object.fromEntries(bundles.map((b) => [b.path, b.digest])),
     },
     plugins: bundles.map((b) => ({ path: b.path, type: "local" as const })),

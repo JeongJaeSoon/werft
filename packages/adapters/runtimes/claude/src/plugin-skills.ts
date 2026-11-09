@@ -3,7 +3,6 @@ import { join } from "node:path";
 
 import type { RuntimePlugin } from "./config.ts";
 
-/** A published bundle tree the engine was pointed at cannot be read as one. */
 export class PluginTreeError extends Error {
   constructor(message: string) {
     super(message);
@@ -13,12 +12,10 @@ export class PluginTreeError extends Error {
 
 /**
  * `<plugin name>:<skill>` for every skill directory of each published tree.
- * The worker verified the tree's content hash before publishing it, so what is
- * listed here is what the engine must report back; a skill it does not report
- * means the bundle was not loaded as published. Skills marked
- * `user-invocable: false` are left out: the engine's initialization reply
- * lists only user-invocable skills (the other `system/init.skills` list is a
- * stream message that is not available when the start is checked).
+ * Skills marked `user-invocable: false` are left out: the engine's
+ * initialization reply lists only user-invocable skills (the other
+ * `system/init.skills` list is a stream message that is not available when the
+ * start is checked).
  */
 export function expectedPluginSkills(
   plugins: readonly RuntimePlugin[],
@@ -34,7 +31,6 @@ export function expectedPluginSkills(
   return names.sort();
 }
 
-/** The expected skills the engine's command list does not carry. */
 export function missingSkills(
   expected: readonly string[],
   commands: readonly { name: string }[],
@@ -43,7 +39,6 @@ export function missingSkills(
   return expected.filter((skill) => !reported.has(skill));
 }
 
-/** Anything that is not a plain `user-invocable: false` line counts as invocable. */
 function isHiddenFromUsers(path: string, skill: string): boolean {
   let text: string;
   try {

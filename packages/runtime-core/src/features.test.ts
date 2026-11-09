@@ -56,8 +56,6 @@ describe("runtimeRequirementsOf", () => {
     expect(
       runtimeRequirementsOf({ permission_mode: "default", extensions: [] }),
     ).toEqual({ features: [] });
-    // An engine that cannot load skills is told so before the session runs
-    // without the bundle the claim named.
     expect(unmetFeatures(table, {}, one)).toEqual(["skills"]);
     expect(unmetFeatures({ ...table, skills: "native" }, {}, one)).toEqual([]);
   });

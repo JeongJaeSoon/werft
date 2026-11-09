@@ -154,7 +154,6 @@ export class ClaudeSdkRun implements DriverRun {
     private readonly toolDescriptions: () => ReadonlyMap<string, string> = () =>
       new Map(),
     private readonly mirror?: MirrorProgress,
-    /** Set when the run was handed plugins: what the engine must report loaded. */
     private readonly expectedSkills?: readonly string[],
   ) {}
 
@@ -184,7 +183,6 @@ export class ClaudeSdkRun implements DriverRun {
     await this.history.uuids();
     const initialized = await this.sdkQuery.initializationResult();
     if (this.expectedSkills === undefined) return;
-    // The session must not run without the bundles it was started with.
     if (initialized.plugins_applied !== true) {
       throw new Error(
         "The engine did not load the session's extension bundles",

@@ -38,7 +38,6 @@ export class ExtensionBundleError extends Error {
 
 export type ExtensionBundleRef = { name: string; digest: string };
 
-/** Where a published bundle lives; the engine is handed this exact path. */
 export function publishedBundlePath(home: string, digest: string): string {
   return join(home, ".ext", digest);
 }
