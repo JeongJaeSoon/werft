@@ -42,24 +42,20 @@ const policySchema = z
     git: z
       .object({
         /**
-         * Git that stays on this machine. Each entry is the narrowest shape
-         * that does its job, because the way to stay safe is to allow little:
-         * whatever is not listed (`git checkout <path>`, `git restore` of the
-         * working tree, `git switch -f`, `git stash drop`, `git reset`,
-         * `git clean`, ...) is not allowed and so asks, however its flags are
-         * spelled. A listed shape is followed by an ask pattern for any
-         * further option, so an abbreviated or bundled flag (`--forc`, `-fA`,
-         * `-df`) cannot slip past. `git restore --staged` only unstages;
-         * restoring the working tree discards edits that no object or reflog
-         * keeps, so it is not listed.
+         * Whole programs, `git` and `gh`: a session that makes a pull request
+         * runs many shapes of them, and a compound read such as
+         * `git remote -v | sed ... ; git branch -a` needs every part allowed.
+         * What stops harm is not this list but the boundaries behind it: the
+         * workspace container, the egress authorizer (push target, token
+         * scope) and the branch protection on GitHub.
          */
         allow: patterns,
-        /** Bare forms that must not also take the `*` of the shapes above. */
-        exact: patterns,
         /**
-         * Options that turn a listed shape into one that discards work,
-         * stages a secret or reaches beyond the repository. An option can
-         * come after the operands, so each is matched anywhere in the line.
+         * Shapes carved out of the allow that still reach a person: a file
+         * written or a program run through an option, another repository
+         * than the workspace's, a forced add, and `gh`'s credential commands.
+         * An option can come after the operands, so each is matched anywhere
+         * in the line.
          */
         ask: patterns,
         /**
@@ -67,6 +63,32 @@ const policySchema = z
          * add, so each of these asks when a secret name is on the line.
          */
         askWhenSecretNamed: patterns,
+      })
+      .strict(),
+    /**
+     * Readers the engine does not run unasked on its own (`sed`, which can
+     * also write, and the stream filters). `ls`, `cat`, `grep` and the rest
+     * of the plain readers are already run inside the workspace by the
+     * engine, so listing them here would only skip its outside-path check.
+     * `ask` carves the writing forms out: `sed -i` edits a file in place.
+     */
+    read: z
+      .object({
+        allow: patterns,
+        ask: patterns,
+        /**
+         * The usual one-letter flags that can come before `i` in a bundled
+         * `sed -ni` or `-nEi`: one or two of them, then `i`.
+         */
+        inPlaceLetters: z.string().min(1),
+        /**
+         * What can come right before a `w` (write a file) or `e` (run a
+         * command) in a sed script: a line number, `$`, or the `/` that ends
+         * an `s///` or an address. Three or more bundled flags before `i`
+         * (`-nEri`) are not caught, and `e` after a bare command letter is
+         * not either; the container is what holds those.
+         */
+        addressChars: z.string().min(1),
       })
       .strict(),
     fs: z
@@ -95,6 +117,8 @@ const policySchema = z
     secretRead: z
       .object({
         readers: patterns,
+        /** Git verbs that print file content: `git show HEAD:.env`. */
+        gitReaders: patterns,
         /**
          * Where a file name begins in a command line: the first operand, or
          * after one of these. Matching them anywhere would ask for
@@ -142,11 +166,31 @@ const policySchema = z
 
 const policy = policySchema.parse(defaultSettings);
 
-/** The ask patterns for one reader and every spelling of a secret's name. */
-function secretReadPatterns(command: string): string[] {
+/**
+ * The ask patterns for one reader and every spelling of a secret's name.
+ * `git` is for a git verb written as `git *<verb>*`, so a global option may
+ * come first: the name pattern then follows the verb directly instead of
+ * after an operand. It keeps the `-<letter>f` starts only for `clusters`
+ * (`git grep -nf.env`). The engine gets the whole settings payload as one
+ * argument and Linux caps one argument at 128 KiB, so a rule family that
+ * multiplies must stay lean.
+ */
+function secretReadPatterns(
+  command: string,
+  options: { git: boolean; clusters: boolean } = { git: false, clusters: true },
+): string[] {
   const read = policy.secretRead;
   const letters = [...read.clusterLetters];
-  const starts = [...read.nameStarts, ...letters.map((l) => `-${l}f`)];
+  const starts = options.clusters
+    ? [...read.nameStarts, ...letters.map((l) => `-${l}f`)]
+    : read.nameStarts;
+  // `cat <name>` has the name as its first operand; `git *show* <name>` is the
+  // same shape with the verb already inside `command`.
+  const operand = (start: string, name: string) =>
+    options.git
+      ? `${command}${start.startsWith("-") ? "*" : ""}${start}${name}*`
+      : `${command} *${start}${name}*`;
+  const joint = options.git ? "" : " ";
   const names = [
     ...policy.secretNameParts.filter(
       (part) =>
@@ -154,12 +198,14 @@ function secretReadPatterns(command: string): string[] {
     ),
     ...read.extraNames,
   ].flatMap((name) => [
-    `${command} ${name}*`,
-    ...starts.map((start) => `${command} *${start}${name}*`),
+    ...(options.git ? [] : [`${command} ${name}*`]),
+    ...starts.map((start) => operand(start, name)),
   ]);
   const extensions = read.extensions.flatMap((extension) => [
-    `${command} *${extension}`,
-    ...read.extensionEnds.map((end) => `${command} *${extension}${end}*`),
+    `${command}${joint}*${extension}`,
+    ...read.extensionEnds.map(
+      (end) => `${command}${joint}*${extension}${end}*`,
+    ),
   ]);
   return [...names, ...extensions];
 }
@@ -231,23 +277,53 @@ export function workspaceRules(
   if (tools.has("Bash")) {
     for (const command of [
       ...policy.git.allow,
+      ...policy.read.allow,
       ...policy.fs.allow,
       ...policy.dev.commands,
     ]) {
       allow.push(`Bash(${command})`, `Bash(${command} *)`);
     }
-    allow.push(...policy.git.exact.map((command) => `Bash(${command})`));
     ask.push(
       ...[
         ...policy.git.ask,
+        // `git --no-pager add .env` puts a global option before the verb.
         ...policy.git.askWhenSecretNamed.flatMap((command) =>
-          policy.secretNameParts.map((part) => `${command} *${part}*`),
+          policy.secretNameParts.flatMap((part) => [
+            `${command} *${part}*`,
+            `git * ${command.slice("git ".length)} *${part}*`,
+          ]),
         ),
+      ].map((pattern) => `Bash(${pattern})`),
+    );
+    const letters = [...policy.read.inPlaceLetters];
+    const bundles = letters.flatMap((a) => [
+      a,
+      ...letters.map((b) => `${a}${b}`),
+    ]);
+    ask.push(
+      ...[
+        ...policy.read.ask,
+        ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
+        ...[...policy.read.addressChars].flatMap((c) => [
+          `sed *${c}w*`,
+          `sed *${c}W*`,
+          // A space or a tab may follow the command letter.
+          `sed *${c}e *`,
+          `sed *${c}e\t*`,
+        ]),
       ].map((pattern) => `Bash(${pattern})`),
     );
     ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
     for (const command of policy.secretRead.readers) {
       ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
+    }
+    for (const verb of policy.secretRead.gitReaders) {
+      ask.push(
+        ...secretReadPatterns(`git *${verb}*`, {
+          clusters: verb === "grep",
+          git: true,
+        }).map((p) => `Bash(${p})`),
+      );
     }
     ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
     for (const command of policy.dev.commands) {
