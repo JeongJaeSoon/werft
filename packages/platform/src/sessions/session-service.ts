@@ -500,9 +500,6 @@ export function createSessionService(deps: {
         pinOf(record),
         acceptedRuntimeVersions(catalog),
       ) !== null ||
-        // The next turn's claim moves a session off a dropped model onto its
-        // successor (a row pinned to the profile as it is now), so nothing
-        // blocks it.
         movesAtNextTurn(
           run.profile,
           pinOf(record),
@@ -833,10 +830,6 @@ export function createSessionService(deps: {
       // catalog does not allow; a replay of an earlier acceptance still
       // succeeds.
       const wantedModel = input.body.model ?? releaseModel(release);
-      // A release whose model the profile dropped starts on its successor:
-      // the row keeps the release's model and the first claim moves it, like
-      // any waiting session. A model the body names is the caller's choice
-      // and is refused when not offered.
       const successor =
         allowed && input.body.model === undefined && wantedModel !== undefined
           ? modelSuccessor(allowed.profile, wantedModel)

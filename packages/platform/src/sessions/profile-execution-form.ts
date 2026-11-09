@@ -29,8 +29,6 @@ export function profileExecutionForm(
   definition: Definition,
   mcpDeny: readonly string[] = [],
 ): string {
-  // Neither runs a session: `repository` is dropped on purpose (above),
-  // `model_families` only says where a removed model moves.
   const {
     repository: _repository,
     model_families: _families,

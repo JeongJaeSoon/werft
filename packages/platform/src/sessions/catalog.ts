@@ -268,11 +268,8 @@ export const catalogProfileConfigSchema = z
     // The model that names a session after its first turn; the session's own
     // when absent. Not pinned either: it never runs the session.
     title_model: z.string().min(1).optional(),
-    // Which models are versions of one series, newest highest. Read only when
-    // a model leaves the list: a session on it moves to the next one up the
-    // same series that is still listed. Keep a removed model's entry here,
-    // or nothing knows what it was a version of. Not pinned: it never runs
-    // a session.
+    // Which models are versions of one series, newest highest. Keep a removed
+    // model's entry here, or nothing knows what it was a version of.
     model_families: modelFamiliesSchema.optional(),
     tools: z.array(z.string().min(1)),
     permission_mode: permissionModeSchema,
@@ -1372,12 +1369,6 @@ export function profileModels(profile: CatalogProfileView): string[] {
   return [...new Set([profile.model, ...(profile.models ?? [])])];
 }
 
-/**
- * The listed model a session on `removed` moves to: the lowest rank above
- * its own in the same family, so a move is one step up and never down. Null
- * when `removed` is still listed, has no family entry, or nothing listed is
- * a newer version of it.
- */
 export function modelSuccessor(
   profile: CatalogProfileView,
   removed: string,
@@ -1400,11 +1391,6 @@ export function modelSuccessor(
   return best?.model ?? null;
 }
 
-/**
- * The profile as it ran a model that has since left it for a successor, for
- * recognising a checkpoint made then. Never what a session runs on; null
- * when the model has no successor, so a plain removal is not given back.
- */
 export function profileAsMovedModel<P extends CatalogProfileView>(
   profile: P,
   removed: string,
@@ -1414,7 +1400,6 @@ export function profileAsMovedModel<P extends CatalogProfileView>(
   return { ...rest, model: removed } as unknown as P;
 }
 
-/** Every removed model of the profile that has a successor, with it. */
 export function modelMoves(
   profile: CatalogProfileView,
 ): Array<{ from: string; to: string }> {
@@ -1564,13 +1549,6 @@ export function fingerprintModel(
   );
 }
 
-/**
- * Each pin a row on a dropped model may hold (every accepted runtime version,
- * both fingerprint versions) with the pin it holds after the move: a version
- * 2 fingerprint is the same before and after, a version 1 one names its
- * model and changes with it. `asFrom` is the profile as it ran the dropped
- * model, for recognising a checkpoint made then.
- */
 export function modelMovePins<P extends CatalogProfileView>(
   profile: P,
   versions: readonly string[],
@@ -1607,12 +1585,6 @@ export function modelMovePins<P extends CatalogProfileView>(
   );
 }
 
-/**
- * Whether a row with this pin is on a dropped model the next turn's claim
- * moves, by the same pins it moves them by. A version 2 pin needs the row's
- * model to be the dropped one; a version 1 pin names it, so the column may
- * be empty.
- */
 export function movesAtNextTurn(
   profile: CatalogProfileView,
   pin: ProfilePin,

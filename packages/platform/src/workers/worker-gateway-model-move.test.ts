@@ -26,7 +26,6 @@ const profile: CatalogProfile = {
     "sonnet-5-1": { family: "sonnet", rank: 1 },
     "opus-5-0": { family: "opus", rank: 0 },
     "opus-4-9": { family: "opus", rank: -1 },
-    // Same name stem as the sonnet line, other family: never a successor.
     "sonnet-6-0": { family: "sonnet-next", rank: 0 },
   },
   tools: ["Read"],
@@ -115,12 +114,7 @@ describe("a model that left the list, at claim", () => {
       restoreProfiles: [],
     });
     await claimed;
-    // opus-4-9 has opus-5-0 above it; sonnet-5-0 has sonnet-5-1; the sonnet-next
-    // entry is listed nowhere and has nothing above it.
     const moves = seen[0]?.modelMoves ?? [];
-    // Each move holds the pins a row may have: version 2 (the profile's own
-    // fingerprint, the same either side) and version 1 (names its model, so
-    // the pin changes with it).
     expect(moves.map(({ from, to }) => `${from}>${to}`)).toEqual([
       "sonnet-5-0>sonnet-5-1",
       "sonnet-5-0>sonnet-5-1",
@@ -172,8 +166,6 @@ describe("a model that left the list, at claim", () => {
       ],
     });
     const response = await claimed;
-    // The engine runs on the successor; the checkpoint's digest is accepted
-    // because its config rides along as an alternate.
     expect(response.runtime_config.model).toBe("sonnet-5-1");
     expect(response.restore_runtime_configs?.map((c) => c.model)).toEqual([
       "sonnet-5-0",
@@ -223,7 +215,6 @@ describe("a model that left the list, at claim", () => {
         {
           profileId: "p",
           profileFingerprint: profileFingerprint(profile),
-          // Removed, but nothing listed is a newer version of it.
           model: "sonnet-6-0",
         },
       ],
@@ -238,7 +229,6 @@ describe("a model that left the list, at claim", () => {
         {
           profileId: "p",
           profileFingerprint: profileFingerprint(profile),
-          // Its successor is opus-5-0, not the session's sonnet-5-1.
           model: "opus-4-9",
         },
       ],

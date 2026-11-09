@@ -1226,15 +1226,10 @@ function budgetEnded(
  * is the exception: its row says the same to every replica.
  */
 /**
- * Moves each session that waits for its next turn (signalled, no pod) off a
- * model the profile dropped, onto the successor the catalog names, and writes
- * the stream event that says so. Only here, at the start of a turn: a session
- * with a pod keeps its model until that turn ends, and the proxy's cut stays
- * what it was. A version 1 pin names its model in the hash, so the row's pin
- * moves with it (its model column may be null). A locked row is left to its
- * holder, as the candidate query does, unless `wait`: the reserved launch's
- * own session, retried after the candidate query found nothing because an
- * input append held the row. Returns how many moved.
+ * A session with a pod keeps its model until its turn ends, and the proxy's
+ * cut stays what it was. A version 1 pin names its model in the hash, so the
+ * row's pin moves with it (its model column may be null). A locked row is
+ * left to its holder unless `wait`. Returns how many moved.
  */
 export async function moveSessionsToSuccessors(
   tx: Database,
@@ -2093,8 +2088,6 @@ export function createPostgresWorkerUnitOfWork(
             ),
           };
         }
-        // A session waiting for a turn whose model left the list moves to its
-        // successor before the pair check below judges it.
         await moveSessionsToSuccessors(tx, launch, input);
         // Server-side selection: the worker never names a session. It is
         // either the one the launch reserved or the partition's head; SKIP

@@ -40,8 +40,6 @@ export function ModelRemovedAlert({
     model,
     profile: profileDisplay(t, profiles.data?.items, profile.id),
   };
-  // A successor keeps the agent running: sessions start on it, so this only
-  // asks the admin to bring the card's model up to date.
   return successor === undefined ? (
     <Alert variant="amber" className="border-0">
       <AlertTitle>{t("agent.modelRemoved.title", params)}</AlertTitle>

@@ -358,7 +358,6 @@ describe("presentTurnEvent", () => {
         },
       ],
     });
-    // Without both names it stays the plain subtype line.
     expect(
       presentTurnEvent({
         event: "system",

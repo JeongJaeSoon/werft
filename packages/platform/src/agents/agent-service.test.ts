@@ -599,8 +599,6 @@ describe("agent service", () => {
       "claude-sonnet-5": { family: "sonnet", rank: 5 },
       "claude-opus-5-5": { family: "sonnet", rank: 6 },
     };
-    // The release is on claude-sonnet-5; the profile now lists claude-opus-5-5,
-    // which the table puts one step above it in the same family.
     const moved = await serviceOver(memory.store, {
       ...PROFILE,
       model: "claude-opus-5-5",
@@ -610,7 +608,6 @@ describe("agent service", () => {
       expected_revision: -1,
     });
     expect(moved.active_release_id).toBe(made.id);
-    // Another family above it is not a successor.
     const other = await serviceOver(memory.store, {
       ...PROFILE,
       model: "claude-opus-5-5",

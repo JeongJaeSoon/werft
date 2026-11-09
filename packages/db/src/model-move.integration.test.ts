@@ -23,10 +23,6 @@ import {
   moveSessionsToSuccessors,
 } from "./worker-unit-of-work.ts";
 
-// A session that waits for its turn on a model the profile dropped moves to
-// the next model of the same series when a worker claims it; one with no such
-// successor stays blocked as it was; one already on a pod is left alone.
-
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const TIMEOUT_MS = 30_000;
 
@@ -102,7 +98,6 @@ integration("a model moved at the next turn's claim", () => {
       },
     });
 
-  // Waiting for a turn on `model`, pinned to `profile` as it was created.
   async function waiting(
     partition: string,
     model: string,
@@ -200,7 +195,6 @@ integration("a model moved at the next turn's claim", () => {
   test(
     "a family with nothing newer listed stays blocked and nothing moves",
     async () => {
-      // Created on sonnet-5-0; only an older sonnet and another family remain.
       const before = catalogProfile(["sonnet-5-0", "haiku-5-0"], SERIES);
       const after = catalogProfile(["haiku-5-0"], SERIES);
       const partition = `block-${crypto.randomUUID()}`;
@@ -223,7 +217,6 @@ integration("a model moved at the next turn's claim", () => {
       const running = await waiting(partition, "sonnet-5-1", profile);
       const runningLaunch = await launchSession(db, { sessionId: running });
       await claimOf(gatewayFor(profile), runningLaunch);
-      // Its model leaves the list while the turn runs.
       await db
         .update(sessions)
         .set({ model: "sonnet-5-0" })
@@ -247,8 +240,6 @@ integration("a model moved at the next turn's claim", () => {
       const partition = `pass-${crypto.randomUUID()}`;
       const onPod = await waiting(partition, "sonnet-5-0", profile);
       const idle = await waiting(partition, "sonnet-5-0", profile);
-      // Signalled like the idle one, but a worker holds it: only the pod
-      // guard keeps it out of the move.
       await db
         .update(sessions)
         .set({ podId: crypto.randomUUID() })
@@ -312,7 +303,6 @@ integration("a model moved at the next turn's claim", () => {
         profile,
       );
       const launch = await launchSession(db, { sessionId: id });
-      // An input append holds the row while the claim runs.
       const holder = await pool.connect();
       try {
         await holder.query("BEGIN");

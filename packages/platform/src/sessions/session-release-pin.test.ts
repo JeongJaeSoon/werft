@@ -528,8 +528,6 @@ describe("a session pinned to an agent release", () => {
         idempotencyKey: "k",
         body: { ...body, agent_release_id: "rel-1" },
       });
-      // The row names the release's model; the first claim moves it and
-      // writes the timeline event, as for any waiting session.
       expect(accepted[0]?.model).toBe("claude-opus-5-5");
       expect(accepted[0]?.agentReleaseId).toBe("rel-1");
     });
@@ -591,7 +589,6 @@ describe("a session pinned to an agent release", () => {
       expect((await a.service.getSession(a.caller, SESSION)).attention).toBe(
         null,
       );
-      // A version 1 pin names its model, so a row on it may hold none.
       const v1 = modelMovePins(
         withSuccessor.profiles["coding-v1"] as CatalogProfile,
         [],
@@ -612,7 +609,6 @@ describe("a session pinned to an agent release", () => {
       expect(
         (await legacy.service.getSession(legacy.caller, SESSION)).attention,
       ).toBe(null);
-      // A version 2 pin with no model names nothing to move.
       const bare = setup({
         catalog: withSuccessor,
         session: { ...row("claude-opus-5-5", withSuccessor), model: null },

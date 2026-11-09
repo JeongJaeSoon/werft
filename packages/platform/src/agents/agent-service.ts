@@ -122,8 +122,6 @@ export async function resolveAgentRelease(
       `Runtime profile ${profileId} of this release${model === undefined ? "" : ` (model ${model})`} is not in this host's catalog; release the version again under a profile the catalog has`,
     );
   }
-  // A dropped model with a successor still starts a session: it runs on the
-  // successor (createSession), and the release itself stays as it was.
   if (
     model !== undefined &&
     !profileModels(profile).includes(model) &&

@@ -1089,8 +1089,6 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
     enabled: lists,
   });
   const using = agents.data?.pages.flatMap((page) => page.items) ?? [];
-  // An agent whose active release runs a model this profile no longer lists
-  // and names no successor for: one with a successor keeps starting sessions.
   const removedModel = (agent: (typeof using)[number]) => {
     const model = agent.summary?.release_model;
     return model != null &&

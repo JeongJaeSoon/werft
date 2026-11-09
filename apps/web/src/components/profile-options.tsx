@@ -29,7 +29,6 @@ export const runsModel = (
   model: string | undefined,
 ): boolean => model === undefined || profile.models.includes(model);
 
-/** The listed model a dropped `model` moves to, when the profile names one. */
 export const successorOf = (
   profile: ProfileSummary,
   model: string,

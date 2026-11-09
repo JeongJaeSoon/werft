@@ -93,7 +93,6 @@ function mcpDenyField(names: readonly string[] | null | undefined): {
   return mcp.length > 0 ? { mcp_deny: mcp } : {};
 }
 
-/** Left out when no dropped model has a successor, as `mcp_deny` is. */
 function modelSuccessorsField(profile: CatalogProfileView) {
   const moves = modelMoves(profile);
   return moves.length === 0

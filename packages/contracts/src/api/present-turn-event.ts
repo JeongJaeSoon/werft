@@ -273,7 +273,6 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
   // Without engine_event it is one the control plane wrote, named by its
   // own subtype.
   if (engine === null) {
-    // Kept as a literal, as the error code above is.
     if (
       data.subtype === "model_migrated" &&
       typeof data.from === "string" &&

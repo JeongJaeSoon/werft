@@ -1196,8 +1196,6 @@ export function createWorkerGateway(deps: {
         return [];
       }
       const listed = catalogProfile(catalog, made.profileId);
-      // A checkpoint taken on the model the session was moved off is still
-      // this session's: the move put the same series' next model in its row.
       const moved = listed
         ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
             (pin) =>
