@@ -421,7 +421,7 @@ OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushReque
 
 **目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求め、`sessions:approve` を持つ人にそのコミットを承認または拒否してもらいます。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。
 
-**手順.** ボディなし(`{}`)でリクエストを送ります。プラットフォームは、セッションの最新のチェックポイントの revision とその `git_commit`、セッションの `repository_id`、ブランチ `agent/<session-id>` を固定します。承認または拒否する人は、固定された `git_commit` を確認し、同じ値を `/approve` か `/reject` のボディに入れます。別のコミットを指す承認は拒否されます。1 つのセッションが持てる開いたリクエストは 1 つだけ(`requested`、`approved`、`pushing`)なので、拒否のあとに改めて要求します。
+**手順.** ボディなし(`{}`)でリクエストを送ります。プラットフォームは、セッションの最新のチェックポイントの revision とその `git_commit`、セッションの `repository_id`、ブランチ `agent/<session-id>` を固定します。見た revision を固定するには `checkpoint_revision` も送ります。それより新しい revision が保存済みなら `checkpoint_moved` で拒否されます。どちらの場合も、その revision のあとにセッションが行った作業は含まれていないことがあります。承認または拒否する人は、固定された `git_commit` を確認し、同じ値を `/approve` か `/reject` のボディに入れます。別のコミットを指す承認は拒否されます。1 つのセッションが持てる開いたリクエストは 1 つだけ(`requested`、`approved`、`pushing`)なので、拒否のあとに改めて要求します。
 
 ```bash
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \

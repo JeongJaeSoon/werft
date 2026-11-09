@@ -14,7 +14,6 @@ import {
   DEFAULT_PENDING_TTL_MS,
   installationLimitProblems,
 } from "@werft-ai/platform";
-import { booleanFlag } from "../boolean-flag.ts";
 import { googleLoginConfigFromEnv } from "./google-login.ts";
 
 /**
@@ -34,12 +33,6 @@ export type ApiSettings = {
     maxStreamsPerOwner?: number;
   };
   webDistDir?: string;
-  /**
-   * AGENT_ACTION_FLOWS: a `request_push` inside a running turn becomes a push
-   * intent. Off by default; the operator turns it on only once every replica
-   * runs the intent code, and turning it off stops only new intents.
-   */
-  actionFlows: boolean;
 };
 
 export class ApiSettingsError extends Error {
@@ -80,11 +73,6 @@ export function apiSettingsFromEnv(
       min: 1,
       max: MAX_PENDING_REQUEST_TTL_SEC,
     }),
-  );
-  const actionFlows = read(() =>
-    environment.AGENT_ACTION_FLOWS === undefined
-      ? false
-      : booleanFlag(environment.AGENT_ACTION_FLOWS, "AGENT_ACTION_FLOWS"),
   );
   const sse = {
     batchMaxBytes: read(() =>
@@ -134,7 +122,6 @@ export function apiSettingsFromEnv(
         : { maxStreamsPerOwner: sse.maxStreamsPerOwner }),
     },
     ...(webDistDir === undefined ? {} : { webDistDir }),
-    actionFlows: actionFlows as boolean,
   };
 }
 

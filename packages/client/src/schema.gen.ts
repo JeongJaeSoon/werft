@@ -1313,7 +1313,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for the session's latest checkpoint to be pushed
-         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.
+         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `checkpoint_revision` (default: the latest committed one) may name the revision you looked at; it is refused as `checkpoint_moved` once a newer one has been saved. Work the session did after that revision may not be in it. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.
          *
          *     A session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
          *
@@ -4526,6 +4526,7 @@ export interface components {
         CreatePushRequestRequest: {
             repository_id?: string;
             branch?: string;
+            checkpoint_revision?: number;
         };
         ResolvePushRequestRequest: {
             git_commit: string;

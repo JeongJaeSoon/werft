@@ -36,7 +36,6 @@ API는 설치 상한 말고도 아래 값을 기동 때 한 parser(`apps/control
 | `HEARTBEAT_TTL_SEC` | 30 | 20 초과 86400 이하. worker는 lease가 끝나기 10초 전에 lease를 내려놓고(`WORKER_LEASE_SAFETY_MARGIN_SEC`), 5초마다 heartbeat를 보낸다(`WORKER_HEARTBEAT_INTERVAL_SEC`, 이전 버전 worker는 10초). 마진과 10초의 합 이하이면 이전 버전 worker의 attempt가 첫 heartbeat 무렵 lease를 잃는다. launcher는 두 worker 값을 넘기지 않으므로 기본값을 기준으로 판정한다 |
 | `PENDING_REQUEST_TTL_SEC` | 1800 | 정수 1–604800. 승인·질문 요청을 받는 기간이다. 등록된 요청은 worker가 이 값만큼 기다린다. worker의 `QUESTION_TIMEOUT_SEC`는 gateway가 등록을 확인하기 전에만 적용된다. turn 벽시계 `MAX_TURN_SECONDS`에는 대기 시간도 들어가므로, 대기는 그 상한을 넘지 못한다 |
 | `SSE_MAX_STREAMS` · `SSE_MAX_STREAMS_PER_OWNER` · `SSE_REPLAY_MAX_BYTES` | 256 · 8 · 1 MiB | 양의 정수 |
-| `AGENT_ACTION_FLOWS` | `false` | `true`·`false`·`1`·`0`(그 밖의 값은 기동을 거부한다). 켜면 실행 중인 turn의 `request_push`가 요청 대신 "turn이 끝날 때 push" 의도를 남기고, 이어 가는 turn 없이 그 turn의 마지막 checkpoint를 push 요청으로 만든다. 끄면 새 의도를 만들지 않고 옛 흐름으로 돌아간다. 이미 남은 의도는 계속 처리된다. 활성화·rollback은 [업그레이드 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 먼저 따른다 |
 | `LOG_LEVEL` | `info` | `debug`·`info`·`warn`·`error`(대소문자 무관, 빈 값은 `info`). scheduler·reconciler loop와 egress-proxy도 같은 규칙으로 기동을 거부한다. worker는 scheduler의 값을 받는다 |
 | `WEB_DIST_DIR` | 없음(웹 콘솔을 서빙하지 않음). control-host 이미지는 `/app/apps/web/dist` | `index.html`이 있는 절대 경로. 웹 콘솔(`apps/web`)의 빌드 결과다 |
 
@@ -58,10 +57,6 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
 ```
 
 둘 다 없으면 런타임 조합을 읽지 않으므로 아래 pin 유지도 적용되지 않는다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 다만 내장 도구 지원 목록이 현재 이미지의 목록과 같은 이전 버전은 싣는 것으로 본다(업그레이드 뒤에도 그 profile이 새 세션을 시작한다). 목록이 다른 SDK를 올리는 릴리스는 상한마다 `runtime_version`을 올린 새 버전을 함께 만든다(콘솔 또는 `POST /v1/installation-profiles`).
-
-API와 slack role은 `SESSION_PROMPT_REVISION`(기본 0, 허용 값 0·1, 틀린 값이면 기동하지 않음)으로 에이전트 release 세션의 system prompt 앞머리 문단을 정한다. 1이면 새 세션은 만들 때 에이전트 이름·설명, 시작한 곳(Slack 채널·DM, 웹 콘솔, API), 에이전트의 언어, 세션 저장소의 GitHub 이름(`owner/repo`)을 `sessions.platform_prompt`에 남기고, worker가 그것으로 문단을 만든다. 문단에는 역할 문장이 없다. 역할은 에이전트 작성자가 지시문에 쓴다. GitHub 안내는 설정 유무와 관계없이 한 문단이다. GitHub 일은 내장 `mcp__github__` 도구로 하고 쓸 수 있는 저장소는 `list_repositories`가 답한다고 알린다. `git push`는 GitHub에 닿지 않는다는 것도 알린다. 그 도구가 없거나 GitHub를 쓸 수 없다고 답하면 "이 세션에서는 GitHub 작업을 할 수 없고, 관리자가 콘솔 에이전트 GitHub 탭에서 설정하며 새 세션이 필요할 수 있다"고 답하게 한다. GitHub 설정 없는 release로 시작한 세션에는 나중에 설정해도 도구가 붙지 않기 때문이다. 0이면 새 세션도 문단이 없다. 저장한 값은 세션이 끝날 때까지 바뀌지 않는다. 문단은 checkpoint fingerprint에 들어가므로 에이전트 이름·설명이나 release를 바꿔도 진행 중인 세션은 그대로 재개된다.
-
-`SESSION_PROMPT_REVISION`의 배포·활성화·rollback 순서는 [공통 실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)를 따른다. 0으로 되돌려도 이미 1로 만든 세션의 저장된 문단은 바뀌지 않는다. 로컬 compose는 API·slack·worker를 한 tree에서 빌드하므로 1을 기본으로 둔다.
 
 GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md))을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
 

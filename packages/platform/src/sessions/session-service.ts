@@ -82,11 +82,6 @@ import {
   usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
-import {
-  type AgentPromptIdentity,
-  type PlatformPromptRevision,
-  platformPromptOf,
-} from "./platform-prompt.ts";
 import { attachedRepositoriesOf } from "./session-repository.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
@@ -395,24 +390,12 @@ export function createSessionService(deps: {
         | "policy_pins"
       >
     >;
-    // The agent a new session's platform prompt names; null when the
-    // release or its agent is gone. Absent, no session gets the prompt.
-    promptIdentity?(
-      workspaceId: string,
-      releaseId: string,
-    ): Promise<AgentPromptIdentity | null>;
     agentGitHubSettings(
       agentId: string,
     ): Promise<AgentGitHubSettingsRow | null>;
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
-  // The platform prompt revision new sessions of an agent release get;
-  // absent is 0, none.
-  promptRevision?: PlatformPromptRevision;
-  // AGENT_ACTION_FLOWS, read when a session is created: it picks the prompt
-  // wording for `request_push`, and the session keeps it for good.
-  actionFlows?: () => boolean;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -824,21 +807,6 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
-      const identity =
-        release !== null && (deps.promptRevision ?? 0) >= 1
-          ? await deps.releases?.promptIdentity?.(actor.ownerId, release.id)
-          : undefined;
-      const platformPrompt = identity
-        ? platformPromptOf({
-            identity,
-            surface: actor.subject.surface,
-            repositoryUrl:
-              repositoryId === null || pair?.repository == null
-                ? null
-                : pair.repository.url,
-            actionFlows: deps.actionFlows?.() === true,
-          })
-        : undefined;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
@@ -873,7 +841,6 @@ export function createSessionService(deps: {
         ...(policy.source === "agent"
           ? { captureGitHubPolicyStart: true as const }
           : {}),
-        ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined
           ? {}

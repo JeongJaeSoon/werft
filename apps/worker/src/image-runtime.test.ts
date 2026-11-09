@@ -33,9 +33,18 @@ describe("imageRuntimeOf", () => {
       },
     })(claim);
 
-    expect(imageRuntimeOf({ s1: claim })).toEqual({
-      ...JSON.parse(realRuntimeFor("claude_agent_sdk").imageFingerprint()),
-      profiles: { s1: { profileSha256: onAHost.profileSha256 } },
+    const { profiles, ...build } = imageRuntimeOf({ s1: claim });
+    expect(build).toEqual(
+      JSON.parse(realRuntimeFor("claude_agent_sdk").imageFingerprint()),
+    );
+    // The legacy digest is what a worker sends as an alternate when it
+    // restores a checkpoint made under the frozen pre-strip prompt; a claim
+    // without the paragraph hashes the same either way.
+    expect(profiles).toEqual({
+      s1: {
+        profileSha256: onAHost.profileSha256,
+        legacyProfileSha256: onAHost.profileSha256,
+      },
     });
   });
 

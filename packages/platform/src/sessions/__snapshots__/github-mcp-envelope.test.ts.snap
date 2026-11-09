@@ -6,7 +6,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "push",
     },
-    "description": "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names the repository to push to: an attached repository, or, omitted, the session's own. \`source_ref\` names the local branch of the workspace (for example \`guard-docs\`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository: for several repositories, each repository's change sits on its own local branch, started from that repository's \`<repository_id>/<branch>\` (\`origin/<branch>\` for the session's own repository), and each call carries its \`repository_id\` and \`source_ref\` (a branch that shares no history with the target's default branch is refused as \`unrelated_history\`; an existing target branch gives \`non_fast_forward\` instead). Once two pushes are asked for, every one needs its \`source_ref\`: a call refused as \`source_ref_required\` names the target that lacks one in \`details.target_branch\`, and the same call with a \`source_ref\` is accepted. With the installation's agent action flows on, the answer is \`deferred\` with \`push_intent_id\`: the platform makes the push request when the reply ends, and \`open_pull_request\` accepts that \`push_intent_id\` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens once the push succeeds. With the flows off, \`source_ref\` is refused as \`source_ref_unsupported\`, the commit the workspace was on when it was last saved is pushed, and the push request is returned, or \`deferred\` when nothing is saved yet. \`pull_request\` is not accepted: a call that carries it is refused with \`pull_request_needs_tool_call\` and nothing is created; the pull request is opened by \`open_pull_request\` with the \`push_intent_id\` this tool returns.",
+    "description": "Request a push to GitHub; \`git push\` from the workspace does not reach GitHub. The branch is agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names the repository to push to: an attached repository, or, omitted, the session's own. \`source_ref\` names the local branch of the workspace (for example \`guard-docs\`) whose latest commit is pushed; without it the commit the workspace is on is pushed. Only commits are pushed, never uncommitted edits. One call pushes one repository, and \`source_ref\` is the local branch whose latest commit is pushed to the \`repository_id\` (a branch that shares no history with the target's default branch is refused as \`unrelated_history\`; an existing target branch gives \`non_fast_forward\` instead). Once two pushes are asked for, every one needs its \`source_ref\`: a call refused as \`source_ref_required\` names the target that lacks one in \`details.target_branch\`. The answer is \`deferred\` with \`push_intent_id\`: the platform makes the push request from the checkpoint saved when the reply ends, and \`open_pull_request\` accepts that \`push_intent_id\` at once, also while the push waits for approval. A push waits for a person's approval when the release requires one, and its pull request opens once the push succeeds. A call outside a running turn is refused as \`no_running_turn\`.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -15,71 +15,10 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
           "type": "string",
         },
-        "pull_request": {
-          "additionalProperties": false,
-          "properties": {
-            "body": {
-              "maxLength": 60000,
-              "type": "string",
-            },
-            "changes": {
-              "items": {
-                "maxLength": 1000,
-                "minLength": 1,
-                "type": "string",
-              },
-              "maxItems": 50,
-              "type": "array",
-            },
-            "notes": {
-              "maxLength": 8000,
-              "type": "string",
-            },
-            "rationale": {
-              "maxLength": 8000,
-              "type": "string",
-            },
-            "related": {
-              "items": {
-                "additionalProperties": false,
-                "properties": {
-                  "closes": {
-                    "type": "boolean",
-                  },
-                  "number": {
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "type": "integer",
-                  },
-                  "repository_id": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string",
-                  },
-                },
-                "required": [
-                  "number",
-                ],
-                "type": "object",
-              },
-              "maxItems": 20,
-              "type": "array",
-            },
-            "summary": {
-              "maxLength": 8000,
-              "type": "string",
-            },
-            "testing": {
-              "maxLength": 8000,
-              "type": "string",
-            },
-            "title": {
-              "maxLength": 1000,
-              "minLength": 1,
-              "type": "string",
-            },
-          },
-          "type": "object",
+        "checkpoint_revision": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer",
         },
         "repository_id": {
           "maxLength": 128,
@@ -469,27 +408,6 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                 {
                   "additionalProperties": false,
                   "properties": {
-                    "continuation": {
-                      "const": "after_turn",
-                      "type": "string",
-                    },
-                    "status": {
-                      "const": "deferred",
-                      "type": "string",
-                    },
-                  },
-                  "required": [
-                    "status",
-                    "continuation",
-                  ],
-                  "type": "object",
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "next": {
-                      "type": "string",
-                    },
                     "pull_request": {
                       "enum": [
                         "scheduled",
@@ -524,7 +442,6 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "repository_id",
                     "target_branch",
                     "pull_request",
-                    "next",
                   ],
                   "type": "object",
                 },
@@ -593,7 +510,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "pull_request.write",
     },
-    "description": "Open, or return the already open, pull request from the branch and commit of a pushed push request (\`push_request_id\`), or, with the installation's agent action flows on, schedule it with \`push_intent_id\` (or a push request that is not pushed yet): \`scheduled\` means the platform opens it once the push finishes, with the content of the first call. With the flows off, a push request that is not pushed yet is refused with \`not_pushed\`. A pull request already open for the branch on another commit than the pushed one is refused with \`head_moved\` and not adopted. Content fields: \`title\`; \`summary\` (what changed and why, a few sentences); \`changes\` (one change per item); \`rationale\` (the reason for the change); \`testing\` (how it was checked); \`notes\` (what a reviewer needs to know); \`related\` (issues: \`number\`, optional \`repository_id\`, \`closes\` to close it on merge). \`body\` is the legacy single text and cannot be combined with the fields above.",
+    "description": "Open, or return the already open, pull request from the branch and commit of a pushed push request (\`push_request_id\`), or schedule it with \`push_intent_id\` (or a push request that is not pushed yet): \`scheduled\` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with \`not_pushed\` and its state. A pull request already open for the branch on another commit than the pushed one is refused with \`head_moved\` and not adopted. Content fields: \`title\`; \`summary\` (what changed and why, a few sentences); \`changes\` (one change per item); \`rationale\` (the reason for the change); \`testing\` (how it was checked); \`notes\` (what a reviewer needs to know); \`related\` (issues: \`number\`, optional \`repository_id\`, \`closes\` to close it on merge). \`body\` is the legacy single text and cannot be combined with the fields above.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2711,7 +2628,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "repository.read",
     },
-    "description": "List the repositories this session works with, 100 a page (\`limit\` 1 to 500): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.",
+    "description": "List the repositories this session works with, 100 a page (\`limit\` 1 to 500): the one named when the session was created, and those the agent's settings allow it to attach. Listing fetches nothing and changes nothing. \`status\` is \`attached\` (the platform lists it as added to the session; \`remote\` is the git remote name it was given, \`origin\` for the repository named when the session was created), \`pending\` or \`failed\` (its fetch is running, or ended with an error), \`not_attached\` (allowed, not added yet) or \`allowed_in_newer_release\` (only the agent's current release allows it). \`next_cursor\` is non-null when more follow; \`cursor\` takes it for the next page. \`query\` keeps those whose id or name contains it. Each repository's \`meaning\` is its status in plain words.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2872,7 +2789,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     "_meta": {
       "class": "repository.read",
     },
-    "description": "Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes; allowed repositories the task does not touch stay unattached, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to 7, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. Commit changes to it on a local branch started from \`<repository_id>/<branch>\` in the workspace (a git worktree or clone elsewhere is not saved), then push that branch with \`request_push\`, naming \`repository_id\` and \`source_ref\`.",
+    "description": "Attach one allowed repository to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. A session has no repository in its workspace until one is attached (or was named when the session was created). A new attach is recorded on the session; a repository already attached, or the session's own, is answered as attached with nothing new recorded. It is meant for a repository whose code the task reads or changes, and \`list_repositories\` needs no attach. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to 7, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing, so a repeat with the same arguments is safe. A failure that comes from the connection (an \`upstream connection failed\` answer, or HTTP 502 or 503) is transient and says nothing about the repository; \`repository_not_allowed\` is a refusal by the agent's settings, not a connection failure. A git worktree or clone outside the workspace is not part of what a push or checkpoint holds.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,

@@ -393,6 +393,8 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | F3 | `request_push({ pull_request })` 한 번으로 push와 PR 예약 | 선택 복합 호출(L12). L12 전 replica는 strict 입력이라 이 칸을 `validation_error`로 거절한다. 그래서 설치 설정 `AGENT_ACTION_PR_IN_PUSH`(기본 off)는 모든 replica가 L12 이상일 때만 켜고, 꺼져 있으면 이 칸은 `validation_error`다. 켜져 있어도 PR 도구가 `trusted`가 아닌 세션은 `pull_request_needs_tool_call`(platform, false, 부작용 없음)이다 |
 | F5 | 지연 완료 결과를 사람에게(`action_notice`) | 모델이 부른 push·PR 호출에 딸린 고정 알림. 바깥 효과를 새로 만들지 않는다 |
 
+> **갱신(2026-11-09).** 이 절과 아래 표에서 말하는 `AGENT_ACTION_FLOWS`와 `SESSION_PROMPT_REVISION`은 없어졌다. 턴 안의 `request_push`는 언제나 의도(intent) 흐름이고, 턴 밖에서 부르면 `no_running_turn`으로 거절한다. 이어 턴(`push_continuations`)은 더 만들지 않으며, 엔진에 가는 프롬프트·도구 설명·응답·후속 턴 메시지에는 사실만 적는다. 아래는 당시 결정의 기록이다.
+
 `AGENT_ACTION_FLOWS`는 "자동 흐름"을 켜는 설정이 아니라 T5·T6의 **지연 완료 계약**(턴 안 `request_push`의 의도, PR 예약)을 켜는 배포 장벽이다. 모든 replica가 L5 이상일 때 켠다. 이 설정은 새 직접 호출의 경로만 고르고, 이미 만든 요청은 행의 `flow`를 따른다.
 
 ## 12. 앞선 결정과의 차이

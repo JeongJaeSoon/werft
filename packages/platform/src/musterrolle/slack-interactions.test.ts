@@ -1221,20 +1221,17 @@ describe("Slack interactions", () => {
 describe("slackPushFollowUp", () => {
   const push = { id: "push-1", repositoryId: "app", targetBranch: "agent/s" };
 
-  test("an approval says to call again only while the push is approved or pushing", () => {
-    const text = slackPushFollowUp("approve", push);
-    expect(text).toContain(
-      "if it answers not_pushed with push_request_state approved or pushing, wait a few seconds and call it again",
+  test("the texts state what happened and name no channel, tool or next step", () => {
+    expect(slackPushFollowUp("approve", push)).toBe(
+      "A person approved push request push-1 (repository app, branch agent/s). The push runs in the background.",
     );
-    expect(text).toContain(
-      "In any other state, calling it again will not change the answer",
+    expect(slackPushFollowUp("reject", push)).toBe(
+      "A person rejected push request push-1 (repository app, branch agent/s). Nothing was pushed.",
     );
-    expect(text).not.toMatch(/answers not_pushed, wait/);
-  });
-
-  test("a rejection says nothing of calling open_pull_request", () => {
-    expect(slackPushFollowUp("reject", push)).not.toContain(
-      "open_pull_request",
-    );
+    for (const decision of ["approve", "reject"] as const) {
+      expect(slackPushFollowUp(decision, push)).not.toMatch(
+        /slack|open_pull_request|call it again|do not/i,
+      );
+    }
   });
 });

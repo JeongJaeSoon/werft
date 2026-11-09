@@ -104,6 +104,7 @@ function refused(
   receiptId: string | null,
   mismatches?: readonly AttributionMismatchDetail[],
   reason?: string,
+  checkpointRevision?: number,
 ): never {
   const { code, message } = PUSH_REFUSAL_ERRORS[refusal];
   throw new SessionServiceError(code, message, undefined, {
@@ -111,6 +112,9 @@ function refused(
     ...(receiptId === null ? {} : { receipt_id: receiptId }),
     ...(mismatches === undefined ? {} : { mismatches }),
     ...(reason === undefined ? {} : { reason }),
+    ...(checkpointRevision === undefined
+      ? {}
+      : { checkpoint_revision: checkpointRevision }),
   });
 }
 
@@ -381,6 +385,7 @@ export function createPushRequestService(deps: {
         fields: {
           repository_id?: string;
           mismatches?: AttributionMismatchDetail[];
+          checkpoint_revision?: number;
         } = {},
       ) =>
         refused(
@@ -397,7 +402,7 @@ export function createPushRequestService(deps: {
               verdict: "refuse",
               refusal,
               repository_id: fields.repository_id ?? null,
-              checkpoint_revision: null,
+              checkpoint_revision: fields.checkpoint_revision ?? null,
               git_commit: null,
               target_branch: null,
               ...(fields.mismatches === undefined
@@ -406,6 +411,8 @@ export function createPushRequestService(deps: {
             },
           }),
           fields.mismatches,
+          undefined,
+          fields.checkpoint_revision,
         );
       const replay = await store.replayCreate({
         ownerId: actor.ownerId,
@@ -422,7 +429,13 @@ export function createPushRequestService(deps: {
         return refuse(judged.refusal, judged.fields);
       }
       const { session, repositoryId, entry, attachedPush, repository } = judged;
-      const pinned = await source.readPushSource(sessionId);
+      // Omitted, the latest committed revision, as before the field existed.
+      // Named, `store.create` refuses it as `checkpoint_moved` once a newer
+      // one has been saved, so a caller can pin the revision it looked at.
+      const pinned =
+        body.checkpoint_revision === undefined
+          ? await source.readPushSource(sessionId)
+          : await source.readPushSourceAt(sessionId, body.checkpoint_revision);
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
         return refuse("checkpoint_unavailable", repository);
