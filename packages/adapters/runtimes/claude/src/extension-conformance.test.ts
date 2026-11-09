@@ -85,3 +85,29 @@ describe("the options a session with extension bundles launches the engine with"
     }
   });
 });
+
+describe("the Skill tool is the profile's to name, never added for a bundle", () => {
+  const ask = (options: ReturnType<typeof buildSdkOptions>, tool: string) =>
+    options.canUseTool?.(tool, {}, {
+      signal: new AbortController().signal,
+      toolUseID: `toolu_${tool}`,
+      requestId: "r1",
+    } as never);
+
+  test("a profile that lists Skill hands it to the engine and the gate admits it; Bash stays refused", async () => {
+    const options = buildSdkOptions(
+      { ...config, tools: ["Read", "Skill"] },
+      deps,
+    );
+    expect(options.tools).toEqual(["Read", "Skill"]);
+    expect(await ask(options, "Skill")).toMatchObject({ behavior: "allow" });
+    expect(await ask(options, "Bash")).toMatchObject({ behavior: "deny" });
+    expect(options).not.toHaveProperty("allowedTools");
+  });
+
+  test("a profile that does not list Skill gets none, bundle or not", async () => {
+    const options = buildSdkOptions(config, deps);
+    expect(options.tools).toEqual(["Read"]);
+    expect(await ask(options, "Skill")).toMatchObject({ behavior: "deny" });
+  });
+});
