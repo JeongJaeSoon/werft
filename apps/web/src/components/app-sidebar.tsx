@@ -214,16 +214,18 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     label: "achievementRules.nav",
     icon: SettingsIcon,
   });
+  // What agents connect to: Slack and GitHub for the workspace managers, the
+  // model connections and MCP servers for the installation owner. One group,
+  // a page each.
+  const agentConnections: NavItem[] = [];
   if (workspaceManage) {
-    workspace.push({
+    agentConnections.push({
       to: "/settings/workspace/integrations/slack",
       match: "/settings/workspace/integrations",
       label: "integrations.nav",
       icon: SettingsIcon,
     });
   }
-  // What an agent picks from: only the installation owner registers it.
-  const agentConnections: NavItem[] = [];
   if (useHasPermission("installation.settings.manage")) {
     agentConnections.push({
       to: "/settings/workspace/model-connections",
