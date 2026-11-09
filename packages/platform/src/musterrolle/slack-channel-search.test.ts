@@ -534,6 +534,12 @@ describe("searching an agent's Slack channels", () => {
     const bindings = forgettingChannelsOnBindingPut(
       {
         putSlackBinding: async () => set,
+        approveSlackBinding: async () => {
+          throw new Error("not asked");
+        },
+        rejectSlackBinding: async () => {
+          throw new Error("not asked");
+        },
         listSlackBindings: async () => ({ items: [] }),
       } as SurfaceBindingService,
       service,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import type { PlatformPrompt } from "@werft-ai/contracts";
 import {
   type EnsureExecutionResult,
@@ -11,10 +11,10 @@ import {
   runScheduler,
   type SchedulerLogger,
 } from "@werft-ai/platform";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { enqueueWithin } from "./enqueue.ts";
-import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
@@ -259,9 +259,8 @@ async function launchesOf(sessionId: string) {
 }
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
   store = createPostgresSchedulerStore(db, {
     sessionCostLimitUsd: 1_000,
     sessionTokenLimit: null,
