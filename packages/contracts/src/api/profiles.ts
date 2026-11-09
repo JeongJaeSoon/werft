@@ -10,9 +10,10 @@ import { permissionModeSchema, runtimeKindSchema } from "./session.ts";
 const projectSettingsSchema = z.object({ claude_md: z.boolean() }).strict();
 
 /**
- * Whether a session of the profile names a repository: `required` unless the
- * session starts on the agent's GitHub settings or a workspace-scoped
- * profile, `optional` may, `none` never.
+ * Whether a session of the profile names a repository, where the catalog
+ * judges the pair: `required` always, `optional` may, `none` never. A session
+ * on the agent's GitHub settings or a workspace-scoped profile is judged by
+ * the workspace ceiling and the agent's list instead.
  */
 export const repositoryModeSchema = z.enum(["required", "optional", "none"]);
 
