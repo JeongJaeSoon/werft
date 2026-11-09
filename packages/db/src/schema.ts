@@ -3918,6 +3918,15 @@ export const agentReleases = pgTable(
     // Outside the id's hash: a re-release of the same content keeps the
     // first note, null included.
     note: text(),
+    // What a claim runs on without reading a profile, derived from the
+    // columns above. Outside the id's hash: an old release keeps its id and
+    // its original columns, and `spec_source` keeps what the spec was made
+    // from so both digests recompute after the profile tables are gone. The
+    // four are all null or all set.
+    runtimeSpec: jsonb("runtime_spec").$type<Record<string, unknown>>(),
+    specSource: jsonb("spec_source").$type<Record<string, unknown>>(),
+    specSourceDigest: text("spec_source_digest"),
+    specDigest: text("spec_digest"),
   },
   (table) => [
     foreignKey({
@@ -3925,6 +3934,10 @@ export const agentReleases = pgTable(
       columns: [table.agentId, table.versionId],
       foreignColumns: [agentVersions.agentId, agentVersions.id],
     }),
+    check(
+      "agent_releases_spec_check",
+      sql`(${table.runtimeSpec} IS NULL) = (${table.specSource} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specSourceDigest} IS NULL) AND (${table.runtimeSpec} IS NULL) = (${table.specDigest} IS NULL)`,
+    ),
     unique("agent_releases_agent_id_key").on(table.agentId, table.id),
     check(
       "agent_releases_approval_check",
@@ -5205,6 +5218,19 @@ export const providerConnections = pgTable(
      * over the old definition keep matching this row.
      */
     replacesAuth: jsonb("replaces_auth").$type<Record<string, unknown>>(),
+    /**
+     * The models an agent may name on this connection, and their families
+     * for a retired model's successor. Beside `definition`, never in it: the
+     * profile fingerprint hashes the whole provider object, and this list
+     * changes over a connection's life where the definition does not.
+     */
+    models: jsonb().$type<string[]>().notNull().default([]),
+    modelFamilies: jsonb("model_families").$type<Record<string, unknown>>(),
+    /** Whether the engine's auto mode classifier works over this connection. */
+    autoMode: text("auto_mode")
+      .$type<"supported" | "unsupported" | "unknown">()
+      .notNull()
+      .default("unknown"),
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
     disabledBy: uuid("disabled_by").references(() => users.id),
     createdBy: uuid("created_by").references(() => users.id),
@@ -5213,6 +5239,10 @@ export const providerConnections = pgTable(
       .defaultNow(),
   },
   (table) => [
+    check(
+      "provider_connections_auto_mode_check",
+      sql`${table.autoMode} IN ('supported', 'unsupported', 'unknown')`,
+    ),
     check(
       "provider_connections_credential_source_check",
       sql`${table.credentialSource} IN ('stored', 'external')`,
