@@ -355,26 +355,30 @@ export function createEnvVariableService(deps: {
       }
     },
 
+    // The path takes any UUID case. The store locks on the id as text, so
+    // every agent entry point lower-cases it before anything else sees it.
     async listAgent(
       caller: Caller,
-      agentId: string,
+      pathAgentId: string,
     ): Promise<AgentEnvVariables> {
+      const agentId = pathAgentId.toLowerCase();
       await onAgent(caller, agentId);
       if (!(await store.hasAgent(caller.ownerId, agentId))) throw NOT_FOUND();
       const { own, workspace } = await store.readAgentView(
         caller.ownerId,
-        agentId.toLowerCase(),
+        agentId,
       );
       return agentViewOf(own, workspace, agentId);
     },
 
     async putAgent(
       caller: Caller,
-      agentId: string,
+      pathAgentId: string,
       name: string,
       body: PutEnvVariableFields,
       headers: PreconditionHeaders,
     ): Promise<PutEnvVariableResponse> {
+      const agentId = pathAgentId.toLowerCase();
       await onAgent(caller, agentId);
       return put(
         caller,
@@ -387,10 +391,11 @@ export function createEnvVariableService(deps: {
 
     async deleteAgent(
       caller: Caller,
-      agentId: string,
+      pathAgentId: string,
       name: string,
       ifMatch: string | undefined,
     ): Promise<DeleteEnvVariableResponse> {
+      const agentId = pathAgentId.toLowerCase();
       await onAgent(caller, agentId);
       return remove(
         caller,

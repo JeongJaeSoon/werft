@@ -649,6 +649,25 @@ describe("what a read shows", () => {
     ]);
   });
 
+  test("an upper-case agent id reaches the store lower-cased on a write and a delete", async () => {
+    const { service, calls } = serviceOver();
+    await service.putAgent(
+      owner,
+      AGENT.toUpperCase(),
+      "REGION",
+      { kind: "plain", value: "v" },
+      create,
+    );
+    await service.deleteAgent(owner, AGENT.toUpperCase(), "REGION", "3");
+    const scopes = calls.map(
+      (call) => (call.input as { scope: EnvVariableScope }).scope,
+    );
+    expect(scopes).toEqual([
+      { workspaceId: owner.ownerId, agentId: AGENT },
+      { workspaceId: owner.ownerId, agentId: AGENT },
+    ]);
+  });
+
   test("an unknown agent is 404, and a secret never carries a value", async () => {
     expect(
       await codeOf(
