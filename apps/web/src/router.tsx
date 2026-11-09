@@ -265,7 +265,6 @@ const slackInstall = createRoute({
   ),
 });
 
-// Slack sends the browser back here (SLACK_OIDC_REDIRECT_URI).
 const slackLink = createRoute({
   getParentRoute: () => authed,
   path: "/settings/linked-accounts/slack",

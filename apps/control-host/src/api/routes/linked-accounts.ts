@@ -40,7 +40,6 @@ import {
   SLACK_LINK_TTL_MS,
   type SlackOidcConfig,
   SlackOidcRejectedError,
-  type SlackOidcSettings,
   SlackOidcUnavailableError,
   slackAuthorizeUrl,
 } from "../slack-link.ts";
@@ -55,8 +54,7 @@ export interface LinkedAccountRouteDeps {
   service: LinkedAccountService;
   /** Null: Sign in with Slack is not configured on this installation. */
   slack: {
-    issuer: SlackOidcSettings["issuer"];
-    /** Each workspace's OIDC client: its link app, else the fallback. */
+    issuer: string;
     clients: Pick<SlackLinkAppService, "clientFor" | "clientForStart">;
   } | null;
   logger?: StructuredLogger;

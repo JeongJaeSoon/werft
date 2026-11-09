@@ -145,6 +145,21 @@ export const workspaceKo = {
   "workspace.tokenStoreUnavailable":
     "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
   "workspace.tokenDeleted": "App Configuration Token을 삭제했습니다.",
+  "workspace.addressesTitle": "Slack 앱에 넣을 주소",
+  "workspace.addressesHint":
+    "콘솔의 공개 주소(CONSOLE_ORIGIN)에서 계산한 주소입니다. 콘솔이 만드는 앱에는 자동으로 들어가므로, Slack 앱을 직접 만들었을 때만 복사해서 넣으세요.",
+  "workspace.addressRedirect": "Sign in with Slack 리디렉션 URL",
+  "workspace.addressEvents": "이벤트 요청 URL",
+  "workspace.addressEventsHint":
+    "에이전트마다 다릅니다. {agent_id} 자리에 에이전트 ID를 넣으세요.",
+  "workspace.addressCopy": "복사",
+  "workspace.addressCopied": "주소를 복사했습니다.",
+  "workspace.addressCopyFailed":
+    "복사하지 못했습니다. 칸의 주소를 직접 선택해 복사하세요.",
+  "workspace.addressNoConsole":
+    "콘솔의 공개 주소(CONSOLE_ORIGIN)가 설정되지 않아 주소를 만들 수 없습니다. 운영자에게 설정을 요청하세요.",
+  "workspace.addressNoHttps":
+    "Slack은 https 주소만 부릅니다. 콘솔의 공개 주소가 https가 아니어서 이벤트 주소를 만들 수 없습니다.",
 };
 
 export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
@@ -296,6 +311,21 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenStoreUnavailable":
     "The secret store is unavailable. Ask an administrator to check its configuration.",
   "workspace.tokenDeleted": "Deleted the App Configuration Token.",
+  "workspace.addressesTitle": "Addresses for a Slack app",
+  "workspace.addressesHint":
+    "Computed from the console's public address (CONSOLE_ORIGIN). Apps the console makes get them automatically; copy them only for a Slack app you made yourself.",
+  "workspace.addressRedirect": "Sign in with Slack redirect URL",
+  "workspace.addressEvents": "Events Request URL",
+  "workspace.addressEventsHint":
+    "One per agent. Put the agent's ID where {agent_id} stands.",
+  "workspace.addressCopy": "Copy",
+  "workspace.addressCopied": "Address copied.",
+  "workspace.addressCopyFailed":
+    "Could not copy. Select the address in the field and copy it yourself.",
+  "workspace.addressNoConsole":
+    "The console's public address (CONSOLE_ORIGIN) is not set, so no address can be made. Ask the operator to set it.",
+  "workspace.addressNoHttps":
+    "Slack only calls https addresses. The console's public address is not https, so no events address can be made.",
 };
 
 export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
@@ -448,4 +478,19 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenStoreUnavailable":
     "秘密情報ストアを利用できません。管理者に設定の確認を依頼してください。",
   "workspace.tokenDeleted": "App Configuration Token を削除しました。",
+  "workspace.addressesTitle": "Slack アプリに入れるアドレス",
+  "workspace.addressesHint":
+    "コンソールの公開アドレス(CONSOLE_ORIGIN)から計算したアドレスです。コンソールが作るアプリには自動で入ります。Slack アプリを自分で作った場合だけ、コピーして入れてください。",
+  "workspace.addressRedirect": "Sign in with Slack のリダイレクト URL",
+  "workspace.addressEvents": "イベントのリクエスト URL",
+  "workspace.addressEventsHint":
+    "エージェントごとに異なります。{agent_id} の部分にエージェント ID を入れてください。",
+  "workspace.addressCopy": "コピー",
+  "workspace.addressCopied": "アドレスをコピーしました。",
+  "workspace.addressCopyFailed":
+    "コピーできませんでした。欄のアドレスを選択して、自分でコピーしてください。",
+  "workspace.addressNoConsole":
+    "コンソールの公開アドレス(CONSOLE_ORIGIN)が設定されていないため、アドレスを作れません。運用者に設定を依頼してください。",
+  "workspace.addressNoHttps":
+    "Slack は https のアドレスにしか接続しません。コンソールの公開アドレスが https ではないため、イベントのアドレスを作れません。",
 };

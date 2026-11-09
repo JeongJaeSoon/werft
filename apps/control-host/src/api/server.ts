@@ -155,6 +155,7 @@ import {
   resolveAgentRelease,
   SessionServiceError,
   slackBotToken,
+  slackPublicUrlsOf,
   unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
   withConsoleRepositories,
@@ -282,9 +283,11 @@ import { createShutdown } from "./shutdown.ts";
 import {
   consoleOriginFrom,
   slackApiUrlFrom,
+  slackEnvWarnings,
   slackEventsPublicUrlFrom,
+  slackIssuerFrom,
 } from "./slack-config.ts";
-import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
+import { signInWithSlackOff } from "./slack-link.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -603,7 +606,8 @@ const linkedAccounts = createLinkedAccountService({
   authorization,
   store: createPostgresLinkedAccountStore(db),
 });
-const slackOidc = slackOidcSettingsFromEnv(process.env);
+const slackIssuer = slackIssuerFrom(process.env);
+for (const warning of slackEnvWarnings(process.env)) logger.warn(warning, {});
 const slackConfigApi = createSlackConfigApi({
   apiUrl: slackApiUrlFrom(process.env),
 });
@@ -617,16 +621,18 @@ const slackConfigTokens =
 const consoleOrigin = consoleOriginFrom(process.env);
 if (consoleOrigin === null) {
   logger.warn(
-    "Slack apps cannot be created (SLACK_OIDC_REDIRECT_URI unset): their OAuth redirect is on the console's origin",
+    "Slack apps cannot be created (CONSOLE_ORIGIN unset): their OAuth redirect is on the console's origin",
     {},
   );
 }
-const slackLinkOff = signInWithSlackOff(slackOidc, secretKey !== null);
+const slackLinkOff = signInWithSlackOff(consoleOrigin, secretKey !== null);
 if (slackLinkOff !== null) logger.warn(slackLinkOff, {});
+const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
 const slackSecrets = createSlackSecretService({
   authorization,
   store: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
   tokens: slackConfigTokens,
+  urls: slackPublicUrlsOf(consoleOrigin, slackEventsPublicUrl),
   appKind: (workspaceId, slackAppId) =>
     slackAppKind(db, workspaceId, slackAppId),
 });
@@ -651,7 +657,7 @@ const slackApps = createSlackAppService({
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
-  eventsPublicUrl: slackEventsPublicUrlFrom(process.env),
+  eventsPublicUrl: slackEventsPublicUrl,
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
   activeReleaseWarning: async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))
@@ -687,10 +693,9 @@ const slackApps = createSlackAppService({
       : { code: "repository_required", profile_id: release.runtime_profile_id };
   },
 });
-const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);
 if (slackEventsPublicUrl === null) {
   logger.warn(
-    "Slack apps get no event subscription (SLACK_EVENTS_PUBLIC_URL unset): installs finish with events_url_unset",
+    "Slack apps get no event subscription (CONSOLE_ORIGIN unset or not https, and no SLACK_EVENTS_PUBLIC_URL): installs finish with events_url_unset",
     {},
   );
 }
@@ -729,10 +734,6 @@ const slackLinkApps = createSlackLinkAppService({
   tokens: slackConfigTokens,
   api: slackConfigApi,
   consoleOrigin,
-  fallback:
-    slackOidc?.client == null
-      ? null
-      : { ...slackOidc.client, redirectUri: slackOidc.redirectUri },
 });
 const credentialBindingService = createCredentialBindingService({
   authorization,
@@ -1355,9 +1356,9 @@ const app = createApiApp({
       service: linkedAccounts,
       github: { oauth: githubOAuth, redirectUri: githubCallback },
       slack:
-        slackOidc === null
+        consoleOrigin === null
           ? null
-          : { issuer: slackOidc.issuer, clients: slackLinkApps },
+          : { issuer: slackIssuer, clients: slackLinkApps },
       logger,
     });
     registerMemberRoutes(router, members, invites);

@@ -5,6 +5,7 @@ import type {
   SlackAppKind,
   SlackAppSecretPurpose,
   SlackConfigTokenSummary,
+  SlackPublicUrls,
   SlackSecretSummary,
 } from "@werft-ai/contracts";
 import type {
@@ -25,6 +26,22 @@ import {
 } from "./policy.ts";
 import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 import type { SlackConfigTokens } from "./slack-config-token.ts";
+import { slackEventsUrl } from "./slack-events-finalize.ts";
+import { slackLinkRedirectUrl } from "./slack-manifest.ts";
+
+export function slackPublicUrlsOf(
+  consoleOrigin: string | null,
+  eventsPublicUrl: string | null,
+): SlackPublicUrls {
+  return {
+    redirect_url:
+      consoleOrigin === null ? null : slackLinkRedirectUrl(consoleOrigin),
+    events_url_template:
+      eventsPublicUrl === null
+        ? null
+        : slackEventsUrl(eventsPublicUrl, "{agent_id}"),
+  };
+}
 
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
@@ -68,9 +85,11 @@ export function slackSecretSummaryOf(
 
 export function slackConfigTokenSummaryOf(
   summary: ConfigTokenSummary,
+  urls: SlackPublicUrls,
 ): SlackConfigTokenSummary {
   return {
     ...slackSecretSummaryOf(summary.secret),
+    urls,
     state: summary.state,
     expires_at: summary.expiresAt?.toISOString() ?? null,
     issuer:
@@ -85,6 +104,7 @@ export function createSlackSecretService(deps: {
   /** Null when the API runs without a master key. */
   store: SecretStore | null;
   tokens: SlackConfigTokens | null;
+  urls: SlackPublicUrls;
   /** The kind of one of the workspace's Slack apps, or null when it has none. */
   appKind: (
     workspaceId: string,
@@ -139,7 +159,10 @@ export function createSlackSecretService(deps: {
       workspaceId: string,
     ): Promise<SlackConfigTokenSummary> {
       const tokens = await managedTokens(caller, workspaceId);
-      return slackConfigTokenSummaryOf(await tokens.describe(workspaceId));
+      return slackConfigTokenSummaryOf(
+        await tokens.describe(workspaceId),
+        deps.urls,
+      );
     },
 
     /**
@@ -163,7 +186,7 @@ export function createSlackSecretService(deps: {
       switch (result.outcome) {
         case "stored":
           return {
-            ...slackConfigTokenSummaryOf(result.summary),
+            ...slackConfigTokenSummaryOf(result.summary, deps.urls),
             receipt_id: audit.receiptId,
             warnings:
               result.previousIssuerUserId !== null &&

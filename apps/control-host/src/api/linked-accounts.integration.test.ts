@@ -25,8 +25,6 @@ import {
 import {
   createAuthorizationPolicy,
   createLinkedAccountService,
-  createSlackConfigApi,
-  createSlackLinkAppService,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
@@ -68,6 +66,12 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     keys = new DatabaseApiKeyStore(db);
     idp = await startMockSlackOidc();
+    const idpClient = {
+      clientId: idp.clientId,
+      clientSecret: idp.clientSecret,
+      redirectUri: REDIRECT_URI,
+      slackAppId: "019a0000-0000-7000-8000-0000000000a1",
+    };
     const identity = new DatabaseIdentityStore(db);
     const auth = {
       identity,
@@ -93,19 +97,10 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
           github: { oauth: { client: async () => null }, redirectUri: null },
           slack: {
             issuer: idp.url,
-            // No secret store: every workspace links with the fallback app.
-            clients: createSlackLinkAppService({
-              authorization,
-              apps: null,
-              tokens: null,
-              api: createSlackConfigApi({ apiUrl: `${idp.url}/api` }),
-              consoleOrigin: new URL(REDIRECT_URI).origin,
-              fallback: {
-                clientId: idp.clientId,
-                clientSecret: idp.clientSecret,
-                redirectUri: REDIRECT_URI,
-              },
-            }),
+            clients: {
+              clientFor: async () => idpClient,
+              clientForStart: async () => idpClient,
+            },
           },
         });
       },

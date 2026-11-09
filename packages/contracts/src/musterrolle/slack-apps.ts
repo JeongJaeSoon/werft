@@ -263,12 +263,28 @@ export const listWorkspaceSlackAppsResponseSchema = z
   .strict();
 
 /**
+ * The addresses Slack is sent to, computed from the console's public origin
+ * (CONSOLE_ORIGIN) and fixed paths. An operator copies them into a Slack app
+ * made by hand. Null when the origin is unset, or (events) when Slack could
+ * not reach it.
+ */
+export const slackPublicUrlsSchema = z
+  .object({
+    /** Where Sign in with Slack sends the browser back. */
+    redirect_url: z.string().nullable(),
+    /** `{agent_id}` stands for the agent's id: one events URL per agent. */
+    events_url_template: z.string().nullable(),
+  })
+  .strict();
+
+/**
  * The config token as the console shows it. `needs_reentry`: Slack no
  * longer takes the stored pair, or a rotation's result was lost; an owner
  * or admin pastes a new token.
  */
 export const slackConfigTokenSummarySchema = slackSecretSummarySchema
   .extend({
+    urls: slackPublicUrlsSchema,
     state: z.enum(CONFIG_TOKEN_STATE_VALUES),
     /** When the current access token expires; it is rotated before then. */
     expires_at: timestampSchema.nullable(),
@@ -303,6 +319,7 @@ export type DeleteSlackAppResponse = z.infer<
 export type ListWorkspaceSlackAppsResponse = z.infer<
   typeof listWorkspaceSlackAppsResponseSchema
 >;
+export type SlackPublicUrls = z.infer<typeof slackPublicUrlsSchema>;
 export type SlackConfigTokenSummary = z.infer<
   typeof slackConfigTokenSummarySchema
 >;
