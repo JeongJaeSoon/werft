@@ -82,6 +82,7 @@ import {
   lte,
   max,
   notInArray,
+  or,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -1229,15 +1230,19 @@ function budgetEnded(
  * model the profile dropped, onto the successor the catalog names, and writes
  * the stream event that says so. Only here, at the start of a turn: a session
  * with a pod keeps its model until that turn ends, and the proxy's cut stays
- * what it was. Only a row pinned to the profile's current fingerprint moves
- * (a version 1 one names its model in the hash and stays blocked), and a
- * locked row is left to its holder, as the candidate query does.
+ * what it was. A version 1 pin names its model in the hash, so the row's pin
+ * moves with it (its model column may be null). A locked row is left to its
+ * holder, as the candidate query does, unless `wait`: the reserved launch's
+ * own session, retried after the candidate query found nothing because an
+ * input append held the row. Returns how many moved.
  */
-async function moveSessionsToSuccessors(
+export async function moveSessionsToSuccessors(
   tx: Database,
   launch: { partition: string; sessionId: string | null },
   input: Pick<ClaimInput, "modelMoves" | "now">,
-): Promise<void> {
+  wait = false,
+): Promise<number> {
+  let moved = 0;
   for (const move of input.modelMoves ?? []) {
     const rows = await tx
       .select({ id: sessions.id })
@@ -1251,8 +1256,10 @@ async function moveSessionsToSuccessors(
           eq(unassignedSessions.partition, launch.partition),
           eq(sessions.partition, launch.partition),
           eq(sessions.profileId, move.profileId),
-          eq(sessions.profileFingerprint, move.profileFingerprint),
-          eq(sessions.model, move.from),
+          eq(sessions.profileFingerprint, move.fromFingerprint),
+          move.fromFingerprint === move.toFingerprint
+            ? eq(sessions.model, move.from)
+            : or(eq(sessions.model, move.from), isNull(sessions.model)),
           isNull(sessions.podId),
           inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
           isNull(sessions.executionRevokedAt),
@@ -1263,11 +1270,19 @@ async function moveSessionsToSuccessors(
         ),
       )
       .orderBy(asc(sessions.id))
-      .for("update", { of: sessions, skipLocked: true });
+      .for(
+        "update",
+        wait ? { of: sessions } : { of: sessions, skipLocked: true },
+      );
     for (const { id } of rows) {
+      moved += 1;
       await tx
         .update(sessions)
-        .set({ model: move.to, updatedAt: input.now })
+        .set({
+          model: move.to,
+          profileFingerprint: move.toFingerprint,
+          updatedAt: input.now,
+        })
         .where(eq(sessions.id, id));
       await recordEvent(tx, {
         sessionId: id,
@@ -1283,6 +1298,7 @@ async function moveSessionsToSuccessors(
       });
     }
   }
+  return moved;
 }
 
 async function giveUpOnCatalogMismatch(
@@ -2084,31 +2100,46 @@ export function createPostgresWorkerUnitOfWork(
         // either the one the launch reserved or the partition's head; SKIP
         // LOCKED lets concurrent claims in one partition pick different heads
         // instead of serialising on the oldest signal.
-        const [candidate] = await tx
-          .select({ sessionId: unassignedSessions.sessionId })
-          .from(unassignedSessions)
-          .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
-          .where(
-            and(
-              eq(unassignedSessions.partition, launch.partition),
-              // The signal carries a copy; the session's own partition is
-              // the one that says which pool may run it.
-              eq(sessions.partition, launch.partition),
-              isNull(sessions.podId),
-              inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
-              isNull(sessions.executionRevokedAt),
-              isNull(sessions.takeoverRequiredAt),
-              runnableCondition(input.runnable),
-              withinBudget(budgetOf(input)),
-              restoreRetryDue(),
-              ...(launch.sessionId === null
-                ? []
-                : [eq(sessions.id, launch.sessionId)]),
-            ),
-          )
-          .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))
-          .limit(1)
-          .for("update", { of: unassignedSessions, skipLocked: true });
+        const selectCandidate = async () => {
+          const [found] = await tx
+            .select({ sessionId: unassignedSessions.sessionId })
+            .from(unassignedSessions)
+            .innerJoin(sessions, eq(sessions.id, unassignedSessions.sessionId))
+            .where(
+              and(
+                eq(unassignedSessions.partition, launch.partition),
+                // The signal carries a copy; the session's own partition is
+                // the one that says which pool may run it.
+                eq(sessions.partition, launch.partition),
+                isNull(sessions.podId),
+                inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
+                isNull(sessions.executionRevokedAt),
+                isNull(sessions.takeoverRequiredAt),
+                runnableCondition(input.runnable),
+                withinBudget(budgetOf(input)),
+                restoreRetryDue(),
+                ...(launch.sessionId === null
+                  ? []
+                  : [eq(sessions.id, launch.sessionId)]),
+              ),
+            )
+            .orderBy(asc(unassignedSessions.signaledAt), asc(sessions.id))
+            .limit(1)
+            .for("update", { of: unassignedSessions, skipLocked: true });
+          return found;
+        };
+        let candidate = await selectCandidate();
+        // The move above skips a row another transaction holds (an input
+        // being appended), and the candidate query then finds the dropped
+        // model unrunnable. The reserved session is waited for once, so a
+        // session that has a successor is not given up on for a lock.
+        if (
+          !candidate &&
+          launch.sessionId !== null &&
+          (await moveSessionsToSuccessors(tx, launch, input, true)) > 0
+        ) {
+          candidate = await selectCandidate();
+        }
         if (!candidate) {
           const givenUp =
             launch.sessionId === null

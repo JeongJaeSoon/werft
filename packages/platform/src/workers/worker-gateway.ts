@@ -128,11 +128,9 @@ import {
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
   mcpBinding,
-  modelMoves,
-  modelSuccessor,
+  modelMovePins,
   type ProfilePin,
   profileAllowsRepository,
-  profileAsMovedModel,
   profileFingerprint,
   profileGone,
   profileModels,
@@ -966,12 +964,15 @@ export function createWorkerGateway(deps: {
           ...Object.entries(profiles).map(([id, profile]) => ({ id, profile })),
           ...workspace,
         ].flatMap(({ id, profile }) =>
-          modelMoves(profile).map(({ from, to }) => ({
-            profileId: id,
-            profileFingerprint: profileFingerprint(profile),
-            from,
-            to,
-          })),
+          modelMovePins(profile, acceptedRuntimeVersions(catalog)).map(
+            ({ from, to, fromFingerprint, toFingerprint }) => ({
+              profileId: id,
+              fromFingerprint,
+              toFingerprint,
+              from,
+              to,
+            }),
+          ),
         ),
         settingsGeneration,
         unavailableRepositories:
@@ -1197,13 +1198,14 @@ export function createWorkerGateway(deps: {
       const listed = catalogProfile(catalog, made.profileId);
       // A checkpoint taken on the model the session was moved off is still
       // this session's: the move put the same series' next model in its row.
-      const moved =
-        listed &&
-        made.model !== null &&
-        made.profileFingerprint === profileFingerprint(listed) &&
-        modelSuccessor(listed, made.model) === binding.model
-          ? profileAsMovedModel(listed, made.model)
-          : null;
+      const moved = listed
+        ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
+            (pin) =>
+              pin.fromFingerprint === made.profileFingerprint &&
+              (made.model === null || made.model === pin.from) &&
+              pin.to === binding.model,
+          )?.asFrom ?? null)
+        : null;
       const profile = listed
         ? (sessionProfile(
             listed,

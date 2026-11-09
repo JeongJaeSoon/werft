@@ -1565,6 +1565,49 @@ export function fingerprintModel(
 }
 
 /**
+ * Each pin a row on a dropped model may hold (every accepted runtime version,
+ * both fingerprint versions) with the pin it holds after the move: a version
+ * 2 fingerprint is the same before and after, a version 1 one names its
+ * model and changes with it. `asFrom` is the profile as it ran the dropped
+ * model, for recognising a checkpoint made then.
+ */
+export function modelMovePins<P extends CatalogProfileView>(
+  profile: P,
+  versions: readonly string[],
+): Array<{
+  from: string;
+  to: string;
+  fromFingerprint: string;
+  toFingerprint: string;
+  asFrom: P;
+}> {
+  return underVersions(profile, versions).flatMap((seen) =>
+    modelMoves(seen).flatMap(({ from, to }) => {
+      const asFrom = profileAsMovedModel(seen, from);
+      const asTo = profileWithModel(seen, to);
+      if (!asFrom || !asTo) return [];
+      const current = profileFingerprint(seen);
+      return [
+        {
+          from,
+          to,
+          fromFingerprint: current,
+          toFingerprint: current,
+          asFrom,
+        },
+        {
+          from,
+          to,
+          fromFingerprint: profileFingerprintV1(asFrom),
+          toFingerprint: profileFingerprintV1(asTo),
+          asFrom,
+        },
+      ];
+    }),
+  );
+}
+
+/**
  * Every pin a row of this profile may hold, its default model first: the
  * version 2 fingerprint once per offered model, then each model's version 1
  * fingerprint, which names its model itself (`model` null: any row model);

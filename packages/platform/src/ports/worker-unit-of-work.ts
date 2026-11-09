@@ -141,8 +141,10 @@ export type PolicyPair = {
 /** A model a profile dropped and the listed one of its series that replaces it. */
 export type ModelMove = {
   profileId: string;
-  /** The profile's own fingerprint: only a session pinned to it moves. */
-  profileFingerprint: string;
+  /** Only a session pinned to this moves; a version 1 pin names its model. */
+  fromFingerprint: string;
+  /** What the session is pinned to after the move. */
+  toFingerprint: string;
   from: string;
   to: string;
 };
