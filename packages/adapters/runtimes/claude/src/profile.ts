@@ -1,7 +1,10 @@
 import { tmpdir } from "node:os";
 import { parsePermissionRules } from "@werft-ai/contracts";
 import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
-import { assertGitEnvironment } from "@werft-ai/runtime-core";
+import {
+  assertGitEnvironment,
+  assertUserEnvironment,
+} from "@werft-ai/runtime-core";
 import { z } from "zod";
 
 import { describeComponents } from "./component-identity.ts";
@@ -178,10 +181,18 @@ export function runtimeEnvironment(
     | "profile"
     | "providerMaxRetries"
     | "trustedCaBundle"
+    | "userEnvironment"
   >,
   host: NodeJS.ProcessEnv = process.env,
 ): Record<string, string | undefined> {
   const environment: Record<string, string | undefined> = {
+    // First, so every key below overwrites a user name that got past the
+    // reserved list. The conditional keys (proxy, CA, retries) are on that
+    // list too: they are absent when their config is, and nothing below
+    // would overwrite a user value for them then.
+    ...(config.userEnvironment === undefined
+      ? {}
+      : assertUserEnvironment(config.userEnvironment)),
     ANTHROPIC_BASE_URL: normalizeEndpoint(config.profile.endpoint),
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_CONFIG_DIR: config.claudeConfigDir,

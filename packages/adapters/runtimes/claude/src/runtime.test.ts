@@ -966,6 +966,40 @@ describe("Claude SDK adapter options", () => {
     ).toEqual([]);
   });
 
+  test("userEnvironment goes into the engine's environment only, never onto a command line or into the settings", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    const { env, ...rest } = buildSdkOptions(
+      { ...config, userEnvironment: { REGION: "value-for-test-eu" } },
+      allow,
+    );
+    expect(env).toMatchObject({ REGION: "value-for-test-eu" });
+    expect(JSON.stringify(rest)).not.toContain("value-for-test-eu");
+    expect(rest).not.toHaveProperty("extraArgs");
+    expect(buildSdkOptions(config, allow).env).not.toHaveProperty("REGION");
+  });
+
+  test("refuses a userEnvironment name the adapter sets itself, without echoing the value", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    expect(() =>
+      buildSdkOptions(
+        { ...config, userEnvironment: { PATH: "secret-looking-value" } },
+        allow,
+      ),
+    ).toThrow(/PATH/);
+    try {
+      buildSdkOptions(
+        { ...config, userEnvironment: { PATH: "secret-looking-value" } },
+        allow,
+      );
+    } catch (error) {
+      expect(String(error)).not.toContain("secret-looking-value");
+    }
+  });
+
   test("refuses a gitEnvironment carrying anything but the three git settings", () => {
     const allow = {
       onPermission: async () => ({ behavior: "allow" as const }),

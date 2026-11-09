@@ -103,6 +103,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       approval_remember: true,
       platform_tool_trust: true,
       permission_rules: true,
+      user_env: true,
     });
   });
 
@@ -119,8 +120,9 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
+        user_env: true,
       },
-      { approval_remember: true, permission_rules: true },
+      { approval_remember: true, permission_rules: true, user_env: true },
     ]);
   });
 
@@ -148,9 +150,10 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         approval_remember: true,
         platform_tool_trust: true,
         permission_rules: true,
+        user_env: true,
       },
-      { approval_remember: true, permission_rules: true },
-      { approval_remember: true, permission_rules: true },
+      { approval_remember: true, permission_rules: true, user_env: true },
+      { approval_remember: true, permission_rules: true, user_env: true },
     ]);
   });
 
@@ -294,7 +297,14 @@ describe("claim against a control-host older than user_env", () => {
     const { gateway, sent } = gatewayAgainst(() =>
       badRequest(refusing("user_env")),
     );
-    const error = await gateway.bootstrapClaim(claimRequest).catch((e) => e);
+    const withoutUserEnv = {
+      ...claimRequest,
+      capabilities: {
+        approval_remember: true as const,
+        platform_tool_trust: true as const,
+      },
+    };
+    const error = await gateway.bootstrapClaim(withoutUserEnv).catch((e) => e);
     expect(error).toBeInstanceOf(WorkerGatewayRequestError);
     expect(sent).toHaveLength(1);
   });
