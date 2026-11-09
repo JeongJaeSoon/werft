@@ -15,7 +15,7 @@ export const CLAUDE_DESCRIPTOR: RuntimeDescriptor = {
     approvalCheckpoint: true,
     resume: true,
     mcp: "native",
-    skills: "none",
+    skills: "native",
     permissionModes: {
       default: "native",
       acceptEdits: "native",
