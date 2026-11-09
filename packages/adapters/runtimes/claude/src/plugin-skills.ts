@@ -15,7 +15,10 @@ export class PluginTreeError extends Error {
  * `<plugin name>:<skill>` for every skill directory of each published tree.
  * The worker verified the tree's content hash before publishing it, so what is
  * listed here is what the engine must report back; a skill it does not report
- * means the bundle was not loaded as published.
+ * means the bundle was not loaded as published. Skills marked
+ * `user-invocable: false` are left out: the engine's initialization reply
+ * lists only user-invocable skills (the other `system/init.skills` list is a
+ * stream message that is not available when the start is checked).
  */
 export function expectedPluginSkills(
   plugins: readonly RuntimePlugin[],
@@ -24,6 +27,7 @@ export function expectedPluginSkills(
   for (const plugin of plugins) {
     const manifest = readManifestName(plugin.path);
     for (const skill of skillDirectories(plugin.path)) {
+      if (isHiddenFromUsers(plugin.path, skill)) continue;
       names.push(`${manifest}:${skill}`);
     }
   }
@@ -37,6 +41,18 @@ export function missingSkills(
 ): string[] {
   const reported = new Set(commands.map((command) => command.name));
   return expected.filter((skill) => !reported.has(skill));
+}
+
+/** Anything that is not a plain `user-invocable: false` line counts as invocable. */
+function isHiddenFromUsers(path: string, skill: string): boolean {
+  let text: string;
+  try {
+    text = readFileSync(join(path, "skills", skill, "SKILL.md"), "utf8");
+  } catch {
+    return false;
+  }
+  const head = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
+  return head !== undefined && /^user-invocable:[ \t]+false[ \t]*$/m.test(head);
 }
 
 function readManifestName(path: string): string {

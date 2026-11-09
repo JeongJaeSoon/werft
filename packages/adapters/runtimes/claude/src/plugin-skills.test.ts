@@ -17,7 +17,11 @@ afterEach(() => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true });
 });
 
-function tree(name: string | null, skills: string[]): string {
+function tree(
+  name: string | null,
+  skills: string[],
+  frontmatter: Record<string, string> = {},
+): string {
   const root = mkdtempSync(join(tmpdir(), "plugin-tree-"));
   made.push(root);
   if (name !== null) {
@@ -30,7 +34,10 @@ function tree(name: string | null, skills: string[]): string {
   mkdirSync(join(root, "skills"));
   for (const skill of skills) {
     mkdirSync(join(root, "skills", skill));
-    writeFileSync(join(root, "skills", skill, "SKILL.md"), "---\n---\n");
+    writeFileSync(
+      join(root, "skills", skill, "SKILL.md"),
+      frontmatter[skill] ?? "---\n---\n",
+    );
   }
   return root;
 }
@@ -58,6 +65,29 @@ describe("expectedPluginSkills", () => {
     expect(expectedPluginSkills([{ path, type: "local" }])).toEqual([
       "lint:check",
       "lint:fix",
+    ]);
+  });
+
+  test("leaves out a skill the engine does not list because it is not user-invocable", () => {
+    const path = tree("lint", ["check", "fix", "helper", "odd"], {
+      helper: '---\ndescription: "h"\nuser-invocable: false\n---\nbody\n',
+      fix: "---\nuser-invocable: true\n---\n",
+      // Not the plain line the registered form has: counted as invocable.
+      odd: "---\nuser-invocable: 'false'\n---\n",
+    });
+    expect(expectedPluginSkills([{ path, type: "local" }])).toEqual([
+      "lint:check",
+      "lint:fix",
+      "lint:odd",
+    ]);
+  });
+
+  test("a user-invocable: false line outside the frontmatter does not hide a skill", () => {
+    const path = tree("lint", ["check"], {
+      check: "---\n---\nuser-invocable: false\n",
+    });
+    expect(expectedPluginSkills([{ path, type: "local" }])).toEqual([
+      "lint:check",
     ]);
   });
 
@@ -102,6 +132,23 @@ describe("a run handed plugins is ready only once the engine loaded them", () =>
         "lint:fix",
         "lint:check",
       ]).ready(),
+    ).rejects.toThrow("lint:check");
+  });
+
+  test("a bundle with a user-invocable: false skill starts when the engine reports only the others", async () => {
+    const path = tree("lint", ["check", "helper"], {
+      helper: "---\nuser-invocable: false\n---\n",
+    });
+    const expected = expectedPluginSkills([{ path, type: "local" }]);
+    await run(
+      { plugins_applied: true, commands: [{ name: "lint:check" }] },
+      expected,
+    ).ready();
+    await expect(
+      run(
+        { plugins_applied: true, commands: [{ name: "lint:helper" }] },
+        expected,
+      ).ready(),
     ).rejects.toThrow("lint:check");
   });
 
