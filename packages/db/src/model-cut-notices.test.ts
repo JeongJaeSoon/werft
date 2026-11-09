@@ -305,6 +305,8 @@ describe("enqueueModelCutNotices", () => {
   test("a session without a creator tells the administrators only", async () => {
     const w = await world();
     const admin = await w.person("admin");
+    // Linked and enabled, but neither creator nor administrator.
+    await w.person("bystander");
     await db.insert(agentAdmins).values({
       workspaceId: w.workspaceId,
       agentId: w.agentId,

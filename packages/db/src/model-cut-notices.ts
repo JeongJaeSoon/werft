@@ -24,7 +24,8 @@ import {
  * (rows from before them) tells only whom it can resolve.
  *
  * The key is per person and session, so a later attempt cut for the same
- * reason adds nothing, nor does a person who became an administrator since.
+ * reason adds nothing for someone already told; a person who became an
+ * administrator since is told at that cut.
  * The notice goes as a direct message: the person's Slack user id is the
  * channel and there is no thread.
  */
