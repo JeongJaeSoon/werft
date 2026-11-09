@@ -4,6 +4,8 @@ import {
   createWorkerGateway,
   modelMovePins,
   profileFingerprint,
+  releaseSpecRecord,
+  verifyReleaseSpec,
   withSeededInstallation,
 } from "@werft-ai/platform";
 import {
@@ -59,6 +61,13 @@ const SERIES = {
   "sonnet-5-1": { family: "sonnet", rank: 1 },
   "haiku-5-0": { family: "haiku", rank: 0 },
 };
+
+const snakeSpec = (row: typeof sessions.$inferSelect) => ({
+  spec_source: row.specSource,
+  runtime_spec: row.runtimeSpec,
+  spec_source_digest: row.specSourceDigest,
+  spec_digest: row.specDigest,
+});
 
 integration("a model moved at the next turn's claim", () => {
   let database: TempDatabase;
@@ -296,6 +305,183 @@ integration("a model moved at the next turn's claim", () => {
       expect((await rowOf(other)).model).toBe("sonnet-5-1");
       expect((await rowOf(running)).model).toBe("sonnet-5-0");
       expect(await migrations(running)).toEqual([]);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "a moved session's spec pin follows its model in the same statement, the release's stays, and an unpinned session stays unpinned",
+    async () => {
+      const profile = catalogProfile(["sonnet-5-1", "haiku-5-0"], SERIES);
+      const partition = `pin-${crypto.randomUUID()}`;
+      const pinned = await waiting(partition, "sonnet-5-0", profile);
+      const bare = await waiting(partition, "sonnet-5-0", profile);
+      const releaseId = `rel-${crypto.randomUUID()}`;
+      const record = releaseSpecRecord({
+        derivation_version: 1,
+        origin: "agent",
+        release_id: releaseId,
+        release_id_version: 5,
+        profile_id: "p",
+        profile_digest: "digest",
+        runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
+        connection: {
+          id: "conn-1",
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          billing: "per_token",
+        },
+        model: "sonnet-5-0",
+        permission_mode: "default",
+        tools: ["Read"],
+        repository_mode: "none",
+      });
+      const client = await pool.connect();
+      try {
+        await client.query("SET session_replication_role = replica");
+        const scoped = drizzle(client, { schema });
+        await scoped.insert(agentReleases).values({
+          id: releaseId,
+          agentId: crypto.randomUUID(),
+          versionId: crypto.randomUUID(),
+          cardSha256: "0".repeat(64),
+          runtimeProfileId: "p",
+          profileDigest: "digest",
+          runtimeConfigSnapshot: {},
+          effectiveTools: { tools: [], mcp: [] },
+          specSource: record.spec_source,
+          specSourceDigest: record.spec_source_digest,
+          runtimeSpec: record.runtime_spec,
+          specDigest: record.spec_digest,
+        });
+        await scoped
+          .update(sessions)
+          .set({
+            agentReleaseId: releaseId,
+            specSource: record.spec_source,
+            specSourceDigest: record.spec_source_digest,
+            runtimeSpec: record.runtime_spec,
+            specDigest: record.spec_digest,
+          })
+          .where(eq(sessions.id, pinned));
+        await scoped
+          .update(sessions)
+          .set({ agentReleaseId: releaseId })
+          .where(eq(sessions.id, bare));
+      } finally {
+        await client.query("SET session_replication_role = DEFAULT");
+        client.release();
+      }
+      const moves = modelMovePins(profile, [])
+        .filter((pin) => pin.from === "sonnet-5-0")
+        .map((pin) => ({ profileId: "p", ...pin }));
+
+      await db.transaction((tx) =>
+        moveSessionsToSuccessors(
+          tx,
+          { partition, sessionId: null },
+          { modelMoves: moves, now: new Date() },
+        ),
+      );
+
+      const after = await rowOf(pinned);
+      expect(after.model).toBe("sonnet-5-1");
+      expect(after.runtimeSpec?.model).toBe("sonnet-5-1");
+      expect(after.specSource?.model).toBe("sonnet-5-1");
+      expect(verifyReleaseSpec(releaseId, snakeSpec(after)).ok).toBe(true);
+      const [release] = await db
+        .select()
+        .from(agentReleases)
+        .where(eq(agentReleases.id, releaseId));
+      expect(release?.specDigest).toBe(record.spec_digest);
+      expect(release?.specSource?.model).toBe("sonnet-5-0");
+      const other = await rowOf(bare);
+      expect(other.model).toBe("sonnet-5-1");
+      expect(other.specSource).toBeNull();
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "a new session of a release with a verified spec starts with it under its own model, and one of a release without starts unpinned",
+    async () => {
+      const withSpec = `rel-${crypto.randomUUID()}`;
+      const without = `rel-${crypto.randomUUID()}`;
+      const record = releaseSpecRecord({
+        derivation_version: 1,
+        origin: "agent",
+        release_id: withSpec,
+        release_id_version: 5,
+        profile_id: "p",
+        profile_digest: "digest",
+        runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
+        connection: {
+          id: "conn-1",
+          kind: "litellm",
+          endpoint: "https://litellm.invalid",
+          billing: "per_token",
+        },
+        model: "sonnet-5-0",
+        permission_mode: "default",
+        tools: ["Read"],
+        repository_mode: "none",
+      });
+      const client = await pool.connect();
+      try {
+        await client.query("SET session_replication_role = replica");
+        const scoped = drizzle(client, { schema });
+        for (const id of [withSpec, without]) {
+          await scoped.insert(agentReleases).values({
+            id,
+            agentId: crypto.randomUUID(),
+            versionId: crypto.randomUUID(),
+            cardSha256: "0".repeat(64),
+            runtimeProfileId: "p",
+            profileDigest: "digest",
+            runtimeConfigSnapshot: {},
+            effectiveTools: { tools: [], mcp: [] },
+            ...(id === withSpec
+              ? {
+                  specSource: record.spec_source,
+                  specSourceDigest: record.spec_source_digest,
+                  runtimeSpec: record.runtime_spec,
+                  specDigest: record.spec_digest,
+                }
+              : {}),
+          });
+        }
+      } finally {
+        await client.query("SET session_replication_role = DEFAULT");
+        client.release();
+      }
+      const start = async (releaseId: string) => {
+        const accepted = await createPostgresSessionUnitOfWork(
+          db,
+        ).acceptInputAtomic({
+          limits: {
+            queuedInputLimitPerSession: 1_000,
+            storageLimitBytes: 1e15,
+          },
+          principal: { ownerId: crypto.randomUUID() },
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          profileId: "p",
+          repository: "none",
+          model: "sonnet-5-1",
+          agentReleaseId: releaseId,
+          message: "go",
+        });
+        if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+        return rowOf(accepted.response.session_id);
+      };
+
+      const pinned = await start(withSpec);
+      expect(pinned.specSource?.model).toBe("sonnet-5-1");
+      expect(pinned.specSource?.release_id).toBe(withSpec);
+      expect(verifyReleaseSpec(withSpec, snakeSpec(pinned)).ok).toBe(true);
+      const bare = await start(without);
+      expect(bare.specSource).toBeNull();
+      expect(bare.specDigest).toBeNull();
     },
     TIMEOUT_MS,
   );

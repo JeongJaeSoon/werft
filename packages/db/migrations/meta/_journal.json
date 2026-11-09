@@ -1156,6 +1156,13 @@
       "when": 1794247888466,
       "tag": "0255_agent_releases_spec_once",
       "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1794253523069,
+      "tag": "0257_sessions_spec_pin",
+      "breakpoints": true
     }
   ]
 }

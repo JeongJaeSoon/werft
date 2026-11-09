@@ -98,6 +98,11 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "env_start",
     // 0251
     "extensions",
+    // 0257
+    "runtime_spec",
+    "spec_source",
+    "spec_source_digest",
+    "spec_digest",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",
