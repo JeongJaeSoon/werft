@@ -158,6 +158,16 @@ export const slackEn = {
   "slack.search": "Find channels",
   "slack.invite": "Waiting to join",
   "slack.privateInvite": "/invite required",
+  "slack.pendingApproval": "Awaiting approval",
+  "slack.pendingApprovalHint":
+    "The bot does not answer in this channel until an owner or admin approves it.",
+  "slack.approve": "Approve",
+  "slack.approveChannel": "Approve channel: {channel}",
+  "slack.approved": "Channel approved.",
+  "slack.left": "Left",
+  "slack.inactive": "Inactive",
+  "slack.leftHint":
+    "The bot left the channel, so it neither receives nor sends messages there. Invite it again and the channel returns to awaiting approval.",
   "slack.add": "Connect",
   "slack.noChannels":
     "No channels found. Invite the bot to private channels with /invite first.",
