@@ -61,6 +61,7 @@ export * from "./push-follow-ups.ts";
 export * from "./push-intents.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
+export * from "./release-specs.ts";
 export * from "./repository-attachments.ts";
 export * from "./scheduler-store.ts";
 export * from "./schema.ts";

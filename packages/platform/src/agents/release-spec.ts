@@ -20,7 +20,7 @@ import { type ReleaseIdentity, releaseIdVersion } from "./release-ids.ts";
 // the profile the release was cut from, and the `runtime_spec` it means. The
 // pair is stored on the release row; after that nothing needs the profile.
 
-type SpecRelease = ReleaseIdentity & Pick<AgentRelease, "id">;
+export type SpecRelease = ReleaseIdentity & Pick<AgentRelease, "id">;
 
 export type SpecSourceRefusal =
   | { reason: "profile_changed" }
@@ -157,4 +157,56 @@ export function verifyReleaseSpec(
     return { ok: false, reason: "spec_digest does not hold" };
   }
   return { ok: true, record };
+}
+
+export type SpecBackfillStore = {
+  /** Releases with no spec yet, by id after `after`, at most `limit`. */
+  pending(after: string | null, limit: number): Promise<SpecRelease[]>;
+  /** False when another writer stored a spec first. */
+  save(releaseId: string, record: ReleaseSpecRecord): Promise<boolean>;
+};
+
+export type SpecBackfillReport = {
+  stored: number;
+  raced: number;
+  skipped: { release_id: string; reason: string }[];
+};
+
+/**
+ * Gives every release without a spec one, where its profile and connection
+ * still say what it ran. Safe to run again and from two places: a release is
+ * only written when it has no spec, and one that cannot be derived is listed,
+ * not guessed.
+ */
+export async function backfillReleaseSpecs(
+  store: SpecBackfillStore,
+  resolve: (
+    release: SpecRelease,
+  ) => { profile: CatalogProfile; connectionId: string | null } | null,
+  pageSize = 200,
+): Promise<SpecBackfillReport> {
+  const report: SpecBackfillReport = { stored: 0, raced: 0, skipped: [] };
+  let after: string | null = null;
+  for (;;) {
+    const page = await store.pending(after, pageSize);
+    if (page.length === 0) return report;
+    for (const release of page) {
+      after = release.id;
+      const found = resolve(release);
+      if (found === null) {
+        report.skipped.push({ release_id: release.id, reason: "profile_gone" });
+        continue;
+      }
+      const built = buildSpecSource({ release, ...found });
+      if (!built.ok) {
+        report.skipped.push({ release_id: release.id, reason: built.reason });
+        continue;
+      }
+      if (await store.save(release.id, releaseSpecRecord(built.source))) {
+        report.stored += 1;
+      } else {
+        report.raced += 1;
+      }
+    }
+  }
 }

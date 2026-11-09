@@ -8,6 +8,7 @@ export * from "./agents/agent-service.ts";
 export * from "./agents/model-move-runner.ts";
 export * from "./agents/profile-rollout-runner.ts";
 export * from "./agents/release-ids.ts";
+export * from "./agents/release-spec.ts";
 export * from "./agents/tool-unlock.ts";
 export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";

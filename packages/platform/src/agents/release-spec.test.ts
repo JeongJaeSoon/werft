@@ -8,6 +8,7 @@ import {
   resolveReleaseContent,
 } from "./release-ids.ts";
 import {
+  backfillReleaseSpecs,
   buildSpecSource,
   releaseSpecRecord,
   verifyReleaseSpec,
@@ -171,5 +172,68 @@ describe("verifyReleaseSpec", () => {
   test("refuses a source made for another release", () => {
     const record = stored();
     expect(verifyReleaseSpec("sha256:other", record).ok).toBe(false);
+  });
+});
+
+describe("backfillReleaseSpecs", () => {
+  // An in-memory store with the same rules as the table: pending is the
+  // releases with no record, by id; save writes only over none.
+  function memoryStore(releases: ReturnType<typeof releaseOf>[]) {
+    const saved = new Map<string, unknown>();
+    return {
+      saved,
+      pending: async (after: string | null, limit: number) =>
+        releases
+          .filter((r) => !saved.has(r.id) && (after === null || r.id > after))
+          .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .slice(0, limit),
+      save: async (id: string, record: unknown) => {
+        if (saved.has(id)) return false;
+        saved.set(id, record);
+        return true;
+      },
+    };
+  }
+
+  const other: CatalogProfile = { ...profile, tools: ["Read"] };
+
+  test("stores what it can derive, lists the rest, and a second run changes nothing", async () => {
+    const ok = releaseOf();
+    const gone = releaseOf(other);
+    const store = memoryStore([ok, gone]);
+    // `gone` was cut from a profile that has since changed to this one.
+    const resolve = () => ({ profile, connectionId: "conn-1" });
+    const first = await backfillReleaseSpecs(store, resolve, 1);
+    expect(first.stored).toBe(1);
+    expect(first.skipped).toEqual([
+      { release_id: gone.id, reason: "profile_changed" },
+    ]);
+    expect(store.saved.has(ok.id)).toBe(true);
+    const second = await backfillReleaseSpecs(store, resolve, 1);
+    expect(second).toEqual({
+      stored: 0,
+      raced: 0,
+      skipped: [{ release_id: gone.id, reason: "profile_changed" }],
+    });
+  });
+
+  test("a release whose profile is gone is listed, and a lost race is counted", async () => {
+    const release = releaseOf();
+    const store = memoryStore([release]);
+    expect((await backfillReleaseSpecs(store, () => null)).skipped).toEqual([
+      { release_id: release.id, reason: "profile_gone" },
+    ]);
+    const racing = {
+      ...store,
+      save: async () => false,
+    };
+    expect(
+      (
+        await backfillReleaseSpecs(racing, () => ({
+          profile,
+          connectionId: "conn-1",
+        }))
+      ).raced,
+    ).toBe(1);
   });
 });
