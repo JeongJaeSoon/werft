@@ -11,6 +11,8 @@ import {
   useWerft,
 } from "@werft-ai/react";
 import {
+  Alert,
+  AlertDescription,
   Button,
   buttonVariants,
   ConfirmDialog,
@@ -38,7 +40,6 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { roleLabel, useRole, WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
-import { FormError } from "../components/auth-page.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { useDialogFunnel } from "../funnel/tanstack-funnel.tsx";
@@ -375,7 +376,9 @@ function DetailsStep({
       onSubmit={submitStep(form, send, serverMessage)}
     >
       {formAlerts(errors, FIELDS).map((alert) => (
-        <FormError key={alert}>{alert}</FormError>
+        <Alert key={alert} variant="red" role="alert">
+          <AlertDescription>{alert}</AlertDescription>
+        </Alert>
       ))}
       <Field>
         <FieldLabel>{t("members.invite.email")}</FieldLabel>
