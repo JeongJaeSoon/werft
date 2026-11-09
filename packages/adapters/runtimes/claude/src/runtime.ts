@@ -245,6 +245,21 @@ export function buildSdkOptions(
               ) {
                 return deny("Tool is outside the server allowlist");
               }
+              // The host's advice, before the call is admitted: a refusal
+              // here is a call that never ran. A check that throws refuses
+              // nothing.
+              if ("tool_name" in input && hooks.precheckTool !== undefined) {
+                const toolInput =
+                  "tool_input" in input &&
+                  typeof input.tool_input === "object" &&
+                  input.tool_input !== null
+                    ? (input.tool_input as Record<string, unknown>)
+                    : {};
+                const refusal = await hooks
+                  .precheckTool(input.tool_name, toolInput)
+                  .catch(() => null);
+                if (refusal !== null) return deny(refusal);
+              }
               // A guard that lands while another is awaited is awaited too:
               // the call is admitted only past whichever the host holds now.
               let passed: ((id: string) => Promise<void>) | undefined;

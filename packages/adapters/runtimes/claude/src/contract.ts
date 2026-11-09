@@ -244,11 +244,19 @@ export class ClaudeAgentRuntime implements AgentRuntime {
       },
       this.deps.processObserver,
     );
-    return claudeContractRun((hooks) => driver.start(config, hooks), {
-      ...(this.deps.toolCallWaitMs === undefined
-        ? {}
-        : { toolCallWaitMs: this.deps.toolCallWaitMs }),
-    });
+    const precheckTool = this.deps.precheckTool;
+    return claudeContractRun(
+      (hooks) =>
+        driver.start(
+          config,
+          precheckTool === undefined ? hooks : { ...hooks, precheckTool },
+        ),
+      {
+        ...(this.deps.toolCallWaitMs === undefined
+          ? {}
+          : { toolCallWaitMs: this.deps.toolCallWaitMs }),
+      },
+    );
   }
 }
 

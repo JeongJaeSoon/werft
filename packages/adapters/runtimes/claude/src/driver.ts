@@ -70,6 +70,11 @@ export type PermissionDecision =
 
 export type RuntimeHooks = {
   onPermission(request: PermissionRequest): Promise<PermissionDecision>;
+  /** A string refuses the call before it runs (`RuntimeHostDeps`). */
+  precheckTool?: (
+    tool: string,
+    input: Record<string, unknown>,
+  ) => Promise<string | null>;
 };
 
 export type DriverMode =
