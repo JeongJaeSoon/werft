@@ -982,7 +982,7 @@ integration("the managing team on PostgreSQL", () => {
   });
 
   test("the answer for the holding team tells no one what an ordinary team would not", async () => {
-    const { workspaceId, owner, member } = await cast();
+    const { workspaceId, owner, member, agentId } = await cast();
     const holding = randomUUID();
     await db.insert(schema.memberTeams).values({
       id: holding,
@@ -1003,12 +1003,37 @@ integration("the managing team on PostgreSQL", () => {
     // A member outside both teams hears the same about each.
     expect(await create(member, holding)).toBe("FORBIDDEN:team_not_allowed");
     expect(await create(member, ordinary)).toBe("FORBIDDEN:team_not_allowed");
-    // An archived holding team is as gone as any archived team.
-    await db
-      .update(schema.memberTeams)
-      .set({ archivedAt: new Date() })
-      .where(eq(schema.memberTeams.id, holding));
+    // The same on a move: an admin of the agent who is in neither team.
+    await admins().add({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      agentId,
+      subject: { kind: "user", id: idOf(member) },
+      managerRoles: MANAGERS,
+    });
+    expect(await name(member, agentId, holding)).toEqual({
+      outcome: "team_not_allowed",
+    });
+    expect(await name(member, agentId, ordinary)).toEqual({
+      outcome: "team_not_allowed",
+    });
+    // An archived holding team is as gone as any archived team, on a create
+    // and on a move alike.
+    const gone = await newTeam(owner);
+    for (const id of [holding, gone]) {
+      await db
+        .update(schema.memberTeams)
+        .set({ archivedAt: new Date() })
+        .where(eq(schema.memberTeams.id, id));
+    }
     expect(await create(owner, holding)).toBe("NOT_FOUND");
+    expect(await create(owner, gone)).toBe("NOT_FOUND");
+    expect(await name(owner, agentId, holding)).toEqual({
+      outcome: "team_not_found",
+    });
+    expect(await name(owner, agentId, gone)).toEqual({
+      outcome: "team_not_found",
+    });
   });
 
   test("a team joins an agent's admins only by a manager or its lead", async () => {

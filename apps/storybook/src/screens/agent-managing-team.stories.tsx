@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   buttonVariants,
+  Combobox,
   cn,
   Field,
   FieldDescription,
@@ -18,13 +19,17 @@ import {
   NativeSelect,
   NativeSelectOption,
   Page,
+  RowAction,
+  RowList,
   Section,
+  SettingRow,
   Text,
   Textarea,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { useId } from "react";
-import { expect } from "storybook/test";
+import { expect, within } from "storybook/test";
 
 import {
   AgentPage,
@@ -90,22 +95,15 @@ function ManagingTeamSection({
   return (
     <Section
       title="담당 팀"
-      description="이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다."
+      description="담당 팀의 팀 관리자가 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 담당 팀은 늘 하나이고 바꿀 수만 있습니다."
     >
       <div className={SECTION_BODY}>
-        <div className="flex flex-wrap items-center gap-2">
-          <TeamName detail={detail} />
-        </div>
-        {noLead ? (
-          <Alert variant="amber">
-            <AlertDescription>
-              이 담당 팀에는 팀 관리자가 없습니다.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        {manages ? (
-          <div className="flex flex-col gap-3">
-            <form className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <TextLink asChild className="[overflow-wrap:anywhere]">
+            <a href="#team">{detail.agent.managing_team_name}</a>
+          </TextLink>
+          {manages ? (
+            <>
               <label className="sr-only" htmlFor={selectId}>
                 담당 팀으로 정할 팀
               </label>
@@ -115,7 +113,7 @@ function ManagingTeamSection({
                 defaultValue=""
               >
                 <NativeSelectOption value="" disabled>
-                  팀 고르기
+                  바꾸기
                 </NativeSelectOption>
                 {others.map((team) => (
                   <NativeSelectOption key={team} value={team}>
@@ -123,26 +121,89 @@ function ManagingTeamSection({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <Button type="submit" variant="outline" disabled>
-                바꾸기
-              </Button>
-            </form>
-            <Text variant="meta">
-              담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기
-              세션과 공유받은 것만 봅니다(워크스페이스 설정).
-            </Text>
-          </div>
+            </>
+          ) : null}
+        </div>
+        {noLead ? (
+          <Alert variant="amber">
+            <AlertDescription>
+              이 담당 팀에는 팀 관리자가 없습니다.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {manages ? (
+          <Text variant="meta">
+            담당 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은
+            것만 봅니다(워크스페이스 설정).
+          </Text>
         ) : null}
       </div>
     </Section>
   );
 }
 
-/** components/agent-admins.tsx, below the managing team; its list only. */
+// The rows are apps/web's Korean catalog for a person and two teams; "재무" is
+// the managing team too, so its row says that.
+const ADMIN_ROWS = [
+  {
+    name: "Owner",
+    kind: "사람",
+    detail: "owner@example.com · 10/11부터 관리자",
+  },
+  { name: "Mate", kind: "사람", detail: "mate@example.com · 10/11부터 관리자" },
+  { name: "재무", kind: "팀", also: true, detail: "10/12부터 관리자" },
+  { name: "영업", kind: "팀", detail: "10/12부터 관리자" },
+] as const;
+
+/** components/agent-admins.tsx, below the managing team. */
 function AdminsSection() {
+  const pickerId = useId();
   return (
-    <Section title="관리자">
-      <Text>Owner · owner@example.com</Text>
+    <Section
+      title="에이전트 관리자"
+      description="담당 팀과 별개로, 여기에 추가한 사람이나 팀이 이 에이전트의 카드·릴리스·자격 증명 연결과 에이전트 키를 관리합니다. 팀을 추가하면 그 팀 구성원 모두가 관리자가 됩니다."
+    >
+      <div className={SECTION_BODY}>
+        <RowList variant="joined" aria-label="에이전트 관리자">
+          {ADMIN_ROWS.map((row) => (
+            <SettingRow
+              key={row.name}
+              title={row.name}
+              badge={
+                <>
+                  <Badge>{row.kind}</Badge>
+                  {"also" in row ? <Badge variant="blue">담당 팀</Badge> : null}
+                </>
+              }
+              description={
+                "also" in row
+                  ? `담당 팀이기도 합니다. 팀 관리자만이 아니라 구성원 모두가 관리자입니다 · ${row.detail}`
+                  : row.detail
+              }
+              actions={
+                <RowAction aria-label={`${row.name}을(를) 관리자에서 빼기`}>
+                  빼기
+                </RowAction>
+              }
+            />
+          ))}
+        </RowList>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor={pickerId}>
+            관리자로 추가할 사람이나 팀
+          </label>
+          <div className="w-72 max-w-full min-w-0 flex-1 sm:flex-none">
+            <Combobox
+              id={pickerId}
+              options={[]}
+              value={null}
+              clearOnSelect
+              placeholder="이름·이메일·팀 이름으로 찾기"
+              emptyMessage="맞는 사람이나 팀이 없습니다."
+            />
+          </div>
+        </div>
+      </div>
     </Section>
   );
 }
@@ -347,14 +408,28 @@ export const Assigned: Story = {
   play: async ({ canvas }) => {
     await expect(
       canvas.getByText(
-        "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
+        "담당 팀의 팀 관리자가 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 담당 팀은 늘 하나이고 바꿀 수만 있습니다.",
       ),
     ).toBeVisible();
     const select = canvas.getByLabelText("담당 팀으로 정할 팀");
     await expect(
       [...(select as HTMLSelectElement).options].map((o) => o.textContent),
-    ).toEqual(["팀 고르기", "영업", "고객지원"]);
+    ).toEqual(["바꾸기", "영업", "고객지원"]);
+    // One control: no second button beside the select.
+    await expect(canvas.queryByRole("button", { name: "바꾸기" })).toBeNull();
+    // The managing team is also an admin team: only that row says so.
+    const rows = within(
+      canvas.getByRole("list", { name: "에이전트 관리자" }),
+    ).getAllByRole("listitem");
+    await expect(rows).toHaveLength(4);
+    await expect(
+      rows.filter((row) => row.textContent?.includes("담당 팀이기도 합니다")),
+    ).toHaveLength(1);
   },
+};
+export const AssignedMobile: Story = {
+  name: "Admins tab (390px)",
+  globals: MOBILE,
 };
 export const NoLead: Story = {
   name: "Admins tab (team without a lead)",

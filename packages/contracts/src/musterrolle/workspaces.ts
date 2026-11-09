@@ -47,9 +47,10 @@ export const auditRetentionDaysSchema = z
 export const AGENT_OUTSIDER_ACCESS_VALUES = ["use", "view", "none"] as const;
 export const agentOutsiderAccessSchema = z.enum(AGENT_OUTSIDER_ACCESS_VALUES);
 /**
- * Who sees a `workspace`-scoped session of an agent with a managing team
- * (axis B): `managing_team` only those inside the agent, `workspace` every
- * member.
+ * Who sees a `workspace`-scoped session of an agent (axis B):
+ * `managing_team` only those inside the agent, `workspace` every member. An
+ * agent still held by the "Unassigned agents" team of migration 0243 is not
+ * limited either way until it moves to a real team.
  */
 export const AGENT_OUTSIDER_SESSION_VISIBILITY_VALUES = [
   "managing_team",

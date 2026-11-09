@@ -77,7 +77,7 @@ If the same workspace already has the same slug, the response is 409 `ALREADY_EX
 
 The team in `managing_team_id` becomes the responsible team. Leaving it out is 400 `BAD_REQUEST`, with `{"path": "managing_team_id", "message": "managing_team_id is required"}` in `error.details.issues`. An owner or admin who names a team that does not exist gets 404. Anyone else who names a team they are not in gets 403 (`details.reason_code: team_not_allowed`), even when the team does not exist. So a member who is in no team cannot create an agent. The response's `agent.managing_team_name` is that team's name.
 
-Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace. That team is an ordinary team: rename it, or move its agents to another team.
+Every agent has one responsible team. `PUT /v1/agents/{id}/managing-team` changes it, and nothing clears it. For agents created before the responsible team was required, the migration filled it in: every agent that had none went to a team with no members named `Unassigned agents`, one per workspace (if a team with that name already exists, an 8-character id follows, as in `Unassigned agents (1a2b3c4d)`). That team is an ordinary team: rename it, or move its agents to another team.
 
 ### Create a release
 
@@ -149,7 +149,7 @@ The responsible team is the team an agent belongs to. Its team leads manage the 
 
 - **New agent**: the first step requires a responsible team. Owners and admins pick from every team, members from the teams they are in. With a single team it is picked for you. A member in no team sees only “You are in no team, so you cannot make an agent. Ask a workspace admin to add you to a team.” and cannot go on.
 - **Agent list**: the table and the cards show the responsible team. The card of an agent whose settings you cannot read shows only its name, state and responsible team.
-- **Admins tab**: the `Responsible team` group at the top shows the current team. Whoever manages the agent sets or changes it there. A responsible team with no team lead is pointed out.
+- **Admins tab**: the `Responsible team` group at the top shows the current team's name as a link to the team page. Whoever manages the agent picks a team in `Change` beside it and it applies at once; it cannot be cleared. A responsible team with no team lead is pointed out. The `Agent admins` list below shows people and teams as the same one-line rows, and choosing from the search results adds at once. When the responsible team is also an admin team, its row says that every member is an admin.
 - **Responsible team members**: they read every setting on the detail page but get no edit, release or connect buttons, and a notice at the top says they can only read.
 - **Outside members**: opening the detail address shows the name, state and responsible team with “Only the responsible team's members and the agent's admins see its settings.” instead of the settings.
 

@@ -105,8 +105,9 @@ function settingsOf(settings: unknown): AgentAccessSettings {
 
 /**
  * True where the workspace lets every member see the `workspace`-scoped
- * sessions of an agent with a managing team (axis B `workspace`). Anything
- * else, the missing key included, is the default `managing_team`.
+ * sessions of an agent (axis B `workspace`). Anything else, the missing key
+ * included, is the default `managing_team`. An agent held by the migration
+ * 0243 holding team is exempt on its own (`holds_unassigned`).
  */
 export function outsidersSeeAgentSessions(
   workspaceId: string | SQLWrapper,
