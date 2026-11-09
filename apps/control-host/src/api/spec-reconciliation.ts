@@ -1,5 +1,6 @@
 import {
   type Database,
+  listStrandedSessions,
   reconcileSessionPins,
   releaseSpecStore,
   sessionPinGate,
@@ -66,7 +67,10 @@ export async function reconcileSpecs(deps: {
   );
   const pins = await reconcileSessionPins(deps.db);
   const gate = await sessionPinGate(deps.db);
-  return { releases, pins, gate };
+  // They hold the gate closed until they end; the owner decides which to stop.
+  const stranded =
+    gate.releaseLess === 0 ? [] : await listStrandedSessions(deps.db, 50);
+  return { releases, pins, gate, stranded };
 }
 
 export function startSpecReconciliation(
@@ -75,7 +79,7 @@ export function startSpecReconciliation(
 ): void {
   const pass = (): void => {
     reconcileSpecs(deps).then(
-      ({ releases, pins, gate }) => {
+      ({ releases, pins, gate, stranded }) => {
         logger.info("Release specs and session pins reconciled", {
           releases_stored: releases.stored,
           releases_raced: releases.raced,
@@ -91,6 +95,13 @@ export function startSpecReconciliation(
           gate_unverifiable: gate.unverifiable,
           gate_model_unknown: gate.modelUnknown,
           gate_release_less: gate.releaseLess,
+          // First 50 by id: what the owner lists and decides on.
+          stranded_sessions: stranded.map((s) => ({
+            id: s.id,
+            status: s.status,
+            queued_inputs: s.queuedInputs,
+            last_checkpoint: s.lastCheckpoint,
+          })),
         });
         const settled =
           gate.open && releases.skipped.length === 0 && pins.unresolved === 0;

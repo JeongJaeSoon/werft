@@ -143,7 +143,12 @@ export function sessionPinGate(db: Database): Promise<PinGate> {
   });
 }
 
-async function readPinGate(db: Database): Promise<PinGate> {
+/**
+ * The gate's counts on the transaction it is given. Each count is its own
+ * statement, so the caller sets the isolation: `sessionPinGate` reads one
+ * snapshot, the cutover flip holds the cutover lock instead.
+ */
+export async function readPinGate(db: Database): Promise<PinGate> {
   const live = notInArray(sessions.status, [...ENDED]);
   const count = async (where: ReturnType<typeof and>): Promise<number> => {
     const [row] = await db

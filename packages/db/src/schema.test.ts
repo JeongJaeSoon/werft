@@ -202,6 +202,7 @@ describe("database schema", () => {
       "session_links",
       "session_model_usage",
       "session_outcomes",
+      "session_pin_cutover",
       "session_pre_metering_cost",
       "session_repository_attachments",
       "session_share_targets",
