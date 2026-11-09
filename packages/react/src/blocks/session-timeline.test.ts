@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
-
+import { sessionsEn, sessionsJa, sessionsKo } from "../messages/index.ts";
 import type { SessionEventFrame } from "../sessions.ts";
-import { heldToolCalls, readableReason } from "./session-timeline.tsx";
+import {
+  heldToolCalls,
+  readableReason,
+  workText,
+} from "./session-timeline.tsx";
 
 type Translate = Parameters<typeof readableReason>[1];
 const t = ((key: string, params?: Record<string, unknown>) =>
@@ -106,5 +110,34 @@ describe("heldToolCalls", () => {
         result("c1", true),
       ]).size,
     ).toBe(0);
+  });
+});
+
+describe("workText", () => {
+  const counts = {
+    command: 2,
+    read: 2,
+    write: 1,
+    edit: 0,
+    search: 1,
+    tool: 0,
+    event: 3,
+  };
+  const translate = (messages: Record<string, string>): Translate =>
+    ((key: string, vars: Record<string, string | number> = {}) =>
+      (messages[key] ?? key).replace(/\{(\w+)\}/g, (_, name: string) =>
+        String(vars[name]),
+      )) as unknown as Translate;
+
+  test("세 언어 모두 0인 종류는 빼고 1은 단수로 말한다", () => {
+    expect(workText(counts, translate(sessionsKo))).toBe(
+      "실행한 명령 2개 · 읽은 파일 2개 · 쓴 파일 1개 · 검색 1번 · 이벤트 3개",
+    );
+    expect(workText(counts, translate(sessionsEn))).toBe(
+      "Ran 2 commands · Read 2 files · Wrote 1 file · Ran 1 search · 3 events",
+    );
+    expect(workText(counts, translate(sessionsJa))).toBe(
+      "コマンド 2 件を実行 · ファイル 2 件を読み取り · ファイル 1 件を書き込み · 検索 1 回 · イベント 3 件",
+    );
   });
 });
