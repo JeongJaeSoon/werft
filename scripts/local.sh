@@ -146,7 +146,7 @@ mode() {
         # Never a quiet fallback to the fake: that stack would look fine. The
         # real-model stack starts with no model connection instead, and the
         # key goes in on the console.
-        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가 (docs/real-claude.md)" >&2
+        echo "local.sh: no ANTHROPIC_API_KEY in the shell or .env; the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 에이전트 연결 > 모델 연결 > 연결 추가 (docs/real-claude.md)" >&2
       fi
       overlay=infra/compose.real-model.yml
       ;;

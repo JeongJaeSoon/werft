@@ -157,7 +157,7 @@ export function ProfileNewScreen() {
               noConnections && owns ? (
                 <Link
                   className={buttonVariants({ variant: "outline" })}
-                  to="/settings/workspace/connections"
+                  to="/settings/workspace/model-connections"
                 >
                   {t("profiles.new.goToConnections")}
                 </Link>

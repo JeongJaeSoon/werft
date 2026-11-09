@@ -1092,7 +1092,7 @@ export function workspaceProfileRefusal(
     if (state === "connection_missing") {
       return {
         state,
-        message: `Profile ${profileId} cannot run: its model connection has no usable key. Add the key under Settings > Workspace settings > Model connections.`,
+        message: `Profile ${profileId} cannot run: its model connection has no usable key. Add the key under Settings > Agent connections > Model connections.`,
       };
     }
     return !options.retiredAllowed && state === "retired"

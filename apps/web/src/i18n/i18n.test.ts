@@ -123,6 +123,28 @@ describe("i18n", () => {
     }
   });
 
+  test("the agent connections group and the guidance that names it read the same in each locale", () => {
+    // A key-set comparison passes when every locale drops or misspells a
+    // value together, so the words themselves are pinned.
+    const group = {
+      ko: "에이전트 연결",
+      en: "Agent connections",
+      ja: "エージェント接続",
+    };
+    const guidance = {
+      ko: "설정 › 에이전트 연결 › 모델 연결",
+      en: "Settings › Agent connections › Model connections",
+      ja: "設定 › エージェント接続 › モデル接続",
+    };
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      expect(catalog["shell.group.agentConnections"]).toBe(group[locale]);
+      expect(catalog["profiles.ceiling.connectionHint"]).toContain(
+        guidance[locale],
+      );
+    }
+  });
+
   test("no message sends people to the Release tab to make or turn on a release", () => {
     // A save makes the release now; the tab only lists them and rolls back.
     const pointsAtTab: Record<(typeof LOCALES)[number], RegExp> = {

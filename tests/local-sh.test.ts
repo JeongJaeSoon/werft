@@ -499,7 +499,7 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
     const result = await run(["up"], { STUB_API: "127.0.0.1:43123" });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(
-      "the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 워크스페이스 설정 > 모델 연결 > 연결 추가",
+      "the stack starts with no model connection (not the fake). Add the key in the console: 설정 > 에이전트 연결 > 모델 연결 > 연결 추가",
     );
     const started = await calls("docker-calls");
     expect(started).toContain(realUp);

@@ -318,7 +318,7 @@ describe("two replicas over one database", () => {
     const refusal = workspaceProfileRefusal(one, WORKSPACE, "b");
     expect(refusal?.state).toBe("connection_missing");
     expect(refusal?.message).toContain(
-      "Settings > Workspace settings > Model connections",
+      "Settings > Agent connections > Model connections",
     );
     expect(workspaceProfileRefusal(one, WORKSPACE, "a")).toBeNull();
   });
