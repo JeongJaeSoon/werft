@@ -5,15 +5,10 @@ import type {
   ListProfilesResponse,
   ProfileSummary,
 } from "@werft-ai/contracts";
-import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
-import { draftCapabilities, withAgentInstructions } from "@werft-ai/core/forms";
+import { draftCapabilities } from "@werft-ai/core/forms";
 import {
   Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
   Badge,
-  Button,
   Field,
   FieldDescription,
   FieldError,
@@ -23,7 +18,6 @@ import {
   NativeSelect,
   NativeSelectOption,
   Skeleton,
-  Textarea,
 } from "@werft-ai/ui";
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../api/schema.gen.ts";
@@ -38,11 +32,6 @@ export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
 
 /** The card as the form holds it. */
 export interface CardDraft {
-  /**
-   * The card's `agent_instructions`, "" for none. Absent from the new-agent
-   * flow, which has no field for it, so a save there keeps the card's.
-   */
-  readonly agentInstructions?: string | undefined;
   readonly language: AgentCard["language"];
   readonly model: string;
 }
@@ -56,7 +45,6 @@ export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
 
 export function draftFromCard(card: AgentCard): CardDraft {
   return {
-    agentInstructions: card.agent_instructions ?? "",
     language: card.language,
     model: card.model,
   };
@@ -71,17 +59,10 @@ export function cardDraftOf(value: unknown): CardDraft | null {
   const kept = value as Record<keyof CardDraft, unknown>;
   if (
     typeof kept.model !== "string" ||
-    !(
-      kept.agentInstructions === undefined ||
-      typeof kept.agentInstructions === "string"
-    ) ||
     !AGENT_CARD_LANGUAGE_VALUES.includes(kept.language as never)
   )
     return null;
   return {
-    ...(kept.agentInstructions === undefined
-      ? {}
-      : { agentInstructions: kept.agentInstructions as string }),
     language: kept.language as CardDraft["language"],
     model: kept.model,
   };
@@ -93,16 +74,12 @@ export function cardDraftOf(value: unknown): CardDraft | null {
  * credential_refs, an earlier role and instructions) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
-  const card = withAgentInstructions(
-    {
-      ...(base ?? { rules: [] }),
-      language: draft.language,
-      model: draft.model.trim(),
-      capabilities: draftCapabilities(base?.capabilities),
-    },
-    draft.agentInstructions,
-  );
-  return card as unknown as ApiCard;
+  return {
+    ...(base ?? { rules: [] }),
+    language: draft.language,
+    model: draft.model.trim(),
+    capabilities: draftCapabilities(base?.capabilities),
+  } as unknown as ApiCard;
 }
 
 /** The usable profiles that run `model`: what a release of the card may name. */
@@ -256,59 +233,6 @@ export function AgentCardFields({
           ))}
         </NativeSelect>
       </Field>
-    </>
-  );
-}
-
-/**
- * The card's agent instructions, appended to the system prompt of sessions
- * a release of it starts. A card's earlier `instructions` never ran; they
- * are shown to be copied in, never moved by themselves (agent-wizard-rework.md
- * item 2).
- */
-export function AgentInstructionsField({
-  value,
-  earlier,
-  onChange,
-}: {
-  readonly value: string;
-  readonly earlier: string | undefined;
-  readonly onChange: (value: string) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <>
-      <Field>
-        <FieldLabel>{t("agentCard.agentInstructions")}</FieldLabel>
-        <Textarea
-          maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH}
-          rows={10}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <FieldDescription>
-          {t("agentCard.agentInstructionsHint")}
-        </FieldDescription>
-      </Field>
-      {earlier ? (
-        <Alert variant="amber">
-          <AlertTitle>{t("agentCard.earlierInstructions")}</AlertTitle>
-          <AlertDescription className="line-clamp-4 whitespace-pre-wrap [overflow-wrap:anywhere]">
-            {earlier}
-          </AlertDescription>
-          <AlertActions>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={value === earlier}
-              onClick={() => onChange(earlier)}
-            >
-              {t("agentCard.importEarlier")}
-            </Button>
-          </AlertActions>
-        </Alert>
-      ) : null}
     </>
   );
 }

@@ -996,7 +996,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
   };
   const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
-    agentInstructions?: string | null;
     platformPrompt?: unknown;
     branch?: string;
     model?: string | null;
@@ -1019,7 +1018,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repositoryId: REPOSITORY_ID,
       repositoryMode: "repository" as const,
       releaseTools: null,
-      agentInstructions: null,
       platformPrompt: null,
       ...overrides,
     };
@@ -1190,9 +1188,8 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
   });
 
-  test("a session row's release card instructions reach its claims; a row without a release, or a card without them, has none", () => {
+  test("a session row's release tools reach its claims; a row without a release has none", () => {
     const row = {
-      agent_instructions: "Answer in haiku.",
       platform_prompt: null,
       branch: "main",
       id: "s1",
@@ -1208,111 +1205,12 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repository_mode: "repository" as const,
     };
     expect(claimedSessionOf(row)).toMatchObject({
-      agentInstructions: "Answer in haiku.",
       releaseTools: ["Read"],
       githubAttached: false,
     });
-    // LEFT JOINs leave a session without a release, or a card without the
-    // key, as SQL NULL; anything not a string is no instructions.
-    for (const none of [null, undefined, 42, { text: "x" }]) {
-      expect(
-        claimedSessionOf({ ...row, agent_instructions: none })
-          .agentInstructions,
-      ).toBeNull();
-    }
     expect(
-      claimedSessionOf({
-        ...row,
-        release_id: null,
-        release_tools: null,
-        agent_instructions: null,
-      }),
-    ).toMatchObject({ releaseTools: null, agentInstructions: null });
-  });
-
-  test("a release's agent instructions ride on every claim of its session and are part of the digest a checkpoint is planned with", async () => {
-    const resolved = await catalog();
-    const earlierIds = ["e0", "e1"];
-    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
-    const withEarlier = withSeededInstallation({
-      ...resolved,
-      profiles: {
-        ...resolved.profiles,
-        ...Object.fromEntries(
-          earlierIds.map((id) => [id, { ...profile, model: `model-${id}` }]),
-        ),
-      },
-    });
-    const earlier = earlierIds.map((id) => {
-      const made = withEarlier.profiles[id] as CatalogProfile;
-      return {
-        profileId: id,
-        profileFingerprint: profileFingerprint(made),
-        model: made.model,
-      };
-    });
-    const base = {
-      ...(await sessionOf({ releaseTools: ["Read"] })),
-      id: "s1",
-      githubAttached: false,
-    };
-    const instructed = { ...base, agentInstructions: "Answer in haiku." };
-    const claims = [
-      ["s1", sessionClaim(instructed, withEarlier)] as const,
-      ...restoreClaims(instructed, earlier, withEarlier),
-    ];
-    // Its own release list and both lists of both earlier profiles.
-    expect(claims.length).toBe(6);
-    for (const [, claim] of claims) {
-      expect(claim.runtime_config.agent_instructions).toBe("Answer in haiku.");
-    }
-    // Without instructions, or with an empty card value, every claim is the
-    // one it was before the field; with them, only the field differs.
-    for (const none of [null, ""]) {
-      const plain = { ...base, agentInstructions: none };
-      const before = [
-        ["s1", sessionClaim(plain, withEarlier)] as const,
-        ...restoreClaims(plain, earlier, withEarlier),
-      ];
-      for (const [, claim] of before) {
-        expect("agent_instructions" in claim.runtime_config).toBe(false);
-      }
-      expect(
-        claims.map(([key, claim]) => {
-          const { agent_instructions: _, ...rest } = claim.runtime_config;
-          return [key, { ...claim, runtime_config: rest }];
-        }),
-      ).toEqual(before);
-    }
-
-    // A checkpoint sealed by a worker given the instructions is ready only
-    // when the image is asked with them too.
-    const objects = createMemoryCheckpointObjectStore({ versioned: true });
-    const sealed = sessionClaim(instructed, withEarlier);
-    const seeded = await seed(
-      objects,
-      [],
-      undefined,
-      imageClaimFingerprint(sealed).profileSha256,
-    );
-    const { sessionId } = seeded.row;
-    const pointer = pointerOf({
-      ...seeded.row,
-      manifestVersion: seeded.row.manifestVersion as string,
-    });
-    for (const [claim, status] of [
-      [sealed, "ready"],
-      [sessionClaim(base, withEarlier), "incompatible"],
-    ] as const) {
-      const runtime = planRuntime(
-        seeded.manifest.runtime,
-        imageOf({ [sessionId]: claim }),
-        sessionId,
-      );
-      expect(
-        (await restorePlan(objects, pointer, seeded, runtime)).status,
-      ).toBe(status);
-    }
+      claimedSessionOf({ ...row, release_id: null, release_tools: null }),
+    ).toMatchObject({ releaseTools: null });
   });
 
   test("a session row's platform prompt rides on every claim of it; a revision 0 row plans with the digest it had before the column", async () => {
@@ -1325,7 +1223,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     };
     expect(
       claimedSessionOf({
-        agent_instructions: null,
         platform_prompt: prompt,
         branch: "main",
         id: "s1",
@@ -1581,7 +1478,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ownerId: "owner-1",
       releaseTools: null,
       repositoryMode: "repository" as const,
-      agentInstructions: null,
     };
 
     const unpaired = earlierProfileClaims(

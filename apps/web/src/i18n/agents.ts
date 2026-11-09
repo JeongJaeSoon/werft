@@ -66,7 +66,7 @@ export const agentsKo = {
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
   "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 만든 뒤 에이전트 상세의 '상세 설정'에서 에이전트 지시문으로 적습니다.",
+    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
   "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
@@ -81,11 +81,6 @@ export const agentsKo = {
     "여기서 쓰고 저장하지 않은 내용은 사라집니다. 남기려면 '저장하고 다음'을 누르세요.",
   "agents.flow.leave": "나가기",
   "agents.flow.stay": "계속 쓰기",
-  "agentCard.agentInstructions": "에이전트 지시문",
-  "agentCard.agentInstructionsHint":
-    "이 에이전트의 세션마다 시스템 프롬프트에 붙는 지시입니다. CLAUDE.md나 AGENTS.md에 쓰던 내용을 여기에 적습니다. 저장하면 새 버전이 되고, 그 버전으로 릴리스해 켠 뒤 시작한 세션부터 쓰입니다. 연차나 과장된 수식 없이, 담당 범위를 한 줄로 쓰고 허용할 행동을 구체적인 동사와 이유로 적습니다. 예: 결제 장애 분석을 맡습니다. 로그를 읽고 원인을 요약합니다. 변경은 담당 팀이 검토하므로 코드는 고치지 않습니다.",
-  "agentCard.earlierInstructions": "이전 지시 사항 (적용된 적 없음)",
-  "agentCard.importEarlier": "에이전트 지시문으로 가져오기",
   "agentCard.language": "답변 언어",
   "agentCard.model": "모델",
   "agentCard.modelHint":
@@ -127,7 +122,7 @@ export const agentsKo = {
     "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다.",
   "agent.card.identity": "이름과 설명",
   "agent.card.identityHint":
-    "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
+    "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 저장소의 CLAUDE.md나 AGENTS.md에 적으세요.",
   "agent.card.run": "실행 설정",
   "agent.card.runHint":
     "저장하면 새 버전이 생기고, 에이전트가 쓰는 값이 달라지면 릴리스를 만들어 바로 적용합니다. 값이 같으면 릴리스는 만들지 않습니다.",
@@ -249,7 +244,6 @@ export const agentsKo = {
   "agent.releases.area.repositories": "허용 저장소",
   "agent.releases.area.model": "모델",
   "agent.releases.area.tools": "도구·MCP",
-  "agent.releases.area.prompt": "프롬프트",
   "agent.releases.area.settings": "설정 값",
   "agent.releases.area.secrets": "자격 증명",
   "agent.releases.field.repositories": "허용 저장소",
@@ -257,7 +251,6 @@ export const agentsKo = {
   "agent.releases.field.model": "모델",
   "agent.releases.field.tools": "쓸 수 있는 도구",
   "agent.releases.field.toolPolicy": "도구별 정책",
-  "agent.releases.field.instructions": "에이전트 지시문",
   "agent.releases.field.profile": "프로필",
   "agent.releases.field.profileDigest": "프로필 설정",
   "agent.releases.field.pushApproval": "푸시 승인",
@@ -529,7 +522,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
   "agents.flow.jobIntro":
-    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in its agent instructions, under Settings on the agent's page, once it is made.",
+    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
   "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
@@ -543,11 +536,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "What you typed here and did not save is lost. To keep it, press 'Save and continue'.",
   "agents.flow.leave": "Leave",
   "agents.flow.stay": "Keep editing",
-  "agentCard.agentInstructions": "Agent instructions",
-  "agentCard.agentInstructionsHint":
-    "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated adjectives: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
-  "agentCard.earlierInstructions": "Earlier instructions (never applied)",
-  "agentCard.importEarlier": "Copy into agent instructions",
   "agentCard.language": "Reply language",
   "agentCard.model": "Model",
   "agentCard.modelHint":
@@ -589,7 +577,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Name and description change as soon as you save. Run settings are saved as a new version, and when the values the agent runs with change, a release is made and applied at once.",
   "agent.card.identity": "Name and description",
   "agent.card.identityHint":
-    "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in Agent instructions.",
+    "They change at once, with no new version or release. If platform guidance is turned on for this installation, the model also reads them as the agent's name and description, starting with the next new session. Put what it does and how it behaves in the repository's CLAUDE.md or AGENTS.md.",
   "agent.card.run": "Run settings",
   "agent.card.runHint":
     "Saving creates a new version, and when the values the agent runs with change, a release is made and applied at once. If they are the same, no release is made.",
@@ -715,7 +703,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.area.repositories": "Allowed repositories",
   "agent.releases.area.model": "Model",
   "agent.releases.area.tools": "Tools and MCP",
-  "agent.releases.area.prompt": "Prompt",
   "agent.releases.area.settings": "Settings",
   "agent.releases.area.secrets": "Credentials",
   "agent.releases.field.repositories": "Allowed repositories",
@@ -723,7 +710,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.model": "Model",
   "agent.releases.field.tools": "Available tools",
   "agent.releases.field.toolPolicy": "Per-tool policy",
-  "agent.releases.field.instructions": "Agent instructions",
   "agent.releases.field.profile": "Profile",
   "agent.releases.field.profileDigest": "Profile settings",
   "agent.releases.field.pushApproval": "Push approval",
@@ -988,7 +974,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
   "agents.flow.jobIntro":
-    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、作成後にエージェント詳細の「詳細設定」でエージェント指示文に書きます。",
+    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
   "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
@@ -1003,11 +989,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "ここで入力して保存していない内容は失われます。残すには「保存して次へ」を押してください。",
   "agents.flow.leave": "移動する",
   "agents.flow.stay": "編集を続ける",
-  "agentCard.agentInstructions": "エージェント指示文",
-  "agentCard.agentInstructionsHint":
-    "このエージェントのセッションごとにシステムプロンプトに付く指示です。CLAUDE.md や AGENTS.md に書いていた内容をここに書きます。保存すると新しいバージョンになり、そのバージョンでリリースして有効にした後に始まったセッションから使われます。経験年数や誇張した修飾は書かず、担当範囲を一行で書き、許可する行動を具体的な動詞と理由で書きます。例: 決済障害の分析を担当します。ログを読んで原因を要約します。変更は担当チームがレビューするので、コードは修正しません。",
-  "agentCard.earlierInstructions": "以前の指示（適用されたことはありません）",
-  "agentCard.importEarlier": "エージェント指示文に取り込む",
   "agentCard.language": "回答言語",
   "agentCard.model": "モデル",
   "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
@@ -1049,7 +1030,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。",
   "agent.card.identity": "名前と説明",
   "agent.card.identityHint":
-    "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
+    "新しいバージョンやリリースなしですぐに変わります。インストールでプラットフォーム案内を有効にしている場合は、新しいセッションからモデルもこの値をエージェントの名前と説明として読みます。任せる仕事と振る舞い方はリポジトリの CLAUDE.md や AGENTS.md に書いてください。",
   "agent.card.run": "実行設定",
   "agent.card.runHint":
     "保存すると新しいバージョンが作成され、エージェントが使う値が変わるときはリリースを作成してすぐに適用します。値が同じなら、リリースは作成しません。",
@@ -1175,7 +1156,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.area.repositories": "許可リポジトリ",
   "agent.releases.area.model": "モデル",
   "agent.releases.area.tools": "ツール・MCP",
-  "agent.releases.area.prompt": "プロンプト",
   "agent.releases.area.settings": "設定値",
   "agent.releases.area.secrets": "認証情報",
   "agent.releases.field.repositories": "許可リポジトリ",
@@ -1183,7 +1163,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.model": "モデル",
   "agent.releases.field.tools": "使えるツール",
   "agent.releases.field.toolPolicy": "ツールごとのポリシー",
-  "agent.releases.field.instructions": "エージェント指示文",
   "agent.releases.field.profile": "プロファイル",
   "agent.releases.field.profileDigest": "プロファイルの設定",
   "agent.releases.field.pushApproval": "プッシュ承認",

@@ -315,8 +315,7 @@ export function runtimeProfile(
 }
 
 /**
- * What the platform and the agent's administrators tell the engine, in
- * order. The engine gets it as its prompt and the workspace as AGENTS.md
+ * What the platform tells the engine, in order. The engine gets it as its prompt and the workspace as AGENTS.md
  * (`placeInstructionFiles`), so the two cannot differ.
  */
 export function instructionParts(
@@ -328,16 +327,10 @@ export function instructionParts(
   return [
     ...(runtimeConfig.platform_prompt === undefined
       ? []
-      : [
-          {
-            scope: "platform" as const,
-            text: platformPromptText(runtimeConfig.platform_prompt),
-          },
-        ]),
+      : [{ text: platformPromptText(runtimeConfig.platform_prompt) }]),
     ...(workspace?.repository === null
       ? [
           {
-            scope: "platform" as const,
             text:
               runtimeConfig.platform_prompt !== undefined &&
               startsWithoutRepository(runtimeConfig.platform_prompt)
@@ -346,16 +339,7 @@ export function instructionParts(
           },
         ]
       : []),
-    ...agentInstructionsOf(runtimeConfig),
   ];
-}
-
-// Blank adds nothing, so its prompt and fingerprint are a claim without it.
-function agentInstructionsOf(runtimeConfig: RuntimeConfig): InstructionPart[] {
-  const text = runtimeConfig.agent_instructions;
-  return text === undefined || text.trim() === ""
-    ? []
-    : [{ scope: "agent", text }];
 }
 
 function mcpServersOf(

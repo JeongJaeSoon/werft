@@ -49,7 +49,6 @@ function agentOn(
           model: "claude-sonnet-5",
           model_source: "fixed" as const,
           title_model: null,
-          agent_instructions: null,
         },
         draft: null,
       },

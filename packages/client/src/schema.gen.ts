@@ -4860,7 +4860,6 @@ export interface components {
             card: {
                 role?: string;
                 instructions?: string;
-                agent_instructions?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -4901,7 +4900,6 @@ export interface components {
             card?: {
                 role?: string;
                 instructions?: string;
-                agent_instructions?: string;
                 /**
                  * @default ko
                  * @enum {string}
@@ -8790,7 +8788,6 @@ export interface components {
                 card: {
                     role?: string;
                     instructions?: string;
-                    agent_instructions?: string;
                     /**
                      * @default ko
                      * @enum {string}
@@ -8954,7 +8951,6 @@ export interface components {
                     /** @enum {string} */
                     model_source: "fixed" | "profile";
                     title_model: string | null;
-                    agent_instructions: string | null;
                 } | null;
                 draft: {
                     runtime_profile_id: string;
@@ -8962,7 +8958,6 @@ export interface components {
                     /** @enum {string} */
                     model_source: "fixed" | "profile";
                     title_model: string | null;
-                    agent_instructions: string | null;
                 } | null;
             };
             /** @enum {string} */
@@ -9005,7 +9000,6 @@ export interface components {
                 card: {
                     role?: string;
                     instructions?: string;
-                    agent_instructions?: string;
                     /**
                      * @default ko
                      * @enum {string}
@@ -9169,7 +9163,6 @@ export interface components {
                     /** @enum {string} */
                     model_source: "fixed" | "profile";
                     title_model: string | null;
-                    agent_instructions: string | null;
                 } | null;
                 draft: {
                     runtime_profile_id: string;
@@ -9177,7 +9170,6 @@ export interface components {
                     /** @enum {string} */
                     model_source: "fixed" | "profile";
                     title_model: string | null;
-                    agent_instructions: string | null;
                 } | null;
             };
             /** @enum {string} */
