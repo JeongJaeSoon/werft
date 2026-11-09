@@ -308,10 +308,27 @@ describe("팀 화면", () => {
       nameBox.getAttribute("aria-describedby")?.split(" ").includes(taken.id),
     ).toBe(true);
     expect(taken.closest("[data-slot=alert]")).toBeNull();
+    // Editing the name drops the mark; the refusal was about the old one.
+    await user.type(nameBox, "2");
+    expect(nameBox.getAttribute("aria-invalid")).toBeNull();
+    await user.keyboard("{Backspace}");
+    expect(nameBox.getAttribute("aria-invalid")).toBe("true");
+    // Closing and reopening starts clean.
+    await user.click(within(again).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(open);
+    const reopened = await screen.findByRole("dialog", { name: "팀 만들기" });
+    expect(
+      within(reopened).getByLabelText("팀 이름").getAttribute("aria-invalid"),
+    ).toBeNull();
+    await user.keyboard("결제팀{Enter}");
+    await within(reopened).findByText(
+      "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
+    );
     // Refused, the dialog stays with the name to fix.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(
-      (within(again).getByLabelText("팀 이름") as HTMLInputElement).value,
+      (within(reopened).getByLabelText("팀 이름") as HTMLInputElement).value,
     ).toBe("결제팀");
   });
 
