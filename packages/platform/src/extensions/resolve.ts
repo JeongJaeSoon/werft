@@ -12,7 +12,6 @@ export const EXTENSION_SCOPES = [
 ] as const;
 export type ExtensionScope = (typeof EXTENSION_SCOPES)[number];
 
-/** The bundle version a scope names. A digest is one version of a name. */
 export type ExtensionRef = {
   bundleId: string;
   name: string;
@@ -20,13 +19,11 @@ export type ExtensionRef = {
   manifest: BundleManifest;
 };
 
-/** What one scope says about one bundle name. `forbidden` needs no version. */
 export type ScopeEntry = {
   mode: ExtensionMode;
   ref: ExtensionRef;
 };
 
-/** What the session's requester turns on or off; only `optional` names qualify. */
 export type SessionSelection = {
   enable: readonly ExtensionRef[];
   disable: readonly ExtensionRef[];
@@ -36,7 +33,6 @@ export type ResolvedExtension = {
   bundleId: string;
   name: string;
   digest: string;
-  /** The scope that put it in the list. */
   scope: ExtensionScope;
 };
 
@@ -53,7 +49,6 @@ export type ExtensionRefusalCode =
 
 export type ExtensionRefusal = {
   code: ExtensionRefusalCode;
-  /** The bundle name the refusal is about. */
   name: string;
   message: string;
 };
@@ -77,8 +72,7 @@ const refuse = (
 
 /**
  * Folds the scopes, outermost first, into the bundle list a session runs
- * with (94S-867). The result is written to the session row once; nothing
- * re-reads the scopes for that session afterwards.
+ * with.
  *
  * - A `required` bundle stays required, at the version the outer scope
  *   named; an inner scope cannot forbid, relax or re-version it.
@@ -95,7 +89,6 @@ export function resolveExtensions(input: {
   scopes: Partial<Record<Exclude<ExtensionScope, "session">, ScopeEntry[]>>;
   session?: SessionSelection;
   permissionMode: string;
-  /** Whether the profile's runtime offers skills (descriptor not `none`). */
   runtimeOffersSkills: boolean;
   includeOptional?: boolean;
 }): ExtensionResolution {

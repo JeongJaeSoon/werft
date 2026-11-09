@@ -120,8 +120,7 @@ export interface ExtensionBundleStore {
   }): Promise<AttachmentReceiptResult>;
   /**
    * The bundles the workspace offers, and with `agentId` those its agent
-   * offers, each with the version it names. Rows are read as they are now:
-   * a session resolves them once at create.
+   * offers, each with the version it names.
    */
   listAttachments(input: {
     workspaceId: string;

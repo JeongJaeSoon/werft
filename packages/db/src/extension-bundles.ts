@@ -87,7 +87,6 @@ export function createPostgresExtensionBundleStore(
   db: Database,
 ): ExtensionBundleStore {
   async function byId(tx: Database, workspaceId: string, id: string) {
-    // An owner from before workspaces (AUTH_MODE=none) is no uuid either.
     if (!UUID.test(id) || !UUID.test(workspaceId)) return undefined;
     const [row] = await tx
       .select()
@@ -311,8 +310,6 @@ export function createPostgresExtensionBundleStore(
             createdBy: actor.userId,
           });
         } else {
-          // Only the version named: a detach of an older version must not
-          // take back the newer one attached since.
           await tx
             .delete(extensionAttachments)
             .where(and(target, eq(extensionAttachments.bundleId, bundle.id)));
@@ -339,8 +336,6 @@ export function createPostgresExtensionBundleStore(
     },
 
     async listAttachments(input) {
-      // An owner from before workspaces (AUTH_MODE=none) is no uuid and has
-      // no bundles; comparing it to a uuid column would fail the request.
       if (!UUID.test(input.workspaceId)) return [];
       if (input.agentId !== undefined && !UUID.test(input.agentId)) return [];
       const rows = await db

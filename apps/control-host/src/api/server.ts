@@ -511,8 +511,6 @@ const slackWelcome =
       });
 const githubSettingsStore = createPostgresGitHubSettingsStore(db);
 const profileRollouts = createPostgresProfileRolloutStore(db);
-// Resolves which bundles a session runs with, and checks an agent's bundles
-// against the profile it is released on.
 const extensionDeps = extensionDepsFor(db);
 const agents = createAgentService({
   authorization,

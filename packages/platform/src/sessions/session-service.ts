@@ -414,8 +414,6 @@ export function createSessionService(deps: {
     // Null allows none.
     repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
-  // Resolves the extension bundles a new session runs with; absent, none
-  // run and a request that names bundles is refused.
   extensions?: SessionExtensionsDeps;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
@@ -849,9 +847,6 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
-      // Resolved once here and kept on the row: a claim or resume of this
-      // session never asks the workspace's or the agent's bundles again.
-      // Like the checks above, a refusal still lets a replay through.
       const selection = input.body.extensions;
       let extensions: SessionExtension[] | undefined;
       let extensionRefusal: SessionServiceError | null = null;
@@ -1257,8 +1252,6 @@ export function createSessionService(deps: {
                 current.runtime_version !== pair.profile.runtime_version
               ? `Profile ${wanted} runs ${pair.profile.runtime_kind} ${pair.profile.runtime_version}; the session's checkpoints were taken on ${current.runtime_kind} ${current.runtime_version}`
               : null;
-      // The bundles pinned at creation keep their scripts: the target profile
-      // must still allow them. Judged after the replay check like the rest.
       let pinnedRefusal: string | null = null;
       if (
         profileRefusal === null &&

@@ -12,7 +12,6 @@ import {
 
 export type SessionExtensionsDeps = {
   store: Pick<ExtensionBundleStore, "find" | "listAttachments">;
-  /** Whether the runtime of a profile offers skills (its descriptor is not `none`). */
   offersSkills(runtimeKind: RuntimeKind): boolean;
 };
 
@@ -23,11 +22,6 @@ const refOf = (bundle: ExtensionBundle): ExtensionRef => ({
   manifest: bundle.manifest,
 });
 
-/**
- * Only an approved bundle is offered: a `pending` or `rejected` row stays
- * registered but no session runs it. A `forbidden` entry needs no approval,
- * since it only keeps a name out.
- */
 async function scopesOf(
   deps: SessionExtensionsDeps,
   workspaceId: string,
@@ -71,10 +65,6 @@ function isResolution(
   return "ok" in value;
 }
 
-/**
- * What a session creates with: the workspace's and the agent's bundles, then
- * the requester's own selection (bundle ids), folded by `resolveExtensions`.
- */
 export async function resolveSessionExtensions(
   deps: SessionExtensionsDeps,
   input: {
@@ -119,12 +109,6 @@ export async function resolveSessionExtensions(
   });
 }
 
-/**
- * Whether the bundles a session already runs with fit another profile. The
- * pinned bundles, not the current attachments, are what the next attempt
- * downloads, so a profile change judges those: a scripted bundle accepted on
- * a `default` profile must not move to `auto` unchecked.
- */
 export async function checkPinnedExtensions(
   deps: SessionExtensionsDeps,
   input: {
@@ -156,11 +140,6 @@ export async function checkPinnedExtensions(
   });
 }
 
-/**
- * The activation-time question for an agent on a release's profile: could
- * every bundle a session might turn on run there? A failure is a refusal to
- * activate, not a session that fails later.
- */
 export async function checkAgentExtensions(
   deps: SessionExtensionsDeps,
   input: {

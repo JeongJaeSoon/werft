@@ -435,7 +435,6 @@ integration("extension bundles on PostgreSQL", () => {
       kind: "attach",
     });
     expect(await listed(agentId)).toEqual([["agent", "required", v1.id]]);
-    // Another version of the same name replaces the row, never adds one.
     await service.recordAttachment({
       principal: owner,
       bundleId: v2.id,
@@ -443,7 +442,6 @@ integration("extension bundles on PostgreSQL", () => {
       kind: "attach",
     });
     expect(await listed(agentId)).toEqual([["agent", "optional", v2.id]]);
-    // A detach of the older version leaves the newer one.
     await service.recordAttachment({
       principal: owner,
       bundleId: v1.id,
@@ -451,7 +449,6 @@ integration("extension bundles on PostgreSQL", () => {
       kind: "detach",
     });
     expect(await listed(agentId)).toEqual([["agent", "optional", v2.id]]);
-    // A workspace attachment reaches every agent; an agent's own does not leak.
     await service.recordAttachment({
       principal: owner,
       bundleId: v1.id,
@@ -474,7 +471,6 @@ integration("extension bundles on PostgreSQL", () => {
       kind: "detach",
     });
     expect(await listed(agentId)).toEqual([["workspace", "forbidden", v1.id]]);
-    // An agent scope names its agent, and the agent has to be the workspace's.
     expect(
       (
         await service.recordAttachment({
@@ -499,8 +495,6 @@ integration("extension bundles on PostgreSQL", () => {
   test("an owner that is no uuid (before workspaces) has no attachments instead of failing the read", async () => {
     const { store } = build();
     expect(await store.listAttachments({ workspaceId: "local" })).toEqual([]);
-    // A selection naming a valid bundle id must not reach the uuid column
-    // with an owner that is no uuid.
     expect(await store.find("local", randomUUID())).toBeNull();
     expect(
       await store.listAttachments({
@@ -662,7 +656,6 @@ integration("extension bundles on PostgreSQL", () => {
       )[0]?.extensions;
     expect(await stored()).toEqual(resolved);
 
-    // The workspace changes its defaults afterwards.
     await service.recordAttachment({
       principal: owner,
       bundleId: bundle.id,
@@ -672,7 +665,6 @@ integration("extension bundles on PostgreSQL", () => {
     });
     expect(await stored()).toEqual(resolved);
 
-    // A replay answers the earlier acceptance, refused resolution or not.
     const replay = await uow.acceptInputAtomic(
       request({ extensions: [], extensionsRefused: true }),
     );
@@ -680,7 +672,6 @@ integration("extension bundles on PostgreSQL", () => {
       outcome: "replayed",
       response: { session_id: first.response.session_id, extensions: resolved },
     });
-    // A new request with a refused resolution creates nothing.
     const refused = await uow.acceptInputAtomic(
       request({
         idempotencyKey: "other-key",
@@ -695,7 +686,6 @@ integration("extension bundles on PostgreSQL", () => {
       .where(eq(sessions.ownerId, workspaceId));
     expect(count).toHaveLength(1);
 
-    // A session accepted without a resolution keeps null: it runs with none.
     const bare = await uow.acceptInputAtomic(
       request({ idempotencyKey: "bare", payloadHash: "bare" }),
     );

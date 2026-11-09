@@ -1378,10 +1378,6 @@ export const sessions = pgTable(
     // restores replay it; a trigger drops the values when the session closes.
     // Null on a session that declared no variable.
     envStart: jsonb("env_start").$type<unknown>(),
-    // The extension bundles resolved once when the session was created
-    // (`SessionExtension[]`: bundle id, name, digest, scope). Claims and
-    // resumes read this, never the workspace's or agent's current bundles.
-    // Null on rows from before it: they run with none.
     extensions: jsonb("extensions").$type<unknown>(),
   },
   (table) => [
@@ -4373,12 +4369,6 @@ export const envVariableGrants = pgTable(
   ],
 );
 
-/**
- * Which bundle version a workspace or an agent offers its sessions, and how
- * (94S-867). A row names one version (`bundle_id`), so a bundle that changes
- * is a new row, not an edit; `name` is the bundle's plugin slug, copied so a
- * scope cannot hold two versions of one name.
- */
 export const extensionAttachments = pgTable(
   "extension_attachments",
   {
@@ -4387,7 +4377,6 @@ export const extensionAttachments = pgTable(
       .notNull()
       .references(() => workspaces.id),
     scope: text().notNull(),
-    // Set exactly when scope is 'agent'.
     agentId: uuid("agent_id"),
     bundleId: uuid("bundle_id")
       .notNull()

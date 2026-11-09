@@ -1059,7 +1059,6 @@ describe("activation and the agent's extension bundles", () => {
       reason: "release_refused",
     });
     expect(memory.activations()).toBe(0);
-    // Without the dependency the rollback is what it was: the gap this closes.
     const bare = createAgentService({
       authorization: createAuthorizationPolicy(),
       store: memory.store,

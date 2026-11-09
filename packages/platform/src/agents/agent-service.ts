@@ -172,13 +172,10 @@ export function createAgentService(deps: {
   outsideAgents?: OutsideAgentAccessSetting;
   /** Where a profile's newest version is read; absent: no agent is pinned. */
   profileLineage?: Pick<ProfileRolloutStore, "inspect">;
-  /** Checks an agent's bundles against the profile it is released on; absent: none checked. */
   extensions?: SessionExtensionsDeps;
 }) {
   const { authorization, store, catalog, credentials } = deps;
   const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
-  // Every bundle a session of this agent could turn on has to run on the
-  // profile a release activates it on. Null when it does, or none are checked.
   async function extensionRefusal(
     workspaceId: string,
     agentId: string,
@@ -451,7 +448,6 @@ export function createAgentService(deps: {
       if (reason === null) throw error;
       return failed(reason);
     }
-    // Found here rather than at the first session.
     if (
       (await extensionRefusal(caller.ownerId, input.agentId, profile)) !== null
     ) {
@@ -1292,7 +1288,6 @@ export function createAgentService(deps: {
       if (missing.length > 0) {
         return { status: "failed", reason: "credential_unbound" };
       }
-      // The release being returned to ran before the agent's bundles changed.
       const previous = await store.findRelease(
         workspaceId,
         input.previousReleaseId,

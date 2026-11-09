@@ -28,7 +28,6 @@ export class ProfileFeatureGate {
     }
   }
 
-  /** Whether the runtime of `kind` offers `feature` at all (not `none`). */
   offers(kind: RuntimeKind, feature: FeatureKey): boolean {
     const descriptor = this.descriptors.get(kind);
     return (

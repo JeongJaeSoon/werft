@@ -146,7 +146,6 @@ function setup(options: {
     inputs: {
       async acceptInputAtomic(input) {
         accepted.push(input);
-        // As the real acceptance: only an earlier acceptance answers a refused resolution.
         if (input.extensionsRefused && options.accept !== "replayed") {
           return { outcome: "unsupported" };
         }
