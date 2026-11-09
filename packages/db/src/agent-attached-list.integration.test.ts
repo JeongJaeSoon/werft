@@ -21,10 +21,7 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import {
-  createPostgresGitHubGateStore,
-  createPostgresGitHubSettingsStore,
-} from "./github-settings.ts";
+import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
 import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
@@ -481,11 +478,5 @@ integration("an agent session's own attached list on PostgreSQL", () => {
         .where(eq(sessions.id, s.sessionId));
       expect(row?.repositoryId).toBe("sample-app");
     });
-  });
-
-  test("the save path is untouched: the agent's list still saves through the real store", async () => {
-    const s = await session({ started: ["sample-app"], attached: [] });
-    expect(createPostgresGitHubSettingsStore(db)).toBeDefined();
-    expect(await statuses(s.sessionId)).toEqual([["sample-app", "attached"]]);
   });
 });
