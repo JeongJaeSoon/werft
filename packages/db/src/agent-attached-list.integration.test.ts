@@ -7,9 +7,11 @@ import {
 } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
+  createGitHubGate,
   createPushIntentRunner,
   createPushRequestService,
   createRepositoryAttachmentService,
+  GitHubGateError,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
@@ -174,7 +176,7 @@ integration("an agent session's own attached list on PostgreSQL", () => {
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id, github_policy_source,
          checkpoint_revision, github_policy_start, attached_repository_ids, profile_id)
-       VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
+       VALUES ($1, $2, 'https://example.invalid/app.git', 'main', 'sample-app',
          $3, $4, $5, $6, 1, $7, $8, 'p')`,
       [
         sessionId,
@@ -248,6 +250,24 @@ integration("an agent session's own attached list on PostgreSQL", () => {
         [sessionId],
       )
     ).rows[0]?.ids as string[] | null;
+
+  // The one place a credential is issued, on the real gate store. The refusals
+  // here come before any connection is asked for, so none is needed.
+  const gateReason = (
+    s: { sessionId: string },
+    work: { purpose: "clone" | "push" | "pull_request"; repositoryId?: string },
+  ) =>
+    createGitHubGate({
+      store: createPostgresGitHubGateStore(db),
+      catalog: CATALOG,
+      connections: () => null,
+    })
+      .grant({ sessionId: s.sessionId, ...work })
+      .then(
+        () => "granted",
+        (error: unknown) =>
+          error instanceof GitHubGateError ? error.reasonCode : String(error),
+      );
 
   function pushService() {
     return createPushRequestService({
@@ -418,9 +438,19 @@ integration("an agent session's own attached list on PostgreSQL", () => {
          WHERE session_id = $1 AND repository_id = 'docs'`,
         [s.sessionId, COMMIT],
       );
+      // Before the removal the gate passes policy for docs; what it says is
+      // about the connection this test does not give it.
+      expect(
+        await gateReason(s, { purpose: "clone", repositoryId: "docs" }),
+      ).not.toBe("repository_not_allowed");
       await s.setList(["sample-app"]);
 
       expect((await attach(s, "docs")).refused).toBe("repository_not_allowed");
+      for (const purpose of ["clone", "push", "pull_request"] as const) {
+        expect(await gateReason(s, { purpose, repositoryId: "docs" })).toBe(
+          "repository_not_allowed",
+        );
+      }
       expect(await pushTo(s.workspaceId, s.sessionId, "docs")).toBe(
         "repository_not_allowed",
       );
@@ -472,6 +502,9 @@ integration("an agent session's own attached list on PostgreSQL", () => {
       // request judges only additional repositories, as before.
       const gate = await createPostgresGitHubGateStore(db).context(s.sessionId);
       expect(gate?.policy.settings).toMatchObject({ repositories: ["docs"] });
+      for (const purpose of ["clone", "push", "pull_request"] as const) {
+        expect(await gateReason(s, { purpose })).toBe("repository_not_allowed");
+      }
       const [row] = await db
         .select({ repositoryId: sessions.repositoryId })
         .from(sessions)

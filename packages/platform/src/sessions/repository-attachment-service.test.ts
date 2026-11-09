@@ -264,6 +264,15 @@ describe("list", () => {
           ...agent(),
           repositoryCeiling: { ...CEILING, repository_ids: ["docs"] },
         },
+        // A release without a pin has no list of its own, but a person's
+        // saved list still takes the repository away, as the gate does.
+        {
+          policy: {
+            ...releasePolicy(attachGitHub()),
+            settings: null,
+            currentRepositories: ["docs"],
+          },
+        },
       ];
       for (const context of dropped) {
         expect((await statusesOf(service({ context })))[0]).toEqual([

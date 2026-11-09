@@ -410,7 +410,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | github-agent.md 결정 6 "정책 승인은 세션의 주 저장소에만" | D6은 첨부 저장소 push도 새 release는 기본 `allow`라고 했으나 지금은 대체됐다: 모든 저장소에 push 승인과 첨부 저장소 push 정책 중 더 엄격한 쪽 하나가 적용된다 | L3 |
 | [github-agent.md 결정 5](github-agent.md#결정-5-co-authored-by) "Co-authored-by = 세션 시작자" | 그 턴을 요청한 사람으로. 미연결 안내 문구도 "연결하지 않은 요청자의 commit에는…"으로 | L15 |
 | `gh` 경로 차단(JeongJaeSoon/agent-platform#1113, `apps/worker/Dockerfile:135-137`) | 진짜 `gh`는 그대로 로그인이 없다. shim의 여덟 명령만 플랫폼 도구로 간다 | L14 |
-| auto 분류기 allow 규칙이 첨부 저장소 쓰기를 뺌(`packages/adapters/runtimes/claude/src/auto-mode.ts:13`, `:15`) | D6과 이미 어긋나 있다. `gh` 문구를 고칠 때 D6에 맞춘다 | L14 |
+| auto 분류기 allow 규칙이 첨부 저장소 쓰기를 뺌(`packages/adapters/runtimes/claude/src/auto-mode.ts:13`, `:15`) | D6(지금은 push 규칙 하나로 대체됐다)과 이미 어긋나 있다. `gh` 문구를 고칠 때 지금의 push 규칙에 맞춘다 | L14 |
 | 행동 레이어 설계의 "commit은 도구가 아니다", PR 템플릿 설계의 A안(commit 도구) 기각 | hook·턴 끝 복구·push 직전 검증(B안)을 보장으로 유지하고, 고를 수 있는 고정 commit wrapper T4를 더한다. 엔진 `git commit`도 그대로 허용한다. 기각 이유("엔진의 `git commit` 습관을 막으려면 프롬프트가 필요하다")는 막지 않으므로 성립하지 않는다 | L10 |
 | 행동 레이어 설계의 "push 뒤 PR까지 플랫폼이 직접 하는 흐름" | 중심은 도구 카탈로그. 플랫폼은 모델이 부른 호출을 늦게 끝낼 뿐이다 | L4, L5 |
 
