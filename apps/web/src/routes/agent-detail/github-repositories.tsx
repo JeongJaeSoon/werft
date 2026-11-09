@@ -252,9 +252,6 @@ export function RepositoryList({
       {manages && list.data ? (
         <InstallationSelect
           page={list.data}
-          // A row's identity follows the page it is listed on, so the page
-          // stays put while a switch is saving.
-          disabled={toggles.pending}
           onInstallation={(next) => {
             setInstallation(next);
             setPage(1);
@@ -343,7 +340,6 @@ export function RepositoryList({
         <InstalledPageNav
           page={list.data}
           shown={list.data.repositories.length}
-          disabled={toggles.pending}
           onPage={setPage}
         />
       ) : null}

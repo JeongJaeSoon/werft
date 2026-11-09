@@ -58,11 +58,9 @@ export function installedUnavailableKey(
 export function InstallationSelect({
   page,
   onInstallation,
-  disabled = false,
 }: {
   readonly page: Pick<Page<never>, "installations" | "installation_id">;
   readonly onInstallation: (installationId: number) => void;
-  readonly disabled?: boolean;
 }) {
   const { t } = useI18n();
   const selectId = useId();
@@ -78,7 +76,6 @@ export function InstallationSelect({
       <NativeSelect
         id={selectId}
         size="sm"
-        disabled={disabled}
         value={String(page.installation_id ?? "")}
         onChange={(event) => onInstallation(Number(event.target.value))}
       >
@@ -109,13 +106,11 @@ export function InstalledPageNav({
   page,
   shown,
   onPage,
-  disabled = false,
 }: {
   readonly page: Pick<Page<never>, "page" | "per_page" | "total_count">;
   /** How many rows this page lists. */
   readonly shown: number;
   readonly onPage: (page: number) => void;
-  readonly disabled?: boolean;
 }) {
   const { t } = useI18n();
   if (page.total_count <= page.per_page && page.page <= 1) return null;
@@ -137,7 +132,7 @@ export function InstalledPageNav({
         type="button"
         size="sm"
         variant="outline"
-        disabled={disabled || page.page <= 1}
+        disabled={page.page <= 1}
         onClick={() => onPage(page.page - 1)}
       >
         {t("github.repo.previousPage")}
@@ -146,7 +141,7 @@ export function InstalledPageNav({
         type="button"
         size="sm"
         variant="outline"
-        disabled={disabled || page.page * page.per_page >= page.total_count}
+        disabled={page.page * page.per_page >= page.total_count}
         onClick={() => onPage(page.page + 1)}
       >
         {t("github.repo.nextPage")}
