@@ -512,6 +512,43 @@ integration("the readers of an agent's GitHub settings", () => {
       }
     });
 
+    test("the store decides the stricter of push_approval and push_attached for every source, approval and attached value", async () => {
+      const AGENT = [
+        // [push_approval, push_attached, decision]
+        [false, "allow", "allow"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        [true, "allow", "ask"],
+        [true, "ask", "ask"],
+        [true, "deny", "deny"],
+      ] as const;
+      for (const [pushApproval, pushAttached, decision] of AGENT) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+          start: START_ATTACHED_ALLOW,
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
+      // A release pin carries no push_attached: it reads as ask, so a release
+      // session never gets a policy approval.
+      for (const pushApproval of [false, true]) {
+        const { workspaceId, sessionId } = await fixture({
+          pins: { github: { ...PIN_OFF, push_approval: pushApproval } },
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          "ask",
+        );
+      }
+    });
+
     // The real save path, as the PUT route reaches it. `pushAttached` is left
     // out of the input unless a test names it.
     const save = (
