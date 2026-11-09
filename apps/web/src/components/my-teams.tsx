@@ -49,7 +49,7 @@ export function MyTeams({
             onRetry={() => void teams.refetch()}
           />
         ) : items.length === 0 ? (
-          <EmptyState framed size="sm" title={t("teams.mine.empty")} />
+          <EmptyState title={t("teams.mine.empty")} />
         ) : (
           <>
             <Text variant="sub">{t("teams.mine.intro")}</Text>
