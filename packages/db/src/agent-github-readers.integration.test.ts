@@ -512,7 +512,7 @@ integration("the readers of an agent's GitHub settings", () => {
       }
     });
 
-    test("the store decides the stricter of push_approval and push_attached for every source, approval and attached value", async () => {
+    test("the store decides the stricter of push_approval and push_attached across snapshot, no snapshot, unreadable snapshot and release sources", async () => {
       const AGENT = [
         // [push_approval, push_attached, decision]
         [false, "allow", "allow"],
@@ -537,11 +537,69 @@ integration("the readers of an agent's GitHub settings", () => {
           decision,
         );
       }
+      // No snapshot means no recorded start value for push_attached: it counts
+      // as ask, so a later allow cannot loosen the session, but deny still binds.
+      const NO_SNAPSHOT = [
+        [false, "allow", "ask"],
+        [false, "ask", "ask"],
+        [false, "deny", "deny"],
+        [true, "allow", "ask"],
+        [true, "ask", "ask"],
+        [true, "deny", "deny"],
+      ] as const;
+      for (const [pushApproval, pushAttached, decision] of NO_SNAPSHOT) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
       // A release pin carries no push_attached: it reads as ask, so a release
       // session never gets a policy approval.
       for (const pushApproval of [false, true]) {
         const { workspaceId, sessionId } = await fixture({
           pins: { github: { ...PIN_OFF, push_approval: pushApproval } },
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          "ask",
+        );
+      }
+      // A row a person saved for the agent afterwards can take a release
+      // session from ask to deny, never to allow.
+      for (const [pushAttached, decision] of [
+        ["allow", "ask"],
+        ["ask", "ask"],
+        ["deny", "deny"],
+      ] as const) {
+        const { workspaceId, agentId, sessionId } = await fixture();
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: false,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
+        });
+        expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
+          decision,
+        );
+      }
+      // A snapshot this image cannot read decides nothing looser than ask.
+      for (const pushAttached of ["allow", "ask", "deny"]) {
+        const { workspaceId, agentId, sessionId } = await fixture({
+          source: "agent",
+          start: { enabled: true },
+        });
+        await settingsRow(workspaceId, agentId, {
+          pushApproval: false,
+          pushAttached,
+          revision: 2,
+          updatedBy: randomUUID(),
         });
         expect((await pushes.findSession(workspaceId, sessionId))?.push).toBe(
           "ask",

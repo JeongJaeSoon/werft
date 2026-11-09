@@ -477,6 +477,9 @@ describe("a push to another repository", () => {
       gitCommit: "a".repeat(40),
     },
     pushAttached: PushAttached = "ask",
+    // The real store fills policyApproval whenever a release exists, so the
+    // switch can be on while an approval is still on offer.
+    pushApprovalOn: boolean = policyApproval === null,
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -484,7 +487,7 @@ describe("a push to another repository", () => {
       repositories: released,
       features: GITHUB_FEATURES_NONE,
       actions_allow: [],
-      push_approval: policyApproval === null,
+      push_approval: pushApprovalOn,
     };
     const push = createPushRequestService({
       authorization: createAuthorizationPolicy(),
@@ -716,6 +719,24 @@ describe("a push to another repository", () => {
       ).toEqual([
         ["docs", null],
         ["sample-app", null],
+      ]);
+    });
+
+    test("an approval on offer is dropped when push_approval is on, even with push_attached allow", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        "allow",
+        true,
+      );
+      expect(await to("docs")).toBeNull();
+      expect(await to("sample-app")).toBeNull();
+      expect(created.map((input) => input.policyApproval)).toEqual([
+        null,
+        null,
       ]);
     });
 
