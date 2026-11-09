@@ -288,6 +288,7 @@ import {
   slackIssuerFrom,
 } from "./slack-config.ts";
 import { signInWithSlackOff } from "./slack-link.ts";
+import { startSpecReconciliation } from "./spec-reconciliation.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -429,6 +430,20 @@ const readProfiles = (): void => {
         refreshWorkspaceProfiles,
         WORKSPACE_PROFILE_REFRESH_MS,
       ).unref();
+      // After the first catalog load, so a release is never judged against
+      // an empty catalog; the run repeats until nothing is left unresolved.
+      startSpecReconciliation(
+        {
+          db,
+          catalog,
+          settings: () => ({
+            connections: workspaceProfileVersions.connections,
+            connection_aliases:
+              workspaceProfileVersions.settings?.connection_aliases ?? {},
+          }),
+        },
+        logger,
+      );
     },
     (error: unknown) => {
       logger.warn("Profiles could not be read; retrying", {
