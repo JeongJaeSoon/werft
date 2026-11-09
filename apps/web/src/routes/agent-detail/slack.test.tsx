@@ -2284,20 +2284,66 @@ describe("Slack private channel states", () => {
     ).toBeNull();
   });
 
-  test("shows a conflict and the row as it is now when the binding moved", async () => {
+  test("announces a conflict and shows the row as the server has it now", async () => {
+    // The bot left between the read and the click.
+    let moved = false;
     renderAt(DETAIL, {
       ...routes(APP, true),
       [`GET ${PATH}/slack-bindings`]: () =>
-        json(200, { items: [BINDING, pending] }),
-      [`POST ${PATH}/slack-bindings/${PRIVATE_ID}/approve`]: () =>
-        apiError(409, "REVISION_CONFLICT", "moved"),
+        json(200, { items: [BINDING, moved ? left : pending] }),
+      [`POST ${PATH}/slack-bindings/${PRIVATE_ID}/approve`]: () => {
+        moved = true;
+        return apiError(409, "REVISION_CONFLICT", "moved");
+      },
     });
     const user = await setupUser();
     const list = await screen.findByRole("list", { name: "연결된 채널" });
     await user.click(
       await within(list).findByRole("button", { name: /^채널 승인/ }),
     );
-    await screen.findByText(/다른 곳에서 먼저 바꿨습니다/);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("다른 곳에서 먼저 바꿨습니다");
+    await within(list).findByText("나감");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(
+      within(list).queryByRole("button", { name: /^채널 승인/ }),
+    ).toBeNull();
+  });
+
+  test("does not offer a binding the bot left as the home channel", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [BINDING, left] }),
+      [`GET ${PATH}/slack/channels`]: () =>
+        json(200, {
+          items: [
+            {
+              id: "C0HOME",
+              name: "general",
+              is_private: false,
+              is_member: true,
+            },
+            { id: "C2", name: "secret", is_private: true, is_member: false },
+          ],
+          next_cursor: null,
+          stale: false,
+          truncated: false,
+        }),
+    });
+    const user = await setupUser();
+    await screen.findByRole("list", { name: "연결된 채널" });
+    await user.click(screen.getByRole("button", { name: "홈 지정" }));
+    const dialog = await screen.findByRole("dialog");
+    const secret = await within(dialog).findByRole("button", {
+      name: "#secret 홈 지정",
+    });
+    expect(secret.hasAttribute("disabled")).toBe(true);
+    expect(
+      within(dialog)
+        .getByRole("button", { name: "#general 홈 지정" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   test("shows a binding the bot left as inactive with the re-invite guidance", async () => {

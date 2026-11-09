@@ -221,7 +221,6 @@ export function SlackChannels({
         }),
       ),
     onSuccess: () => notify(t("slack.approved")),
-    onError: (failure) => notify(slackFailure(failure, t), { silent: true }),
     // A conflict means the row moved (left, approved elsewhere): show it as it is.
     onSettled: () =>
       cache.invalidateQueries({ queryKey: [...key, "bindings"] }),
@@ -348,6 +347,12 @@ export function SlackChannels({
           {update.error ? (
             <div>
               <FieldError>{slackFailure(update.error, t)}</FieldError>
+            </div>
+          ) : null}
+          {/* FieldError is an alert, so a failed approval is announced too. */}
+          {approve.error ? (
+            <div>
+              <FieldError>{slackFailure(approve.error, t)}</FieldError>
             </div>
           ) : null}
           {homeStep ? null : bindings.isPending ? (
@@ -546,6 +551,13 @@ export function SlackChannels({
                             !bindings.isSuccess ||
                             channels.isPlaceholderData ||
                             input.trim() !== query ||
+                            // The server refuses a home on a binding the bot left.
+                            (pickHome &&
+                              rows.some(
+                                (row) =>
+                                  row.external_surface_id === channel.id &&
+                                  row.status === "left",
+                              )) ||
                             (!pickHome &&
                               rows.some(
                                 (row) => row.external_surface_id === channel.id,
