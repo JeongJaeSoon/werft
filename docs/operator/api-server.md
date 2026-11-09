@@ -321,7 +321,7 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 `POST /v1/sessions`가 `repository_id` 없이 만드는 세션은 설정 행이 있는 에이전트(`github_policy_source = 'agent'`)에서 저장소 없이 시작한다. 에이전트는 `list_repositories`로 허용된 저장소를 보고 작업에 필요한 것만 `attach_repository`로 붙인다. 이 동작을 켜고 끄는 설치 설정은 없다.
 
 - `repository_id`를 보낸 요청은 그 저장소로 시작한다. 허용 목록·워크스페이스 상한 검사는 그대로다.
-- 설정 행이 없는 에이전트(`github_policy_source = 'release'`)는 릴리스의 저장소로 시작한다. 저장소를 요구하는 profile이 저장소 없이 뜨지 못하기 때문이다. GitHub 탭을 한 번 저장하면 행이 생겨 이 경로에서 벗어난다.
+- 설정 행이 없는 에이전트(`github_policy_source = 'release'`)는 릴리스의 저장소로 시작한다. 저장소를 요구하는 profile은 저장소 없이 뜨지 못하기 때문이다(워크스페이스 상한을 쓰는 profile은 저장소 없이도 뜬다). GitHub 탭을 한 번 저장하면 행이 생겨 이 경로에서 벗어난다.
 - 에이전트 설정의 `start_repository_id`는 열과 API 필드로 남지만 시작에 쓰이지 않는다. 열 삭제는 별도 변경이다.
 - 이미 시작한 세션은 바뀌지 않는다. 시작 저장소는 세션을 만들 때 한 번 정해 `sessions.repository_id`에 남고, claim과 복원은 그 행을 읽는다.
 - Slack 멘션·DM과 Slack 앱 연결 때의 경고(`releaseStartable`)도 같은 규칙을 쓴다. 이 판정이 거짓이 되는 경우는 설정 행이 있는 에이전트의 설정을 읽을 수 없을 때, 그리고 설정 행이 없는 에이전트의 릴리스가 저장소를 쓸 수 없을 때다.

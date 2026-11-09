@@ -105,9 +105,10 @@ export type SlackSessionHandlerDeps = {
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
   /**
-   * Slack names no repository, so a session gets the release's; true when
-   * that cannot start (none for a profile that needs one, or it left the
-   * catalog).
+   * Slack names no repository, so a session starts as `releaseStartable`
+   * says; true when it cannot (no usable repository for a profile that needs
+   * one, a repository outside the profile or workspace ceiling, or GitHub
+   * settings that cannot be read).
    */
   releaseRepositoryUnusable(
     workspaceId: string,
@@ -462,7 +463,9 @@ export function createSlackSessionHandler(
         reason_code: reasonCodeOf(error.details),
       });
       if (
-        error.code === "UNSUPPORTED_CAPABILITY" &&
+        // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
+        (error.code === "UNSUPPORTED_CAPABILITY" ||
+          error.code === "GITHUB_REFUSED") &&
         (await deps.releaseRepositoryUnusable(
           agent.workspaceId,
           link.releaseId,
