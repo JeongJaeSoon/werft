@@ -9,6 +9,7 @@ import {
   me,
   memberPage,
   USER_ID,
+  WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -86,6 +87,50 @@ const invitePosts = (api: {
 }) => api.calls.filter((c) => c.path === "/v1/invites" && c.method === "POST");
 
 describe("초대 보내기 대화상자", () => {
+  test("빈 초대 목록에서 만든 링크 단계는 목록이 채워져도 닫히지 않는다", async () => {
+    let sent = false;
+    const { api } = renderAt("/members/invites", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () =>
+        json(200, {
+          items: sent
+            ? [
+                {
+                  id: "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+                  workspace_id: WORKSPACE_ID,
+                  email: "new@example.com",
+                  role: "member",
+                  invited_by: USER_ID,
+                  status: "pending",
+                  expires_at: "2026-10-18T00:00:00.000Z",
+                  accepted_at: null,
+                  revoked_at: null,
+                  created_at: "2026-10-11T00:00:00.000Z",
+                },
+              ]
+            : [],
+        }),
+      "POST /v1/invites": () => {
+        sent = true;
+        return created();
+      },
+    });
+    // The empty box holds only words: the button is on the title row.
+    await screen.findByText("남아 있는 초대가 없습니다.");
+    const { dialog } = await toLink();
+    const reads = () =>
+      api.calls.filter((c) => c.path === "/v1/invites" && c.method === "GET")
+        .length;
+    // The list reads again after the invite exists, and now has a row.
+    await waitFor(() => expect(reads()).toBeGreaterThan(1));
+    // The open dialog hides the page behind it from the accessibility tree.
+    await screen.findByRole("table", { name: "초대 표", hidden: true });
+    expect(screen.getByRole("dialog") === dialog).toBe(true);
+    expect(currentStep(dialog)).toContain("초대 링크");
+  });
+
   test("받는 사람 단계에서 링크 단계로 넘어가고, 마지막 단계에 링크와 만료 시각이 보인다", async () => {
     const { api, history } = renderMembers();
     const { user, dialog } = await open();

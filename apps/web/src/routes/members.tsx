@@ -232,10 +232,7 @@ export function MembersScreen() {
   // Nothing to search in a list that is empty to begin with: its box holds
   // only the empty state (R4).
   const listEmpty =
-    !members.isPending &&
-    !members.error &&
-    items.length === 0 &&
-    q === undefined;
+    !members.isPending && !members.error && items.length === 0 && query === "";
 
   return (
     <SettingsSection

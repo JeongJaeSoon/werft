@@ -147,11 +147,16 @@ export function TeamsScreen() {
   const items = teams.data?.pages.flatMap((page) => page.items) ?? [];
   const search = useRef<HTMLInputElement>(null);
   const notify = useNotify();
-  const reason = usePermissionReason("team.manage", teams);
-  // A refused or failed first page leaves no list to add a team to; a failed
-  // search says nothing about the list itself.
-  const createFailed =
-    q === undefined && teams.isError && !isApiError(teams.error, "FORBIDDEN");
+  // The unsearched first page is the permission probe: a search changes
+  // `teams`' key, and the button must not lock while that reads. Until a
+  // search starts it is the same query as `teams`.
+  const probe = useInfiniteQuery({
+    ...teamPagesQuery(client),
+    enabled: manages,
+  });
+  const reason = usePermissionReason("team.manage", probe);
+  // A refused or failed first page leaves no list to add a team to.
+  const createFailed = probe.isError && !isApiError(probe.error, "FORBIDDEN");
   const createButton = createFailed ? null : (
     <TeamCreateDialog
       reason={reason}
@@ -176,7 +181,7 @@ export function TeamsScreen() {
   // would remount. The intro is the page's description line here, so the tab
   // opens on the search box like the 구성원 tab does.
   const listEmpty =
-    !teams.isPending && !teams.error && items.length === 0 && q === undefined;
+    !teams.isPending && !teams.error && items.length === 0 && query === "";
   const section = (
     <SettingsSection
       title={t("members.tab.teams")}
@@ -380,6 +385,9 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // SettingsSection's form is noValidate, so `required` no longer stops an
+    // empty name here.
+    if (name.trim() === "") return;
     rename.mutate(name.trim());
   };
 
@@ -393,7 +401,9 @@ function TeamSettings({ team }: { readonly team: TeamDetail }) {
         <Button
           type="submit"
           variant="outline"
-          disabled={rename.isPending || name.trim() === team.name}
+          disabled={
+            rename.isPending || name.trim() === "" || name.trim() === team.name
+          }
         >
           {t("teams.rename")}
         </Button>

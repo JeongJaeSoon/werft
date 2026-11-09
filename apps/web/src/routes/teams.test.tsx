@@ -364,6 +364,43 @@ describe("팀 화면", () => {
     ).toHaveLength(1);
   });
 
+  test("검색 결과를 읽는 동안에도 팀 만들기는 잠기지 않는다", async () => {
+    const server = teamServer();
+    // A search is answered with a request that never settles.
+    const { api } = renderAt("/members/teams", {
+      ...server.routes,
+      "GET /v1/teams": (request: Request) =>
+        new URL(request.url).searchParams.has("q")
+          ? new Promise<Response>(() => {})
+          : server.routes["GET /v1/teams"](),
+    });
+    const user = await setupUser();
+    const box = await screen.findByRole("searchbox", {
+      name: "이름으로 팀 찾기",
+    });
+    await user.type(box, "결제");
+    await waitFor(() =>
+      expect(api.calls.some((c) => c.search.startsWith("?q="))).toBe(true),
+    );
+    // A reason locks a button with aria-disabled, not `disabled`.
+    for (const create of screen.getAllByRole("button", { name: "팀 만들기" })) {
+      expect(create.hasAttribute("disabled")).toBe(false);
+      expect(create.getAttribute("aria-disabled") === "true").toBe(false);
+    }
+  });
+
+  test("팀 이름을 비우면 이름 바꾸기가 잠기고 아무것도 보내지 않는다", async () => {
+    const server = teamServer();
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    const name = await screen.findByLabelText("팀 이름");
+    await user.clear(name);
+    const rename = screen.getByRole("button", { name: "이름 바꾸기" });
+    expect(rename.hasAttribute("disabled")).toBe(true);
+    await user.type(name, "{Enter}");
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
   test("끝에 / 가 붙은 팀 목록 주소에서도 헤더에 팀 만들기가 있다", async () => {
     const server = teamServer();
     renderAt("/members/teams/", server.routes);
