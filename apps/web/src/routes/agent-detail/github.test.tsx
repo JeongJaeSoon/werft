@@ -1101,6 +1101,51 @@ describe("에이전트 GitHub 탭", () => {
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
   });
 
+  test("다시 읽기가 실패하는 동안 끄기는 저장되고 이어진 켜기만 거절되면 꺼진 채로 돌아간다", async () => {
+    const { server } = await activeAgent();
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
+    const key = `GET ${PATH}/github`;
+    let saved = false;
+    let calls = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((open) => {
+      release = open;
+    });
+    renderAt(DETAIL, {
+      ...base,
+      [key]: (request: Request) =>
+        saved
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : (base[key] as NonNullable<(typeof base)[string]>)(request),
+      [ACCESS]: async () => {
+        calls += 1;
+        saved = true;
+        if (calls === 1) return accessed();
+        if (calls === 2) {
+          await gate;
+          return accessed();
+        }
+        return apiError(403, "FORBIDDEN", "no");
+      },
+    });
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    await user.click(repoSwitch("docs-site"));
+    await screen.findByRole("alert");
+    await user.click(repoSwitch("docs-site"));
+    await user.click(repoSwitch("docs-site"));
+    release();
+    const row = repoSwitch("docs-site").closest("li") as HTMLElement;
+    expect(
+      await within(row).findByText(/저장소를 바꾸지 못했습니다/),
+    ).toBeTruthy();
+    // The second request (off) went through, so the server holds "off".
+    expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("false");
+  });
+
   test("설치 목록에만 있던 저장소를 켠 뒤 설치 목록만 새로 읽혀도 켠 채로 보인다", async () => {
     const { server } = await activeAgent();
     const base: Record<

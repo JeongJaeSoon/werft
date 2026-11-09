@@ -98,13 +98,14 @@ export function useRepositoryToggles(agentId: string) {
           queryKey: githubKey(client, agentId),
         });
         const reread = cache.getQueryState(githubKey(client, agentId));
+        // The save went through but the re-read failed: the cache still
+        // holds the old value, so keep showing what was saved. Recorded even
+        // when a newer click is queued: the server holds this value now.
+        const rereadFailed = reread?.status === "error";
+        if (rereadFailed) confirmed.current.set(key, enabled);
         if (latest()) {
-          // The save went through but the re-read failed: the cache still
-          // holds the old value, so keep showing what was saved.
-          if (reread?.status === "error") {
-            kept.current.add(key);
-            confirmed.current.set(key, enabled);
-          } else setWanted((held) => without(held, key));
+          if (rereadFailed) kept.current.add(key);
+          else setWanted((held) => without(held, key));
         }
       } catch (error) {
         const message = refuse(error as ApiError);
