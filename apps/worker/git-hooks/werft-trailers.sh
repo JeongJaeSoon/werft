@@ -74,7 +74,8 @@ werft_add_trailers() {
     # the message body does not. CRs are dropped to read a CRLF message.
     session=$(grep -m1 '^Agent-Session: ' "$_werft_trailers")
     if [ -n "$session" ]; then
-      tr -d '\r' <"$_werft_file" | WERFT_SESSION=$session awk '
+      tr -d '\r' <"$_werft_file" | awk '/^[ \t]*$/ { print ""; next } { print }' |
+        WERFT_SESSION=$session awk '
         BEGIN { RS = "" }
         {
           n = split($0, l, "\n"); hit = 0; plain = 1

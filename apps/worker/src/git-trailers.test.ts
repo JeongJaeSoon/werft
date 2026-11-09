@@ -252,6 +252,32 @@ describe("the commit-msg hook", () => {
     expect(lastMessage()).toContain(`Co-authored-by: ${CO_AUTHOR.name}`);
   });
 
+  test("a separator line holding a space still marks the issued paragraph", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git([
+      "commit",
+      "-q",
+      "--allow-empty",
+      "--cleanup=verbatim",
+      "-m",
+      `Fix the thing\n \nCo-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>\nAgent-Session: ${SESSION_URL}`,
+    ]);
+    const grace = { name: "grace", email: "2+grace@users.noreply.github.com" };
+    await writeGitTrailers(
+      home,
+      claim({ co_author: grace, session_url: SESSION_URL }),
+    );
+    git([
+      "commit",
+      "-q",
+      "--amend",
+      "--allow-empty",
+      "--no-edit",
+      "--cleanup=verbatim",
+    ]);
+    expect(lastMessage()).not.toContain("grace");
+  });
+
   test("a session line quoted in the body is not taken for an earlier issue", async () => {
     await writeGitTrailers(home, claim(LINKED));
     git([

@@ -723,12 +723,13 @@ export function createWorkerGateway(deps: {
       agentSession,
     });
     // An author the claim now names (the App's bot lookup can differ between
-    // claims) goes with the co-authors earlier turns were issued, as a repair
+    // claims) goes with the co-authors earlier turns were issued, none
+    // included, as a repair
     // under this claim remakes their commits with this author.
     const seen = new Set<string>();
     for (const { coAuthor } of await ledger.list(sessionId)) {
-      if (coAuthor === null) continue;
-      const key = `${coAuthor.name}\n${coAuthor.email}`;
+      const key =
+        coAuthor === null ? "" : `${coAuthor.name}\n${coAuthor.email}`;
       if (seen.has(key)) continue;
       seen.add(key);
       await ledger.record(sessionId, { author, coAuthor, agentSession });

@@ -1144,6 +1144,12 @@ describe("WorkerGateway", () => {
       coAuthor: { name: "grace", email: "2+grace@users.noreply.github.com" },
       agentSession: `https://console.example.com/sessions/${scope.session_id}`,
     });
+    // So is a turn nobody's link named.
+    expect(recordedBundles).toContainEqual({
+      author: claimAuthor,
+      coAuthor: null,
+      agentSession: `https://console.example.com/sessions/${scope.session_id}`,
+    });
     // Every ledger bundle goes, an unlinked requester's (no co-author) too.
     const issuedAuthor = { name: "werft-dev[bot]", email: "1+bot@x.invalid" };
     expect(linked.git_issued).toEqual([
