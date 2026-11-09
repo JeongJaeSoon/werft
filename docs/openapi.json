@@ -11210,6 +11210,7 @@
                     "github_settings_unsupported",
                     "github_host_unsupported",
                     "repository_none",
+                    "workflow_review_need_session_repository",
                     "ambiguous_app",
                     "pinned_app_removed",
                     "merge_off"

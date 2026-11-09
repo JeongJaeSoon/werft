@@ -9,7 +9,6 @@ import {
   type PushRequestSnapshot,
   type PushResolution,
   pushBranchFor,
-  pushClassOf,
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
@@ -191,11 +190,8 @@ export function createPushRequestService(deps: {
     ) {
       return refusedWith("repository_not_allowed", repository);
     }
-    const attachedPush =
-      pushClassOf(session.repositoryId, repositoryId) === "push.attached";
-    // `push.attached = deny` ends the request here; `ask` and `allow` are
-    // told apart later by whether a policy approves it.
-    if (attachedPush && session.pushAttached === "deny") {
+    const decision = session.push;
+    if (decision === "deny") {
       return refusedWith("repository_not_allowed", repository);
     }
     return {
@@ -203,7 +199,8 @@ export function createPushRequestService(deps: {
       session,
       repositoryId,
       entry,
-      attachedPush,
+      pushClass: "push" as const,
+      policyApproval: decision === "allow" ? session.policyApproval : null,
       repository,
     };
   }
@@ -266,7 +263,7 @@ export function createPushRequestService(deps: {
         repositoryId: judged.repositoryId,
         targetBranch: pushBranchFor(sessionId, input.body.branch),
         actor: pushReceiptActor(actor),
-        pushClass: judged.attachedPush ? "push.attached" : "push.primary",
+        pushClass: judged.pushClass,
         policySource: judged.session.policySource,
         ...(input.sourceRef === undefined
           ? {}
@@ -348,7 +345,7 @@ export function createPushRequestService(deps: {
         if (named === undefined) return end("failed", "source_missing");
         gitCommit = named.commit;
       }
-      const { session, attachedPush, entry } = judged;
+      const { session, policyApproval, entry } = judged;
       const result = await intents.transition(job, {
         ownerId: job.ownerId,
         sessionId: job.sessionId,
@@ -363,9 +360,7 @@ export function createPushRequestService(deps: {
         ...(job.pullRequest === null || job.pullRequest === undefined
           ? {}
           : { pullRequestIntent: job.pullRequest }),
-        policyApproval: attachedPush
-          ? session.attachedApproval
-          : session.policyApproval,
+        policyApproval,
         policyFields: session.policyFields,
       });
       return result.outcome;
@@ -428,7 +423,7 @@ export function createPushRequestService(deps: {
       if (judged.status === "refused") {
         return refuse(judged.refusal, judged.fields);
       }
-      const { session, repositoryId, entry, attachedPush, repository } = judged;
+      const { repositoryId, entry, policyApproval, repository } = judged;
       // Omitted, the latest committed revision, as before the field existed.
       // Named, `store.create` refuses it as `checkpoint_moved` once a newer
       // one has been saved, so a caller can pin the revision it looked at.
@@ -468,10 +463,8 @@ export function createPushRequestService(deps: {
           targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
-          policyApproval: attachedPush
-            ? session.attachedApproval
-            : session.policyApproval,
-          policyFields: session.policyFields,
+          policyApproval,
+          policyFields: judged.session.policyFields,
         }),
       );
     },

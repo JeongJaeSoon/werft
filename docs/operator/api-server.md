@@ -284,6 +284,16 @@ github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh u
 - **보존:** checkpoint GC는 열린 요청이 고정한 revision과 그 아래 fallback window를 지우지 않는다. 세션이 계속 checkpoint를 남겨 그 revision이 pointer의 window를 벗어나도, push할 manifest와 workspace bundle은 남는다.
 - **감사:** 요청·결정·거절된 시도마다 receipt가 남는다. operation은 `request_push`·`resolve_push`이고 push 결과는 `push`다. `actor`는 누가 했는지, `result`는 `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`다. 이름을 바꾸기 전에 남은 receipt는 operation `decide_push`, 값 `result.decision`, refusal `already_decided`, 오류 `PUSH_REQUEST_DECIDED`이고 그대로 읽힌다. 거절이면 status가 `failed`이고 `error`에 코드가 있다. 비밀 값은 담지 않는다. 인증되지 않은 시도(401)와 `AUTH_MODE=none`의 시도는 receipt 없이 요청 로그에만 남는다.
 
+### push 규칙: 모든 저장소에 하나
+
+세션의 저장소가 무엇이든 push가 필요로 하는 승인은 규칙 하나로 정해진다. 에이전트의 `push_approval`(꺼져 있으면 `allow`, 아니면 `ask`)과 `push_attached` 중 더 엄격한 쪽이다. `deny`면 승인 요청 없이 거절하고, 읽을 수 없는 설정은 `ask`로 본다. API, push intent runner, push 실행기, 자격 증명 gate는 모두 control-host 한 이미지에서 같은 함수로 계산한다. 설치 설정은 없다.
+
+이전에는 세션 저장소의 push가 `push_approval`만, 그 밖의 저장소의 push가 `push_attached`만 따랐다. 바뀌는 것은 두 값이 다를 때뿐이고, 덜 엄격하던 저장소가 더 엄격한 쪽을 따른다. `push_approval`이 꺼져 있고 `push_attached`가 `ask`(기본)이면 세션 저장소의 push가 `allow`에서 `ask`로, `deny`면 `allow`에서 `deny`로 바뀐다. `push_approval`이 켜져 있고 `push_attached`가 `allow`면 그 밖의 저장소의 push가 `allow`에서 `ask`로, `deny`면 세션 저장소의 push가 `ask`에서 `deny`로 바뀐다.
+
+세션에 저장소가 없으면 workflow·review 도구는 `409 workflow_review_need_session_repository`로 거절된다. 저장소가 없는 세션의 다른 거절 사유는 그대로 `repository_none`이다. 구버전 strict 응답 검증기는 새 enum을 `CLIENT_CONTRACT_MISMATCH`로 보고할 수 있다.
+
+이미 저장된 push intent의 분류(`push`·`push.primary`·`push.attached`)는 읽기만 하며 감사용이다. 실행 시점의 정책으로 다시 판정하므로 이전 규칙으로 만든 대기 중 intent도 새 규칙을 따른다. 이 규칙은 설정으로 끌 수 없고, 되돌리려면 이전 이미지로 롤백한다. 롤링 교체 중에는 새·구 파드가 같은 요청을 서로 다른 규칙으로 판정할 수 있다.
+
 ### Workspace 소프트 상한 (`WORKSPACE_ENFORCE`)
 
 API의 `WORKSPACE_ENFORCE`는 `warn`(기본)·`fail`·`off` 중 하나다. 다른 값이나 빈 값이면 API가 시작하지 않는다. Compose에서는 같은 이름의 변수로, Helm에서는 `api.workspaceEnforce`로 설정한다.

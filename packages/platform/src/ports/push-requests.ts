@@ -301,12 +301,10 @@ export interface PushRequestStore {
     repositoryCeiling: RepositoryCeiling | null;
     /** False without an agent, or with its GitHub switch off. */
     githubEnabled: boolean;
-    /** Set when the policy says `push_approval: false`, and only then. */
+    /** What a push to any repository needs now (`pushDecisionOf`). */
+    push: PushAttached;
+    /** What an `allow` push records as its approver; null without a release. */
     policyApproval: PushPolicyApproval | null;
-    /** `push_attached` as it applies to this session now. */
-    pushAttached: PushAttached;
-    /** Set when `pushAttached` is `allow`, and only then. */
-    attachedApproval: PushPolicyApproval | null;
     policyFields: GitHubPolicyReceiptFields;
   } | null>;
   /** Writes the refusal receipt and returns its id. */

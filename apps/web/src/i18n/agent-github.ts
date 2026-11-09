@@ -176,6 +176,8 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.github_settings_unsupported": "이 서버가 모르는 설정",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "저장소 없음",
+  "agentGitHub.refusal.workflow_review_need_session_repository":
+    "세션에 저장소가 없어 워크플로·리뷰 불가",
   "agentGitHub.refusal.ambiguous_app": "App 선택 필요",
   "agentGitHub.refusal.pinned_app_removed": "고정된 App 삭제됨",
   "agentGitHub.refusal.merge_off": "워크스페이스가 머지를 허용하지 않음",
@@ -389,6 +391,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Settings this server does not know",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "No repository",
+  "agentGitHub.refusal.workflow_review_need_session_repository":
+    "No session repository for workflows or reviews",
   "agentGitHub.refusal.ambiguous_app": "App choice needed",
   "agentGitHub.refusal.pinned_app_removed": "Pinned App removed",
   "agentGitHub.refusal.merge_off": "The workspace does not allow merging",
@@ -601,6 +605,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "このサーバーが知らない設定",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "リポジトリなし",
+  "agentGitHub.refusal.workflow_review_need_session_repository":
+    "セッションにリポジトリがないためワークフロー・レビュー不可",
   "agentGitHub.refusal.ambiguous_app": "App の選択が必要",
   "agentGitHub.refusal.pinned_app_removed": "固定した App は削除済み",
   "agentGitHub.refusal.merge_off": "ワークスペースがマージを許可していない",

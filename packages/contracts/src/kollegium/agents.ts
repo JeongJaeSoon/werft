@@ -519,6 +519,27 @@ export function pushAttachedOf(stored: unknown): PushAttached {
 }
 
 /**
+ * What a push to any repository needs: `allow` pushes without a person, `ask`
+ * waits for one, `deny` refuses. One rule for every repository, the stricter
+ * of `push_approval` and `push_attached`; `settings` that cannot be applied
+ * ask. A caller reads this at run time, so a push intent made under an older
+ * rule (its stored class is audit only) is judged again by this one.
+ */
+export function pushDecisionOf(policy: {
+  settings: AgentGitHub | "invalid" | null;
+  pushAttached: PushAttached;
+}): PushAttached {
+  const { settings } = policy;
+  const usable = settings !== null && settings !== "invalid";
+  const approval: PushAttached =
+    usable && !settings.push_approval ? "allow" : "ask";
+  const attached = usable
+    ? policy.pushAttached
+    : meetPushAttached("ask", policy.pushAttached);
+  return meetPushAttached(approval, attached);
+}
+
+/**
  * The agent's settings as a session read them when it started
  * (`sessions.github_policy_start`). The envelope is not strict so a later
  * image may add a field; `settings` is, so a list this image cannot read

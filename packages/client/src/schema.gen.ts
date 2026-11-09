@@ -6650,7 +6650,7 @@ export interface components {
                 /** @enum {string} */
                 purpose: "clone" | "push" | "pull_request" | "actions_read" | "dispatch" | "rerun" | "review" | "outcome_refresh" | "merge";
                 /** @enum {string} */
-                reason_code: "github_disabled" | "repository_not_allowed" | "feature_off" | "over_workspace_ceiling" | "app_permission_missing" | "no_reviewer_app" | "app_required" | "workflow_not_allowed" | "agent_ref_refused" | "run_ref_unprovable" | "actions_off" | "github_settings_unsupported" | "github_host_unsupported" | "repository_none" | "ambiguous_app" | "pinned_app_removed" | "merge_off";
+                reason_code: "github_disabled" | "repository_not_allowed" | "feature_off" | "over_workspace_ceiling" | "app_permission_missing" | "no_reviewer_app" | "app_required" | "workflow_not_allowed" | "agent_ref_refused" | "run_ref_unprovable" | "actions_off" | "github_settings_unsupported" | "github_host_unsupported" | "repository_none" | "workflow_review_need_session_repository" | "ambiguous_app" | "pinned_app_removed" | "merge_off";
                 /** Format: date-time */
                 created_at: string;
             }[];
