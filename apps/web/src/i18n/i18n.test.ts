@@ -451,4 +451,24 @@ describe("profile naming", () => {
       );
     },
   );
+
+  // The three hints name the workspace menu at one depth in every locale; en
+  // once ran the full path while ko and ja ran the short one.
+  test.each([
+    ["ko", agentGitHubKo, "연동 > GitHub", "설정 >"],
+    ["en", agentGitHubEn, "Integrations > GitHub", "Settings >"],
+    ["ja", agentGitHubJa, "連携 > GitHub", "設定 >"],
+  ] as const)(
+    "%s agent GitHub hints name the workspace menu at the same depth",
+    (_locale, table, where, fullPathStart) => {
+      for (const key of [
+        "agentGitHub.permissionsHint",
+        "agentGitHub.featureReason.over_workspace_ceiling",
+        "agentGitHub.ceilingNote",
+      ] as const) {
+        expect(table[key]).toContain(where);
+        expect(table[key]).not.toContain(fullPathStart);
+      }
+    },
+  );
 });
