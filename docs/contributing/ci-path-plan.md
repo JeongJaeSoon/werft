@@ -1,12 +1,12 @@
-# PR 문서 변경의 CI 경로 계획
+# 변경 경로에 따른 CI 계획
 
-CI는 PR 전체의 변경 경로를 한 번 분류한다. main push와 수동 실행은 기존 전체 계획을 사용한다. 마지막 push의 diff만 보지 않으므로 앞선 코드 변경이 뒤의 문서 커밋으로 가려지지 않는다.
+CI와 Images는 같은 계획 스크립트로 변경 경로를 분류한다. PR은 base부터 merge checkout까지, main push는 이벤트의 `before`부터 현재 SHA까지 비교한다. 수동·정기 실행은 전체 계획을 사용한다. 마지막 push의 diff만 보지 않으므로 앞선 코드 변경이 뒤의 문서 커밋으로 가려지지 않는다.
 
 ## 경로와 검증
 
 main을 대상으로 다음 경로로만 이뤄진 PR이 문서 전용 후보이다. 다른 branch 위에 쌓은 PR과 base를 확인할 수 없는 PR은 전체 검증이다. 하나라도 다른 경로가 섞이거나 diff가 비어 있어도 전체 검증이다.
 
-- 루트의 `.md` 파일(`README.md`, `CHANGELOG.md`, `AGENTS.md` 등). 라이선스 고지 `THIRD_PARTY_NOTICES.md`는 lockfile에서 생성되므로 제외한다
+- 루트의 `.md` 파일(`README.md`, `AGENTS.md` 등). `THIRD_PARTY_NOTICES.md`는 생성 파일, `CHANGELOG.md`는 릴리스 입력이므로 제외한다
 - `docs/` 아래 `.md`
 - `apps/docs/content/` 아래 `.mdx`
 - `.claude/` 아래 모든 파일 (스킬 스크립트·설정 포함. 워크플로와 이미지가 읽지 않고, 이를 검증하는 시험은 `tests/`에 있어 `docs-checks`가 덮는다. 예외로 `.claude/skills/verify-werft/github-sandbox/`는 `apps/control-host` 시험이 파싱하므로 전체 계획이다)
@@ -30,7 +30,8 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 | 사이트 MDX만 | 실행 | 실행 | 생략 | 아래 두 경로만 실행 | docs·storybook·pages 모두 실행 |
 | 실행 가이드 | 실행 | 실행 | 생략 | 두 가이드 모두 실행 | 사이트 경로가 있으면 실행 |
 | 코드·설정·혼합·unknown | 실행 | 전체 suite에 포함 | 실행 | 실행 | 실행 |
-| main push·수동 실행 | 기존 only 선택에 따름 | 전체 suite에 포함 | 기존 only 선택에 따름 | 기존 only 선택에 따름 | 기존 only 선택에 따름 |
+| main push | 위와 동일한 변경 경로 계획 | 위와 동일 | 위와 동일 | 위와 동일 | 위와 동일 |
+| 수동·정기 실행 | only 선택 또는 전체 | 전체 suite에 포함 | only 선택 또는 전체 | only 선택 또는 전체 | only 선택 또는 전체 |
 
 실행 가이드는 `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`다. 이 경로를 고치면 `quickstart`가 두 가이드의 셸 블록을 그대로 실행한다. 번역된 가이드의 코드 동등성은 문서 검사에서 계속 확인한다.
 
@@ -38,20 +39,21 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 
 ## 남기는 검사
 
-`check (static)`은 typecheck·lint·라이선스 고지 검사를 계속 실행한다. 문서 전용 PR의 `docs-checks`는 `bun test ./tests`로 저장소 정책 검사를 서비스 없이 실행한다. 문서 링크·anchor·문서 내 ticket 링크 금지, 다국어 코드 동등성, 이미지·로컬 실행 문서의 정책 등을 일부 파일 이름으로 고르지 않고 기존 `tests/` 집합에서 검증한다. 서비스와 D2 스택이 필요한 테스트의 skip은 이 경로에서 의도적이다. 제품 변경 PR에서는 기존 전체 unit·integration 경로가 돈다.
+`check (static)`은 typecheck·lint·라이선스 고지 검사를 계속 실행한다. 문서 전용 PR의 `docs-checks`는 `bun test ./tests`로 저장소 정책 검사를 서비스 없이 실행한다. 문서 링크·anchor·문서 내 ticket 링크 금지, 다국어 코드 동등성, 이미지·로컬 실행 문서의 정책 등을 일부 파일 이름으로 고르지 않고 기존 `tests/` 집합에서 검증한다. 서비스와 D2 스택이 필요한 테스트의 skip은 이 경로에서 의도적이다. 일반 제품 변경에서는 integration 도메인이 unit까지 모두 실행하므로 별도 unit 네 샤드를 중복 실행하지 않는다. `only=check` 수동 실행과 `surface`만 선택된 웹 경로에서는 unit 샤드를 남겨 저장소 정책과 나머지 unit 검사를 보장한다.
 
-Images workflow는 `plan` job이 같은 `ci-plan.sh`로 문서 전용 여부를 판정해, 문서 전용 PR에서만 이미지 `build`(6개)를 건너뛴다. required `supply-chain`은 항상 실행하며 계획 값(`build` 또는 `skip`)을 명시적으로 읽는다. `plan` job 자체가 success가 아니면(출력이 남아 있어도) 실패하고, 계획이 비었거나 알 수 없는 값이어도 실패하며, `build` 계획인데 build가 success가 아니면 스캔 artifact가 있어도 실패한다. `skip`은 build가 skipped인 pull request에서만 인정하며 npm audit은 그대로 판정한다. main·태그·schedule·수동 실행은 항상 `build`다. 이 경로 계획이 공급망 검사나 배포 검사를 생략하지 않는다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
+Images도 계획을 사용한다. 문서 전용이면 이미지 빌드·게시를 생략하고 `supply-chain`에서 의존성 audit을 유지한다. 제품 PR은 amd64 세 이미지, main·태그·정기·수동은 두 아키텍처 여섯 이미지를 검사한다. 필요한 이미지의 누락·실패는 required 실패다. `demo`, `ui-pack`, `workspace-quota`, `helm-chart`, `k8s-smoke`는 문서 전용 PR에서 실행하지 않는다.
 
 ## required 결과와 실패 처리
 
-branch protection의 이름 `check`, `integration`, `e2e`, `quickstart`, `supply-chain`은 그대로다. 의도한 생략은 required job 자체의 skip에 기대지 않고 다음처럼 명시적으로 success를 낸다.
+branch protection의 이름 `check`, `integration`, `e2e`, `quickstart`, `supply-chain`, `forbidden-terms`는 그대로다. 의도한 생략은 required job 자체의 skip에 기대지 않고 다음처럼 명시적으로 success를 낸다.
 
-- `check`: 계획 성공·정적 검사 성공이 필수다. 제품 계획이면 unit matrix 성공과 docs-checks skip, 문서 계획이면 unit skip과 docs-checks 성공을 요구한다.
+- `check`: 계획 성공·정적 검사 성공이 필수다. 제품 계획이면 integration 도메인 성공과 docs-checks skip을 요구한다. 웹 경로와 수동 `only=check`는 unit matrix를 대신 확인한다. 문서 계획이면 테스트 생략과 docs-checks 성공을 요구한다.
+- `check`는 위 계획 판정 외에도 Storybook·docs·demo·ui-pack·quota·Helm·Kubernetes·사이트 조립 결과를 집계한다. 이 중 실패·취소·알 수 없는 결과가 있으면 통과하지 않는다.
 - `integration`: 계획 성공 뒤 전체 도메인 성공, 또는 문서 계획에 따른 명시적 생략만 허용한다. E2E·quickstart 결과도 기다려 둘 다 성공해야 통과한다. 수동 `only=integration`에 한해 두 job의 의도한 skip을 허용한다.
 - `e2e`, `quickstart`: `!cancelled()`로 취소 가능한 상태를 유지하며, 계획 결과·출력 조합을 먼저 검사한다. 생략한 이유를 로그에 남기고, 계획이 실행을 요구하면 기존 무거운 step을 실행한다. 마지막 판정은 실제 시나리오·두 가이드 step의 outcome을 확인한다. 취소·예상 밖 skip은 두 job을 기다리는 required `integration`도 실패시켜 오인 통과를 막는다.
 - 계획 실패·출력 누락·예상하지 못한 skip·실패·취소는 위 required 판정에서 실패한다. 누락된 계획을 문서 전용으로 해석하지 않는다.
 
-계획 스크립트는 PR base SHA를 40자리 hex로 제한하고 해당 commit을 가져온 뒤 checkout된 merge 결과와 비교한다. 이벤트의 base와 checkout의 첫 부모가 다르거나 부모를 확인할 수 없으면 전체 검증을 유지한다. `--no-renames`로 rename의 이전·이후 경로를 모두 검사하고 NUL 구분으로 공백·따옴표·개행을 경로 데이터로 처리한다. git fetch나 diff 실패는 출력 계획을 쓰기 전에 실패한다. 경로는 셸 코드로 실행하지 않으며 로그에는 경로 값 대신 수와 계획만 남긴다.
+계획 스크립트는 PR base SHA를 40자리 hex로 제한하고 해당 commit을 가져온 뒤 checkout된 merge 결과와 비교한다. 이벤트의 base와 checkout의 첫 부모가 다르거나 부모를 확인할 수 없으면 전체 검증을 유지한다. `--no-renames`로 rename의 이전·이후 경로를 모두 검사하고 NUL 구분으로 공백·따옴표·개행을 경로 데이터로 처리한다. main의 최초 push처럼 `before`가 없거나 0이면 전체 계획으로 돌아간다. 유효한 SHA의 fetch나 diff 실패는 출력 계획을 쓰기 전에 실패한다. 경로는 셸 코드로 실행하지 않으며 로그에는 경로 값 대신 수와 계획만 남긴다.
 
 ## 검증과 비용
 

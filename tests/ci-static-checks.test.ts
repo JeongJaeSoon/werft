@@ -133,10 +133,21 @@ test("required check only accepts verified product or documentation results", ()
     "changes",
     "static",
     "check-part",
+    "integration-domain",
     "docs-checks",
+    "storybook",
+    "docs",
+    "demo",
+    "ui-pack",
+    "workspace-quota",
+    "helm-chart",
+    "k8s-smoke",
+    "pages",
   ]);
   expect(job?.if).toMatch(/^always\(\)/);
-  expect(job?.steps[0]?.env?.RESULT).toBe(`\${{ needs.check-part.result }}`);
+  expect(job?.steps[0]?.env?.RESULT).toBe(
+    `\${{ (github.event.inputs.only == 'check' || needs.changes.outputs.domains == '["surface"]') && needs.check-part.result || needs.integration-domain.result }}`,
+  );
   const product = {
     PLAN: "success",
     STATIC: "success",
@@ -170,6 +181,18 @@ test("required check only accepts verified product or documentation results", ()
   expect(workflow.jobs["docs-checks"]?.steps.at(-1)?.run).toBe(
     "bun test ./tests",
   );
+});
+
+test("the required verdict rejects failed product, accessibility or packaging results", () => {
+  const run = (results: string) =>
+    verdict("check", { RESULTS: results }, "product-results");
+  expect(run(JSON.stringify(["success", "skipped", "success"]))).toBe(0);
+  for (const result of ["failure", "cancelled", "pending", "", null]) {
+    expect(run(JSON.stringify(["success", result]))).not.toBe(0);
+  }
+  for (const invalid of ["", "[]", "null", "{}", "not-json"]) {
+    expect(run(invalid)).not.toBe(0);
+  }
 });
 
 test("required integration never treats an unplanned skip as success", () => {
@@ -333,6 +356,7 @@ test("all product and site consumers use the same explicit plan", () => {
     ["demo", "product"],
     ["ui-pack", "product"],
     ["workspace-quota", "product"],
+    ["agent-sdk-compat", "product"],
     ["helm-chart", "helm"],
     ["k8s-smoke", "k8s"],
   ]) {

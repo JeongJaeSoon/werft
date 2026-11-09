@@ -26,13 +26,12 @@ permissions:
   contents: read
 
 concurrency:
-  # `github.event.inputs.*`, not `inputs.*`: a dispatch through the API sends
-  # input values as strings, so a declared boolean arrives as the *string*
-  # "false", which `!inputs.allow_parallel` reads as truthy — silently turning
-  # the default into independent parallel runs.
+  # PR updates supersede their previous validation. Main runs retain commit
+  # identity because automatic releases wait for that exact CI run to pass.
+  # Manual runs are deduplicated by ref, SHA and job selection.
   group: >-
-    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && github.event.inputs.allow_parallel != 'true' && format('{0}-{1}', github.ref, github.sha)) || github.run_id }}
-  cancel-in-progress: true
+    ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'workflow_dispatch' && (github.event.inputs.allow_parallel == 'true' && github.run_id || format('{0}-{1}-{2}', github.ref, github.sha, github.event.inputs.only))) || github.sha }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   changes:
@@ -55,6 +54,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/ci-plan.sh
 
   static:
@@ -89,16 +89,17 @@ jobs:
       - name: Repository policy and documentation tests
         run: bun test ./tests
 
-  # Fast feedback: no service containers and no opt-in variables, so the tests
-  # gated on those skip here and run in `integration`. Suites that need nothing
-  # external — the SDK adapter against a local fake Messages API, for one — do
-  # run here despite the `integration` in their file names.
+  # Integration domains already run every unit test with their services on.
+  # Keep shards for manual checks and the reduced web plan, whose surface
+  # domain alone does not cover repository policy or other unit tests.
   check-part:
     name: check (${{ matrix.part }})
     needs: changes
     # A non-dispatch event has no `only`, so it reads as `all`.
     if: >-
       needs.changes.outputs.tests == 'true'
+      && ((github.event_name == 'workflow_dispatch' && github.event.inputs.only == 'check')
+        || needs.changes.outputs.domains == '["surface"]')
       && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     # Pinned rather than ubuntu-latest: GitHub moves that alias to the next
     # LTS image on its own schedule, which lands as an unrelated CI break in
@@ -146,7 +147,7 @@ jobs:
 
   # A skipped required job counts as passing, so always emit an explicit verdict.
   check:
-    needs: [changes, static, check-part, docs-checks]
+    needs: [changes, static, check-part, integration-domain, docs-checks, storybook, docs, demo, ui-pack, workspace-quota, helm-chart, k8s-smoke, pages]
     if: >-
       always()
       && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
@@ -156,7 +157,7 @@ jobs:
       - id: verdict
         if: '!cancelled()'
         env:
-          RESULT: ${{ needs.check-part.result }}
+          RESULT: ${{ (github.event.inputs.only == 'check' || needs.changes.outputs.domains == '["surface"]') && needs.check-part.result || needs.integration-domain.result }}
           PLAN: ${{ needs.changes.result }}
           STATIC: ${{ needs.static.result }}
           DOCS: ${{ needs.docs-checks.result }}
@@ -165,10 +166,20 @@ jobs:
         run: |
           [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
           case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS" in
-            true:false:success:skipped) echo "check: all unit parts passed" ;;
+            true:false:success:skipped) echo "check: all planned tests passed" ;;
             false:true:skipped:success) echo "check: documentation policy tests passed; product tests are not needed" ;;
             *) echo "::error::invalid or failed check plan/results"; exit 1 ;;
           esac
+      - id: product-results
+        if: '!cancelled()'
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          [ -n "$RESULTS" ] || exit 1
+          if ! jq -e 'type == "array" and length > 0 and all(.[]; . == "success" or . == "skipped")' <<<"$RESULTS" >/dev/null; then
+            echo "::error::a planned validation failed or was cancelled"
+            exit 1
+          fi
       - id: cancelled
         if: cancelled()
         run: |
@@ -190,9 +201,8 @@ jobs:
   # declare — a file placed in a job without the service it needs skips its
   # tests rather than failing them, and that must not pass as green.
   #
-  # The jobs start alongside `check` instead of after it. Waiting on `check`
-  # only saved runner minutes on a red run, and a public repository does not
-  # pay for those; it cost every green PR the whole of `check` in wall time.
+  # Domains start alongside static checks. Both required verdicts consume
+  # their results; the service-free manual shards do not duplicate them.
   integration-domain:
     name: integration (${{ matrix.domain }})
     needs: changes
@@ -640,10 +650,21 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      - id: docs-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/docs/.next/cache
+          key: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/docs/src/**', 'apps/docs/content/**', 'apps/docs/*.ts', 'apps/docs/*.json', 'apps/docs/*.mjs', 'docs/openapi.json') }}
+          restore-keys: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-
       - name: Static build
         run: bun run --cwd apps/docs build
       - name: Self-hosting public URL and fallback contract
         run: bun run scripts/check-docs-self-hosting-export.ts
+      - if: github.ref == 'refs/heads/main' && steps.docs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/docs/.next/cache
+          key: ${{ steps.docs-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docs-out
@@ -738,9 +759,9 @@ jobs:
   # the other half of the contract: refusing to start rather than running
   # unbounded.
   workspace-quota:
-    needs: [changes, check]
+    needs: changes
     if: >-
-      !cancelled() && needs.check.result != 'failure'
+      !cancelled()
       && needs.changes.outputs.product == 'true'
       && contains(fromJSON(needs.changes.outputs.domains), 'docker')
       && contains(fromJSON('["all","workspace-quota"]'), github.event.inputs.only || 'all')
@@ -1104,11 +1125,10 @@ jobs:
   # 2. Running it on every PR commit would bring back the cost
   #      removed: this is the most expensive job (python, uv,
   #      litellm[proxy], real CLI runs), right after a month's minutes ran out.
-  #   3. It already runs on every main push, so a regression is caught within
-  #      one commit of merging; gating PRs adds nothing. The gap that remained
-  #      was nobody noticing, which the issue step at the end closes.
+  #   3. Product main pushes exercise the harness; its issue step reports
+  #      failures without gating PRs.
   agent-sdk-compat:
-    needs: check
+    needs: [changes, static]
     # The job writes issues; nothing else in this workflow may.
     permissions:
       contents: read
@@ -1118,7 +1138,8 @@ jobs:
     # main pushes and on demand (`-f only=agent-sdk-compat`), which is also how
     # a PR that actually touches scripts/agent-sdk-compat/ gets its answer.
     if: >-
-      !cancelled() && needs.check.result != 'failure'
+      !cancelled() && needs.static.result != 'failure'
+      && needs.changes.outputs.product == 'true'
       && github.event_name != 'pull_request'
       && contains(fromJSON('["all","agent-sdk-compat"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04

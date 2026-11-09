@@ -902,7 +902,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       permissions?: Record<string, string>;
       "runs-on"?: string;
       "timeout-minutes"?: number;
-      strategy?: { matrix: { app: string[]; arch: string[] } };
+      strategy?: { matrix: { app: string[]; arch: string[] | string } };
       steps: Step[];
     };
     const text = read(".github/workflows/images.yml");
@@ -956,7 +956,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(".github/scripts/image-smoke.sh");
     });
 
-    test("every image builds and publishes on a runner of each arch", () => {
+    test("PRs build amd64 while main and release keep both native architectures", () => {
       const runner = expression(
         "matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'",
       );
@@ -964,7 +964,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         const job = jobs[name];
         expect(job?.strategy?.matrix).toEqual({
           app: ["control-host", "worker", "egress-proxy"],
-          arch: ["amd64", "arm64"],
+          arch: expression(
+            `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
+          ),
         });
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
