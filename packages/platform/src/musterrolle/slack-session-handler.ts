@@ -237,6 +237,17 @@ export function createSlackSessionHandler(
       });
     };
 
+    // The bot left a channel this event was queued for: the receipt says so
+    // instead of "processed"; nothing is taken or said.
+    const stopIfLeft = async (): Promise<void> => {
+      if (dm) return;
+      const live = await deps.bindings.findLiveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      if (live?.status === "left") throw new SlackInboundDropped("channel_left");
+    };
+
     // A channel whose kind Slack now reports otherwise than the binding was
     // set for is not the place the binding allowed (DECIDED 11).
     // `app_mention` carries no `channel_type`: Slack is asked instead.
@@ -314,7 +325,14 @@ export function createSlackSessionHandler(
       requestId,
       connectUrl: deps.connectUrl,
     });
-    if (decision.status === "dropped") return;
+    if (decision.status === "dropped") {
+      // Queued while the channel was in use, taken after the bot left: the
+      // receipt says why nothing happened.
+      if (decision.reason === "channel_left") {
+        throw new SlackInboundDropped("channel_left");
+      }
+      return;
+    }
     if (decision.decision.outcome !== "allow") {
       // The decision itself failed, not the person: try the event again.
       if (decision.decision.reason_code === "error") {
@@ -339,8 +357,8 @@ export function createSlackSessionHandler(
           agent.installationId,
           event.channel,
         );
-    // The bot left between the decision and now: nothing is taken or said.
     if (!dm && allowedOn === null) {
+      await stopIfLeft();
       deps.logger.info("Slack channel is no longer in use; input ignored", ids);
       return;
     }
@@ -373,6 +391,9 @@ export function createSlackSessionHandler(
     if (held.installationStatus === "revoked") {
       throw new SlackInboundDropped("installation_revoked");
     }
+    // The permalink lookup is the slow step; the bot may have left meanwhile.
+    // A leave that lands after this read still finds the turn in flight.
+    await stopIfLeft();
 
     let link: SessionLinkRecord;
     if (found !== null) {

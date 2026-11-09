@@ -1221,7 +1221,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       { channelId: CHANNEL, threadTs: THREAD, status: "processing" },
     ]);
 
-    await mention(fixture, "100.000200");
+    // The turn ends, so the status is due to change; the channel is left
+    // before that change is sent.
+    await endTurn(await sessionOf(fixture), 1, "completed", [[text("hi")]]);
     await leaveChannel();
     await outboxPass();
     expect(slack.statuses).toHaveLength(1);

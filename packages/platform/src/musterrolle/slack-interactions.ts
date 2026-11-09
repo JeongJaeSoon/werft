@@ -180,6 +180,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
 
   async function tell(pressed: Pressed, text: string, linkUrl?: string) {
     try {
+      // Every answer to a press goes through here: none reaches a channel the
+      // bot was removed from, whichever step failed first.
+      if (await channelLeftFor(pressed.agentId, pressed, pressed)) return;
       await deps.slack.postEphemeral(pressed.botToken, {
         channelId: pressed.channelId,
         userId: pressed.userId,

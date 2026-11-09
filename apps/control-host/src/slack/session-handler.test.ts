@@ -1134,6 +1134,46 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await sessionsOf(fixture)).toHaveLength(1);
   });
 
+  test("a mention queued before the bot left is dropped as channel_left when it is taken, not processed", async () => {
+    const fixture = await agentInSlack("general", {
+      channelKind: "private_channel",
+    });
+    const { handle, notices } = handler();
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    const store = createPostgresSurfaceBindingStore(db);
+    const approved = await store.approve({
+      principal: fixture.owner,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      bindingId: fixture.bindingId,
+      revision: 1,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(approved.outcome).toBe("resolved");
+    const [bound] = await db.select().from(surfaceBindings);
+
+    // Queued while the channel is in use; the leave lands before the drain.
+    await deliver(fixture, mention(`${Math.floor(Date.now() / 1000)}.000100`));
+    expect(
+      await store.botLeft(
+        bound?.installationId ?? "",
+        CHANNEL,
+        (Math.floor(Date.now() / 1000) + 60) * 1_000_000,
+      ),
+    ).toBe(true);
+    await drain(handle);
+
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    const [event] = await db
+      .select({
+        status: slackInboundEvents.status,
+        dropReason: slackInboundEvents.dropReason,
+      })
+      .from(slackInboundEvents);
+    expect(event).toEqual({ status: "dropped", dropReason: "channel_left" });
+  });
+
   test("a re-invite handled before the older leave still ends in a new approval, with no answer meanwhile", async () => {
     const fixture = await agentInSlack("general", {
       channelKind: "private_channel",
