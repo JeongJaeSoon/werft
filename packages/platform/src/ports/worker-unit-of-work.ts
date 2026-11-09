@@ -65,6 +65,11 @@ export type WorkerBinding = {
     profileFingerprint: string;
     model: string | null;
   }>;
+  // `sessions.legacy_runtime_configs` as stored: the run configs the earlier
+  // checkpoints were made under, kept for when no profile can rebuild them.
+  // Unvalidated; the claim reads what still parses. Absent or null before
+  // they were reconstructed. Empty without a restore.
+  legacyRuntimeConfigs?: unknown;
   // What the session had spent when bound, read under the claim's row lock.
   costUsd: number;
   providerTokens: number;

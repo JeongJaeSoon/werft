@@ -1814,8 +1814,14 @@ async function withRestoreProfiles(
   tx: Database,
   sessionId: string,
   restore: CheckpointRef | null,
-): Promise<Pick<WorkerBinding, "restore" | "restoreProfiles">> {
+): Promise<
+  Pick<WorkerBinding, "restore" | "restoreProfiles" | "legacyRuntimeConfigs">
+> {
   if (restore === null) return { restore, restoreProfiles: [] };
+  const [kept] = await tx
+    .select({ configs: sessions.legacyRuntimeConfigs })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId));
   const rows = await tx
     .select({
       profileId: checkpoints.profileId,
@@ -1839,6 +1845,7 @@ async function withRestoreProfiles(
     .orderBy(desc(max(checkpoints.revision)));
   return {
     restore,
+    legacyRuntimeConfigs: kept?.configs ?? null,
     restoreProfiles: rows.flatMap((row) =>
       row.profileId === null || row.profileFingerprint === null
         ? []

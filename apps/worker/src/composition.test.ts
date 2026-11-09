@@ -5,6 +5,7 @@ import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import {
   claimFingerprint,
   createWorkerHost,
+  earlierSchemeFingerprints,
   instructionParts,
   OUT_DIRECTORY_PROMPT,
   runtimeProfile,
@@ -200,7 +201,21 @@ describe("claimFingerprint", () => {
       "308002b17585b7fc3ff77dc05e403bac013e476ccf5b3065c6722b9945cbcf24",
   };
   const principal = { owner_scope: "owner-a" };
-  const fingerprint = claimFingerprint(config);
+  // Digest scheme 1, the one main computed.
+  const fingerprint = claimFingerprint(config, false, 1);
+
+  test("this image still computes the scheme 1 digest of every shipped profile as an earlier-scheme alternate", () => {
+    const earlier = earlierSchemeFingerprints(config);
+    for (const [id, runtime_config] of Object.entries(shipped)) {
+      const digests = earlier({ principal, runtime_config }).map(
+        (found) => found.profileSha256,
+      );
+      expect(digests).toContain(onMain[id as keyof typeof shipped]);
+      expect(digests).not.toContain(
+        claimFingerprint(config)({ principal, runtime_config }).profileSha256,
+      );
+    }
+  });
 
   test("a repository session's digest is the one main computed for every shipped profile", () => {
     const repository = {
@@ -251,7 +266,7 @@ describe("claimFingerprint", () => {
         runtime_config: runtimeConfig,
         workspace: { repository: null },
       }).profileSha256;
-      expect(digest).toBe(claude.fingerprint(profile).profileSha256);
+      expect(digest).toBe(claude.fingerprint(profile, 1).profileSha256);
       expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");
@@ -287,11 +302,14 @@ describe("claimFingerprint", () => {
       files: ["AGENTS.md", "CLAUDE.md"],
       text: "rules\n",
     });
-    expect(claude.fingerprint(after).profileSha256).toBe(
-      claude.fingerprint(before).profileSha256,
+    expect(claude.fingerprint(after, 1).profileSha256).toBe(
+      claude.fingerprint(before, 1).profileSha256,
+    );
+    expect(claude.fingerprint(after, 1).profileSha256).toBe(
+      onMain["claude-coding-real"],
     );
     expect(claude.fingerprint(after).profileSha256).toBe(
-      onMain["claude-coding-real"],
+      claude.fingerprint(before).profileSha256,
     );
   });
 

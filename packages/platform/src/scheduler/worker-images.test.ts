@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canRestoreCheckpoint,
   runtimeVersionsOf,
+  sameCombination,
   selectWorkerImage,
   workerImageRuntimesFromEnv,
 } from "./worker-images.ts";
@@ -112,6 +114,43 @@ describe("selectWorkerImage", () => {
     expect(outcome.kind === "none" && outcome.detail).toContain(
       "digest scheme 2",
     );
+  });
+
+  describe("an image that resumes an earlier digest scheme", () => {
+    const v2 = {
+      ...current,
+      profileDigestScheme: 2,
+      restorableSchemes: [1, 2],
+    };
+
+    test("takes a checkpoint sealed under that scheme, so the old image can go", () => {
+      expect(
+        selectWorkerImage({ kind: "recorded", runtime: current }, [
+          { image: "worker@sha256:v2", runtime: v2 },
+        ]),
+      ).toEqual({ kind: "selected", image: "worker@sha256:v2", runtime: v2 });
+    });
+
+    test("still refuses a scheme it does not list, and a different engine build", () => {
+      expect(
+        selectWorkerImage(
+          { kind: "recorded", runtime: { ...current, profileDigestScheme: 3 } },
+          [{ image: "worker@sha256:v2", runtime: v2 }],
+        ).kind,
+      ).toBe("none");
+      expect(
+        selectWorkerImage({ kind: "recorded", runtime: previous }, [
+          { image: "worker@sha256:v2", runtime: v2 },
+        ]).kind,
+      ).toBe("none");
+    });
+
+    test("the strict combination, which a worker is held to, ignores the list", () => {
+      expect(sameCombination(v2, current)).toBe(false);
+      expect(sameCombination(v2, { ...v2, restorableSchemes: [2] })).toBe(true);
+      expect(canRestoreCheckpoint(v2, current)).toBe(true);
+      expect(canRestoreCheckpoint(current, v2)).toBe(false);
+    });
   });
 
   test("no image matching engine, sdk and cli stops the launch", () => {

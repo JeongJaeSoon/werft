@@ -1156,6 +1156,13 @@
       "when": 1794247888466,
       "tag": "0255_agent_releases_spec_once",
       "breakpoints": true
+    },
+    {
+      "idx": 256,
+      "version": "7",
+      "when": 1794252317449,
+      "tag": "0256_checkpoint_restore_gate",
+      "breakpoints": true
     }
   ]
 }

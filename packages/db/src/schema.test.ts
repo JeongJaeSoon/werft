@@ -148,6 +148,7 @@ describe("database schema", () => {
       "checkpoint_output_objects",
       "checkpoint_output_totals",
       "checkpoint_outputs",
+      "checkpoint_restore_check",
       "checkpoints",
       "control_intents",
       "credential_bindings",

@@ -38,6 +38,11 @@ const profile: CatalogProfile = {
   },
 };
 
+import {
+  LEGACY_CONFIG_TOKEN,
+  storableLegacyConfig,
+} from "./legacy-runtime-configs.ts";
+
 /** Every unit-of-work call these tests do not expect throws. */
 function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
   return new Proxy(overrides, {
@@ -52,7 +57,8 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
 
 function claimWith(
   p: CatalogProfile,
-  bound: Pick<WorkerBinding, "model" | "restoreProfiles">,
+  bound: Pick<WorkerBinding, "model" | "restoreProfiles"> &
+    Partial<Pick<WorkerBinding, "legacyRuntimeConfigs">>,
   accepted?: string[],
 ) {
   const seen: ClaimInput[] = [];
@@ -106,6 +112,71 @@ function claimWith(
   );
   return { claimed, seen };
 }
+
+describe("run configs kept on the session row, at claim", () => {
+  const kept = async () => {
+    const { claimed } = claimWith(profile, {
+      model: "sonnet-5-1",
+      restoreProfiles: [],
+    });
+    const live = (await claimed).runtime_config;
+    // What the profile removal stores: an earlier mode and model, no credential.
+    return storableLegacyConfig({
+      ...live,
+      model: "sonnet-5-0",
+      permission_mode: "bypassPermissions",
+    });
+  };
+
+  test("are offered as restore configs with this claim's token and their original mode", async () => {
+    const stored = await kept();
+    expect(JSON.stringify(stored)).toContain(LEGACY_CONFIG_TOKEN);
+    const { claimed } = claimWith(profile, {
+      model: "sonnet-5-1",
+      restoreProfiles: [],
+      legacyRuntimeConfigs: [stored],
+    });
+    const response = await claimed;
+    const [offered] = response.restore_runtime_configs ?? [];
+    expect(offered).toMatchObject({
+      model: "sonnet-5-0",
+      permission_mode: "bypassPermissions",
+      provider: { auth: response.runtime_config.provider.auth },
+    });
+    expect(JSON.stringify(response)).not.toContain(LEGACY_CONFIG_TOKEN);
+    expect(bootstrapClaimResponseSchema.safeParse(response).success).toBe(true);
+  });
+
+  test("a rebuilt config and the same one kept are offered once", async () => {
+    const stored = await kept();
+    const { claimed } = claimWith(profile, {
+      model: "sonnet-5-1",
+      restoreProfiles: [
+        {
+          profileId: "p",
+          profileFingerprint: profileFingerprint(profile),
+          model: "sonnet-5-0",
+        },
+      ],
+      legacyRuntimeConfigs: [{ ...stored, permission_mode: "default" }],
+    });
+    const models = (await claimed).restore_runtime_configs?.map(
+      (c) => `${c.model}/${c.permission_mode}`,
+    );
+    expect(models).toEqual(["sonnet-5-0/default"]);
+  });
+
+  test("an entry that no longer parses, or no entry, offers nothing", async () => {
+    for (const legacyRuntimeConfigs of [null, undefined, {}, [{ model: 1 }]]) {
+      const { claimed } = claimWith(profile, {
+        model: "sonnet-5-1",
+        restoreProfiles: [],
+        legacyRuntimeConfigs,
+      });
+      expect((await claimed).restore_runtime_configs).toBeUndefined();
+    }
+  });
+});
 
 describe("a model that left the list, at claim", () => {
   test("hands the claim every removed model's one-step successor, pinned to the profile", async () => {

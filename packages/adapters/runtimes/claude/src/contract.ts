@@ -51,6 +51,7 @@ import type {
 import { approvalView, rememberView, sdkAnswers } from "./mapper.ts";
 import {
   CLAUDE_PROFILE_DIGEST_SCHEME,
+  CLAUDE_RESTORABLE_SCHEMES,
   claudeProfileFingerprint,
 } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
@@ -288,15 +289,19 @@ export const claudeRuntimeModule: RuntimeModule = {
       );
     }
   },
-  fingerprint: (profile) => ({
+  fingerprint: (profile, scheme) => ({
     ...CLAUDE_RUNTIME_FINGERPRINT,
-    profileSha256: claudeProfileFingerprint(claudeProfileConfig(profile)),
+    profileSha256: claudeProfileFingerprint(
+      claudeProfileConfig(profile),
+      scheme,
+    ),
   }),
   createRuntime: (deps) => new ClaudeAgentRuntime(deps),
   imageFingerprint: () =>
     JSON.stringify({
       ...CLAUDE_RUNTIME_FINGERPRINT,
       profileDigestScheme: CLAUDE_PROFILE_DIGEST_SCHEME,
+      restorableSchemes: CLAUDE_RESTORABLE_SCHEMES,
     } satisfies ImageRuntime),
   openTranscriptStore: (options) => new ClaudeSessionStore(options),
 };

@@ -63,8 +63,11 @@ import { captureWorkspace } from "./workspace-capture.ts";
 const claude = realRuntimeFor("claude_agent_sdk");
 const claudeCheckpointCodec = claude.checkpointCodec;
 /** The build this image runs, short of a profile. */
-const { profileDigestScheme: _scheme, ...engineBuild }: ImageRuntime =
-  JSON.parse(claude.imageFingerprint());
+const {
+  profileDigestScheme: _scheme,
+  restorableSchemes: _restorable,
+  ...engineBuild
+}: ImageRuntime = JSON.parse(claude.imageFingerprint());
 /** What the transcript mirror a fresh plan opens does beyond `TranscriptMirror`. */
 type CapturingMirror = TranscriptMirror & {
   captureRevision(key: {
@@ -123,6 +126,9 @@ function harness(
       | RuntimeFingerprint
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
+    earlierSchemeFingerprints?: (
+      claim: BootstrapClaimResponse,
+    ) => RuntimeFingerprint[];
     instructionsCommit?: () => string | null;
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
@@ -150,6 +156,9 @@ function harness(
     ...(options.legacyFingerprint === undefined
       ? {}
       : { legacyFingerprint: options.legacyFingerprint }),
+    ...(options.earlierSchemeFingerprints === undefined
+      ? {}
+      : { earlierSchemeFingerprints: options.earlierSchemeFingerprints }),
     fingerprint: (claim) =>
       typeof fingerprint === "function"
         ? fingerprint(claim)
@@ -1731,6 +1740,9 @@ function restoring(
       | RuntimeFingerprint
       | ((claim: BootstrapClaimResponse) => RuntimeFingerprint);
     legacyFingerprint?: (claim: BootstrapClaimResponse) => RuntimeFingerprint;
+    earlierSchemeFingerprints?: (
+      claim: BootstrapClaimResponse,
+    ) => RuntimeFingerprint[];
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
     claudeConfigDir?: string;
   } = {},
@@ -1748,6 +1760,9 @@ function restoring(
     ...(options.legacyFingerprint === undefined
       ? {}
       : { legacyFingerprint: options.legacyFingerprint }),
+    ...(options.earlierSchemeFingerprints === undefined
+      ? {}
+      : { earlierSchemeFingerprints: options.earlierSchemeFingerprints }),
     ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
     ...(options.claudeConfigDir === undefined
       ? {}
@@ -2130,6 +2145,40 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
     expect(h.gateway.restorePlans[0]).toMatchObject({
       runtime: { profile_sha256: current.profileSha256 },
       alternate_profile_sha256s: [legacy.profileSha256],
+    });
+  });
+
+  test("a checkpoint stamped under the earlier digest scheme is offered as an alternate for every config", async () => {
+    const from = await published();
+    await replaceWorkspaceWithLeftovers();
+    const current = { ...runtime, profileSha256: "e".repeat(64) };
+    const scheme1 = (claim: BootstrapClaimResponse) => [
+      {
+        ...runtime,
+        profileSha256: claim.runtime_config.model === "old-model" ? "1" : "2",
+      },
+    ];
+    const h = restoring(from, {
+      fingerprint: () => current,
+      earlierSchemeFingerprints: (claim) =>
+        scheme1(claim).map((found) => ({
+          ...found,
+          profileSha256: found.profileSha256.repeat(64),
+        })),
+    });
+    const claimed = await claimOf(h.gateway);
+    const claim: BootstrapClaimResponse = {
+      ...claimed,
+      restore_runtime_configs: [
+        { ...claimed.runtime_config, model: "old-model" },
+      ],
+    };
+
+    await h.port.restorePlan(claim, neverStopped()).catch(() => undefined);
+
+    expect(h.gateway.restorePlans[0]).toMatchObject({
+      runtime: { profile_sha256: current.profileSha256 },
+      alternate_profile_sha256s: ["2".repeat(64), "1".repeat(64)],
     });
   });
 

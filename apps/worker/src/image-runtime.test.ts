@@ -18,7 +18,11 @@ const claim = {
   },
 };
 
+// Scheme 2 (no permission mode in the digest) and the scheme 1 digest of the
+// same claim, which a scheme 1 image stamped checkpoints with.
 const NO_MCP_FINGERPRINT =
+  "998a3b68fed08cf002b7f02d3f0a7ffdb6c513a01cf5a1cb57106daf667f02b3";
+const NO_MCP_FINGERPRINT_SCHEME_1 =
   "d12b869e3f65a58193274b04ea1ab40d3cfd962a4d82e38b4f3f63190c2ef186";
 
 describe("imageRuntimeOf", () => {
@@ -44,8 +48,14 @@ describe("imageRuntimeOf", () => {
       s1: {
         profileSha256: onAHost.profileSha256,
         legacyProfileSha256: onAHost.profileSha256,
+        // What scheme 1 images stamped, with and without the frozen prompt.
+        earlierSchemeProfileSha256s: [
+          NO_MCP_FINGERPRINT_SCHEME_1,
+          NO_MCP_FINGERPRINT_SCHEME_1,
+        ],
       },
     });
+    expect(onAHost.profileSha256).toBe(NO_MCP_FINGERPRINT);
   });
 
   test("a remote MCP server is fingerprinted by its binding, never its token", () => {

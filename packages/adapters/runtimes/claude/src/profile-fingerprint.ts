@@ -11,7 +11,15 @@ import { publicProfile } from "./profile.ts";
  * the scheduler tells the two apart only by this number. The golden test
  * fails a digest change that keeps it.
  */
-export const CLAUDE_PROFILE_DIGEST_SCHEME = 1;
+export const CLAUDE_PROFILE_DIGEST_SCHEME = 2;
+
+/**
+ * The schemes whose checkpoints an image of this build can resume: its own,
+ * and the earlier ones it can still compute for the candidates of a restore
+ * (`claudeProfileFingerprint(config, scheme)`). Scheme 2 left the permission
+ * mode out of the digest; scheme 1 put it in.
+ */
+export const CLAUDE_RESTORABLE_SCHEMES: readonly number[] = [1, 2];
 
 /**
  * Digest of everything about a run's configuration that changes how a stored
@@ -32,6 +40,11 @@ export const CLAUDE_PROFILE_DIGEST_SCHEME = 1;
  *
  * It stays in this package, not in the SDK-free codec package, because it
  * reads the run's configuration; the control plane only compares digests.
+ *
+ * Scheme 2 (the default) leaves `permissionMode` out: the permission rules a
+ * run is held to change with the workspace's policy at every claim and do not
+ * change how a stored transcript replays. Scheme 1 keeps it, to compute the
+ * digest an older image stamped a checkpoint with.
  */
 export function claudeProfileFingerprint(
   config: Pick<
@@ -54,7 +67,11 @@ export function claudeProfileFingerprint(
      */
     home?: string;
   },
+  scheme: number = CLAUDE_PROFILE_DIGEST_SCHEME,
 ): string {
+  if (!CLAUDE_RESTORABLE_SCHEMES.includes(scheme)) {
+    throw new Error(`No profile digest is defined for scheme ${scheme}`);
+  }
   const components = describeComponents(config);
   const plugins = components.plugins.map((plugin) => ({
     ...plugin,
@@ -65,7 +82,9 @@ export function claudeProfileFingerprint(
       appendSystemPrompt: config.appendSystemPrompt ?? null,
       mcpServers: components.mcpServers,
       model: config.model,
-      permissionMode: config.permissionMode ?? "default",
+      ...(scheme === 1
+        ? { permissionMode: config.permissionMode ?? "default" }
+        : {}),
       plugins,
       profile: publicProfile(config.profile),
       // Only when on, so a run that never let CLAUDE.md in keeps the
