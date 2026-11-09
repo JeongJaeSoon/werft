@@ -103,6 +103,7 @@ import type {
   EgressPurpose,
   FenceRejection,
   FinalizeResult,
+  ModelMove,
   ResolvedCredential,
   RunnablePair,
   WorkerBinding,
@@ -128,6 +129,7 @@ import {
   GITHUB_MCP_ENDPOINT,
   githubMcpBinding,
   mcpBinding,
+  modelMovePins,
   type ProfilePin,
   profileAllowsRepository,
   profileFingerprint,
@@ -1023,6 +1025,7 @@ export function createWorkerGateway(deps: {
     profiles: SessionCatalog["profiles"];
     repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
+    moves: ModelMove[];
     settingsGeneration: number | null;
     unavailableRepositories: ReadonlySet<string>;
     settled: ReadonlySet<string>;
@@ -1045,6 +1048,20 @@ export function createWorkerGateway(deps: {
         profiles,
         repositories,
         pairs: buildRunnablePairs(workspace),
+        moves: [
+          ...Object.entries(profiles).map(([id, profile]) => ({ id, profile })),
+          ...workspace,
+        ].flatMap(({ id, profile }) =>
+          modelMovePins(profile, acceptedRuntimeVersions(catalog)).map(
+            ({ from, to, fromFingerprint, toFingerprint }) => ({
+              profileId: id,
+              fromFingerprint,
+              toFingerprint,
+              from,
+              to,
+            }),
+          ),
+        ),
         settingsGeneration,
         unavailableRepositories:
           catalog.unavailable_repositories ?? new Set<string>(),
@@ -1267,12 +1284,23 @@ export function createWorkerGateway(deps: {
         return [];
       }
       const listed = catalogProfile(catalog, made.profileId);
+      const moved = listed
+        ? (modelMovePins(listed, acceptedRuntimeVersions(catalog)).find(
+            (pin) =>
+              pin.fromFingerprint === made.profileFingerprint &&
+              // A version 1 pin names its model, so its column may be empty.
+              (made.model === pin.from ||
+                (made.model === null &&
+                  pin.fromFingerprint !== pin.toFingerprint)) &&
+              pin.to === binding.model,
+          )?.asFrom ?? null)
+        : null;
       const profile = listed
-        ? sessionProfile(
+        ? (sessionProfile(
             listed,
             { fingerprint: made.profileFingerprint, model: made.model },
             acceptedRuntimeVersions(catalog),
-          )
+          ) ?? moved)
         : null;
       return profile
         ? [
@@ -1647,6 +1675,7 @@ export function createWorkerGateway(deps: {
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
+        modelMoves: claimable.moves,
         settingsGeneration: claimable.settingsGeneration,
         unsettledRepositoryIds: claimable.unavailableRepositories,
         settledProfileIds: claimable.settled,

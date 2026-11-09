@@ -22,8 +22,8 @@ count=0
 # The one exception is the sandbox seed that apps/control-host tests parse.
 is_doc_path() {
   case "$1" in
-    THIRD_PARTY_NOTICES.md) return 1 ;;
-    README.md | CHANGELOG.md) return 0 ;;
+    THIRD_PARTY_NOTICES.md | CHANGELOG.md) return 1 ;;
+    README.md) return 0 ;;
     docs/*.md | apps/docs/content/*.mdx) return 0 ;;
     # control-host's settings and catalog tests parse this seed document.
     .claude/skills/verify-werft/github-sandbox/*) return 1 ;;
@@ -36,15 +36,24 @@ is_doc_path() {
   esac
 }
 
-if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; then
+event=${GITHUB_EVENT_NAME:-}
+base=
+if [ "$event" = pull_request ] && [ "${BASE_REF:-}" = main ]; then
   base="${BASE_SHA:?BASE_SHA is required for a pull request}"
+elif [ "$event" = push ] && [ "${GITHUB_REF:-}" = refs/heads/main ]; then
+  base=${BEFORE_SHA:-}
+  # A new branch or a missing event range must keep full validation.
+  [ "$base" != 0000000000000000000000000000000000000000 ] || base=
+fi
+
+if [ -n "$base" ]; then
   if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "::error::invalid pull request base SHA" >&2
+    echo "::error::invalid event base SHA" >&2
     exit 1
   fi
   git fetch --no-tags --depth=1 origin "$base"
   checkout_base=$(git rev-parse --verify 'HEAD^1' 2>/dev/null || true)
-  if [ "$base" = "$checkout_base" ]; then
+  if [ "$event" = push ] || [ "$base" = "$checkout_base" ]; then
     paths="${RUNNER_TEMP:?}/ci-paths"
     git diff --name-only --no-renames -z "$base" HEAD >"$paths"
     docs_only=true
@@ -97,8 +106,13 @@ if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; th
       quickstart=true
     fi
   else
-    echo "PR base differs from the checkout parent; keeping full validation"
+    echo "Event base differs from the checkout parent; keeping full validation"
   fi
+fi
+
+# Main site builds belong to pages.yml; CI verifies the site on PRs and by hand.
+if [ "$event" = push ]; then
+  site=false
 fi
 
 printf '%s\n' \

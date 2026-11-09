@@ -31,10 +31,12 @@ trap 'echo "$result" >"${results}/${app}.txt"; rm -rf "$work"' EXIT
 case "$(uname -m)" in
   x86_64)
     GRYPE_ARCH=amd64
+    GRYPE_ASSET=570620608
     GRYPE_SHA256=3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
     ;;
   aarch64)
     GRYPE_ARCH=arm64
+    GRYPE_ASSET=570620605
     GRYPE_SHA256=29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065edc9a8f8
     ;;
   *)
@@ -43,8 +45,17 @@ case "$(uname -m)" in
     ;;
 esac
 
-curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o "${work}/grype.tar.gz" \
-  "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${GRYPE_ARCH}.tar.gz"
+# Browser release URLs can persistently return an error document. The API
+# serves the same archive through an independent path; verify the pin again.
+if ! curl -fsSL --connect-timeout 10 --max-time 120 -o "${work}/grype.tar.gz" \
+  "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${GRYPE_ARCH}.tar.gz" \
+  || ! (cd "$work" && echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c -); then
+  echo "using official Grype asset API after browser download failed"
+  curl -fsSL --retry 2 --retry-delay 5 --retry-all-errors \
+    --connect-timeout 10 --max-time 120 -H 'Accept: application/octet-stream' \
+    -o "${work}/grype.tar.gz" \
+    "https://api.github.com/repos/anchore/grype/releases/assets/${GRYPE_ASSET}"
+fi
 (cd "$work" && echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c - && tar -xzf grype.tar.gz grype)
 
 # Grype refuses a database older than five days on its own, so a stale one

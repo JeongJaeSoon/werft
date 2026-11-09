@@ -2,20 +2,12 @@ name: ui-release
 
 # Builds, smokes and packs @werft-ai/ui, and keeps the tarball as an artifact.
 # Only a push of a `ui-v*` tag publishes it, and only after a person approves
-# the `release` environment. Pull requests and manual runs stop after the
-# pack; they are the dry run. The steps a person takes around a release are in
+# the `release` environment. PR consumer checks live in ci.yml; manual runs
+# stop after the pack as a dry run. The steps a person takes around a release are in
 # packages/ui/README.md (릴리스 절차).
 on:
   push:
     tags: ["ui-v*"]
-  pull_request:
-    paths:
-      - packages/ui/**
-      - scripts/ui-pack-smoke.ts
-      - LICENSE
-      - bun.lock
-      - .github/actions/bun-setup/**
-      - .github/workflows/ui-release.yml
   workflow_dispatch:
 
 # Read-only for every job but `publish`: a token with package write in the PR

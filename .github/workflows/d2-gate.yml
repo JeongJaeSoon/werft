@@ -17,12 +17,18 @@ on:
     - cron: '17 18 * * *'
   workflow_dispatch:
   pull_request:
-    # The gate, its verdict, and ci.yml, whose declared skips are the list
-    # of tests the verdict requires.
+    # Gate runtime inputs. CI's declared skips are already checked by the
+    # required policy tests and worker JUnit verification.
     paths:
       - .github/scripts/d2-gate-verdict.ts
-      - .github/workflows/ci.yml
       - .github/workflows/d2-gate.yml
+      - .github/actions/bun-setup/**
+      - .github/scripts/assert-no-docker-hub-images.sh
+      - .dockerignore
+      - apps/*/Dockerfile
+      - bun.lock
+      - infra/compose*.yml
+      - tests/e2e/compose.ci-mirror.yml
       - scripts/d2-gate/**
       - tests/d2-gate/**
 

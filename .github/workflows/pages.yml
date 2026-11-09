@@ -53,10 +53,21 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      - id: docs-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/docs/.next/cache
+          key: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/docs/src/**', 'apps/docs/content/**', 'apps/docs/*.ts', 'apps/docs/*.json', 'apps/docs/*.mjs', 'docs/openapi.json') }}
+          restore-keys: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-
       - name: Static build
         run: bun run --cwd apps/docs build
       - name: Self-hosting public URL and fallback contract
         run: bun run scripts/check-docs-self-hosting-export.ts
+      - if: github.ref == 'refs/heads/main' && steps.docs-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/docs/.next/cache
+          key: ${{ steps.docs-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docs-out
