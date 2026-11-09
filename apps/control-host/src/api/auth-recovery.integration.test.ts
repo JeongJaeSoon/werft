@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   bootstrapResponseSchema,
@@ -49,6 +56,17 @@ const BROWSER = { "X-Requested-With": "werft-web" };
 
 integration("account recovery on PostgreSQL", () => {
   const opened: Array<{ pool: Pool; database: TempDatabase }> = [];
+  // Migrating takes about a second; each test copies this migrated database
+  // instead, so its own time is spent on what it checks.
+  let template: TempDatabase | undefined;
+
+  beforeAll(async () => {
+    template = await createTempDatabase({ prefix: "recovery_tpl" });
+  }, 30_000);
+
+  afterAll(async () => {
+    await template?.drop();
+  });
 
   afterEach(async () => {
     for (const { pool, database } of opened.splice(0)) {
@@ -58,7 +76,11 @@ integration("account recovery on PostgreSQL", () => {
   });
 
   async function install() {
-    const database = await createTempDatabase({ prefix: "recovery" });
+    if (template === undefined) throw new Error("no template database");
+    const database = await createTempDatabase({
+      prefix: "recovery",
+      template: template.name,
+    });
     const pool = new Pool({ connectionString: database.url, max: 8 });
     opened.push({ pool, database });
     const db: NodePgDatabase<typeof schema> = drizzle(pool, { schema });
