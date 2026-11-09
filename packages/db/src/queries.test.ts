@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
-import { migrate } from "./migrate.ts";
 import {
   createApiKey,
   findApiKey,
@@ -52,9 +52,8 @@ async function sessionOf(sessionId: string) {
 }
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
 });
 
 afterEach(async () => {

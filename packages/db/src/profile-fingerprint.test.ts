@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   type CatalogProfile,
   createAuthorizationPolicy,
@@ -13,10 +13,10 @@ import {
   withSeededInstallation,
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { migrate } from "./migrate.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
@@ -91,9 +91,8 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
 beforeEach(async () => {
-  client = new PGlite();
+  client = await migratedPGlite();
   db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: `${import.meta.dir}/../migrations` });
 });
 
 afterEach(async () => {
