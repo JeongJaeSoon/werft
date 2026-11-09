@@ -992,6 +992,38 @@ describe("a card's declared variable names", () => {
     expect(writes).toBe(0);
   });
 
+  test("a save that sends no card still refuses when the stored card it would release declares a reserved name", async () => {
+    const memory = memoryStore();
+    let writes = 0;
+    const store: AgentStore = {
+      ...memory.store,
+      get: async () => ({
+        ...detail,
+        versions: [
+          {
+            id: VERSION,
+            agent_id: AGENT,
+            version_no: 1,
+            card: withEnv("PATH"),
+            content_sha256: "a".repeat(64),
+            created_by: OWNER,
+            created_at: AT,
+          },
+        ],
+      }),
+      update: async (...args) => {
+        writes += 1;
+        return memory.store.update(...args);
+      },
+    };
+    const error = await serviceOver(store)
+      .updateAgent(owner, AGENT, { runtime_profile_id: "coding" })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "VARIABLE_NAME_RESERVED" });
+    expect(writes).toBe(0);
+    expect(memory.activations()).toBe(0);
+  });
+
   test("activation refuses a release whose card declares a reserved name, without reaching the store", async () => {
     const memory = memoryStore();
     const { release: made } = await serviceOver(memory.store).createRelease(

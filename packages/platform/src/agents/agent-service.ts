@@ -727,6 +727,9 @@ export function createAgentService(deps: {
         cardOf(active?.version_id) ??
         cardOf(draft?.version_id) ??
         newest;
+      // The card that would be released, sent or not: a save that names only
+      // a profile re-releases the stored one.
+      if (asked && base !== undefined) assertDeclaredEnvNames(base);
       const profileId =
         fields.runtime_profile_id ??
         active?.runtime_profile_id ??
