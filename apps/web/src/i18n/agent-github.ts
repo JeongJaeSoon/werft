@@ -68,7 +68,7 @@ export const agentGitHubKo = {
   "agentGitHub.repositoriesFoot":
     "목록에 없는 저장소는 GitHub에서 App 설치에 더하면 나타납니다.",
   "agentGitHub.permissionsHint":
-    "기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. merge 권한은 없습니다.",
+    "기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 › GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다.",
   "agentGitHub.base": "PR 작성·수정",
   "agentGitHub.baseHint":
     "agent/<세션> 브랜치로 push하고, PR을 열고 고치고, 코멘트를 남깁니다. 필요한 권한: contents·pull requests 쓰기",
@@ -280,7 +280,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "A repository missing here appears once you add it to the App's installation on GitHub.",
   "agentGitHub.permissionsHint":
-    "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. There is no merge permission.",
+    "By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Settings › Integrations › GitHub.",
   "agentGitHub.base": "Write pull requests",
   "agentGitHub.baseHint":
     "Pushes to agent/<session> branches, opens and updates pull requests, comments. Needs: contents and pull requests write",
@@ -495,7 +495,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "一覧にないリポジトリは、GitHub で App のインストールに加えると表示されます。",
   "agentGitHub.permissionsHint":
-    "既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。merge の権限はありません。",
+    "既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。マージはエージェントの設定にはなく、ワークスペースの 連携 › GitHub でマージを許可したときだけ、エージェントが PR をマージします。",
   "agentGitHub.base": "PR の作成・修正",
   "agentGitHub.baseHint":
     "agent/<セッション> ブランチに push し、PR を開いて直し、コメントを残します。必要な権限: contents・pull requests の書き込み",
