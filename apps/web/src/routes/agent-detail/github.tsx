@@ -51,6 +51,7 @@ import { Plus } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -77,7 +78,10 @@ import {
   PULL_REQUEST_SECTION,
 } from "./github-pull-request.tsx";
 import { RepositoryList } from "./github-repositories.tsx";
-import { useRepositoryToggles } from "./github-repository-toggles.ts";
+import {
+  type SavedSwitch,
+  useRepositoryToggles,
+} from "./github-repository-toggles.ts";
 import { useCurrentSection } from "./use-current-section.ts";
 import { usePageFits } from "./use-page-fits.ts";
 
@@ -101,6 +105,41 @@ type Draft = {
     readonly revision: number | null;
   };
 };
+
+/**
+ * A repository switch saves at once and raises the settings revision. A draft
+ * made just before it moves along only when that save is the very next one
+ * after its own base, applying the same change as the server (add, or remove
+ * and clear a start that named it); a gap means another save came between, and
+ * the draft stays stale.
+ */
+function followSwitch(held: Draft, saved: SavedSwitch, id: string): Draft {
+  const before = held.from.revision;
+  if (saved.revision !== (before ?? 0) + 1) return held;
+  const apply = (settings: Settings): Settings => ({
+    ...settings,
+    repositories: saved.enabled
+      ? settings.repositories.includes(id)
+        ? settings.repositories
+        : [...settings.repositories, id]
+      : settings.repositories.filter((other) => other !== id),
+  });
+  const startFor = (settings: Settings, start: string | null) =>
+    start !== null && settings.repositories.includes(start) ? start : null;
+  const settings = apply(held.settings);
+  const base = apply(held.from.base);
+  return {
+    ...held,
+    settings,
+    start: startFor(settings, held.start),
+    from: {
+      ...held.from,
+      base,
+      start: startFor(base, held.from.start),
+      revision: saved.revision,
+    },
+  };
+}
 
 // The workspace's Integrations > GitHub order (GitHub with the repositories
 // under it, features, pull requests), then what only an agent has: push
@@ -486,8 +525,53 @@ function GitHubSettings({
   const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
-  const toggles = useRepositoryToggles(agentId);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Every ref the tab has seen with its catalog id: a switch answers by ref,
+  // and a repository just turned off may already be gone from the next read.
+  const idsByRef = useRef(new Map<string, string>());
+  const remember = (read: GitHubTabData) => {
+    for (const held of read.selected_repositories ?? [])
+      idsByRef.current.set(held.ref, held.id);
+    for (const option of read.options.repositories)
+      if (option.ref) idsByRef.current.set(option.ref, option.id);
+  };
+  remember(data);
+  // Confirmed switches not yet applied to the draft, in revision order. One
+  // whose repository id is unknown (the re-read failed) holds the ones after
+  // it: each is only the next step of the one before.
+  const waiting = useRef<SavedSwitch[]>([]);
+  const drain = (read: GitHubTabData) => {
+    remember(read);
+    const queue = waiting.current;
+    queue.sort((a, b) => a.revision - b.revision);
+    while (queue[0]) {
+      const saved = queue[0];
+      const id = idsByRef.current.get(saved.ref);
+      if (id === undefined) {
+        // A read that already includes this revision and still has no id for
+        // the ref will never give one.
+        if (saved.revision <= (read.settings_revision ?? 0)) {
+          queue.shift();
+          continue;
+        }
+        return;
+      }
+      queue.shift();
+      setDraft((held) => (held ? followSwitch(held, saved, id) : held));
+    }
+  };
+  const toggles = useRepositoryToggles(agentId, (saved) => {
+    waiting.current.push(saved);
+    // The re-read may not have rendered yet, and a repository picked from an
+    // installation only gets its id there: look in the cache too.
+    drain(
+      cache.getQueryData<GitHubTabData>(githubKey(client, agentId)) ?? data,
+    );
+  });
+  // After every render, so the first read that names a waiting ref applies it.
+  useEffect(() => {
+    if (waiting.current.length > 0) drain(data);
+  });
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
   // `null` is a real start value, so `??` would swap it for the server's.
