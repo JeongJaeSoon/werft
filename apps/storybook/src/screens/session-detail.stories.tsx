@@ -619,3 +619,69 @@ export const TimelineAllMobileDark: Story = {
   name: "타임라인: 전체 보기 (390px, dark)",
   globals: { ...MOBILE, theme: "dark" },
 };
+
+/*
+ * The header with every command a running turn takes (stop, pause,
+ * terminate) and the way back: four buttons beside the title. The title,
+ * the status tag and the meta line keep their width; the buttons move under
+ * the title when the row has no room for both.
+ */
+const FOUR_BUTTONS = {
+  ...TITLED,
+  title: "의존성 업데이트 영향 확인",
+  status: "needs_input",
+  admission_state: "active",
+  current_turn_id: "turn_01",
+};
+
+export const HeadFourButtons: Story = {
+  name: "머리: 버튼 4개 (권한 요청 대기)",
+  parameters: { api: routes({ detail: FOUR_BUTTONS }) },
+};
+
+export const HeadFourButtonsDark: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (dark)",
+  globals: { theme: "dark" },
+};
+
+export const HeadFourButtonsMobile: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (390px)",
+  globals: MOBILE,
+};
+
+export const HeadFourButtonsMobileDark: Story = {
+  ...HeadFourButtons,
+  name: "머리: 버튼 4개 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
+};
+
+const LONG_TITLE = {
+  ...FOUR_BUTTONS,
+  title:
+    "결제 서비스의 의존성 업데이트가 정산 배치와 알림 워커, 관리자 콘솔에 주는 영향을 확인하고 깨지는 테스트를 고친 뒤 변경 요약을 남기기",
+};
+
+export const HeadLongTitle: Story = {
+  name: "머리: 긴 제목 + 버튼 4개",
+  parameters: { api: routes({ detail: LONG_TITLE }) },
+};
+
+export const HeadLongTitleDark: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (dark)",
+  globals: { theme: "dark" },
+};
+
+export const HeadLongTitleMobile: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (390px)",
+  globals: MOBILE,
+};
+
+export const HeadLongTitleMobileDark: Story = {
+  ...HeadLongTitle,
+  name: "머리: 긴 제목 + 버튼 4개 (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
+};
