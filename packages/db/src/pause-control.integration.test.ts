@@ -497,6 +497,11 @@ integration("pause on PostgreSQL", () => {
       reader().getSession(session.ownerId, session.sessionId);
 
     expect((await detail())?.attention).toBeNull();
+    await db
+      .update(receipts)
+      .set({ createdAt: sql`clock_timestamp() - interval '59 seconds'` })
+      .where(eq(receipts.id, response.receipt_id));
+    expect((await detail())?.attention).toBeNull();
     await overdue(response.receipt_id);
     expect((await detail())?.attention).toEqual({
       code: "PAUSE_BLOCKED",
