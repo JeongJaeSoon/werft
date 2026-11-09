@@ -371,9 +371,8 @@ export function createPostgresTeamStore(db: Database): TeamStore {
         return Promise.resolve({ outcome: "not_found" });
       const userId = input.userId.toLowerCase();
       return db.transaction(async (tx) => {
-        if (!(await actorManagesTeams(tx, actor, [userId]))) {
-          return { outcome: "actor_inactive" };
-        }
+        const people = await actorManagesTeams(tx, actor, [userId]);
+        if (!people) return { outcome: "actor_inactive" };
         const team = await lockLiveTeam(tx, actor.workspaceId, input.teamId);
         if (!team) return { outcome: "not_found" };
         const [current] = await tx
@@ -388,6 +387,9 @@ export function createPostgresTeamStore(db: Database): TeamStore {
           )
           .for("update");
         if (!current) return { outcome: "not_found" };
+        if (!people.some((p) => p.userId === userId && p.live)) {
+          return { outcome: "member_disabled" };
+        }
         if (current.role === input.role) {
           return { outcome: "unchanged", team: await teamOf(tx, team) };
         }
@@ -579,6 +581,10 @@ async function changeMember(
     } else {
       if (!current) {
         return { outcome: "unchanged", team: await teamOf(tx, team) };
+      }
+      // A disabled member's row stays as it was until they are reactivated.
+      if (!people.some((p) => p.userId === userId && p.live)) {
+        return { outcome: "member_disabled" };
       }
       await tx
         .update(memberTeamMembers)

@@ -259,6 +259,9 @@ describe("team.manage by role (design 4.1, D23)", () => {
         async removeMember() {
           return { outcome: "actor_inactive" };
         },
+        async setMemberRole() {
+          return { outcome: "member_disabled" };
+        },
         async rename() {
           return { outcome: "unchanged", team: TEAM_ROW };
         },
@@ -274,6 +277,11 @@ describe("team.manage by role (design 4.1, D23)", () => {
     expect(
       await refusal(teams.removeTeamMember(owner, TEAM, USERS.member)),
     ).toEqual({ code: "FORBIDDEN", details: { reason_code: "role" } });
+    expect(
+      await refusal(
+        teams.setTeamMemberRole(owner, TEAM, USERS.member, { role: "lead" }),
+      ),
+    ).toMatchObject({ code: "MEMBER_DISABLED" });
     expect(
       await teams.renameTeam(owner, TEAM, { name: "research" }),
     ).toMatchObject({ receipt_id: null });

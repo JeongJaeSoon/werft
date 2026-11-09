@@ -42,6 +42,12 @@ const NAME_TAKEN = () =>
     "A team by that name already exists in this workspace",
   );
 
+const MEMBER_DISABLED = () =>
+  new SessionServiceError(
+    "MEMBER_DISABLED",
+    "The member is disabled; reactivate them first",
+  );
+
 export function teamView(team: Team): TeamView {
   return {
     id: team.id,
@@ -119,6 +125,8 @@ export function createTeamService(deps: {
         );
       case "actor_inactive":
         throw OUTRANKED();
+      case "member_disabled":
+        throw MEMBER_DISABLED();
       case "unchanged":
         return { team: teamView(result.team), receipt_id: null };
       default:
@@ -272,6 +280,8 @@ export function createTeamService(deps: {
           throw NOT_FOUND();
         case "actor_inactive":
           throw OUTRANKED();
+        case "member_disabled":
+          throw MEMBER_DISABLED();
         case "unchanged":
           return { team: teamView(result.team), receipt_id: null };
         default:

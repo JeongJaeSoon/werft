@@ -223,6 +223,15 @@ integration("teams as agent admins on PostgreSQL", () => {
     expect(await change(owner, { kind: "user", id: randomUUID() })).toEqual({
       outcome: "subject_not_found",
     });
+    // A disabled member cannot be named an admin.
+    const gone = await person(workspaceId, "member");
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, idOf(gone)));
+    expect(await change(owner, { kind: "user", id: idOf(gone) })).toEqual({
+      outcome: "subject_not_found",
+    });
     expect(await change(owner, { kind: "team", id: randomUUID() })).toEqual({
       outcome: "subject_not_found",
     });
