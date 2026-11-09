@@ -7,6 +7,7 @@ import {
   json,
   me,
   memberMe,
+  STORE_OFF,
   USER_ID,
   WORKSPACE_ID,
 } from "../../test-support/fake-api.ts";
@@ -1998,7 +1999,13 @@ describe("Slack management", () => {
     renderAt(DETAIL, {
       ...routes(),
       [`GET ${PATH}/slack/app`]: () =>
-        apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "secret store off",
+          false,
+          STORE_OFF,
+        ),
     });
     expect(
       await screen.findByText(
@@ -2013,13 +2020,149 @@ describe("Slack management", () => {
       {
         ...routes(),
         [`GET ${PATH}/slack/app`]: () =>
-          apiError(503, "BACKEND_UNAVAILABLE", "secret store off"),
+          apiError(
+            503,
+            "BACKEND_UNAVAILABLE",
+            "secret store off",
+            false,
+            STORE_OFF,
+          ),
       },
       "en",
     );
     expect(
       await screen.findByText(
         "The secret store is unavailable. Ask an administrator to check its configuration.",
+      ),
+    ).toBeDefined();
+  });
+  test("names Slack's refusal, not the secret store, when Slack refused the call", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "Slack refused apps.manifest.create: invalid_manifest",
+          false,
+          { reason_code: "slack_refused", slack_error: "invalid_manifest" },
+        ),
+    });
+    expect(
+      await screen.findByText(
+        "Slack이 요청을 거절했습니다(코드: invalid_manifest). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+  });
+  test("names the unset console address in English", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "not configured", false, {
+            reason_code: "console_origin_unset",
+          }),
+      },
+      "en",
+    );
+    expect(
+      await screen.findByText(
+        "The console's public address (CONSOLE_ORIGIN) is not set, so no Slack app can be created. Ask an administrator to configure it.",
+      ),
+    ).toBeDefined();
+  });
+  test("names the unset events address and both settings that fix it", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
+          reason_code: "events_url_unset",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "Slack이 이벤트를 보낼 https 주소를 알 수 없습니다. 관리자에게 CONSOLE_ORIGIN(이벤트를 콘솔과 따로 받으면 SLACK_EVENTS_PUBLIC_URL) 설정을 요청하세요.",
+      ),
+    ).toBeDefined();
+  });
+  test("shows the code of an unknown reason instead of try-again or the secret store", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "new cause", false, {
+          reason_code: "something_new",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: something_new). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+    expect(document.body.textContent).not.toContain("잠시 뒤 다시 시도");
+  });
+  test("tells to start the install again when Slack did not answer the install", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "Slack did not answer", false, {
+          reason_code: "slack_no_answer",
+          slack_method: "oauth.v2.access",
+          failure: "timeout",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "Slack이 응답하지 않아 설치를 끝내지 못했습니다. Slack 탭에서 설치를 처음부터 다시 시작하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("코드:");
+  });
+  test("keeps the try-again text for a retryable 503 even when it names an unknown reason", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "busy", true, {
+          reason_code: "something_new",
+        }),
+    });
+    expect(
+      await screen.findByText(
+        "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("something_new");
+  });
+  test("shows the error code when a non-retryable 503 names no reason", async () => {
+    renderAt(DETAIL, {
+      ...routes(),
+      [`GET ${PATH}/slack/app`]: () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "unavailable"),
+    });
+    expect(
+      await screen.findByText(
+        "요청을 처리하지 못했습니다. 다시 시도해도 같을 수 있습니다(코드: BACKEND_UNAVAILABLE). 코드를 관리자에게 알려 주세요.",
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain("비밀 저장소");
+  });
+  test("names the unset events address in Japanese", async () => {
+    renderAt(
+      DETAIL,
+      {
+        ...routes(),
+        [`GET ${PATH}/slack/app`]: () =>
+          apiError(503, "BACKEND_UNAVAILABLE", "no events address", false, {
+            reason_code: "events_url_unset",
+          }),
+      },
+      "ja",
+    );
+    expect(
+      await screen.findByText(
+        "Slack がイベントを送る https アドレスが分かりません。管理者に CONSOLE_ORIGIN(イベントをコンソールと別に受ける場合は SLACK_EVENTS_PUBLIC_URL)の設定を依頼してください。",
       ),
     ).toBeDefined();
   });

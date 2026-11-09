@@ -56,16 +56,22 @@ const STORE_OFF = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+    undefined,
+    { reason_code: "secret_store_off" },
   );
 const NO_CONSOLE_ORIGIN = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     "The console's address is not configured (CONSOLE_ORIGIN), so no OAuth redirect can be set",
+    undefined,
+    { reason_code: "console_origin_unset" },
   );
 const EVENTS_URL_UNSET = () =>
   new SessionServiceError(
     "BACKEND_UNAVAILABLE",
     "No https events address is known (CONSOLE_ORIGIN, or SLACK_EVENTS_PUBLIC_URL when events enter apart from the console), so no Request URL can be sent to Slack",
+    undefined,
+    { reason_code: "events_url_unset" },
   );
 const creating = (app: SlackAppRecord, uncertain: boolean) =>
   new SessionServiceError(
@@ -81,7 +87,7 @@ const slackRefused = (error: SlackApiError) =>
     "BACKEND_UNAVAILABLE",
     `Slack refused ${error.method}: ${error.code}`,
     undefined,
-    { slack_error: error.code },
+    { reason_code: "slack_refused", slack_error: error.code },
   );
 const answerLost = (method: string) =>
   new SessionServiceError(
