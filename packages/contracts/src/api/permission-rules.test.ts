@@ -80,17 +80,28 @@ describe("parsePermissionRule", () => {
   test("a rule the engine would split or read as another rule is refused", () => {
     // Round 1 (Codex): the engine's list splitter turns this into two rules.
     expect(refusedAs("Bash(echo (x) hello)")).toBe("rule_syntax");
-    expect(refusedAs("Bash(echo (x))")).toBe("rule_syntax");
-    expect(refusedAs("Read(./a)b)")).toBe("rule_syntax");
-    expect(refusedAs("Read(./a(b)")).toBe("rule_syntax");
-    // Round 2: a balanced pair in a path stays one rule in the engine.
+    // The splitter keeps one bit (inside/outside a pair, no depth) and cuts at
+    // a space or comma while outside, so each of these becomes two rules.
+    expect(refusedAs("Read(./a(b) c)")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a(b),c)")).toBe("rule_syntax");
+    expect(refusedAs("Read(./a((b) c))")).toBe("rule_syntax");
+    expect(refusedAs("Edit(./a((b),c))")).toBe("rule_syntax");
+    // A pair the rule runs on from, without a space or comma, stays one rule
+    // and matches its path: paths like `app/(group)/page.tsx` are real.
+    expect(refusedAs("Read(./app/(group)/page.tsx)")).toBe("accepted");
+    expect(refusedAs("Edit(./src/(a)/(b)/x.ts)")).toBe("accepted");
+    expect(refusedAs("Read(./a(b).txt)")).toBe("accepted");
     expect(refusedAs("Read(./a(b))")).toBe("accepted");
     expect(refusedAs("Read(./a(b)(c))")).toBe("accepted");
     expect(refusedAs("Read((x))")).toBe("accepted");
     expect(refusedAs("Edit(./a((b)))")).toBe("accepted");
-    // Round 3: text after a pair that closes the rule splits it in two.
-    expect(refusedAs("Read(./a(b) c)")).toBe("rule_syntax");
-    // A glob rule is matched loosely, so edge space (NBSP included) is kept.
+    expect(refusedAs("Bash(echo (x))")).toBe("accepted");
+    // A space inside the pair is not a cut point.
+    expect(refusedAs("Read(./a(b c))")).toBe("accepted");
+    // The file matcher compares edge space literally, so it is refused for
+    // paths; only a Bash glob is matched loosely, NBSP included.
+    expect(refusedAs("Read( ./report*)")).toBe("rule_syntax");
+    expect(refusedAs("Edit( ./report*)")).toBe("rule_syntax");
     expect(refusedAs("Bash( git *)")).toBe("accepted");
     expect(refusedAs("Bash(git * )")).toBe("accepted");
     // An empty prefix is read as the literal `:*`, which matches nothing.

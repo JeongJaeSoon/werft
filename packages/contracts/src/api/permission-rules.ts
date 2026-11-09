@@ -71,23 +71,19 @@ function isPlainHost(host: string): boolean {
 }
 
 /**
- * Every `)` closes an earlier `(`, none is left open, and a `)` that closes
- * the outermost pair is the last character or is followed by another `(`.
+ * Whether the engine's rule-list splitter cuts this one rule in two. The
+ * splitter keeps one bit: a `(` puts it inside, every `)` puts it outside
+ * (nesting depth is not counted), and outside it ends a rule at an ASCII space
+ * or a comma. Read from the pinned SDK (0.3.319) and checked against it.
  */
-function wellNested(text: string): boolean {
-  let depth = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (char === "(") depth += 1;
-    else if (char === ")") {
-      depth -= 1;
-      if (depth < 0) return false;
-      if (depth === 0 && i < text.length - 1 && text[i + 1] !== "(") {
-        return false;
-      }
-    }
+function splitsInTwo(rule: string): boolean {
+  let inside = false;
+  for (const char of rule) {
+    if (char === "(") inside = true;
+    else if (char === ")") inside = false;
+    else if (!inside && (char === " " || char === ",")) return true;
   }
-  return depth === 0;
+  return false;
 }
 
 function refuse(
@@ -172,25 +168,23 @@ export function parsePermissionRule(
       `${rule} blocks the whole tool: write ${tool} without an argument`,
     );
   }
-  // An exact or prefix rule is compared with its edge space kept, so it never
-  // matches the command it was meant for. A glob rule is matched loosely.
-  if (argument !== bare && !argument.includes("*")) {
+  // Edge space is compared literally by the engine, so an exact, prefix or path
+  // rule never matches what it was written for. Only a Bash glob is matched
+  // loosely.
+  if (argument !== bare && !(tool === "Bash" && argument.includes("*"))) {
     return refuse(
       "rule_syntax",
       rule,
       `${rule} has a space inside the parentheses at its edge, which the engine keeps as part of the match`,
     );
   }
-  // The engine's list splitter ends a rule at an unbalanced parenthesis, and
-  // at a closing one that is followed by more text, so `Bash(echo (x) hello)`
-  // or `Read(./a(b) c)` is stored as two other rules and the deny is lost. A
-  // shell prefix has no use for one; a path may hold balanced pairs that end
-  // the rule or lead straight into another pair.
-  if (tool === "Bash" ? /[()]/.test(argument) : !wellNested(argument)) {
+  // `Bash(echo (x) hello)` or `Read(./a(b) c)` is stored by the engine as two
+  // other rules, and the deny is lost.
+  if (splitsInTwo(`${tool}(${argument})`)) {
     return refuse(
       "rule_syntax",
       rule,
-      `${rule} holds a parenthesis the engine would read as the end of the rule`,
+      `${rule} would be cut in two by the engine: a space or comma follows a closing parenthesis`,
     );
   }
   if (tool === "Bash") {
