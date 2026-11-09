@@ -17,6 +17,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { issuePasswordReset } from "./identity.ts";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import { createPostgresMemberStore } from "./members.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
@@ -26,6 +27,7 @@ import {
   agents,
   apiKeys,
   memberships,
+  passwordResets,
   receipts,
   sessions,
   turns,
@@ -665,6 +667,36 @@ integration("members, identity and takeover on PostgreSQL", () => {
   });
 
   describe("disabling and enabling", () => {
+    test("no password reset link is issued for a disabled member or a suspended account", async () => {
+      const ws = await workspace();
+      const owner = await member(ws, "owner");
+      const off = await member(ws, "member");
+      const suspended = await member(ws, "member");
+      await db
+        .update(memberships)
+        .set({ disabledAt: new Date() })
+        .where(eq(memberships.userId, off));
+      await db
+        .update(users)
+        .set({ disabledAt: new Date() })
+        .where(eq(users.id, suspended));
+      for (const userId of [off, suspended]) {
+        expect(
+          await issuePasswordReset(db, {
+            id: randomUUID(),
+            workspaceId: ws,
+            userId,
+            issuedBy: owner,
+            issuerPasswordHash: "argon2id$placeholder",
+            tokenHash: new Uint8Array(32),
+            ttlMs: 60_000,
+            receiptId: randomUUID(),
+          }),
+        ).toEqual({ outcome: "not_found" });
+      }
+      expect(await db.select().from(passwordResets)).toEqual([]);
+    });
+
     test("each change leaves a receipt naming its actor, target, request and reason; a no-op leaves none", async () => {
       const ws = await workspace();
       const owner = await member(ws, "owner");

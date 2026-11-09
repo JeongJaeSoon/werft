@@ -259,6 +259,9 @@ describe("team.manage by role (design 4.1, D23)", () => {
         async removeMember() {
           return { outcome: "actor_inactive" };
         },
+        async setMemberRole() {
+          return { outcome: "member_disabled" };
+        },
         async rename() {
           return { outcome: "unchanged", team: TEAM_ROW };
         },
@@ -275,9 +278,30 @@ describe("team.manage by role (design 4.1, D23)", () => {
       await refusal(teams.removeTeamMember(owner, TEAM, USERS.member)),
     ).toEqual({ code: "FORBIDDEN", details: { reason_code: "role" } });
     expect(
+      await refusal(
+        teams.setTeamMemberRole(owner, TEAM, USERS.member, { role: "lead" }),
+      ),
+    ).toMatchObject({ code: "MEMBER_DISABLED" });
+    expect(
       await teams.renameTeam(owner, TEAM, { name: "research" }),
     ).toMatchObject({ receipt_id: null });
   });
+});
+
+test("a disabled member's removal from a team is MEMBER_DISABLED", async () => {
+  const { store } = recordingStore();
+  const teams = createTeamService({
+    authorization: createAuthorizationPolicy({ agents }),
+    store: {
+      ...store,
+      async removeMember() {
+        return { outcome: "member_disabled" };
+      },
+    },
+  });
+  expect(
+    await refusal(teams.removeTeamMember(caller("owner"), TEAM, USERS.member)),
+  ).toMatchObject({ code: "MEMBER_DISABLED" });
 });
 
 describe("agent.admin.manage by role (design 4.1)", () => {

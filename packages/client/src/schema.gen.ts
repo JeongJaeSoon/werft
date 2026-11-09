@@ -3249,7 +3249,7 @@ export interface paths {
         post?: never;
         /**
          * Take a member out of a team
-         * @description What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).
+         * @description What the person held through the team ends from their next request. A disabled member is not changed: 409 MEMBER_DISABLED, nothing written; reactivate them first. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3258,7 +3258,7 @@ export interface paths {
         head?: never;
         /**
          * Make a team member a lead or a member
-         * @description Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).
+         * @description Owners and admins. A `lead` administers every agent whose managing team this is, from their next request; a `member` works with those agents and does not administer them. People join a team as `member`. A person not in the team is 404; a disabled member is 409 MEMBER_DISABLED with nothing written. Writes a `set_team_member_role` receipt naming the person, unless the role is unchanged (`receipt_id` null).
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -33424,6 +33424,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "MEMBER_DISABLED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
@@ -33562,6 +33577,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `MEMBER_DISABLED`: The membership is disabled. Enable it before changing the role. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "MEMBER_DISABLED";
                         };
                     };
                 };
