@@ -2989,10 +2989,13 @@ describe("compose layers", () => {
       });
       const { exitCode, stderr, model } = render(LOCAL_LAYERS);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-      // Without its overlay, the fake Messages API stays behind its profile.
+      // Without their overlays, the fake Messages API and the fake Responses
+      // API (infra/compose.codex-worker.yml) stay behind their profiles.
       const merged = Object.fromEntries(
         Object.entries(localStack()).filter(
-          ([, service]) => !service.profiles?.includes("fake-model"),
+          ([, service]) =>
+            !service.profiles?.includes("fake-model") &&
+            !service.profiles?.includes("fake-responses"),
         ),
       );
       const services = model?.services ?? {};

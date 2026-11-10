@@ -270,6 +270,8 @@ export function turnEvents(
   const ended: TurnEnded = {
     isError,
     abortedByStop: interrupted,
+    // Codex has no budget of its own: the proxy refuses a spent session with
+    // 403 BUDGET_EXCEEDED, and that stays the engine's failure reason.
     budgetExceeded: false,
     ...(isError
       ? {
