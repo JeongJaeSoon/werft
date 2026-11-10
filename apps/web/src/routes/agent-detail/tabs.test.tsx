@@ -371,8 +371,13 @@ describe("에이전트 상세 탭", () => {
     expect(
       await within(section).findByText(/아직 켜지지 않았습니다/),
     ).toBeDefined();
-    // Nothing may scroll the page back to the tab row after the focus lands.
-    const scrolled: Element[] = [];
+    // Nothing may scroll the page back to the tab row after the focus lands:
+    // neither the tab row's own effect nor the router's reset on navigation.
+    const scrolled: unknown[] = [];
+    const originalScrollTo = window.scrollTo;
+    window.scrollTo = ((...args: unknown[]) => {
+      scrolled.push(args);
+    }) as typeof window.scrollTo;
     const proto = Element.prototype as { scrollIntoView?: () => void };
     const original = proto.scrollIntoView;
     proto.scrollIntoView = function (this: Element) {
@@ -380,8 +385,6 @@ describe("에이전트 상세 탭", () => {
     };
     within(section).getByRole("button", { name: "릴리스로 이동" }).focus();
     await user.keyboard("{Enter}");
-    proto.scrollIntoView = original;
-    expect(scrolled).toEqual([]);
     // The tab shows and the keyboard lands in the same turn, not a render later.
     expect(selected()).toBe("설정");
     expect(document.activeElement?.id).toBe("agent-settings-release");
@@ -392,8 +395,11 @@ describe("에이전트 상세 탭", () => {
         "release",
       ]);
     });
-    // The URL settling must not pull the keyboard back or away.
+    // The URL settling must not pull the keyboard back or away, nor the page up.
     expect(document.activeElement?.id).toBe("agent-settings-release");
+    proto.scrollIntoView = original;
+    window.scrollTo = originalScrollTo;
+    expect(scrolled).toEqual([]);
   });
 
   test("최근 세션은 이 에이전트의 세션만 묻는다", async () => {

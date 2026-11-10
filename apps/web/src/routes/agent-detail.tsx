@@ -129,6 +129,8 @@ function AgentView({
             ? rest
             : { ...rest, tab: next, ...(section ? { section } : {}) },
         replace: true,
+        // The keyboard may have just landed on a section far down the page.
+        resetScroll: false,
       });
     },
   );
