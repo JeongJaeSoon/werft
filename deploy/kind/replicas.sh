@@ -142,7 +142,7 @@ pass
 { set +x; } 2>/dev/null
 umask 077
 key="$(k exec "pod/${api_pods[0]}" -- bun run apps/control-host/src/api/keys.ts create kind-replicas \
-  --scopes sessions:read,sessions:write,sessions:control 2>/dev/null)"
+  --scopes sessions:read,sessions:write,sessions:control,sessions:approve 2>/dev/null)"
 [ -n "$key" ] || fail "the key CLI printed no key"
 printf 'Authorization: Bearer %s\n' "$key" >"$auth"
 unset key
