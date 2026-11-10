@@ -1232,6 +1232,22 @@ describe("maskBody: review inputs", () => {
       "6a56b53/2 authCode in a message",
       str({ message: `${"auth" + "Code"}: ${S}` }),
     ],
+    // 0e6434b Act-on 1: allowed names (id, message, type) under a secret
+    // name keep only their length, at any depth, parsed or cut.
+    ["0e6434b/1 id under token", str({ token: { id: S }, ok: 1 }), ['"ok":1']],
+    [
+      "0e6434b/1 message under password",
+      str({ ["pass" + "word"]: { message: S } }),
+    ],
+    ["0e6434b/1 type under api key", str({ ["api" + "_key"]: { type: S } })],
+    ["0e6434b/1 id in a tokens list", str({ tokens: [{ id: S }] })],
+    ["0e6434b/1 id two levels down", str({ token: { meta: { id: S } } })],
+    ["0e6434b/1 cut id under token", `{"token":{"id":"${S}`],
+    [
+      "0e6434b/1 cut id in a tokens list",
+      `{"tokens":[{"id":"${S}","type":"${S}"}`,
+    ],
+    ["0e6434b/1 cut id two levels down", `{"token":{"meta":{"id":"${S}`],
     // A name the deny list never had: the allow list hides it anyway.
     [
       "6a56b53/x unknown secret name",
@@ -1298,6 +1314,12 @@ describe("maskBody: review inputs", () => {
       "session object status",
       str({ session: { status: "idle", id: "x" } }),
       ['"status":"idle"'],
+      // 0e6434b review: a session object is read key by key, cut or not.
+      [
+        "cut session object status",
+        '{"session":{"status":"run","id":"x"',
+        ['"status":"run"'],
+      ],
     ],
   ];
   test.each(readable)("keeps %s", (_name, body, keep) => {
@@ -1345,5 +1367,15 @@ describe("formatCapture: a doubly encoded invite path", () => {
     });
     expect(line).not.toContain(S);
     expect(line).toContain("/(token)");
+  });
+});
+
+describe("maskBody: numbers under a secret name", () => {
+  // 0e6434b Act-on 1: a number below a secret name keeps its length only.
+  test("parsed and cut", () => {
+    const n = ["9876", "54321"].join("");
+    expect(maskBody(`{"token":{"id":${n}},"ok":1}`)).not.toContain(n);
+    expect(maskBody(`{"token":{"meta":{"id":${n}`)).not.toContain(n);
+    expect(maskBody(`{"error":{"code":404},"ok":1}`)).toContain('"code":404');
   });
 });

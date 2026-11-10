@@ -264,8 +264,9 @@ function allowedName(name, parent) {
   if (/^code$/i.test(name)) return /^errors?$/i.test(parent);
   return ALLOWED_NAME.test(name);
 }
-// A key is printed when it reads as a name; one that does not (a token used
-// as a key) is shown by its length.
+// A key is printed when it is made of name characters and is at most 64 of
+// them; any other key is shown by its length. A token used as a key often
+// has that shape and is printed: werft's API has no such map.
 const showName = (name) =>
   /^[\w.$ [\]-]{1,64}$/.test(name) ? name : `(name, ${name.length} chars)`;
 
@@ -285,16 +286,24 @@ function parseJson(text) {
     return parsePrefixed(text);
   }
 }
-function maskValue(value, name, parent, depth) {
+// `secret` is set below a secret name (token, password, api_key …): from
+// there down every string and number keeps only its length, whatever its own
+// name, while keys and structure stay. A session object is not a secret
+// value itself (secretName says so for an object), so it is still read key
+// by key: its id is hidden, its status stays.
+function maskValue(value, name, parent, depth, secret = false) {
   if (depth >= MAX_DEPTH) return "(hidden: nested too deep)";
-  if (Array.isArray(value))
-    return value.map((v) => maskValue(v, name, parent, depth + 1));
   if (value && typeof value === "object") {
+    const below = secret || secretName(name, parent, value);
+    if (Array.isArray(value))
+      return value.map((v) => maskValue(v, name, parent, depth + 1, below));
     const out = {};
     for (const [k, v] of Object.entries(value))
-      out[showName(k)] = maskValue(v, k, name, depth + 1);
+      out[showName(k)] = maskValue(v, k, name, depth + 1, below);
     return out;
   }
+  if (secret)
+    return typeof value === "boolean" || value === null ? value : hidden(value);
   // A number under `code` alone is a status (404), not an OAuth code.
   if (typeof value === "number" && /^code$/i.test(name)) return value;
   if (secretName(name, parent, value)) return hidden(value);
@@ -324,10 +333,12 @@ function maskUnparsed(text) {
     return `(markup with secret-like names withheld, ${decoded.length} chars)`;
   const head = text.slice(0, READ_TEXT);
   let out = `(not JSON, ${text.length} chars) `;
-  const stack = []; // { name, list } per open { or [
+  const stack = []; // { name, list, secret } per open { or [
   let pending = ""; // the name whose value is the next { or [
   let i = 0;
   const value = (raw, name, parent) => {
+    if (stack.at(-1)?.secret && !/^(?:true|false|null)$/.test(raw))
+      return hidden(raw);
     const unquoted = /^["']/.test(raw)
       ? raw.slice(1, raw.endsWith(raw[0]) && raw.length > 1 ? -1 : undefined)
       : raw;
@@ -344,7 +355,16 @@ function maskUnparsed(text) {
   while (i < head.length) {
     const c = head[i];
     if (c === "{" || c === "[") {
-      stack.push({ name: pending, list: c === "[" });
+      const up = stack.at(-1);
+      const shape = c === "[" ? [] : {};
+      stack.push({
+        name: pending,
+        list: c === "[",
+        // As in maskValue: below a secret name everything keeps its length.
+        secret:
+          (up?.secret ?? false) ||
+          (pending !== "" && secretName(pending, up?.name ?? "", shape)),
+      });
       pending = "";
       out += c;
       i++;
