@@ -104,10 +104,10 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @floating-ui/dom | 1.8.0 | MIT | control-host |
 | @floating-ui/react-dom | 2.1.9 | MIT | control-host |
 | @floating-ui/utils | 0.2.12 | MIT | control-host |
-| @hono/node-server | 2.1.1 | MIT | worker |
+| @hono/node-server | 2.1.1 | MIT | worker, worker-codex |
 | @hono/zod-openapi | 1.6.3 | MIT | control-host |
 | @hono/zod-validator | 0.9.1 | MIT | control-host |
-| @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
+| @modelcontextprotocol/sdk | 1.32.1 | MIT | worker, worker-codex |
 | @octokit/auth-app | 8.3.1 | MIT | control-host |
 | @octokit/auth-oauth-app | 9.0.5 | MIT | control-host |
 | @octokit/auth-oauth-device | 8.0.5 | MIT | control-host |
@@ -183,90 +183,90 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @types/pg | 8.15.5 | MIT | control-host |
 | @types/react | 19.3.0 | MIT | control-host |
 | @types/react-dom | 19.3.0 | MIT | control-host |
-| accepts | 2.0.0 | MIT | worker |
-| ajv | 8.20.0 | MIT | worker |
-| ajv-formats | 3.0.1 | MIT | worker |
+| accepts | 2.0.0 | MIT | worker, worker-codex |
+| ajv | 8.20.0 | MIT | worker, worker-codex |
+| ajv-formats | 3.0.1 | MIT | worker, worker-codex |
 | aria-hidden | 1.2.6 | MIT | control-host |
 | before-after-hook | 4.0.0 | Apache-2.0 | control-host |
-| body-parser | 2.4.0 | MIT | worker |
+| body-parser | 2.4.0 | MIT | worker, worker-codex |
 | bottleneck | 2.19.5 | MIT | control-host |
 | bowser | 2.14.1 | MIT | control-host, worker, worker-codex |
 | bun-types | 1.3.14 | MIT | control-host |
-| bytes | 3.1.2 | MIT | worker |
-| call-bind-apply-helpers | 1.0.2 | MIT | worker |
-| call-bound | 1.0.4 | MIT | worker |
+| bytes | 3.1.2 | MIT | worker, worker-codex |
+| call-bind-apply-helpers | 1.0.2 | MIT | worker, worker-codex |
+| call-bound | 1.0.4 | MIT | worker, worker-codex |
 | class-variance-authority | 0.7.1 | Apache-2.0 | control-host |
 | clsx | 2.1.1 | MIT | control-host |
-| content-disposition | 1.1.0 | MIT | worker |
-| content-type | 1.0.5 | MIT | worker |
-| content-type | 2.1.0 | MIT | worker |
+| content-disposition | 1.1.0 | MIT | worker, worker-codex |
+| content-type | 1.0.5 | MIT | worker, worker-codex |
+| content-type | 2.1.0 | MIT | worker, worker-codex |
 | content-type | 3.1.1 | MIT | control-host |
-| cookie | 0.7.2 | MIT | worker |
-| cookie-signature | 1.2.2 | MIT | worker |
-| cors | 2.8.6 | MIT | worker |
-| cross-spawn | 7.0.6 | MIT | worker |
+| cookie | 0.7.2 | MIT | worker, worker-codex |
+| cookie-signature | 1.2.2 | MIT | worker, worker-codex |
+| cors | 2.8.6 | MIT | worker, worker-codex |
+| cross-spawn | 7.0.6 | MIT | worker, worker-codex |
 | csstype | 3.2.3 | MIT | control-host |
-| debug | 4.4.3 | MIT | worker |
-| depd | 2.0.0 | MIT | worker |
+| debug | 4.4.3 | MIT | worker, worker-codex |
+| depd | 2.0.0 | MIT | worker, worker-codex |
 | detect-node-es | 1.1.0 | MIT | control-host |
 | drizzle-orm | 0.45.2 | Apache-2.0 | control-host |
-| dunder-proto | 1.0.1 | MIT | worker |
-| ee-first | 1.1.1 | MIT | worker |
-| encodeurl | 2.0.0 | MIT | worker |
-| es-define-property | 1.0.1 | MIT | worker |
-| es-errors | 1.3.0 | MIT | worker |
-| es-object-atoms | 1.1.2 | MIT | worker |
-| escape-html | 1.0.3 | MIT | worker |
-| etag | 1.8.1 | MIT | worker |
-| eventsource | 3.0.7 | MIT | worker |
-| eventsource-parser | 3.1.1 | MIT | worker |
-| express | 5.2.1 | MIT | worker |
-| express-rate-limit | 8.7.0 | MIT | worker |
-| fast-deep-equal | 3.1.3 | MIT | worker |
+| dunder-proto | 1.0.1 | MIT | worker, worker-codex |
+| ee-first | 1.1.1 | MIT | worker, worker-codex |
+| encodeurl | 2.0.0 | MIT | worker, worker-codex |
+| es-define-property | 1.0.1 | MIT | worker, worker-codex |
+| es-errors | 1.3.0 | MIT | worker, worker-codex |
+| es-object-atoms | 1.1.2 | MIT | worker, worker-codex |
+| escape-html | 1.0.3 | MIT | worker, worker-codex |
+| etag | 1.8.1 | MIT | worker, worker-codex |
+| eventsource | 3.0.7 | MIT | worker, worker-codex |
+| eventsource-parser | 3.1.1 | MIT | worker, worker-codex |
+| express | 5.2.1 | MIT | worker, worker-codex |
+| express-rate-limit | 8.7.0 | MIT | worker, worker-codex |
+| fast-deep-equal | 3.1.3 | MIT | worker, worker-codex |
 | fast-sha256 | 1.3.0 | Unlicense | worker |
-| fast-uri | 3.1.7 | BSD-3-Clause | worker |
-| finalhandler | 2.1.1 | MIT | worker |
-| forwarded | 0.2.0 | MIT | worker |
-| fresh | 2.0.0 | MIT | worker |
-| function-bind | 1.1.2 | MIT | worker |
-| get-intrinsic | 1.3.0 | MIT | worker |
+| fast-uri | 3.1.7 | BSD-3-Clause | worker, worker-codex |
+| finalhandler | 2.1.1 | MIT | worker, worker-codex |
+| forwarded | 0.2.0 | MIT | worker, worker-codex |
+| fresh | 2.0.0 | MIT | worker, worker-codex |
+| function-bind | 1.1.2 | MIT | worker, worker-codex |
+| get-intrinsic | 1.3.0 | MIT | worker, worker-codex |
 | get-nonce | 1.0.1 | MIT | control-host |
-| get-proto | 1.0.1 | MIT | worker |
-| gopd | 1.2.0 | MIT | worker |
-| has-symbols | 1.1.0 | MIT | worker |
-| hasown | 2.0.4 | MIT | worker |
-| hono | 4.13.11 | MIT | control-host, worker |
-| hono | 4.13.7 | MIT | worker |
-| http-errors | 2.0.1 | MIT | worker |
-| iconv-lite | 0.7.3 | MIT | worker |
-| inherits | 2.0.4 | ISC | worker |
-| ip-address | 10.7.0 | MIT | worker |
-| ipaddr.js | 1.9.1 | MIT | worker |
-| is-promise | 4.0.0 | MIT | worker |
-| isexe | 2.0.0 | ISC | worker |
-| jose | 6.2.12 | MIT | worker |
+| get-proto | 1.0.1 | MIT | worker, worker-codex |
+| gopd | 1.2.0 | MIT | worker, worker-codex |
+| has-symbols | 1.1.0 | MIT | worker, worker-codex |
+| hasown | 2.0.4 | MIT | worker, worker-codex |
+| hono | 4.13.11 | MIT | control-host, worker, worker-codex |
+| hono | 4.13.7 | MIT | worker, worker-codex |
+| http-errors | 2.0.1 | MIT | worker, worker-codex |
+| iconv-lite | 0.7.3 | MIT | worker, worker-codex |
+| inherits | 2.0.4 | ISC | worker, worker-codex |
+| ip-address | 10.7.0 | MIT | worker, worker-codex |
+| ipaddr.js | 1.9.1 | MIT | worker, worker-codex |
+| is-promise | 4.0.0 | MIT | worker, worker-codex |
+| isexe | 2.0.0 | ISC | worker, worker-codex |
+| jose | 6.2.12 | MIT | worker, worker-codex |
 | json-schema-to-ts | 3.1.1 | MIT | worker |
-| json-schema-traverse | 1.0.0 | MIT | worker |
-| json-schema-typed | 8.0.2 | BSD-2-Clause | worker |
+| json-schema-traverse | 1.0.0 | MIT | worker, worker-codex |
+| json-schema-typed | 8.0.2 | BSD-2-Clause | worker, worker-codex |
 | json-with-bigint | 3.5.12 | MIT | control-host |
 | lucide-react | 1.53.0 | ISC | control-host |
-| math-intrinsics | 1.1.0 | MIT | worker |
-| media-typer | 1.1.1 | MIT | worker |
-| merge-descriptors | 2.0.0 | MIT | worker |
-| mime-db | 1.54.0 | MIT | worker |
-| mime-types | 3.0.2 | MIT | worker |
-| ms | 2.1.3 | MIT | worker |
-| negotiator | 1.1.0 | MIT | worker |
-| object-assign | 4.1.1 | MIT | worker |
-| object-inspect | 1.13.4 | MIT | worker |
-| on-finished | 2.4.1 | MIT | worker |
-| once | 1.4.0 | ISC | worker |
+| math-intrinsics | 1.1.0 | MIT | worker, worker-codex |
+| media-typer | 1.1.1 | MIT | worker, worker-codex |
+| merge-descriptors | 2.0.0 | MIT | worker, worker-codex |
+| mime-db | 1.54.0 | MIT | worker, worker-codex |
+| mime-types | 3.0.2 | MIT | worker, worker-codex |
+| ms | 2.1.3 | MIT | worker, worker-codex |
+| negotiator | 1.1.0 | MIT | worker, worker-codex |
+| object-assign | 4.1.1 | MIT | worker, worker-codex |
+| object-inspect | 1.13.4 | MIT | worker, worker-codex |
+| on-finished | 2.4.1 | MIT | worker, worker-codex |
+| once | 1.4.0 | ISC | worker, worker-codex |
 | openapi-fetch | 0.17.0 | MIT | control-host |
 | openapi-typescript-helpers | 0.1.0 | MIT | control-host |
 | openapi3-ts | 4.6.1 | MIT | control-host |
-| parseurl | 1.3.3 | MIT | worker |
-| path-key | 3.1.1 | MIT | worker |
-| path-to-regexp | 8.4.2 | MIT | worker |
+| parseurl | 1.3.3 | MIT | worker, worker-codex |
+| path-key | 3.1.1 | MIT | worker, worker-codex |
+| path-to-regexp | 8.4.2 | MIT | worker, worker-codex |
 | pg | 8.16.3 | MIT | control-host |
 | pg-cloudflare | 1.4.0 | MIT | control-host |
 | pg-connection-string | 2.14.0 | MIT | control-host |
@@ -275,55 +275,55 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | pg-protocol | 1.16.0 | MIT | control-host |
 | pg-types | 2.2.0 | MIT | control-host |
 | pgpass | 1.0.5 | MIT | control-host |
-| pkce-challenge | 5.0.1 | MIT | worker |
+| pkce-challenge | 5.0.1 | MIT | worker, worker-codex |
 | postgres-array | 2.0.0 | MIT | control-host |
 | postgres-bytea | 1.0.1 | MIT | control-host |
 | postgres-date | 1.0.7 | MIT | control-host |
 | postgres-interval | 1.2.0 | MIT | control-host |
-| proxy-addr | 2.0.8 | MIT | worker |
-| qs | 6.16.1 | BSD-3-Clause | worker |
-| range-parser | 1.3.0 | MIT | worker |
-| raw-body | 3.0.2 | MIT | worker |
+| proxy-addr | 2.0.8 | MIT | worker, worker-codex |
+| qs | 6.16.1 | BSD-3-Clause | worker, worker-codex |
+| range-parser | 1.3.0 | MIT | worker, worker-codex |
+| raw-body | 3.0.2 | MIT | worker, worker-codex |
 | react | 19.3.0 | MIT | control-host |
 | react-dom | 19.3.0 | MIT | control-host |
 | react-remove-scroll | 2.7.2 | MIT | control-host |
 | react-remove-scroll-bar | 2.3.8 | MIT | control-host |
 | react-style-singleton | 2.2.3 | MIT | control-host |
-| require-from-string | 2.0.2 | MIT | worker |
-| router | 2.2.0 | MIT | worker |
-| safer-buffer | 2.1.2 | MIT | worker |
+| require-from-string | 2.0.2 | MIT | worker, worker-codex |
+| router | 2.2.0 | MIT | worker, worker-codex |
+| safer-buffer | 2.1.2 | MIT | worker, worker-codex |
 | scheduler | 0.28.0 | MIT | control-host |
-| send | 1.2.1 | MIT | worker |
-| serve-static | 2.2.1 | MIT | worker |
-| setprototypeof | 1.2.0 | ISC | worker |
-| shebang-command | 2.0.0 | MIT | worker |
-| shebang-regex | 3.0.0 | MIT | worker |
-| side-channel | 1.1.1 | MIT | worker |
-| side-channel-list | 1.0.1 | MIT | worker |
-| side-channel-map | 1.0.1 | MIT | worker |
-| side-channel-weakmap | 1.0.2 | MIT | worker |
+| send | 1.2.1 | MIT | worker, worker-codex |
+| serve-static | 2.2.1 | MIT | worker, worker-codex |
+| setprototypeof | 1.2.0 | ISC | worker, worker-codex |
+| shebang-command | 2.0.0 | MIT | worker, worker-codex |
+| shebang-regex | 3.0.0 | MIT | worker, worker-codex |
+| side-channel | 1.1.1 | MIT | worker, worker-codex |
+| side-channel-list | 1.0.1 | MIT | worker, worker-codex |
+| side-channel-map | 1.0.1 | MIT | worker, worker-codex |
+| side-channel-weakmap | 1.0.2 | MIT | worker, worker-codex |
 | split2 | 4.2.0 | ISC | control-host |
 | standardwebhooks | 1.1.1 | MIT | worker |
-| statuses | 2.0.2 | MIT | worker |
+| statuses | 2.0.2 | MIT | worker, worker-codex |
 | tailwind-merge | 3.5.0 | MIT | control-host |
 | toad-cache | 3.7.4 | MIT | control-host |
-| toidentifier | 1.0.1 | MIT | worker |
+| toidentifier | 1.0.1 | MIT | worker, worker-codex |
 | ts-algebra | 2.0.0 | MIT | worker |
 | tslib | 2.8.1 | 0BSD | control-host, worker, worker-codex |
-| type-is | 2.1.0 | MIT | worker |
+| type-is | 2.1.0 | MIT | worker, worker-codex |
 | undici-types | 8.9.0 | MIT | control-host |
 | universal-github-app-jwt | 2.2.2 | MIT | control-host |
 | universal-user-agent | 7.0.3 | ISC | control-host |
-| unpipe | 1.0.0 | MIT | worker |
+| unpipe | 1.0.0 | MIT | worker, worker-codex |
 | use-callback-ref | 1.3.3 | MIT | control-host |
 | use-sidecar | 1.1.3 | MIT | control-host |
-| vary | 1.1.2 | MIT | worker |
-| which | 2.0.2 | ISC | worker |
-| wrappy | 1.0.2 | ISC | worker |
+| vary | 1.1.2 | MIT | worker, worker-codex |
+| which | 2.0.2 | ISC | worker, worker-codex |
+| wrappy | 1.0.2 | ISC | worker, worker-codex |
 | xtend | 4.0.2 | MIT | control-host |
 | yaml | 2.9.1 | ISC | control-host |
 | zod | 4.6.7 | MIT | control-host, worker, worker-codex |
-| zod-to-json-schema | 3.25.2 | ISC | worker |
+| zod-to-json-schema | 3.25.2 | ISC | worker, worker-codex |
 
 ## 라이선스 파일이 없는 npm 패키지
 

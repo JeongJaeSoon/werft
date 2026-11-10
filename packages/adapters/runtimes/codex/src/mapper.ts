@@ -111,6 +111,15 @@ function toolCall(
   ];
 }
 
+/**
+ * The platform's name for an MCP tool, as the Claude engine names it. The
+ * server and tool come from the engine's own fields, never split from a
+ * joined name.
+ */
+export function mcpToolName(item: Item): string {
+  return `mcp__${String(item.server)}__${String(item.tool)}`;
+}
+
 export function changePaths(item: Item): string[] {
   const changes = Array.isArray(item.changes) ? item.changes : [];
   return changes.flatMap((change) => {
@@ -135,6 +144,10 @@ export function itemStarted(
       { command: item.command ?? null, cwd: item.cwd ?? null },
       inputs,
     );
+  }
+  if (item.type === "mcpToolCall") {
+    const arguments_ = record(item.arguments);
+    return toolCall(item, mcpToolName(item), arguments_, inputs);
   }
   if (item.type === "fileChange") {
     return toolCall(
@@ -181,6 +194,28 @@ export function itemCompleted(
       const output =
         typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
       return [toolResultEvent(item.id, output || status, failed, inputs)];
+    }
+    case "mcpToolCall": {
+      const failed =
+        item.status === "failed" || record(item.error).message !== undefined;
+      const message = record(item.error).message;
+      const content = Array.isArray(record(item.result).content)
+        ? (record(item.result).content as unknown[])
+        : [];
+      const text = content
+        .flatMap((part) => {
+          const value = record(part).text;
+          return typeof value === "string" ? [value] : [];
+        })
+        .join("\n");
+      return [
+        toolResultEvent(
+          item.id,
+          typeof message === "string" ? message : text || String(item.status),
+          failed,
+          inputs,
+        ),
+      ];
     }
     case "fileChange": {
       const status = String(item.status);
