@@ -1,0 +1,255 @@
+{
+  "open-is-null": null,
+  "permission-allowed": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":white_check_mark: *Allowed* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "Run a command: git status",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Allowed* · <@U0DECIDER>\nRun a command: git status\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "permission-allowed-session-on-web": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":white_check_mark: *웹에서 이 세션 동안 허용됨* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "명령 실행: git status",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|웹에서 열기>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*웹에서 이 세션 동안 허용됨* · <@U0DECIDER>\n명령 실행: git status\n<https://console.example/sessions/019a0000|웹에서 열기>"
+  },
+  "permission-denied": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":no_entry_sign: *拒否済み* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "コマンド実行: git status",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Webで開く>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*拒否済み* · <@U0DECIDER>\nコマンド実行: git status\n<https://console.example/sessions/019a0000|Webで開く>"
+  },
+  "permission-expired": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":hourglass: *Expired*",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "Run a command: git status",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Expired*\nRun a command: git status\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "push-approved": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":white_check_mark: *push 승인됨* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "acme/web ← abcdef1 · agent/fix-login",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|웹에서 열기>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*push 승인됨* · <@U0DECIDER>\nacme/web ← abcdef1 · agent/fix-login\n<https://console.example/sessions/019a0000|웹에서 열기>"
+  },
+  "push-rejected": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":no_entry_sign: *Push rejected* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "acme/web ← abcdef1 · agent/fix-login",
+            "type": "plain_text"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Push rejected* · <@U0DECIDER>\nacme/web ← abcdef1 · agent/fix-login\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "question-answered": {
+    "blocks": [
+      {
+        "text": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "text": ":speech_balloon:",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "Chose release/2026-11",
+            "type": "plain_text"
+          },
+          {
+            "text": "· <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Answered* · <@U0DECIDER>\nWhich branch should I rebase onto?\nChose release/2026-11\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "question-answered-on-web-two": {
+    "blocks": [
+      {
+        "text": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "emoji": false,
+            "text": "Chose main",
+            "type": "plain_text"
+          }
+        ],
+        "type": "context"
+      },
+      {
+        "text": {
+          "emoji": false,
+          "text": "Anything else I should know?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "text": ":speech_balloon: *Answered on the web* · <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Answered on the web* · <@U0DECIDER>\nWhich branch should I rebase onto?\nChose main\nAnything else I should know?\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "question-typed-answer": {
+    "blocks": [
+      {
+        "text": {
+          "emoji": false,
+          "text": "Anything else I should know?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "text": ":speech_balloon:",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "Chose a typed answer",
+            "type": "plain_text"
+          },
+          {
+            "text": "· <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Answered* · <@U0DECIDER>\nAnything else I should know?\nChose a typed answer\n<https://console.example/sessions/019a0000|Open on the web>"
+  }
+}
