@@ -41,6 +41,61 @@ export const NO_TURN_SPANS: TurnSpans = {
   end() {},
 };
 
+/**
+ * What the host holds: a throw inside telemetry never reaches the turn loop,
+ * an answer on its way to the engine, or the release that follows.
+ */
+function guarded(turn: TurnSpans): TurnSpans {
+  return {
+    traceparent() {
+      try {
+        return turn.traceparent();
+      } catch {
+        return undefined;
+      }
+    },
+    onEvent(event) {
+      try {
+        turn.onEvent(event);
+      } catch {}
+    },
+    decided(decided) {
+      try {
+        turn.decided(decided);
+      } catch {}
+    },
+    granted(localId) {
+      try {
+        turn.granted(localId);
+      } catch {}
+    },
+    beginCheckpoint() {
+      try {
+        const span = turn.beginCheckpoint();
+        return {
+          fail(reason) {
+            try {
+              span.fail(reason);
+            } catch {}
+          },
+          end() {
+            try {
+              span.end();
+            } catch {}
+          },
+        };
+      } catch {
+        return NO_CHECKPOINT;
+      }
+    },
+    end(outcome) {
+      try {
+        turn.end(outcome);
+      } catch {}
+    },
+  };
+}
+
 export interface AttemptScope {
   readonly sessionId: string;
   readonly attemptId: string;
@@ -78,6 +133,15 @@ export class SpanEmitter {
   }
 
   beginTurn(start: TurnStart, policy: ContentPolicy): TurnSpans {
+    try {
+      const turn = this.open(start, policy);
+      return turn === NO_TURN_SPANS ? turn : guarded(turn);
+    } catch {
+      return NO_TURN_SPANS;
+    }
+  }
+
+  private open(start: TurnStart, policy: ContentPolicy): TurnSpans {
     const turnNumber = Number(start.turnId);
     if (!Number.isInteger(turnNumber) || turnNumber < 1) return NO_TURN_SPANS;
     const now = this.options.now ?? Date.now;

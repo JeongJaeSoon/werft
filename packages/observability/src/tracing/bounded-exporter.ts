@@ -27,6 +27,24 @@ interface Chunk {
 const yieldToEventLoop = () =>
   new Promise<void>((resolve) => setImmediate(resolve));
 
+function valueBytes(value: unknown): number {
+  if (typeof value === "string") return Buffer.byteLength(value);
+  if (Array.isArray(value)) {
+    return value.reduce((sum: number, item) => sum + valueBytes(item), 0);
+  }
+  return 16;
+}
+
+// Keys and values both: either can be the large part. The resource is shared
+// by every span of a tracer and left out.
+function attributeBytes(attributes: object | undefined): number {
+  let bytes = 0;
+  for (const [key, value] of Object.entries(attributes ?? {})) {
+    bytes += Buffer.byteLength(key) + valueBytes(value);
+  }
+  return bytes;
+}
+
 export function createBoundedSpanExporter(
   options: BoundedExporterOptions,
 ): BoundedSpanExporter {
@@ -58,15 +76,13 @@ export function createBoundedSpanExporter(
   function estimateBytes(span: ReadableSpan): number {
     let bytes = Buffer.byteLength(span.name) + 256;
     bytes += Buffer.byteLength(span.status.message ?? "");
+    bytes += attributeBytes(span.attributes);
     for (const event of span.events) {
       bytes += Buffer.byteLength(event.name) + 64;
-      for (const value of Object.values(event.attributes ?? {})) {
-        bytes += typeof value === "string" ? Buffer.byteLength(value) : 16;
-      }
+      bytes += attributeBytes(event.attributes);
     }
-    for (const value of Object.values(span.attributes)) {
-      if (typeof value === "string") bytes += Buffer.byteLength(value);
-      else bytes += 16;
+    for (const link of span.links) {
+      bytes += 64 + attributeBytes(link.attributes);
     }
     return bytes;
   }

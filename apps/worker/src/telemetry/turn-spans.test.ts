@@ -387,6 +387,50 @@ describe("content attributes", () => {
     expect(JSON.stringify(finished)).not.toContain(claimed);
   });
 
+  test("a throw inside telemetry never reaches the caller", async () => {
+    const failing = {
+      mask: () => {
+        throw new Error("masker failed");
+      },
+    };
+    const { emitter, tracer } = harness(failing);
+    // The first masked write is the input message: no spans, and no throw.
+    const inert = emitter.beginTurn({ turnId: "1", message: "hi" }, FULL);
+    expect(() => {
+      inert.onEvent({ type: "tool.called", toolCallId: "t", tool: "Bash" });
+      inert.granted("local-1");
+      inert.beginCheckpoint().end();
+      inert.end(ENDED);
+    }).not.toThrow();
+
+    // A turn that did open, then meets a throwing masker mid-way.
+    let calls = 0;
+    const flaky = harness({
+      mask: (text) => {
+        calls += 1;
+        if (calls > 1) throw new Error("masker failed later");
+        return text;
+      },
+    });
+    const turn = flaky.emitter.beginTurn({ turnId: "1", message: "hi" }, FULL);
+    expect(() => {
+      turn.onEvent({ type: "tool.called", toolCallId: "t", tool: "Bash" });
+      turn.onEvent(approvalRequested("local-1", "t"));
+      turn.decided({
+        requestId: "r",
+        localId: "local-1",
+        toolCallId: "t",
+        kind: "permission",
+        decision: "allow",
+      });
+      turn.granted("local-1");
+      turn.beginCheckpoint().fail("x");
+      turn.end(ENDED);
+    }).not.toThrow();
+    await tracer.forceFlush();
+    await flaky.tracer.forceFlush();
+  });
+
   test("a grant resumed from an earlier answer marks the tool as approved", async () => {
     const { emitter, finished, tracer } = harness();
     const turn = emitter.beginTurn({ turnId: "1", message: "hi" }, FULL);

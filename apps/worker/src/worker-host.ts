@@ -2514,13 +2514,7 @@ export class WorkerHost {
                   ? event.turn.inputs.length === 0 ||
                     event.turn.inputs.includes(turn.uuid)
                   : true;
-          if (turn?.closed === false && ours) {
-            try {
-              turn.spans.onEvent(event);
-            } catch {
-              // Telemetry never ends the turn it observes.
-            }
-          }
+          if (turn?.closed === false && ours) turn.spans.onEvent(event);
           if (event.type === "public") {
             this.publisher?.publish([event.event], framed ?? null);
           } else if (event.type === "inputs.named") {
