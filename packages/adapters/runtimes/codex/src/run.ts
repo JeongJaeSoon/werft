@@ -669,7 +669,13 @@ export class CodexRun implements AgentRun {
     // a person is still being waited on.
     const token = `${call.tool}:${randomUUID()}`;
     this.relayCalls.add(token);
-    const verdict = await this.judgeInFlight(call, mcp, idle);
+    let verdict: string | undefined;
+    try {
+      // The state is read again after the last await, right before the call goes.
+      verdict = (await this.judgeInFlight(call, mcp, idle)) ?? idle();
+    } catch {
+      verdict = "The call could not be judged, so it was not made.";
+    }
     if (verdict !== undefined) {
       this.relayCalls.delete(token);
       return refuse(verdict);

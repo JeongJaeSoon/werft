@@ -476,6 +476,25 @@ describe("the run judging a platform tool call", () => {
     expect((await t.run.prepareCheckpoint("turn_end")).status).toBe("ready");
   });
 
+  test("a pre-check that throws refuses the call and leaves no call in flight", async () => {
+    const t = setup({
+      precheck: () => {
+        throw new Error("boom");
+      },
+    });
+    await t.run.ready();
+    expect((await t.call()).allowed).toBe(false);
+    expect((await t.run.prepareCheckpoint("turn_end")).status).toBe("ready");
+  });
+
+  test("a run closed while a trusted call is judged does not let it through", async () => {
+    const t = setup({ precheck: async () => null });
+    await t.run.ready();
+    const pending = t.call();
+    t.run.abort();
+    expect((await pending).allowed).toBe(false);
+  });
+
   test("an engine that exits ends the relay and refuses later calls", async () => {
     const t = setup();
     await t.run.ready();
