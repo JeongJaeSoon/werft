@@ -47,7 +47,7 @@ const card = {
     forbidden: [],
     credential_refs: ["mcp/fake"],
     tool_policy: {
-      per_tool: { mcp__fake__whoami: "allow", mcp__fake__other: "ask" },
+      per_tool: { mcp__fake__whoami: "allow", mcp__fake__other: "deny" },
     },
   },
   rules: [],
