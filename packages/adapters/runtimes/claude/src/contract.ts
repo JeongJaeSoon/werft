@@ -5,6 +5,7 @@ import {
   CLAUDE_RUNTIME_FINGERPRINT,
   CLAUDE_TOOL_CATALOGS,
   claudeCheckpointCodec,
+  claudeEventCodec,
   equivalentToolCatalogVersions,
 } from "@werft-ai/runtime-claude-codec";
 import {
@@ -283,6 +284,7 @@ export class ClaudeAgentRuntime implements AgentRuntime {
 export const claudeRuntimeModule: RuntimeModule = {
   descriptor: CLAUDE_DESCRIPTOR,
   checkpointCodec: claudeCheckpointCodec,
+  eventCodec: claudeEventCodec,
   /**
    * A session made for another build is refused, unless that build's tool
    * catalog is this one's: a profile row left at the version before an SDK

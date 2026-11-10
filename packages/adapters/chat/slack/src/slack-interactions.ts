@@ -33,22 +33,17 @@ import type {
 import {
   type AuthorizationPolicy,
   agentForSlackEvent,
-  authorizeSlackInput,
   type Caller,
   type SessionService,
   SessionServiceError,
-  SLACK_PROMPT_MESSAGES,
   type SlackBotApi,
   type SlackBotSender,
-  type SlackDecision,
-  type SlackPromptResult,
-  slackCallerOf,
-  slackNoticeView,
-  slackOptionAnswer,
-  slackQuestionAnswers,
-  slackQuestionView,
-  slackSettledCard,
 } from "@werft-ai/platform";
+import {
+  authorizeSlackInput,
+  type SlackDecision,
+  slackCallerOf,
+} from "./slack-decision.ts";
 import {
   type SlackSigningSecrets,
   verifySlackSignature,
@@ -58,6 +53,15 @@ import {
   settleSlackCards,
   slackOutboxText,
 } from "./slack-outbox.ts";
+import {
+  SLACK_PROMPT_MESSAGES,
+  type SlackPromptResult,
+  slackNoticeView,
+  slackOptionAnswer,
+  slackQuestionAnswers,
+  slackQuestionView,
+  slackSettledCard,
+} from "./slack-prompts.ts";
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
 type SettleCard = () => Promise<void>;

@@ -959,3 +959,5 @@ U5a 회차(2026-11-11, 대상: `@werft-ai/chat-slack` 이동 PR). 이동을 하�
 | `finalReplyText`를 부르던 `event-codecs.test.ts`의 단언 | [10.1절](#101-slack-이동의-순서와-재수출) 표대로 어댑터의 `slack-final-reply.test.ts`로 옮겼다 |
 
 Codex 리뷰 1회차(대상 `8e70a5f76`)는 Act-on 0건, Consider 1건이었다. Consider(계약 시험 문장이 `DeliveryOutcome`을 아직 "네 가지"로 적음)는 반영했다.
+
+U5b 회차(2026-11-11, 대상: 렌더·순수 판정 일곱 파일 이동 PR). import 그래프를 시험 포함으로 뽑았다. 일곱 파일을 import하는 platform 파일은 `index.ts`뿐이어서 [10.1절](#101-slack-이동의-순서와-재수출) 표의 "아니다"가 맞았다. 일곱은 platform의 포트·서비스 타입(`@werft-ai/platform`)만 아래 방향으로 import하므로 순서나 묶음을 바꿀 일이 없었다. 비-import diff는 0이다. `slack-thread-shadow.test.ts`는 U5a에서 이미 어댑터에 있었고, platform index에서는 임시 재수출 여섯 줄(`slack-decision`, `slack-mrkdwn`, `slack-presentation`, `slack-prompts`, `slack-send-result`, `slack-thread-shadow`)이 빠졌다.

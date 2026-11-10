@@ -21,6 +21,7 @@ import {
   RESPONSE_LANGUAGE_VALUES,
 } from "../kollegium/agents.ts";
 import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
+import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "../shared/agent-card.ts";
 import { workspaceEnforceSchema } from "../shared/execution.ts";
 import {
@@ -93,6 +94,8 @@ export const checkpointRefSchema = z.object({
 //     extended with
 //   response_language: `runtime_config` may carry `response_language`, the
 //     language the engine is asked to answer in
+//   answer_surface: a pending-control answer may carry `answer_surface`, where
+//     the person answered
 // A server older than a key refuses the body as a 400 whose `details.issues`
 // names it; the worker sends once more without the refused key, so neither
 // side has to deploy first.
@@ -104,6 +107,7 @@ export const workerCapabilitiesSchema = z
     permission_rules: z.literal(true).optional(),
     engine_settings: z.literal(true).optional(),
     response_language: z.literal(true).optional(),
+    answer_surface: z.literal(true).optional(),
   })
   .strict();
 
@@ -1072,6 +1076,9 @@ export const pendingControlResponseSchema = z.object({
       // The registered hash, so the worker applies the answer only to the
       // callback it was given for.
       input_hash: sha256HexSchema,
+      // Where the person answered, for the worker's permission-wait span.
+      // Absent from an older server and for an answer with no recorded surface.
+      answer_surface: surfaceKindSchema.optional(),
     }),
   ),
   // Repositories the agent attached that no worker has reported fetching

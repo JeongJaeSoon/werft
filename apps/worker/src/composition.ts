@@ -46,6 +46,10 @@ import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
+  createIngestTelemetry,
+  type TelemetryFactory,
+} from "./telemetry/session.ts";
+import {
   type RuntimeLaunch,
   type RuntimeLauncher,
   type RuntimeRegistry,
@@ -64,6 +68,7 @@ export type WorkerComposition = {
   logger?: WorkerLogger;
   objectStore?: CheckpointObjectStore;
   runtimes?: RuntimeRegistry;
+  telemetry?: TelemetryFactory;
   workspace?: WorkspacePreparer;
   workspaceQuota?: {
     observer: WorkspaceObserver;
@@ -176,6 +181,13 @@ export function createWorkerHost(
     logger,
     objectStoreAccess: objectToken,
     runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),
+    telemetry:
+      overrides.telemetry ??
+      createIngestTelemetry({
+        requestTimeoutMs: config.timeouts.requestTimeoutMs,
+        eventCodecFor: (kind) =>
+          kind === runtime.descriptor.kind ? runtime.eventCodec : undefined,
+      }),
     timeouts: config.timeouts,
     workspace,
     ...(overrides.workspaceQuota === undefined

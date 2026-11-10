@@ -4,6 +4,7 @@ import {
   mcpServerOf,
   type PendingSettlement,
   postSessionAnswerRequestSchema,
+  surfaceKindSchema,
 } from "@werft-ai/contracts";
 import type {
   InvalidateApprovalCheckpointInput,
@@ -412,6 +413,7 @@ export function createPostgresWorkerPendingStore(
             sequence: pendingRequests.answerSequence,
             answer: pendingRequests.answer,
             inputHash: pendingRequests.inputHash,
+            answerSurface: pendingRequests.answerSurface,
           })
           .from(pendingRequests)
           .where(
@@ -540,6 +542,8 @@ export function createPostgresWorkerPendingStore(
             sequence: row.sequence as number,
             answer: postSessionAnswerRequestSchema.parse(row.answer),
             inputHash: row.inputHash,
+            answerSurface:
+              surfaceKindSchema.safeParse(row.answerSurface).data ?? null,
           })),
         };
       });

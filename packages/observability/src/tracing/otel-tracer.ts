@@ -17,6 +17,7 @@ import {
   type ReadableSpan,
   type Sampler,
   SamplingDecision,
+  SimpleSpanProcessor,
   type SpanExporter,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
@@ -45,11 +46,27 @@ export interface OtelTracerConfig
     "serviceName" | "sampler" | "headers" | "tenantHeaders"
   > {
   readonly endpoint?: string;
+  readonly resourceAttributes?: Readonly<Record<string, string | number>>;
   /** Replaces the OTLP exporter; endpoint and headers are then unused. */
   readonly exporter?: SpanExporterLike;
+  /**
+   * Hands each finished span straight to `exporter` instead of buffering it in
+   * the SDK, whose full queue drops the newest span without counting it. Only
+   * for an exporter that bounds and counts its own queue.
+   */
+  readonly exportOnEnd?: boolean;
 }
 
-export type OtelTracer = Tracer & { shutdown(): Promise<void> };
+export type OtelTracer = Tracer & {
+  forceFlush(): Promise<void>;
+  shutdown(): Promise<void>;
+};
+
+export {
+  type BoundedExporterOptions,
+  type BoundedSpanExporter,
+  createBoundedSpanExporter,
+} from "./bounded-exporter.ts";
 
 const WORKSPACE_ATTRIBUTE = "werft.workspace_id";
 
@@ -308,69 +325,82 @@ export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
   const exporter = config.exporter ?? createCollectorExporter(config);
   const provider = new TracerProvider({
     resource: resourceFromAttributes({
+      ...config.resourceAttributes,
       "service.name": config.serviceName,
       "service.namespace": "werft",
     }),
     sampler: new TraceIdSampler(config.sampler.ratio),
     idGenerator,
-    spanProcessors: [new BatchSpanProcessor({ exporter })],
+    spanProcessors: [
+      config.exportOnEnd === true
+        ? new SimpleSpanProcessor({ exporter })
+        : new BatchSpanProcessor({ exporter }),
+    ],
   });
   const tracer = provider.getTracer("@werft-ai/observability");
 
+  function startSpan(name: string, options: StartSpanOptions): Span {
+    const parent =
+      options.parent === "root"
+        ? undefined
+        : (options.parent ?? currentSpanContext());
+    idGenerator.forcedTraceId = parent ? undefined : options.traceId;
+    let otelSpan: ReturnType<typeof tracer.startSpan>;
+    try {
+      otelSpan = tracer.startSpan(
+        name,
+        {
+          kind: KINDS[options.kind ?? "internal"],
+          attributes: { ...options.attributes },
+          links: (options.links ?? []).map((link) => ({
+            context: {
+              traceId: link.traceId,
+              spanId: link.spanId,
+              traceFlags: link.sampled ? TraceFlags.SAMPLED : TraceFlags.NONE,
+            },
+          })),
+          ...(options.startTime === undefined
+            ? {}
+            : { startTime: options.startTime }),
+        },
+        toOtelContext(parent),
+      );
+    } finally {
+      idGenerator.forcedTraceId = undefined;
+    }
+
+    const raw = otelSpan.spanContext();
+    const context: SpanContext = {
+      traceId: raw.traceId,
+      spanId: raw.spanId,
+      sampled: (raw.traceFlags & TraceFlags.SAMPLED) === TraceFlags.SAMPLED,
+    };
+    let ended = false;
+    return {
+      context,
+      setAttribute: (key, value) => {
+        otelSpan.setAttribute(key, value);
+      },
+      setError: (message) => {
+        otelSpan.setStatus({ code: SpanStatusCode.ERROR, message });
+      },
+      end: (endTime) => {
+        if (ended) return;
+        ended = true;
+        otelSpan.end(endTime);
+      },
+    };
+  }
+
   return {
+    startSpan,
     async withSpan<T>(
       name: string,
       options: StartSpanOptions,
       fn: (span: Span) => Promise<T>,
     ): Promise<T> {
-      const parent =
-        options.parent === "root"
-          ? undefined
-          : (options.parent ?? currentSpanContext());
-      idGenerator.forcedTraceId = parent ? undefined : options.traceId;
-      let otelSpan: ReturnType<typeof tracer.startSpan>;
-      try {
-        otelSpan = tracer.startSpan(
-          name,
-          {
-            kind: KINDS[options.kind ?? "internal"],
-            attributes: { ...options.attributes },
-            links: (options.links ?? []).map((link) => ({
-              context: {
-                traceId: link.traceId,
-                spanId: link.spanId,
-                traceFlags: link.sampled ? TraceFlags.SAMPLED : TraceFlags.NONE,
-              },
-            })),
-          },
-          toOtelContext(parent),
-        );
-      } finally {
-        idGenerator.forcedTraceId = undefined;
-      }
-
-      const raw = otelSpan.spanContext();
-      const context: SpanContext = {
-        traceId: raw.traceId,
-        spanId: raw.spanId,
-        sampled: (raw.traceFlags & TraceFlags.SAMPLED) === TraceFlags.SAMPLED,
-      };
-      let ended = false;
-      const span: Span = {
-        context,
-        setAttribute: (key, value) => {
-          otelSpan.setAttribute(key, value);
-        },
-        setError: (message) => {
-          otelSpan.setStatus({ code: SpanStatusCode.ERROR, message });
-        },
-        end: () => {
-          if (ended) return;
-          ended = true;
-          otelSpan.end();
-        },
-      };
-
+      const span = startSpan(name, options);
+      const context = span.context;
       try {
         return await runWithSpanContext(context, () => fn(span));
       } catch (error) {
@@ -382,6 +412,7 @@ export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
         span.end();
       }
     },
+    forceFlush: () => provider.forceFlush(),
     shutdown: () => provider.shutdown(),
   };
 }
