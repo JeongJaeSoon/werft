@@ -2496,13 +2496,30 @@ export class WorkerHost {
   private pump(run: AgentRun): Promise<void> {
     return (async () => {
       try {
+        // A `tool.called` follows the public event that carries its call.
+        let publicIsOurs = true;
         for await (const event of run.events()) {
-          // A late event of an earlier turn belongs to no turn, so it must not
-          // reach this turn's spans either.
           const framed =
             event.type === "public" ? this.frameTurn(event.inputs) : undefined;
-          if (this.turn?.closed === false && framed !== null) {
-            this.turn.spans.onEvent(event);
+          if (event.type === "public") publicIsOurs = framed !== null;
+          const turn = this.turn;
+          // Another input's events belong to no turn, by the rule settlement
+          // applies, so they must not reach this turn's spans either.
+          const ours =
+            event.type === "public"
+              ? framed !== null
+              : event.type === "tool.called"
+                ? publicIsOurs
+                : event.type === "turn.ended" && turn !== undefined
+                  ? event.turn.inputs.length === 0 ||
+                    event.turn.inputs.includes(turn.uuid)
+                  : true;
+          if (turn?.closed === false && ours) {
+            try {
+              turn.spans.onEvent(event);
+            } catch {
+              // Telemetry never ends the turn it observes.
+            }
           }
           if (event.type === "public") {
             this.publisher?.publish([event.event], framed ?? null);

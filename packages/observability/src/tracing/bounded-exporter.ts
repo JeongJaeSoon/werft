@@ -35,9 +35,11 @@ export function createBoundedSpanExporter(
   const chunkBytes = options.chunkBytes ?? SERIALIZE_CHUNK_BYTES;
   // Spans not yet encoded, then encoded chunks not yet sent. Together with the
   // group being encoded they are what `maxSpans` bounds.
-  const pending: ReadableSpan[] = [];
+  const pending: { span: ReadableSpan; bytes: number }[] = [];
   const queue: Chunk[] = [];
   let group: ReadableSpan[] = [];
+  let groupBytes = 0;
+  let pendingBytes = 0;
   let queuedSpans = 0;
   let queuedBytes = 0;
   let dropped = 0;
@@ -49,6 +51,18 @@ export function createBoundedSpanExporter(
     JsonTraceSerializer.serializeRequest(spans);
 
   const held = (): number => queuedSpans + pending.length + group.length;
+  const heldBytes = (): number => queuedBytes + pendingBytes + groupBytes;
+
+  // The size a span will have once serialized is unknown until then; its
+  // strings are nearly all of it.
+  function estimateBytes(span: ReadableSpan): number {
+    let bytes = Buffer.byteLength(span.name) + 256;
+    for (const value of Object.values(span.attributes)) {
+      if (typeof value === "string") bytes += Buffer.byteLength(value);
+      else bytes += 16;
+    }
+    return bytes;
+  }
 
   function evictOldest(): boolean {
     const oldest = queue.shift();
@@ -58,7 +72,9 @@ export function createBoundedSpanExporter(
       dropped += oldest.spans;
       return true;
     }
-    if (pending.shift() !== undefined) {
+    const waiting = pending.shift();
+    if (waiting !== undefined) {
+      pendingBytes -= waiting.bytes;
       dropped += 1;
       return true;
     }
@@ -73,7 +89,7 @@ export function createBoundedSpanExporter(
     while (
       queue.length > 0 &&
       (held() + chunk.spans > maxSpans ||
-        queuedBytes + chunk.body.byteLength > maxBytes)
+        heldBytes() + chunk.body.byteLength > maxBytes)
     ) {
       evictOldest();
     }
@@ -86,6 +102,7 @@ export function createBoundedSpanExporter(
     if (group.length === 0) return;
     const spans = group;
     group = [];
+    groupBytes = 0;
     let body: Uint8Array | undefined;
     try {
       body = serialize(spans);
@@ -102,7 +119,12 @@ export function createBoundedSpanExporter(
       // Spans that end in the same tick leave in one request.
       await yieldToEventLoop();
       while (pending.length > 0) {
-        const span = pending.shift() as ReadableSpan;
+        const waiting = pending.shift() as {
+          span: ReadableSpan;
+          bytes: number;
+        };
+        pendingBytes -= waiting.bytes;
+        const span = waiting.span;
         let single: Uint8Array | undefined;
         try {
           single = serialize([span]);
@@ -120,6 +142,7 @@ export function createBoundedSpanExporter(
         }
         group.push(span);
         size += single.byteLength;
+        groupBytes += single.byteLength;
       }
       flushGroup();
     } finally {
@@ -161,9 +184,13 @@ export function createBoundedSpanExporter(
   return {
     export(spans, resultCallback) {
       resultCallback({ code: 0 });
-      pending.push(...spans);
+      for (const span of spans) {
+        const bytes = estimateBytes(span);
+        pending.push({ span, bytes });
+        pendingBytes += bytes;
+      }
       // Spans not yet encoded count too, or a stalled sender lets them pile up.
-      while (held() > maxSpans && evictOldest()) {}
+      while ((held() > maxSpans || heldBytes() > maxBytes) && evictOldest()) {}
       if (!encoding && pending.length > 0) {
         encoding = true;
         encoder = encodePending();

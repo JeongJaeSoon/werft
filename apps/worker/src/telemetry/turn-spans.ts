@@ -1,3 +1,4 @@
+import type { SessionEventPayload } from "@werft-ai/contracts";
 import {
   formatTraceparent,
   parseTraceparent,
@@ -58,6 +59,12 @@ export interface SpanEmitterOptions {
   readonly scope: AttemptScope;
   readonly now?: () => number;
   readonly dropped?: () => number;
+  /**
+   * Adds the engine-neutral fields (`text`, `tool_call`, `tool_result`) to an
+   * event as the adapter wrote it; the control plane adds them only when it
+   * stores the event, after the worker has sent it.
+   */
+  readonly neutralize?: (event: SessionEventPayload) => SessionEventPayload;
 }
 
 export class SpanEmitter {
@@ -174,7 +181,7 @@ class ActiveTurn implements TurnSpans {
     if (this.ended) return;
     switch (event.type) {
       case "public":
-        this.onPublic(event.event);
+        this.onPublic(this.options.neutralize?.(event.event) ?? event.event);
         return;
       case "tool.called":
         this.closeLlm();
@@ -190,7 +197,10 @@ class ActiveTurn implements TurnSpans {
             : "werft.question_wait",
           parent,
         );
-        span.setAttribute("gen_ai.tool.call.id", request.toolCallId);
+        span.setAttribute(
+          "gen_ai.tool.call.id",
+          this.options.masker.mask(request.toolCallId),
+        );
         this.waits.set(request.localId, {
           span,
           kind: request.kind,
@@ -230,14 +240,17 @@ class ActiveTurn implements TurnSpans {
       wait.span.setAttribute("werft.answer_surface", decided.answerSurface);
     }
     if (wait.kind === "permission") {
-      const tool = this.tools.get(wait.toolCallId);
-      if (tool !== undefined) {
-        const outcome = approvalOutcome(decided.decision);
-        tool.setAttribute("werft.tool.decision", outcome.decision);
-        tool.setAttribute("werft.tool.decision_basis", outcome.basis);
-      }
+      this.markApproval(wait.toolCallId, decided.decision);
     }
     wait.span.end(this.now());
+  }
+
+  private markApproval(toolCallId: string, decision: string): void {
+    const tool = this.tools.get(toolCallId);
+    if (tool === undefined) return;
+    const outcome = approvalOutcome(decision);
+    tool.setAttribute("werft.tool.decision", outcome.decision);
+    tool.setAttribute("werft.tool.decision_basis", outcome.basis);
   }
 
   granted(localId: string): void {
@@ -246,6 +259,7 @@ class ActiveTurn implements TurnSpans {
     this.waits.delete(localId);
     wait.span.setAttribute("werft.permission_decision", "allow");
     wait.span.setAttribute("werft.permission_grant", true);
+    this.markApproval(wait.toolCallId, "allow");
     wait.span.end(this.now());
   }
 
@@ -349,8 +363,12 @@ class ActiveTurn implements TurnSpans {
   private startTool(toolCallId: string, tool: string): void {
     const parent = this.tools.get(this.toolParents.get(toolCallId) ?? "");
     const span = this.child("werft.tool", parent ?? this.root);
-    span.setAttribute("gen_ai.tool.name", tool);
-    span.setAttribute("gen_ai.tool.call.id", toolCallId);
+    // Model-chosen strings are masked even where content is off.
+    span.setAttribute("gen_ai.tool.name", this.options.masker.mask(tool));
+    span.setAttribute(
+      "gen_ai.tool.call.id",
+      this.options.masker.mask(toolCallId),
+    );
     if (this.toolInputs.has(toolCallId)) {
       this.content(
         span,

@@ -127,6 +127,18 @@ describe("bounded span exporter", () => {
     );
   });
 
+  test("spans still waiting to be encoded count against the byte limit", async () => {
+    const exporter = createBoundedSpanExporter({
+      send: () => new Promise<void>(() => {}),
+      maxBytes: 16 * 1024,
+    });
+    const spans = await finishedSpans(50, "x".repeat(4 * 1024));
+    export_(exporter, spans);
+
+    // Four spans' text fills the limit; the rest are lost, not held.
+    expect(exporter.dropped()).toBeGreaterThanOrEqual(45);
+  });
+
   test("with exportOnEnd every span the SDK finishes is counted, delivered or dropped", async () => {
     const exporter = createBoundedSpanExporter({
       send: () => new Promise<void>(() => {}),

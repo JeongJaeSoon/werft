@@ -12,6 +12,8 @@ import {
   type RuntimeEvent,
 } from "@werft-ai/runtime-core";
 
+import { installedRuntimes } from "@werft-ai/runtime-registry";
+
 import type { WorkerTimeouts } from "./config.ts";
 import {
   createIngestTelemetry,
@@ -38,6 +40,7 @@ const timeouts: WorkerTimeouts = {
   requestTimeoutMs: 1_000,
   startupTimeoutMs: 60_000,
 };
+const codec = installedRuntimes[0]?.eventCodec;
 const ON: ClaimTelemetry = {
   enabled: true,
   ingest_url: "http://ingest.test",
@@ -90,6 +93,8 @@ function recording() {
         tracer,
         masker,
         scope: { sessionId: claim.session_id, attemptId: claim.attempt_id },
+        neutralize: (event) =>
+          codec === undefined ? event : codec.withNeutralFields(event),
       }),
       flush: () => void tracer.forceFlush(),
       shutdown: async () => void (await tracer.shutdown()),
@@ -135,6 +140,27 @@ function checkpointingRun(): ScriptedRun {
   return run;
 }
 
+// What the Claude adapter's mapper writes: the neutral fields are not there.
+const nativeText = (text: string) => ({
+  type: "assistant",
+  message: { role: "assistant", content: [{ type: "text", text }] },
+  parent_tool_use_id: null,
+});
+const nativeToolUse = (id: string, name: string, input: unknown) => ({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [{ type: "tool_use", id, name, input }],
+  },
+  parent_tool_use_id: null,
+});
+const nativeToolResult = (id: string, text: string) => ({
+  type: "tool_result",
+  tool_use_id: id,
+  content: text,
+  is_error: false,
+});
+
 const publicEvent = (
   id: string,
   event: string,
@@ -162,12 +188,7 @@ const ended = (sent: AgentInput): RuntimeEvent => ({
 function answerEvery(run: ScriptedRun, text = "hello") {
   run.onSend = (sent) => {
     run.push(
-      publicEvent(
-        `a-${sent.uuid}`,
-        "assistant",
-        { type: "assistant", text },
-        sent,
-      ),
+      publicEvent(`a-${sent.uuid}`, "assistant", nativeText(text), sent),
       ended(sent),
     );
   };
@@ -191,19 +212,11 @@ describe("WorkerHost spans", () => {
     const input = { command: "ls" };
     run.onSend = (sent) => {
       run.push(
-        publicEvent(
-          "a1",
-          "assistant",
-          { type: "assistant", text: "Listing." },
-          sent,
-        ),
+        publicEvent("a1", "assistant", nativeText("Listing."), sent),
         publicEvent(
           "t1",
           "tool_use",
-          {
-            type: "assistant",
-            tool_call: { id: "tool-1", name: "shell", input },
-          },
+          nativeToolUse("tool-1", "shell", input),
           sent,
         ),
         { type: "tool.called", toolCallId: "tool-1", tool: "shell" },
@@ -232,14 +245,7 @@ describe("WorkerHost spans", () => {
     await until(() => run.answers.length === 1, "the answer to reach the run");
     const sent = run.inputs[0] as AgentInput;
     run.push(
-      publicEvent(
-        "r1",
-        "tool_result",
-        {
-          tool_result: { tool_call_id: "tool-1", is_error: false, text: "a b" },
-        },
-        sent,
-      ),
+      publicEvent("r1", "tool_result", nativeToolResult("tool-1", "a b"), sent),
       ended(sent),
     );
     await loop;
@@ -278,6 +284,14 @@ describe("WorkerHost spans", () => {
       "werft.tool.decision": "allow",
       "werft.tool.decision_basis": "approval",
     });
+    // The adapter's own event shape reaches the spans' content.
+    expect(String(tool.attributes["gen_ai.tool.call.arguments"])).toContain(
+      "ls",
+    );
+    expect(tool.attributes["gen_ai.tool.call.result"]).toBe("a b");
+    expect(String(root.attributes["gen_ai.output.messages"])).toContain(
+      "Listing.",
+    );
     expect(root.attributes["werft.attempt_id"]).toBe("att_fake");
     expect(root.resource).toMatchObject({
       "werft.execution_id": "exec-1",
@@ -296,15 +310,10 @@ describe("WorkerHost spans", () => {
         publicEvent(
           "late",
           "assistant",
-          { type: "assistant", text: "from the earlier turn" },
+          nativeText("from the earlier turn"),
           other,
         ),
-        publicEvent(
-          "own",
-          "assistant",
-          { type: "assistant", text: "from this turn" },
-          sent,
-        ),
+        publicEvent("own", "assistant", nativeText("from this turn"), sent),
         ended(sent),
       );
     };
@@ -316,6 +325,34 @@ describe("WorkerHost spans", () => {
     const output = String(root.attributes["gen_ai.output.messages"]);
     expect(output).toContain("from this turn");
     expect(output).not.toContain("from the earlier turn");
+  });
+
+  test("an earlier input's tool.called and turn.ended never touch this turn's spans", async () => {
+    const run = new ScriptedRun();
+    const { factory, finished } = recording();
+    const { gateway, worker } = build(run, ON, factory);
+    run.onSend = (sent) => {
+      const other = { uuid: "earlier-input" } as AgentInput;
+      run.push(
+        publicEvent(
+          "late",
+          "tool_use",
+          nativeToolUse("late-tool", "shell", {}),
+          other,
+        ),
+        { type: "tool.called", toolCallId: "late-tool", tool: "shell" },
+        ended(other),
+        publicEvent("own", "assistant", nativeText("mine"), sent),
+        ended(sent),
+      );
+    };
+    gateway.enqueue("hi");
+    await worker.runLoop();
+    await Bun.sleep(20);
+
+    expect(named(finished, "werft.tool")).toHaveLength(0);
+    const root = named(finished, "werft.turn")[0] as Finished;
+    expect(String(root.attributes["gen_ai.output.messages"])).toContain("mine");
   });
 
   test("a claim without telemetry builds nothing and sends no traceparent", async () => {
@@ -400,6 +437,26 @@ describe("WorkerHost spans", () => {
     await worker.runLoop();
     await Bun.sleep(20);
     expect(named(finished, "werft.turn")).toHaveLength(2);
+  });
+
+  test("the production factory posts the adapter's own events with their content", async () => {
+    const run = new ScriptedRun();
+    answerEvery(run, "from the adapter");
+    const bodies: string[] = [];
+    const factory = createIngestTelemetry({
+      requestTimeoutMs: 1_000,
+      eventCodecFor: () => codec,
+      fetch: async (_url, init) => {
+        bodies.push(String(init.body));
+        return new Response("{}", { status: 200 });
+      },
+    });
+    const { gateway, worker } = build(run, ON, factory);
+    gateway.enqueue("hi");
+    await worker.runLoop();
+    await until(() => bodies.length > 0, "the ingest post");
+
+    expect(bodies.join("")).toContain("from the adapter");
   });
 
   test("a stalled ingest does not slow the events or the finalize, and a full queue counts drops", async () => {

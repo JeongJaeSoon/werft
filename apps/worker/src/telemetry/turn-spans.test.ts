@@ -363,4 +363,43 @@ describe("content attributes", () => {
       "value is <redacted> ok",
     );
   });
+
+  test("a claim value in a tool name or call id never reaches an attribute, even in metadata mode", async () => {
+    const claimed = "attempt-bound-claim-value";
+    const scrubber = new SecretScrubber([claimed]);
+    const { emitter, finished, tracer } = harness({
+      mask: (text) => scrubber.scrub(text),
+    });
+    const turn = emitter.beginTurn(
+      { turnId: "1", message: "hi" },
+      { mode: "metadata", maxBytes: 100 },
+    );
+    turn.onEvent({
+      type: "tool.called",
+      toolCallId: `id-${claimed}`,
+      tool: `tool-${claimed}`,
+    });
+    turn.onEvent(approvalRequested("local-1", `id-${claimed}`));
+    turn.end(ENDED);
+    await tracer.forceFlush();
+
+    expect(finished.length).toBeGreaterThan(0);
+    expect(JSON.stringify(finished)).not.toContain(claimed);
+  });
+
+  test("a grant resumed from an earlier answer marks the tool as approved", async () => {
+    const { emitter, finished, tracer } = harness();
+    const turn = emitter.beginTurn({ turnId: "1", message: "hi" }, FULL);
+    turn.onEvent({ type: "tool.called", toolCallId: "tool-1", tool: "Bash" });
+    turn.onEvent(approvalRequested("local-1", "tool-1"));
+    turn.granted("local-1");
+    turn.end(ENDED);
+    await tracer.forceFlush();
+
+    const tool = named(finished, "werft.tool")[0] as Finished;
+    expect(tool.attributes).toMatchObject({
+      "werft.tool.decision": "allow",
+      "werft.tool.decision_basis": "approval",
+    });
+  });
 });

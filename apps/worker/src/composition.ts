@@ -185,6 +185,8 @@ export function createWorkerHost(
       overrides.telemetry ??
       createIngestTelemetry({
         requestTimeoutMs: config.timeouts.requestTimeoutMs,
+        eventCodecFor: (kind) =>
+          kind === runtime.descriptor.kind ? runtime.eventCodec : undefined,
       }),
     timeouts: config.timeouts,
     workspace,

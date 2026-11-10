@@ -8,6 +8,7 @@ import {
   createBoundedSpanExporter,
   createOtelTracer,
 } from "@werft-ai/observability/otel";
+import type { EventCodec } from "@werft-ai/runtime-core";
 
 import type { ContentMasker } from "./content.ts";
 import { SpanEmitter } from "./turn-spans.ts";
@@ -37,6 +38,8 @@ export interface IngestOptions {
   readonly requestTimeoutMs: number;
   readonly queue?: { readonly maxSpans?: number; readonly maxBytes?: number };
   readonly onSession?: (session: TelemetrySession) => void;
+  /** The codec of the runtime kind the session runs, when its adapter has one. */
+  readonly eventCodecFor?: (kind: string) => EventCodec | undefined;
 }
 
 export function ingestSender(
@@ -88,10 +91,14 @@ export function createIngestTelemetry(
         "werft.execution_generation": execution.generation,
       },
     });
+    const codec = options.eventCodecFor?.(claim.runtime.kind);
     const session: TelemetrySession = {
       emitter: new SpanEmitter({
         tracer,
         masker,
+        ...(codec === undefined
+          ? {}
+          : { neutralize: (event) => codec.withNeutralFields(event) }),
         scope: { sessionId: claim.session_id, attemptId: claim.attempt_id },
         dropped: () => exporter.dropped(),
       }),
