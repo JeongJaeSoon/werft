@@ -979,7 +979,7 @@ U7 회차(2026-11-11, 대상: 어댑터 계약 시험 PR). 제품 코드는 바�
 |---|---|
 | 능력과 함수 | action: `RepositoryReadable`, `PullRequestReadable`, `PullRequestWritable`, `PullRequestMergeable`, `Commentable`, `Reviewable`, `WorkflowRunnable`, `Pushable`. surface: `Notifiable`, `Approvable`, `AgentWelcomable`, `ChannelJoinable`, `ChannelKindReadable`. 함수 하나가 능력 하나의 약속을 적는다 |
 | 약속의 범위 | 지금 주석과 구현이 하는 약속만 적었다. 오류는 능력마다 갈린다. `GitHubCallError`를 던지는 쪽(`getRepository`, `getPullRequest`, merge, dispatch, 리뷰 제출 등)과 `ForgeCredentialError`를 던지는 쪽(`find*`, `createPullRequest`, 댓글 등)을 그대로 단언한다 |
-| 가짜 | `GitHubApi`는 실제 구현이 하나뿐이다. 그래서 가짜는 실제 어댑터 밑의 `testkit/fake-github` 서버이고, 계약이 실제 어댑터와 이 가짜 서버를 함께 시험한다. 가짜에 빠진 엔드포인트(브랜치·트리·blob·compare·비동기 merge)를 더해 일곱 forge 능력을 모두 시험할 수 있게 했다 |
+| 가짜 | `GitHubApi`는 실제 구현이 하나뿐이다. 그래서 가짜는 실제 어댑터 밑의 `testkit/fake-github` 서버이고, 계약이 실제 어댑터와 이 가짜 서버를 함께 시험한다. 가짜에 빠진 엔드포인트(브랜치·트리·blob·compare·비동기 merge)를 더해 일곱 forge 능력을 모두 시험할 수 있게 했다. 가짜는 포트가 약속한 옵션만 받는다(merge는 squash·직접 merge·bypass 금지, workflow dispatch는 `refs/heads/` 접두사). 약속 밖 옵션은 422로 거절해서 어댑터가 옵션을 바꾸면 계약이 실패한다 |
 | 가짜가 없는 능력 | `Pushable`(git HTTP 가짜 하나), `AgentWelcomable`(저장소를 시험 안에서 만든 메모리 스토어로 대신함)은 구현 쪽이 하나다. surface 다섯 가운데 `ChannelKindReadable`·`ChannelJoinable`은 가짜 Slack HTTP와 스크립트한 메모리 `SlackBotApi` 둘에 돌린다 |
 | `Notifiable`·`Approvable` | [6.2절](#62-능력-인터페이스)의 파일 두 개 대신 한 파일에 둔다. 둘이 `createRowDelivery`를 같이 쓰므로 공통 전달 계약(`delivery-contract.ts`)을 두고 행 종류만 바꿔 돌린다. 담은 것은 `DeliveryOutcome` 다섯 가지(`sent`, `retry`, `failed`, `uncertain`, `lease_lost`)를 지금 코드가 가르는 대로다 |
 | D1 | `createOutboxSlackNoticeSink`의 계약("같은 사람은 한 번, 다른 사람은 따로")을 outbox 구현과 메모리 가짜 양쪽에 돌렸다. outbox 구현은 `dedupeKey`를 지키는 메모리 outbox 위에서 돌렸고 Postgres 위의 시험은 아직 없다 |

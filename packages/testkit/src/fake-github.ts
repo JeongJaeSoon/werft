@@ -801,7 +801,15 @@ export async function startFakeGitHub(
           { status: 422 },
         );
       }
-      const ref = String(input.ref ?? "").replace(/^refs\/heads\//, "");
+      // A bare name could be a tag too; the port promises a branch, so the
+      // adapter has to say `refs/heads/`.
+      if (!String(input.ref ?? "").startsWith("refs/heads/")) {
+        return Response.json(
+          { message: "ref must be a fully qualified branch" },
+          { status: 422 },
+        );
+      }
+      const ref = String(input.ref).replace(/^refs\/heads\//, "");
       nextRunId += 1;
       const run: FakeGitHubWorkflowRun = {
         id: nextRunId,
@@ -945,6 +953,18 @@ export async function startFakeGitHub(
         details: { message: "merged", sha: "c".repeat(40) },
       };
       if (method === "PUT") {
+        // GitHub takes other options; the port promises only this one, so the
+        // fake refuses the rest and a changed adapter fails the contract.
+        if (
+          input.merge_method !== "squash" ||
+          input.merge_action !== "direct_merge" ||
+          input.bypass_rules !== false
+        ) {
+          return Response.json(
+            { message: "merge options outside the port's promise" },
+            { status: 422 },
+          );
+        }
         if (pull.merged_at !== null) return Response.json(mergedAnswer);
         if (pull.state === "closed") {
           return Response.json(
