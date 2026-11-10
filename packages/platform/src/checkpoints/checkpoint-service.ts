@@ -1736,7 +1736,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
      */
     async getRestorePlan(input: {
       runtime: RuntimeFingerprint;
-      /** Profile digests the session ran before its profile was changed. */
+      /** Profile digests of the configs the session ran before its model moved. */
       alternateProfileSha256s?: readonly string[];
       sessionId: string;
       /** As for requestCheckpoint: the caller's fenced snapshot, when it has one. */

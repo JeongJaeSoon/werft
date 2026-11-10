@@ -57,6 +57,7 @@ const ENTRIES: SettingsEntries = {
       auth: { kind: "api_key", stored: "connection:console" },
     },
   },
+  connection_models: {},
   repositories: {},
   mcp_servers: {},
 };

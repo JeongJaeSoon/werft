@@ -212,12 +212,12 @@ describe("resolveExtensions: name collisions", () => {
   });
 });
 
-describe("resolveExtensions: what the profile can run", () => {
+describe("resolveExtensions: what the release can run", () => {
   const scripted = {
     agent: [entry("required", ref("tools", "a", { scripts: true }))],
   };
 
-  test("a bundle with skills is refused where the profile's tools do not list Skill", () => {
+  test("a bundle with skills is refused where the release's tools do not list Skill", () => {
     const scopes = { agent: [entry("required", ref("lint", "a"))] };
     const refused = resolveExtensions({ ...base, tools: ["Read"], scopes });
     expect(refusalOf(refused).code).toBe("skill_tool_not_allowed");
@@ -248,8 +248,8 @@ describe("resolveExtensions: what the profile can run", () => {
   });
 
   // The review that approved the bundle is what lets its scripts run; the
-  // profile's permission mode no longer decides it.
-  test("a scripted bundle resolves, whatever mode the profile stores", () => {
+  // release's permission mode does not decide it.
+  test("a scripted bundle resolves, whatever mode the release runs", () => {
     const result = resolveExtensions({ ...base, scopes: scripted });
     expect(result.ok).toBe(true);
   });

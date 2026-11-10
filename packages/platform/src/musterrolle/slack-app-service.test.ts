@@ -600,7 +600,7 @@ describe("Slack app service", () => {
     expect(new Set(asked)).toEqual(new Set([`${WORKSPACE}/${AGENT}`]));
   });
 
-  test("without a repository-only profile there is no warning", async () => {
+  test("without a release that needs a repository there is no warning", async () => {
     const { service } = await setup({
       activeReleaseWarning: async () => null,
     });

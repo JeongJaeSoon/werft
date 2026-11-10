@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   type PermissionMode,
+  type PlatformPrompt,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
 import type {
@@ -84,5 +85,44 @@ describe("restore candidates", () => {
     expect(response.restore_runtime_configs?.[0]?.provider.auth).toEqual(
       response.runtime_config.provider.auth,
     );
+  });
+});
+
+describe("the row's platform prompt", () => {
+  const prompt: PlatformPrompt = {
+    prompt_revision: 1,
+    agent_identity: { name: "code-review", description: null },
+    origin_surface: "slack_channel",
+    language: "ko",
+    repository: "acme/app",
+  };
+  const configsOf = (response: Awaited<ReturnType<typeof claim>>) => [
+    response.runtime_config,
+    ...(response.restore_runtime_configs ?? []),
+  ];
+
+  test("rides the run config and the configs kept as they ran; a revision 0 row adds it nowhere", async () => {
+    // A kept config is stored as it ran, the row's prompt included.
+    const before = (await claim("default", { platformPrompt: prompt }))
+      .runtime_config;
+    const prompted = await claim("default", {
+      platformPrompt: prompt,
+      legacyRuntimeConfigs: [{ ...before, model: "claude-sonnet-4" }],
+    });
+    expect(configsOf(prompted)).toHaveLength(2);
+    expect(configsOf(prompted).map((c) => c.platform_prompt)).toEqual([
+      prompt,
+      prompt,
+    ]);
+    const unprompted = (await claim("default")).runtime_config;
+    for (const platformPrompt of [null, undefined]) {
+      const plain = await claim("default", {
+        legacyRuntimeConfigs: [{ ...unprompted, model: "claude-sonnet-4" }],
+        ...(platformPrompt === undefined ? {} : { platformPrompt }),
+      });
+      expect(
+        configsOf(plain).some((config) => "platform_prompt" in config),
+      ).toBe(false);
+    }
   });
 });

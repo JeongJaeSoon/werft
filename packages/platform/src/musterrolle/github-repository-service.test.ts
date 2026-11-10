@@ -141,7 +141,6 @@ const ROW = {
   name: "widget",
   url: "https://github.com/acme/widget.git",
   branch: "main",
-  profiles: null,
   source: "selection",
   version: 1,
   created_at: "",
@@ -188,8 +187,7 @@ function serviceWith(
           name: input.name,
           url: input.url,
           branch: input.branch,
-          profiles: null,
-          source: "selection",
+                  source: "selection",
           version: 1,
           created_at: "",
           updated_at: "",
@@ -478,7 +476,7 @@ describe("the workspace's page of App installations", () => {
     expect((await agentPage()).unavailable).toBe("no_author_app");
   });
 
-  test("the picker follows the workspace ceiling, not a release profile", async () => {
+  test("the picker follows the workspace ceiling, not a release", async () => {
     const { agentPage, pick } = serviceWith({
       async installationRepositoriesPage() {
         return { repositories: [], totalCount: 0 };

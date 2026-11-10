@@ -58,6 +58,7 @@ function services(authorization: AuthorizationPolicy) {
       },
     ) as never,
     catalog: unreachable,
+    releases: unreachable,
     limits: unreachable,
   });
   const pending = createPendingRequestService({
@@ -80,17 +81,13 @@ type Services = ReturnType<typeof services>;
 const id = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const input = unreachable;
 
-// Every service entry point with the action it needs.
+// Every service entry point with the action it needs. createSession is
+// asked about the agent its release names, so it has its own test below.
 const entryPoints: [
   string,
   AuthorizationAction,
   (s: Services, actor: Caller) => Promise<unknown>,
 ][] = [
-  [
-    "createSession",
-    "session.submit",
-    (s, actor) => s.sessions.createSession(actor, input),
-  ],
   [
     "appendMessage",
     "session.submit",
@@ -180,6 +177,16 @@ function without(scope: SessionScope): SessionScope[] {
 }
 
 describe("service entry points without HTTP", () => {
+  test("createSession refuses a key from before workspaces, which names no agent, before any store", async () => {
+    const error = await services(policy)
+      .sessions.createSession(testCaller("owner-a"), {
+        idempotencyKey: "k",
+        body: { agent_release_id: "rel-1", message: "hi" },
+      })
+      .catch((e) => e);
+    expect(error).toMatchObject({ code: "NOT_FOUND" });
+  });
+
   for (const [name, action, call] of entryPoints) {
     const scope = ACTION_SCOPES[action] as SessionScope;
     test(`${name} is FORBIDDEN without ${scope}`, async () => {
@@ -254,8 +261,8 @@ describe("service entry points without HTTP", () => {
       });
     }
     expect(asked.filter((request) => request.resource.id === null).length).toBe(
-      3,
-    ); // createSession, listSessions, getReceipt
+      2,
+    ); // listSessions, getReceipt
   });
 });
 

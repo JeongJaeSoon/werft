@@ -83,7 +83,6 @@ function harness(
   const store = {
     findSession: async () => ({
       repositoryId: "sample-app",
-      profileId: "default",
       attached: null,
       github: {
         repositories: ["sample-app", "docs"],

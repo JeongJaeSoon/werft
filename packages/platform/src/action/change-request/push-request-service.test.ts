@@ -485,7 +485,6 @@ describe("a push to another repository", () => {
         replayCreate: async () => null,
         findSession: async () => ({
           repositoryId: own,
-          profileId: "default",
           attached,
           github,
           policySource: policyApproval?.source ?? "release",

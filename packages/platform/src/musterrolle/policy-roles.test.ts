@@ -328,7 +328,7 @@ describe("a service key bound to an agent", () => {
         agent_id: AGENT_B,
       }),
     ).toMatchObject({ outcome: "deny", reason_code: "agent_ceiling" });
-    // A list or a profile-only session names no agent.
+    // A list, or a session that names no agent, is refused.
     expect(
       await decide("session.submit", { kind: "session", id: null }),
     ).toMatchObject({ outcome: "deny", reason_code: "agent_ceiling" });

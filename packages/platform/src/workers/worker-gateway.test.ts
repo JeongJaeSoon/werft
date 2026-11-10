@@ -3,8 +3,6 @@ import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
   GITHUB_FEATURES_NONE,
-  type PlatformPrompt,
-  type RuntimeConfig,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
@@ -26,20 +24,22 @@ import type {
   ReadyInput,
   RestoreBaseInput,
   RestoreBaseResult,
-  WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
-  type CatalogProfile,
   type CatalogRepository,
-  profileFingerprint,
-  profilePins,
   repositoryBinding,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import { createGitHubGate } from "../sessions/github-gate.ts";
-import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import {
+  TEST_CONNECTION_ID,
+  testBinding,
+  testCatalog,
+  testConnection,
+  testSpecSource,
+} from "../testing/catalog-fakes.ts";
 import { releasePolicy } from "../testing/github-fakes.ts";
 import {
   type CheckpointProtocol,
@@ -47,9 +47,6 @@ import {
   hashWorkerToken,
   WorkerGatewayError,
 } from "./worker-gateway.ts";
-
-const withoutPolicyPairs = (pairs: ClaimInput["runnable"]) =>
-  pairs.filter((pair) => pair.policy !== true);
 
 const scope = {
   session_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
@@ -108,7 +105,7 @@ function gateway(
   const slept: number[] = [];
   const instance = createWorkerGateway({
     work: work(overrides),
-    catalog: { profiles: {}, repositories: {} },
+    catalog: { connections: {}, repositories: {} },
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -124,16 +121,6 @@ function gateway(
     },
   });
   return { instance, slept };
-}
-
-// A claim that resumes also offers the `auto` variants of the modes a profile
-// may have run converted; tests about the stored-mode candidates leave them
-// out, and the variants have their own describe below.
-function withoutAuto(
-  configs: RuntimeConfig[] | undefined,
-): RuntimeConfig[] | undefined {
-  const kept = configs?.filter((config) => config.permission_mode !== "auto");
-  return kept?.length ? kept : undefined;
 }
 
 const TRACEPARENT = "00-49195af5635b4ac7af24c52c73de7491-b7ad6b7169203331-01";
@@ -223,7 +210,7 @@ describe("WorkerGateway", () => {
             };
           },
         }),
-        catalog: { profiles: {}, repositories: {} },
+        catalog: { connections: {}, repositories: {} },
         checkpoints: acceptAllCheckpoints,
         ...(attribution
           ? {
@@ -288,7 +275,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       attribution: {
         store: {
@@ -349,7 +336,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -423,10 +410,10 @@ describe("WorkerGateway", () => {
           return { outcome: "ok", acceptedThrough: 2, cursor: "ev_2" };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
-      neutralize: (profileId, event) => {
-        asked.push(profileId);
+      neutralize: (runtimeKind, event) => {
+        asked.push(runtimeKind);
         return event.event === "assistant"
           ? { ...event, data: { ...event.data, text: "neutral" } }
           : event;
@@ -454,12 +441,12 @@ describe("WorkerGateway", () => {
       },
     ];
     await instance.appendEvents(
-      { ...principal, profileId: "coding" },
+      { ...principal, runtimeKind: "claude_agent_sdk" },
       { ...scope, batch_key: "b", events },
     );
     expect(committed).toEqual(events);
     expect(neutral).toEqual([{ text: "neutral" }, null]);
-    expect(asked).toEqual(["coding", "coding"]);
+    expect(asked).toEqual(["claude_agent_sdk", "claude_agent_sdk"]);
   });
 
   test("finalize consults the checkpoint verifier before the transaction", async () => {
@@ -474,7 +461,7 @@ describe("WorkerGateway", () => {
           return unimplemented();
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify(input) {
           asked.push(input);
@@ -546,7 +533,7 @@ describe("WorkerGateway", () => {
           throw new Error("not reached");
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           return {
@@ -597,7 +584,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           return { status: "verified", transcriptBytes: 1234 };
@@ -649,7 +636,7 @@ describe("WorkerGateway", () => {
           throw new Error("not reached");
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           verified += 1;
@@ -699,7 +686,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           return { status: "verified" };
@@ -738,113 +725,32 @@ describe("WorkerGateway", () => {
     expect(seen).toEqual([hashWorkerToken("wsc_x")]);
   });
 
-  test("an operator ceiling on every installed App repository may claim one it does not list", async () => {
-    const profile = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
-    const appRepositories: Record<string, CatalogRepository> = {
-      app: {
-        url: "https://github.com/acme/app.git",
-        branch: "main",
-        auth: { kind: "github_app", registered: true },
-      },
-    };
-    const seeded = withSeededInstallation({
-      profiles: { p: profile },
-      repositories: appRepositories,
+  test("bootstrapClaim answers the row's repository and the session's own spec", async () => {
+    const spec = testSpecSource({
+      permission_mode: "auto",
+      project_settings: { claude_md: true },
     });
-    const ceiling = seeded.installation.get("p");
-    if (!ceiling) throw new Error("no seeded ceiling");
-    const runnable: ClaimInput["runnable"][] = [];
-    const instance = createWorkerGateway({
-      work: work({
-        claimAtomic: async (input) => {
-          runnable.push(input.runnable);
-          throw new Error("stop after the pairs");
-        },
-      }),
-      catalog: {
-        ...seeded,
-        installation: new Map([
-          ["p", { ...ceiling, github_app_repositories: "installed" as const }],
-        ]),
-      },
-      checkpoints: acceptAllCheckpoints,
-      options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-        leaseTtlMs: 30_000,
-      },
-    });
-    await instance
-      .bootstrapClaim(
-        { kind: "bootstrap" },
-        {
-          execution_id: "e",
-          execution_generation: 1,
-          credential: { kind: "launch_nonce" as const, nonce: "n" },
-        },
-      )
-      .catch(() => {});
-    const repositories = new Set(runnable[0]?.map((pair) => pair.repositoryId));
-    expect(ceiling.repository_ids).toEqual([]);
-    expect(repositories.has("app")).toBe(true);
-  });
-
-  test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
-    const binding = {
+    const binding = testBinding({
       sessionId: scope.session_id,
-      attemptId: "att_1",
-      leaseEpoch: 1,
-      executionGeneration: 1,
-      authRevision: 0,
-      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-      leaseRemainingMs: 29_950,
-      profileId: "claude-coding-v1",
-      profileFingerprint: null,
-      model: null,
-      unmetered: false,
-      ownerScope: "owner-a",
+      spec,
       repository: {
         id: "gone-from-catalog",
         url: "https://example.invalid/team/app.git",
         branch: "release",
       },
-      restore: null,
-      restoreProfiles: [],
       costUsd: 250.5,
-      providerTokens: 0,
-    };
-    const profile = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
+    });
+    const provider = testConnection({
       provider: {
-        kind: "anthropic" as const,
+        kind: "anthropic",
         endpoint: "https://api.anthropic.invalid",
         auth: {
-          kind: "api_key" as const,
+          kind: "api_key",
           value: "provider-key",
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-      project_settings: { claude_md: true },
-    };
+    });
     const runnable: ClaimInput["runnable"][] = [];
     const issued: ClaimInput["egress"][] = [];
     const instance = createWorkerGateway({
@@ -855,8 +761,8 @@ describe("WorkerGateway", () => {
           return { outcome: "claimed", binding };
         },
       }),
-      catalog: withSeededInstallation({
-        profiles: { "claude-coding-v1": profile, other: profile },
+      catalog: testCatalog({
+        connections: { [TEST_CONNECTION_ID]: provider },
         repositories: {
           "sample-app": {
             url: "https://example.invalid/app.git",
@@ -891,44 +797,33 @@ describe("WorkerGateway", () => {
     // proxy's read-only route beside it — never a credential for the host.
     expect(claimed.workspace).toEqual({
       repository: {
-        ...binding.repository,
+        id: "gone-from-catalog",
+        url: "https://example.invalid/team/app.git",
+        branch: "release",
         access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
       },
     });
     // The worker tracks the remainder the store measured, not the deadline.
     expect(claimed.lease_remaining_ms).toBe(29_950);
-    // The claim may bind only what the catalog pairs, at the URL and branch
-    // it registers now, with the profile's settings as hashed now
-    // one entry per allowed pair, nothing else.
-    const [current, v1] = profilePins(profile, []);
-    expect(current).toEqual({
-      fingerprint: profileFingerprint(profile),
-      model: "claude-sonnet-5",
-    });
-    expect(v1?.model).toBeNull();
-    const app = {
-      repositoryId: "sample-app",
-      url: "https://example.invalid/app.git",
-      branch: "main",
-    };
-    const docs = {
-      repositoryId: "docs",
-      url: "https://example.invalid/docs.git",
-      branch: "trunk",
-    };
-    expect(runnable.map(withoutPolicyPairs) as unknown[]).toEqual([
-      [
-        ["claude-coding-v1", app] as const,
-        ["other", app] as const,
-        ["other", docs] as const,
-      ].flatMap(([profileId, repository]) =>
-        [current, v1].map((pin) => ({
-          profileId,
-          profileFingerprint: pin?.fingerprint,
-          model: pin?.model,
-          ...repository,
-        })),
-      ),
+    // The claim may bind only what this host runs: each connection with its
+    // models, each repository at the URL and branch it registers now.
+    expect(runnable).toEqual([
+      {
+        connections: [{ id: TEST_CONNECTION_ID, models: ["claude-sonnet-5"] }],
+        repositories: [
+          {
+            repositoryId: "sample-app",
+            url: "https://example.invalid/app.git",
+            branch: "main",
+          },
+          {
+            repositoryId: "docs",
+            url: "https://example.invalid/docs.git",
+            branch: "trunk",
+          },
+        ],
+        runtimeVersions: null,
+      },
     ]);
     // The row's owner partition, not anything from the shared catalog: it is
     // the checkpoint principal the worker hashes.
@@ -936,15 +831,16 @@ describe("WorkerGateway", () => {
     expect(claimed.runtime).toEqual({
       kind: "claude_agent_sdk",
       version: "0.3.270",
-      profile_id: "claude-coding-v1",
+      connection_id: TEST_CONNECTION_ID,
     });
+    expect(claimed.spec_digest).toBe(binding.specDigest);
     // Neither the provider key nor where the catalog found it rides
     // the worker gets the upstream to name and a token for the
     // proxy, whose hash is what the claim stored.
     expect(claimed.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read"],
-      permission_mode: "plan",
+      permission_mode: "auto",
       provider: {
         kind: "anthropic",
         endpoint: "https://api.anthropic.invalid",
@@ -972,9 +868,9 @@ describe("WorkerGateway", () => {
     expect(
       egress.bindingsOf({
         id: "s-1",
-        profileId: "claude-coding-v1",
-        profileFingerprint: null,
-        model: null,
+        connectionId: TEST_CONNECTION_ID,
+        specDigest: binding.specDigest,
+        model: "claude-sonnet-5",
         repositoryMode: "repository",
         githubPolicySource: "release",
         repositoryId: "sample-app",
@@ -982,15 +878,13 @@ describe("WorkerGateway", () => {
     ).toEqual({
       object_store: "sessions/s-1/",
       packages: "public",
-      provider: profileFingerprint(profile),
+      provider: binding.specDigest,
       repository: repositoryBinding("sample-app", {
         url: "https://example.invalid/app.git",
         branch: "main",
         auth: { kind: "github_app", registered: true },
       }),
     });
-    expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
-    expect(claimed.profile_fingerprint).not.toContain("provider-key");
     // The engine's own budget is what the session has left.
     expect(claimed.remaining_budget_usd).toBe(749.5);
     expect(claimed.workspace_enforce).toBe("fail");
@@ -1002,17 +896,15 @@ describe("WorkerGateway", () => {
     expect(beforeTheField.safeParse(claimed).success).toBe(false);
     const off = createWorkerGateway({
       work: work({
-        claimAtomic: async () => ({ outcome: "claimed", binding }),
+        claimAtomic: async () => ({
+          outcome: "claimed",
+          binding: testBinding({
+            ...binding,
+            spec: { ...spec, project_settings: { claude_md: false } },
+          }),
+        }),
       }),
-      catalog: {
-        profiles: {
-          "claude-coding-v1": {
-            ...profile,
-            project_settings: { claude_md: false },
-          },
-        },
-        repositories: {},
-      },
+      catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -1026,23 +918,6 @@ describe("WorkerGateway", () => {
       beforeTheField.safeParse(bootstrapClaimResponseSchema.parse(offClaim))
         .success,
     ).toBe(true);
-    // A profile the catalog lost between the row's binding and this replay
-    // is refused rather than answered with a guess.
-    const stranger = createWorkerGateway({
-      work: work({
-        claimAtomic: async () => ({ outcome: "replayed", binding }),
-      }),
-      catalog: { profiles: {}, repositories: {} },
-      checkpoints: acceptAllCheckpoints,
-      options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-        leaseTtlMs: 30_000,
-      },
-    });
-    await expect(
-      stranger.bootstrapClaim({ kind: "bootstrap" }, request),
-    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
     // A replay does not check the budget, so a session that spent past it
     // in between is answered with nothing left rather than a negative.
     const spent = createWorkerGateway({
@@ -1052,7 +927,7 @@ describe("WorkerGateway", () => {
           binding: { ...binding, costUsd: 1_000.25 },
         }),
       }),
-      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -1086,7 +961,7 @@ describe("WorkerGateway", () => {
       work: work({
         claimAtomic: async () => ({ outcome: "claimed", binding }),
       }),
-      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       attribution: {
         store: {
@@ -1205,7 +1080,7 @@ describe("WorkerGateway", () => {
       work: work({
         claimAtomic: async () => ({ outcome: "claimed", binding }),
       }),
-      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       attribution: {
         store: {
@@ -1234,7 +1109,7 @@ describe("WorkerGateway", () => {
       work: work({
         claimAtomic: async () => ({ outcome: "claimed", binding }),
       }),
-      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      catalog: testCatalog(),
       checkpoints: acceptAllCheckpoints,
       attribution: {
         store: {
@@ -1278,7 +1153,7 @@ describe("WorkerGateway", () => {
         work: work({
           claimAtomic: async () => ({ outcome: "claimed", binding }),
         }),
-        catalog: { profiles: { "claude-coding-v1": profile }, repositories },
+        catalog: testCatalog({ repositories }),
         checkpoints: acceptAllCheckpoints,
         attribution: {
           store: {
@@ -1398,7 +1273,7 @@ describe("WorkerGateway", () => {
         work: work({
           claimAtomic: async () => ({ outcome: "claimed", binding }),
         }),
-        catalog: { profiles: { "claude-coding-v1": profile }, repositories },
+        catalog: testCatalog({ repositories }),
         checkpoints: acceptAllCheckpoints,
         attribution: {
           store: {
@@ -1518,28 +1393,12 @@ describe("WorkerGateway", () => {
   });
 
   test("the claim lists the other repositories the gate allows, on the attempt's repository token", async () => {
-    const profile = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
     const asked: unknown[] = [];
     const instance = createWorkerGateway({
       work: work({
         claimAtomic: async () => ({
           outcome: "claimed",
-          binding: {
+          binding: testBinding({
             sessionId: scope.session_id,
             attemptId: "att_1",
             leaseEpoch: 1,
@@ -1547,9 +1406,6 @@ describe("WorkerGateway", () => {
             authRevision: 0,
             leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
             leaseRemainingMs: 29_950,
-            profileId: "p",
-            profileFingerprint: null,
-            model: null,
             unmetered: false,
             ownerScope: "owner-a",
             repository: {
@@ -1558,14 +1414,13 @@ describe("WorkerGateway", () => {
               branch: "main",
             },
             restore: null,
-            restoreProfiles: [],
             costUsd: 0,
             providerTokens: 0,
-          },
+          }),
         }),
       }),
-      catalog: withSeededInstallation({
-        profiles: { p: profile },
+      catalog: testCatalog({
+        
         repositories: {
           app: {
             url: "https://example.invalid/app.git",
@@ -1614,371 +1469,62 @@ describe("WorkerGateway", () => {
     expect(asked).toEqual([scope.session_id]);
   });
 
-  test("a session pinned before its profile's runtime moved to the next image is still claimed while the previous image is configured", async () => {
-    const before = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
-      repository: "none" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
-    const after = { ...before, runtime_version: "0.3.280" };
-    const pinned = profileFingerprint(before);
-    const binding = {
-      sessionId: scope.session_id,
-      attemptId: "att_1",
-      leaseEpoch: 1,
-      executionGeneration: 1,
-      authRevision: 0,
-      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-      leaseRemainingMs: 29_950,
-      profileId: "p",
-      profileFingerprint: pinned,
-      model: "claude-sonnet-5" as string | null,
-      unmetered: false,
-      ownerScope: "owner-a",
-      repository: null,
-      restore: null,
-      restoreProfiles: [],
-      costUsd: 0,
-      providerTokens: 0,
-    };
-    const runnable: ClaimInput["runnable"][] = [];
-    const issued: ClaimInput["egress"][] = [];
-    const gatewayWith = (accepted: string[]) =>
-      createWorkerGateway({
-        work: work({
-          claimAtomic: async (input) => {
-            runnable.push(input.runnable);
-            issued.push(input.egress);
-            return { outcome: "claimed", binding };
-          },
-        }),
-        catalog: {
-          ...withSeededInstallation({
-            profiles: { p: after },
-            repositories: {},
-          }),
-          runtime_versions: { accepted, current: ["0.3.280", "2.1.280"] },
-        },
-        checkpoints: acceptAllCheckpoints,
-        options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
-          leaseTtlMs: 30_000,
-        },
-      });
-    const request = {
-      execution_id: "e",
-      execution_generation: 1,
-      credential: { kind: "launch_nonce" as const, nonce: "n" },
-    };
-
-    const claimed = await gatewayWith([
-      "0.3.280",
-      "2.1.280",
-      "0.3.270",
-      "2.1.270",
-    ]).bootstrapClaim({ kind: "bootstrap" }, request);
-    expect(claimed.session_id).toBe(scope.session_id);
-    expect(runnable.at(-1)).toContainEqual({
-      profileId: "p",
-      profileFingerprint: pinned,
-      model: "claude-sonnet-5",
-      repositoryId: null,
-    });
-    expect(
-      issued.at(-1)?.bindingsOf({
-        id: "s-1",
-        profileId: "p",
-        profileFingerprint: pinned,
-        model: "claude-sonnet-5",
-        repositoryMode: "none",
-        githubPolicySource: "release",
-        repositoryId: null,
-      }).provider,
-    ).toBe(pinned);
-
-    // Once the previous image leaves the configuration, so does its pin.
-    await expect(
-      gatewayWith(["0.3.280", "2.1.280"]).bootstrapClaim(
-        { kind: "bootstrap" },
-        request,
-      ),
-    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
-    expect(
-      runnable.at(-1)?.some((pair) => pair.profileFingerprint === pinned),
-    ).toBe(false);
-  });
-
   test("a session without a repository is claimed with no workspace repository token and no CLAUDE.md", async () => {
-    const base = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
-    const optional = {
-      ...base,
-      repository: "optional" as const,
-      project_settings: { claude_md: true },
-    };
-    const general = {
-      ...base,
-      tools: ["Write"],
-      models: ["claude-opus-5-5"],
-      repository: "none" as const,
-    };
-    const binding = {
-      sessionId: scope.session_id,
-      attemptId: "att_1",
-      leaseEpoch: 1,
-      executionGeneration: 1,
-      authRevision: 0,
-      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-      leaseRemainingMs: 29_950,
-      profileId: "general",
-      profileFingerprint: profileFingerprint(general),
-      model: "claude-sonnet-5" as string | null,
-      unmetered: false,
-      ownerScope: "owner-a",
-      repository: null,
-      restore: null,
-      restoreProfiles: [
-        {
-          profileId: "optional",
-          profileFingerprint: profileFingerprint(optional),
-          model: "claude-sonnet-5" as string | null,
-        },
-      ],
-      costUsd: 0,
-      providerTokens: 0,
-    };
-    const runnable: ClaimInput["runnable"][] = [];
+    const binding = testBinding({
+      spec: testSpecSource({ project_settings: { claude_md: true } }),
+    });
     const issued: ClaimInput["egress"][] = [];
-    const claimWith = (bound: typeof binding) =>
-      createWorkerGateway({
-        work: work({
-          claimAtomic: async (input) => {
-            runnable.push(input.runnable);
-            issued.push(input.egress);
-            return { outcome: "claimed", binding: bound };
-          },
-        }),
-        catalog: withSeededInstallation({
-          profiles: { required: base, optional, general },
-          repositories: {
-            app: {
-              url: "https://example.invalid/app.git",
-              branch: "main",
-              auth: { kind: "github_app", registered: true } as const,
-            },
-          },
-        }),
-        checkpoints: acceptAllCheckpoints,
-        options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
-          leaseTtlMs: 30_000,
+    const claimed = await createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          issued.push(input.egress);
+          return { outcome: "claimed", binding };
         },
-      }).bootstrapClaim(
-        { kind: "bootstrap" },
-        {
-          execution_id: "e",
-          execution_generation: 1,
-          credential: { kind: "launch_nonce", nonce: "n" },
-        },
-      );
-    const claimed = await claimWith(binding);
-    expect(claimed.workspace).toEqual({ repository: null });
-    // Only the route token a mid-session attachment fetches with.
-    const { repository_access, ...rest } = claimed;
-    expect(repository_access?.token).toStartWith("wer_");
-    expect(JSON.stringify(rest)).not.toContain("wer_");
-    expect(claimed.runtime_config.tools).toEqual(["Write"]);
-    expect(withoutAuto(claimed.restore_runtime_configs)).toHaveLength(1);
-    expect(
-      withoutAuto(claimed.restore_runtime_configs)?.[0],
-    ).not.toHaveProperty("project_settings");
-    expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
-    expect(withoutPolicyPairs(runnable[0] ?? [])).toEqual([
-      ...["required", "optional"].flatMap((profileId) =>
-        [0, 1].map(() =>
-          expect.objectContaining({ profileId, repositoryId: "app" }),
-        ),
-      ),
-      ...profilePins(optional, []).map((pin) => ({
-        profileId: "optional",
-        profileFingerprint: pin.fingerprint,
-        model: pin.model,
-        repositoryId: null,
-      })),
-      ...profilePins(general, []).map((pin) => ({
-        profileId: "general",
-        profileFingerprint: pin.fingerprint,
-        model: pin.model,
-        repositoryId: null,
-      })),
-    ]);
-    expect(
-      withoutPolicyPairs(runnable[0] ?? [])
-        .filter((pair) => pair.profileId === "general")
-        .map((pair) => pair.model),
-    ).toEqual(["claude-sonnet-5", "claude-opus-5-5", null, null]);
-    // Each profile also gets the pairs an `agent` session is claimed by,
-    // which no `release` session matches.
-    const policy = (runnable[0] ?? []).filter((pair) => pair.policy === true);
-    expect(new Set(policy.map((pair) => pair.profileId))).toEqual(
-      new Set(["required", "optional", "general"]),
+      }),
+      catalog: testCatalog(),
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    }).bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+      },
     );
-    expect(policy.every((pair) => pair.workspaceScoped === false)).toBe(true);
+    expect(claimed.workspace).toEqual({ repository: null });
+    expect(claimed.runtime_config).not.toHaveProperty("project_settings");
+    expect(claimed.repository_access?.token).toStartWith("wer_");
+    expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
     const [egress] = issued;
     if (!egress) throw new Error("claim was not asked to issue egress tokens");
-    expect(
-      egress.bindingsOf({
-        id: "s-1",
-        profileId: "general",
-        profileFingerprint: profileFingerprint(general),
-        model: "claude-sonnet-5",
-        repositoryMode: "none",
-        githubPolicySource: "release",
-        repositoryId: null,
-      }),
-    ).toEqual({
-      provider: profileFingerprint(general),
-      repository: null,
+    const session = {
+      id: "s-1",
+      connectionId: TEST_CONNECTION_ID,
+      specDigest: binding.specDigest,
+      model: "claude-sonnet-5",
+      repositoryMode: "none" as const,
+      githubPolicySource: "release",
+      repositoryId: null,
+    };
+    // The provider token is held to the session's spec; the repository
+    // token only reaches what the session attaches.
+    expect(egress.bindingsOf(session)).toEqual({
+      provider: binding.specDigest,
+      repository: "attached-only",
       object_store: "sessions/s-1/",
       packages: "public",
     });
-    // Under the agent's settings the tools stay attached, so even a profile
-    // with no repository keeps the token for what the session attaches.
-    expect(
-      egress.bindingsOf({
-        id: "s-1",
-        profileId: "general",
-        profileFingerprint: profileFingerprint(general),
-        model: "claude-sonnet-5",
-        repositoryMode: "none",
-        githubPolicySource: "agent",
-        repositoryId: null,
-      }).repository,
-    ).toBe("attached-only");
-    // An optional session without a repository still gets a repository
-    // token, for the ones it attaches.
-    expect(
-      egress.bindingsOf({
-        id: "s-1",
-        profileId: "optional",
-        profileFingerprint: profileFingerprint(optional),
-        model: "claude-sonnet-5",
-        repositoryMode: "none",
-        githubPolicySource: "release",
-        repositoryId: null,
-      }).repository,
-    ).toBe("attached-only");
-    const optionalClaim = await claimWith({
-      ...binding,
-      profileId: "optional",
-      profileFingerprint: profileFingerprint(optional),
-      restoreProfiles: [],
-    });
-    expect(optionalClaim.runtime_config).not.toHaveProperty("project_settings");
-    expect(optionalClaim.workspace).toEqual({ repository: null });
-
-    const opus = await claimWith({ ...binding, model: "claude-opus-5-5" });
-    expect(opus.runtime_config.model).toBe("claude-opus-5-5");
-    const v1Opus = profilePins(general, [])[3]?.fingerprint;
-    if (!v1Opus) throw new Error("no version 1 pin for the second model");
-    const legacy = await claimWith({
-      ...binding,
-      profileFingerprint: v1Opus,
-      model: null,
-      restoreProfiles: [
-        { profileId: "general", profileFingerprint: v1Opus, model: null },
-      ],
-    });
-    expect(legacy.runtime_config.model).toBe("claude-opus-5-5");
-    expect(withoutAuto(legacy.restore_runtime_configs)).toBeUndefined();
-    expect(
-      issued.at(-1)?.bindingsOf({
-        id: "s-1",
-        profileId: "general",
-        profileFingerprint: v1Opus,
-        model: null,
-        repositoryMode: "none",
-        githubPolicySource: "release",
-        repositoryId: null,
-      }).provider,
-    ).toBe(v1Opus);
-    await expect(
-      claimWith({ ...binding, model: "claude-fable-5-1" }),
-    ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
-
-    // A checkpoint from before the built-in server, under the profile the
-    // session runs now, survives the cap however many others there are.
-    const withGitHub = {
-      ...binding,
-      githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
-      restoreProfiles: Array.from({ length: 16 }, () => ({
-        profileId: "optional",
-        profileFingerprint: profileFingerprint(optional),
-        model: "claude-sonnet-5" as string | null,
-      })),
-    };
-    const restored = (await claimWith(withGitHub)).restore_runtime_configs;
-    expect(restored).toHaveLength(16);
-    expect(
-      withoutAuto(restored)
-        ?.slice(0, 3)
-        .map((config) => [
-          config.mcp_servers?.map((server) => server.name),
-          config.tools,
-        ]),
-    ).toEqual([
-      [undefined, ["Write"]],
-      [["github"], ["Read", "mcp__github__request_push"]],
-      [undefined, ["Read"]],
-    ]);
+    expect(() =>
+      egress.bindingsOf({ ...session, connectionId: "gone" }),
+    ).toThrow("no runnable connection");
   });
 
   test("a claim needing an MCP server this host's catalog does not hold binds nothing and is retried", async () => {
-    const general = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "plan" as const,
-      repository: "none" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
     const mcpOf = (server: string) => ({
       releaseId: "rel-1",
       server,
@@ -1986,8 +1532,8 @@ describe("WorkerGateway", () => {
     });
     const session = (server: string) => ({
       id: "s-1",
-      profileId: "general",
-      profileFingerprint: profileFingerprint(general),
+      connectionId: TEST_CONNECTION_ID,
+      specDigest: "sha256:spec",
       model: "claude-sonnet-5",
       repositoryMode: "none" as const,
       githubPolicySource: "release",
@@ -1995,10 +1541,7 @@ describe("WorkerGateway", () => {
       mcp: mcpOf(server),
     });
     const catalog = {
-      ...withSeededInstallation({
-        profiles: { general },
-        repositories: {},
-      }),
+      ...testCatalog(),
       mcp_servers: {
         kept: {
           url: "https://mcp.example.invalid/kept",
@@ -2024,7 +1567,7 @@ describe("WorkerGateway", () => {
           catalog.mcp_servers = {};
           return {
             outcome: "claimed",
-            binding: {
+            binding: testBinding({
               sessionId: scope.session_id,
               attemptId: "att_1",
               leaseEpoch: 1,
@@ -2032,18 +1575,15 @@ describe("WorkerGateway", () => {
               authRevision: 0,
               leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
               leaseRemainingMs: 29_950,
-              profileId: "general",
-              profileFingerprint: profileFingerprint(general),
               model: "claude-sonnet-5",
               unmetered: false,
               ownerScope: "owner-a",
               repository: null,
               restore: null,
-              restoreProfiles: [],
               costUsd: 0,
               providerTokens: 0,
               mcp: mcpOf("kept"),
-            },
+            }),
           };
         },
       }),
@@ -2081,300 +1621,6 @@ describe("WorkerGateway", () => {
     expect(
       claimed.runtime_config.mcp_servers?.map((server) => server.name),
     ).toEqual(["kept"]);
-  });
-
-  test("a claim runs its release's tools and offers the profile's for restore, and the switched-off claim offers them back", async () => {
-    const current = {
-      runtime_kind: "claude_agent_sdk" as const,
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      permission_mode: "plan" as const,
-      repository: "none" as const,
-      provider: {
-        kind: "anthropic" as const,
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key" as const,
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    };
-    const earlier = { ...current, tools: ["Read", "Bash"] };
-    const wide = { ...current, model: "claude-opus-5-5" };
-    const binding: WorkerBinding = {
-      sessionId: scope.session_id,
-      attemptId: "att_1",
-      leaseEpoch: 1,
-      executionGeneration: 1,
-      authRevision: 0,
-      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-      leaseRemainingMs: 29_950,
-      profileId: "current",
-      profileFingerprint: profileFingerprint(current),
-      model: "claude-sonnet-5",
-      unmetered: false,
-      ownerScope: "owner-a",
-      repository: null,
-      restore: null,
-      restoreProfiles: [
-        {
-          profileId: "earlier",
-          profileFingerprint: profileFingerprint(earlier),
-          model: "claude-sonnet-5",
-        },
-      ],
-      costUsd: 0,
-      providerTokens: 0,
-      githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
-      // Forbids Edit; Glob is not the profile's and never runs.
-      releaseTools: ["Read", "Bash", "Glob"],
-    };
-    const claimWith = (bound: WorkerBinding, runReleaseTools?: boolean) =>
-      createWorkerGateway({
-        work: work({
-          claimAtomic: async () => ({ outcome: "claimed", binding: bound }),
-        }),
-        catalog: withSeededInstallation({
-          profiles: { current, earlier, wide },
-          repositories: {},
-        }),
-        checkpoints: acceptAllCheckpoints,
-        options: {
-          sessionCostLimitUsd: 1_000,
-          sessionTokenLimit: null,
-          leaseTtlMs: 30_000,
-          ...(runReleaseTools === undefined ? {} : { runReleaseTools }),
-        },
-      }).bootstrapClaim(
-        { kind: "bootstrap" },
-        {
-          execution_id: "e",
-          execution_generation: 1,
-          credential: { kind: "launch_nonce", nonce: "n" },
-        },
-      );
-    // What the fingerprint reads of a config; the tokens differ per claim.
-    const shape = (config: RuntimeConfig) => ({
-      model: config.model,
-      tools: config.tools,
-      mcp: config.mcp_servers?.map((server) => server.name) ?? [],
-    });
-    const github = "mcp__github__request_push";
-
-    const claimed = await claimWith(binding);
-    const withoutRelease = await claimWith({ ...binding, releaseTools: null });
-    const unbound = { ...binding };
-    delete unbound.releaseTools;
-    // Without a release the profile's tools run, as before the switch.
-    expect(withoutRelease.runtime_config.tools).toEqual([
-      "Read",
-      "Edit",
-      "Bash",
-      github,
-    ]);
-    expect(shape((await claimWith(unbound)).runtime_config)).toEqual(
-      shape(withoutRelease.runtime_config),
-    );
-    // With one, the release's tools within the profile run.
-    expect(claimed.runtime_config.tools).toEqual(["Read", "Bash", github]);
-    expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
-    // Newest first, every profile list before the release's: the current
-    // profile's (with and before the built-in server), the earlier
-    // profile's, then the release's as checkpoints from before the server.
-    expect(withoutAuto(claimed.restore_runtime_configs)?.map(shape)).toEqual([
-      {
-        model: "claude-sonnet-5",
-        tools: ["Read", "Edit", "Bash", github],
-        mcp: ["github"],
-      },
-      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
-      {
-        model: "claude-sonnet-5",
-        tools: ["Read", "Bash", github],
-        mcp: ["github"],
-      },
-      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
-      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
-    ]);
-
-    // Switched off (the rollback floor's claim), the profile's tools run and
-    // the release's are offered: a checkpoint either makes resumes on the
-    // other.
-    const off = await claimWith(binding, false);
-    expect(shape(off.runtime_config)).toEqual(
-      shape(withoutRelease.runtime_config),
-    );
-    expect(withoutAuto(off.restore_runtime_configs)?.map(shape)).toEqual([
-      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
-      {
-        model: "claude-sonnet-5",
-        tools: ["Read", "Bash", github],
-        mcp: ["github"],
-      },
-      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
-      {
-        model: "claude-sonnet-5",
-        tools: ["Read", "Bash", github],
-        mcp: ["github"],
-      },
-      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
-    ]);
-    // The earlier profile allows only the release's tools: one list.
-    expect(
-      withoutAuto(withoutRelease.restore_runtime_configs)?.map(shape),
-    ).toEqual([
-      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
-      {
-        model: "claude-sonnet-5",
-        tools: ["Read", "Bash", github],
-        mcp: ["github"],
-      },
-      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
-    ]);
-
-    expect(off.restore_runtime_configs?.map(shape)).toContainEqual(
-      shape(claimed.runtime_config),
-    );
-    expect(claimed.restore_runtime_configs?.map(shape)).toContainEqual(
-      shape(off.runtime_config),
-    );
-    // `[]` is a release that allows no built-in tool, not one missing.
-    const none = await claimWith({ ...binding, releaseTools: [] });
-    expect(none.runtime_config.tools).toEqual([github]);
-
-    // A `release` tools source runs the release's effective tools as stored:
-    // Glob is not the profile's and Edit is dropped, neither by intersection.
-    const bySource = await claimWith({
-      ...binding,
-      runtimeToolsSource: "release",
-      releaseEffectiveTools: ["Glob", "Read"],
-    });
-    expect(bySource.runtime_config.tools).toEqual(["Glob", "Read", github]);
-    expect(bootstrapClaimResponseSchema.safeParse(bySource).success).toBe(true);
-    // The profile's list stays offered, so a checkpoint made under it resumes.
-    expect(
-      withoutAuto(bySource.restore_runtime_configs)?.map(shape),
-    ).toContainEqual({
-      model: "claude-sonnet-5",
-      tools: ["Read", "Edit", "Bash"],
-      mcp: [],
-    });
-    // The effective list wins even when it keeps every profile tool.
-    const kept = await claimWith({
-      ...binding,
-      runtimeToolsSource: "release",
-      releaseEffectiveTools: ["Read", "Edit", "Bash"],
-    });
-    expect(kept.runtime_config.tools).toEqual(["Read", "Edit", "Bash", github]);
-    // Before the column (or as `profile`) a stray effective list changes
-    // nothing: the claim is the one the snapshot rules gave, restores too.
-    for (const legacy of [
-      { runtimeToolsSource: "profile" as const },
-      {
-        runtimeToolsSource: "profile" as const,
-        releaseEffectiveTools: ["Glob"],
-      },
-    ]) {
-      const same = await claimWith({ ...binding, ...legacy });
-      expect(same.runtime_config.tools).toEqual(claimed.runtime_config.tools);
-      expect(same.restore_runtime_configs?.map(shape)).toEqual(
-        claimed.restore_runtime_configs?.map(shape),
-      );
-    }
-    // `release` with nothing readable allows no built-in tool.
-    expect(
-      (
-        await claimWith({
-          ...binding,
-          runtimeToolsSource: "release",
-          releaseEffectiveTools: [],
-        })
-      ).runtime_config.tools,
-    ).toEqual([github]);
-
-    const configsOf = (claim: typeof claimed) => [
-      claim.runtime_config,
-      ...(claim.restore_runtime_configs ?? []),
-    ];
-    // A card's retired agent_instructions never reaches a config.
-    expect(
-      configsOf(claimed).some((config) => "agent_instructions" in config),
-    ).toBe(false);
-
-    // The row's platform prompt rides the same way: on every config, run or
-    // restore, so no restore candidate of a revision 1 session lacks it; a
-    // revision 0 row adds the field nowhere.
-    const prompt: PlatformPrompt = {
-      prompt_revision: 1,
-      agent_identity: { name: "code-review", description: null },
-      origin_surface: "slack_channel",
-      language: "ko",
-      repository: "acme/app",
-    };
-    for (const runReleaseTools of [true, false]) {
-      const prompted = await claimWith(
-        { ...binding, platformPrompt: prompt },
-        runReleaseTools,
-      );
-      expect(bootstrapClaimResponseSchema.safeParse(prompted).success).toBe(
-        true,
-      );
-      expect(configsOf(prompted).length).toBeGreaterThan(1);
-      expect(
-        configsOf(prompted).map((config) => config.platform_prompt),
-      ).toEqual(configsOf(prompted).map(() => prompt));
-      expect(
-        configsOf(prompted).map(({ platform_prompt: _, ...config }) =>
-          shape(config),
-        ),
-      ).toEqual(
-        configsOf(await claimWith(binding, runReleaseTools)).map(shape),
-      );
-    }
-    for (const without of [{ ...binding, platformPrompt: null }, binding]) {
-      expect(
-        configsOf(await claimWith(without)).some(
-          (config) => "platform_prompt" in config,
-        ),
-      ).toBe(false);
-    }
-
-    // At the cap, the profile lists go first: every profile list a claim
-    // offered before release lists existed is still offered, either way.
-    const many: WorkerBinding = {
-      ...binding,
-      githubMcp: null,
-      restoreProfiles: Array.from({ length: 8 }, () => ({
-        profileId: "wide",
-        profileFingerprint: profileFingerprint(wide),
-        model: "claude-opus-5-5",
-      })),
-    };
-    const full = ["Read", "Edit", "Bash"];
-    const narrow = ["Read", "Bash"];
-    const crowded = (await claimWith(many, false)).restore_runtime_configs;
-    // The current profile's own `auto` variant (a checkpoint made while its
-    // connection converted the mode) takes the first profile-list slot and
-    // one release-list slot; the eight earlier profile lists all stay.
-    expect(crowded?.map((config) => config.tools)).toEqual([
-      ...Array.from({ length: 9 }, () => full),
-      ...Array.from({ length: 7 }, () => narrow),
-    ]);
-    expect(
-      crowded?.filter((config) => config.model === "claude-opus-5-5"),
-    ).toHaveLength(13);
-    expect(
-      withoutAuto(crowded)?.filter((c) => c.tools.length === 3),
-    ).toHaveLength(8);
-    const crowdedOn = (await claimWith(many)).restore_runtime_configs;
-    // The release's tools run, so the current profile's list is offered in
-    // its stored mode and its `auto` variant: two slots before the eight.
-    expect(crowdedOn?.map((config) => config.tools)).toEqual([
-      ...Array.from({ length: 10 }, () => full),
-      ...Array.from({ length: 6 }, () => narrow),
-    ]);
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {
@@ -2440,7 +1686,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       checkpointProtocol: {
         async requestCheckpoint(input) {
@@ -2538,7 +1784,7 @@ describe("WorkerGateway", () => {
               : { outcome: "stale_epoch" };
           },
         }),
-        catalog: { profiles: {}, repositories: {} },
+        catalog: { connections: {}, repositories: {} },
         checkpoints: acceptAllCheckpoints,
         ...(protocol === undefined ? {} : { checkpointProtocol: protocol }),
         options: {
@@ -2594,7 +1840,7 @@ describe("WorkerGateway", () => {
           return { outcome: "stale_epoch" };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       checkpointProtocol: {
         requestCheckpoint: unimplemented,
@@ -2659,7 +1905,7 @@ describe("WorkerGateway", () => {
           return { outcome: "ok", failed: false };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       checkpointProtocol: {
         requestCheckpoint: unimplemented,
@@ -2708,7 +1954,7 @@ describe("WorkerGateway", () => {
           return { outcome: "ok", failed: resuming };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       checkpointProtocol: {
         requestCheckpoint: unimplemented,
@@ -2998,7 +2244,7 @@ describe("WorkerGateway", () => {
           return { outcome: "stale_epoch" };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       checkpointProtocol: {
         requestCheckpoint: unimplemented,
@@ -3065,7 +2311,7 @@ describe("WorkerGateway", () => {
           };
         },
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: {
         async verify() {
           throw outage;
@@ -3190,7 +2436,7 @@ describe("heartbeat control_pending", () => {
           authRevision: 0,
         }),
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       pending: {
         hasUndelivered: async () => {
@@ -3217,12 +2463,7 @@ describe("heartbeat control_pending", () => {
 });
 
 describe("authorizeEgress", () => {
-  const profile: CatalogProfile = {
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "claude-sonnet-5",
-    tools: ["Read"],
-    permission_mode: "default",
+  const provider = testConnection({
     provider: {
       kind: "litellm",
       endpoint: "https://litellm.invalid/anthropic",
@@ -3232,7 +2473,7 @@ describe("authorizeEgress", () => {
         ref: { value_env: "PROVIDER_KEY" },
       },
     },
-  };
+  });
   const repository: CatalogRepository = {
     url: "https://git.invalid/team/app.git",
     branch: "main",
@@ -3243,18 +2484,19 @@ describe("authorizeEgress", () => {
     sessionId: scope.session_id,
     attemptId: "att_1",
     binding,
-    profileId: "p",
+    connectionId: TEST_CONNECTION_ID,
     githubPolicySource: "release",
-    model: profile.model,
+    model: "claude-sonnet-5",
     costUsd,
     providerTokens: 0,
     repository: { id: "app", url: repository.url, branch: "main" },
   });
+  const SPEC = "sha256:spec";
 
   function authorizer(
     answer: EgressAuthorization,
-    catalog: SessionCatalog = {
-      profiles: { p: profile },
+    catalog: Partial<SessionCatalog> = {
+      connections: { [TEST_CONNECTION_ID]: provider },
       repositories: { app: repository },
     },
   ) {
@@ -3276,7 +2518,7 @@ describe("authorizeEgress", () => {
           return { recorded: true };
         },
       }),
-      catalog: withSeededInstallation(catalog),
+      catalog: testCatalog(catalog),
       github: {
         grant: async () =>
           ({
@@ -3297,8 +2539,7 @@ describe("authorizeEgress", () => {
   }
 
   test("a model taken off the list is cut with the reason written to the session, other moves are not", async () => {
-    const binding = profileFingerprint(profile);
-    const retired = { ...granted(binding), model: "retired-model" };
+    const retired = { ...granted(SPEC), model: "retired-model" };
     const cut = authorizer(retired);
     await expect(
       cut.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
@@ -3311,9 +2552,12 @@ describe("authorizeEgress", () => {
         cause: "model_removed",
       },
     ]);
-    // The profile (or its connection) is gone: the same note, naming the
-    // model the session was running, with its own cause.
-    const gone = authorizer(retired, { profiles: {}, repositories: {} });
+    // The connection is gone: the same note, naming the model the session
+    // was running, with its own cause.
+    const gone = authorizer(granted(SPEC), {
+      connections: {},
+      repositories: {},
+    });
     await expect(
       gone.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
     ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
@@ -3321,47 +2565,14 @@ describe("authorizeEgress", () => {
       {
         sessionId: scope.session_id,
         attemptId: "att_1",
-        model: "retired-model",
-        cause: "profile_removed",
+        model: "claude-sonnet-5",
+        cause: "connection_removed",
       },
     ]);
     // Still on the list: nothing to say.
-    const kept = authorizer(granted(binding));
+    const kept = authorizer(granted(SPEC));
     await kept.instance.authorizeEgress({ token: "tok", purpose: "provider" });
     expect(kept.cuts).toEqual([]);
-    // The profile itself changed: the catalog's own cut, no model note.
-    const changed = authorizer(granted(binding), {
-      profiles: {
-        p: {
-          ...profile,
-          provider: { ...profile.provider, endpoint: "https://x.invalid" },
-        },
-      },
-      repositories: { app: repository },
-    });
-    await expect(
-      changed.instance.authorizeEgress({ token: "tok", purpose: "provider" }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(changed.cuts).toEqual([]);
-    // A workspace version still stored whose base profile moved on does not
-    // run, but nothing was deleted: no "profile removed" note either.
-    const baseMoved = authorizer(retired, {
-      connections: {},
-      repositories: { app: repository },
-      workspace_profiles: {
-        records: new Map([
-          ["p", { id: "p", base_profile_id: "coding" } as never],
-        ]),
-        refresh: async () => {},
-      },
-    });
-    await expect(
-      baseMoved.instance.authorizeEgress({
-        token: "tok",
-        purpose: "provider",
-      }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(baseMoved.cuts).toEqual([]);
   });
 
   test("a note that cannot be written is reported and the cut stays a 409", async () => {
@@ -3370,17 +2581,14 @@ describe("authorizeEgress", () => {
     const instance = createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async () => ({
-          ...granted(profileFingerprint(profile)),
+          ...granted(SPEC),
           model: "retired-model",
         }),
         recordModelCutAtomic: async () => {
           throw failure;
         },
       }),
-      catalog: withSeededInstallation({
-        profiles: { p: profile },
-        repositories: { app: repository },
-      }),
+      catalog: testCatalog({ repositories: { app: repository } }),
       checkpoints: acceptAllCheckpoints,
       onModelCutError: (error, cut) =>
         reported.push({ error, sessionId: cut.sessionId }),
@@ -3396,10 +2604,8 @@ describe("authorizeEgress", () => {
     expect(reported).toEqual([{ error: failure, sessionId: scope.session_id }]);
   });
 
-  test("a provider token is answered with the endpoint and the key to inject", async () => {
-    const { asked, instance } = authorizer(
-      granted(profileFingerprint(profile)),
-    );
+  test("a provider token is answered with the connection's endpoint and the key to inject", async () => {
+    const { asked, instance } = authorizer(granted(SPEC));
     const grant = await instance.authorizeEgress({
       token: "wep_x",
       purpose: "provider",
@@ -3415,21 +2621,20 @@ describe("authorizeEgress", () => {
         headers: [["authorization", "Bearer provider-key"]],
       },
     });
-    const apiKey: CatalogProfile = {
-      ...profile,
-      provider: {
-        kind: "anthropic",
-        endpoint: "https://api.anthropic.invalid",
-        auth: {
-          kind: "api_key",
-          value: "anthropic-key",
-          ref: { value_env: "K" },
-        },
+    const anthropic = authorizer(granted(SPEC), {
+      connections: {
+        [TEST_CONNECTION_ID]: testConnection({
+          provider: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: {
+              kind: "api_key",
+              value: "anthropic-key",
+              ref: { value_env: "K" },
+            },
+          },
+        }),
       },
-    };
-    const anthropic = authorizer(granted(profileFingerprint(apiKey)), {
-      profiles: { p: apiKey },
-      repositories: { app: repository },
     });
     expect(
       (
@@ -3459,13 +2664,12 @@ describe("authorizeEgress", () => {
   });
 
   test("a session at its cost limit gets no provider grant, and still its repository", async () => {
-    const binding = profileFingerprint(profile);
     const under = await authorizer(
-      granted(binding, 999.99),
+      granted(SPEC, 999.99),
     ).instance.authorizeEgress({ token: "tok", purpose: "provider" });
     expect(under.session_id).toBe(scope.session_id);
     await expect(
-      authorizer(granted(binding, 1_000)).instance.authorizeEgress({
+      authorizer(granted(SPEC, 1_000)).instance.authorizeEgress({
         token: "tok",
         purpose: "provider",
       }),
@@ -3477,30 +2681,17 @@ describe("authorizeEgress", () => {
     expect(repositoryGrant.session_id).toBe(scope.session_id);
   });
 
-  test("a catalog that moved since the claim is refused, a rotated value is not", async () => {
-    const binding = profileFingerprint(profile);
-    const moved: CatalogProfile = {
-      ...profile,
-      provider: { ...profile.provider, endpoint: "https://elsewhere.invalid" },
-    };
-    await expect(
-      authorizer(granted(binding), {
-        profiles: { p: moved },
-        repositories: { app: repository },
-      }).instance.authorizeEgress({ token: "wep_x", purpose: "provider" }),
-    ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
-    const rotated: CatalogProfile = {
-      ...profile,
+  test("a rotated value is used at once; a repository that moved since the claim is refused", async () => {
+    const rotated = testConnection({
       provider: {
-        ...profile.provider,
-        auth: { ...profile.provider.auth, value: "rotated-key" },
-      },
-    } as CatalogProfile;
+        ...provider.provider,
+        auth: { ...provider.provider.auth, value: "rotated-key" },
+      } as typeof provider.provider,
+    });
     expect(
       (
-        await authorizer(granted(binding), {
-          profiles: { p: rotated },
-          repositories: { app: repository },
+        await authorizer(granted(SPEC), {
+          connections: { [TEST_CONNECTION_ID]: rotated },
         }).instance.authorizeEgress({ token: "wep_x", purpose: "provider" })
       ).upstream.headers,
     ).toEqual([["authorization", "Bearer rotated-key"]]);
@@ -3510,14 +2701,12 @@ describe("authorizeEgress", () => {
       // Re-pointed at another URL, or another branch.
       { app: { ...repository, url: "https://git.invalid/other.git" } },
       { app: { ...repository, branch: "dev" } },
-      // The pair is no longer allowed.
-      { app: { ...repository, profiles: ["someone-else"] } },
       // Gone.
       {},
     ]) {
       await expect(
         authorizer(granted(repoBinding), {
-          profiles: { p: profile },
+          connections: { [TEST_CONNECTION_ID]: provider },
           repositories,
         }).instance.authorizeEgress({ token: "wer_x", purpose: "repository" }),
       ).rejects.toMatchObject({ status: 409 });
@@ -3526,22 +2715,6 @@ describe("authorizeEgress", () => {
 });
 
 describe("authorizeEgress through a forge", () => {
-  const profile: CatalogProfile = {
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "claude-sonnet-5",
-    tools: ["Read"],
-    permission_mode: "default",
-    provider: {
-      kind: "anthropic",
-      endpoint: "https://api.anthropic.invalid",
-      auth: {
-        kind: "api_key",
-        value: "anthropic-key",
-        ref: { value_env: "K" },
-      },
-    },
-  };
   const app: CatalogRepository = {
     url: "https://github.com/acme/app.git",
     branch: "main",
@@ -3568,16 +2741,15 @@ describe("authorizeEgress through a forge", () => {
           sessionId: scope.session_id,
           attemptId: "att_1",
           binding: repositoryBinding("app", repository),
-          profileId: "p",
-          model: profile.model,
+          connectionId: TEST_CONNECTION_ID,
+          model: "claude-sonnet-5",
           githubPolicySource: source,
           costUsd: 0,
           providerTokens: 0,
           repository: { id: "app", url: repository.url, branch: "main" },
         }),
       }),
-      catalog: withSeededInstallation({
-        profiles: { p: profile },
+      catalog: testCatalog({
         repositories: { app: repository, ...repositories },
       }),
       checkpoints: acceptAllCheckpoints,
@@ -3668,41 +2840,6 @@ describe("authorizeEgress through a forge", () => {
     }
   });
 
-  test("the session's own repository off the profile's list: moved on a release, the gate's call on an agent's", async () => {
-    const offProfile: CatalogRepository = { ...app, profiles: ["elsewhere"] };
-    const github = gate(async () => ({
-      username: "x-access-token",
-      password: "from-gate",
-    }));
-    await expect(
-      gateway(offProfile, github).authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-      }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(github.asked).toEqual([]);
-    await gateway(offProfile, github, { source: "agent" }).authorizeEgress({
-      token: "tok",
-      purpose: "repository",
-    });
-    expect(github.asked).toEqual([
-      { sessionId: scope.session_id, purpose: "clone" },
-    ]);
-  });
-
-  test("a stored source this image does not know reads as the agent's", async () => {
-    const offProfile: CatalogRepository = { ...app, profiles: ["elsewhere"] };
-    const github = gate(async () => ({
-      username: "x-access-token",
-      password: "from-gate",
-    }));
-    await gateway(offProfile, github, { source: "later" }).authorizeEgress({
-      token: "tok",
-      purpose: "repository",
-    });
-    expect(github.asked).toHaveLength(1);
-  });
-
   test("another repository's route asks the gate for that repository and goes to its url", async () => {
     const docs: CatalogRepository = {
       ...app,
@@ -3763,23 +2900,6 @@ describe("authorizeEgress through a forge", () => {
 });
 
 describe("unmetered sessions", () => {
-  const local: CatalogProfile = {
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "gemma4-local",
-    tools: ["Read"],
-    permission_mode: "default",
-    provider: {
-      kind: "litellm",
-      endpoint: "http://litellm:4000",
-      auth: {
-        kind: "bearer",
-        value: "master-key",
-        ref: { value_env: "LITELLM_MASTER_KEY" },
-      },
-      billing: "none",
-    },
-  };
   const usage = {
     // A name the table knows, so a billed session prices it from the table.
     model: "claude-sonnet-5",
@@ -3797,7 +2917,7 @@ describe("unmetered sessions", () => {
   };
 
   // The catalog is empty on purpose: a replica that does not know the
-  // session's profile prices its calls from the row all the same.
+  // session's connection prices its calls from the row all the same.
   function priced(unmetered: boolean, reported = usage) {
     const instance = createWorkerGateway({
       work: work({
@@ -3806,7 +2926,7 @@ describe("unmetered sessions", () => {
           ...input.priceFor({ unmetered }),
         }),
       }),
-      catalog: { profiles: {}, repositories: {} },
+      catalog: { connections: {}, repositories: {} },
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1,
@@ -3843,7 +2963,7 @@ describe("unmetered sessions", () => {
         work: work({
           claimAtomic: async () => ({
             outcome: "claimed",
-            binding: {
+            binding: testBinding({
               sessionId: scope.session_id,
               attemptId: "att_1",
               leaseEpoch: 1,
@@ -3851,9 +2971,6 @@ describe("unmetered sessions", () => {
               authRevision: 0,
               leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
               leaseRemainingMs: 30_000,
-              profileId: "local",
-              profileFingerprint: null,
-              model: null,
               unmetered,
               ownerScope: "owner-a",
               repository: {
@@ -3862,14 +2979,12 @@ describe("unmetered sessions", () => {
                 branch: "main",
               },
               restore: null,
-              restoreProfiles: [],
               costUsd: 0.25,
               providerTokens: 0,
-            },
+            }),
           }),
         }),
-        catalog: withSeededInstallation({
-          profiles: { local },
+        catalog: testCatalog({
           repositories: {
             app: {
               url: "https://example.invalid/app.git",
@@ -3902,34 +3017,12 @@ describe("unmetered sessions", () => {
 
 describe("egress and claim through the real GitHub gate", () => {
   // The release lists docs and tools; the session attached docs alone.
-  const profile: CatalogProfile = {
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    model: "claude-sonnet-5",
-    tools: ["Read"],
-    permission_mode: "default",
-    repository: "optional",
-    provider: {
-      kind: "anthropic",
-      endpoint: "https://api.anthropic.invalid",
-      auth: {
-        kind: "api_key",
-        value: "anthropic-key",
-        ref: { value_env: "K" },
-      },
-    },
-  };
   const onGitHub = (name: string): CatalogRepository => ({
     url: `https://github.com/acme/${name}.git`,
     branch: "main",
     auth: { kind: "github_app", registered: true },
   });
-  const catalog = withSeededInstallation({
-    // `scratch` runs without repositories: the catalog lets it reach none.
-    profiles: {
-      p: profile,
-      scratch: { ...profile, repository: "none" as const },
-    },
+  const catalog = testCatalog({
     repositories: {
       app: onGitHub("app"),
       docs: onGitHub("docs"),
@@ -3939,8 +3032,8 @@ describe("egress and claim through the real GitHub gate", () => {
   const binding = {
     sessionId: scope.session_id,
     attemptId: "att_1",
-    profileId: "p",
-    model: profile.model,
+    connectionId: TEST_CONNECTION_ID,
+    model: "claude-sonnet-5",
     githubPolicySource: "release",
     costUsd: 0,
     providerTokens: 0,
@@ -3948,16 +3041,14 @@ describe("egress and claim through the real GitHub gate", () => {
   };
 
   // `repositoryless`: started without a repository, attaching docs alone
-  // unless `attached` says otherwise, on the optional profile unless
-  // `profileId` names another.
+  // unless `attached` says otherwise.
   function wired({
     repositoryless = false,
-    profileId = "p",
     attached = ["docs"] as string[] | null,
   } = {}) {
     const own = repositoryless
-      ? { repository: null, profileId }
-      : { repository: binding.repository, profileId };
+      ? { repository: null }
+      : { repository: binding.repository };
     const receipts: GitHubGateReceipt[] = [];
     const connection: GitHubConnection = {
       kind: "app",
@@ -3990,7 +3081,6 @@ describe("egress and claim through the real GitHub gate", () => {
           ownerId: "owner-a",
           sessionId,
           repositoryId: repositoryless ? null : "app",
-          profileId,
           attachedRepositoryIds: attached,
           repository: repositoryless
             ? null
@@ -4005,7 +3095,10 @@ describe("egress and claim through the real GitHub gate", () => {
             actions_allow: [],
           }),
           ceiling: GITHUB_CEILING_NONE,
-          repositoryCeiling: null,
+          repositoryCeiling: {
+            repository_ids: ["app", "docs", "tools"],
+            github_app_repositories: "listed",
+          },
           ceilingRevision: 0,
         }),
         findDispatch: async () => null,
@@ -4027,30 +3120,19 @@ describe("egress and claim through the real GitHub gate", () => {
         claimAtomic: async (input) => {
           issued = input.egress.bindingsOf({
             id: scope.session_id,
-            profileId,
-            profileFingerprint: null,
-            model: null,
+            connectionId: TEST_CONNECTION_ID,
+            specDigest: "sha256:spec",
+            model: "claude-sonnet-5",
             repositoryMode: repositoryless ? "none" : "repository",
             repositoryId: repositoryless ? null : "app",
             githubPolicySource: "release",
           }).repository;
           return {
             outcome: "claimed",
-            binding: {
-              ...binding,
-              ...own,
-              leaseEpoch: 1,
-              executionGeneration: 1,
-              authRevision: 0,
-              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
-              leaseRemainingMs: 29_950,
-              profileFingerprint: null,
-              model: null,
-              unmetered: false,
-              ownerScope: "owner-a",
-              restore: null,
-              restoreProfiles: [],
-            },
+            binding: testBinding({
+              sessionId: scope.session_id,
+              repository: own.repository,
+            }),
           };
         },
       }),
@@ -4206,45 +3288,5 @@ describe("egress and claim through the real GitHub gate", () => {
     await expect(
       gateway.authorizeEgress({ token: "tok", purpose: "repository" }),
     ).rejects.toMatchObject({ status: 409, code: "CATALOG_MISMATCH" });
-  });
-
-  test("a none profile's session gets no repository token, and the gate refuses one it holds", async () => {
-    const { gateway, receipts, claim, hold } = wired({
-      repositoryless: true,
-      profileId: "scratch",
-    });
-    const claimed = await claim();
-    expect(claimed.workspace.additional_repositories).toBeUndefined();
-    await expect(
-      gateway.authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-        repository_id: "docs",
-      }),
-    ).rejects.toMatchObject({ status: 401 });
-    expect(receipts).toEqual([]);
-
-    hold("attached-only");
-    await expect(
-      gateway.authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-        repository_id: "docs",
-      }),
-    ).rejects.toMatchObject({
-      status: 403,
-      code: "GITHUB_REFUSED",
-      reasonCode: "repository_not_allowed",
-    });
-    expect(receipts).toEqual([
-      expect.objectContaining({
-        operation: "mint_github_token",
-        status: "failed",
-        result: expect.objectContaining({
-          repository_id: "docs",
-          reason_code: "repository_not_allowed",
-        }),
-      }),
-    ]);
   });
 });
