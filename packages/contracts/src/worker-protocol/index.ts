@@ -705,6 +705,13 @@ export const nextInputResponseSchema = z.object({
         .strict()
         .nullable()
         .optional(),
+      // The W3C traceparent of the API request that queued this turn, for the
+      // worker to link its turn trace to. Absent when the request was
+      // untraced, and from a control host that predates it.
+      trace_context: z
+        .string()
+        .regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/)
+        .optional(),
     })
     .nullable(),
   lease_expires_at: timestampSchema,

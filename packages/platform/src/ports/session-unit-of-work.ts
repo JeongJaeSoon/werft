@@ -47,6 +47,8 @@ export type AcceptSessionInput = {
   channel?: SurfaceKind;
   // The Slack message the first input came from, kept on turn 1.
   slackMessage?: SlackMessageRef;
+  // The request span's traceparent for turn 1; see AppendMessageInput.
+  traceContext?: string;
   // As given, or derived from the message; null when neither has text.
   title?: string | null;
   // `user` when the request gave one; left out, it is `derived`.
@@ -126,6 +128,9 @@ export type AppendMessageInput = {
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
   slackMessage?: SlackMessageRef;
+  // The request span's W3C traceparent, stored with the turn as opaque text;
+  // platform never parses it (decision record observability-otel…, 3.1).
+  traceContext?: string;
   // The operator blocked the session's profile: only a replay of an earlier
   // acceptance goes through.
   profileBlocked?: true;

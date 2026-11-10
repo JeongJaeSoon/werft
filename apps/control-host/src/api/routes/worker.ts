@@ -42,6 +42,7 @@ import {
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
+import { RequestTracing } from "../request-tracing.ts";
 
 const WORKER_ROUTE_PREFIX = "/worker";
 
@@ -74,6 +75,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
 export function registerWorkerRoutes(
   router: ApiRouter,
   gateway: WorkerGateway,
+  tracing = new RequestTracing(),
 ) {
   function call<Req extends z.ZodType, Res extends z.ZodType>(
     path: string,
@@ -89,8 +91,20 @@ export function registerWorkerRoutes(
       const token = bearerToken(context.req.header("Authorization"));
       const principal = await mapped(() => gateway.authenticate(token));
       const body = await parseJsonBody(context, request);
-      const result = await mapped(() => handle(principal, body, token));
-      return jsonWithSchema(context, response, result);
+      // Only a call the token's own session acts for may join that turn's
+      // trace; the gateway rejects a body naming another session below.
+      // Not every request carries a scope (bootstrap-claim has none).
+      const claimed: Record<string, unknown> =
+        typeof body === "object" && body !== null ? body : {};
+      const scope =
+        principal.kind === "session" &&
+        principal.sessionId === claimed.session_id
+          ? claimed
+          : {};
+      return tracing.traceGatewayCall(context, scope, async () => {
+        const result = await mapped(() => handle(principal, body, token));
+        return jsonWithSchema(context, response, result);
+      });
     });
   }
 

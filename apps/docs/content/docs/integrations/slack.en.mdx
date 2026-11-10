@@ -58,11 +58,11 @@ The link response and each item of `GET /v1/linked-accounts` also carry the name
 
 ## Notice language
 
-The words the platform writes in Slack (refusal notices, failure and waiting-for-an-answer notices, the `Open on the web` link, and the `(Web console)` label on instructions sent from the web or the API) follow the language a user picks under **Language & theme** in the web console (한국어, 日本語 or English). The console saves the chosen language on the server (`PATCH /v1/auth/me`). With none saved, a console that opens in a language other than Korean (from the browser's language, for example) saves that one, so the console and Slack agree.
+The words the platform writes in Slack (refusal notices, failure and waiting-for-an-answer notices, the `Open on the web` link, and the `(Web console)` label on instructions sent from the web or the API) follow the language a user picks under **Language & theme** in the web console (한국어, 日本語 or English). The console saves the chosen language on the server (`PATCH /v1/auth/me`). With none saved, a console that opens in a language other than English (from the browser's language, for example) saves that one, so the console and Slack agree.
 
 - A refusal notice only one person sees is written in the language of the user that Slack account is linked to.
 - Notices and labels posted in a thread are written in the language of the user who started the session. Everyone in the thread reads them, so a thread stays in one language.
-- A user who never saved a language, and a Slack account that is not linked, get Korean.
+- A user who never saved a language, and a Slack account that is not linked, get English.
 
 Model answers and what users type are not translated. The deployment welcome has no single reader, so it is sent in Korean.
 

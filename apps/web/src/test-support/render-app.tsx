@@ -6,6 +6,29 @@ export type Routes = Parameters<typeof FakeApi>[0];
 
 export const WAITING_SESSIONS = "GET /v1/sessions?status=needs_input";
 
+const ME_ROUTE = "GET /v1/auth/me";
+
+/**
+ * The fixture account's saved language is `ko`, the harness's default. A
+ * console started in another language reads the account as having saved that
+ * one, or the saved ko would win when the console opens. A fixture that saved
+ * another language, or none, is left as it is.
+ */
+function savedAs(locale: Locale, route: Routes[string]): Routes[string] {
+  return async (request, ...rest) => {
+    const response = await route(request, ...rest);
+    if (!response.ok) return response;
+    const body = (await response.clone().json()) as {
+      user?: { locale?: unknown };
+    };
+    if (body.user?.locale !== "ko") return response;
+    return new Response(
+      JSON.stringify({ ...body, user: { ...body.user, locale } }),
+      { status: response.status, headers: response.headers },
+    );
+  };
+}
+
 /**
  * The whole app at a path against a fake API. Call once per test file, at
  * the top level: the DOM has to exist before the router and Testing Library
@@ -28,7 +51,13 @@ export async function appHarness() {
     locale: Locale | null = "ko",
     validate: "strict" | "warn" = "strict",
   ) {
-    const api = fakeApi({ ...nothingWaiting, ...routes });
+    const api = fakeApi({
+      ...nothingWaiting,
+      ...routes,
+      ...(locale && locale !== "ko" && routes[ME_ROUTE]
+        ? { [ME_ROUTE]: savedAs(locale, routes[ME_ROUTE]) }
+        : {}),
+    });
     const left: string[] = [];
     const services = createServices({
       baseUrl: "https://console.test",
