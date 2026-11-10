@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   createWorkerGateway,
   hashWorkerToken,
-  withSeededInstallation,
   type WorkerGateway,
   type WorkerPrincipal,
+  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -85,7 +85,9 @@ integration("telemetry ingest store on PostgreSQL", () => {
   }, 60_000);
 
   async function runningSession() {
-    const accepted = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId: `owner-${crypto.randomUUID()}` },
       idempotencyKey: crypto.randomUUID(),
