@@ -156,6 +156,24 @@ export async function resolveAgentRelease(
   return release;
 }
 
+export type NotRunnableReason = "agent_inactive" | "release_unapproved";
+
+/**
+ * Why a new session cannot run this release, or null. Approval is the
+ * release's own `approved_at`, not whether it is the active one, so an older
+ * approved release still runs while the agent is active.
+ */
+export async function releaseNotRunnableReason(
+  store: Pick<AgentStore, "agentStatus">,
+  workspaceId: string,
+  release: Pick<AgentRelease, "agent_id" | "approved_at">,
+): Promise<NotRunnableReason | null> {
+  if ((await store.agentStatus(workspaceId, release.agent_id)) !== "active") {
+    return "agent_inactive";
+  }
+  return release.approved_at === null ? "release_unapproved" : null;
+}
+
 /** Exported for its test: whether two snapshots run the same runtime. */
 export function sameRuntime(a: unknown, b: unknown): boolean {
   const form = (snapshot: unknown) => {
@@ -1519,6 +1537,10 @@ export function createAgentService(deps: {
 
   return {
     resolveRelease,
+    notRunnableReason: (
+      workspaceId: string,
+      release: Pick<AgentRelease, "agent_id" | "approved_at">,
+    ) => releaseNotRunnableReason(store, workspaceId, release),
     rolloutRelease,
     migrateModel,
     migrateAgent,

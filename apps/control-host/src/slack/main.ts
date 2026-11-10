@@ -56,6 +56,7 @@ import {
   drainSlackOutbox,
   installationLimitsFromEnv,
   profileCatalog,
+  releaseNotRunnableReason,
   releaseStartable,
   repositoryView,
   resolveAgentRelease,
@@ -216,6 +217,8 @@ export function slackSessionHandler(deps: {
         ),
       envNames: (workspaceId, releaseId) =>
         agentEnvNames(agentStore, workspaceId, releaseId),
+      notRunnableReason: (workspaceId, release) =>
+        releaseNotRunnableReason(agentStore, workspaceId, release),
       ...newSessionGitHubReaders(db),
     },
     extensions: extensionDepsFor(db),

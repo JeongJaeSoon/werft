@@ -169,6 +169,7 @@ function scripted(script: Script) {
     get: async () => record(),
     findVersion: async () => version,
     findRelease: async () => null,
+    agentStatus: async () => "active",
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "slug_taken" }),
     update: async (input) => {

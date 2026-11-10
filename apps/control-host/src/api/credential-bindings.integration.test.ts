@@ -115,6 +115,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
   let app: ReturnType<typeof createApiApp>;
+  let staleApp: ReturnType<typeof createApiApp>;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "credential_bindings_api" });
@@ -141,20 +142,35 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       catalog,
       credentials,
     });
-    const service = createSessionService({
-      limits: {
-        queuedInputLimitPerSession: 1_000,
-        storageLimitBytes: 1e15,
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-      },
-      authorization,
-      inputs: createPostgresSessionUnitOfWork(db),
-      controls: createPostgresSessionControl(db),
-      reader: createPostgresSessionReader(db),
-      catalog,
-      releases: { ...agents, ...newSessionGitHubReaders(db) },
-      credentials,
+    const sessionsWith = (
+      releases: NonNullable<
+        Parameters<typeof createSessionService>[0]["releases"]
+      >,
+    ) =>
+      createSessionService({
+        limits: {
+          queuedInputLimitPerSession: 1_000,
+          storageLimitBytes: 1e15,
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+        },
+        authorization,
+        inputs: createPostgresSessionUnitOfWork(db),
+        controls: createPostgresSessionControl(db),
+        reader: createPostgresSessionReader(db),
+        catalog,
+        releases,
+        credentials,
+      });
+    const service = sessionsWith({
+      ...agents,
+      ...newSessionGitHubReaders(db),
+    });
+    // Its read of the agent is stale: it still finds the agent runnable.
+    const staleService = sessionsWith({
+      ...agents,
+      ...newSessionGitHubReaders(db),
+      notRunnableReason: async () => null,
     });
     const keys = createApiKeyService({
       authorization,
@@ -182,6 +198,14 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
         registerApiKeyRoutes(router, keys);
         registerCredentialBindingRoutes(router, bindings);
       },
+    });
+    staleApp = createApiApp({
+      authMode: "api-key",
+      logger,
+      keyStore: new DatabaseApiKeyStore(db),
+      identity,
+      authorization,
+      registerRoutes: (router) => registerSessionRoutes(router, staleService),
     });
   }, 60_000);
 
@@ -220,6 +244,8 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
   let agentId = "";
   let releaseId = "";
   let agentKey = "";
+  // The Idempotency-Key of the session accepted before the agent was paused.
+  let acceptedKey = crypto.randomUUID();
   const bindingsPath = () => `/v1/agents/${agentId}/credential-bindings`;
 
   async function login(email: string) {
@@ -252,7 +278,11 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     return user.id;
   }
 
-  function createSession(headers: HeadersInit, key = crypto.randomUUID()) {
+  function createSession(
+    headers: HeadersInit,
+    key = crypto.randomUUID(),
+    release = releaseId,
+  ) {
     return send(
       "POST",
       "/v1/sessions",
@@ -261,7 +291,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
         profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Summarise the minutes.",
-        agent_release_id: releaseId,
+        agent_release_id: release,
       },
     );
   }
@@ -420,6 +450,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
 
   test("unbinding counts the running session that keeps it, and the next session is refused before it starts", async () => {
     const runningKey = crypto.randomUUID();
+    acceptedKey = runningKey;
     const running = await createSession(bearer(agentKey), runningKey);
     expect(running.status).toBe(201);
     const { session_id } = createSessionResponseSchema.parse(
@@ -530,6 +561,87 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     expect(appendReceipt).toEqual({
       operation: "append_message",
       status: "failed",
+    });
+  });
+
+  test("a release no activation approved, and a paused agent, answer 409 AGENT_NOT_RUNNABLE before any credential check", async () => {
+    // A new version gives a release whose content differs, which nothing
+    // has activated.
+    const edited = await send(
+      "PATCH",
+      `/v1/agents/${agentId}`,
+      asCookie(cookies.admin),
+      { card: { ...card, instructions: "회의록을 읽고 결정만 정리한다." } },
+    );
+    expect(edited.status).toBe(200);
+    const versions = (await edited.json()) as { versions: { id: string }[] };
+    const second = await send(
+      "POST",
+      `/v1/agents/${agentId}/releases`,
+      asCookie(cookies.admin),
+      {
+        version_id: versions.versions.at(-1)?.id,
+        runtime_profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+      },
+    );
+    expect(second.status).toBe(200);
+    const unapprovedId = createAgentReleaseResponseSchema.parse(
+      await second.json(),
+    ).release.id;
+    expect(unapprovedId).not.toBe(releaseId);
+
+    const unapproved = await createSession(
+      bearer(agentKey),
+      crypto.randomUUID(),
+      unapprovedId,
+    );
+    expect(unapproved.status).toBe(409);
+    expect(await errorOf(unapproved)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: {
+        reason_code: "release_unapproved",
+        agent_id: agentId,
+        release_id: unapprovedId,
+      },
+    });
+
+    await db
+      .update(schema.agents)
+      .set({ status: "paused" })
+      .where(eq(schema.agents.id, agentId));
+    // The approved release is refused too: the agent no longer runs.
+    const paused = await createSession(bearer(agentKey));
+    expect(paused.status).toBe(409);
+    expect(await errorOf(paused)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "agent_inactive", agent_id: agentId },
+    });
+    // Only a new session is refused: the key of one accepted earlier still
+    // answers with it.
+    const replayed = await createSession(bearer(agentKey), acceptedKey);
+    expect(replayed.status).toBe(201);
+
+    // A service that read the agent as runnable before the pause committed
+    // is stopped by the acceptance, which reads it again under lock.
+    const raced = await staleApp.request("/v1/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...bearer(agentKey),
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+        message: "Summarise the minutes.",
+        agent_release_id: releaseId,
+      }),
+    });
+    expect(raced.status).toBe(409);
+    expect(await errorOf(raced)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "agent_inactive" },
     });
   });
 });

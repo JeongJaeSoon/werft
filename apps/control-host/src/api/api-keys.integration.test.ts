@@ -290,6 +290,14 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     const { release } = createAgentReleaseResponseSchema.parse(
       await released.json(),
     );
+    // A session starts only on a release an activation approved.
+    const activated = await send(
+      "POST",
+      `/v1/agents/${detail.agent.id}/activate`,
+      asCookie(cookie),
+      { release_id: release.id, expected_revision: -1 },
+    );
+    expect(activated.status).toBe(200);
     return { agentId: detail.agent.id, releaseId: release.id };
   }
 
@@ -510,7 +518,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       "POST",
       `/v1/agents/${agentIds.mine}/activate`,
       asCookie(cookies.member),
-      { release_id: releases.mine, expected_revision: -1 },
+      { release_id: releases.mine, expected_revision: 0 },
     );
     expect(activated.status).toBe(200);
 
