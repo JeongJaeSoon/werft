@@ -30,7 +30,7 @@ export type AgentAdminChangeResult =
         | "not_found"
         | "subject_not_found"
         | "actor_inactive"
-        /** A team to add that the actor, not an owner or admin, does not lead. */
+        /** A team to add by an actor whose role, read in the transaction, is not in `managerRoles`. */
         | "team_not_allowed";
     };
 

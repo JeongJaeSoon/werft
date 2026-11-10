@@ -1,9 +1,17 @@
-import type { RotatedConfigToken } from "../musterrolle/slack-config-api.ts";
 import type {
   DeleteSecretResult,
   SecretAudit,
   SecretSummary,
 } from "./secret-store.ts";
+
+/** What Slack answers to `tooling.tokens.rotate`; stored encrypted, never shown. */
+export type RotatedConfigToken = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: Date;
+  issuerUserId: string;
+  issuerTeamId: string;
+};
 
 export type ConfigTokenState = "unset" | "active" | "needs_reentry";
 

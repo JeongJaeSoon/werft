@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { repositoryAttachFailureSchema } from "../action/github-mcp.ts";
 import {
   postSessionAnswerRequestSchema,
   rememberRuleSchema,
 } from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
-import { repositoryAttachFailureSchema } from "../api/github-mcp.ts";
 import { pendingQuestionSchema } from "../api/pending.ts";
 import {
   PERMISSION_RULE_MAX_LENGTH,
@@ -206,6 +206,13 @@ export const runtimeProviderSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("litellm"),
+      endpoint: z.url(),
+      auth: egressTokenAuthSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("openai_responses"),
       endpoint: z.url(),
       auth: egressTokenAuthSchema,
     })
@@ -697,6 +704,13 @@ export const nextInputResponseSchema = z.object({
         .object({ name: trailerValueSchema, email: trailerValueSchema })
         .strict()
         .nullable()
+        .optional(),
+      // The W3C traceparent of the API request that queued this turn, for the
+      // worker to link its turn trace to. Absent when the request was
+      // untraced, and from a control host that predates it.
+      trace_context: z
+        .string()
+        .regex(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/)
         .optional(),
     })
     .nullable(),

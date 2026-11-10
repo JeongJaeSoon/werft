@@ -1,4 +1,4 @@
-import type { StatusEventPhase } from "./event.ts";
+import type { StatusEventPhase } from "../api/event.ts";
 import {
   eventEngineEvent,
   eventText,
@@ -6,8 +6,8 @@ import {
   eventToolCall,
   eventToolResult,
   eventTurnEnd,
-} from "./neutral-event.ts";
-import type { SessionStatus } from "./session.ts";
+} from "../api/neutral-event.ts";
+import type { SessionStatus } from "../api/session.ts";
 
 /*
  * Says in words what one session event is, for every surface that shows a

@@ -265,7 +265,9 @@ export function me(
       id: USER_ID,
       email: "owner@example.com",
       display_name: "Owner",
-      locale: null,
+      // Saved, like the console's default language in tests: with none saved, a
+      // console opening in ko would send a PATCH that other tests count.
+      locale: "ko",
     },
     workspace: {
       id: WORKSPACE_ID,

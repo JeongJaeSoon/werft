@@ -8,13 +8,13 @@ import { useMe } from "../auth/guard.tsx";
 import { type Locale, useI18n } from "./i18n.tsx";
 
 // DEFAULT_USER_LOCALE; apps/web takes only types from contracts.
-const SLACK_FALLBACK = "ko" satisfies UserLocale;
+const SLACK_FALLBACK = "en" satisfies UserLocale;
 
 /**
  * Keeps the signed-in user's saved language and the one this console shows
  * in step, since Slack writes to the user in the saved one: a saved language
  * wins when the console opens, and every later change is saved. With none
- * saved, Slack falls back to ko, so a console that opens in another language
+ * saved, Slack falls back to en, so a console that opens in another language
  * saves it. A failed save is not retried until the language changes again;
  * the console still switches.
  */

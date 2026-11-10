@@ -20,7 +20,7 @@ import {
   type StartGitHubAppManifestResponse,
   type StartGitHubInstallationResponse,
 } from "@werft-ai/contracts";
-import { repoRefOf } from "../ports/forge.ts";
+import { repoRefOf } from "../action/ports/forge.ts";
 import {
   GitHubAppCheckError,
   type GitHubAppCredential,

@@ -17,6 +17,7 @@ import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
+  MANAGEMENT_ROLES,
 } from "./policy.ts";
 import { createTeamService } from "./team-service.ts";
 
@@ -333,7 +334,7 @@ describe("agent.admin.manage by role (design 4.1)", () => {
     return { service, changed };
   }
 
-  for (const who of ["owner", "admin", "agent_admin", "team_member"] as const) {
+  for (const who of ["owner", "admin"] as const) {
     test(`${who} may name a team the agent's admin`, async () => {
       const { service, changed } = agentAdmins();
       const result = await service.addAgentAdmin(
@@ -346,6 +347,87 @@ describe("agent.admin.manage by role (design 4.1)", () => {
       expect(changed).toEqual([{ kind: "team", id: TEAM }]);
     });
   }
+
+  // 94S-837: a team lends every member to the agent, so naming one is for
+  // the people who manage teams. The agent's admin only takes one off.
+  for (const who of ["agent_admin", "team_member"] as const) {
+    test(`${who} is refused naming a team, and may still take one off or name a person`, async () => {
+      const { service, changed } = agentAdmins();
+      expect(
+        await refusal(service.addAgentAdmin(caller(who), AGENT, "teams", TEAM)),
+      ).toEqual({ code: "FORBIDDEN", details: { reason_code: "role" } });
+      expect(changed).toEqual([]);
+
+      await service.removeAgentAdmin(caller(who), AGENT, "teams", TEAM);
+      await service.addAgentAdmin(caller(who), AGENT, "users", USERS.member);
+      expect(changed).toEqual([
+        { kind: "team", id: TEAM },
+        { kind: "user", id: USERS.member },
+      ]);
+    });
+  }
+
+  test("the store is asked against the team.manage roles for a team, agent.admin.manage for the rest", async () => {
+    const asked: Array<readonly string[]> = [];
+    const service = createAgentAdminService({
+      authorization: createAuthorizationPolicy({ agents }),
+      store: {
+        async list() {
+          return { users: [], teams: [] };
+        },
+        async add(input) {
+          asked.push(input.managerRoles);
+          return { outcome: "added", admins: { users: [], teams: [] } };
+        },
+        async remove() {
+          return { outcome: "removed", admins: { users: [], teams: [] } };
+        },
+        async setManagingTeam() {
+          return { outcome: "not_found" };
+        },
+        async listAdministered() {
+          return [];
+        },
+      },
+    });
+    await service.addAgentAdmin(caller("admin"), AGENT, "teams", TEAM);
+    await service.addAgentAdmin(caller("admin"), AGENT, "users", USERS.member);
+    // Both lists are ["owner", "admin"] today, so identity is what tells the
+    // two policies apart.
+    expect(asked[0]).toBe(MANAGEMENT_ROLES["team.manage"]);
+    expect(asked[1]).toBe(MANAGEMENT_ROLES["agent.admin.manage"]);
+  });
+
+  test("a role lost after the check is refused by the store as team_not_allowed", async () => {
+    const service = createAgentAdminService({
+      authorization: createAuthorizationPolicy({ agents }),
+      store: {
+        async list() {
+          return { users: [], teams: [] };
+        },
+        async add() {
+          return { outcome: "team_not_allowed" };
+        },
+        async remove() {
+          return { outcome: "removed", admins: { users: [], teams: [] } };
+        },
+        async setManagingTeam() {
+          return { outcome: "not_found" };
+        },
+        async listAdministered() {
+          return [];
+        },
+      },
+    });
+    expect(
+      await refusal(
+        service.addAgentAdmin(caller("admin"), AGENT, "teams", TEAM),
+      ),
+    ).toEqual({
+      code: "FORBIDDEN",
+      details: { reason_code: "team_not_allowed" },
+    });
+  });
 
   test("a plain member may not, and an agent's admin only on that agent", async () => {
     const { service, changed } = agentAdmins();

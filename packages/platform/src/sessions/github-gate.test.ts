@@ -15,13 +15,13 @@ import {
   ForgeCredentialError,
   type GitCredential,
   type RepoRef,
-} from "../ports/forge.ts";
+} from "../action/ports/forge.ts";
+import type { GitHubApi } from "../action/ports/github-api.ts";
 import type {
   GitHubPinStore,
   GitHubRepositoryPin,
 } from "../ports/github-app-store.ts";
 import {
-  type GitHubApi,
   type GitHubConnection,
   type GitHubConnections,
   type GitHubDispatchRecord,

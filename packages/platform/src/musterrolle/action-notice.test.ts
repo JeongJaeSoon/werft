@@ -38,13 +38,13 @@ describe("action notices", () => {
     }
   });
 
-  test("the languages differ, and an unknown reader reads Korean", () => {
+  test("the languages differ, and an unknown reader reads English", () => {
     const notice = { ...base, result: "opened" } as const;
-    const ko = actionNoticeText("ko", notice);
-    expect(actionNoticeText("en", notice)).not.toBe(ko);
-    expect(actionNoticeText("ja", notice)).not.toBe(ko);
-    expect(actionNoticeText(null, notice)).toBe(ko);
-    expect(actionNoticeText(undefined, notice)).toBe(ko);
+    const en = actionNoticeText("en", notice);
+    expect(actionNoticeText("ko", notice)).not.toBe(en);
+    expect(actionNoticeText("ja", notice)).not.toBe(en);
+    expect(actionNoticeText(null, notice)).toBe(en);
+    expect(actionNoticeText(undefined, notice)).toBe(en);
   });
 
   test("the key is one per push request and result", () => {

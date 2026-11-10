@@ -501,7 +501,7 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 카탈로그 5.4·5.8·5.9절의 "고른 경로".
 
 - **commit 도구를 내장 MCP 도구 → worker 주문으로.** 주문은 엔진 밖에서 돌아 턴 끝 capture의 자손 관측에 들지 않고, MCP 호출 시한과 결과 기록, worker capability와 혼합 버전을 새로 설계해야 한다. 고르지 않았다.
-- **commit 도구를 worker 안 stdio MCP 서버로.** runtime-core의 플랫폼 MCP 서버는 remote 서버만 받고, 세션 내내 사는 서버 프로세스가 턴 끝 capture의 자손 관측에 걸린다. 고르지 않았다.
+- **commit 도구를 worker 안 stdio MCP 서버로.** runtime-core의 플랫폼 MCP 서버는 remote 서버만 받고, 세션 내내 사는 서버 프로세스가 턴 끝 capture의 자손 관측에 걸린다. 고르지 않았다. (번들이 선언한 stdio MCP 서버는 턴 안에서만 사는 프로세스로 따로 풀었다: [stdio-mcp-relay.md](stdio-mcp-relay.md). 이 결론은 바뀌지 않는다.)
 - **프록시가 `api.github.com` 요청에 설치 토큰을 주입.** forward proxy는 TLS를 풀지 않으므로 MITM이나 새 TLS 경로가 필요하고, `gh pr create`는 GraphQL mutation이라 판정하려면 GraphQL을 해석해야 한다. PR 꼬리·요청자 줄·receipt는 결국 서비스가 써야 한다. 고르지 않았다. 대신 쓰기 토큰은 control-host가 쓰고, 프록시는 지금처럼 git fetch에만 읽기 토큰을 붙인다.
 - **프록시가 receive-pack에 `push` 토큰을 붙여 GitHub로 그대로 보냄.** 프록시는 pack을 이해하지 않아 fast-forward와 귀속(PR 3)을 볼 수 없다. force push와 귀속이 틀린 commit을 막지 못하면 그 입구에서만 보장이 빠진다. 고르지 않았다.
 - **`gh`를 빼거나 그대로 둠.** 모델의 `gh` 습관이 실패로 끝난다. 고르지 않았다.

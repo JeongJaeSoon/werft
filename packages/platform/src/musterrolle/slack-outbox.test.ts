@@ -153,7 +153,7 @@ describe("createOutboxSlackNoticeSink", () => {
     return enqueued[0]?.body;
   };
 
-  test("writes the notice in the reader's language, Korean without one", async () => {
+  test("writes the notice in the reader's language, English without one", async () => {
     expect(await record("en")).toEqual({
       text: "Link your Slack account on the web",
       locale: "en",
@@ -164,8 +164,8 @@ describe("createOutboxSlackNoticeSink", () => {
       locale: "ja",
     });
     expect(await record(null)).toMatchObject({
-      text: "웹에서 Slack 계정을 연결해 주세요",
-      locale: "ko",
+      text: "Link your Slack account on the web",
+      locale: "en",
     });
   });
 });
@@ -202,15 +202,15 @@ describe("finalReplyText", () => {
 });
 
 describe("slackOutboxText", () => {
-  const link = `\n\n<https://console.example/sessions/s1|${SLACK_OUTBOX_MESSAGES.ko.link}>`;
+  const link = `\n\n<https://console.example/sessions/s1|${SLACK_OUTBOX_MESSAGES.en.link}>`;
 
-  test("labels the link in the body's language, Korean without one", () => {
+  test("labels the link in the body's language, English without one", () => {
     const url = "https://console.example/sessions/s1";
     expect(slackOutboxText({ text: "Done", link_url: url })).toBe(
-      `Done\n\n<${url}|웹에서 열기>`,
-    );
-    expect(slackOutboxText({ text: "Done", link_url: url, locale: "en" })).toBe(
       `Done\n\n<${url}|Open on the web>`,
+    );
+    expect(slackOutboxText({ text: "Done", link_url: url, locale: "ko" })).toBe(
+      `Done\n\n<${url}|웹에서 열기>`,
     );
     expect(slackOutboxText({ text: "完了", link_url: url, locale: "ja" })).toBe(
       `完了\n\n<${url}|Webで開く>`,

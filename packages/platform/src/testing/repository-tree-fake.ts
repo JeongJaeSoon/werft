@@ -1,4 +1,5 @@
-import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
+import type { RepositoryReadable } from "../action/ports/capabilities.ts";
+import type { GitTreeEntry } from "../action/ports/github-api.ts";
 import { GitHubCallError } from "../ports/github-gate.ts";
 
 export type FakeFile =
@@ -105,10 +106,7 @@ export function fakeRepositoryReads(
     if (status !== undefined) throw new GitHubCallError(what, status, null);
   };
 
-  const reads: Pick<
-    GitHubApi,
-    "getRepository" | "getBranchHead" | "readTree" | "readBlob"
-  > = {
+  const reads: RepositoryReadable = {
     async getRepository() {
       calls.push("repository");
       failure("repository lookup", options.failing?.repository);

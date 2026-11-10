@@ -131,7 +131,7 @@ export const loginMethodsResponseSchema = z
 export const USER_LOCALE_VALUES = ["ko", "ja", "en"] as const;
 export const userLocaleSchema = z.enum(USER_LOCALE_VALUES);
 /** What a reader with no language of their own is told in. */
-export const DEFAULT_USER_LOCALE = "ko" satisfies UserLocale;
+export const DEFAULT_USER_LOCALE = "en" satisfies UserLocale;
 
 /** What the web app boots from: who is authenticated and under which key. */
 export const authMeResponseSchema = z

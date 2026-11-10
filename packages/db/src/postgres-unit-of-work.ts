@@ -194,6 +194,7 @@ async function insertQueuedTurn(
     actorId: string | null;
     channel: SurfaceKind | null;
     slackMessage: SlackMessageRef | null;
+    traceContext?: string | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -210,6 +211,7 @@ async function insertQueuedTurn(
       actorId: input.actorId,
       channel: input.channel,
       slackMessage: input.slackMessage,
+      traceContext: input.traceContext ?? null,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -218,6 +220,26 @@ async function insertQueuedTurn(
     turnId: turn.id,
     payload: { message: input.message },
   });
+}
+
+/**
+ * Whether the release's agent is paused or archived, read under a share lock
+ * on the agent row so a pause that commits later waits for this acceptance,
+ * and one that committed earlier is seen. Approval is not read again: it is
+ * recorded once and never withdrawn, so what the service saw cannot go stale.
+ */
+async function lockedAgentInactive(
+  tx: Database,
+  releaseId: string,
+): Promise<"agent_inactive" | null> {
+  const [row] = await tx
+    .select({ status: agents.status })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1)
+    .for("share", { of: agents });
+  return row !== undefined && row.status !== "active" ? "agent_inactive" : null;
 }
 
 export function createPostgresSessionUnitOfWork(
@@ -245,6 +267,12 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
+        if (input.notRunnableReason !== undefined) {
+          return {
+            outcome: "not_runnable" as const,
+            reason: input.notRunnableReason,
+          };
+        }
         const unbound = async (releaseId: string) => {
           const { receiptId } = await recordUnboundRefusal(tx, {
             ownerId: scope.principal,
@@ -257,6 +285,10 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "credential_unbound" as const, receiptId };
         };
         if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
+          // No requester lock follows here, so the agent row can be locked
+          // first without crossing the order a key revoke takes (key, agent).
+          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
           return unbound(input.agentReleaseId);
         }
 
@@ -287,6 +319,12 @@ export function createPostgresSessionUnitOfWork(
           ))
         ) {
           return { outcome: "agent_use_refused" };
+        }
+        // After the requester's rows, so the agent row is never taken before
+        // a key row (a key revoke locks the key, then the agent).
+        if (input.agentReleaseId !== undefined) {
+          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
         }
         // The settings are locked and read before the names are judged, so
         // the session stores the very list that was checked.
@@ -418,6 +456,7 @@ export function createPostgresSessionUnitOfWork(
           actorId: actor?.userId ?? null,
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
+          traceContext: input.traceContext ?? null,
         });
 
         if (envCapture.outcome === "resolved") {
@@ -581,6 +620,7 @@ export function createPostgresSessionUnitOfWork(
           actorId: input.principal.actor?.userId ?? null,
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
+          traceContext: input.traceContext ?? null,
         });
         await tx
           .update(sessions)
