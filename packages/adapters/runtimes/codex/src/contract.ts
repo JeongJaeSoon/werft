@@ -27,10 +27,18 @@ export const CODEX_PROFILE_DIGEST_SCHEME = 1;
 export class CodexAgentRuntime implements AgentRuntime {
   readonly descriptor = CODEX_DESCRIPTOR;
 
-  constructor(private readonly deps: RuntimeHostDeps) {}
+  /**
+   * `host` is the environment the engine's own is built from. Tests that need
+   * to steer the engine (a recording proxy) pass a copy instead of changing
+   * `process.env`, which the other suites in the same process read.
+   */
+  constructor(
+    private readonly deps: RuntimeHostDeps,
+    private readonly host: NodeJS.ProcessEnv = process.env,
+  ) {}
 
   start(start: RuntimeStart): AgentRun {
-    const launch = codexLaunch(start, this.deps);
+    const launch = codexLaunch(start, this.deps, this.host);
     mkdirSync(launch.home, { recursive: true, mode: 0o700 });
     const process = spawnAppServer({
       command: codexExecutable(),

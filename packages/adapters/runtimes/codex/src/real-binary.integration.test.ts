@@ -86,24 +86,27 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
         },
       },
     });
-    const proxyVariables = [
+    // The engine gets its own copy of the environment: the suites share one
+    // process in CI, and a proxy set in process.env (even briefly) sent later
+    // loopback fetches of other files to a closed port. A NO_PROXY of `*` or a
+    // listed host would send the engine around the recorder, so it is cleared
+    // (the adapter adds the egress host to it itself).
+    const proxied: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of ["NO_PROXY", "no_proxy"]) delete proxied[name];
+    for (const name of [
       "HTTP_PROXY",
       "HTTPS_PROXY",
       "http_proxy",
       "https_proxy",
-    ];
-    // A NO_PROXY of `*` or a listed host in the CI environment would send the
-    // engine around the recorder, so it is cleared here (the adapter adds the
-    // egress host to it itself).
-    const bypassVariables = ["NO_PROXY", "no_proxy"];
-    const touched = [...proxyVariables, ...bypassVariables];
-    const savedProxy = touched.map((name) => process.env[name]);
-    for (const name of proxyVariables) {
-      process.env[name] = `http://127.0.0.1:${proxy.port}`;
+    ]) {
+      proxied[name] = `http://127.0.0.1:${proxy.port}`;
     }
-    for (const name of bypassVariables) delete process.env[name];
+    const proxyEnvBefore = [process.env.HTTP_PROXY, process.env.NO_PROXY];
     try {
-      const runtime = new CodexAgentRuntime({ stateDir: first } as never);
+      const runtime = new CodexAgentRuntime(
+        { stateDir: first } as never,
+        proxied,
+      );
       const run = runtime.start(startOf({ port, work, egressToken: EGRESS }));
       try {
         const events = await turn(run, "in-1", "say hello");
@@ -180,9 +183,10 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       await reader.materialize(join(second, "projects"));
 
       const before = seen.length;
-      const resumed = new CodexAgentRuntime({
-        stateDir: second,
-      } as never).start(
+      const resumed = new CodexAgentRuntime(
+        { stateDir: second } as never,
+        proxied,
+      ).start(
         startOf({
           port,
           work,
@@ -208,15 +212,14 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
         // The resumed engine too reaches no other host.
         await Bun.sleep(2000);
         expect(attempts).toEqual([]);
+        // Nothing is left behind in this process: the other suites share it.
+        expect([process.env.HTTP_PROXY, process.env.NO_PROXY]).toEqual(
+          proxyEnvBefore,
+        );
       } finally {
         await resumed.close();
       }
     } finally {
-      touched.forEach((name, i) => {
-        const value = savedProxy[i];
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      });
       proxy.stop(true);
       await server.stop(true);
     }
