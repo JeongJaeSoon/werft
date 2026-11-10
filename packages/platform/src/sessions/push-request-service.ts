@@ -167,9 +167,11 @@ export function createPushRequestService(deps: {
   // surface that lists requests shows the reason Slack shows.
   async function withApprovability(
     ownerId: string,
-    sessionId: string,
+    rawSessionId: string,
     requests: PushRequest[],
   ): Promise<PushRequest[]> {
+    // The stored id, as decide judges it: a manifest names its session in lower case.
+    const sessionId = rawSessionId.toLowerCase();
     const session = await store.findSession(ownerId, sessionId);
     const pointer = session?.checkpointRevision ?? null;
     return Promise.all(

@@ -303,6 +303,11 @@ integration("pending requests and answers on PostgreSQL", () => {
       state: "waiting",
       park_at: null,
       group: "1",
+      summary: {
+        verb: { key: "action.tool.runCommand" },
+        target: "ls -la",
+        excerpt: null,
+      },
     });
     expect(byId.get(asked.requestId)).toMatchObject({
       kind: "question",

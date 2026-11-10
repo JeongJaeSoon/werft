@@ -121,6 +121,31 @@ describe("a listed push request carries what Slack would decide", () => {
     );
   });
 
+  test("an uppercase session id is judged under the stored id, as decide does", async () => {
+    const read: string[] = [];
+    const stored = "aaaaaaaa-1111-4111-8111-bbbbbbbbbbbb";
+    const push = service({
+      pointer: 4,
+      requests: [request({})],
+      source: {
+        ...NONE,
+        readPushSource: async (id: string) => {
+          read.push(id);
+          return id === stored
+            ? ({
+                status: "ready",
+                revision: 4,
+                gitCommit: COMMIT,
+              } as unknown as PushSourceResult)
+            : { status: "none" };
+        },
+      } as never,
+    });
+    const listed = await push.list(actor, stored.toUpperCase());
+    expect(read).toEqual([stored]);
+    expect(listed.items[0]?.approvability?.approvable).toBe(true);
+  });
+
   test("a request that is no longer waiting is not approvable", async () => {
     const push = service({
       pointer: 3,
