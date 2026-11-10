@@ -1282,13 +1282,26 @@ export async function decisionEntranceProblems(
   const types: string[] = [];
   const values: string[] = [];
   const source = await parse(file);
-  // An entrance type built by inference (Pick or ReturnType of a service)
-  // could carry a write store out to the channel; no identifier of one may
-  // appear anywhere in the file.
+  // An entrance type could carry a write store out to the channel without
+  // naming it: `typeof import("..").createX` or `Parameters<typeof createX>`
+  // resolve to the store by inference. So the file may name no store, may
+  // import only from the contracts package, and may not reach another module
+  // through `import()` types or `typeof` queries.
   const stores: string[] = [];
+  const reaches: string[] = [];
   walk(source, (node) => {
     if (ts.isIdentifier(node) && decisionStores.has(node.text))
       stores.push(node.text);
+    if (ts.isImportTypeNode(node)) reaches.push("an import() type");
+    if (ts.isTypeQueryNode(node)) reaches.push("a typeof query");
+    if (
+      ts.isImportDeclaration(node) &&
+      !(
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === "@werft-ai/contracts"
+      )
+    )
+      reaches.push(`an import of ${node.moduleSpecifier.getText(source)}`);
   });
   for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement)) {
@@ -1315,6 +1328,10 @@ export async function decisionEntranceProblems(
     ...stores.map(
       (name) =>
         `decision/index.ts names ${name}, a write store a channel must not reach`,
+    ),
+    ...reaches.map(
+      (how) =>
+        `decision/index.ts reaches outside the contracts package through ${how}, which can carry a write store by inference`,
     ),
     ...(types.length === 2
       ? []
@@ -3119,15 +3136,14 @@ describe("architecture", () => {
     ]);
   });
 
-  test("R5 fails an entrance type that reaches a write store through inference", async () => {
+  test("R5 fails an entrance type that names a write store", async () => {
     const index = platformFile("decision/index.ts");
     expect(
       await inFixture(
         {
           [index]: [
-            'import type { PushRequestStore as Store } from "../ports/push-requests.ts";',
-            'import type { PendingRequestService } from "./pending-service.ts";',
-            'export type Answer = Pick<PendingRequestService, "answer">;',
+            'import type { PushRequestStore as Store } from "@werft-ai/contracts";',
+            "export type Answer = { answer(): void };",
             "export type Decide = { store: Store };",
           ].join("\n"),
         },
@@ -3135,6 +3151,47 @@ describe("architecture", () => {
       ),
     ).toEqual([
       "decision/index.ts names PushRequestStore, a write store a channel must not reach",
+    ]);
+  });
+
+  test("R5 fails an entrance type that reaches a write store only by inference", async () => {
+    const index = platformFile("decision/index.ts");
+    // Neither store name appears: the optional member resolves to the store
+    // of createPendingRequestService, and the service-fits-entrance check
+    // would still pass because the member is optional.
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            "export interface Answer {",
+            "  answer(): void;",
+            '  store?: Parameters<typeof import("../index.ts").createPendingRequestService>[0]["store"];',
+            "}",
+            "export type Decide = { decide(): void };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      "decision/index.ts reaches outside the contracts package through an import() type, which can carry a write store by inference",
+    ]);
+  });
+
+  test("R5 fails an entrance file that imports a service module", async () => {
+    const index = platformFile("decision/index.ts");
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            'import type { PendingRequestService } from "../sessions/pending-service.ts";',
+            'export type Answer = Pick<PendingRequestService, "answer">;',
+            "export type Decide = { decide(): void };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      'decision/index.ts reaches outside the contracts package through an import of "../sessions/pending-service.ts", which can carry a write store by inference',
     ]);
   });
 
