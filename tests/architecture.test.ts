@@ -1635,6 +1635,213 @@ async function inFixture<T>(
 
 const manifestOf = (name: string) => JSON.stringify({ name });
 
+/** `(x)`, `x as T`, `<T>x`, `x satisfies T` and `x!` all evaluate to `x`. */
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isExpressionWithTypeArguments(current)
+  )
+    current = current.expression;
+  return current;
+}
+
+/** Every module a file names, whichever way: import, export-from, require, import(). */
+function moduleReferences(source: ts.SourceFile): string[] {
+  const found: string[] = [];
+  walk(source, (node) => {
+    let reference: ts.Node | undefined;
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      reference = node.moduleSpecifier;
+    else if (ts.isExternalModuleReference(node)) reference = node.expression;
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
+      reference = node.argument.literal;
+    else if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      if (
+        callee.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(callee) && callee.text === "require")
+      )
+        reference = node.arguments[0];
+    }
+    if (reference) reference = unwrapExpression(reference);
+    if (reference && ts.isStringLiteralLike(reference))
+      found.push(reference.text);
+  });
+  return found;
+}
+
+const isReactAria = (specifier: string) =>
+  ["react-aria-components", "react-aria", "react-stately"].includes(
+    packageOf(specifier),
+  ) || /^@(?:react-aria|react-stately|internationalized)\//.test(specifier);
+
+/**
+ * Files outside packages/ui that import React Aria. It is an implementation
+ * detail of @werft-ai/ui, the way Radix was: a screen that reaches for it
+ * skips the facade and the theme.
+ */
+export async function reactAriaImporters(repo: string): Promise<string[]> {
+  const offenders: string[] = [];
+  for (const top of ["apps", "packages", "scripts", "tests"]) {
+    if (!existsSync(join(repo, top))) continue;
+    const entries = await readdir(join(repo, top), {
+      recursive: true,
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      const file = join(entry.parentPath, entry.name);
+      const path = slashed(relative(repo, file));
+      if (
+        !entry.isFile() ||
+        !scriptFile.test(entry.name) ||
+        /(?:^|\/)(?:node_modules|dist)\//.test(path) ||
+        path.startsWith("packages/ui/")
+      )
+        continue;
+      const text = await readFile(file, "utf8");
+      // A specifier names its package unless an escape (any backslash) builds
+      // it, so only files with either are worth parsing.
+      if (!/aria|stately|internationalized|\\/.test(text)) continue;
+      for (const specifier of moduleReferences(parseText(file, text)))
+        if (isReactAria(specifier)) offenders.push(`${path} ${specifier}`);
+    }
+  }
+  return offenders.sort();
+}
+
+const tailwindPalette =
+  "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+const colorUtility =
+  "(?:bg|text|border(?:-[trblxyse])?|ring|ring-offset|inset-ring|outline|divide|fill|stroke|from|via|to|shadow|inset-shadow|drop-shadow|text-shadow|decoration|accent|caret|placeholder)";
+
+/**
+ * The utility itself: variants (`hover:`, `dark:`, `[&>a]:`) and the
+ * important marker (`!` before or after) are not part of what it colours.
+ */
+function classBase(token: string): string {
+  let depth = 0;
+  let cut = 0;
+  for (const [i, ch] of [...token].entries()) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth--;
+    else if (ch === ":" && depth === 0) cut = i + 1;
+  }
+  return token.slice(cut).replace(/^!|!$/g, "");
+}
+
+/** What a component class must not say: colour comes from the semantic tokens. */
+const colorClassRules = {
+  "dark: variant": (token: string) => /(?:^|:)!?dark:/.test(token),
+  "Tailwind palette": (token: string) =>
+    new RegExp(`-(?:${tailwindPalette})-\\d{2,3}(?:/.+)?$`).test(
+      classBase(token),
+    ),
+  "black/white": (token: string) =>
+    new RegExp(`^${colorUtility}-(?:black|white)(?:/.+)?$`).test(
+      classBase(token),
+    ),
+  "arbitrary colour": (token: string) => {
+    const base = classBase(token);
+    if (/^\[(?:[a-z-]+-color|color|background|fill|stroke):/i.test(base))
+      return !/^\[[a-z-]+:(?:inherit|current|currentcolor|transparent|initial|unset)\]$/i.test(
+        base,
+      );
+    // An opacity modifier (`bg-[#fff]/50`) may follow the closing bracket.
+    const value = new RegExp(`^${colorUtility}-\\[(.*)\\](?:/[^\\]]+)?$`).exec(
+      base,
+    )?.[1];
+    if (value === undefined) return false;
+    return (
+      /^color:/i.test(value) ||
+      /#|\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color-mix|color|light-dark)\(/i.test(
+        value,
+      ) ||
+      // A bare word (`red`, `Red`, or one inside `0_0_2px_red`) is a colour
+      // name unless it is a keyword that names none.
+      value
+        .split(/[_\s,]+/)
+        .some(
+          (word) =>
+            /^[a-z]+$/i.test(word) &&
+            !/^(?:inherit|current|currentcolor|transparent|initial|unset|inset|none|auto|solid|dashed|dotted|double|wavy|hidden|underline|overline)$/i.test(
+              word,
+            ) &&
+            // CSS system colours follow the user's theme and forced-colors mode.
+            !/^(?:canvas|canvastext|field|fieldtext|highlight|highlighttext|buttonface|buttontext|buttonborder|linktext|visitedtext|activetext|graytext|mark|marktext|selecteditem|selecteditemtext|accentcolor|accentcolortext)$/i.test(
+              word,
+            ),
+        )
+    );
+  },
+} as const;
+
+/** Where a component may name a colour anyway: file, class token, why. */
+export const colorClassExceptions: readonly {
+  readonly file: string;
+  readonly token: string;
+  readonly reason: string;
+}[] = [];
+
+/**
+ * Class tokens in non-test sources under `directory` that break
+ * `colorClassRules`, as "path:line token (rule)". Every string and the fixed
+ * parts of every template are read, so a condition, an array, a constant or a
+ * cva() object cannot hide one; module specifiers are skipped.
+ */
+export async function colorClassViolations(
+  repo: string,
+  directory: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  const root = join(repo, directory);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    const file = join(entry.parentPath, entry.name);
+    const path = slashed(relative(repo, file));
+    if (
+      !entry.isFile() ||
+      !/\.tsx?$/.test(entry.name) ||
+      isTestFile(file) ||
+      /(?:^|\/)(?:node_modules|dist)\//.test(path)
+    )
+      continue;
+    const source = await parse(file);
+    walk(source, (node) => {
+      if (
+        !(
+          ts.isStringLiteralLike(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)
+        ) ||
+        isModuleSpecifier(node)
+      )
+        return;
+      for (const token of node.text.split(/\s+/)) {
+        for (const [rule, violates] of Object.entries(colorClassRules)) {
+          if (!violates(token)) continue;
+          if (
+            colorClassExceptions.some(
+              (e) => e.file === path && e.token === token,
+            )
+          )
+            continue;
+          const { line } = source.getLineAndCharacterOfPosition(
+            node.getStart(),
+          );
+          found.push(`${path}:${line + 1} ${token} (${rule})`);
+        }
+      }
+    });
+  }
+  return found.sort();
+}
+
 describe("architecture", () => {
   test("no source file reaches outside its own package through a relative import", async () => {
     const offenders: string[] = [];
@@ -3478,6 +3685,125 @@ describe("architecture", () => {
             listed,
           ),
         ).toEqual(["packages/db/src/testing/x.ts"]);
+      },
+    );
+  });
+
+  test("React Aria is imported only inside packages/ui", async () => {
+    expect(await reactAriaImporters(root)).toEqual([]);
+  });
+
+  test("the React Aria guard reads imports, not words, and allows packages/ui", async () => {
+    await inFixture(
+      {
+        "apps/web/src/a.tsx": 'import { Button } from "react-aria-components";',
+        "apps/web/src/b.ts": 'export * from "@react-aria/utils";',
+        "packages/react/src/c.ts": 'const m = await import("react-stately");',
+        "packages/react/src/d.ts":
+          'const m = require("@internationalized/date");',
+        "scripts/e.ts": 'import type { X } from "react-aria/Button";',
+        "apps/web/src/f.ts":
+          'import "react-router";\nconst s = "react-aria-components";',
+        "packages/ui/src/g.tsx": 'import "react-aria-components";',
+        "apps/web/src/h.ts": 'import "react-ari\\a-components";',
+        "apps/web/src/i.ts":
+          'const m = import("react-aria-components" as string);',
+        "apps/web/src/j.ts":
+          'const m = import(<string>"react-aria-components");',
+        "apps/web/src/k.ts": 'const m = (require)("react-aria-components");',
+        "apps/web/src/m.ts":
+          'const m = (require<string>)("react-aria-components");',
+        "apps/web/src/l.ts":
+          'const m = import("react-aria-components" satisfies string);',
+      },
+      async (repo) => {
+        expect(await reactAriaImporters(repo)).toEqual([
+          "apps/web/src/a.tsx react-aria-components",
+          "apps/web/src/b.ts @react-aria/utils",
+          "apps/web/src/h.ts react-aria-components",
+          "apps/web/src/i.ts react-aria-components",
+          "apps/web/src/j.ts react-aria-components",
+          "apps/web/src/k.ts react-aria-components",
+          "apps/web/src/l.ts react-aria-components",
+          "apps/web/src/m.ts react-aria-components",
+          "packages/react/src/c.ts react-stately",
+          "packages/react/src/d.ts @internationalized/date",
+          "scripts/e.ts react-aria/Button",
+        ]);
+      },
+    );
+  });
+
+  test("components name no palette colour, black/white or dark: variant", async () => {
+    const found: string[] = [];
+    for (const directory of [
+      "packages/ui/src",
+      "packages/react/src",
+      "apps/web/src",
+    ]) {
+      found.push(...(await colorClassViolations(root, directory)));
+    }
+    // Colour values live in tokens.css (dark ones too); a component says
+    // bg-primary or text-muted-foreground and follows the theme. Add to
+    // colorClassExceptions, with a reason, only for what a token cannot be
+    // (a brand mark, a code highlighter, a shadow).
+    expect(found).toEqual([]);
+  });
+
+  test("the colour guard sees through conditions, arrays, constants, templates and cva", async () => {
+    await inFixture(
+      {
+        "src/a.tsx": [
+          'import x from "bg-red-500";',
+          'const tone = "text-slate-500";',
+          "export const A = ({ on, v }) => (",
+          '  <div className={cn("p-2", on ? "dark:bg-card" : "", ["border-[#fff]"], `ring-blue-500/50 ${v}`)} />',
+          ");",
+          'export const b = cva("bg-white", { variants: { k: { x: "hover:[color:red]" } } });',
+          'export const ok = "bg-primary text-foreground/50 hover:bg-hover border-border bg-transparent";',
+        ].join("\n"),
+        "src/a.test.tsx": 'export const t = "dark:bg-black";',
+        "src/b.ts": 'export const c = "group-hover:dark:text-white";',
+        "src/c.ts": [
+          'export const d = "bg-red-500! text-white! bg-[red] text-[color:#fff]";',
+          'export const e = "drop-shadow-red-500 text-shadow-red-500 inset-shadow-black";',
+          'export const f = "bg-[inherit] border-[length:2px] w-[calc(100%-2px)] text-[14px]";',
+        ].join("\n"),
+        "src/d.ts": [
+          'export const g = "bg-[Red] bg-[light-dark(#fff,#000)] [border-top-color:red] shadow-[0_0_2px_red]";',
+          'export const h = "!bg-red-500 !dark:p-2 inset-shadow-red-500";',
+          'export const i = "shadow-[inset_0_0_2px_var(--ring)] bg-[url(/a.png)] [color:inherit] bg-[Transparent]";',
+          'export const j = "bg-[#fff]/50 text-[red]/80 bg-[rgb(0_0_0)]/50";',
+        ].join("\n"),
+      },
+      async (repo) => {
+        expect(await colorClassViolations(repo, "src")).toEqual([
+          "src/a.tsx:2 text-slate-500 (Tailwind palette)",
+          "src/a.tsx:4 border-[#fff] (arbitrary colour)",
+          "src/a.tsx:4 dark:bg-card (dark: variant)",
+          "src/a.tsx:4 ring-blue-500/50 (Tailwind palette)",
+          "src/a.tsx:6 bg-white (black/white)",
+          "src/a.tsx:6 hover:[color:red] (arbitrary colour)",
+          "src/b.ts:1 group-hover:dark:text-white (black/white)",
+          "src/b.ts:1 group-hover:dark:text-white (dark: variant)",
+          "src/c.ts:1 bg-[red] (arbitrary colour)",
+          "src/c.ts:1 bg-red-500! (Tailwind palette)",
+          "src/c.ts:1 text-[color:#fff] (arbitrary colour)",
+          "src/c.ts:1 text-white! (black/white)",
+          "src/c.ts:2 drop-shadow-red-500 (Tailwind palette)",
+          "src/c.ts:2 inset-shadow-black (black/white)",
+          "src/c.ts:2 text-shadow-red-500 (Tailwind palette)",
+          "src/d.ts:1 [border-top-color:red] (arbitrary colour)",
+          "src/d.ts:1 bg-[Red] (arbitrary colour)",
+          "src/d.ts:1 bg-[light-dark(#fff,#000)] (arbitrary colour)",
+          "src/d.ts:1 shadow-[0_0_2px_red] (arbitrary colour)",
+          "src/d.ts:2 !bg-red-500 (Tailwind palette)",
+          "src/d.ts:2 !dark:p-2 (dark: variant)",
+          "src/d.ts:2 inset-shadow-red-500 (Tailwind palette)",
+          "src/d.ts:4 bg-[#fff]/50 (arbitrary colour)",
+          "src/d.ts:4 bg-[rgb(0_0_0)]/50 (arbitrary colour)",
+          "src/d.ts:4 text-[red]/80 (arbitrary colour)",
+        ]);
       },
     );
   });

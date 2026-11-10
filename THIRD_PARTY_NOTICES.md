@@ -56,6 +56,10 @@
 
 Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "NOTICE 전문"에 옮긴다.
 
+## 복사한 소스
+
+`packages/ui`는 Adobe react-spectrum의 React Aria Components starter(Apache-2.0)에서 복사해 고친 파일을 가질 수 있다. npm 패키지가 아니라 저장소 소스라서 아래 표에 나오지 않는다. 복사한 파일 목록, 원본 경로·commit·sha256, 변경 고지는 `packages/ui/NOTICE.md`가, 라이선스 전문은 `packages/ui/LICENSE-APACHE-2.0`이 정본이다. 두 파일은 `@werft-ai/ui` 배포본에도 함께 들어간다.
+
 ## npm 패키지 (production closure)
 
 | 패키지 | 버전 | 라이선스 | 이미지 |
@@ -107,6 +111,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @hono/node-server | 2.1.1 | MIT | worker |
 | @hono/zod-openapi | 1.6.3 | MIT | control-host |
 | @hono/zod-validator | 0.9.1 | MIT | control-host |
+| @internationalized/date | 3.12.4 | Apache-2.0 | control-host |
+| @internationalized/number | 3.6.9 | Apache-2.0 | control-host |
+| @internationalized/string | 3.2.10 | Apache-2.0 | control-host |
 | @modelcontextprotocol/sdk | 1.32.1 | MIT | worker |
 | @octokit/auth-app | 8.3.1 | MIT | control-host |
 | @octokit/auth-oauth-app | 9.0.5 | MIT | control-host |
@@ -170,6 +177,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-use-rect | 1.1.4 | MIT | control-host |
 | @radix-ui/react-use-size | 1.1.4 | MIT | control-host |
 | @radix-ui/rect | 1.1.3 | MIT | control-host |
+| @react-types/shared | 3.37.0 | Apache-2.0 | control-host |
 | @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker, worker-codex |
 | @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker, worker-codex |
@@ -179,6 +187,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @smithy/types | 4.18.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @smithy/types | 4.19.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @stablelib/base64 | 1.0.1 | MIT | worker |
+| @swc/helpers | 0.5.23 | Apache-2.0 | control-host |
 | @types/node | 26.5.1 | MIT | control-host |
 | @types/pg | 8.15.5 | MIT | control-host |
 | @types/react | 19.3.0 | MIT | control-host |
@@ -196,6 +205,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
 | call-bound | 1.0.4 | MIT | worker |
 | class-variance-authority | 0.7.1 | Apache-2.0 | control-host |
+| client-only | 0.0.1 | MIT | control-host |
 | clsx | 2.1.1 | MIT | control-host |
 | content-disposition | 1.1.0 | MIT | worker |
 | content-type | 1.0.5 | MIT | worker |
@@ -285,9 +295,12 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | range-parser | 1.3.0 | MIT | worker |
 | raw-body | 3.0.2 | MIT | worker |
 | react | 19.3.0 | MIT | control-host |
+| react-aria | 3.53.1 | Apache-2.0 | control-host |
+| react-aria-components | 1.22.1 | Apache-2.0 | control-host |
 | react-dom | 19.3.0 | MIT | control-host |
 | react-remove-scroll | 2.7.2 | MIT | control-host |
 | react-remove-scroll-bar | 2.3.8 | MIT | control-host |
+| react-stately | 3.51.0 | Apache-2.0 | control-host |
 | react-style-singleton | 2.2.3 | MIT | control-host |
 | require-from-string | 2.0.2 | MIT | worker |
 | router | 2.2.0 | MIT | worker |
@@ -317,6 +330,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | unpipe | 1.0.0 | MIT | worker |
 | use-callback-ref | 1.3.3 | MIT | control-host |
 | use-sidecar | 1.1.3 | MIT | control-host |
+| use-sync-external-store | 1.7.0 | MIT | control-host |
 | vary | 1.1.2 | MIT | worker |
 | which | 2.0.2 | ISC | worker |
 | wrappy | 1.0.2 | ISC | worker |
@@ -341,6 +355,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 - `@openai/codex@0.167.0-linux-arm64` (Apache-2.0): 저작자 표기 없음, https://github.com/openai/codex.git
 - `@openai/codex@0.167.0-linux-x64` (Apache-2.0): 저작자 표기 없음, https://github.com/openai/codex.git
 - `bun-types@1.3.14` (MIT): 저작자 표기 없음, https://github.com/oven-sh/bun
+- `client-only@0.0.1` (MIT): 저작자 표기 없음
 - `drizzle-orm@0.45.2` (Apache-2.0): Drizzle Team, https://github.com/drizzle-team/drizzle-orm.git
 - `pg-types@2.2.0` (MIT): Brian M. Carlson, git://github.com/brianc/node-pg-types.git
 - `pgpass@1.0.5` (MIT): Hannes Hörl, https://github.com/hoegaarden/pgpass.git

@@ -5,6 +5,8 @@ import {
   queryScopeFilter,
   withQueryScope,
 } from "@werft-ai/core";
+// The foundations entry, not the root: the root loads every component with it.
+import { AriaLocale } from "@werft-ai/ui/foundations";
 import {
   createContext,
   Fragment,
@@ -90,7 +92,11 @@ export function WerftProvider({
     }),
     [client, locale, messages, renderLink, onUnauthorized, eventRetry],
   );
-  return <WerftContext value={value}>{children}</WerftContext>;
+  return (
+    <WerftContext value={value}>
+      <AriaLocale locale={locale}>{children}</AriaLocale>
+    </WerftContext>
+  );
 }
 
 /**

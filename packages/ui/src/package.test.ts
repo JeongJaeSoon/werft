@@ -18,6 +18,7 @@ const FORBIDDEN_IMPORTS = [
 ];
 
 const ALLOWED_RUNTIME_DEPENDENCIES = [
+  "@internationalized/date",
   "@radix-ui/react-checkbox",
   "@radix-ui/react-dialog",
   "@radix-ui/react-popover",
@@ -28,6 +29,7 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "class-variance-authority",
   "clsx",
   "lucide-react",
+  "react-aria-components",
   "tailwind-merge",
 ];
 
@@ -109,7 +111,15 @@ describe("패키지 경계", () => {
     // fonts.css imports pretendard, which stays a devDependency until the
     // published build decides how fonts ship: as a dependency every image
     // would install it, and its OFL-1.1 licence is not reviewed for that.
-    expect([...imported].sort()).toEqual([...declared, "pretendard"].sort());
+    // @internationalized/date is declared with React Aria and first imported
+    // by the date input (B4b-2); drop it from this list when that lands.
+    const notImportedYet = ["@internationalized/date"];
+    expect([...imported].sort()).toEqual(
+      [
+        ...declared.filter((name) => !notImportedYet.includes(name)),
+        "pretendard",
+      ].sort(),
+    );
   });
 
   test("Radix primitive는 primitives/ 안에서만 import한다", async () => {
