@@ -167,6 +167,23 @@ describe("runtime spec contract", () => {
     ).toBe(false);
   });
 
+  test("a connection kind is one of the three the catalog knows", () => {
+    for (const kind of ["anthropic", "litellm", "openai_responses"]) {
+      expect(
+        specSourceSchema.safeParse({
+          ...source,
+          connection: { ...source.connection, kind },
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      specSourceSchema.safeParse({
+        ...source,
+        connection: { ...source.connection, kind: "openai" },
+      }).success,
+    ).toBe(false);
+  });
+
   test.each([
     ["an unknown key", { ...source, secret: "x" }],
     [
