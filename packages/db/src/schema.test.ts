@@ -185,6 +185,7 @@ describe("database schema", () => {
       "pending_requests",
       "permission_grants",
       "profile_fill",
+      "profile_freeze",
       "profile_rollout_items",
       "profile_rollouts",
       "provider_connections",

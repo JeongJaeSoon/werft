@@ -67,6 +67,8 @@ const MIGRATIONS_ONLY = [
   // 0249: a session's copied variable values go when it closes, by one write
   // every close path passes through.
   "function env_start_without_values(snapshot jsonb) jsonb language sql volatility=i parallel=u body md5 961af7aed215f5220cdabdca4a5a3e41",
+  // 0264: the profile freeze row only moves forward and is never removed.
+  "function profile_freeze_guard() trigger language plpgsql volatility=v parallel=u body md5 9bccaa92ddee04fad5a514aeab3e4430",
   "function provider_usage_totals_add() trigger language plpgsql volatility=v parallel=u body md5 51a5dbe75562562eb9d0788546a19357",
   "function provider_usage_totals_clear() trigger language plpgsql volatility=v parallel=u body md5 85a0b1f735cb692332ac4baaa297ba69",
   "function provider_usage_totals_recount() trigger language plpgsql volatility=v parallel=u body md5 21f013ae13ff4eeb4ca390ed5296bf34",
@@ -119,6 +121,9 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
   "trigger CREATE TRIGGER installation_profiles_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.installation_profiles FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
+  "trigger CREATE TRIGGER profile_freeze_delete_guard BEFORE DELETE ON public.profile_freeze FOR EACH ROW EXECUTE FUNCTION profile_freeze_guard() enabled=O",
+  "trigger CREATE TRIGGER profile_freeze_truncate_guard BEFORE TRUNCATE ON public.profile_freeze FOR EACH STATEMENT EXECUTE FUNCTION profile_freeze_guard() enabled=O",
+  "trigger CREATE TRIGGER profile_freeze_update_guard BEFORE UPDATE ON public.profile_freeze FOR EACH ROW EXECUTE FUNCTION profile_freeze_guard() enabled=O",
   "trigger CREATE TRIGGER provider_connections_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.provider_connections FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_delete AFTER DELETE ON public.provider_usage REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_recount() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_insert AFTER INSERT ON public.provider_usage REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_add() enabled=O",
