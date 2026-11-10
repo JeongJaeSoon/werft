@@ -4,7 +4,7 @@ description: 세션 이벤트가 저장되는 곳, 비밀값을 가리는 곳, �
 ---
 
 worker가 엔진에서 받은 세션 데이터(모델 답변, 도구 호출과 결과, 권한 요청, 상태 변화)는 DB의 `events` 표로 간다. 이 표가 기능이 기대는 정본이다. 이 문서는 이 표가 무엇을 담고, 끊기면 무엇이 깨지는지, 비밀값을 어디서 가리는지, 누가 내용을 볼 수 있는지를 적고, Langfuse 수집기 예제를 띄우는 법을 적는다.
-지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog)에 있다. 앱에는 OpenTelemetry(OTel) 의존성도 trace exporter도 없다. 로그의 `trace_id`는 관측 컨텍스트에 필드만 있고 채우는 곳이 없다.
+지금의 감시(stdout JSON 로그, `/readyz`, DB query를 Datadog Agent가 수집)는 [Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog)에 있다. 트레이스는 운영자가 설정하면 표준 OTLP로 내보내고, 기본은 꺼짐이다([키와 켜는 법](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#트레이스-내보내기-otlp)). 켜면 로그의 `trace_id`·`span_id`가 활성 span 안에서 채워진다.
 
 ## 한눈에
 
@@ -72,7 +72,7 @@ worker의 이벤트 전송 단계가 이벤트에 attempt 단위 `source_sequenc
 
 `infra/observability/`에 수집기 예제가 두 개 있다. Grafana LGTM을 띄워 trace를 찾는 법은 [관측 (OTel)](/observability)에 있고, 여기서는 Langfuse 예제를 다룬다. 두 예제 모두 Werft 스택과 따로 뜨는 compose project이고, 앞에 OpenTelemetry Collector를 하나씩 두어 표준 OTLP/HTTP를 받는다. 한 컴퓨터에서 OTLP 수신을 확인하는 용도이고, 운영 권장 구성이 아니다. 어느 수집기를 쓰고 어떻게 운영할지는 운영자가 정한다.
 
-**볼 수 있는 범위.** Werft는 OTel 트레이스를 내보내지 않는다. Werft 세션을 실행해도 수집기에는 trace가 생기지 않는다. 이 절로 확인할 수 있는 것은 예제 수집기가 OTLP trace를 받아 화면에 보여 주는 데까지이고, 보내는 trace는 `send-test-span.sh`가 만든 가짜 span이다.
+**볼 수 있는 범위.** 이 절의 예제는 내보내기를 켜지 않은 상태를 전제로 한다. 내보내기를 켜면 Werft가 trace를 보내지만, 이 절에서 보내는 것은 아니다. 이 절로 확인할 수 있는 것은 예제 수집기가 OTLP trace를 받아 화면에 보여 주는 데까지이고, 보내는 trace는 `send-test-span.sh`가 만든 가짜 span이다.
 
 | 예제 | 디렉터리 | OTLP/HTTP 받는 곳 | 화면 | 받는 신호 |
 |---|---|---|---|---|

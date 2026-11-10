@@ -446,6 +446,35 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 | `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | 내용 수집 상한(`full`·`metadata`)과 내용 속성 하나의 바이트 상한. 워크스페이스 설정은 상한 안에서 낮추기만 한다 |
 | `TRACE_INGEST_PORT` / `TRACE_INGEST_MAX_REQUEST_BYTES` / `TRACE_INGEST_MAX_BYTES_PER_MIN` / `TRACE_MAX_BYTES_PER_TRACE` / `TRACE_FENCED_GRACE_SEC` | `4319` / 4MiB / 32MiB / 20MiB / `300` | ingest listener의 포트와 상한. 0·음수·숫자가 아닌 값은 키 이름을 밝히고 시작 시 멈춘다 |
 
+**켜는 최소 설정.** 특정 수집기가 필요 없다. OTLP/HTTP(protobuf)로 받는 수집기면 된다. 세 키를 api의 env에 준다. 1단계는 트레이스 신호만 내고 프롬프트·답변·도구 입출력은 span 속성(`gen_ai.*`)에 실리므로 로그 저장소가 필요 없다.
+
+```bash
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
+TRACE_INGEST_URL=http://api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+```
+
+- **compose.** 위 값을 compose를 띄우는 셸이나 `.env`에 두면 `infra/compose.core.yml`이 api 컨테이너에 넘긴다(표의 모든 키가 같은 이름이다). `EGRESS_PRIVATE_ALLOWLIST`는 기본값 `api:3000,host.docker.internal:3000`에 `api:<TRACE_INGEST_PORT>`를 더해 준다. worker가 ingest에 가는 길이 egress proxy를 지나기 때문이다. 이 목록에 수집기 주소를 넣지 않는다.
+- **Kubernetes(Helm).** 키는 `api.extraEnv`에 `이름: 값`으로 준다. 포트는 Service와 NetworkPolicy도 알아야 하므로 `config.tracing.ingestPort`(기본 `4319`)로만 바꾸고 `TRACE_INGEST_PORT`는 따로 주지 않는다. `TRACE_INGEST_URL`은 `http://<api Service 이름>:4319`이다. `config.egress.privateAllowlist`를 직접 지정했다면 거기에 `<api Service 이름>:4319`를 더한다.
+- 수집기 주소 호스트를 `EGRESS_PRIVATE_ALLOWLIST`·`EGRESS_ALLOWLIST`에 넣으면 api가 시작할 때 경고를 남긴다. worker는 수집기로 직접 가지 않는다.
+
+**업그레이드.** 이미 `OTEL_TRACES_EXPORTER=otlp`로 쓰던 설치는 `TRACE_INGEST_URL`을 더해야 api가 시작한다. 없으면 키 이름을 밝히고 멈춘다. worker가 span을 보낼 주소이므로 worker에서 api의 `TRACE_INGEST_PORT`(기본 `4319`)에 닿는 주소를 쓴다. 이 포트는 `otlp`일 때만 열린다.
+
+**수집기가 맞춰야 할 조건.**
+
+- 한 트레이스의 크기 상한을 `TRACE_MAX_BYTES_PER_TRACE`(20MiB)보다 크게 둔다. 작으면 수집기가 큰 트레이스를 버린다.
+- 테넌트마다 credential이 다르면 `TRACE_TENANT_HEADERS_FILE`을 쓴다. mode 600인 JSON 파일이고(아니면 시작 시 거절), 같은 헤더 이름이 겹치면 `TRACE_TENANT_HEADER`와 `OTEL_EXPORTER_OTLP_HEADERS`보다 이 파일이 이긴다. 값은 비밀이므로 저장소에 두지 않는다. 형식만 보이면 다음과 같다.
+
+```json
+{ "<workspace_id>": { "<header name>": "<secret value>" } }
+```
+
+- 테넌트 헤더를 설정하지 않은 단일 테넌트 설치에서는 모든 워크스페이스의 트레이스가 한 곳에 모인다. 백엔드 UI 접근을 운영자에게만 준다.
+- 내용(프롬프트·답변·도구 입출력)은 `TRACE_CONTENT_MODE=full`일 때 수집기로 간다. 워크스페이스별 content mode는 아직 없고 설치 상한만 적용된다(나중 단위에서 더한다). 내용을 내보내지 않으려면 `metadata`로 둔다.
+
+데이터 흐름(무엇이 어떤 경로로 어디까지 가는지)을 따로 적은 `docs/observability.md`는 이 저장소에 아직 없다. 생기면 여기서 링크만 건다.
+
 `OTEL_*` 키는 worker와 엔진에 넘어가지 않는다. worker는 bootstrap claim의 `telemetry`(`enabled`, `ingest_url`, `content_mode`, `content_max_bytes`, `sampler`, `sampler_arg`)와 `nextInput`의 `content_mode`로만 설정을 받는다. 수집기 호스트가 `EGRESS_PRIVATE_ALLOWLIST`나 `EGRESS_ALLOWLIST`에 있으면 api가 시작할 때 경고를 한 번 남긴다.
 
 켜면 `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·메트릭 경로와 worker gateway(`/internal/**`)는 span이 없고, gateway는 worker가 그 turn의 trace id로 `traceparent`를 보낸 호출만 그 trace의 자식 span을 만든다.
