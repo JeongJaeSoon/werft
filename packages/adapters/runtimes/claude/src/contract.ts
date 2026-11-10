@@ -142,6 +142,9 @@ function engineProfile(
   const { auth, endpoint, kind } = bindings.provider;
   const principal = bindings.principal;
   if (kind === "litellm") return { kind, endpoint, auth, principal };
+  if (kind === "openai_responses") {
+    throw new Error("The Claude engine does not speak the Responses API");
+  }
   if (auth.kind === "bearer") {
     throw new Error(
       "An anthropic provider takes an API key or an egress token",

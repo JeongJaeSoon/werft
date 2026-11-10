@@ -65,6 +65,9 @@ export type RecoveryDecisionResult =
   // start_fresh or retry_restore on a session whose workspace GC has
   // claimed and not yet settled, as for resume.
   | { outcome: "workspace_reclaiming" }
+  // start_fresh on a session that cannot go live under an authoritative
+  // spec pin, as for resume.
+  | { outcome: "pin_required" }
   // start_fresh or retry_restore on a session whose execution authority an
   // operator revoked; only the operator's restore lifts it.
   | { outcome: "execution_revoked" }
@@ -146,6 +149,9 @@ export type ResumeSessionResult =
   // GC has claimed the stopped session's workspace and not yet settled the
   // removal; the same request succeeds once it has.
   | { outcome: "workspace_reclaiming" }
+  // The spec pin is authoritative and the session has no release or no pin
+  // on its own model, so it cannot go live again; retrying changes nothing.
+  | { outcome: "pin_required" }
   // An operator revoked the session's execution authority.
   | { outcome: "execution_revoked" }
   // The parked turn still waits on requests nobody answered and that have

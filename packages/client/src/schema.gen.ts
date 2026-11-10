@@ -9083,7 +9083,7 @@ export interface components {
             connections: {
                 id: string;
                 /** @enum {string} */
-                kind: "anthropic" | "litellm";
+                kind: "anthropic" | "litellm" | "openai_responses";
                 /** @enum {string} */
                 billing: "metered" | "none";
             }[];
@@ -9153,7 +9153,7 @@ export interface components {
                 /** @enum {string} */
                 state: "active" | "needs_value" | "unresolved" | "disabled";
                 /** @enum {string} */
-                kind: "anthropic" | "litellm";
+                kind: "anthropic" | "litellm" | "openai_responses";
                 endpoint: string;
                 /** @enum {string} */
                 billing: "per_token" | "none";
@@ -9212,7 +9212,7 @@ export interface components {
         CreateSettingsConnectionRequest: {
             id: string;
             /** @enum {string} */
-            kind: "anthropic" | "litellm";
+            kind: "anthropic" | "litellm" | "openai_responses";
             endpoint?: string;
             /** @enum {string} */
             billing?: "per_token" | "none";
@@ -18932,6 +18932,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. A failed session that has no runtime spec pinned on its own model, which it needs to run again once specs are authoritative; nothing is queued. */
+            422: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNSUPPORTED_CAPABILITY";
+                        };
+                    };
+                };
+            };
             /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. The session already holds the installation's maximum of queued inputs; `Retry-After` is 5. */
             429: {
                 headers: {
@@ -23414,7 +23429,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding. */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative. */
             422: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -23608,7 +23623,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding. */
+            /** @description - `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative. */
             422: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

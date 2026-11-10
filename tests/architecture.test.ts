@@ -11,6 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import * as ts from "typescript";
+import {
+  type Baseline,
+  baseline,
+  pathFixed,
+  profileSeriesFiles,
+} from "./architecture.baseline.ts";
 import { webUiAllowlist } from "./web-ui-allowlist.ts";
 
 const root = join(import.meta.dir, "..");
@@ -803,6 +809,776 @@ export function webUiRatchet(
   }
   return problems;
 }
+
+/*
+ * Dependency direction: A1-A4 (package-structure.md section 5) and R2-R9
+ * (surface-action-modules.md section 8). Each check takes the repository root
+ * so a fixture tree can stand in for it. A rule aimed at a path that does not
+ * exist yet (platform surface/ and action/, packages/adapters/forge and chat)
+ * finds nothing until the path appears, and applies from its first file.
+ * Known violations live in tests/architecture.baseline.ts and only shrink.
+ */
+
+const slashed = (path: string) => path.split(sep).join("/");
+const platformSrc = (repo: string) => join(repo, platform, "src");
+const contractsSrc = (repo: string) =>
+  join(repo, "packages", "contracts", "src");
+// Directories every platform domain may use: the shared ports and test helpers.
+const sharedPlatformDirs = new Set(["ports", "testing"]);
+
+async function scriptsIn(directory: string): Promise<string[]> {
+  return existsSync(directory) ? (await scriptFiles(directory)).sort() : [];
+}
+
+async function productSourcesIn(directory: string): Promise<string[]> {
+  return (await scriptsIn(directory)).filter((file) => !isTestFile(file));
+}
+
+/** Static imports, re-exports, import() and require() calls, and import types. */
+function importedModules(source: ts.SourceFile): string[] {
+  const found: string[] = [];
+  walk(source, (node) => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    )
+      found.push(node.moduleSpecifier.text);
+    else if (
+      ts.isExternalModuleReference(node) &&
+      ts.isStringLiteral(node.expression)
+    )
+      found.push(node.expression.text);
+    else if (ts.isCallExpression(node)) {
+      const [first] = node.arguments;
+      const callee = node.expression;
+      if (
+        first &&
+        ts.isStringLiteralLike(first) &&
+        (callee.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(callee) && callee.text === "require"))
+      )
+        found.push(first.text);
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    )
+      found.push(node.argument.literal.text);
+  });
+  return found;
+}
+
+/** The file a relative specifier names, or the bare path when none exists. */
+function resolveImport(from: string, specifier: string): string {
+  const base = resolve(dirname(from), specifier);
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+  ])
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  return base;
+}
+
+/** Relative imports of `file`, resolved and written relative to `base`. */
+async function relativeTargets(file: string, base: string): Promise<string[]> {
+  return importedModules(await parse(file))
+    .filter((specifier) => specifier.startsWith("."))
+    .map((specifier) =>
+      slashed(relative(base, resolveImport(file, specifier))),
+    );
+}
+
+async function packagesIn(
+  directory: string,
+  depth: number,
+): Promise<Array<{ dir: string; name: string }>> {
+  if (!existsSync(directory)) return [];
+  const found: Array<{ dir: string; name: string }> = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === "node_modules") continue;
+    const dir = join(directory, entry.name);
+    if (existsSync(join(dir, "package.json"))) {
+      const name = (await manifest(dir)).name;
+      if (name) found.push({ dir, name });
+    } else if (depth > 1) found.push(...(await packagesIn(dir, depth - 1)));
+  }
+  return found;
+}
+
+const adapterPackages = (repo: string) =>
+  packagesIn(join(repo, "packages", "adapters"), 2);
+const appPackages = (repo: string) => packagesIn(join(repo, "apps"), 1);
+
+type Counts = Record<string, number>;
+
+function tally(keys: readonly string[]): Counts {
+  const counts: Counts = {};
+  for (const key of keys) counts[key] = (counts[key] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * The ratchet for a baselined rule: `found` may only shrink below `allowed`.
+ * A count above the list is a new violation; a count below it is a fix whose
+ * entry must go, so the list never stays larger than what is there. A PR that
+ * only moves a file renames the key (one fixed, one new) instead of adding.
+ */
+export function baselineRatchet(
+  rule: string,
+  found: Counts,
+  allowed: Counts,
+): string[] {
+  const problems: string[] = [];
+  for (const key of [
+    ...new Set([...Object.keys(found), ...Object.keys(allowed)]),
+  ].sort()) {
+    const now = found[key] ?? 0;
+    const listed = allowed[key] ?? 0;
+    if (now > listed)
+      problems.push(
+        `${rule} ${key}: ${now} found, ${listed} listed. A new violation: fix the code. tests/architecture.baseline.ts never grows; a move that only renames a path renames the key.`,
+      );
+    else if (now < listed)
+      problems.push(
+        `${rule} ${key}: ${now} found, ${listed} listed. Lower this entry in tests/architecture.baseline.ts to ${now}${now === 0 ? " (remove it)" : ""}.`,
+      );
+  }
+  return problems;
+}
+
+function baselineCounts(key: keyof Baseline): Counts {
+  const listed = baseline[key];
+  return Array.isArray(listed) ? tally(listed) : { ...listed };
+}
+
+/**
+ * Files under `directory`/src, .ts and .tsx, tests included, that import a
+ * package `forbidden` names. Read from the AST, so require(), import types and
+ * re-exports count and a commented-out import does not.
+ */
+async function forbiddenModuleImports(
+  directory: string,
+  forbidden: readonly string[],
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const file of await scriptsIn(join(directory, "src")))
+    for (const specifier of importedModules(await parse(file)))
+      if (isForbidden(packageOf(specifier), forbidden))
+        found.push(`${slashed(relative(directory, file))} -> ${specifier}`);
+  return found.sort();
+}
+
+/** A1: contracts imports no platform, db, adapter package or app. */
+export async function contractsDirection(repo: string): Promise<string[]> {
+  return forbiddenModuleImports(join(repo, "packages", "contracts"), [
+    "@werft-ai/platform",
+    "@werft-ai/db",
+    ...(await adapterPackages(repo)).map(({ name }) => name),
+    ...(await appPackages(repo)).map(({ name }) => name),
+  ]);
+}
+
+/**
+ * A2: a platform domain (first directory under src, other than the shared
+ * ports/ and testing/) imports another domain only through that domain's
+ * ports/ or its index.ts. Returns "<file> -> <target>" pairs, tests excluded.
+ */
+export async function crossDomainImports(repo: string): Promise<string[]> {
+  const src = platformSrc(repo);
+  const found: string[] = [];
+  for (const file of await productSourcesIn(src)) {
+    const from = slashed(relative(src, file)).split("/");
+    const domain = from[0];
+    if (from.length < 2 || !domain || sharedPlatformDirs.has(domain)) continue;
+    for (const target of await relativeTargets(file, src)) {
+      const to = target.split("/");
+      const other = to[0];
+      if (
+        to.length < 2 ||
+        !other ||
+        other.startsWith("..") ||
+        other === domain ||
+        sharedPlatformDirs.has(other)
+      )
+        continue;
+      const surface =
+        to[1] === "ports" ||
+        (to.length === 2 && /^index\.tsx?$/.test(to[1] ?? ""));
+      if (!surface) found.push(`${from.join("/")} -> ${target}`);
+    }
+  }
+  // A pair, not an import statement: a type import and a value import of the
+  // same file are one dependency.
+  return [...new Set(found)].sort();
+}
+
+/** A3: nothing under a ports/ directory imports from a tools/ directory. */
+export async function portsImportingTools(repo: string): Promise<string[]> {
+  const src = platformSrc(repo);
+  const found: string[] = [];
+  for (const file of await productSourcesIn(src)) {
+    const from = slashed(relative(src, file));
+    if (!from.split("/").slice(0, -1).includes("ports")) continue;
+    for (const target of await relativeTargets(file, src))
+      if (target.split("/").slice(0, -1).includes("tools"))
+        found.push(`${from} -> ${target}`);
+  }
+  return found.sort();
+}
+
+/** Every name a binding introduces, destructuring included. */
+function bindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((element) =>
+    ts.isOmittedExpression(element) ? [] : bindingNames(element.name),
+  );
+}
+
+/** The names a statement declares, types included. */
+function declaredNames(statement: ts.Statement): string[] {
+  if (ts.isVariableStatement(statement))
+    return statement.declarationList.declarations.flatMap((declaration) =>
+      bindingNames(declaration.name),
+    );
+  if (
+    ts.isFunctionDeclaration(statement) ||
+    ts.isClassDeclaration(statement) ||
+    ts.isInterfaceDeclaration(statement) ||
+    ts.isTypeAliasDeclaration(statement) ||
+    ts.isEnumDeclaration(statement)
+  )
+    return statement.name ? [statement.name.text] : [];
+  return [];
+}
+
+const isTypeDeclaration = (statement: ts.Statement) =>
+  ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement);
+
+/**
+ * A4: contracts is data, schemas and pure transforms. Counts per
+ * "<file> <kind>": a class, an async function or await (I/O is a handler's
+ * work), and an exported value named like a handler.
+ */
+export async function contractsBehaviour(repo: string): Promise<Counts> {
+  const src = contractsSrc(repo);
+  const found: string[] = [];
+  for (const file of await productSourcesIn(src)) {
+    const name = slashed(relative(src, file));
+    const source = await parse(file);
+    walk(source, (node) => {
+      if (ts.isClassDeclaration(node) || ts.isClassExpression(node))
+        found.push(`${name} class`);
+      if (
+        ts.isAwaitExpression(node) ||
+        (ts.canHaveModifiers(node) &&
+          ts
+            .getModifiers(node)
+            ?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword))
+      )
+        found.push(`${name} async`);
+    });
+    const functions = functionNames(source);
+    for (const { exported, local } of exportedBindings(source))
+      if (
+        functions.has(local) &&
+        (handlerName.test(exported) || handlerName.test(local))
+      )
+        found.push(`${name} handler`);
+  }
+  return tally(found);
+}
+
+const handlerName = /^handle[A-Z]|Handler$/;
+
+/** An arrow or function expression, parentheses and `as`/`satisfies` wrappers looked through. */
+function isFunctionValue(expression: ts.Expression): boolean {
+  if (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression)
+  )
+    return isFunctionValue(expression.expression);
+  return ts.isArrowFunction(expression) || ts.isFunctionExpression(expression);
+}
+
+/** Top-level functions: declarations and consts bound to an arrow or function expression. */
+function functionNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name)
+      names.add(statement.name.text);
+    if (ts.isVariableStatement(statement))
+      for (const declaration of statement.declarationList.declarations)
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer &&
+          isFunctionValue(declaration.initializer)
+        )
+          names.add(declaration.name.text);
+  }
+  return names;
+}
+
+/** What a module exports under which name, `export { a as b }` included; re-exports have no local. */
+function exportedBindings(
+  source: ts.SourceFile,
+): Array<{ exported: string; local: string }> {
+  const bindings: Array<{ exported: string; local: string }> = [];
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      if (
+        !statement.isTypeOnly &&
+        !statement.moduleSpecifier &&
+        clause &&
+        ts.isNamedExports(clause)
+      )
+        for (const element of clause.elements)
+          if (!element.isTypeOnly)
+            bindings.push({
+              exported: element.name.text,
+              local: (element.propertyName ?? element.name).text,
+            });
+    } else if (isExported(statement))
+      for (const name of declaredNames(statement))
+        bindings.push({ exported: name, local: name });
+  }
+  return bindings;
+}
+
+/** The forge and chat adapters, as opposed to the execution and runtime ones. */
+function isChannelAdapter(repo: string, directory: string): boolean {
+  const kind = slashed(
+    relative(join(repo, "packages", "adapters"), directory),
+  ).split("/")[0];
+  return kind === "forge" || kind === "chat";
+}
+
+// The workspace packages a forge or chat adapter may use. testkit is the one
+// shared test dependency every package may declare as a devDependency.
+const channelAdapterAllowed = new Set([
+  "@werft-ai/platform",
+  "@werft-ai/contracts",
+  "@werft-ai/observability",
+  "@werft-ai/storage",
+  "@werft-ai/testkit",
+]);
+
+/**
+ * R2: a forge or chat adapter takes platform, contracts, observability,
+ * storage and its own SDK only: any other workspace package (another adapter,
+ * db, runtime-core, an app) is a violation, in package.json or in an import.
+ */
+export async function adapterBoundaryViolations(
+  repo: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const adapter of await adapterPackages(repo)) {
+    if (!isChannelAdapter(repo, adapter.dir)) continue;
+    const outside = (name: string) =>
+      name.startsWith("@werft-ai/") &&
+      name !== adapter.name &&
+      !channelAdapterAllowed.has(name);
+    const where = slashed(relative(repo, adapter.dir));
+    const pkg = await manifest(adapter.dir);
+    for (const declared of [
+      ...declaredDependencies(pkg),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ])
+      if (outside(declared)) found.push(`${where}/package.json -> ${declared}`);
+    for (const file of await scriptsIn(join(adapter.dir, "src")))
+      for (const specifier of importedModules(await parse(file)))
+        if (outside(packageOf(specifier)))
+          found.push(
+            `${where}/${slashed(relative(adapter.dir, file))} -> ${specifier}`,
+          );
+  }
+  return found.sort();
+}
+
+const wiringPackages = ["@werft-ai/forge-github", "@werft-ai/chat-slack"];
+const wiringDirectory = "apps/control-host/src/wiring/";
+
+/**
+ * R3: product code in apps imports a concrete forge or chat adapter only from
+ * the control host's wiring/. Tests, test-support and the adapters' own
+ * /testing exports are outside the rule.
+ */
+export async function adapterImportsOutsideWiring(
+  repo: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const app of await appPackages(repo))
+    for (const file of await productSourcesIn(join(app.dir, "src"))) {
+      const name = slashed(relative(repo, file));
+      if (name.startsWith(wiringDirectory)) continue;
+      for (const specifier of importedModules(await parse(file))) {
+        const pkg = packageOf(specifier);
+        const rest = specifier.slice(pkg.length);
+        if (
+          wiringPackages.includes(pkg) &&
+          rest !== "/testing" &&
+          !rest.startsWith("/testing/")
+        )
+          found.push(`${name} -> ${specifier}`);
+      }
+    }
+  return found.sort();
+}
+
+/** R4: platform surface/ and action/ never import each other. */
+export async function surfaceActionImports(repo: string): Promise<string[]> {
+  const src = platformSrc(repo);
+  const found: string[] = [];
+  for (const file of await productSourcesIn(src)) {
+    const from = slashed(relative(src, file));
+    const here = from.split("/")[0];
+    if (here !== "surface" && here !== "action") continue;
+    const other = here === "surface" ? "action" : "surface";
+    for (const target of await relativeTargets(file, src))
+      if (target.split("/")[0] === other) found.push(`${from} -> ${target}`);
+  }
+  return found.sort();
+}
+
+// The write sides of the pending and push stores: only decision/ may hold them.
+const decisionStores = new Set(["PendingRequestStore", "PushRequestStore"]);
+
+/**
+ * R5 part 1: channel code (the forge and chat adapters, control-host's
+ * routes/surface) never names the write stores. Every identifier is looked at,
+ * so an aliased import, a namespace access and an import() type all count.
+ */
+export async function channelStoreUses(repo: string): Promise<string[]> {
+  const found: string[] = [];
+  const directories = [
+    join(repo, "apps", "control-host", "src", "api", "routes", "surface"),
+    ...(await adapterPackages(repo))
+      .filter(({ dir }) => isChannelAdapter(repo, dir))
+      .map(({ dir }) => join(dir, "src")),
+  ];
+  for (const directory of directories)
+    for (const file of await productSourcesIn(directory))
+      walk(await parse(file), (node) => {
+        if (ts.isIdentifier(node) && decisionStores.has(node.text))
+          found.push(`${slashed(relative(repo, file))} -> ${node.text}`);
+      });
+  return found.sort();
+}
+
+/**
+ * R5 part 2: decision/index.ts, once it exists, exports the two entrance
+ * types and nothing else, so channels have exactly two things to call.
+ */
+export async function decisionEntranceProblems(
+  repo: string,
+): Promise<string[]> {
+  const file = join(platformSrc(repo), "decision", "index.ts");
+  if (!existsSync(file)) return [];
+  const types: string[] = [];
+  const values: string[] = [];
+  for (const statement of (await parse(file)).statements) {
+    if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      if (!clause) values.push("*");
+      else if (ts.isNamedExports(clause))
+        for (const element of clause.elements)
+          (statement.isTypeOnly || element.isTypeOnly ? types : values).push(
+            element.name.text,
+          );
+      else values.push(clause.name.text);
+    } else if (ts.isExportAssignment(statement)) values.push("default");
+    else if (isExported(statement)) {
+      const names = declaredNames(statement);
+      // An anonymous `export default function () {}` declares no name.
+      if (names.length === 0) values.push("default");
+      (isTypeDeclaration(statement) ? types : values).push(...names);
+    }
+  }
+  return [
+    ...values.map(
+      (name) => `decision/index.ts exports ${name}, which is not a type`,
+    ),
+    ...(types.length === 2
+      ? []
+      : [`decision/index.ts exports ${types.length} types, expected 2`]),
+  ];
+}
+
+// What a pure view-model function must not read or take in.
+const impureGlobals = new Set(["Date", "fetch", "process", "Intl"]);
+const phraseFileSegment = /^(?:i18n|locales?|messages?)(?:\.[a-z]+)?$/;
+
+/** An identifier that is a name (`a.fetch`, `{ fetch: 1 }`), not a reference. */
+function isNamePosition(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    (ts.isQualifiedName(parent) && parent.right === node) ||
+    ((ts.isPropertySignature(parent) ||
+      ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isMethodDeclaration(parent)) &&
+      parent.name === node)
+  );
+}
+
+/** References to the named globals, `typeof fetch` and `globalThis.fetch` included. */
+function globalReferences(
+  source: ts.SourceFile,
+  names: ReadonlySet<string>,
+): string[] {
+  const found: string[] = [];
+  walk(source, (node) => {
+    if (!ts.isIdentifier(node) || !names.has(node.text)) return;
+    const parent = node.parent;
+    const viaGlobalThis =
+      ts.isPropertyAccessExpression(parent) &&
+      parent.name === node &&
+      ts.isIdentifier(parent.expression) &&
+      parent.expression.text === "globalThis";
+    if (viaGlobalThis || !isNamePosition(node)) found.push(node.text);
+  });
+  // globalThis["fetch"] has no identifier to find.
+  walk(source, (node) => {
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "globalThis" &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      names.has(node.argumentExpression.text)
+    )
+      found.push(node.argumentExpression.text);
+  });
+  return found;
+}
+
+/**
+ * R6: view-model files are pure. No zod, node: or phrase-file import, and no
+ * Date, fetch, process or Intl. Whether a returned string is translated text
+ * is not decidable here; view-model tests and review cover that.
+ */
+export async function impurities(
+  repo: string,
+  files: readonly string[],
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const file of files) {
+    const name = slashed(relative(repo, file));
+    const source = await parse(file);
+    for (const specifier of importedModules(source))
+      if (
+        packageOf(specifier) === "zod" ||
+        specifier.startsWith("node:") ||
+        specifier.split("/").some((part) => phraseFileSegment.test(part))
+      )
+        found.push(`${name} -> import ${specifier}`);
+    for (const global of globalReferences(source, impureGlobals))
+      found.push(`${name} -> ${global}`);
+  }
+  return found.sort();
+}
+
+export async function surfaceImpurities(repo: string): Promise<string[]> {
+  return impurities(
+    repo,
+    await productSourcesIn(join(contractsSrc(repo), "surface")),
+  );
+}
+
+/** R7: platform reaches outside services through a port, never `fetch`. Counts per file. */
+export async function directFetch(repo: string): Promise<Counts> {
+  const src = platformSrc(repo);
+  const counts: Counts = {};
+  for (const file of await productSourcesIn(src)) {
+    const n = globalReferences(await parse(file), new Set(["fetch"])).length;
+    if (n > 0) counts[slashed(relative(src, file))] = n;
+  }
+  return counts;
+}
+
+/** R8: platform files whose path has a "slack" segment. */
+export async function slackFiles(repo: string): Promise<string[]> {
+  const src = platformSrc(repo);
+  return (await productSourcesIn(src))
+    .map((file) => slashed(relative(src, file)))
+    .filter((path) => path.split("/").some((part) => /slack/i.test(part)));
+}
+
+/** Every name a module exports: declarations, `export { a as b }` and `export * as ns`. */
+function exportedNames(source: ts.SourceFile): string[] {
+  const names: string[] = [];
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      if (clause && ts.isNamedExports(clause))
+        for (const element of clause.elements) names.push(element.name.text);
+      else if (clause) names.push(clause.name.text);
+    } else if (isExported(statement)) names.push(...declaredNames(statement));
+  }
+  return names;
+}
+
+/** R8: exported names containing "slack", counted per platform file. */
+export async function slackExports(repo: string): Promise<Counts> {
+  const src = platformSrc(repo);
+  const counts: Counts = {};
+  for (const file of await productSourcesIn(src)) {
+    const n = exportedNames(await parse(file)).filter((name) =>
+      /slack/i.test(name),
+    ).length;
+    if (n > 0) counts[slashed(relative(src, file))] = n;
+  }
+  return counts;
+}
+
+/** Type parameter names of the declarations around `node`; they hide a same-named alias. */
+function typeParameterNames(node: ts.Node): Set<string> {
+  const names = new Set<string>();
+  for (let up: ts.Node | undefined = node; up; up = up.parent)
+    if (
+      (ts.isInterfaceDeclaration(up) ||
+        ts.isTypeAliasDeclaration(up) ||
+        ts.isMethodSignature(up) ||
+        ts.isFunctionTypeNode(up)) &&
+      up.typeParameters
+    )
+      for (const parameter of up.typeParameters) names.add(parameter.name.text);
+  return names;
+}
+
+/**
+ * A function type, written inline or through a type alias declared in the
+ * same file. A type parameter hides a same-named alias; inside a followed
+ * alias it stands for the type argument written at the use, which is judged
+ * where that use is. `args` carries those arguments, `shadowed` the names with
+ * no argument.
+ */
+function isFunctionType(
+  type: ts.TypeNode,
+  aliases: ReadonlyMap<string, ts.TypeAliasDeclaration>,
+  shadowed: ReadonlySet<string> = new Set(),
+  followed: ReadonlySet<string> = new Set(),
+  args: ReadonlyMap<string, () => boolean> = new Map(),
+): boolean {
+  const again = (inner: ts.TypeNode) =>
+    isFunctionType(inner, aliases, shadowed, followed, args);
+  if (ts.isFunctionTypeNode(type)) return true;
+  if (ts.isParenthesizedTypeNode(type)) return again(type.type);
+  if (ts.isUnionTypeNode(type)) return type.types.some(again);
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    const name = type.typeName.text;
+    const bound = args.get(name);
+    if (bound) return bound();
+    const target = aliases.get(name);
+    if (!target || shadowed.has(name) || followed.has(name)) return false;
+    const parameters = target.typeParameters ?? [];
+    const next = new Map<string, () => boolean>();
+    parameters.forEach((parameter, index) => {
+      const argument = type.typeArguments?.[index];
+      if (argument) next.set(parameter.name.text, () => again(argument));
+    });
+    return isFunctionType(
+      target.type,
+      aliases,
+      new Set(parameters.map((parameter) => parameter.name.text)),
+      new Set([...followed, name]),
+      next,
+    );
+  }
+  return false;
+}
+
+/** R9: capability ports (platform action/ports, surface/ports) have no `method?:`. */
+export async function optionalCapabilityMethods(
+  repo: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const domain of ["action", "surface"])
+    for (const file of await productSourcesIn(
+      join(platformSrc(repo), domain, "ports"),
+    )) {
+      const source = await parse(file);
+      const aliases = new Map<string, ts.TypeAliasDeclaration>();
+      for (const statement of source.statements)
+        if (ts.isTypeAliasDeclaration(statement))
+          aliases.set(statement.name.text, statement);
+      walk(source, (node) => {
+        if (
+          (ts.isMethodSignature(node) && node.questionToken) ||
+          (ts.isPropertySignature(node) &&
+            node.questionToken &&
+            node.type &&
+            isFunctionType(node.type, aliases, typeParameterNames(node)))
+        )
+          found.push(
+            `${slashed(relative(repo, file))} -> ${node.name.getText(source)}`,
+          );
+      });
+    }
+  return found.sort();
+}
+
+/** Listed paths that are gone: a move or delete the list forbids. */
+export function missingFiles(
+  repo: string,
+  listed: readonly string[],
+): string[] {
+  return listed.filter((path) => !existsSync(join(repo, path)));
+}
+
+/**
+ * Source files that a package's `exports` subpaths name but `listed` lacks.
+ * A new subpath export makes a new path-fixed file, so it joins the list in
+ * the PR that adds it.
+ */
+export async function unlistedExportTargets(
+  repo: string,
+  packageDirectories: readonly string[],
+  listed: readonly string[],
+): Promise<string[]> {
+  const known = new Set(listed);
+  const missing = new Set<string>();
+  for (const directory of packageDirectories) {
+    const { exports } = JSON.parse(
+      await readFile(join(directory, "package.json"), "utf8"),
+    ) as { exports?: unknown };
+    if (!exports || typeof exports !== "object") continue;
+    for (const [subpath, target] of Object.entries(exports)) {
+      if (subpath === ".") continue;
+      for (const path of leaves(target)) {
+        if (!/\.tsx?$/.test(path)) continue;
+        const file = slashed(relative(repo, resolve(directory, path)));
+        if (!known.has(file)) missing.add(file);
+      }
+    }
+  }
+  return [...missing].sort();
+}
+
+/** Writes `files` (path -> text) under a temporary root and runs `check` on it. */
+async function inFixture<T>(
+  files: Record<string, string>,
+  check: (repo: string) => Promise<T>,
+): Promise<T> {
+  const repo = await mkdtemp(join(tmpdir(), "arch-"));
+  try {
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(dirname(join(repo, path)), { recursive: true });
+      await writeFile(join(repo, path), text);
+    }
+    return await check(repo);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+}
+
+const manifestOf = (name: string) => JSON.stringify({ name });
 
 describe("architecture", () => {
   test("no source file reaches outside its own package through a relative import", async () => {
@@ -1974,5 +2750,584 @@ describe("architecture", () => {
         offenders.push(relative(root, file));
     }
     expect(offenders).toEqual([]);
+  });
+
+  const stub = "export const x = 1;\n";
+  const platformFile = (path: string) => `packages/platform/src/${path}`;
+
+  test("the baseline ratchet fails on growth and tells a fix to lower the entry", () => {
+    expect(baselineRatchet("R", { a: 1 }, { a: 1 })).toEqual([]);
+    expect(baselineRatchet("R", { a: 1, b: 1 }, { a: 1 })).toEqual([
+      expect.stringContaining("R b: 1 found, 0 listed. A new violation"),
+    ]);
+    expect(baselineRatchet("R", { a: 1 }, { a: 2, b: 1 })).toEqual([
+      expect.stringContaining("R a: 1 found, 2 listed. Lower this entry"),
+      expect.stringContaining("R b: 0 found, 1 listed. Lower this entry"),
+    ]);
+    // A pair is the unit: a listed file that gains a second target still fails.
+    expect(
+      baselineRatchet(
+        "A2",
+        tally(["f.ts -> x.ts", "f.ts -> y.ts"]),
+        tally(["f.ts -> x.ts"]),
+      ),
+    ).toEqual([expect.stringContaining("A2 f.ts -> y.ts: 1 found, 0 listed")]);
+  });
+
+  test("A1: contracts imports no platform, db, adapter or app", async () => {
+    expect(await contractsDirection(root)).toEqual([]);
+  });
+
+  test("A1 catches contracts importing platform, db, an adapter or an app", async () => {
+    expect(
+      await inFixture(
+        {
+          "packages/adapters/chat/slack/package.json": manifestOf(
+            "@werft-ai/chat-slack",
+          ),
+          "apps/control-host/package.json": manifestOf(
+            "@werft-ai/control-host",
+          ),
+          "packages/contracts/src/leak.ts": [
+            'import { a } from "@werft-ai/platform";',
+            'import { b } from "@werft-ai/db/pool";',
+            'import { c } from "@werft-ai/chat-slack";',
+            'import { d } from "@werft-ai/control-host";',
+            'import { z } from "zod";',
+          ].join("\n"),
+          "packages/contracts/src/leak.tsx":
+            'export { f } from "@werft-ai/platform";',
+          "packages/contracts/src/req.ts":
+            'export const p = require("@werft-ai/platform");',
+          "packages/contracts/src/commented.ts":
+            '// import { x } from "@werft-ai/platform";',
+        },
+        contractsDirection,
+      ),
+    ).toEqual([
+      "src/leak.ts -> @werft-ai/chat-slack",
+      "src/leak.ts -> @werft-ai/control-host",
+      "src/leak.ts -> @werft-ai/db/pool",
+      "src/leak.ts -> @werft-ai/platform",
+      "src/leak.tsx -> @werft-ai/platform",
+      "src/req.ts -> @werft-ai/platform",
+    ]);
+  });
+
+  test("A2: platform domains reach each other only through ports/ or index.ts, and the pairs only shrink", async () => {
+    expect(
+      baselineRatchet(
+        "A2",
+        tally(await crossDomainImports(root)),
+        baselineCounts("crossDomainImports"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("A2 catches another domain's internals but not its ports/, its index.ts or the shared dirs", async () => {
+    expect(
+      await inFixture(
+        {
+          [platformFile("alpha/service.ts")]: [
+            'import "../beta/policy.ts";',
+            'import type { T } from "../beta/policy.ts";',
+            'import "../beta/deep/inner.ts";',
+            'import "../beta/ports/store.ts";',
+            'import "../beta";',
+            'import "../ports/shared.ts";',
+            'import "./local.ts";',
+          ].join("\n"),
+          [platformFile("alpha/service.test.ts")]:
+            'import "../beta/policy.ts";',
+          [platformFile("alpha/local.ts")]: stub,
+          [platformFile("beta/policy.ts")]: stub,
+          [platformFile("beta/deep/inner.ts")]: stub,
+          [platformFile("beta/ports/store.ts")]: stub,
+          [platformFile("beta/index.ts")]: stub,
+          [platformFile("ports/shared.ts")]: stub,
+        },
+        crossDomainImports,
+      ),
+    ).toEqual([
+      "alpha/service.ts -> beta/deep/inner.ts",
+      "alpha/service.ts -> beta/policy.ts",
+    ]);
+  });
+
+  test("A3: no ports/ file imports from tools/", async () => {
+    expect(await portsImportingTools(root)).toEqual([]);
+  });
+
+  test("A3 catches a port importing tools/ and leaves other imports of tools/ alone", async () => {
+    expect(
+      await inFixture(
+        {
+          [platformFile("gamma/ports/store.ts")]:
+            'import "../tools/registry.ts";\nimport "../service/svc.ts";',
+          [platformFile("gamma/service/svc.ts")]:
+            'import "../tools/registry.ts";',
+          [platformFile("gamma/tools/registry.ts")]: stub,
+        },
+        portsImportingTools,
+      ),
+    ).toEqual(["gamma/ports/store.ts -> gamma/tools/registry.ts"]);
+  });
+
+  test("A4: contracts holds no class, async function or handler beyond the baseline", async () => {
+    expect(
+      baselineRatchet(
+        "A4",
+        await contractsBehaviour(root),
+        baselineCounts("contractsBehaviour"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("A4 counts a class, async code and a handler-named export, and skips types and tests", async () => {
+    const src = "packages/contracts/src/api";
+    expect(
+      await inFixture(
+        {
+          [`${src}/bad.ts`]: [
+            "export class Thing {}",
+            "export const handleEvent = () => 1;",
+            "export async function load() { return await Promise.resolve(1); }",
+            "export type EventHandler = () => void;",
+            "export const data = { handler: 1 };",
+            'export const OtherHandler = "event-handler";',
+            "export type { handleTyped };",
+            "function handleTyped() {}",
+            "export const handleWrapped = (() => 1);",
+            'const handleLater = () => console.log("x");',
+            "export { handleLater };",
+          ].join("\n"),
+          [`${src}/bad.test.ts`]: "export class InATest {}",
+          [`${src}/ok.ts`]: "export const A = 1;\nexport const f = () => A;",
+        },
+        contractsBehaviour,
+      ),
+    ).toEqual({
+      "api/bad.ts class": 1,
+      "api/bad.ts async": 2,
+      "api/bad.ts handler": 3,
+    });
+  });
+
+  test("R2: forge and chat adapters import no other adapter, db or app", async () => {
+    expect(await adapterBoundaryViolations(root)).toEqual([]);
+  });
+
+  test("R2 catches a forge or chat adapter reaching db, another adapter or an app, but not a runtime adapter", async () => {
+    expect(
+      await inFixture(
+        {
+          "packages/adapters/forge/github/package.json": JSON.stringify({
+            name: "@werft-ai/forge-github",
+            dependencies: {
+              "@octokit/rest": "1.0.0",
+              "@werft-ai/db": "workspace:*",
+              "@werft-ai/platform": "workspace:*",
+            },
+          }),
+          "packages/adapters/forge/github/src/index.ts": [
+            'import "@werft-ai/platform";',
+            'import "@werft-ai/db";',
+            'import "@werft-ai/chat-slack";',
+            'import "@werft-ai/control-host";',
+            'import "@werft-ai/runtime-core";',
+            'import "@octokit/rest";',
+          ].join("\n"),
+          "packages/adapters/chat/slack/package.json": manifestOf(
+            "@werft-ai/chat-slack",
+          ),
+          "packages/adapters/chat/slack/src/index.ts": [
+            'import "@werft-ai/forge-github/testing";',
+            'import "@werft-ai/contracts";',
+            'import "@werft-ai/observability";',
+            'import "@werft-ai/storage";',
+          ].join("\n"),
+          "packages/adapters/runtimes/claude/package.json": manifestOf(
+            "@werft-ai/runtime-claude",
+          ),
+          "packages/adapters/runtimes/claude/src/index.ts":
+            'import "@werft-ai/db";',
+          "apps/control-host/package.json": manifestOf(
+            "@werft-ai/control-host",
+          ),
+        },
+        adapterBoundaryViolations,
+      ),
+    ).toEqual([
+      "packages/adapters/chat/slack/src/index.ts -> @werft-ai/forge-github/testing",
+      "packages/adapters/forge/github/package.json -> @werft-ai/db",
+      "packages/adapters/forge/github/src/index.ts -> @werft-ai/chat-slack",
+      "packages/adapters/forge/github/src/index.ts -> @werft-ai/control-host",
+      "packages/adapters/forge/github/src/index.ts -> @werft-ai/db",
+      "packages/adapters/forge/github/src/index.ts -> @werft-ai/runtime-core",
+    ]);
+  });
+
+  test("R3: only the control host's wiring/ imports a concrete forge or chat adapter", async () => {
+    expect(await adapterImportsOutsideWiring(root)).toEqual([]);
+  });
+
+  test("R3 catches an import outside wiring/ in any app but lets tests and /testing exports through", async () => {
+    expect(
+      await inFixture(
+        {
+          "apps/control-host/package.json": manifestOf(
+            "@werft-ai/control-host",
+          ),
+          "apps/worker/package.json": manifestOf("@werft-ai/worker"),
+          "apps/control-host/src/wiring/forge.ts":
+            'import "@werft-ai/forge-github";',
+          "apps/control-host/src/api/routes/leak.ts": [
+            'import "@werft-ai/forge-github";',
+            'export * from "@werft-ai/chat-slack/src/outbox.ts";',
+          ].join("\n"),
+          "apps/control-host/src/api/routes/fakes.ts":
+            'import "@werft-ai/chat-slack/testing/fakes";',
+          "apps/control-host/src/api/routes/leak.test.ts":
+            'import "@werft-ai/forge-github";',
+          "apps/worker/src/main.ts":
+            'export const m = import("@werft-ai/chat-slack");',
+        },
+        adapterImportsOutsideWiring,
+      ),
+    ).toEqual([
+      "apps/control-host/src/api/routes/leak.ts -> @werft-ai/chat-slack/src/outbox.ts",
+      "apps/control-host/src/api/routes/leak.ts -> @werft-ai/forge-github",
+      "apps/worker/src/main.ts -> @werft-ai/chat-slack",
+    ]);
+  });
+
+  test("R4: platform surface/ and action/ import each other nowhere beyond the baseline", async () => {
+    expect(
+      baselineRatchet(
+        "R4",
+        tally(await surfaceActionImports(root)),
+        baselineCounts("surfaceActionImports"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("R4 catches both directions and leaves a shared decision/ import alone", async () => {
+    expect(
+      await inFixture(
+        {
+          [platformFile("surface/a.ts")]: 'import "../action/b.ts";',
+          [platformFile("surface/e.ts")]: 'import "../decision/d.ts";',
+          [platformFile("surface/ports/p.ts")]:
+            'import "../../action/ports/q.ts";',
+          [platformFile("action/b.ts")]: 'import "../surface/a.ts";',
+          [platformFile("action/c.ts")]: 'import "../decision/d.ts";',
+          [platformFile("action/ports/q.ts")]: stub,
+          [platformFile("decision/d.ts")]: stub,
+        },
+        surfaceActionImports,
+      ),
+    ).toEqual([
+      "action/b.ts -> surface/a.ts",
+      "surface/a.ts -> action/b.ts",
+      "surface/ports/p.ts -> action/ports/q.ts",
+    ]);
+  });
+
+  test("R5: channel code names neither write store, and decision/index.ts is two types", async () => {
+    expect(await channelStoreUses(root)).toEqual([]);
+    expect(await decisionEntranceProblems(root)).toEqual([]);
+  });
+
+  test("R5 catches a write store taken through an alias, a namespace or an import type", async () => {
+    const routes = "apps/control-host/src/api/routes";
+    expect(
+      await inFixture(
+        {
+          "packages/adapters/chat/slack/package.json": manifestOf(
+            "@werft-ai/chat-slack",
+          ),
+          "packages/adapters/chat/slack/src/in.ts":
+            'import type { PushRequestStore } from "@werft-ai/platform";',
+          [`${routes}/surface/events.ts`]: [
+            'import type { PendingRequestStore as Store } from "@werft-ai/platform";',
+            "export const take = (s: Store) => s;",
+          ].join("\n"),
+          [`${routes}/surface/ns.ts`]: [
+            'import type * as p from "@werft-ai/platform";',
+            "export type S = p.PushRequestStore;",
+          ].join("\n"),
+          [`${routes}/surface/dyn.ts`]:
+            'export type D = import("@werft-ai/platform").PendingRequestStore;',
+          [`${routes}/surface/ok.ts`]: [
+            'import type { DecisionEntrance } from "@werft-ai/platform";',
+            "// PendingRequestStore is only named in this comment",
+            'export const s = "PushRequestStore";',
+          ].join("\n"),
+          [`${routes}/other/free.ts`]:
+            'import type { PendingRequestStore } from "@werft-ai/platform";',
+        },
+        channelStoreUses,
+      ),
+    ).toEqual([
+      `${routes}/surface/dyn.ts -> PendingRequestStore`,
+      `${routes}/surface/events.ts -> PendingRequestStore`,
+      `${routes}/surface/ns.ts -> PushRequestStore`,
+      "packages/adapters/chat/slack/src/in.ts -> PushRequestStore",
+    ]);
+  });
+
+  test("R5 holds decision/index.ts to the two entrance types", async () => {
+    const index = platformFile("decision/index.ts");
+    expect(
+      await inFixture(
+        { [index]: 'export type { Answer, Enqueue } from "./entrances.ts";' },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([]);
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            "export interface A {}",
+            "export type B = string;",
+            "export interface C {}",
+            "export const decide = () => 1;",
+            'export * from "./other.ts";',
+            "export default function () { return 1; }",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      "decision/index.ts exports decide, which is not a type",
+      "decision/index.ts exports *, which is not a type",
+      "decision/index.ts exports default, which is not a type",
+      "decision/index.ts exports 3 types, expected 2",
+    ]);
+  });
+
+  test("R6: contracts surface/ files are pure", async () => {
+    expect(await surfaceImpurities(root)).toEqual([]);
+  });
+
+  test("R6 already holds for the two view-model files that move into surface/", async () => {
+    const api = join(contractsSrc(root), "api");
+    expect(
+      await impurities(root, [
+        join(api, "present-turn-event.ts"),
+        join(api, "present-action.ts"),
+      ]),
+    ).toEqual([]);
+  });
+
+  test("R6 catches zod, node:, a phrase-file import, and Date, Intl, process and fetch", async () => {
+    const surface = "packages/contracts/src/surface";
+    const bad = `${surface}/bad.ts`;
+    expect(
+      await inFixture(
+        {
+          [bad]: [
+            'import { z } from "zod";',
+            'import { readFileSync } from "node:fs";',
+            'import { en } from "../i18n/en.ts";',
+            "export const now = () => new Date();",
+            "export const fmt = (n: number) => new Intl.NumberFormat().format(n);",
+            "export const env = () => process.env.X;",
+            'export const get = () => fetch("/x");',
+            "export const g = () => globalThis.fetch;",
+            'export const d = () => new globalThis["Date"]();',
+          ].join("\n"),
+          [`${surface}/bad.test.ts`]: "export const t = new Date();",
+          [`${surface}/ok.ts`]: [
+            "// Date and fetch only appear in this comment",
+            'import type { Phase } from "../api/event.ts";',
+            'export const label = (p: Phase) => ({ key: "date", text: "fetch", p });',
+            "export const o = { Date: 1 }.Date;",
+          ].join("\n"),
+        },
+        surfaceImpurities,
+      ),
+    ).toEqual([
+      `${bad} -> Date`,
+      `${bad} -> Date`,
+      `${bad} -> Intl`,
+      `${bad} -> fetch`,
+      `${bad} -> fetch`,
+      `${bad} -> import ../i18n/en.ts`,
+      `${bad} -> import node:fs`,
+      `${bad} -> import zod`,
+      `${bad} -> process`,
+    ]);
+  });
+
+  test("R7: platform calls no outside service directly, and the fetch references only shrink", async () => {
+    expect(
+      baselineRatchet(
+        "R7",
+        await directFetch(root),
+        baselineCounts("directFetch"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("R7 counts a fetch call, a typeof fetch type and globalThis.fetch, not a property name or text", async () => {
+    expect(
+      await inFixture(
+        {
+          [platformFile("a/net.ts")]: [
+            'export const get = () => fetch("/x");',
+            "export type Deps = { fetch?: typeof fetch };",
+            "export const d = (deps: Deps) => deps.fetch ?? globalThis.fetch;",
+            'export const e = () => globalThis["fetch"]("/x");',
+            "// fetch in a comment",
+            'export const text = "fetch";',
+          ].join("\n"),
+          [platformFile("a/net.test.ts")]: 'export const t = fetch("/x");',
+        },
+        directFetch,
+      ),
+    ).toEqual({ "a/net.ts": 4 });
+  });
+
+  test("R8: platform gains no file or export name with slack in it", async () => {
+    expect(
+      baselineRatchet(
+        "R8 file",
+        tally(await slackFiles(root)),
+        baselineCounts("slackFiles"),
+      ),
+    ).toEqual([]);
+    expect(
+      baselineRatchet(
+        "R8 export",
+        await slackExports(root),
+        baselineCounts("slackExports"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("R8 finds a slack path segment and every kind of slack export", async () => {
+    const files = {
+      [platformFile("a/slack-thing.ts")]: [
+        "export const SlackThing = 1;",
+        "export function postToSlack() {}",
+        "const x = 1;",
+        "export { x as slackX };",
+        'export * as Slack from "./other.ts";',
+        "export interface SlackShape {}",
+        "export type Plain = string;",
+        "export const { SlackClient, nested: [SlackItem] } = { SlackClient: 1, nested: [2] };",
+      ].join("\n"),
+      [platformFile("a/slack-thing.test.ts")]: "export const SlackTest = 1;",
+      [platformFile("a/other.ts")]: "export const Chat = 1;",
+      [platformFile("slack/inner.ts")]: stub,
+    };
+    expect(await inFixture(files, slackFiles)).toEqual([
+      "a/slack-thing.ts",
+      "slack/inner.ts",
+    ]);
+    expect(await inFixture(files, slackExports)).toEqual({
+      "a/slack-thing.ts": 7,
+    });
+  });
+
+  test("R9: capability ports declare no optional method", async () => {
+    expect(await optionalCapabilityMethods(root)).toEqual([]);
+  });
+
+  test("R9 catches method?() and method?: () => void, not an optional data field or a method elsewhere", async () => {
+    const ports = platformFile("action/ports/git.ts");
+    expect(
+      await inFixture(
+        {
+          [ports]: [
+            "export interface GitPusher {",
+            "  push(branch: string): Promise<void>;",
+            "  cancel?(id: string): void;",
+            "  onDone?: (id: string) => void;",
+            "  note?: string;",
+            "  retry?: (() => void) | undefined;",
+            "  aliased?: Send;",
+            "  data?: Plain;",
+            "}",
+            "type Send = () => Promise<void>;",
+            "type Plain = { id: string };",
+            "export interface Generic<Send> { data?: Send; run?: Chained }",
+            "type Chained = Send;",
+            "type Boxed<Send> = Send;",
+            "export interface Wrapped { box?: Boxed<string>; fn?: Boxed<Send> }",
+            "export type Api = { close?(): void };",
+          ].join("\n"),
+          [platformFile("surface/ports/notice.ts")]:
+            "export interface Sink { send?: ((text: string) => void) }",
+          [platformFile("action/service.ts")]:
+            "export interface Deps { m?(): void }",
+          [platformFile("action/ports/git.test.ts")]:
+            "export interface T { m?(): void }",
+        },
+        optionalCapabilityMethods,
+      ),
+    ).toEqual([
+      `${ports} -> aliased`,
+      `${ports} -> cancel`,
+      `${ports} -> close`,
+      `${ports} -> fn`,
+      `${ports} -> onDone`,
+      `${ports} -> retry`,
+      `${ports} -> run`,
+      `${platformFile("surface/ports/notice.ts")} -> send`,
+    ]);
+  });
+
+  test("path-fixed files stay where the references that name them expect them", async () => {
+    const gone = missingFiles(root, pathFixed).map(
+      (path) =>
+        `${path}: named by a path-fixed reference (an exports subpath, a preload, a deploy command or a test). Update the reference and tests/architecture.baseline.ts together, or leave the file in place`,
+    );
+    expect(gone).toEqual([]);
+  });
+
+  test("every source file a platform, db or contracts exports subpath names is on the path-fixed list", async () => {
+    expect(
+      await unlistedExportTargets(
+        root,
+        ["platform", "db", "contracts"].map((name) =>
+          join(root, "packages", name),
+        ),
+        pathFixed,
+      ),
+    ).toEqual([]);
+  });
+
+  test("files the profile-removal series changed stay in place until it ends", () => {
+    expect(missingFiles(root, profileSeriesFiles)).toEqual([]);
+  });
+
+  test("the path-fixed checks catch a missing file and an unlisted exports subpath", async () => {
+    const listed = ["packages/db/src/pool.ts", "packages/gone.ts"];
+    await inFixture(
+      {
+        "packages/db/package.json": JSON.stringify({
+          name: "@werft-ai/db",
+          exports: {
+            ".": "./src/index.ts",
+            "./pool": "./src/pool.ts",
+            "./testing/x": "./src/testing/x.ts",
+            "./styles.css": "./src/styles.css",
+          },
+        }),
+        "packages/db/src/pool.ts": stub,
+      },
+      async (repo) => {
+        expect(missingFiles(repo, listed)).toEqual(["packages/gone.ts"]);
+        expect(
+          await unlistedExportTargets(
+            repo,
+            [join(repo, "packages", "db")],
+            listed,
+          ),
+        ).toEqual(["packages/db/src/testing/x.ts"]);
+      },
+    );
   });
 });

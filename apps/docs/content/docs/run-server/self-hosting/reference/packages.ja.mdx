@@ -33,7 +33,7 @@ outcome: "イメージ、chart、manifest のフィールドの意味を確認�
 `v*` タグごとに GitHub Release が一つ作られ、`release-manifest.json` が添付されます。運用者は run や artifact を探す必要はありません。リポジトリの checkout も不要で、`gh` と `jq` があれば取得できます。次の `TAG` に対象 Release のタグを指定します。
 
 ```bash
-TAG=v0.1.0   # the release tag to read
+TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
 jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime

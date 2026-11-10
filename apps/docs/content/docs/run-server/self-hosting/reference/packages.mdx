@@ -31,7 +31,7 @@ outcome: "이미지와 chart와 manifest의 필드 의미를 확인한다"
 `v*` 태그마다 GitHub Release가 하나 생기고, 파일 `release-manifest.json`이 붙는다. 운영자는 run이나 artifact를 찾지 않는다. 저장소 checkout도 필요 없고 `gh`와 `jq`면 된다. 아래 `TAG`에 읽으려는 Release의 태그를 넣는다.
 
 ```bash
-TAG=v0.1.0   # the release tag to read
+TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
 jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
