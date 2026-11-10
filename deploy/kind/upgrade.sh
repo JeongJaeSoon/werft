@@ -90,6 +90,8 @@ finish() {
     echo "== k8s-upgrade: state after the failure" >&2
     helm history "$RELEASE" --namespace "$NAMESPACE" >&2 || true
     k get deploy,pods,jobs -o wide >&2 || true
+    echo "-- events" >&2
+    k get events --sort-by=.lastTimestamp >&2 || true
     for app in scheduler api; do
       echo "-- logs ${app}" >&2
       k logs "deploy/${fullname}-${app}" --tail=100 --all-containers >&2 || true
@@ -324,6 +326,14 @@ pass
 step rollback
 check_uid="$(echo "$check_job" | jq -r .metadata.uid)"
 migrate_uid="$(echo "$migrate_job" | jq -r .metadata.uid)"
+# S2 goes through the rollback paused, as it went through the upgrade: with a
+# second worker holding a CPU the rollout's surge Pod has no room on a
+# runner-sized node and the rollback never finishes.
+paused="$(post "/v1/sessions/${s2}/pause" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r, reason: "rollback test"}')")"
+settle_receipt "$(echo "$paused" | jq -r .receipt_id)" pause
+wait_session "paused" '.admission_state == "paused"' "$s2"
+checkpoint_mid="$(get "/v1/sessions/${s2}" | jq '.durability.checkpoint_revision')"
+echo "S2 paused again at checkpoint revision ${checkpoint_mid}"
 helm rollback "$RELEASE" "$base" --namespace "$NAMESPACE" --wait --timeout 10m
 rollout
 helm history "$RELEASE" --namespace "$NAMESPACE"
@@ -345,6 +355,12 @@ prefix_kept "$s2" "$work/ids-s2-mid"
 post "/v1/sessions/${s1}/answers" "$(jq -nc --arg r "$request_before" '{request_id: $r, kind: "permission", action: "allow"}')" >/dev/null
 wait_turn "$s1" 1
 echo "S1 answered after the upgrade and the rollback; turn 1 completed"
+resumed="$(post "/v1/sessions/${s2}/resume" "$(jq -nc --argjson r "$(get "/v1/sessions/${s2}" | jq .revision)" '{expected_revision: $r}')")"
+settle_receipt "$(echo "$resumed" | jq -r .receipt_id)" resume
+wait_session "active" '.admission_state == "active"' "$s2"
+restored="$(get "/v1/receipts/$(echo "$resumed" | jq -r .receipt_id)" | jq '.result.checkpoint_revision')"
+echo "S2 resumed on the rolled-back release from checkpoint revision ${restored}, paused at ${checkpoint_mid}"
+[ "$restored" = "$checkpoint_mid" ] || fail "S2 resumed from revision ${restored}, not the ${checkpoint_mid} it paused at"
 post "/v1/sessions/${s2}/messages" "$(jq -nc --arg m 'GATE-SPEC {"id":"upgrade-third","steps":[],"final":"turn three done"}' '{message: $m}')" >/dev/null
 wait_turn "$s2" 3
 echo "S2 ran turn 3 on the rolled-back release"
