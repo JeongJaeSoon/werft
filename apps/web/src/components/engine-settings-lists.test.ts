@@ -85,6 +85,15 @@ describe("engine settings lists", () => {
 
   test("the count ignores blank lines", () => {
     const draft = { ...draftOf(saved), "permissions.ask": "Edit\n\nWrite" };
-    expect(countOf(draft, ENGINE_LISTS[1])).toBe(2);
+    expect(countOf(draft, ENGINE_LISTS[1], saved)).toBe(2);
+  });
+
+  test("a locked list counts the entries a save sends, not its lines", () => {
+    const multi = {
+      permissions: {},
+      auto_mode: { environment: ["First\nSecond", "Third"] },
+    };
+    const environment = ENGINE_LISTS[6];
+    expect(countOf(draftOf(multi), environment, multi)).toBe(2);
   });
 });

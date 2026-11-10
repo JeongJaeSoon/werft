@@ -177,7 +177,7 @@ export function EngineSettingsEditor({
             key={listId(list)}
             list={list}
             value={draft[listId(list)] ?? ""}
-            count={countOf(draft, list)}
+            count={countOf(draft, list, settings)}
             max={max}
             locked={locked.has(listId(list))}
             readOnly={readOnly}

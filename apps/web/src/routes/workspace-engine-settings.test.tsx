@@ -269,6 +269,8 @@ describe("워크스페이스 실행 규칙", () => {
     await waitFor(() => expect(environment.value).toBe("First\nSecond\nThird"));
     expect(environment.readOnly).toBe(true);
     await screen.findByText(/여러 줄로 된 항목이 있어 여기서 바꿀 수 없습니다/);
+    // Two entries, though the box shows three lines.
+    expect(within(await card()).getAllByText("2 / 16개")).toHaveLength(1);
     // Opening the screen is not a change.
     expect((await saveButton()).getAttribute("aria-disabled")).toBe("true");
     await user.type(await box("거부"), "Bash(rm:*)");
@@ -283,6 +285,59 @@ describe("워크스페이스 실행 규칙", () => {
         auto_mode: { environment: ["First\nSecond", "Third"] },
       },
     });
+  });
+
+  // What was typed while a save was in flight is based on that save, so the
+  // next save carries the revision the first one returned.
+  test("저장하는 동안 이어 쓴 초안은 성공한 revision을 기준으로 다시 저장한다", async () => {
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let puts = 0;
+    let deny = ["Read"];
+    let revision = 3;
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${PATH}`]: () =>
+        json(
+          200,
+          workspaceEngineSettings({
+            settings: { permissions: { deny }, auto_mode: {} },
+            settings_revision: revision,
+          }),
+        ),
+      [`PUT ${PATH}`]: async (request: Request) => {
+        puts += 1;
+        const body = (await request.json()) as {
+          settings: { permissions: { deny: string[] } };
+        };
+        if (puts === 1) await held;
+        deny = body.settings.permissions.deny;
+        revision += 1;
+        return json(200, {
+          settings_revision: revision,
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+    const user = await setupUser();
+    const box1 = (await box("거부")) as HTMLTextAreaElement;
+    await waitFor(() => expect(box1.value).toBe("Read"));
+    await user.type(box1, "{Enter}Edit");
+    await user.click(await saveButton());
+    await waitFor(() => expect(puts).toBe(1));
+    await user.type(box1, "{Enter}Grep");
+    open();
+    await screen.findByText("저장했습니다. 이후 시작하는 세션부터 적용됩니다.");
+    // The extra line is still there, and still unsaved.
+    expect(box1.value).toBe("Read\nEdit\nGrep");
+    await user.click(await saveButton());
+    await waitFor(() => expect(puts).toBe(2));
+    const sent = api.calls
+      .filter((c) => c.method === "PUT")
+      .map((c) => (c.body as { expected_revision: number }).expected_revision);
+    expect(sent).toEqual([3, 4]);
   });
 
   test("목록 한도는 계약의 한도와 같다", async () => {

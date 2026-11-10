@@ -107,6 +107,15 @@ export function isDirty(draft: EngineDraft, saved: EngineRules): boolean {
   });
 }
 
-/** The rules a list holds now, for the count shown beside its limit. */
-export const countOf = (draft: EngineDraft, list: EngineList) =>
-  rulesOfText(draft[listId(list)] ?? "").length;
+/**
+ * The rules a list holds now, for the count shown beside its limit. A locked
+ * list counts what a save sends, not the lines its box shows.
+ */
+export const countOf = (
+  draft: EngineDraft,
+  list: EngineList,
+  saved: EngineRules,
+) =>
+  lockedIds(saved).has(listId(list))
+    ? rulesOf(saved, list).length
+    : rulesOfText(draft[listId(list)] ?? "").length;
