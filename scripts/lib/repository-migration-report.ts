@@ -19,10 +19,10 @@ import {
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import { createPostgresGitHubGateStore, type Database } from "@werft-ai/db";
+import { connectionsOf } from "@werft-ai/forge-github";
 import { createGitHubGate, type SessionCatalog } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool, PoolClient } from "pg";
-import { connectionsOf } from "../../apps/control-host/src/api/forge-github.ts";
 
 /** Repository rows that hold their own credential: the URL repositories. */
 export const LEGACY_AUTH_KINDS = ["none", "basic", "bearer"] as const;

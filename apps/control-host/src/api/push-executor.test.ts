@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
 import {
+  connectionsOf,
+  createGitPusher,
+  parseLsRemote,
+  workflowsPermissionRefused,
+} from "@werft-ai/forge-github";
+import {
   createGitHubGate,
   createPushExecutor,
   type GitHubConnections,
@@ -30,12 +36,6 @@ import {
   type GitBundleFixture,
   startFakeGitHub,
 } from "@werft-ai/testkit";
-import { connectionsOf } from "./forge-github.ts";
-import {
-  createGitPusher,
-  parseLsRemote,
-  workflowsPermissionRefused,
-} from "./git-push.ts";
 
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKey = keys.privateKey

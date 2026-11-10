@@ -16,6 +16,7 @@ import {
   sessionGitHubAttributionSchema,
   submitPullRequestReviewResponseSchema,
 } from "@werft-ai/contracts";
+import { createGitHubConnection } from "@werft-ai/forge-github";
 import {
   MemoryLogSink,
   StructuredLogger,
@@ -36,7 +37,6 @@ import {
 } from "@werft-ai/platform";
 import { releasePolicy } from "@werft-ai/platform/testing/github";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
-import { createGitHubConnection } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import {
