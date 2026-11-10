@@ -1284,9 +1284,11 @@ export async function decisionEntranceProblems(
   const source = await parse(file);
   // An entrance type could carry a write store out to the channel without
   // naming it: `typeof import("..").createX` or `Parameters<typeof createX>`
-  // resolve to the store by inference. So the file may name no store, may
-  // import only from the contracts package, and may not reach another module
-  // through `import()` types or `typeof` queries.
+  // resolve to the store by inference. So the file is a closed grammar: it
+  // names no store, imports and re-exports only from the contracts package,
+  // and has no `import()` type, `typeof` query, `import =` alias, ambient
+  // declaration or `/// <reference>`. What the AST cannot see is a type that
+  // a contracts augmentation adds elsewhere in the repo.
   const stores: string[] = [];
   const reaches: string[] = [];
   walk(source, (node) => {
@@ -1294,6 +1296,21 @@ export async function decisionEntranceProblems(
       stores.push(node.text);
     if (ts.isImportTypeNode(node)) reaches.push("an import() type");
     if (ts.isTypeQueryNode(node)) reaches.push("a typeof query");
+    if (ts.isImportEqualsDeclaration(node)) reaches.push("an import = alias");
+    if (ts.isModuleDeclaration(node))
+      reaches.push("an ambient module or global declaration");
+    // A named re-export hands out another module's type under a new name,
+    // a string-literal name included; only the contracts package may be one.
+    if (
+      ts.isExportDeclaration(node) &&
+      node.exportClause &&
+      node.moduleSpecifier &&
+      !(
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === "@werft-ai/contracts"
+      )
+    )
+      reaches.push(`a re-export from ${node.moduleSpecifier.getText(source)}`);
     if (
       ts.isImportDeclaration(node) &&
       !(
@@ -1303,6 +1320,15 @@ export async function decisionEntranceProblems(
     )
       reaches.push(`an import of ${node.moduleSpecifier.getText(source)}`);
   });
+  // `/// <reference>` pulls in a file whose ambient types the AST above
+  // never sees.
+  if (
+    source.referencedFiles.length +
+      source.typeReferenceDirectives.length +
+      source.libReferenceDirectives.length >
+    0
+  )
+    reaches.push("a /// <reference> directive");
   for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
@@ -3110,7 +3136,13 @@ describe("architecture", () => {
     const index = platformFile("decision/index.ts");
     expect(
       await inFixture(
-        { [index]: 'export type { Answer, Enqueue } from "./entrances.ts";' },
+        {
+          [index]: [
+            'import type { PushRequest } from "@werft-ai/contracts";',
+            "export interface Answer { answer(): void }",
+            "export type Enqueue = { enqueue(): PushRequest };",
+          ].join("\n"),
+        },
         decisionEntranceProblems,
       ),
     ).toEqual([]);
@@ -3175,6 +3207,37 @@ describe("architecture", () => {
     ).toEqual([
       "decision/index.ts reaches outside the contracts package through an import() type, which can carry a write store by inference",
     ]);
+  });
+
+  test("R5 fails a typeof query, a re-export, an import = alias, an ambient declaration and a reference directive", async () => {
+    const index = platformFile("decision/index.ts");
+    const problems = (lines: string[]) =>
+      inFixture({ [index]: lines.join("\n") }, decisionEntranceProblems);
+    const two = [
+      "export interface Answer { answer(): void }",
+      "export type Decide = { decide(): void };",
+    ];
+    const reach = (how: string) =>
+      `decision/index.ts reaches outside the contracts package through ${how}, which can carry a write store by inference`;
+    expect(
+      await problems(["const seed = 1;", ...two, "type T = typeof seed;"]),
+    ).toEqual([reach("a typeof query")]);
+    // Even a string-literal export name, which no identifier check sees.
+    expect(
+      await problems([
+        'export type { "PendingRequestStore" as Answer } from "../ports/pending-requests.ts";',
+        "export type Decide = { decide(): void };",
+      ]),
+    ).toEqual([reach('a re-export from "../ports/pending-requests.ts"')]);
+    expect(
+      await problems(["import type S = require('./bridge.ts');", ...two]),
+    ).toEqual([reach("an import = alias")]);
+    expect(
+      await problems([...two, "declare global { type Hidden = string }"]),
+    ).toEqual([reach("an ambient module or global declaration")]);
+    expect(
+      await problems(['/// <reference path="./ambient.d.ts" />', ...two]),
+    ).toEqual([reach("a /// <reference> directive")]);
   });
 
   test("R5 fails an entrance file that imports a service module", async () => {
