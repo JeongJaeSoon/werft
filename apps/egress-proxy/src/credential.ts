@@ -1117,6 +1117,9 @@ export function startCredentialProxy(
     allow: [],
     allowPrivate: [],
   };
+  // One entry per session that lost a report, never evicted: dropping one
+  // would re-approve a session whose stored cost is still too low.
+  const unreportedSessions = new Set<string>();
   let open = 0;
   let bodyBytes = 0;
   const perClient = new Map<string, number>();
@@ -1257,6 +1260,9 @@ export function startCredentialProxy(
       const backoff = usageBackoffMs[tried];
       if ((status !== null && status < 500) || backoff === undefined) {
         logger.error("Provider usage went unreported", { ...fields, status });
+        // Fail closed: the session's stored cost now undercounts, so its
+        // later provider calls are refused as a spent budget.
+        if (grant.sessionId !== null) unreportedSessions.add(grant.sessionId);
         return;
       }
       await Bun.sleep(backoff);
@@ -2168,6 +2174,19 @@ export function startCredentialProxy(
             purpose: route.purpose,
           });
           return reply(503, "egress token refused", route.purpose);
+        }
+        // A session whose spend went unreported has a stored cost below its
+        // real one, so the budget gate can no longer be trusted for it.
+        if (
+          route.purpose === "provider" &&
+          authorized.grant.sessionId !== null &&
+          unreportedSessions.has(authorized.grant.sessionId)
+        ) {
+          release();
+          logger.warn("Provider call refused: session usage unreported", {
+            session_id: authorized.grant.sessionId,
+          });
+          return budgetExceededReply(route.path);
         }
         // Authorized: from here the exchange deadline bounds it, not the
         // idle clock, which a silent non-streaming call would trip.

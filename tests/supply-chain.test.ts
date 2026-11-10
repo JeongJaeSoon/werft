@@ -204,6 +204,8 @@ describe("supply-chain-verdict.sh", () => {
     "control-host-arm64": result,
     "worker-amd64": result,
     "worker-arm64": result,
+    "worker-codex-amd64": result,
+    "worker-codex-arm64": result,
     "egress-proxy-amd64": result,
     "egress-proxy-arm64": result,
     npm: result,

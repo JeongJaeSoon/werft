@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
+import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
   DEFAULT_SURFACE_CEILING,
@@ -59,7 +60,6 @@ import {
   slackConversationKey,
   withSeededInstallation,
 } from "@werft-ai/platform";
-import { createMemorySlackNoticeSink } from "@werft-ai/platform/testing/slack";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
   createTempDatabase,

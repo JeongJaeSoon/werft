@@ -388,6 +388,29 @@ describe("app Dockerfiles", () => {
     );
   });
 
+  test("WORKER_RUNTIME swaps the registry's import, closure and image:verify together", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain("ARG WORKER_RUNTIME=\n");
+    expect(source).toContain("unknown WORKER_RUNTIME");
+    const dir = "packages/adapters/runtimes/registry";
+    const base = JSON.parse(read(`${dir}/package.json`)) as {
+      dependencies: Record<string, string>;
+    };
+    const variant = JSON.parse(
+      read(`${dir}/variants/codex_app_server.package.json`),
+    ) as { dependencies: Record<string, string> };
+    // The swap must leave exactly one engine package in each registry.
+    const engines = (deps: Record<string, string>) =>
+      Object.keys(deps).filter((n) =>
+        /^@werft-ai\/runtime-(claude|codex)$/.test(n),
+      );
+    expect(engines(base.dependencies)).toEqual(["@werft-ai/runtime-claude"]);
+    expect(engines(variant.dependencies)).toEqual(["@werft-ai/runtime-codex"]);
+    expect(read(`${dir}/variants/codex_app_server.ts`)).toContain(
+      "installedRuntimes",
+    );
+  });
+
   test("only the worker carries the Agent SDK", () => {
     expect(basePins.worker.source).toContain(
       "bun run --filter @werft-ai/runtime-registry image:verify",
@@ -512,6 +535,23 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   // A credential route's upstream on a forward list is a way round the
   // route: the provider outside cost accounting, the git host without a token,
   // LocalStack into every session's prefix.
+  test("the example allowlists name the Codex provider beside the Claude one", () => {
+    for (const path of [
+      "deploy/helm/werft/values-aws.example.yaml",
+      "infra/test-ops.env.example",
+    ]) {
+      const line = read(path)
+        .split("\n")
+        .find(
+          (l) =>
+            /^\s*(credentialAllowlist:|EGRESS_CREDENTIAL_ALLOWLIST=)/.test(l) &&
+            !l.trim().startsWith("#"),
+        );
+      expect(line, path).toContain("api.anthropic.com:443");
+      expect(line, path).toContain("api.openai.com:443");
+    }
+  });
+
   test("workers reach the provider, the git host and the object store only through the credential routes", () => {
     const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
     const credential = [
@@ -971,12 +1011,21 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
       for (const name of ["build", "publish", "publish-main"]) {
         const job = jobs[name];
-        expect(job?.strategy?.matrix).toEqual({
-          app: ["control-host", "worker", "egress-proxy"],
-          arch: expression(
-            `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
-          ),
-        });
+        // `build` verifies the Codex worker image too; the jobs that publish
+        // list only the images a release ships.
+        expect(job?.strategy?.matrix).toEqual(
+          name === "build"
+            ? {
+                app: ["control-host", "worker", "worker-codex", "egress-proxy"],
+                arch: expression(
+                  `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
+                ),
+              }
+            : {
+                app: ["control-host", "worker", "egress-proxy"],
+                arch: ["amd64", "arm64"],
+              },
+        );
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
@@ -2940,10 +2989,13 @@ describe("compose layers", () => {
       });
       const { exitCode, stderr, model } = render(LOCAL_LAYERS);
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-      // Without its overlay, the fake Messages API stays behind its profile.
+      // Without their overlays, the fake Messages API and the fake Responses
+      // API (infra/compose.codex-worker.yml) stay behind their profiles.
       const merged = Object.fromEntries(
         Object.entries(localStack()).filter(
-          ([, service]) => !service.profiles?.includes("fake-model"),
+          ([, service]) =>
+            !service.profiles?.includes("fake-model") &&
+            !service.profiles?.includes("fake-responses"),
         ),
       );
       const services = model?.services ?? {};

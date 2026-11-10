@@ -1,0 +1,39 @@
+# The Codex worker overlay: builds the worker image that holds the Codex
+# engine instead of Claude Code (apps/worker/Dockerfile, WORKER_RUNTIME), and
+# serves it a local Responses API so a Codex session runs without an OpenAI
+# account. One worker image holds one engine, so a stack that runs Codex
+# sessions points WORKER_IMAGE at this image; the Claude image and this one
+# are two images, not a switch inside one.
+#
+#   export WORKER_IMAGE=werft-worker-codex:dev
+#   COMPOSE_FILE=infra/compose.yml:infra/compose.local.yml:infra/compose.codex-worker.yml
+#
+# It names no path, so it merges under either project directory. The settings
+# are tests/fixtures/settings/fake-model-codex.json (one Codex profile, no
+# repository); a prompt containing "run-command" makes the fake model call
+# exec_command once. A deployment that calls the real Responses API lists
+# api.openai.com:443 on the credential allowlist instead
+# (infra/test-ops.env.example).
+services:
+  worker:
+    build:
+      args:
+        WORKER_RUNTIME: codex_app_server
+    # The smoke the worker entry runs once: resolves the Codex executable the
+    # way the runtime does and prints its version, failing on any other build.
+    command: ["bun", "run", "--filter", "@werft-ai/runtime-registry", "image:verify"]
+
+  # Defined in compose.local.yml, where its source mount resolves.
+  fake-responses:
+    profiles: !reset []
+
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/fake-model-codex.json}
+
+  egress-proxy:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566,fake-responses:4030}
+  api:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566,fake-responses:4030}
