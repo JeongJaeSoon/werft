@@ -972,3 +972,38 @@ describe("maskBody: form pairs inside a JSON string", () => {
     ).not.toContain("SENTINEL");
   });
 });
+
+// Orchestrator review of werft#1327 at a16528c (Act-on 1 and 2).
+describe("maskBody: encoded separators and cut nested JSON", () => {
+  const leaks = (text: string) => maskBody(text).includes("SENTINEL");
+
+  test("an encoded separator inside a form value does not end the hidden value", () => {
+    expect(leaks("password=keep%26SENTINEL%20SENTINEL&x=1")).toBe(false);
+    expect(leaks("a=1&client_secret=one%2526SENTINEL")).toBe(false);
+    expect(leaks("x=1&access_token=one%20SENTINEL%3BSENTINEL")).toBe(false);
+    // Pairs that are not secret stay readable.
+    expect(maskBody("error=denied&password=one%26SENTINEL")).toContain(
+      "error=denied",
+    );
+  });
+
+  test("a session id nested in a cut JSON body", () => {
+    expect(leaks('{"ok":1,"session":{"status":"run","id":"SENTINEL')).toBe(
+      false,
+    );
+    expect(leaks('{"current_session":{"id":"SENTINEL')).toBe(false);
+    expect(leaks('{"sessions":[{"id":"SENTINEL","x":1}')).toBe(false);
+  });
+
+  test("a session id nested in a cut JSON body behind a prefix", () => {
+    expect(leaks(`)]}'\n{"session":{"id":"SENTINEL","x":1`)).toBe(false);
+    expect(leaks(`while(1);{"a":{"session":{"id":"SENTINEL"`)).toBe(false);
+  });
+
+  test("other nested secrets in a cut body stay hidden", () => {
+    expect(leaks('{"auth":{"refresh_token":"SENTINEL')).toBe(false);
+    expect(
+      leaks(`)]}'\n{"oauth":{"code":"SENTINEL","client_secret":"SENTINEL`),
+    ).toBe(false);
+  });
+});

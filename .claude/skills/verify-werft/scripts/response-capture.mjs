@@ -123,16 +123,28 @@ function valueEnd(s, i, bareEnd = /^[^\s,}\]&]*/) {
 // as "token expired: retry" is the safe side. The next separator is found
 // once per position, so the scan stays linear in the text.
 // A body that did not parse also has `code` hidden: without the parse there
-// is no telling error.code from an OAuth code.
+// is no telling error.code from an OAuth code. It has any `session` value
+// hidden too, object and all: a cut or prefixed body cannot be parsed to
+// find the `id` inside one (session.id).
 // A body that parsed has its keys masked already; there the scan looks only
 // for secrets written inside string values, and a separator more than 256
 // characters away or past structure (`,;{}`) is not taken, so prose such
 // as "token is invalid" does not hide the next field.
 const SECRET_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
-const SECRET_OR_CODE_AT = new RegExp(
-  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`,
-  "gi",
-);
+const UNPARSED_WORDS = `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session`;
+const SECRET_OR_CODE_AT = new RegExp(UNPARSED_WORDS, "gi");
+
+// Form pairs (a=1&b=2) are split on the raw text, before %XX is decoded, so
+// an encoded "&", ";" or space inside a secret value cannot end its mask and
+// leave the rest of the value in the report. The key is decoded to be read.
+const UNPARSED_KEY = new RegExp(UNPARSED_WORDS, "i");
+function hideFormPairs(text) {
+  return text.replace(
+    /(^|[&;?\s])([^=&;\s]+)=([^&;\s]+)/g,
+    (whole, lead, key) =>
+      UNPARSED_KEY.test(decodeAscii(key)) ? `${lead}${key}=(hidden)` : whole,
+  );
+}
 function hideEmbedded(text, pattern, near) {
   let out = "";
   let last = 0;
@@ -210,6 +222,7 @@ export function maskBody(text) {
       parsed = true;
     }
   }
+  if (!parsed) out = hideFormPairs(out);
   out = decodeAscii(out);
   // A key may be spelled with t-style escapes; write the plain letters
   // back before searching (only [A-Za-z0-9_-], so no quote or bracket moves).
