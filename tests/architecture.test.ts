@@ -1636,6 +1636,150 @@ async function inFixture<T>(
 
 const manifestOf = (name: string) => JSON.stringify({ name });
 
+/** Every module a file names, whichever way: import, export-from, require, import(). */
+function moduleReferences(source: ts.SourceFile): string[] {
+  const found: string[] = [];
+  walk(source, (node) => {
+    let reference: ts.Node | undefined;
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      reference = node.moduleSpecifier;
+    else if (ts.isExternalModuleReference(node)) reference = node.expression;
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
+      reference = node.argument.literal;
+    else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) &&
+          node.expression.text === "require"))
+    )
+      reference = node.arguments[0];
+    while (reference && ts.isParenthesizedExpression(reference))
+      reference = reference.expression;
+    if (reference && ts.isStringLiteralLike(reference))
+      found.push(reference.text);
+  });
+  return found;
+}
+
+const isReactAria = (specifier: string) =>
+  ["react-aria-components", "react-aria", "react-stately"].includes(
+    packageOf(specifier),
+  ) || /^@(?:react-aria|react-stately|internationalized)\//.test(specifier);
+
+/**
+ * Files outside packages/ui that import React Aria. It is an implementation
+ * detail of @werft-ai/ui, the way Radix was: a screen that reaches for it
+ * skips the facade and the theme.
+ */
+export async function reactAriaImporters(repo: string): Promise<string[]> {
+  const offenders: string[] = [];
+  for (const top of ["apps", "packages", "scripts", "tests"]) {
+    if (!existsSync(join(repo, top))) continue;
+    const entries = await readdir(join(repo, top), {
+      recursive: true,
+      withFileTypes: true,
+    });
+    for (const entry of entries) {
+      const file = join(entry.parentPath, entry.name);
+      const path = slashed(relative(repo, file));
+      if (
+        !entry.isFile() ||
+        !scriptFile.test(entry.name) ||
+        /(?:^|\/)(?:node_modules|dist)\//.test(path) ||
+        path.startsWith("packages/ui/")
+      )
+        continue;
+      const text = await readFile(file, "utf8");
+      // A specifier names its package unless escapes build it, so only files
+      // with either are worth parsing.
+      if (!/aria|stately|internationalized|\\[ux0-7]/.test(text)) continue;
+      for (const specifier of moduleReferences(parseText(file, text)))
+        if (isReactAria(specifier)) offenders.push(`${path} ${specifier}`);
+    }
+  }
+  return offenders.sort();
+}
+
+const tailwindPalette =
+  "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+const colorUtility =
+  "(?:bg|text|border(?:-[trblxyse])?|ring|ring-offset|outline|divide|fill|stroke|from|via|to|shadow|decoration|accent|caret|placeholder)";
+/** What a component class must not say: colour comes from the semantic tokens. */
+const colorClassRules = {
+  "dark: variant": /(?:^|:)dark:/,
+  "Tailwind palette": new RegExp(
+    `(?:^|[:!])${colorUtility}-(?:${tailwindPalette})-\\d{2,3}(?:/.+)?$`,
+  ),
+  "black/white": new RegExp(
+    `(?:^|[:!])${colorUtility}-(?:black|white)(?:/.+)?$`,
+  ),
+  "arbitrary colour": new RegExp(
+    `(?:^|[:!])${colorUtility}-\\[(?:#|(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color)\\()|(?:^|:)\\[(?:color|background(?:-color)?|border-color|fill|stroke):`,
+  ),
+} as const;
+
+/** Where a component may name a colour anyway: file, class token, why. */
+export const colorClassExceptions: readonly {
+  readonly file: string;
+  readonly token: string;
+  readonly reason: string;
+}[] = [];
+
+/**
+ * Class tokens in non-test sources under `directory` that break
+ * `colorClassRules`, as "path:line token (rule)". Every string and the fixed
+ * parts of every template are read, so a condition, an array, a constant or a
+ * cva() object cannot hide one; module specifiers are skipped.
+ */
+export async function colorClassViolations(
+  repo: string,
+  directory: string,
+): Promise<string[]> {
+  const found: string[] = [];
+  const root = join(repo, directory);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    const file = join(entry.parentPath, entry.name);
+    const path = slashed(relative(repo, file));
+    if (
+      !entry.isFile() ||
+      !/\.tsx?$/.test(entry.name) ||
+      isTestFile(file) ||
+      /(?:^|\/)(?:node_modules|dist)\//.test(path)
+    )
+      continue;
+    const source = await parse(file);
+    walk(source, (node) => {
+      if (
+        !(
+          ts.isStringLiteralLike(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)
+        ) ||
+        isModuleSpecifier(node)
+      )
+        return;
+      for (const token of node.text.split(/\s+/)) {
+        for (const [rule, pattern] of Object.entries(colorClassRules)) {
+          if (!pattern.test(token)) continue;
+          if (
+            colorClassExceptions.some(
+              (e) => e.file === path && e.token === token,
+            )
+          )
+            continue;
+          const { line } = source.getLineAndCharacterOfPosition(
+            node.getStart(),
+          );
+          found.push(`${path}:${line + 1} ${token} (${rule})`);
+        }
+      }
+    });
+  }
+  return found.sort();
+}
+
 describe("architecture", () => {
   test("no source file reaches outside its own package through a relative import", async () => {
     const offenders: string[] = [];
@@ -3479,6 +3623,82 @@ describe("architecture", () => {
             listed,
           ),
         ).toEqual(["packages/db/src/testing/x.ts"]);
+      },
+    );
+  });
+
+  test("React Aria is imported only inside packages/ui", async () => {
+    expect(await reactAriaImporters(root)).toEqual([]);
+  });
+
+  test("the React Aria guard reads imports, not words, and allows packages/ui", async () => {
+    await inFixture(
+      {
+        "apps/web/src/a.tsx": 'import { Button } from "react-aria-components";',
+        "apps/web/src/b.ts": 'export * from "@react-aria/utils";',
+        "packages/react/src/c.ts": 'const m = await import("react-stately");',
+        "packages/react/src/d.ts":
+          'const m = require("@internationalized/date");',
+        "scripts/e.ts": 'import type { X } from "react-aria/Button";',
+        "apps/web/src/f.ts":
+          'import "react-router";\nconst s = "react-aria-components";',
+        "packages/ui/src/g.tsx": 'import "react-aria-components";',
+      },
+      async (repo) => {
+        expect(await reactAriaImporters(repo)).toEqual([
+          "apps/web/src/a.tsx react-aria-components",
+          "apps/web/src/b.ts @react-aria/utils",
+          "packages/react/src/c.ts react-stately",
+          "packages/react/src/d.ts @internationalized/date",
+          "scripts/e.ts react-aria/Button",
+        ]);
+      },
+    );
+  });
+
+  test("components name no palette colour, black/white or dark: variant", async () => {
+    const found: string[] = [];
+    for (const directory of [
+      "packages/ui/src",
+      "packages/react/src",
+      "apps/web/src",
+      "apps/storybook",
+    ]) {
+      found.push(...(await colorClassViolations(root, directory)));
+    }
+    // Colour values live in tokens.css (dark ones too); a component says
+    // bg-primary or text-muted-foreground and follows the theme. Add to
+    // colorClassExceptions, with a reason, only for what a token cannot be
+    // (a brand mark, a code highlighter, a shadow).
+    expect(found).toEqual([]);
+  });
+
+  test("the colour guard sees through conditions, arrays, constants, templates and cva", async () => {
+    await inFixture(
+      {
+        "src/a.tsx": [
+          'import x from "bg-red-500";',
+          'const tone = "text-slate-500";',
+          "export const A = ({ on, v }) => (",
+          '  <div className={cn("p-2", on ? "dark:bg-card" : "", ["border-[#fff]"], `ring-blue-500/50 ${v}`)} />',
+          ");",
+          'export const b = cva("bg-white", { variants: { k: { x: "hover:[color:red]" } } });',
+          'export const ok = "bg-primary text-foreground/50 hover:bg-hover border-border bg-transparent";',
+        ].join("\n"),
+        "src/a.test.tsx": 'export const t = "dark:bg-black";',
+        "src/b.ts": 'export const c = "group-hover:dark:text-white";',
+      },
+      async (repo) => {
+        expect(await colorClassViolations(repo, "src")).toEqual([
+          "src/a.tsx:2 text-slate-500 (Tailwind palette)",
+          "src/a.tsx:4 border-[#fff] (arbitrary colour)",
+          "src/a.tsx:4 dark:bg-card (dark: variant)",
+          "src/a.tsx:4 ring-blue-500/50 (Tailwind palette)",
+          "src/a.tsx:6 bg-white (black/white)",
+          "src/a.tsx:6 hover:[color:red] (arbitrary colour)",
+          "src/b.ts:1 group-hover:dark:text-white (black/white)",
+          "src/b.ts:1 group-hover:dark:text-white (dark: variant)",
+        ]);
       },
     );
   });
