@@ -390,7 +390,7 @@ describe("app Dockerfiles", () => {
 
   test("WORKER_RUNTIME swaps the registry's import, closure and image:verify together", () => {
     const source = basePins.worker.source;
-    expect(source).toContain("ARG WORKER_RUNTIME=claude_agent_sdk\n");
+    expect(source).toContain("ARG WORKER_RUNTIME=\n");
     expect(source).toContain("unknown WORKER_RUNTIME");
     const dir = "packages/adapters/runtimes/registry";
     const base = JSON.parse(read(`${dir}/package.json`)) as {
@@ -535,6 +535,23 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   // A credential route's upstream on a forward list is a way round the
   // route: the provider outside cost accounting, the git host without a token,
   // LocalStack into every session's prefix.
+  test("the example allowlists name the Codex provider beside the Claude one", () => {
+    for (const path of [
+      "deploy/helm/werft/values-aws.example.yaml",
+      "infra/test-ops.env.example",
+    ]) {
+      const line = read(path)
+        .split("\n")
+        .find(
+          (l) =>
+            /^\s*(credentialAllowlist:|EGRESS_CREDENTIAL_ALLOWLIST=)/.test(l) &&
+            !l.trim().startsWith("#"),
+        );
+      expect(line, path).toContain("api.anthropic.com:443");
+      expect(line, path).toContain("api.openai.com:443");
+    }
+  });
+
   test("workers reach the provider, the git host and the object store only through the credential routes", () => {
     const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
     const credential = [

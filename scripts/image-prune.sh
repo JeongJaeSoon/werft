@@ -34,6 +34,7 @@ matches() {
          -path '*/src/test-support' -o \
          -path '*/__fixtures__' -o \
          -path '*/__snapshots__' -o \
+         -path packages/adapters/runtimes/registry/variants -o \
          -path '*/bench' \
        \) -print -prune \) -o \
     \( -type f \( \
