@@ -48,7 +48,6 @@ import {
   TEAM_NOT_ALLOWED,
   TEAM_NOT_FOUND,
 } from "../musterrolle/service-errors.ts";
-import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
 import type {
   ActivationIntent,
   AgentReader,
@@ -83,6 +82,7 @@ import {
   SessionServiceError,
   viewerOf,
 } from "../sessions/session-service.ts";
+import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import {
   assertReleaseIdentity,
@@ -156,6 +156,24 @@ export async function resolveAgentRelease(
   return release;
 }
 
+export type NotRunnableReason = "agent_inactive" | "release_unapproved";
+
+/**
+ * Why a new session cannot run this release, or null. Approval is the
+ * release's own `approved_at`, not whether it is the active one, so an older
+ * approved release still runs while the agent is active.
+ */
+export async function releaseNotRunnableReason(
+  store: Pick<AgentStore, "agentStatus">,
+  workspaceId: string,
+  release: Pick<AgentRelease, "agent_id" | "approved_at">,
+): Promise<NotRunnableReason | null> {
+  if ((await store.agentStatus(workspaceId, release.agent_id)) !== "active") {
+    return "agent_inactive";
+  }
+  return release.approved_at === null ? "release_unapproved" : null;
+}
+
 /** Exported for its test: whether two snapshots run the same runtime. */
 export function sameRuntime(a: unknown, b: unknown): boolean {
   const form = (snapshot: unknown) => {
@@ -218,7 +236,7 @@ export function createAgentService(deps: {
   catalog: SessionCatalog;
   credentials: Pick<CredentialBindingStore, "unboundRefs">;
   /** The home channel's welcome; absent where Slack is not wired. */
-  welcome?: Pick<SlackWelcome, "activated">;
+  welcome?: Pick<AgentWelcomable, "activated">;
   /** Where an agent key's agent is read; absent, every key is refused. */
   keys?: Pick<WorkspaceKeyStore, "find">;
   /** The ceiling a release's `github` is checked against; absent: all off. */
@@ -1519,6 +1537,10 @@ export function createAgentService(deps: {
 
   return {
     resolveRelease,
+    notRunnableReason: (
+      workspaceId: string,
+      release: Pick<AgentRelease, "agent_id" | "approved_at">,
+    ) => releaseNotRunnableReason(store, workspaceId, release),
     rolloutRelease,
     migrateModel,
     migrateAgent,

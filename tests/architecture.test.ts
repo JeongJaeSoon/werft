@@ -1281,7 +1281,55 @@ export async function decisionEntranceProblems(
   if (!existsSync(file)) return [];
   const types: string[] = [];
   const values: string[] = [];
-  for (const statement of (await parse(file)).statements) {
+  const source = await parse(file);
+  // An entrance type could carry a write store out to the channel without
+  // naming it: `typeof import("..").createX` or `Parameters<typeof createX>`
+  // resolve to the store by inference. So the file is a closed grammar: it
+  // names no store, imports and re-exports only from the contracts package,
+  // and has no `import()` type, `typeof` query, `import =` alias, ambient
+  // declaration or `/// <reference>`. What the AST cannot see is a type that
+  // a contracts augmentation adds elsewhere in the repo.
+  const stores: string[] = [];
+  const reaches: string[] = [];
+  walk(source, (node) => {
+    if (ts.isIdentifier(node) && decisionStores.has(node.text))
+      stores.push(node.text);
+    if (ts.isImportTypeNode(node)) reaches.push("an import() type");
+    if (ts.isTypeQueryNode(node)) reaches.push("a typeof query");
+    if (ts.isImportEqualsDeclaration(node)) reaches.push("an import = alias");
+    if (ts.isModuleDeclaration(node))
+      reaches.push("an ambient module or global declaration");
+    // A named re-export hands out another module's type under a new name,
+    // a string-literal name included; only the contracts package may be one.
+    if (
+      ts.isExportDeclaration(node) &&
+      node.exportClause &&
+      node.moduleSpecifier &&
+      !(
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === "@werft-ai/contracts"
+      )
+    )
+      reaches.push(`a re-export from ${node.moduleSpecifier.getText(source)}`);
+    if (
+      ts.isImportDeclaration(node) &&
+      !(
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === "@werft-ai/contracts"
+      )
+    )
+      reaches.push(`an import of ${node.moduleSpecifier.getText(source)}`);
+  });
+  // `/// <reference>` pulls in a file whose ambient types the AST above
+  // never sees.
+  if (
+    source.referencedFiles.length +
+      source.typeReferenceDirectives.length +
+      source.libReferenceDirectives.length >
+    0
+  )
+    reaches.push("a /// <reference> directive");
+  for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;
       if (!clause) values.push("*");
@@ -1302,6 +1350,14 @@ export async function decisionEntranceProblems(
   return [
     ...values.map(
       (name) => `decision/index.ts exports ${name}, which is not a type`,
+    ),
+    ...stores.map(
+      (name) =>
+        `decision/index.ts names ${name}, a write store a channel must not reach`,
+    ),
+    ...reaches.map(
+      (how) =>
+        `decision/index.ts reaches outside the contracts package through ${how}, which can carry a write store by inference`,
     ),
     ...(types.length === 2
       ? []
@@ -3080,7 +3136,13 @@ describe("architecture", () => {
     const index = platformFile("decision/index.ts");
     expect(
       await inFixture(
-        { [index]: 'export type { Answer, Enqueue } from "./entrances.ts";' },
+        {
+          [index]: [
+            'import type { PushRequest } from "@werft-ai/contracts";',
+            "export interface Answer { answer(): void }",
+            "export type Enqueue = { enqueue(): PushRequest };",
+          ].join("\n"),
+        },
         decisionEntranceProblems,
       ),
     ).toEqual([]);
@@ -3106,16 +3168,106 @@ describe("architecture", () => {
     ]);
   });
 
+  test("R5 fails an entrance type that names a write store", async () => {
+    const index = platformFile("decision/index.ts");
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            'import type { PushRequestStore as Store } from "@werft-ai/contracts";',
+            "export type Answer = { answer(): void };",
+            "export type Decide = { store: Store };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      "decision/index.ts names PushRequestStore, a write store a channel must not reach",
+    ]);
+  });
+
+  test("R5 fails an entrance type that reaches a write store only by inference", async () => {
+    const index = platformFile("decision/index.ts");
+    // Neither store name appears: the optional member resolves to the store
+    // of createPendingRequestService, and the service-fits-entrance check
+    // would still pass because the member is optional.
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            "export interface Answer {",
+            "  answer(): void;",
+            '  store?: Parameters<typeof import("../index.ts").createPendingRequestService>[0]["store"];',
+            "}",
+            "export type Decide = { decide(): void };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      "decision/index.ts reaches outside the contracts package through an import() type, which can carry a write store by inference",
+    ]);
+  });
+
+  test("R5 fails a typeof query, a re-export, an import = alias, an ambient declaration and a reference directive", async () => {
+    const index = platformFile("decision/index.ts");
+    const problems = (lines: string[]) =>
+      inFixture({ [index]: lines.join("\n") }, decisionEntranceProblems);
+    const two = [
+      "export interface Answer { answer(): void }",
+      "export type Decide = { decide(): void };",
+    ];
+    const reach = (how: string) =>
+      `decision/index.ts reaches outside the contracts package through ${how}, which can carry a write store by inference`;
+    expect(
+      await problems(["const seed = 1;", ...two, "type T = typeof seed;"]),
+    ).toEqual([reach("a typeof query")]);
+    // Even a string-literal export name, which no identifier check sees.
+    expect(
+      await problems([
+        'export type { "PendingRequestStore" as Answer } from "../ports/pending-requests.ts";',
+        "export type Decide = { decide(): void };",
+      ]),
+    ).toEqual([reach('a re-export from "../ports/pending-requests.ts"')]);
+    expect(
+      await problems(["import type S = require('./bridge.ts');", ...two]),
+    ).toEqual([reach("an import = alias")]);
+    expect(
+      await problems([...two, "declare global { type Hidden = string }"]),
+    ).toEqual([reach("an ambient module or global declaration")]);
+    expect(
+      await problems(['/// <reference path="./ambient.d.ts" />', ...two]),
+    ).toEqual([reach("a /// <reference> directive")]);
+  });
+
+  test("R5 fails an entrance file that imports a service module", async () => {
+    const index = platformFile("decision/index.ts");
+    expect(
+      await inFixture(
+        {
+          [index]: [
+            'import type { PendingRequestService } from "../sessions/pending-service.ts";',
+            'export type Answer = Pick<PendingRequestService, "answer">;',
+            "export type Decide = { decide(): void };",
+          ].join("\n"),
+        },
+        decisionEntranceProblems,
+      ),
+    ).toEqual([
+      'decision/index.ts reaches outside the contracts package through an import of "../sessions/pending-service.ts", which can carry a write store by inference',
+    ]);
+  });
+
   test("R6: contracts surface/ files are pure", async () => {
     expect(await surfaceImpurities(root)).toEqual([]);
   });
 
   test("R6 already holds for the two view-model files that move into surface/", async () => {
-    const api = join(contractsSrc(root), "api");
+    const surface = join(contractsSrc(root), "surface");
     expect(
       await impurities(root, [
-        join(api, "present-turn-event.ts"),
-        join(api, "present-action.ts"),
+        join(surface, "present-turn-event.ts"),
+        join(surface, "present-action.ts"),
       ]),
     ).toEqual([]);
   });

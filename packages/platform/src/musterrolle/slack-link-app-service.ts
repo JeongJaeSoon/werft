@@ -1,5 +1,6 @@
 import type { SlackApp, SlackWarning } from "@werft-ai/contracts";
 import type {
+  CreatedSlackApp,
   SlackAppActor,
   SlackAppRecord,
   SlackAppStore,
@@ -18,11 +19,7 @@ import {
   SLACK_APP_CREATE_STALE_MS,
   slackAppView,
 } from "./slack-app-service.ts";
-import {
-  type CreatedSlackApp,
-  SlackApiError,
-  type SlackConfigApi,
-} from "./slack-config-api.ts";
+import { SlackApiError, type SlackConfigApi } from "./slack-config-api.ts";
 import type { SlackConfigTokens } from "./slack-config-token.ts";
 import {
   buildLinkAppManifest,

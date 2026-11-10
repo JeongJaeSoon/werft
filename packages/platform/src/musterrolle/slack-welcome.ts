@@ -1,7 +1,6 @@
 import {
   SLACK_BINDING_LIST_LIMIT,
   type SlackFinalizeWarning,
-  type SurfaceMembership,
 } from "@werft-ai/contracts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type { SlackAppStore } from "../ports/slack-app-store.ts";
@@ -10,7 +9,8 @@ import type {
   SlackOutboxStore,
 } from "../ports/slack-outbox-store.ts";
 import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
-import type { SlackChannelJoiner } from "./slack-channel-join.ts";
+import type { WelcomeOutcome } from "../surface/ports/agent-welcomable.ts";
+import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import type { SlackInstallFinalize } from "./slack-install-service.ts";
 
@@ -56,22 +56,7 @@ export function deploymentWelcome(input: {
   };
 }
 
-/**
- * `unknown_membership`: Slack was not asked, or did not answer, whether the
- * bot is in the home. The membership states say why nothing was enqueued:
- * a row for a channel the bot is not in would fail for good.
- */
-export type SlackWelcomeOutcome =
-  | { status: "enqueued" | "duplicate"; channelId: string }
-  | {
-      status: Exclude<SurfaceMembership["state"], "joined">;
-      channelId: string;
-      error: string | null;
-    }
-  | { status: "unknown_membership"; channelId: string }
-  | { status: "no_home" | "no_release" | "not_installed" | "rollback" };
-
-export type SlackWelcome = ReturnType<typeof createSlackWelcome>;
+export type SlackWelcomeOutcome = WelcomeOutcome;
 
 // What asking Slack again can change.
 const WAITING_ON_SLACK = new Set<SlackWelcomeOutcome["status"]>([
@@ -91,7 +76,7 @@ export function createSlackWelcome(deps: {
   apps: Pick<SlackAppStore, "findForAgent">;
   outbox: Pick<SlackOutboxStore, "enqueue">;
   /** Null without a bot token source: membership is only what was stored. */
-  join: SlackChannelJoiner | null;
+  join: ChannelJoinable | null;
   logger: SlackInboxLogger;
 }) {
   async function homeOf(workspaceId: string, agentId: string) {

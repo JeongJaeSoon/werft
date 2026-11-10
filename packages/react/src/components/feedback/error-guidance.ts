@@ -62,6 +62,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "이 release는 다른 프로필로 만들어졌습니다 — release의 프로필로 세션을 만드세요.",
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
+  AGENT_NOT_RUNNABLE:
+    "이 에이전트는 지금 새 세션을 시작할 수 없어요(일시중지·보관됐거나 release가 승인되지 않았어요) — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
     "이 자격 이름은 이미 다른 곳(에이전트 또는 Slack 앱 연결)에 묶여 있어 쓸 수 없어요 — 다른 이름을 고르세요.",
   SELF_PROTECTED:
@@ -220,6 +222,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "This release was made with a different execution profile — create the session with the release's profile.",
   CREDENTIAL_UNBOUND:
     "The connection settings changed, so it couldn't start — contact the agent's administrator.",
+  AGENT_NOT_RUNNABLE:
+    "This agent can't start new sessions right now (paused, archived, or its release was never approved) — contact the agent's administrator.",
   CREDENTIAL_REF_IN_USE:
     "This credential name is already bound elsewhere (an agent or a Slack app connection) — pick another name.",
   SELF_PROTECTED:
@@ -396,6 +400,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "この release は別のプロファイルで作られました — release のプロファイルでセッションを作成してください。",
   CREDENTIAL_UNBOUND:
     "接続設定が変わったため開始できませんでした — エージェントの管理者に問い合わせてください。",
+  AGENT_NOT_RUNNABLE:
+    "このエージェントは現在新しいセッションを開始できません(一時停止・アーカイブ済み、または release が未承認です) — エージェントの管理者に問い合わせてください。",
   CREDENTIAL_REF_IN_USE:
     "この認証情報の名前はすでに別の場所(エージェントまたは Slack アプリの接続)に紐づいていて使えません — 別の名前を選んでください。",
   SELF_PROTECTED:

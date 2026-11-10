@@ -8,6 +8,11 @@ import { appHarness } from "../test-support/render-app.tsx";
 const { renderAt, screen, cleanup, within, waitFor } = await appHarness();
 
 const signedIn = { "GET /v1/auth/me": () => json(200, me()) };
+// An account that never saved a language.
+const unsaved = {
+  "GET /v1/auth/me": () =>
+    json(200, { ...me(), user: { ...me().user, locale: null } }),
+};
 
 afterEach(() => {
   delete document.documentElement.dataset.theme;
@@ -24,7 +29,7 @@ describe("preferences", () => {
     expect(
       document.getElementById(language.getAttribute("aria-describedby") ?? "")
         ?.textContent,
-    ).toContain("메뉴와 안내 문구");
+    ).toContain("저장하지 않으면 영어");
     const radios = within(language).getAllByRole("radio");
     expect(radios.map((radio) => radio.getAttribute("value"))).toEqual([
       "ko",
@@ -49,7 +54,7 @@ describe("preferences", () => {
   });
 
   test("a language chosen here applies at once and is still chosen on the next visit", async () => {
-    renderAt("/settings/preferences", signedIn, null);
+    renderAt("/settings/preferences", unsaved, null);
     const user = await setupUser();
     const start = (await screen.findByRole("heading", { level: 1 }))
       .textContent;
@@ -63,7 +68,7 @@ describe("preferences", () => {
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("ja");
 
     cleanup();
-    renderAt("/settings/preferences", signedIn, null);
+    renderAt("/settings/preferences", unsaved, null);
     expect(
       await screen.findByRole("heading", { level: 1, name: "言語・テーマ" }),
     ).toBeDefined();
@@ -81,7 +86,7 @@ describe("preferences", () => {
       }),
     ).toBeDefined();
     cleanup();
-    renderAt("/", signedIn, null);
+    renderAt("/", unsaved, null);
     expect(await screen.findByRole("link", { name: "Settings" })).toBeDefined();
   });
 
@@ -123,13 +128,21 @@ describe("preferences", () => {
   });
 
   test("a user with no saved language saves one only once they pick it", async () => {
-    const { api } = renderAt("/settings/preferences", {
-      ...signedIn,
-      "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
-    });
+    // English is what Slack writes without a saved language, so nothing to save.
+    const { api } = renderAt(
+      "/settings/preferences",
+      {
+        ...unsaved,
+        "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
+      },
+      "en",
+    );
     const user = await setupUser();
     expect(
-      await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Language & theme",
+      }),
     ).toBeDefined();
     const saves = () =>
       api.calls
@@ -140,50 +153,52 @@ describe("preferences", () => {
     await waitFor(() => expect(saves()).toEqual([{ locale: "ja" }]));
   });
 
-  test("with none saved, a console that opens in a language other than ko saves it, since Slack would write ko", async () => {
-    localStorage.setItem(LOCALE_STORAGE_KEY, "en");
+  test("with none saved, a console that opens in a language other than en saves it, since Slack would write en", async () => {
+    localStorage.setItem(LOCALE_STORAGE_KEY, "ko");
     const { api } = renderAt(
       "/settings/preferences",
       {
-        ...signedIn,
+        ...unsaved,
         "PATCH /v1/auth/me": () => new Response(null, { status: 204 }),
       },
       null,
     );
     expect(
-      await screen.findByRole("heading", {
-        level: 1,
-        name: "Language & theme",
-      }),
+      await screen.findByRole("heading", { level: 1, name: "언어·테마" }),
     ).toBeDefined();
     await waitFor(() =>
       expect(
         api.calls
           .filter((call) => call.method === "PATCH")
           .map((call) => call.body),
-      ).toEqual([{ locale: "en" }]),
+      ).toEqual([{ locale: "ko" }]),
     );
   });
 
   test("two quick picks are saved in order, so the later one is kept", async () => {
     let saved: "ja" | "en" | null = null;
     let releaseFirst = () => {};
-    const { api } = renderAt("/settings/preferences", {
-      "GET /v1/auth/me": () =>
-        json(200, { ...me(), user: { ...me().user, locale: saved } }),
-      "PATCH /v1/auth/me": async (request) => {
-        const next = ((await request.json()) as { locale: "ja" | "en" }).locale;
-        if (next === "ja") {
-          await new Promise<void>((resolve) => {
-            releaseFirst = resolve;
-          });
-        }
-        saved = next;
-        return new Response(null, { status: 204 });
+    const { api } = renderAt(
+      "/settings/preferences",
+      {
+        "GET /v1/auth/me": () =>
+          json(200, { ...me(), user: { ...me().user, locale: saved } }),
+        "PATCH /v1/auth/me": async (request) => {
+          const next = ((await request.json()) as { locale: "ja" | "en" })
+            .locale;
+          if (next === "ja") {
+            await new Promise<void>((resolve) => {
+              releaseFirst = resolve;
+            });
+          }
+          saved = next;
+          return new Response(null, { status: 204 });
+        },
       },
-    });
+      "en",
+    );
     const user = await setupUser();
-    await screen.findByRole("heading", { level: 1, name: "언어·테마" });
+    await screen.findByRole("heading", { level: 1, name: "Language & theme" });
     const patches = () =>
       api.calls.filter((call) => call.method === "PATCH").length;
     await user.click(screen.getByRole("radio", { name: /日本語/ }));

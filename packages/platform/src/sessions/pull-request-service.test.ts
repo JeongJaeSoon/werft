@@ -9,14 +9,17 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
+  ForgeCredentialError,
+  type ForgePullRequest,
+} from "../action/ports/forge.ts";
+import type { GitHubApi } from "../action/ports/github-api.ts";
+import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
   type SessionAccess,
 } from "../musterrolle/policy.ts";
-import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
-  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
@@ -1759,7 +1762,7 @@ const SIGNATURE =
   "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
 
 describe("structured fields", () => {
-  test("open writes the default template, in Korean, then the tail", async () => {
+  test("open writes the default template, in English, then the tail", async () => {
     const { service, created } = harness();
     const opened = await service.open(actor, SESSION, PUSH, {
       readBody: async () => ({
@@ -1773,17 +1776,17 @@ describe("structured fields", () => {
     expect(opened.body_source).toEqual({ kind: "platform" });
     expect(created[0]?.body).toBe(
       [
-        "## 요약",
+        "## Summary",
         "Adds the login form.",
         "",
-        "## 변경 사항",
+        "## Changes",
         `- ${ZWSP}Form`,
         `- ${ZWSP}Route`,
         "",
-        "## 테스트",
+        "## Testing",
         "bun test",
         "",
-        "## 관련 이슈",
+        "## Related issues",
         "- Closes #12",
         "",
         TAIL,
@@ -1820,7 +1823,7 @@ describe("structured fields", () => {
       readBody: async () => ({ summary: "Second" }),
     });
     expect(updated.body_source).toEqual({ kind: "platform" });
-    expect(bodies.get(7)).toBe(`## 요약\nSecond\n\n${TAIL}`);
+    expect(bodies.get(7)).toBe(`## Summary\nSecond\n\n${TAIL}`);
   });
 
   test("update with a legacy body or a title alone reports where the body came from", async () => {
@@ -1944,9 +1947,9 @@ describe("the repository's pull request template", () => {
       path: "docs/PULL_REQUEST_TEMPLATE",
       skipped: "multiple",
     });
-    expect(created[0]?.body.startsWith("## 요약\nAdds the login form.")).toBe(
-      true,
-    );
+    expect(
+      created[0]?.body.startsWith("## Summary\nAdds the login form."),
+    ).toBe(true);
     expect(receipts.at(-1)).toMatchObject({
       template: { commit: "c1", skipped: "multiple" },
     });
@@ -1975,7 +1978,7 @@ describe("the repository's pull request template", () => {
       kind: "platform",
       skipped: "read_failed",
     });
-    expect(created[0]?.body.startsWith("## 요약\n")).toBe(true);
+    expect(created[0]?.body.startsWith("## Summary\n")).toBe(true);
     expect(warnings).toContain("Pull request template not read");
   });
 
@@ -2031,7 +2034,7 @@ describe("the repository's pull request template", () => {
       path: "docs/pull_request_template.md",
     });
     expect(bodies.get(7)).toContain("## Testing\n\nbun test");
-    expect(bodies.get(7)).toContain("## 요약\nLater");
+    expect(bodies.get(7)).toContain("## Summary\nLater");
     expect(receipts.at(-1)).toMatchObject({
       operation: "update_pull_request",
       result: {
@@ -2121,7 +2124,7 @@ describe("the workspace's pull request settings", () => {
       layout: { template_mode: "override" },
     });
     expect(opened.body_source).toEqual({ kind: "platform" });
-    expect(body.startsWith("## 요약\nAdds the login form.")).toBe(true);
+    expect(body.startsWith("## Summary\nAdds the login form.")).toBe(true);
     expect(repository.calls).toEqual([]);
   });
 
@@ -2156,7 +2159,7 @@ describe("the workspace's pull request settings", () => {
       },
     });
     expect(opened.body_source).toEqual({ kind: "platform" });
-    expect(body.startsWith("## 요약\nAdds the login form.")).toBe(true);
+    expect(body.startsWith("## Summary\nAdds the login form.")).toBe(true);
     expect(body).not.toContain("<!-- ours -->");
     expect(repository.calls).toEqual([]);
   });
@@ -2204,7 +2207,7 @@ describe("the workspace's pull request settings", () => {
         layout: { template_mode: "override", default_template: text },
       });
       expect(opened.body_source).toEqual({ kind: "platform", skipped });
-      expect(body.startsWith("## 요약\nAdds the login form.")).toBe(true);
+      expect(body.startsWith("## Summary\nAdds the login form.")).toBe(true);
       expect(receipts.at(-1)).toMatchObject({
         template: { commit: null, skipped },
       });

@@ -1,0 +1,1 @@
+ALTER TABLE "turns" ADD COLUMN "trace_context" text;

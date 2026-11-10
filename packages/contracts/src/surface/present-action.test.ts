@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { listPendingRequestsResponseSchema } from "./pending.ts";
+import { listPendingRequestsResponseSchema } from "../api/pending.ts";
+import { pushRequestPresentationSchema } from "../api/push-request.ts";
 import {
   presentPendingRequest,
   presentPushRequest,
   TOOL_VERB_VALUES,
 } from "./present-action.ts";
-import { pushRequestPresentationSchema } from "./push-request.ts";
 
 describe("presentPendingRequest", () => {
   test("names what a command does and to what", () => {

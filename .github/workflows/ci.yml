@@ -260,6 +260,7 @@ jobs:
               - apps/control-host/src/metrics/
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - packages/adapters/forge/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/drain-park-flow.
@@ -267,6 +268,7 @@ jobs:
               - tests/interrupt-flow.
               - tests/lease-clock.
               - tests/park-resume-flow.
+              - tests/turn-trace-context.
           # Slack and the contracts, clients and web apps that consume the API.
           # Enable PostgreSQL and LocalStack so service-gated tests do not skip.
           - domain: surface

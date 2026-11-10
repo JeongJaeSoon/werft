@@ -1,0 +1,37 @@
+{
+  "closed": [
+    [
+      "setStatus",
+      {
+        "channelId": "C0OPS",
+        "status": "closed",
+        "threadTs": "100.000100"
+      }
+    ]
+  ],
+  "running": [
+    [
+      "setStatus",
+      {
+        "channelId": "C0OPS",
+        "status": "processing",
+        "threadTs": "100.000100"
+      }
+    ]
+  ],
+  "unchanged-is-skipped": [
+    [
+      "skip"
+    ]
+  ],
+  "waiting-on-request": [
+    [
+      "setStatus",
+      {
+        "channelId": "C0OPS",
+        "status": "suspended",
+        "threadTs": "100.000100"
+      }
+    ]
+  ]
+}

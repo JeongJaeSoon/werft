@@ -2,14 +2,12 @@ import type { SurfaceMembership } from "@werft-ai/contracts";
 import { z } from "zod";
 import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
 import type { SlackInboundClaim } from "../ports/slack-inbound-event-store.ts";
-import type {
-  SurfaceBindingRecord,
-  SurfaceBindingStore,
-} from "../ports/surface-binding-store.ts";
+import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
+import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
+import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
 import { agentForSlackEvent } from "./agent-identity-service.ts";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import type { SlackInboundHandler } from "./slack-inbox.ts";
-import type { SlackWelcome } from "./slack-welcome.ts";
 
 // Slack refusing the token or the app, not saying the bot is out: the
 // console shows these apart from a missing invite.
@@ -98,7 +96,7 @@ export function createSlackMemberJoinedHandler(deps: {
     | "recordJoin"
     | "requireApproval"
   >;
-  welcome: Pick<SlackWelcome, "welcome">;
+  welcome: Pick<AgentWelcomable, "welcome">;
   slack: Pick<SlackBotApi, "channelKind">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   next: SlackInboundHandler;
@@ -230,10 +228,6 @@ export function createSlackMemberLeftHandler(deps: {
   };
 }
 
-export type SlackChannelJoiner = (
-  binding: SurfaceBindingRecord,
-) => Promise<SurfaceMembership | null>;
-
 /**
  * Joins a live channel binding's channel and records what Slack said on
  * the binding. Null, and nothing recorded, for the DM row, a binding that
@@ -243,7 +237,7 @@ export function createSlackChannelJoiner(deps: {
   bindings: Pick<SurfaceBindingStore, "setMembership">;
   slack: Pick<SlackBotApi, "channelMembership" | "joinChannel">;
   botToken(workspaceId: string, agentId: string): Promise<string | null>;
-}): SlackChannelJoiner {
+}): ChannelJoinable {
   return async (binding) => {
     if (binding.channelId === null || binding.mode === "off") return null;
     const botToken = await deps.botToken(binding.workspaceId, binding.agentId);

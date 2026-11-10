@@ -14,7 +14,7 @@ export const TEAM_NOT_FOUND = () =>
 
 /**
  * Anyone but an owner or admin names, as a managing team, only a team they
- * are in, and as an admin team only one they lead (agent-rbac design (b)).
+ * are in, and names no admin team at all (agent-rbac design (b), 94S-837).
  */
 export const TEAM_NOT_ALLOWED = () =>
   new SessionServiceError(

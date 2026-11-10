@@ -1,4 +1,8 @@
 // biome-ignore-all assist/source/organizeImports: Bun 1.3.14's bundler fails to resolve the sessions/*.ts exports that follow a sessions/ subdirectory export, so the achievements exports stay last.
+export * from "./action/ports/capabilities.ts";
+export * from "./action/ports/forge.ts";
+export * from "./action/ports/git-push.ts";
+export * from "./action/ports/github-api.ts";
 export * from "./agents/agent-github-service.ts";
 export * from "./agents/agent-mcp-service.ts";
 export * from "./agents/engine-settings-service.ts";
@@ -56,6 +60,10 @@ export * from "./musterrolle/slack-secret-service.ts";
 export * from "./musterrolle/slack-session-handler.ts";
 export * from "./musterrolle/slack-session-status.ts";
 export * from "./musterrolle/slack-welcome.ts";
+export * from "./decision/index.ts";
+export * from "./surface/ports/agent-welcomable.ts";
+export * from "./surface/ports/channel-joinable.ts";
+export * from "./surface/ports/channel-kind-readable.ts";
 export * from "./musterrolle/surface-binding-service.ts";
 export * from "./musterrolle/team-service.ts";
 export * from "./ports/agent-admin-store.ts";
@@ -74,8 +82,6 @@ export * from "./ports/env-variable-store.ts";
 export * from "./ports/extension-bundle-store.ts";
 export * from "./ports/decision-log.ts";
 export * from "./ports/execution-backend.ts";
-export * from "./ports/forge.ts";
-export * from "./ports/git-push.ts";
 export * from "./ports/github-app-store.ts";
 export * from "./ports/github-gate.ts";
 export * from "./ports/github-mcp.ts";

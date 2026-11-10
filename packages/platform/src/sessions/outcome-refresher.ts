@@ -6,13 +6,13 @@ import {
   ForgeCredentialError,
   type RepoRef,
   repoRefOf,
-} from "../ports/forge.ts";
+} from "../action/ports/forge.ts";
+import type { GitHubRateLimit } from "../action/ports/github-api.ts";
 import {
   GitHubCallError,
   type GitHubConnections,
   type GitHubGate,
   GitHubGateError,
-  type GitHubRateLimit,
   GitHubUnavailableError,
 } from "../ports/github-gate.ts";
 import type {
