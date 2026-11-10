@@ -15,7 +15,12 @@ import { Pool } from "pg";
 import { createPostgresGitHubGateStore } from "./github-settings.ts";
 import { createPostgresRepositoryAttachments } from "./repository-attachments.ts";
 import * as schema from "./schema.ts";
-import { releaseSpecColumns, TEST_CONNECTION_ID } from "./testing/spec-pins.ts";
+import {
+  releaseSpecColumns,
+  SESSION_PIN_SQL_COLUMNS,
+  sessionPinSqlValues,
+  TEST_CONNECTION_ID,
+} from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -54,9 +59,9 @@ integration("repository attachments on PostgreSQL", () => {
     );
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
-         workspace_id, attached_repository_ids)
+         workspace_id, attached_repository_ids, ${SESSION_PIN_SQL_COLUMNS})
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $3, $4)`,
+         $3, $4, ${sessionPinSqlValues()})`,
       [sessionId, ownerId, ownerId, attached],
     );
     await pool.query(

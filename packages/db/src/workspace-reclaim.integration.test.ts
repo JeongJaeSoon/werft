@@ -17,6 +17,7 @@ import { createPostgresSessionControl } from "./control-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import { idempotencyKeys, receipts, sessions } from "./schema.ts";
+import { fixtureRelease, sessionPinColumns } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -60,8 +61,10 @@ integration("stopped workspace reclaim against resume on PostgreSQL", () => {
   /** Stopped a day and a minute ago, with a checkpoint to resume from. */
   async function expiredStoppedSession() {
     const id = crypto.randomUUID();
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     await db.insert(sessions).values({
+      agentReleaseId: await fixtureRelease(db),
+      ...sessionPinColumns(),
       admissionState: "stopped",
       branch: `session/${id}`,
       checkpointRevision: 2,

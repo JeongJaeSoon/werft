@@ -67,20 +67,25 @@ import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,
   testSessionCatalog,
+  testToolCatalogs,
 } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const PAGE = { limit: 50 };
 
-const CATALOG: SessionCatalog = testSessionCatalog({
-  repositories: {
-    app: {
-      url: "https://example.invalid/app.git",
-      branch: "main",
-      auth: { kind: "github_app", registered: true },
+// The runtime installs these four tools; a card is narrowed to them.
+const CATALOG: SessionCatalog = {
+  ...testSessionCatalog({
+    repositories: {
+      app: {
+        url: "https://example.invalid/app.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
     },
-  },
-});
+  }),
+  tool_catalogs: testToolCatalogs(["Read", "Grep", "Edit", "Bash"]),
+} as SessionCatalog;
 
 // The run a release on the test connection gets, as the service resolves it.
 const TEST_RUN = (() => {

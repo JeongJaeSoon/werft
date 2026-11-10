@@ -193,7 +193,7 @@ integration("pending requests and answers on PostgreSQL", () => {
   // A session whose first turn is running on a worker.
   async function runningSession() {
     const partition = partitionFor("pending");
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({

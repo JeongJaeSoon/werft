@@ -252,7 +252,7 @@ integration("worker gateway on PostgreSQL", () => {
   async function queuedSession(
     partition: string,
     message = "first input",
-    ownerId = `owner-${crypto.randomUUID()}`,
+    ownerId: string = crypto.randomUUID(),
   ) {
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
@@ -455,15 +455,15 @@ integration("worker gateway on PostgreSQL", () => {
         access: { kind: "egress_token", token: expect.stringMatching(/^wer_/) },
       },
     });
-    // The provider key stays on the server; the worker gets the
-    // upstream's name and a token for the egress proxy's route.
+    // The provider key stays on the server; the worker gets the upstream
+    // the session's spec names and a token for the egress proxy's route.
     expect(first.runtime_config).toEqual({
       model: "claude-sonnet-5",
       tools: ["Read", "Edit", "Bash"],
       permission_mode: "default",
       provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.com",
         auth: { kind: "egress_token", token: expect.stringMatching(/^wep_/) },
       },
     });
@@ -722,7 +722,14 @@ integration("worker gateway on PostgreSQL", () => {
     // What the GitHub gate reads for every token it issues.
     const gate = createPostgresGitHubGateStore(db);
 
-    expect((await gate.context(session.session_id))?.release).toBeNull();
+    // The release the session was accepted on.
+    const [own] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, session.session_id));
+    expect((await gate.context(session.session_id))?.release?.id).toBe(
+      own?.releaseId ?? "",
+    );
     // As accepted and as the gateway compares it to the catalog entry.
     expect((await gate.context(session.session_id))?.repository).toEqual({
       url: "https://example.invalid/app.git",
@@ -1924,7 +1931,7 @@ integration("worker gateway on PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       agentReleaseId: await makeFixtureRelease(db, {
@@ -1953,11 +1960,14 @@ integration("worker gateway on PostgreSQL", () => {
       .select({ purpose: workerCredentials.purpose })
       .from(workerCredentials)
       .where(eq(workerCredentials.attemptId, claimed.attempt_id));
+    // Without a repository of its own it still holds a repository token,
+    // bound to the repositories it attaches (the gate decides each fetch).
     expect(issued.map((row) => row.purpose).sort()).toEqual([
       "gateway",
       "object_store",
       "packages",
       "provider",
+      "repository",
     ]);
   });
 
@@ -2902,7 +2912,7 @@ integration("worker gateway on PostgreSQL", () => {
   test("a settled input replays its acceptance response for the same idempotency key", async () => {
     const partition = partitionFor("replay");
     const inputs = createPostgresSessionUnitOfWork(db);
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const create = {
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },

@@ -22,7 +22,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import {
   type CheckpointObjectCollector,
-  parseSeedDocument,
+  parseSettingsDocument,
 } from "@werft-ai/platform";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import {
@@ -181,11 +181,10 @@ async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
   // migrate parses the document the same way; a refusal there only shows up
   // after the images are pulled and the stack is half up.
   try {
-    parseSeedDocument(
+    parseSettingsDocument(
       Array.isArray(document) || !("repositories" in document)
         ? document
         : { ...document, repositories },
-      notes.length > 0,
     );
   } catch (error) {
     return [
@@ -194,7 +193,7 @@ async function repositoriesWithoutGitHubApp(file: string): Promise<string[]> {
   }
   return skipped.map(
     (id) =>
-      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If it is the only repository and every top-level profile requires a repository, removing it also needs the top-level "profiles" removed (or use a new id instead), or the import fails with "at least one repository is required". If a run already stopped with pending.json left behind, copy the fixed manifest over it (docs/operator/test-ops.md)`,
+      `settings document ${file}: repository ${id} names no GitHub App, so the import would leave it out; add "auth": {"kind": "github_app"}. If the database already holds a repository ${id}, that edit conflicts with the row: remove the entry or give it a new id. If a run already stopped with pending.json left behind, copy the fixed manifest over it (docs/operator/test-ops.md)`,
   );
 }
 

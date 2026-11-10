@@ -26,6 +26,7 @@ import {
 import { launchSession } from "./testing/launches.ts";
 import {
   makeFixtureRelease,
+  sessionPinColumns,
   TEST_CONNECTION_ID,
   testSessionCatalog,
 } from "./testing/spec-pins.ts";
@@ -123,7 +124,7 @@ integration("a model moved at the next turn's claim", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       agentReleaseId: await makeFixtureRelease(db, { model }),
@@ -266,7 +267,7 @@ integration("a model moved at the next turn's claim", () => {
       await claimOf(gatewayFor(offer), runningLaunch);
       await db
         .update(sessions)
-        .set({ model: "sonnet-5-0" })
+        .set(sessionPinColumns("sonnet-5-0"))
         .where(eq(sessions.id, running));
 
       const other = await waiting(partition, "sonnet-5-0");

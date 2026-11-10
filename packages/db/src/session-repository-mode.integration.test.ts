@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import {
   copyFile,
   mkdir,
@@ -26,9 +27,23 @@ import {
 } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import { sessions } from "./schema.ts";
+import {
+  BEFORE_PROFILE_REMOVAL,
+  migrationsThrough as migrationsUpTo,
+} from "./testing/migrations-through.ts";
 import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// Up to the profile removal: 0265 empties the session tables these rows sit in.
+async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
+  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  try {
+    await migrate(db, { migrationsFolder: folder });
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
 
 const MIGRATIONS = join(import.meta.dir, "../migrations");
 const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
@@ -89,7 +104,7 @@ integration("sessions.repository_mode", () => {
       [catalogued, legacy],
     );
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrateBeforeRemoval(db);
 
     const rows = await db
       .select({
@@ -177,7 +192,7 @@ integration("sessions.repository_mode", () => {
     const inputs = createPostgresSessionUnitOfWork(db);
     const accept = async (repository: AcceptSessionInput["repository"]) =>
       inputs.acceptInputAtomic({
-        principal: { ownerId: `owner-${randomUUID()}` },
+        principal: { ownerId: randomUUID() },
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
         agentReleaseId: await fixtureRelease(db),
@@ -225,7 +240,7 @@ integration("sessions.repository_mode", () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
     const inputs = createPostgresSessionUnitOfWork(db);
     const reader = createPostgresSessionReader(db);
-    const ownerId = `owner-${randomUUID()}`;
+    const ownerId = randomUUID();
     const accept = async (attachedRepositoryIds?: string[]) =>
       inputs.acceptInputAtomic({
         principal: { ownerId },
@@ -260,7 +275,7 @@ integration("sessions.repository_mode", () => {
     await migrate(db, { migrationsFolder: MIGRATIONS });
     const inputs = createPostgresSessionUnitOfWork(db);
     const reader = createPostgresSessionReader(db);
-    const ownerId = `owner-${randomUUID()}`;
+    const ownerId = randomUUID();
     const read = async (attachedRepositoryIds?: string[]) => {
       const accepted = await inputs.acceptInputAtomic({
         principal: { ownerId },

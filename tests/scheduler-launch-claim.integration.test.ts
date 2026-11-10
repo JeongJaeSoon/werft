@@ -20,7 +20,6 @@ import {
   acceptAllCheckpoints,
   createWorkerGateway,
   launchNonceFingerprint,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import {
@@ -35,6 +34,9 @@ import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
 import { main } from "../apps/control-host/src/scheduler/main.ts";
+import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn, TEST_OWNER } from "../apps/control-host/src/test-support/releases.ts";
 
 /**
  * Launch claim end to end: a container the scheduler launched trades
@@ -54,7 +56,6 @@ const integration = enabled ? describe : describe.skip;
 const WORKER_IMAGE = process.env.BUN_TEST_IMAGE ?? "oven/bun:1.3.14";
 const SHELL_IMAGE = process.env.DOCKER_BACKEND_TEST_IMAGE ?? "busybox:1.36";
 const PROXY_SOURCE = resolve(import.meta.dir, "..", "apps/egress-proxy");
-const PROFILE_ID = "claude-coding-v1";
 const MESSAGE = "hello from the scheduler";
 
 const dockerHost = process.env.DOCKER_HOST ?? (await defaultDockerHost());
@@ -110,7 +111,7 @@ console.log(
   "PROVIDER " +
     claimed.runtime_config.provider.auth.kind +
     " " +
-    claimed.profile_fingerprint,
+    claimed.spec_digest,
 );
 const reply = await fetch(
   process.env.WORKER_EGRESS_CREDENTIAL_URL + "/provider/v1/messages",
@@ -224,15 +225,8 @@ integration(
       // because the allowlist below names it.
       const gateway = createWorkerGateway({
         work: createPostgresWorkerUnitOfWork(db),
-        catalog: withSeededInstallation({
-          profiles: {
-            [PROFILE_ID]: {
-              runtime_kind: "claude_agent_sdk",
-              runtime_version: "0.3.270",
-              model: "claude-sonnet-5",
-              tools: ["Read", "Edit", "Bash"],
-              permission_mode: "default",
-              provider: {
+        catalog: testCatalog({
+provider: {
                 kind: "litellm",
                 endpoint: `http://host.docker.internal:${messagesPort}`,
                 auth: {
@@ -241,16 +235,13 @@ integration(
                   ref: { value_env: "PROVIDER_KEY" },
                 },
               },
-            },
-          },
-          repositories: {
+repositories: {
             "sample-app": {
               url: "https://example.invalid/app.git",
               branch: "main",
-              profiles: ["claude-coding-v1"],
             },
           },
-        }),
+}),
         checkpoints: acceptAllCheckpoints,
         options: {
           leaseTtlMs: 60_000,
@@ -295,10 +286,12 @@ integration(
           queuedInputLimitPerSession: 20,
           storageLimitBytes: 1073741824,
         },
-        principal: { ownerId: installationId },
+        // The session's workspace: its release is one of that workspace's.
+        principal: { ownerId: TEST_OWNER },
         idempotencyKey: crypto.randomUUID(),
         payloadHash: "hash",
-        profileId: PROFILE_ID,
+        agentReleaseId: await releaseIn(db),
+        model: TEST_MODEL,
         repository: {
           id: "sample-app",
           url: "https://example.invalid/app.git",

@@ -144,7 +144,7 @@ integration(
 
     async function newSession(name: string): Promise<Session> {
       const partition = `${name}-${crypto.randomUUID()}`;
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const accepted = await inputs().acceptInputAtomic({
         principal: { ownerId },
         idempotencyKey: crypto.randomUUID(),

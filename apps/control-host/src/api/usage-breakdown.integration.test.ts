@@ -40,7 +40,8 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { fixtureRelease, TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
+import { TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -181,7 +182,7 @@ integration("usage breakdown on PostgreSQL", () => {
         principal: user(who, who === "owner" ? "owner" : "member"),
         idempotencyKey: crypto.randomUUID(),
         payloadHash: crypto.randomUUID(),
-        agentReleaseId: agent ? (releaseOf[agent] as string) : await fixtureRelease(db),
+        agentReleaseId: agent ? (releaseOf[agent] as string) : await releaseIn(db, user(who, who === "owner" ? "owner" : "member").ownerId),
         model: TEST_MODEL,
         repository: "none",
         message: "count me",

@@ -139,7 +139,7 @@ async function seeded(slug = "default") {
     versionId,
     cardSha256: "0".repeat(64),
     connectionId: TEST_CONNECTION_ID,
-    ...releaseSpecColumns(),
+    ...releaseSpecColumns({ tools: ["Read"] }),
     runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: ["mcp__fake__whoami"] },
     policyPins: {

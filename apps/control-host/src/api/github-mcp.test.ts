@@ -206,7 +206,7 @@ async function seeded(
     versionId,
     cardSha256: "0".repeat(64),
     connectionId: TEST_CONNECTION_ID,
-    ...releaseSpecColumns(),
+    ...releaseSpecColumns({ tools: ["Read"] }),
     runtimeConfigSnapshot: { tools: ["Read"] },
     effectiveTools: { tools: ["Read"], mcp: [] },
     policyPins: {

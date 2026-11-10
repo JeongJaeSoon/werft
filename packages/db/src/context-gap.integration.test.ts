@@ -112,7 +112,7 @@ integration("context gap on PostgreSQL", () => {
 
   async function queuedSession(name: string): Promise<Session> {
     const partition = `${name}-${crypto.randomUUID()}`;
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await inputs().acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },

@@ -111,7 +111,7 @@ integration("scheduler launch failures on PostgreSQL", () => {
   const inputs = () => createPostgresSessionUnitOfWork(db);
 
   async function queuedSession() {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await inputs().acceptInputAtomic({
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),

@@ -162,7 +162,7 @@ integration("turn interrupts on PostgreSQL", () => {
   /** A session with `queued` extra inputs behind a first turn that is running. */
   async function runningSession(queued = 0) {
     const partition = `interrupt-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const inputs = createPostgresSessionUnitOfWork(db);
     const accepted = await inputs.acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },

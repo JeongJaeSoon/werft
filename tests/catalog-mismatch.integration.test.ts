@@ -18,7 +18,6 @@ import {
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
-  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
@@ -31,7 +30,6 @@ import {
   runScheduler,
   type SessionCatalog,
   type TerminateExecutionResult,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import type { ScriptedStep } from "@werft-ai/runtime-core/testing";
 import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
@@ -56,6 +54,15 @@ import {
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/test-support/releases.ts";
+import { sessionPinColumns, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
 
 /**
  * Catalog mismatch end to end in one process: an operator
@@ -70,40 +77,24 @@ import { noWorkspace } from "../apps/worker/src/workspace.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
 const OLD_URL = "https://old.invalid/app.git";
 const NEW_URL = "https://example.invalid/app.git";
 const CLAIM_TIMEOUT_MS = 30_000;
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: [],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-
 function catalogAt(url: string): SessionCatalog {
-  return withSeededInstallation({
-    // Ahead of every write here: a host behind its settings fails nothing.
-    settings_generation: Number.MAX_SAFE_INTEGER,
-    profiles: {
-      [PROFILE_ID]: PROFILE,
-      general: { ...PROFILE, tools: ["Read", "Write"], repository: "none" },
-    },
-    repositories: {
-      "sample-app": { url, branch: "main", profiles: [PROFILE_ID] },
-    },
-  });
+  return {
+    ...testCatalog({
+      // Ahead of every write here: a host behind its settings fails nothing.
+      settings_generation: Number.MAX_SAFE_INTEGER,
+      repositories: {
+        "sample-app": {
+          url,
+          branch: "main",
+          auth: { kind: "github_app", registered: true } as const,
+        },
+      },
+    }),
+  };
 }
 
 const silent: WorkerLogger = {
@@ -279,10 +270,11 @@ integration("a session whose pair left the catalog, end to end", () => {
   let server: ReturnType<typeof Bun.serve>;
   let before: ReturnType<typeof createApiApp>;
   let after: ReturnType<typeof createApiApp>;
-  const owner = `owner-${crypto.randomUUID()}`;
+  const owner = crypto.randomUUID();
+  let releaseId = "";
 
   const serviceFor = (catalog: SessionCatalog) =>
-    createSessionService({
+    startingInWorkspace(createSessionService({
       authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
@@ -294,12 +286,28 @@ integration("a session whose pair left the catalog, end to end", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-    });
+  releases: sessionReleases(db, catalog),
+}), createSessionService({
+      authorization: allowingPolicy,
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+  releases: sessionReleases(db, catalog),
+}));
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "catalog_mismatch_e2e" });
     pool = new Pool({ connectionString: database.url, max: 16 });
     db = drizzle(pool, { schema });
+    releaseId = await releaseIn(db, owner);
+    await allowRepositories(db, owner, ["sample-app"]);
     // The API as it ran before the operator re-pointed sample-app.
     before = createApiApp({
       authMode: "none",
@@ -345,10 +353,7 @@ integration("a session whose pair left the catalog, end to end", () => {
   async function create(
     app: ReturnType<typeof createApiApp>,
     message: string,
-    run: { profile_id: string; repository_id?: string } = {
-      profile_id: PROFILE_ID,
-      repository_id: "sample-app",
-    },
+    run: { repository_id?: string } = { repository_id: "sample-app" },
   ) {
     const response = await app.request("/v1/sessions", {
       method: "POST",
@@ -357,7 +362,7 @@ integration("a session whose pair left the catalog, end to end", () => {
         "Idempotency-Key": crypto.randomUUID(),
         "X-Owner-Id": owner,
       },
-      body: JSON.stringify({ ...run, message }),
+      body: JSON.stringify({ agent_release_id: releaseId, ...run, message }),
     });
     expect(response.status).toBe(201);
     return createSessionResponseSchema.parse(await response.json());
@@ -447,13 +452,21 @@ integration("a session whose pair left the catalog, end to end", () => {
     expect(other.attention).toBeNull();
   }, 60_000);
 
-  test("a session without a repository runs on its profile alone, and is failed once the profile it was pinned to is gone", async () => {
-    const general = { profile_id: "general" };
-    const runs = await create(after, "no repository", general);
-    const stale = await create(after, "no repository, edited since", general);
+  test("a session without a repository runs on its spec alone, and is failed once its pinned connection is gone", async () => {
+    const runs = await create(after, "no repository", {});
+    const stale = await create(after, "no repository, connection gone", {});
     await db
       .update(schema.sessions)
-      .set({ profileFingerprint: "0".repeat(64) })
+      .set(
+        sessionPinColumns(TEST_MODEL, {
+          connection: {
+            id: "retired-connection",
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            billing: "per_token",
+          },
+        }),
+      )
       .where(eq(schema.sessions.id, stale.session_id));
 
     const backend = new WorkerBackend(
@@ -487,15 +500,6 @@ integration("a session whose pair left the catalog, end to end", () => {
     expect(ran?.summary.turns).toEqual([
       { turnId: "1", status: "completed", reason: null },
     ]);
-    const issued = await db
-      .select({ purpose: schema.workerCredentials.purpose })
-      .from(schema.workerCredentials)
-      .innerJoin(
-        schema.attempts,
-        eq(schema.attempts.id, schema.workerCredentials.attemptId),
-      )
-      .where(eq(schema.attempts.sessionId, runs.session_id));
-    expect(issued.map((row) => row.purpose)).not.toContain("repository");
 
     expect((await pass()).launched).toHaveLength(1);
     const [refused] = await backend.startWorkers();

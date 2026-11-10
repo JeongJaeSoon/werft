@@ -14,12 +14,14 @@ import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createObjectRouteSigner } from "@werft-ai/storage";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-authorizer.ts";
+import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn, TEST_OWNER } from "../apps/control-host/src/test-support/releases.ts";
 
 /**
  * The control plane side of the object store route, real from the
@@ -34,7 +36,6 @@ import { createEgressAuthorizer } from "../apps/control-host/src/api/egress-auth
  * and claims the next. It returns the new attempt's object store token.
  */
 
-const PROFILE_ID = "claude-coding-v1";
 
 type ObjectRouteSession = {
   sessionId: string;
@@ -66,15 +67,8 @@ export async function startObjectRouteFixture(options: {
   });
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
-    catalog: withSeededInstallation({
-      profiles: {
-        [PROFILE_ID]: {
-          runtime_kind: "claude_agent_sdk",
-          runtime_version: "0.3.270",
-          model: "claude-sonnet-4-5",
-          tools: [],
-          permission_mode: "default",
-          provider: {
+    catalog: testCatalog({
+provider: {
             kind: "anthropic",
             endpoint: "http://provider.invalid",
             auth: {
@@ -83,16 +77,15 @@ export async function startObjectRouteFixture(options: {
               ref: { value_env: "PROVIDER_KEY" },
             },
           },
-        },
-      },
-      repositories: {
+models: ["claude-sonnet-5", "claude-sonnet-4-5"],
+repositories: {
         app: {
           url: "http://git.invalid/app.git",
           branch: "main",
-          profiles: [PROFILE_ID],
+          auth: { kind: "github_app", registered: true } as const,
         },
       },
-    }),
+}),
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -124,10 +117,11 @@ export async function startObjectRouteFixture(options: {
   async function openSession(): Promise<ObjectRouteSession> {
     const accepted = await sessions.acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: "owner-a" },
+      principal: { ownerId: TEST_OWNER },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      profileId: PROFILE_ID,
+      agentReleaseId: await releaseIn(db),
+      model: TEST_MODEL,
       repository: {
         id: "app",
         url: "http://git.invalid/app.git",

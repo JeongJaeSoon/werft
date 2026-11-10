@@ -29,6 +29,8 @@ import * as schema from "./schema.ts";
 import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
+  SESSION_PIN_SQL_COLUMNS,
+  sessionPinSqlValues,
 } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -133,9 +135,10 @@ integration("the readers of an agent's GitHub settings", () => {
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
          workspace_id, agent_release_id, created_by_user_id,
-         github_policy_source, checkpoint_revision, github_policy_start)
+         github_policy_source, checkpoint_revision, github_policy_start,
+         ${SESSION_PIN_SQL_COLUMNS})
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $3, $4, $5, $6, 1, $7)`,
+         $3, $4, $5, $6, 1, $7, ${sessionPinSqlValues()})`,
       [
         sessionId,
         workspaceId,

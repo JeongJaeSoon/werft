@@ -274,7 +274,14 @@ integration("0100 identity migration on PostgreSQL", () => {
       ]);
 
       await withPool(database.url, async (pool) => {
-        expect(await legacySnapshot(pool)).toEqual(before);
+        // 0265 drops every session and what hangs off it (the profile
+        // removal); the keys and receipts stay as they were.
+        const after = await legacySnapshot(pool);
+        expect(after.api_keys).toEqual(before.api_keys);
+        expect(after.receipts).toEqual(before.receipts);
+        expect(after.sessions).toEqual([]);
+        expect(after.turns).toEqual([]);
+        expect(sessionIds.length).toBeGreaterThan(0);
         const sessions = await pool.query<{
           id: string;
           pod_id: string;
@@ -285,16 +292,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           `SELECT id, pod_id, workspace_id, created_by_user_id, agent_release_id
              FROM sessions ORDER BY created_at`,
         );
-        expect(sessions.rows.map(({ id }) => id).sort()).toEqual(
-          [...sessionIds].sort(),
-        );
-        for (const row of sessions.rows) {
-          expect(row.pod_id).toBe(`pod-${row.id}`);
-          // No default workspace and no automatic backfill.
-          expect(row.workspace_id).toBeNull();
-          expect(row.created_by_user_id).toBeNull();
-          expect(row.agent_release_id).toBeNull();
-        }
+        expect(sessions.rows).toEqual([]);
         const counts = await pool.query<{
           turns: string;
           keys: string;
@@ -310,7 +308,7 @@ integration("0100 identity migration on PostgreSQL", () => {
               (SELECT count(*)::text FROM owner_workspace_map) AS mapped
           `);
         expect(counts.rows[0]).toEqual({
-          turns: "3",
+          turns: "0",
           keys: "1",
           receipts: "1",
           workspaces: "0",
@@ -321,11 +319,11 @@ integration("0100 identity migration on PostgreSQL", () => {
           scopes: string[] | null;
         }>("SELECT workspace_id, scopes FROM api_keys");
         expect(key.rows[0]).toEqual({ workspace_id: null, scopes: null });
-        const actor = await pool.query<{
-          actor_id: string | null;
-          actor: unknown;
-        }>(`SELECT t.actor_id, r.actor FROM turns t, receipts r LIMIT 1`);
-        expect(actor.rows[0]).toEqual({ actor_id: null, actor: null });
+        // The turns went with their sessions (0265); the receipt keeps no actor.
+        const actor = await pool.query<{ actor: unknown }>(
+          "SELECT actor FROM receipts LIMIT 1",
+        );
+        expect(actor.rows[0]).toEqual({ actor: null });
       });
     } finally {
       await database.drop();
@@ -563,11 +561,12 @@ integration("0100 identity migration on PostgreSQL", () => {
         );
         expect(ok.rows).toHaveLength(1);
         // A derived release id is opaque text, and since 0139 it must name
-        // a release that exists.
+        // a release that exists. Stopped, so the pin trigger (live sessions
+        // only) leaves the answer to the foreign key.
         const unpinned = await pool
           .query(
-            `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id)
-             VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'sha256:' || encode(sha256('r'::bytea), 'hex'))`,
+            `INSERT INTO sessions (id, owner_id, repo_url, branch, workspace_id, agent_release_id, status)
+             VALUES ($1, 'svc', 'https://example.invalid/r.git', 'main', $2, 'sha256:' || encode(sha256('r'::bytea), 'hex'), 'stopped')`,
             [randomUUID(), workspaceId],
           )
           .then(

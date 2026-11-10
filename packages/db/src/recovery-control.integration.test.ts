@@ -124,7 +124,7 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
   type Session = { session_id: string; ownerId: string };
 
   async function queuedSession(partition: string): Promise<Session> {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await inputs().acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },

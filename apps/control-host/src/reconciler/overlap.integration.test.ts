@@ -36,7 +36,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { reconcileOnce } from "./main.ts";
 import { testCatalog } from "../test-support/catalog.ts";
-import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -109,7 +110,7 @@ integration("reconciler passes that overlap", () => {
   /** A session whose first turn is running on a claimed attempt. */
   async function runningSession() {
     const partition = `overlap-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -117,7 +118,7 @@ integration("reconciler passes that overlap", () => {
       principal: owner,
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
+      agentReleaseId: await releaseIn(db, owner.ownerId),
       model: TEST_MODEL,
       repository: {
         id: "sample-app",

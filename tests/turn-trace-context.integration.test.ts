@@ -21,7 +21,6 @@ import {
   createSessionService,
   createWorkerGateway,
   type SessionCatalog,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
 import { eq } from "drizzle-orm";
@@ -31,6 +30,14 @@ import { createApiApp } from "../apps/control-host/src/api/app.ts";
 import { registerSessionRoutes } from "../apps/control-host/src/api/routes/sessions.ts";
 import { registerWorkerRoutes } from "../apps/control-host/src/api/routes/worker.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
+import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
+import {
+  allowingPolicy,
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/test-support/releases.ts";
 
 /**
  * The traceparent of the request that queued a turn travels through the
@@ -40,15 +47,8 @@ const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
 const PROFILE_ID = "claude-coding-v1";
-const catalog: SessionCatalog = withSeededInstallation({
-  profiles: {
-    [PROFILE_ID]: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: [],
-      permission_mode: "default",
-      provider: {
+const catalog: SessionCatalog = testCatalog({
+provider: {
         kind: "litellm",
         endpoint: "https://litellm.invalid",
         auth: {
@@ -57,13 +57,10 @@ const catalog: SessionCatalog = withSeededInstallation({
           ref: { value_env: "PROVIDER_KEY" },
         },
       },
-    },
-  },
-  repositories: {
+repositories: {
     "sample-app": {
       url: "https://example.invalid/app.git",
       branch: "main",
-      profiles: [PROFILE_ID],
     },
   },
 });
@@ -76,12 +73,15 @@ integration("turn trace context end to end", () => {
   let tracer: ReturnType<typeof createOtelTracer>;
   const spanIds: string[] = [];
   const logs = new MemoryLogSink();
-  const owner = `owner-${crypto.randomUUID()}`;
+  const owner = crypto.randomUUID();
+  let releaseId = "";
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "turn_trace_context_e2e" });
     pool = new Pool({ connectionString: database.url, max: 8 });
     db = drizzle(pool, { schema });
+    releaseId = await releaseIn(db, owner);
+    await allowRepositories(db, owner, ["sample-app"]);
     tracer = createOtelTracer({
       serviceName: "werft-api-test",
       sampler: { kind: "always_on", ratio: 1 },
@@ -95,7 +95,7 @@ integration("turn trace context end to end", () => {
         shutdown: async () => {},
       },
     });
-    const sessions = createSessionService({
+    const sessions = startingInWorkspace(createSessionService({
       authorization: createAuthorizationPolicy(),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
@@ -107,7 +107,21 @@ integration("turn trace context end to end", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-    });
+  releases: sessionReleases(db, catalog),
+}), createSessionService({
+      authorization: allowingPolicy,
+      inputs: createPostgresSessionUnitOfWork(db),
+      controls: createPostgresSessionControl(db),
+      reader: createPostgresSessionReader(db),
+      catalog,
+      limits: {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+      },
+  releases: sessionReleases(db, catalog),
+}));
     const workers = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
       catalog,
@@ -144,7 +158,7 @@ integration("turn trace context end to end", () => {
         "X-Owner-Id": owner,
       },
       body: JSON.stringify({
-        profile_id: PROFILE_ID,
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "first turn",
       }),

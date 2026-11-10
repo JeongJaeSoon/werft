@@ -31,7 +31,7 @@ import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const OWNER = "owner-reader";
+const OWNER = "00000000-0000-4000-8000-0000000000aa";
 
 integration("session reader on PostgreSQL", () => {
   let database: TempDatabase;

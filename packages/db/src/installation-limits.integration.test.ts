@@ -158,7 +158,7 @@ integration("installation limits on PostgreSQL", () => {
   }
 
   async function queuedSession(partition = `p-${crypto.randomUUID()}`) {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await create(ownerId, "first input");
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     await db
@@ -336,7 +336,7 @@ integration("installation limits on PostgreSQL", () => {
 
   describe("installation storage", () => {
     test("charges the UTF-8 bytes of each accepted message and refuses the one past the limit", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const message = "안녕하세요";
       const size = Buffer.byteLength(message, "utf8");
       const before = await storedBytes();
@@ -367,7 +367,7 @@ integration("installation limits on PostgreSQL", () => {
     });
 
     test("a replay is answered even when storage is full", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const key = crypto.randomUUID();
       const first = await create(ownerId, "kept", roomy, key);
       expect(first.outcome).toBe("accepted");
@@ -378,7 +378,7 @@ integration("installation limits on PostgreSQL", () => {
     });
 
     test("concurrent acceptances racing for the last bytes admit exactly what fits", async () => {
-      const ownerId = `owner-${crypto.randomUUID()}`;
+      const ownerId = crypto.randomUUID();
       const message = "x".repeat(10);
       const before = await storedBytes();
       const limits = { ...roomy, storageLimitBytes: before + 3 * 10 };

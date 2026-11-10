@@ -49,6 +49,11 @@ import { registerMemberRoutes } from "./routes/members.ts";
 import { registerReceiptRoutes } from "./routes/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { testCatalog } from "../test-support/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../test-support/releases.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -80,7 +85,19 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     };
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
+      agents: schema.createDatabaseAgentAuthority(db),
+      credentials: schema.createPostgresCredentialBindingStore(db),
+      sessions: schema.createPostgresSessionShareStore(db),
       decisions: createPostgresDecisionLog(db),
+    });
+    const catalog = testCatalog({
+      repositories: {
+        "sample-app": {
+          url: "https://example.invalid/app.git",
+          branch: "main",
+          auth: { kind: "github_app", registered: true } as const,
+        },
+      },
     });
     const service = createSessionService({
       limits: {
@@ -93,15 +110,8 @@ integration("members and actors over HTTP on PostgreSQL", () => {
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: testCatalog({
-repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-            auth: { kind: "github_app", registered: true } as const,
-          },
-        },
-}),
+      catalog,
+      releases: sessionReleases(db, catalog),
     });
     const members = createMemberService({
       authorization,
@@ -163,7 +173,9 @@ repositories: {
     Cookie: cookie,
     [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
   });
+  // Its release is made with the workspace (setup below).
   const sessionBody = {
+    agent_release_id: "",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };
@@ -254,9 +266,11 @@ repositories: {
     ownerId = body.user_id;
     ownerCookie = await login("owner@example.com");
     memberId = await addMember("member@example.com");
+    sessionBody.agent_release_id = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
   });
 
-  test("a legacy key answers exactly as before and records only itself", async () => {
+  test("a legacy key answers /auth/me as before and starts no session", async () => {
     const legacy = await issueApiKey(keys, {
       ownerId: "legacy-owner",
       scopes: ALL,
@@ -277,35 +291,12 @@ repositories: {
       scopes: ALL,
       permissions: [],
     });
-    const created = await createSession(bearer(legacy.plaintext));
-    const receipt = await get(
-      `/v1/receipts/${created.receipt_id}`,
-      bearer(legacy.plaintext),
-    );
-    expect(receipt.status).toBe(200);
-    const view = getReceiptResponseSchema.parse(await receipt.json());
-    expect(Object.keys(view).sort()).toEqual(
-      [
-        "created_at",
-        "error",
-        "id",
-        "operation",
-        "result",
-        "status",
-        "target_ref",
-        "updated_at",
-        "actor",
-      ].sort(),
-    );
-    expect(view.actor).toEqual({
-      principal: { kind: "api_key", id: legacy.keyId },
-      actor_user_id: null,
-      agent_id: null,
+    // It names no workspace, so no release: it starts nothing now.
+    const refused = await post("/v1/sessions", sessionBody, {
+      ...bearer(legacy.plaintext),
+      "Idempotency-Key": crypto.randomUUID(),
     });
-    const row = await sessionRow(created.session_id);
-    expect(row.workspaceId).toBeNull();
-    expect(row.createdByUserId).toBeNull();
-    expect(row.createdByApiKeyId).toBe(legacy.keyId);
+    expect(refused.status).toBe(404);
   });
 
   test("a member's key sees the sessions they made on the web, and /auth/me names the workspace", async () => {

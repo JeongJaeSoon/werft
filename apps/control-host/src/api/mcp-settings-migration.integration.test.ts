@@ -24,6 +24,7 @@ import {
   sha256Of,
 } from "./mcp-settings-migration.ts";
 import { releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
+import { sessionPinColumns } from "@werft-ai/db/testing/spec-pins";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -453,6 +454,7 @@ integration("the MCP settings migration CLI on PostgreSQL", () => {
         repoUrl: "https://example.invalid/app.git",
         branch: "main",
         agentReleaseId: busy.releaseId,
+        ...sessionPinColumns(),
         mcpStart: {
           server: "docs",
           allowed_tools: [READ],

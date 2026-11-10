@@ -409,7 +409,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
     });
 
     test("a caller with no actor, as before, writes none", async () => {
-      const ownerId = `legacy-${randomUUID()}`;
+      const ownerId = randomUUID();
       const created = await createSession({ ownerId });
       const row = await sessionRow(created.session_id);
       expect(row.workspaceId).toBeNull();

@@ -451,8 +451,8 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     expect(await errorOf(other)).toMatchObject({
       details: { reason_code: "agent_ceiling" },
     });
-    // No release, no agent: the key cannot tell it is its own.
-    expect((await createSession(bearer(agentKey))).status).toBe(403);
+    // Every session names its release: one without is a bad request.
+    expect((await createSession(bearer(agentKey))).status).toBe(400);
     // The owner's session on another agent is out of its reach.
     const owners = await createSession(
       asCookie(cookies.owner),

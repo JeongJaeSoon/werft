@@ -56,7 +56,12 @@ import {
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
-import { fixtureRelease, TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
+import { TEST_MODEL, releaseSpecColumns, TEST_CONNECTION_ID } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn } from "../test-support/releases.ts";
+
+// A legacy key's owner: a uuid now, since its sessions run a release of a
+// workspace by that id.
+const LEGACY_OWNER = "1e9ac70e-0000-4000-8000-000000000001";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -212,7 +217,7 @@ integration("usage summary on PostgreSQL", () => {
         model: TEST_MODEL,
         repository: "none",
         message: "count me",
-        agentReleaseId: release ?? (await fixtureRelease(db)),
+        agentReleaseId: release ?? (await releaseIn(db, caller.ownerId)),
       },
     );
     if (created.outcome !== "accepted") throw new Error(created.outcome);
@@ -282,7 +287,7 @@ integration("usage summary on PostgreSQL", () => {
       8_000,
       agentReleaseId,
     );
-    await session(testCaller("legacy-owner"), "2001-03-06T00:00:00Z", 16, 1);
+    await session(testCaller(LEGACY_OWNER), "2001-03-06T00:00:00Z", 16, 1);
 
     const alice = await summary(user("alice", "member"), {
       scope: "me",
@@ -325,7 +330,7 @@ integration("usage summary on PostgreSQL", () => {
   test("scope=installation and GET /v1/limits are the signed-in owner's alone", async () => {
     const period = { since: "2002-01-01", until: "2003-01-01" };
     await session(user("alice", "member"), "2002-05-01T00:00:00Z", 1, 10);
-    await session(testCaller("legacy-owner"), "2002-06-01T00:00:00Z", 2, 20);
+    await session(testCaller(LEGACY_OWNER), "2002-06-01T00:00:00Z", 2, 20);
 
     expect(
       await summary(user("owner", "owner"), {
@@ -351,7 +356,7 @@ integration("usage summary on PostgreSQL", () => {
       ["member", user("alice", "member")],
       ["owner's personal key", key(ownersKey, ids.owner)],
       ["agent key", key(agentKey, null)],
-      ["legacy key", testCaller("legacy-owner")],
+      ["legacy key", testCaller(LEGACY_OWNER)],
       // The role is read again: a token minted as owner does not outlive it.
       ["member claiming owner", user("alice", "owner")],
     ] as const) {

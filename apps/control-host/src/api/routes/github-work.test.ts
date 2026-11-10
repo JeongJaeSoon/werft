@@ -203,7 +203,6 @@ function app(
               ownerId: "owner-a",
               sessionId,
               repositoryId: "app",
-              profileId: null,
               attachedRepositoryIds: null,
               repository: {
                 url: catalog.repositories.app?.url ?? "",
@@ -214,7 +213,10 @@ function app(
               release: { id: RELEASE },
               policy: releasePolicy(options.settings ?? SETTINGS),
               ceiling: options.ceiling ?? ACTIONS_ON,
-              repositoryCeiling: null,
+              repositoryCeiling: {
+                repository_ids: Object.keys(catalog.repositories),
+                github_app_repositories: "listed",
+              },
               ceilingRevision: 0,
             }
           : null,

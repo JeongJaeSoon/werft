@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import {
   copyFile,
   mkdir,
@@ -23,8 +24,22 @@ import {
 } from "./checkpoint-runtime.ts";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
+import {
+  BEFORE_PROFILE_REMOVAL,
+  migrationsThrough as migrationsUpTo,
+} from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// Up to the profile removal: 0265 empties the session tables these rows sit in.
+async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
+  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  try {
+    await migrate(db, { migrationsFolder: folder });
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
 
 const MIGRATIONS = join(import.meta.dir, "../migrations");
 
@@ -89,7 +104,7 @@ integration("checkpoint runtime columns, expand", () => {
       [sessionId],
     );
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrateBeforeRemoval(db);
 
     expect(
       (
@@ -124,7 +139,7 @@ integration("checkpoint runtime columns, expand", () => {
       [sessionId],
     );
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrateBeforeRemoval(db);
 
     expect(
       (

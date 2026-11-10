@@ -60,6 +60,7 @@ import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerGitHubSettingsRoutes } from "./routes/github-settings.ts";
 import { TEST_CONNECTION_ID, TEST_RUNTIMES, testCatalog } from "../test-support/catalog.ts";
+import { sessionPinValues } from "@werft-ai/db/testing/spec-pins";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -301,12 +302,25 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
   /** A session of `releaseId`; `privateTo` keeps it to its creator. */
   async function session(releaseId: string, createdBy: string, priv = false) {
     const sessionId = crypto.randomUUID();
+    const pin = sessionPinValues();
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
-         workspace_id, agent_release_id, created_by_user_id)
+         workspace_id, agent_release_id, created_by_user_id, model,
+         runtime_spec, spec_source, spec_source_digest, spec_digest)
        VALUES ($1, $2, 'https://github.com/acme/sample-app', 'main',
-         'sample-app', $3, $4, $5)`,
-      [sessionId, workspaceId, workspaceId, releaseId, createdBy],
+         'sample-app', $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        sessionId,
+        workspaceId,
+        workspaceId,
+        releaseId,
+        createdBy,
+        pin.model,
+        pin.runtime_spec,
+        pin.spec_source,
+        pin.spec_source_digest,
+        pin.spec_digest,
+      ],
     );
     if (priv) {
       await pool.query(

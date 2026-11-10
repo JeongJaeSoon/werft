@@ -247,7 +247,6 @@ jobs:
             paths:
               - packages/db/
               - packages/testkit/src/postgres.
-              - tests/repository-migration-report.
           # HTTP routes and the control-host flows they drive. Keep their
           # database and lifecycle checks apart from API consumer suites.
           - domain: api

@@ -21,6 +21,8 @@ import * as schema from "./schema.ts";
 import {
   RELEASE_SPEC_SQL_COLUMNS,
   releaseSpecSqlValues,
+  SESSION_PIN_SQL_COLUMNS,
+  sessionPinSqlValues,
 } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -114,9 +116,10 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const sessionId = randomUUID();
     await pool.query(
       `INSERT INTO sessions (id, owner_id, repo_url, branch, repository_id,
-         workspace_id, agent_release_id, created_by_user_id)
+         workspace_id, agent_release_id, created_by_user_id,
+         ${SESSION_PIN_SQL_COLUMNS})
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $3, $4, $5)`,
+         $3, $4, $5, ${sessionPinSqlValues()})`,
       [sessionId, workspaceId, workspaceId, releaseId, createdBy],
     );
     return sessionId;

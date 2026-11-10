@@ -40,6 +40,11 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerEventRoutes } from "./routes/events.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { testCatalog } from "../test-support/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../test-support/releases.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -76,6 +81,15 @@ integration("auth API on PostgreSQL", () => {
       lockout: new LoginLockout({ now: () => now }),
       logger,
     };
+    const catalog = testCatalog({
+      repositories: {
+        "sample-app": {
+          url: "https://example.invalid/app.git",
+          branch: "main",
+          auth: { kind: "github_app", registered: true } as const,
+        },
+      },
+    });
     const sessions = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,
@@ -83,19 +97,17 @@ integration("auth API on PostgreSQL", () => {
         sessionCostLimitUsd: 1_000,
         sessionTokenLimit: null,
       },
-      authorization: createAuthorizationPolicy(),
+      authorization: createAuthorizationPolicy({
+        identity: schema.createDatabaseIdentityReader(db),
+        agents: schema.createDatabaseAgentAuthority(db),
+        credentials: schema.createPostgresCredentialBindingStore(db),
+        sessions: schema.createPostgresSessionShareStore(db),
+      }),
       inputs: createPostgresSessionUnitOfWork(db),
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
-      catalog: testCatalog({
-repositories: {
-          "sample-app": {
-            url: "https://example.invalid/app.git",
-            branch: "main",
-            auth: { kind: "github_app", registered: true } as const,
-          },
-        },
-}),
+      catalog,
+      releases: sessionReleases(db, catalog),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -150,7 +162,9 @@ repositories: {
     );
   const cookieOf = (response: Response) =>
     (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+  // The release is made once the workspace exists (first session below).
   const sessionBody = {
+    agent_release_id: "",
     repository_id: "sample-app",
     message: "Inspect the failing unit test and propose a fix.",
   };
@@ -232,7 +246,9 @@ repositories: {
     );
   });
 
-  test("cookie-only POST /v1/sessions is 403 without the CSRF header, 201 with it; bearer is 201 as before", async () => {
+  test("cookie-only POST /v1/sessions is 403 without the CSRF header, 201 with it; a key from before workspaces names no release", async () => {
+    sessionBody.agent_release_id = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
     const refused = await json("/v1/sessions", sessionBody, {
       Cookie: cookie,
       "Idempotency-Key": crypto.randomUUID(),
@@ -257,17 +273,15 @@ repositories: {
       Authorization: `Bearer ${apiKey}`,
       "Idempotency-Key": crypto.randomUUID(),
     });
-    expect(bearer.status).toBe(201);
-    const foreign = createSessionResponseSchema.parse(await bearer.json());
+    expect(bearer.status).toBe(404);
 
-    // The API key's session list is its own partition; the cookie's list
-    // cannot see it and vice versa.
-    const mine = await app.request("/v1/sessions", {
-      headers: { Cookie: cookie },
+    // The API key's session list is its own partition: the cookie's session
+    // is not in it.
+    const theirs = await app.request("/v1/sessions", {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    const ids = (await mine.json()).items.map((s: { id: string }) => s.id);
-    expect(ids).toContain(created.session_id);
-    expect(ids).not.toContain(foreign.session_id);
+    const ids = (await theirs.json()).items.map((s: { id: string }) => s.id);
+    expect(ids).not.toContain(created.session_id);
   });
 
   test("bearer wins over a cookie and a wrong bearer is not rescued", async () => {

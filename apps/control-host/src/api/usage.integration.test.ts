@@ -32,7 +32,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
-import { fixtureRelease, TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { TEST_MODEL } from "@werft-ai/db/testing/spec-pins";
+import { releaseIn } from "../test-support/releases.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -107,7 +108,7 @@ integration("usage API on PostgreSQL", () => {
       principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
+      agentReleaseId: await releaseIn(db, ownerId),
       model: TEST_MODEL,
       repository: {
         id: "sample-app",
@@ -158,7 +159,7 @@ integration("usage API on PostgreSQL", () => {
   }
 
   test("every turn that reported a cost, zero included, makes the estimate complete", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["one", "two"]);
     await setTurn(id, 1, {
       ...ran,
@@ -195,7 +196,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("a turn that ended without a cost makes it incomplete, whatever it ended as", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["a", "b", "c", "d", "e", "f"]);
     await setTurn(id, 1, {
       ...ran,
@@ -244,7 +245,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("an unknown outcome that did report its cost is not unreported", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["only"]);
     await setTurn(id, 1, {
       ...ran,
@@ -261,7 +262,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("queued input cancelled before it ran is neither reported nor missing", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["ran", "never ran"]);
     await setTurn(id, 1, {
       ...ran,
@@ -282,7 +283,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("a running turn keeps it incomplete; queued input does not", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["running", "queued", "queued too"]);
     await setTurn(id, 1, { ...ran, endedAt: null, status: "running" });
 
@@ -306,7 +307,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("a session that has not run anything is complete at zero", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["waiting"]);
 
     expect(await usageOf(id, owner)).toMatchObject({
@@ -322,7 +323,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("budget_exceeded uses the gate's own comparison", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["spent"]);
     await db
       .update(sessions)
@@ -336,7 +337,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("budget_exceeded also counts tokens once a token limit is set, whatever they cost", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["many tokens"]);
     await db
       .update(sessions)
@@ -371,7 +372,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("the token count stops at the largest safe integer however much is recorded", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["huge usage"]);
     const executionId = `exec-${crypto.randomUUID()}`;
     const attemptId = `att-${crypto.randomUUID()}`;
@@ -405,11 +406,11 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("another owner's session, a missing one and a malformed id all answer 404", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["mine"]);
 
     for (const [path, caller] of [
-      [`/v1/sessions/${id}/usage`, `owner-${crypto.randomUUID()}`],
+      [`/v1/sessions/${id}/usage`, crypto.randomUUID()],
       [`/v1/sessions/${crypto.randomUUID()}/usage`, owner],
       ["/v1/sessions/not-a-uuid/usage", owner],
     ] as const) {
@@ -434,7 +435,7 @@ integration("usage API on PostgreSQL", () => {
   });
 
   test("GET /v1/limits reports the configured limits and installation-wide usage", async () => {
-    const owner = `owner-${crypto.randomUUID()}`;
+    const owner = crypto.randomUUID();
     const id = await session(owner, ["queued input"]);
     await db.insert(workerLaunches).values([
       // Held, whether or not a worker ever came up for it.

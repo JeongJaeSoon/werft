@@ -15,7 +15,6 @@ import {
 } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
 import {
-  type CatalogProfile,
   createAuthorizationPolicy,
   createSessionService,
   createWorkerGateway,
@@ -43,9 +42,21 @@ import {
   type WorkerRunSummary,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import {
+  allowingPolicy,
+  releaseOnConnection,
+  sessionReleases,
+  startingInWorkspace,
+} from "../apps/control-host/src/test-support/releases.ts";
+import {
+  TEST_MODEL,
+  TEST_RUNTIME_VERSION,
+  testSpecSource,
+} from "@werft-ai/db/testing/spec-pins";
+import { testCatalog } from "../apps/control-host/src/test-support/catalog.ts";
 
 /**
- * A profile the control plane let through, run by a worker whose engine
+ * A release the control plane let through, run by a worker whose engine
  * cannot serve it: the catalog names auto mode, the started run offers no
  * classifier. A real WorkerHost refuses it at the Worker Gateway's own HTTP
  * routes before taking the queued input, and the public API says why. Only
@@ -54,30 +65,12 @@ import { noWorkspace } from "../apps/worker/src/workspace.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? test : test.skip;
 
-const PROFILE_ID = "auto-general";
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "auto",
-  repository: "none",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = {
-  profiles: { [PROFILE_ID]: PROFILE },
+const CATALOG: SessionCatalog = testCatalog({
   repositories: {},
-};
+  auto_mode: "supported",
+});
 const REASON =
-  "Runtime claude_agent_sdk 0.3.270 cannot run this session's profile: it does not support classifier_review";
+  `Runtime claude_agent_sdk ${TEST_RUNTIME_VERSION} cannot run this session's settings: it does not support classifier_review`;
 
 /** Runs a real WorkerHost over a run with no classifier for each container started. */
 class WorkerBackend implements ExecutionBackend {
@@ -192,14 +185,22 @@ let pool: Pool;
 let db: NodePgDatabase<typeof schema>;
 let server: ReturnType<typeof Bun.serve>;
 let app: ReturnType<typeof createApiApp>;
-const owner = `owner-${crypto.randomUUID()}`;
+const owner = crypto.randomUUID();
+let releaseId = "";
 
 beforeAll(async () => {
   if (!databaseUrl) return;
   database = await createTempDatabase({ prefix: "feature_gate_e2e" });
   pool = new Pool({ connectionString: database.url, max: 16 });
   db = drizzle(pool, { schema });
-  const sessions = createSessionService({
+  // A release whose spec runs auto mode, with no repository.
+  releaseId = await releaseOnConnection(db, {
+    workspaceId: owner,
+    model: TEST_MODEL,
+    connection: testSpecSource().connection,
+    spec: { permission_mode: "auto", repository_mode: "none" },
+  });
+  const sessions = startingInWorkspace(createSessionService({
     authorization: createAuthorizationPolicy(),
     inputs: createPostgresSessionUnitOfWork(db),
     controls: createPostgresSessionControl(db),
@@ -211,7 +212,21 @@ beforeAll(async () => {
       sessionCostLimitUsd: 1_000,
       sessionTokenLimit: null,
     },
-  });
+  releases: sessionReleases(db, CATALOG),
+}), createSessionService({
+    authorization: allowingPolicy,
+    inputs: createPostgresSessionUnitOfWork(db),
+    controls: createPostgresSessionControl(db),
+    reader: createPostgresSessionReader(db),
+    catalog: CATALOG,
+    limits: {
+      queuedInputLimitPerSession: 1_000,
+      storageLimitBytes: 1e15,
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+    },
+  releases: sessionReleases(db, CATALOG),
+}));
   const gateway = createWorkerGateway({
     work: createPostgresWorkerUnitOfWork(db),
     catalog: CATALOG,
@@ -247,7 +262,7 @@ async function read(path: string) {
 }
 
 integration(
-  "a session whose profile needs a feature the engine lacks fails before its first input, saying which",
+  "a session whose spec needs a feature the engine lacks fails before its first input, saying which",
   async () => {
     const response = await app.request("/v1/sessions", {
       method: "POST",
@@ -256,7 +271,7 @@ integration(
         "Idempotency-Key": crypto.randomUUID(),
         "X-Owner-Id": owner,
       },
-      body: JSON.stringify({ profile_id: PROFILE_ID, message: "hello" }),
+      body: JSON.stringify({ agent_release_id: releaseId, message: "hello" }),
     });
     expect(response.status).toBe(201);
     const created = createSessionResponseSchema.parse(await response.json());

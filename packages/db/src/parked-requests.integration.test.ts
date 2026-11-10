@@ -165,7 +165,7 @@ integration("parked pending requests on PostgreSQL", () => {
 
   async function runningSession() {
     const partition = `parked-${crypto.randomUUID()}`;
-    const owner = testCaller(`owner-${crypto.randomUUID()}`);
+    const owner = testCaller(crypto.randomUUID());
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
@@ -1501,7 +1501,7 @@ integration("parked pending requests on PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: testCaller(`owner-${crypto.randomUUID()}`),
+      principal: testCaller(crypto.randomUUID()),
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       agentReleaseId: await fixtureRelease(db),

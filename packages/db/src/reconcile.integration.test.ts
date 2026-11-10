@@ -354,7 +354,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
       db,
     ).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId: crypto.randomUUID() },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       agentReleaseId: await makeFixtureRelease(db, {

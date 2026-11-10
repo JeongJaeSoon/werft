@@ -138,9 +138,11 @@ integrationTest(
         expect(storage.rows[0]?.bytes).toBe(
           String(Buffer.byteLength("legacy message")),
         );
-        expect(session.rows[0]?.admission_state).toBe("stopped");
-        expect(turnStatus.rows[0]?.status).toBe("completed");
-        expect(turnStatus.rows[0]?.sequence).toBe(1);
+        // The legacy session went through every migration and then, with
+        // everything recorded under sessions, out at 0265 (the profile
+        // removal drops the sessions it cannot carry over).
+        expect(session.rows).toEqual([]);
+        expect(turnStatus.rows).toEqual([]);
         expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
           "checkpoints",
           "executions",

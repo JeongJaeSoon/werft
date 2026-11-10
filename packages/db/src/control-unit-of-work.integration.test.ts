@@ -113,7 +113,7 @@ integration("session terminate on PostgreSQL", () => {
     });
 
   async function queuedSession(partition: string) {
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const result = await inputs().acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: { ownerId },

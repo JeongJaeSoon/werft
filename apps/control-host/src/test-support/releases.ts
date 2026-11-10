@@ -8,6 +8,7 @@ import {
   type Database,
   githubWorkspaceSettings,
   newSessionGitHubReaders,
+  users,
   workspaces,
 } from "@werft-ai/db";
 import {
@@ -16,12 +17,14 @@ import {
   resolveAgentRelease,
   type AuthorizationPolicy,
   type Caller,
+  deriveReleaseId,
   type SessionCatalogView,
 } from "@werft-ai/platform";
 import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
-  makeFixtureRelease,
   releaseSpecColumns,
+  TEST_MODEL,
+  testSpecSource,
 } from "@werft-ai/db/testing/spec-pins";
 
 /**
@@ -34,13 +37,10 @@ export async function workspaceRelease(
   options: { workspaceId?: string; model?: string } = {},
 ): Promise<{ workspaceId: string; releaseId: string }> {
   const workspaceId = options.workspaceId ?? randomUUID();
-  await db
-    .insert(workspaces)
-    .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "test" })
-    .onConflictDoNothing();
-  const releaseId = await makeFixtureRelease(db, {
+  const releaseId = await releaseOnConnection(db, {
     workspaceId,
-    ...(options.model === undefined ? {} : { model: options.model }),
+    model: options.model ?? TEST_MODEL,
+    connection: testSpecSource().connection,
   });
   return { workspaceId, releaseId };
 }
@@ -72,6 +72,8 @@ export async function releaseOnConnection(
     workspaceId?: string;
     connection: SpecSource["connection"];
     model: string;
+    /** The rest of the spec, where a test needs other than the default. */
+    spec?: Partial<SpecSource>;
   },
 ): Promise<string> {
   const workspaceId = input.workspaceId ?? TEST_OWNER;
@@ -93,21 +95,28 @@ export async function releaseOnConnection(
     id: versionId,
     agentId,
     versionNo: 1,
-    card: { model: input.model, capabilities: {}, language: "follow-user", rules: [] },
+    card: {
+      role: "test agent",
+      instructions: "Do what the test asks.",
+      language: "follow-user",
+      model: input.model,
+      capabilities: { mcp: null, forbidden: [] },
+      rules: [],
+    },
     contentSha256: "0".repeat(64),
   });
-  const releaseId = `sha256:${randomUUID().replaceAll("-", "").padEnd(64, "0")}`;
   const spec = releaseSpecColumns({
+    ...input.spec,
     model: input.model,
     connection: input.connection,
   });
-  await db.insert(agentReleases).values({
-    id: releaseId,
-    agentId,
-    versionId,
-    cardSha256: "0".repeat(64),
-    connectionId: input.connection.id,
-    runtimeConfigSnapshot: {
+  // Hashed as the agent service hashes it, so a session's start verifies it.
+  const identity = {
+    agent_id: agentId,
+    card_sha256: "0".repeat(64),
+    connection_id: input.connection.id,
+    repository_id: null,
+    runtime_config_snapshot: {
       model: input.model,
       tools: spec.specSource.tools,
       permission_mode: spec.specSource.permission_mode,
@@ -117,7 +126,29 @@ export async function releaseOnConnection(
       },
       runtime: spec.specSource.runtime,
     },
-    effectiveTools: { tools: spec.specSource.tools, mcp: [] },
+    effective_tools: { tools: spec.specSource.tools, mcp: [] },
+    policy_pins: {},
+  };
+  const releaseId = deriveReleaseId(identity as never);
+  const approver = randomUUID();
+  await db.insert(users).values({
+    id: approver,
+    email: `${approver}@example.invalid`,
+    passwordHash: "argon2id$placeholder",
+    displayName: "approver",
+  });
+  await db.insert(agentReleases).values({
+    id: releaseId,
+    agentId,
+    versionId,
+    cardSha256: identity.card_sha256,
+    connectionId: identity.connection_id,
+    runtimeConfigSnapshot: identity.runtime_config_snapshot,
+    effectiveTools: identity.effective_tools,
+    policyPins: identity.policy_pins,
+    // Approved, as an activated release is: only such a release starts one.
+    approvedBy: approver,
+    approvedAt: new Date(),
     ...spec,
   });
   return releaseId;

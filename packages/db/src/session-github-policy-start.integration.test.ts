@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import {
   copyFile,
   mkdir,
@@ -19,8 +20,22 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
+import {
+  BEFORE_PROFILE_REMOVAL,
+  migrationsThrough as migrationsUpTo,
+} from "./testing/migrations-through.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
+
+// Up to the profile removal: 0265 empties the session tables these rows sit in.
+async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
+  const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
+  try {
+    await migrate(db, { migrationsFolder: folder });
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
 
 const MIGRATIONS = join(import.meta.dir, "../migrations");
 const BEFORE = "0231_agent_github_settings";
@@ -116,7 +131,7 @@ integration("sessions.github_policy_start and the repository cap", () => {
       ),
     ).rejects.toThrow("agent_github_settings_repositories_check");
 
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    await migrateBeforeRemoval(db);
 
     const { rows } = await pool.query<{ n: number; push_approval: boolean }>(
       `SELECT jsonb_array_length(repositories) AS n, push_approval

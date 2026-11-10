@@ -190,7 +190,7 @@ integration("claim against a catalog that dropped the pair", () => {
     });
 
   async function queuedSession(url = REGISTERED) {
-    const ownerId = `owner-${randomUUID()}`;
+    const ownerId = randomUUID();
     const result = await inputs().acceptInputAtomic({
       principal: { ownerId },
       idempotencyKey: randomUUID(),

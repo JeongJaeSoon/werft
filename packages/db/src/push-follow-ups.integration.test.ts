@@ -107,7 +107,7 @@ integration("push follow-ups on PostgreSQL", () => {
     turnId: string;
   }> {
     const partition = `push-follow-up-${crypto.randomUUID()}`;
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({

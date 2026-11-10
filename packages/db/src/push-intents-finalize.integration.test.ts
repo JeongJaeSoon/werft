@@ -104,7 +104,7 @@ integration("push intents at finalize and in the keep set", () => {
 
   async function runningTurn() {
     const partition = `push-intent-${crypto.randomUUID()}`;
-    const ownerId = `owner-${crypto.randomUUID()}`;
+    const ownerId = crypto.randomUUID();
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({

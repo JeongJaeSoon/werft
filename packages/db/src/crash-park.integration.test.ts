@@ -131,7 +131,7 @@ integration("crash park on an approval-wait checkpoint", () => {
     await database.drop();
   }, 60_000);
 
-  async function runningSession(ownerId = `owner-${crypto.randomUUID()}`) {
+  async function runningSession(ownerId = crypto.randomUUID()) {
     const partition = `crash-park-${crypto.randomUUID()}`;
     const owner = testCaller(ownerId);
     const accepted = await createPostgresSessionUnitOfWork(

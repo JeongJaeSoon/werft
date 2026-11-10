@@ -31,6 +31,7 @@ import {
 } from "@werft-ai/platform";
 import type { StoredOutput } from "@werft-ai/runtime-core";
 import { createTempDatabase, type TempDatabase } from "@werft-ai/testkit";
+import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createApiApp } from "./app.ts";
@@ -44,6 +45,11 @@ import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
 import { registerSessionOutputRoutes } from "./routes/outputs.ts";
 import { registerSessionRoutes } from "./routes/sessions.ts";
 import { testCatalog } from "../test-support/catalog.ts";
+import {
+  allowRepositories,
+  releaseIn,
+  sessionReleases,
+} from "../test-support/releases.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 
@@ -81,6 +87,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
   let app: ReturnType<typeof createApiApp>;
   const committed = new Set<string>();
   let workspaceId = "";
+  let releaseId = "";
   const ids: Record<string, string> = {};
   const cookies: Record<string, string> = {};
 
@@ -125,6 +132,8 @@ integration("session outputs over HTTP on PostgreSQL", () => {
     const authorization = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: createDatabaseAgentAuthority(db),
+      credentials: schema.createPostgresCredentialBindingStore(db),
+      outsideAgents: schema.createPostgresAgentAccessSetting(db),
       sessions: createPostgresSessionShareStore(db),
       decisions: createPostgresDecisionLog(db),
     });
@@ -140,6 +149,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
+      releases: sessionReleases(db, catalog),
     });
     app = createApiApp({
       authMode: "api-key",
@@ -218,6 +228,7 @@ integration("session outputs over HTTP on PostgreSQL", () => {
       "/v1/sessions",
       { ...as(who), "Idempotency-Key": crypto.randomUUID() },
       {
+        agent_release_id: releaseId,
         repository_id: "sample-app",
         message: "Write the report to out/report.md.",
       },
@@ -277,6 +288,12 @@ integration("session outputs over HTTP on PostgreSQL", () => {
     cookies.owner = await login("owner@example.com");
     await addMember("creator");
     await addMember("outsider");
+    releaseId = await releaseIn(db, workspaceId);
+    await allowRepositories(db, workspaceId, ["sample-app"]);
+    // Every session runs an agent; its share alone decides who sees it.
+    await db.execute(
+      sql`UPDATE workspaces SET settings = settings || '{"agent_outsider_session_visibility":"workspace"}'::jsonb WHERE id = ${workspaceId}`,
+    );
     sessionId = await createSession("creator");
     bare = await createSession("creator");
     committed.add(sessionId);

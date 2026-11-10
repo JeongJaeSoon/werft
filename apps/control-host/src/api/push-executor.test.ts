@@ -145,7 +145,6 @@ async function run(
         ownerId: job.ownerId,
         sessionId,
         repositoryId: job.repositoryId,
-        profileId: null,
         attachedRepositoryIds: null,
         // The executor checks the job's binding itself; the gate sees the
         // entry as pinned.
@@ -160,7 +159,12 @@ async function run(
         release: options.release ?? null,
         policy: options.policy ?? releasePolicy(null),
         ceiling: GITHUB_CEILING_NONE,
-        repositoryCeiling: null,
+        // The workspace ceiling judges every session's repository; this
+        // one reaches every catalog repository.
+        repositoryCeiling: {
+          repository_ids: Object.keys(catalog.repositories),
+          github_app_repositories: "listed",
+        },
         ceilingRevision: 0,
       }),
       findDispatch: async () => null,
