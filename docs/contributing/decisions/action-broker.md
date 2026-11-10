@@ -1,6 +1,6 @@
 # 결정(설계): 에이전트 행동 도구 카탈로그
 
-- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0267_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0268_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - 상태: 설계. 에이전트 행동 단위 L1~L16, PR 템플릿 단위 PR 0~8, Slack 카드 단위 P1~P4가 이 문서를 계약으로 쓴다. 도구 이름, 노출 방식, 입력, 출력 봉투, 실패 코드, 멱등성, 허용 정책을 여기서 정한다.
 - 정본 입력: 설계 기록 `ap-action-layer-20261103/tool-catalog.md`(오너 검토 폴더, 저장소 밖. 아래에서 **카탈로그**). 이 문서는 그 결정을 줄인 것이다. 스키마 전문, 명령별 출력, 테스트 목록은 각 항목이 가리키는 카탈로그 절에 있다. 둘이 다르면 이 문서가 맞고, 다른 점은 이 문서를 고치는 PR이 카탈로그 쪽에도 적는다.
 - 기준 커밋: `origin/main` `777c78db2`. 아래 `파일:줄`은 모두 이 커밋에서 직접 읽은 것이다.
@@ -32,7 +32,7 @@
 ## 1. 위치와 이름
 
 - 계약 목록의 이름은 **에이전트 행동 도구 카탈로그**다. 그 뒤에서 일하는 control-host 안의 모듈은 **action-broker**다. action-broker가 dispatcher, 정책 게이트, 자격 사용, receipt를 맡는다. 화면 문구에서는 "에이전트 작업"이라 쓴다(예: "에이전트 작업 기록").
-- 코드 모듈은 `packages/platform/src/action-broker/`, 계약(봉투, 코드표)은 `packages/contracts/src/api/action-broker.ts`다. 계약은 있고, 모듈 폴더에는 지금 거절 변환(`refusal.ts`)만 있다. dispatcher, 정책 게이트, 자격 사용, receipt는 아직 `packages/platform/src/sessions/`(예: `github-gate.ts`, `github-mcp-server.ts`)에 있고, 이 폴더로 옮기는 일은 하지 않았다. 목표 구조는 [surface·action 모듈, 어댑터, 시험 피라미드](surface-action-modules.md) 7절이 정한다: 디렉터리는 `packages/platform/src/action/`, 계약은 `packages/contracts/src/action/`이다.
+- 코드 모듈은 `packages/platform/src/action/`, 계약(봉투, 코드표)은 `packages/contracts/src/action/`이다([surface·action 모듈, 어댑터, 시험 피라미드](surface-action-modules.md) 7절). 거절 변환은 `action/refusal.ts`, 도구 호출 공통 경로(정의 조회 → 인수 검증 → handler → 봉투)는 `action/tools/dispatch.ts`, 도구별 handler 표는 `action/tools/github-handlers.ts`다. 정책 게이트, 자격 발급, receipt는 지금도 `packages/platform/src/sessions/github-gate.ts`와 서비스가 소유하고 dispatch로 옮기지 않았다.
 - action-broker는 모듈 이름이고 레이어 이름이 아니다. 레이어 이름을 묻던 D9를 폐기한 것([10절](#10-오너-결정-d1d11))과 부딪히지 않는다. 오너가 이름을 Codex와 정하라고 맡겼고(2026-11-04), `worker-gateway`와 헷갈리는 `action-gateway`는 쓰지 않는다.
 - 정책 구현, 토큰 발급, 작업 기록은 control-host의 플랫폼 서비스에 둔다. 판정에 쓰는 사실(checkpoint, push 요청, release, 연결 계정)이 모두 그쪽 DB에 있기 때문이다. 엔진 어댑터는 계약을 엔진에 붙이는 일만 한다([9절](#9-어댑터-적합성-항목)). worker는 작업 공간 안의 일(commit hook, 턴 끝 귀속 복구, checkpoint, T4 스크립트)만 한다.
 - 내장 MCP 서버 이름 `github`와 도구 이름 `mcp__github__<tool>`은 바꾸지 않는다. GitHub와 상관없는 모델 도구(2단계의 `ask_person`, `send_message`)가 생기면 두 번째 내장 서버 `platform`을 같은 경로로 더한다.

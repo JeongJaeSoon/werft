@@ -258,6 +258,25 @@ export function settingsAgentOf(receipt: Receipt): string | null {
   return agentId;
 }
 
+// No admin contact: whoever may not use a private agent is not told who to ask.
+export function agentPrivateError(): SessionServiceError {
+  return new SessionServiceError(
+    "FORBIDDEN",
+    "This agent is private; it is open only to the teams its administrators chose",
+    undefined,
+    { reason_code: "agent_private" },
+  );
+}
+
+export function isAgentPrivate(error: unknown): error is SessionServiceError {
+  return (
+    error instanceof SessionServiceError &&
+    error.code === "FORBIDDEN" &&
+    (error.details as { reason_code?: unknown } | undefined)?.reason_code ===
+      "agent_private"
+  );
+}
+
 // Service entries authorize before store calls, except receipt reads that
 // must resolve their target before authorizing disclosure. Over HTTP the edge has
 // already refused a missing scope, so only a caller without HTTP meets the
@@ -314,6 +333,7 @@ export async function requireAllowed(
       { reason_code: "self_approval" },
     );
   }
+  if (decision?.reason_code === "agent_private") throw agentPrivateError();
   if (decision?.reason_code === "credential_unbound") {
     throw new SessionServiceError(
       "CREDENTIAL_UNBOUND",
@@ -544,7 +564,48 @@ export function createSessionService(deps: {
     );
   }
 
-  async function pinnedRelease(actor: Caller, body: CreateSessionRequest) {
+  // The release a start pins, in this order (94S-901): the release, its
+  // agent, whether the requester may see a private agent, and only then
+  // what would tell them it exists (a release that fails its integrity
+  // check, a paused agent). A requester outside a private agent gets
+  // `hidden`, which the start answers as it answers a release that is not
+  // there.
+  async function pinnedRelease(
+    actor: Caller,
+    body: CreateSessionRequest,
+  ): Promise<
+    | {
+        hidden: false;
+        release: Awaited<ReturnType<typeof resolveRelease>>;
+      }
+    | { hidden: true; agentId: string; releaseId: string }
+  > {
+    if (!deps.releases) {
+      throw new SessionServiceError(
+        "UNSUPPORTED_CAPABILITY",
+        "This deployment does not pin sessions to agent releases",
+      );
+    }
+    // A key from before workspaces has no agents to name.
+    if ((actor.subject.principal?.workspace_id ?? null) === null) {
+      throw new SessionServiceError("NOT_FOUND", "Resource not found");
+    }
+    const seen = await authorization.usageOfRelease?.(
+      actor.subject,
+      actor.ownerId,
+      body.agent_release_id,
+    );
+    if (seen && !seen.usage.allowed) {
+      return {
+        hidden: true,
+        agentId: seen.agentId,
+        releaseId: body.agent_release_id,
+      };
+    }
+    return { hidden: false, release: await resolveRelease(actor, body) };
+  }
+
+  async function resolveRelease(actor: Caller, body: CreateSessionRequest) {
     if (!deps.releases) {
       throw new SessionServiceError(
         "UNSUPPORTED_CAPABILITY",
@@ -624,6 +685,40 @@ export function createSessionService(deps: {
     };
   }
 
+  // A start of a private agent by someone outside it: nothing else is judged,
+  // so nothing else can differ from a release that is not there. The policy
+  // still decides, to keep its reason in the log (a scope or ceiling refusal
+  // keeps its own), and its answer changes nothing. Only a replay of an
+  // earlier acceptance of the same key is answered otherwise.
+  async function hiddenStart(
+    actor: Caller,
+    input: { idempotencyKey: string; body: CreateSessionRequest },
+    target: { agentId: string; releaseId: string },
+  ): Promise<CreateSessionResponse> {
+    await requirePermitted(authorization, actor, "session.submit", {
+      kind: "session",
+      id: null,
+      agent_id: target.agentId,
+      release_id: target.releaseId,
+    }).catch(() => undefined);
+    const result = await inputs.acceptInputAtomic({
+      principal: actor,
+      idempotencyKey: input.idempotencyKey,
+      payloadHash: payloadHash(input.body),
+      // The write refuses before it reads it.
+      repository: null,
+      agentReleaseId: target.releaseId,
+      agentPrivate: true,
+      message: input.body.message,
+      limits: inputLimits,
+    });
+    if (result.outcome === "replayed") return result.response;
+    // Whatever else the write found (a key reused for another body, a key
+    // that does not reach this agent, a requester gone) is something a missing
+    // release never reaches, so it says what a missing release says.
+    throw new SessionServiceError("NOT_FOUND", "Resource not found");
+  }
+
   return {
     async createSession(
       actor: Caller,
@@ -635,7 +730,9 @@ export function createSessionService(deps: {
         traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
-      const release = await pinnedRelease(actor, input.body);
+      const pinned = await pinnedRelease(actor, input.body);
+      if (pinned.hidden) return hiddenStart(actor, input, pinned);
+      const { release } = pinned;
       // Judged here but refused by the acceptance, after it finds no earlier
       // acceptance of this key: a retry of a session made before the agent
       // was paused still gets its original answer.
@@ -663,9 +760,17 @@ export function createSessionService(deps: {
           ) {
             return true;
           }
+          // The agent turned private since the release was read above.
+          if (isAgentPrivate(error)) return "private" as const;
           throw error;
         },
       );
+      if (credentialsUnbound === "private") {
+        return hiddenStart(actor, input, {
+          agentId: release.agent_id,
+          releaseId: release.id,
+        });
+      }
       const policy = newSessionGitHubPolicy(
         (await deps.releases?.agentGitHubSettings(release.agent_id)) ?? null,
         release.policy_pins.github,
@@ -834,7 +939,9 @@ export function createSessionService(deps: {
         ...(policy.source === "agent"
           ? { captureGitHubPolicyStart: true as const }
           : {}),
-        ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
+        ...(credentialsUnbound === true
+          ? { credentialsUnbound: true as const }
+          : {}),
         ...(notRunnableReason === null ? {} : { notRunnableReason }),
         ...(envNames.length === 0 ? {} : { envNames }),
         ...(input.shareScope === undefined
@@ -855,6 +962,10 @@ export function createSessionService(deps: {
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        // The agent turned private, or the requester lost it, since the
+        // policy decided: a start answers it as a release that is not there.
+        case "agent_private":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "not_runnable":
           throw notRunnable(result.reason, release);
         case "credential_unbound":
@@ -915,10 +1026,20 @@ export function createSessionService(deps: {
         traceContext?: string;
       },
     ): Promise<PostSessionMessageResponse> {
-      await requirePermitted(authorization, actor, "session.submit", {
-        kind: "session",
-        id: sessionId,
-      });
+      // A private agent's refusal is kept for the write: a retry of an input
+      // taken before the requester lost the agent still gets its answer.
+      const agentPrivate = await requirePermitted(
+        authorization,
+        actor,
+        "session.submit",
+        { kind: "session", id: sessionId },
+      ).then(
+        () => null,
+        (error: unknown) => {
+          if (isAgentPrivate(error)) return error;
+          throw error;
+        },
+      );
       const result = await inputs.appendInputAtomic({
         principal: actor,
         sessionId,
@@ -933,10 +1054,13 @@ export function createSessionService(deps: {
         ...(input.traceContext === undefined
           ? {}
           : { traceContext: input.traceContext }),
+        ...(agentPrivate ? { agentPrivate: true as const } : {}),
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "agent_private":
+          throw agentPrivate ?? agentPrivateError();
         case "not_found":
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "rejected": {

@@ -1,6 +1,6 @@
 # 결정(설계): 패키지 구조화 — 포트·내장 도구·큰 디렉터리
 
-- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0267_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0268_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - 상태: 설계. 이 문서가 머지된 뒤 이행 단계 S0~S8([6절](#6-이행-순서))을 단계마다 별도 카드와 PR로 진행한다. 이 PR은 코드를 옮기지 않는다.
 - 기준 커밋: `origin/main` `2d5e8fbbe`. 파일 수·줄 수는 이 커밋에서 직접 센 값이고(`*.ts`·`*.tsx`, 같은 디렉터리의 직속 파일만, 줄 수는 테스트를 뺀 소스), `파일:줄`도 이 커밋 기준이다.
 - 오너 원문(2026-11-10): "github 같은 내장 도구를 구성하는게 점점 많아질거 같은데 어떻게 생각해? packages/platform/src/ports 안에 엄청 많은 도구가 있는데 제대로 구조화 해두는게 좋을거 같은데 / 애초에 한 디렉토리에 파일이 많은것들도 잘 검토해서 패키지 구조화 리팩토링을 진행하는게 좋을듯"
@@ -162,7 +162,7 @@ packages/platform/src/
 - **contracts**: `defineTool({ name, arguments, output, class, feature, description, refusals })`가 한 건을 만들고, 도메인별 목록(`GITHUB_MCP_TOOLS`)이 이름 → 정의 `Record`다. 실행 코드는 없다. web과 SDK도 이 목록을 읽는다.
 - **platform**: `tools/`의 handler 표가 `satisfies Record<GitHubMcpToolName, ToolHandler>`로 정의 목록의 이름 집합과 맞물린다. 도구를 더하면 정의를 빼먹을 수도, handler를 빼먹을 수도 없다(컴파일 오류). 지금의 `switch`는 이 표로 바뀐다.
 - **도구 공통 파이프라인**: 정의 조회 → 인수 검증 → handler 호출 → 결과 봉투까지만 `tools/dispatch.ts`에 둔다. **인가, 자격 발급, receipt 기록은 지금처럼 서비스와 gate가 소유한다.** receipt는 호출 뒤 후처리가 아니다: `github-work-service.ts:35`는 dispatch receipt와 workflow 행을, `:45`는 review receipt와 outcome을 한 트랜잭션으로 쓰고, `github-gate.ts:416`은 작업 실행 전에 토큰 발급 receipt를 남긴다(Codex 반론). 공통 dispatcher로 옮기면 원자성과 기록 시점이 바뀌고 기존 기록과 중복된다. 새 내장 서버(예: action-broker 문서의 `platform` 서버)는 같은 dispatch에 정의 목록과 handler 표를 꽂는다.
-- **이름**: `action-broker/`는 현행 `refusal.ts`를 그대로 두고, `tools/dispatch.ts`는 도메인 밖 공통이므로 `platform/src/tools/`(도메인이 아닌 공통 레지스트리)에 둔다. `action-broker.md`의 약속 문장은 이 위치로 정정한다. 둘을 하나로 합칠지는 dispatch를 실제로 옮기는 S5 카드에서 정한다.
+- **이름**: `action-broker/`는 현행 `refusal.ts`를 그대로 두고, `tools/dispatch.ts`는 도메인 밖 공통이므로 `platform/src/tools/`(도메인이 아닌 공통 레지스트리)에 둔다. `action-broker.md`의 약속 문장은 이 위치로 정정한다. (정정: [surface·action 모듈](surface-action-modules.md) 7.2절과 U6b가 `platform/src/action/tools/`로 정했고, `action-broker.md` 1절은 그 위치로 고쳤다.) 둘을 하나로 합칠지는 U6b가 정했다(9절).
 - **receipt operation 목록**: S0이 단일화한 값을 그대로 쓰고, 이 설계는 더 건드리지 않는다.
 
 ### 4.3 어댑터
@@ -275,5 +275,5 @@ S5만 동작 불변을 시험으로 증명한다: 이동 전 `github-mcp-server.
 ## 9. 열린 질문
 
 - A4(contracts에 실행 코드 금지)의 현재 위반 수는 S1에서 센다. 많으면 규칙을 목록으로 시작한다.
-- `tools/`(공통 레지스트리)와 `action-broker/`를 한 디렉터리로 합칠지는 S5에서 정한다.
+- ~~`tools/`(공통 레지스트리)와 `action-broker/`를 한 디렉터리로 합칠지는 S5에서 정한다.~~ U6b가 정했다: 둘 다 `platform/src/action/` 아래이고, `refusal.ts`는 `action/` 바로 아래에, dispatch와 handler 표는 `action/tools/`에 둔다([surface·action 모듈](surface-action-modules.md) 15절).
 - Slack API 호출 코드의 위치는 S6 카드가 읽고 정한다(이 문서는 `control-host/src/slack/main.ts` 근방까지만 확인했다).

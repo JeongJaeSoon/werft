@@ -9,11 +9,9 @@ import type { PushRequestStore } from "../ports/push-requests.ts";
 import type { SessionCatalog } from "../sessions/catalog.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createPushRequestService } from "./change-request/push-request-service.ts";
-import {
-  createGitHubMcpServer,
-  type GitHubMcpServices,
-} from "./github/github-mcp-server.ts";
+import { createGitHubMcpServer } from "./github/github-mcp-server.ts";
 import { refusalFromServiceError } from "./refusal.ts";
+import type { GitHubMcpServices } from "./tools/handler.ts";
 
 const err = (code: string, details: unknown = null) =>
   new SessionServiceError(

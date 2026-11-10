@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **실행 프로필을 없앴다. migration `0267_remove_profiles`가 프로필 데이터를 지운다.** 설치·워크스페이스 프로필 표, 세션·release·repository의 프로필 열과 설정 문서의 `profiles`가 지워지며 되살릴 수 없다. 올리기 전에 DB를 백업하고, 되돌리려면 그 백업으로 복원한다([업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose)).
+- **실행 프로필을 없앴다. migration `0268_remove_profiles`가 프로필 데이터를 지운다.** 설치·워크스페이스 프로필 표, 세션·release·repository의 프로필 열과 설정 문서의 `profiles`가 지워지며 되살릴 수 없다. 올리기 전에 DB를 백업하고, 되돌리려면 그 백업으로 복원한다([업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose)).
   - release는 provider 연결 하나와 카드 모델을 고른다. 런타임 spec은 release에 고정된다: 연결 종류의 런타임을 이미지의 버전으로, 내장 도구 전부, 연결의 분류기가 되면 `auto`, 안 되면 `default` 모드. 이 버전 이전의 release로 만든 세션은 spec을 만들 수 없으면 `RELEASE_SPEC_UNAVAILABLE`로 거절된다. 그 에이전트는 다시 release한다.
   - 연결은 모델 목록(`models`, 선택 `model_families`)을 가진다. 올린 뒤 설정 → 모델 연결에서 연결마다 에이전트가 쓸 모델을 넣는다. 목록에 없는 모델로는 release를 만들 수 없다. 설정 문서(`settings import`)의 `profiles` 키는 더 읽지 않으므로 지운다.
   - 실행 규칙은 워크스페이스와 에이전트 설정에서 온다. 거부 목록은 둘의 합집합이다. repository는 워크스페이스 상한과 에이전트의 GitHub 설정으로 판정한다.

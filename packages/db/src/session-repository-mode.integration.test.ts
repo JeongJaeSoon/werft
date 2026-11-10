@@ -35,7 +35,7 @@ import { fixtureRelease, TEST_MODEL } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-// Up to the profile removal: 0267 empties the session tables these rows sit in.
+// Up to the profile removal: 0268 empties the session tables these rows sit in.
 async function migrateBeforeRemoval(db: Parameters<typeof migrate>[0]) {
   const folder = migrationsUpTo(BEFORE_PROFILE_REMOVAL);
   try {
