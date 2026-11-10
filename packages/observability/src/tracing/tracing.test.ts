@@ -158,6 +158,25 @@ describe("parseTracingSettings", () => {
     }
   });
 
+  test.each([
+    ["OTEL_EXPORTER_OTLP_HEADERS", "authorization=SECRET%0AHEADER"],
+    ["OTEL_EXPORTER_OTLP_HEADERS", "bad name=SECRET"],
+    ["TRACE_TENANT_HEADER", "bad name: {workspace_id}"],
+    ["TRACE_TENANT_HEADER", "X-Org: a\nb"],
+  ])("rejects an invalid HTTP header in %s at startup", (key, value) => {
+    try {
+      parseTracingSettings({
+        OTEL_TRACES_EXPORTER: "otlp",
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://c",
+        [key]: value,
+      });
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect(String(error)).toContain(key);
+      expect(String(error)).not.toContain("SECRET");
+    }
+  });
+
   test("resolves tenant headers per workspace and falls back to the install tenant", () => {
     const settings = parseTracingSettings({
       OTEL_TRACES_EXPORTER: "otlp",
@@ -166,11 +185,12 @@ describe("parseTracingSettings", () => {
       TRACE_INSTALL_TENANT: "install",
     });
     expect(settings?.tenantHeaders("ws-1")).toEqual({
-      "X-Scope-OrgID": "ws-1",
+      "x-scope-orgid": "ws-1",
     });
     expect(settings?.tenantHeaders(undefined)).toEqual({
-      "X-Scope-OrgID": "install",
+      "x-scope-orgid": "install",
     });
+    expect(settings?.tenantHeaders("ws\n1")).toEqual({});
   });
 });
 
@@ -184,6 +204,18 @@ describe("noopTracer", () => {
       return 7;
     });
     expect(result).toBe(7);
+    expect(sink.records[0]).not.toHaveProperty("trace_id");
+    expect(sink.records[0]).not.toHaveProperty("span_id");
+  });
+
+  test("drops trace keys set by hand through withContext", () => {
+    const sink = new MemoryLogSink();
+    const logger = createLogger({ sinks: [sink] });
+    logger.withContext(
+      { trace_id: "stale", span_id: "stale", request_id: "r" },
+      () => logger.info("outside"),
+    );
+    expect(sink.records[0]).toMatchObject({ request_id: "r" });
     expect(sink.records[0]).not.toHaveProperty("trace_id");
     expect(sink.records[0]).not.toHaveProperty("span_id");
   });
@@ -261,6 +293,20 @@ describe("otel tracer", () => {
       "ws-a",
       "ws-b",
     ]);
+  });
+
+  test("the tenant header beats a shared header of the same name in any letter case", async () => {
+    const { collector, tracer } = setup({
+      OTEL_EXPORTER_OTLP_HEADERS: "X-Scope-OrgID=base-a,x-scope-orgid=base-b",
+      TRACE_TENANT_HEADER: "X-Scope-OrgID: {workspace_id}",
+    });
+    await tracer.withSpan(
+      "s",
+      { attributes: { "werft.workspace_id": "ws-a" } },
+      async () => undefined,
+    );
+    await tracer.shutdown();
+    expect(collector.received.map((r) => r.tenant)).toEqual(["ws-a"]);
   });
 
   test("a disabled configuration builds nothing and sends nothing", async () => {

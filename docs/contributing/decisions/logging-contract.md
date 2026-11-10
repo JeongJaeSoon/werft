@@ -133,7 +133,7 @@ type LogRecord = {
 규칙:
 
 - 최상위 키는 위 열한 개뿐이다. 그 밖의 값은 모두 `fields` 아래에 둔다. `fields`가 최상위 키를 덮을 길이 없다.
-- `trace_id`·`span_id`는 로거가 줄을 쓰는 순간 활성 span(`currentSpanContext()`)에서 채운다. span 밖이거나 tracing이 꺼져 있으면 두 키를 쓰지 않는다. 활성 span이 있으면 `withContext`로 넣은 `trace_id`보다 span이 이긴다([관측 결정 4.3절](observability-otel-and-tool-call-audit.md)).
+- `trace_id`·`span_id`는 로거가 줄을 쓰는 순간 활성 span(`currentSpanContext()`)에서 채운다. span 밖이거나 tracing이 꺼져 있으면 두 키를 쓰지 않는다. 이 두 키는 활성 span만 채우고 `withContext`로 넣은 값은 줄에 싣지 않는다([관측 결정 4.3절](observability-otel-and-tool-call-audit.md)).
 - 최상위 context 다섯 키는 `StructuredLogger#withContext`만 쓴다. 호출이 `session_id`·`turn_id`를 필드로 넘기면 `fields.session_id`·`fields.turn_id`다. 플랫폼은 지금도 그렇게 찍고(`packages/observability/src/index.ts:138-161`), Datadog facet 목록도 `@fields.session_id`를 그 경로로 적는다. worker에는 context 장치가 없으므로 L2 뒤 worker의 `session_id`·`turn_id`는 `fields` 아래에 있다.
 - `event`를 주는 로그는 그 이름을 바꾸지 않는다. `event`가 없는 로그는 `message` 문장이 식별자 노릇을 한다. Datadog pipeline이 그것을 `event`로 복사하고, 운영 문서와 metric이 그 문장을 인용한다(2절의 62개). 그래서 이 문장을 바꾸는 것도 로그 필드 변경이다.
 - metric·monitor·테스트가 새로 읽을 로그에는 `event`를 준다.

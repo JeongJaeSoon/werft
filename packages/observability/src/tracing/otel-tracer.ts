@@ -160,13 +160,17 @@ function toOtelContext(parent: SpanContext | undefined): Context {
 }
 
 export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
+  // Without a URL the SDK would quietly post to localhost:4318.
+  if (config.exporter === undefined && config.endpoint === undefined) {
+    throw new Error("createOtelTracer needs an endpoint or an exporter");
+  }
   const idGenerator = new ForcedTraceIdGenerator();
   const exporter =
     config.exporter ??
     new WorkspaceBatchExporter(
       (headers) =>
         new OTLPTraceExporter({
-          url: config.endpoint,
+          ...(config.endpoint === undefined ? {} : { url: config.endpoint }),
           headers: { ...headers },
         }),
       config.headers,
@@ -200,10 +204,8 @@ export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
           name,
           {
             kind: KINDS[options.kind ?? "internal"],
-            attributes: options.attributes
-              ? { ...options.attributes }
-              : undefined,
-            links: options.links?.map((link) => ({
+            attributes: { ...options.attributes },
+            links: (options.links ?? []).map((link) => ({
               context: {
                 traceId: link.traceId,
                 spanId: link.spanId,

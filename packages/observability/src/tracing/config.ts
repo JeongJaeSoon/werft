@@ -25,6 +25,17 @@ const SAMPLERS: readonly SamplerKind[] = [
   "traceidratio",
 ];
 
+// An invalid header makes the HTTP client throw at export time, outside any
+// caller's handling, so both parts are checked at startup. Names are lowercased
+// because HTTP treats them case-insensitively and precedence depends on it.
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+const HEADER_VALUE_FORBIDDEN = /[\u0000-\u001f\u007f]/;
+
+function validHeaderValue(value: string): boolean {
+  return !HEADER_VALUE_FORBIDDEN.test(value);
+}
+
 function blankToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === "" ? undefined : trimmed;
@@ -65,13 +76,23 @@ function parseHeaderList(raw: string | undefined): Record<string, string> {
         "OTEL_EXPORTER_OTLP_HEADERS must be comma-separated key=value pairs",
       );
     }
+    if (!HEADER_NAME.test(name)) {
+      throw new Error("OTEL_EXPORTER_OTLP_HEADERS has an invalid header name");
+    }
+    let value: string;
     try {
-      headers[name] = decodeURIComponent(pair.slice(at + 1).trim());
+      value = decodeURIComponent(pair.slice(at + 1).trim());
     } catch {
       throw new Error(
         `OTEL_EXPORTER_OTLP_HEADERS has an undecodable value for ${name}`,
       );
     }
+    if (!validHeaderValue(value)) {
+      throw new Error(
+        `OTEL_EXPORTER_OTLP_HEADERS has an invalid value for ${name}`,
+      );
+    }
+    headers[name.toLowerCase()] = value;
   }
   return headers;
 }
@@ -101,12 +122,16 @@ function parseTenantHeader(raw: string | undefined) {
   if (raw === undefined) return undefined;
   const at = raw.indexOf(":");
   const name = at < 0 ? "" : raw.slice(0, at).trim();
-  if (name === "") {
+  if (name === "" || !HEADER_NAME.test(name)) {
     throw new Error(
       "TRACE_TENANT_HEADER must look like '<header name>: <value template>'",
     );
   }
-  return { name, template: raw.slice(at + 1).trim() };
+  const template = raw.slice(at + 1).trim();
+  if (!validHeaderValue(template)) {
+    throw new Error("TRACE_TENANT_HEADER has an invalid value template");
+  }
+  return { name: name.toLowerCase(), template };
 }
 
 /**
@@ -148,12 +173,10 @@ export function parseTracingSettings(
     tenantHeaders(workspaceId) {
       const tenant = workspaceId ?? installTenant;
       if (tenantHeader === undefined || tenant === undefined) return {};
-      return {
-        [tenantHeader.name]: tenantHeader.template.replaceAll(
-          "{workspace_id}",
-          tenant,
-        ),
-      };
+      const value = tenantHeader.template.replaceAll("{workspace_id}", tenant);
+      // The workspace id comes from a span attribute; never let it break the request.
+      if (!validHeaderValue(value)) return {};
+      return { [tenantHeader.name]: value };
     },
   };
 }

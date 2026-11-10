@@ -28,6 +28,14 @@ export {
   type Tracer,
 } from "./tracing/tracer.ts";
 
+/** The two keys belong to the active span, so a hand-set context value never survives. */
+function contextWithoutSpanKeys(
+  context: ObservabilityContext,
+): ObservabilityContext {
+  const { trace_id: _trace, span_id: _span, ...rest } = context;
+  return rest;
+}
+
 /** `trace_id`/`span_id` of the active span; no keys at all outside a span. */
 function spanLogFields(): { trace_id?: string; span_id?: string } {
   const span = currentSpanContext();
@@ -181,7 +189,7 @@ export class StructuredLogger {
         level,
         ...(event === undefined ? {} : { event }),
         message: sanitizeText(message),
-        ...this.getContext(),
+        ...contextWithoutSpanKeys(this.getContext()),
         // Read when the line is written: the active span changes inside one request.
         ...spanLogFields(),
         ...(recordFields && Object.keys(recordFields).length > 0
