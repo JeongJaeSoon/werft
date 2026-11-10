@@ -94,18 +94,32 @@ export function testClaimCatalog(
   };
 }
 
-const fixtureReleases = new WeakMap<object, Promise<string>>();
+const fixtureReleases = new WeakMap<object, Map<string, Promise<string>>>();
 
 /**
  * An active agent with one release on the test connection, made once per
- * database handle: what a test that only needs some release to start a
- * session names as `agentReleaseId`.
+ * database handle and workspace: what a test that only needs some release
+ * to start a session names as `agentReleaseId`. A session's release is of
+ * its own workspace, so a test names the workspace its session is in; with
+ * none, the agent gets a workspace of its own.
  */
-export function fixtureRelease(db: Database): Promise<string> {
-  let made = fixtureReleases.get(db);
+export function fixtureRelease(
+  db: Database,
+  workspaceId?: string,
+): Promise<string> {
+  let byWorkspace = fixtureReleases.get(db);
+  if (byWorkspace === undefined) {
+    byWorkspace = new Map();
+    fixtureReleases.set(db, byWorkspace);
+  }
+  const key = workspaceId ?? "";
+  let made = byWorkspace.get(key);
   if (made === undefined) {
-    made = makeFixtureRelease(db);
-    fixtureReleases.set(db, made);
+    made = makeFixtureRelease(
+      db,
+      workspaceId === undefined ? {} : { workspaceId },
+    );
+    byWorkspace.set(key, made);
   }
   return made;
 }
@@ -122,13 +136,15 @@ export async function makeFixtureRelease(
   } = {},
 ): Promise<string> {
   const workspaceId = options.workspaceId ?? randomUUID();
-  if (options.workspaceId === undefined) {
-    await db.insert(workspaces).values({
+  // A test's owner id may name no workspace row yet; the agent needs one.
+  await db
+    .insert(workspaces)
+    .values({
       id: workspaceId,
       slug: `fixture-${workspaceId}`,
       name: "fixture",
-    });
-  }
+    })
+    .onConflictDoNothing();
   const agentId = randomUUID();
   await db.insert(agents).values({
     id: agentId,

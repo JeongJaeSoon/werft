@@ -629,7 +629,7 @@ integration("extension bundles on PostgreSQL", () => {
         scope: "workspace" as const,
       },
     ];
-    const agentReleaseId = await fixtureRelease(db);
+    const agentReleaseId = await fixtureRelease(db, workspaceId);
     const request = (over: Record<string, unknown> = {}) => ({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
       principal: owner,

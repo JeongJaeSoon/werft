@@ -248,7 +248,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
       principal,
       idempotencyKey: randomUUID(),
       payloadHash: randomUUID(),
-      agentReleaseId: await fixtureRelease(db),
+      agentReleaseId: await fixtureRelease(db, principal.ownerId),
       model: TEST_MODEL,
       repository: {
         id: "sample-app",
@@ -489,7 +489,7 @@ integration("members, identity and takeover on PostgreSQL", () => {
         principal: asUser(ws, leaver),
         idempotencyKey: randomUUID(),
         payloadHash: randomUUID(),
-        agentReleaseId: await fixtureRelease(db),
+        agentReleaseId: await fixtureRelease(db, asUser(ws, leaver).ownerId),
         model: TEST_MODEL,
         repository: {
           id: "sample-app",

@@ -250,7 +250,7 @@ integration("session writes re-judge their requester on PostgreSQL", () => {
       payloadHash: "create",
       model: TEST_MODEL,
       repository: "none",
-      agentReleaseId: releaseId ?? (await fixtureRelease(db)),
+      agentReleaseId: releaseId ?? (await fixtureRelease(db, by.ownerId)),
       message: "start",
       limits: LIMITS,
     });
