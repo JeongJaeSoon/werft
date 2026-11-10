@@ -241,6 +241,7 @@ function AuthedShell() {
           size="icon-sm"
           aria-expanded={menuOpen || (!collapsed && isWide)}
           aria-controls={sidebarId}
+          aria-label={menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
           title={menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
           onClick={() =>
             isWide
@@ -249,9 +250,6 @@ function AuthedShell() {
           }
         >
           <Menu aria-hidden="true" strokeWidth={1.5} />
-          <span className="sr-only">
-            {menuOpen ? t("shell.closeMenu") : t("shell.openMenu")}
-          </span>
         </Button>
         <UserMenu
           variant="topbar"

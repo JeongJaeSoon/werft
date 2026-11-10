@@ -23,6 +23,7 @@ import {
   RelativeTime,
   RowLines,
   Tabs,
+  TabsContent,
   TabsList,
   TabsTrigger,
   Text,
@@ -192,20 +193,19 @@ function AgentList({
         matchesAgentQuery(agent, query),
       );
   return (
-    <div className="flex flex-col gap-4">
+    <Tabs
+      value={scope}
+      onValueChange={(next) => setScope(next as typeof scope)}
+      className="flex flex-col gap-4"
+    >
       <ListToolbar
         filter={
-          <Tabs
-            value={scope}
-            onValueChange={(next) => setScope(next as typeof scope)}
-          >
-            <TabsList variant="line" aria-label={t("agents.tabs.label")}>
-              <TabsTrigger value="all">{t("agents.tabs.all")}</TabsTrigger>
-              <TabsTrigger value="administered">
-                {t("agents.tabs.administered")}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <TabsList variant="line" aria-label={t("agents.tabs.label")}>
+            <TabsTrigger value="all">{t("agents.tabs.all")}</TabsTrigger>
+            <TabsTrigger value="administered">
+              {t("agents.tabs.administered")}
+            </TabsTrigger>
+          </TabsList>
         }
         search={{
           ref: search,
@@ -224,44 +224,47 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown.length })}
       </output>
-      {paged ? (
-        counts.all === 0 ? (
-          <EmptyState title={t("agents.empty")} />
-        ) : pages.isPending ? (
+      {/* The one list under both tabs: its panel is the one the selected tab controls. */}
+      <TabsContent value={scope}>
+        {paged ? (
+          counts.all === 0 ? (
+            <EmptyState title={t("agents.empty")} />
+          ) : pages.isPending ? (
+            <StatusScreen kind="loading" />
+          ) : pages.error && !shown?.length ? (
+            <LoadFailure
+              error={pages.error}
+              onRetry={() => void pages.refetch()}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <AgentsIn agents={shown ?? []} onClear={clear} />
+              <PagedListFooter list={pages} />
+            </div>
+          )
+        ) : administered.isPending ? (
           <StatusScreen kind="loading" />
-        ) : pages.error && !shown?.length ? (
+        ) : administered.error ? (
           <LoadFailure
-            error={pages.error}
-            onRetry={() => void pages.refetch()}
+            error={administered.error}
+            onRetry={() => void administered.refetch()}
           />
+        ) : administered.data.items.length === 0 ? (
+          <EmptyState title={t("agentAdmins.mine.empty")} />
         ) : (
-          <div className="flex flex-col gap-4">
+          <div>
+            {truncated ? (
+              <Text variant="meta" className="mb-3">
+                {t("agentAdmins.mine.truncated", {
+                  count: ADMINISTERED_LIST_LIMIT,
+                })}
+              </Text>
+            ) : null}
             <AgentsIn agents={shown ?? []} onClear={clear} />
-            <PagedListFooter list={pages} />
           </div>
-        )
-      ) : administered.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : administered.error ? (
-        <LoadFailure
-          error={administered.error}
-          onRetry={() => void administered.refetch()}
-        />
-      ) : administered.data.items.length === 0 ? (
-        <EmptyState title={t("agentAdmins.mine.empty")} />
-      ) : (
-        <div>
-          {truncated ? (
-            <Text variant="meta" className="mb-3">
-              {t("agentAdmins.mine.truncated", {
-                count: ADMINISTERED_LIST_LIMIT,
-              })}
-            </Text>
-          ) : null}
-          <AgentsIn agents={shown ?? []} onClear={clear} />
-        </div>
-      )}
-    </div>
+        )}
+      </TabsContent>
+    </Tabs>
   );
 }
 

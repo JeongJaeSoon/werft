@@ -873,6 +873,11 @@ export function UserMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        aria-label={
+          topbar
+            ? `${name}${roleLabel ? ` ${t("shell.accountRole", { role: roleLabel })}` : ""}`
+            : undefined
+        }
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -892,22 +897,25 @@ export function UserMenu({
         >
           {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
         </span>
-        <span className={cn("flex min-w-0 flex-col", topbar && "sr-only")}>
-          <Text as="span" weight="medium" truncate>
-            {name}
-          </Text>
-          {/* Heard between the name and the address; the column hides it. */}{" "}
-          {me?.user?.email ? (
-            // A long address is cut; the whole one shows on hover.
-            <Text as="span" variant="meta" truncate title={me.user.email}>
-              {me.user.email}
+        {topbar ? null : (
+          <span className="flex min-w-0 flex-col">
+            <Text as="span" weight="medium" truncate>
+              {name}
             </Text>
-          ) : null}
-        </span>
+            {/* Heard between the name and the address; the column hides it. */}{" "}
+            {me?.user?.email ? (
+              // A long address is cut; the whole one shows on hover.
+              <Text as="span" variant="meta" truncate title={me.user.email}>
+                {me.user.email}
+              </Text>
+            ) : null}
+          </span>
+        )}
         {/* The role shows in the menu head, not on the pill; it is still
-            heard after the name. No aria-label: the name must begin with the
-            text people see (WCAG 2.5.3). */}
-        {roleLabel ? (
+            heard after the name. The pill's name must begin with the text
+            people see (WCAG 2.5.3); the avatar-only topbar button shows only
+            an initial, so it is named by aria-label instead. */}
+        {roleLabel && !topbar ? (
           <span className="sr-only">
             {" "}
             {t("shell.accountRole", { role: roleLabel })}

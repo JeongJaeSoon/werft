@@ -404,14 +404,15 @@ function SessionListRow({
       <GridTableCell hideNarrow={true}>
         <ChannelIcon channel={session.channel} />
       </GridTableCell>
-      <GridTableCell className="[@container(max-width:760px)]:flex-col [@container(max-width:760px)]:items-end [@container(max-width:760px)]:gap-0.5">
+      <GridTableCell className="[@container(max-width:760px)]:flex-col [@container(max-width:760px)]:items-stretch [@container(max-width:760px)]:gap-0.5">
         <SessionStatusLabel
           status={session.status}
           label={t(`sessions.status.${session.status}`)}
           axisLabel={t("sessions.column.status")}
+          className="[@container(max-width:760px)]:justify-end"
         />
         <span
-          className={`${ONLY_NARROW} whitespace-nowrap text-caption text-muted-foreground`}
+          className={`${ONLY_NARROW} justify-end whitespace-nowrap text-caption text-muted-foreground`}
         >
           {formatStart(session.created_at, locale)}
         </span>
