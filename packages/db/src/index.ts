@@ -92,5 +92,6 @@ export * from "./tool-unlock.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";
 export * from "./usage-reader.ts";
 export * from "./worker-unit-of-work.ts";
+export * from "./workspace-engine-settings.ts";
 export * from "./workspace-profiles.ts";
 export * from "./workspace-settings.ts";

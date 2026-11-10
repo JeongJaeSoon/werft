@@ -96,7 +96,75 @@ describe("agent_engine_settings", () => {
       permissions: { deny: ["WebFetch"], ask: ["Bash(git push:*)"] },
       auto_mode: { hard_deny: ["Do not push to main."] },
       revision: 4,
+      adminDeny: [],
     });
+  });
+
+  test("admin_deny starts empty and must be a list", async () => {
+    expect(await insert({})).toBe("accepted");
+    const stored = await client.query<{ admin_deny: unknown }>(
+      "SELECT admin_deny FROM agent_engine_settings",
+    );
+    expect(stored.rows[0]?.admin_deny).toEqual([]);
+    await expect(
+      client.query("UPDATE agent_engine_settings SET admin_deny = '{}'::jsonb"),
+    ).rejects.toThrow(/agent_engine_settings_admin_deny_check/);
+  });
+
+  test("the reader gives the inherited restrictions as they would be stored", async () => {
+    expect(await insert({})).toBe("accepted");
+    await client.query(
+      "UPDATE agent_engine_settings SET admin_deny = $1::jsonb",
+      [
+        JSON.stringify([
+          {
+            exempt_release_ids: ["r1"],
+            permissions_deny: ["WebSearch"],
+            mcp_deny: ["mcp__docs__write"],
+          },
+        ]),
+      ],
+    );
+    expect(
+      (await agentEngineSettingsOf(db, agentId, catalog))?.adminDeny,
+    ).toEqual([
+      {
+        exempt_release_ids: ["r1"],
+        permissions_deny: ["WebSearch"],
+        mcp_deny: ["mcp__docs__write"],
+      },
+    ]);
+  });
+
+  test("an admin_deny the parser refuses throws; it is never read as no restriction", async () => {
+    expect(await insert({})).toBe("accepted");
+    // A well-formed list, so the CHECK lets it through; the rule is in the
+    // wrong route, which the engine would never get as intended.
+    await client.query(
+      "UPDATE agent_engine_settings SET admin_deny = $1::jsonb",
+      [
+        JSON.stringify([
+          {
+            exempt_release_ids: [],
+            permissions_deny: ["mcp__docs__write"],
+            mcp_deny: [],
+          },
+        ]),
+      ],
+    );
+    await expect(agentEngineSettingsOf(db, agentId, catalog)).rejects.toThrow(
+      /admin_deny.*does not parse: settings_shape/,
+    );
+  });
+
+  test("a row over the agent's own budget throws even though the CHECK accepts it", async () => {
+    // The CHECK allows 64 rules a list; an agent saves at most 24, so that a
+    // claim's merge stays within what a worker accepts.
+    const rules = Array.from({ length: 30 }, (_, i) => `Bash(c${i})`);
+    expect(await insert({ deny: rules })).toBe("accepted");
+    await expect(agentEngineSettingsOf(db, agentId, catalog)).rejects.toThrow(
+      /does not parse: too_many_rules/,
+    );
   });
 
   test("a row is one per agent and belongs to the agent's own workspace", async () => {

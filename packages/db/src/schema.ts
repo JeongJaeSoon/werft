@@ -3561,6 +3561,15 @@ export const agentEngineSettings = pgTable(
       .$type<Record<string, string[]>>()
       .notNull()
       .default({}),
+    // What the agent inherits from what its profile and the installation
+    // blocked: `[{exempt_release_ids, permissions_deny, mcp_deny}]`. Only an
+    // operator writes it, never the web API, and an entry applies to a session
+    // whose release is not in its `exempt_release_ids`, so a release the agent
+    // already had keeps what it was pinned with.
+    adminDeny: jsonb("admin_deny")
+      .$type<Array<Record<string, string[]>>>()
+      .notNull()
+      .default([]),
     revision: integer().notNull().default(1),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -3575,6 +3584,10 @@ export const agentEngineSettings = pgTable(
       foreignColumns: [agents.workspaceId, agents.id],
     }),
     check(
+      "agent_engine_settings_admin_deny_check",
+      sql`jsonb_typeof(${table.adminDeny}) = 'array'`,
+    ),
+    check(
       "agent_engine_settings_permissions_check",
       stringListsCheck(table.permissions, ["allow", "ask", "deny"], 256),
     ),
@@ -3588,6 +3601,70 @@ export const agentEngineSettings = pgTable(
     ),
     check("agent_engine_settings_revision_check", sql`${table.revision} >= 1`),
   ],
+);
+
+// A workspace's engine settings, in the shape of an agent's: one row, never
+// deleted (clearing writes empty objects and raises `revision`), no row means
+// no rules. Every agent of the workspace runs under it; an agent's own rules
+// only ever add restrictions to it. Nothing writes this table yet.
+export const workspaceEngineSettings = pgTable(
+  "workspace_engine_settings",
+  {
+    workspaceId: uuid("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id),
+    permissions: jsonb()
+      .$type<Record<string, string[]>>()
+      .notNull()
+      .default({}),
+    autoMode: jsonb("auto_mode")
+      .$type<Record<string, string[]>>()
+      .notNull()
+      .default({}),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "workspace_engine_settings_permissions_check",
+      stringListsCheck(table.permissions, ["allow", "ask", "deny"], 256),
+    ),
+    check(
+      "workspace_engine_settings_auto_mode_check",
+      stringListsCheck(
+        table.autoMode,
+        ["allow", "soft_deny", "hard_deny", "environment"],
+        1024,
+      ),
+    ),
+    check(
+      "workspace_engine_settings_revision_check",
+      sql`${table.revision} >= 1`,
+    ),
+  ],
+);
+
+// The one row that says whether engine settings may be written. Closed, the
+// write API and the migration refuse, so a rule is never saved while some
+// replica or worker would not carry it to the engine. Closing it stops
+// writes only: rules already saved stay enforced. A writer holds the row
+// FOR SHARE for its transaction, so closing waits for the writes in flight.
+export const engineSettingsGate = pgTable(
+  "engine_settings_gate",
+  {
+    id: integer().primaryKey().default(1),
+    writesOpen: boolean("writes_open").notNull().default(false),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** No foreign key: the row outlives the account. */
+    changedBy: uuid("changed_by"),
+  },
+  (table) => [check("engine_settings_gate_single", sql`${table.id} = 1`)],
 );
 
 // How an agent's pull request bodies differ from the workspace's. Apart from
