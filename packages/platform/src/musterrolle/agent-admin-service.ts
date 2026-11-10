@@ -77,6 +77,7 @@ export function createAgentAdminService(deps: {
   const { authorization, store } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const managerRoles = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
+  const teamManagerRoles = MANAGEMENT_ROLES["team.manage"] ?? [];
 
   const onAgent = (caller: Caller, agentId: string) =>
     requirePermitted(authorization, caller, "agent.admin.manage", {
@@ -92,6 +93,16 @@ export function createAgentAdminService(deps: {
     add: boolean,
   ): Promise<AgentAdminChangeResponse> {
     await onAgent(caller, agentId);
+    // An admin team makes every member of it an admin, so lending one needs
+    // the people who manage teams, not just this agent's admin. Removing a
+    // team, and either direction for people, stays with agent.admin.manage.
+    const lendsTeam = add && kind === "teams";
+    if (lendsTeam) {
+      await requirePermitted(authorization, caller, "team.manage", {
+        kind: "workspace",
+        id: caller.ownerId,
+      });
+    }
     const { userId, workspaceId } = personOf(caller);
     const receiptId = newId();
     const input = {
@@ -99,7 +110,8 @@ export function createAgentAdminService(deps: {
       receiptId,
       agentId,
       subject: { kind: kind === "users" ? "user" : "team", id: subjectId },
-      managerRoles,
+      // The store re-reads the actor's role in its transaction against these.
+      managerRoles: lendsTeam ? teamManagerRoles : managerRoles,
     } as const;
     const result = add ? await store.add(input) : await store.remove(input);
     switch (result.outcome) {

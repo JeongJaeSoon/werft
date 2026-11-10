@@ -277,6 +277,79 @@ integration("teams as agent admins on PostgreSQL", () => {
     ]);
   });
 
+  test("only a team manager names an admin team; an agent admin only takes one off (94S-837)", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const manager = await person(workspaceId, "admin");
+    const lead = await person(workspaceId, "member");
+    const agentId = await agent(workspaceId, idOf(owner));
+    const team = await newTeam(owner);
+    await member(owner, team.id, lead);
+    await teams().setMemberRole({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      teamId: team.id,
+      userId: idOf(lead),
+      role: "lead",
+    });
+    const change = (
+      by: Caller,
+      subject: { kind: "user" | "team"; id: string },
+      add = true,
+    ) =>
+      admins()[add ? "add" : "remove"]({
+        actor: acting(by),
+        receiptId: randomUUID(),
+        agentId,
+        subject,
+        managerRoles: MANAGERS,
+      });
+    const receiptCount = async () =>
+      (
+        await db
+          .select({ id: receipts.id })
+          .from(receipts)
+          .where(eq(receipts.ownerId, workspaceId))
+      ).length;
+    const asTeam = { kind: "team", id: team.id } as const;
+
+    // The agent's admin, even leading the team, does not lend it.
+    await change(owner, { kind: "user", id: idOf(lead) });
+    const before = await receiptCount();
+    expect(await change(lead, asTeam)).toEqual({
+      outcome: "team_not_allowed",
+    });
+    expect(await admins().list(workspaceId, agentId)).toMatchObject({
+      teams: [],
+    });
+    expect(await receiptCount()).toBe(before);
+
+    // An admin does, and the agent's admin takes it off again.
+    expect(await change(manager, asTeam)).toMatchObject({ outcome: "added" });
+    expect(await change(lead, asTeam, false)).toMatchObject({
+      outcome: "removed",
+    });
+    expect(await admins().list(workspaceId, agentId)).toMatchObject({
+      teams: [],
+    });
+
+    // The role is read in the transaction: an admin demoted after the
+    // service's check, still an agent admin, cannot add and leaves no receipt.
+    await change(owner, { kind: "user", id: idOf(manager) });
+    await db
+      .update(memberships)
+      .set({ role: "member" })
+      .where(eq(memberships.userId, idOf(manager)));
+    const afterDemotion = await receiptCount();
+    expect(await change(manager, asTeam)).toEqual({
+      outcome: "team_not_allowed",
+    });
+    expect(await admins().list(workspaceId, agentId)).toMatchObject({
+      teams: [],
+    });
+    expect(await receiptCount()).toBe(afterDemotion);
+  });
+
   test("two admins removing each other at once: one wins, the other is refused", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

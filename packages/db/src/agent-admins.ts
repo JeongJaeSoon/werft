@@ -391,19 +391,13 @@ async function change(
         )
         .for("share");
       if (!team) return { outcome: "subject_not_found" };
-      // An admin team makes all its members admins, so anyone but an owner
-      // or admin may lend only a team they lead. Rows already there stay.
+      // An admin team makes all its members admins, so only a team manager
+      // lends one. The role is the one lockPeople holds now, not the one the
+      // service saw. Rows already there stay.
       const manager = (input.managerRoles as readonly string[]).includes(
         people.find((p) => p.userId === actor.userId)?.role ?? "",
       );
-      if (
-        !manager &&
-        !(await lockedTeamRow(tx, actor.workspaceId, subjectId, actor.userId, [
-          "lead",
-        ]))
-      ) {
-        return { outcome: "team_not_allowed" };
-      }
+      if (!manager) return { outcome: "team_not_allowed" };
       const inserted = await tx
         .insert(agentAdminTeams)
         .values({
