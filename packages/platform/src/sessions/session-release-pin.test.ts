@@ -11,6 +11,7 @@ import {
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
+import { releaseNotRunnableReason } from "../agents/agent-service.ts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentContact } from "../ports/credential-binding-store.ts";
 import type {
@@ -93,6 +94,10 @@ function setup(
     envNames?: string[];
     catalog?: SessionCatalog;
     releaseProfile?: string;
+    /** The agent's status; absent, active. */
+    agentStatus?: "active" | "paused" | "archived";
+    /** The release's approval; absent, approved. */
+    approvedAt?: string | null;
     /** The session getSession and appendMessage find. */
     session?: SessionDetailRecord;
     /** What listSessions finds. */
@@ -123,6 +128,12 @@ function setup(
     releases: {
       agentGitHubSettings: async () => options.agentSettings ?? null,
       repositoryCeiling: async () => options.repositoryCeiling ?? null,
+      notRunnableReason: (workspaceId, release) =>
+        releaseNotRunnableReason(
+          { agentStatus: async () => options.agentStatus ?? "active" },
+          workspaceId,
+          release,
+        ),
       async resolveRelease(_workspaceId, releaseId) {
         if (releaseId !== "rel-1" && releaseId !== "rel-app") {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -130,6 +141,10 @@ function setup(
         return {
           id: releaseId,
           agent_id: AGENT,
+          approved_at:
+            options.approvedAt === undefined
+              ? "2026-01-01T00:00:00.000Z"
+              : options.approvedAt,
           runtime_profile_id: options.releaseProfile ?? "coding-v1",
           repository_id: releaseId === "rel-app" ? "app" : null,
           runtime_config_snapshot: { model: "claude-opus-5-5" },
@@ -735,6 +750,48 @@ describe("a session pinned to an agent release", () => {
       .catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "RELEASE_PROFILE_MISMATCH" });
     expect(accepted).toHaveLength(0);
+  });
+
+  test.each(["paused", "archived"] as const)(
+    "refuses a %s agent with agent_inactive",
+    async (agentStatus) => {
+      const { service, caller, accepted } = setup({ agentStatus });
+      const error = await service
+        .createSession(caller, {
+          idempotencyKey: "k",
+          body: { ...body, agent_release_id: "rel-1" },
+        })
+        .catch((e: unknown) => e);
+      expect(error).toMatchObject({
+        code: "AGENT_NOT_RUNNABLE",
+        details: { reason_code: "agent_inactive", agent_id: AGENT },
+      });
+      expect(accepted).toHaveLength(0);
+    },
+  );
+
+  test("refuses a release that was never approved with release_unapproved", async () => {
+    const { service, caller, accepted } = setup({ approvedAt: null });
+    const error = await service
+      .createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "release_unapproved", release_id: "rel-1" },
+    });
+    expect(accepted).toHaveLength(0);
+  });
+
+  test("an approved release starts while the agent is active, whether or not it is the active release", async () => {
+    const { service, caller, accepted } = setup();
+    await service.createSession(caller, {
+      idempotencyKey: "k",
+      body: { ...body, agent_release_id: "rel-1" },
+    });
+    expect(accepted).toHaveLength(1);
   });
 
   test("a workspace version is not taken on what was read before a failed read: another replica may have retired it", async () => {

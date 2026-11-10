@@ -134,6 +134,7 @@ function memoryStore(
       created_at: AT,
     }),
     findRelease: async (_workspace, id) => releases.get(id) ?? null,
+    agentStatus: async () => "active",
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail, saved: null }),

@@ -410,8 +410,15 @@ export function createSessionService(deps: {
         | "repository_id"
         | "runtime_config_snapshot"
         | "policy_pins"
+        | "approved_at"
       >
     >;
+    // Why a new session cannot run the release (paused or archived agent,
+    // release never approved), or null.
+    notRunnableReason(
+      workspaceId: string,
+      release: Pick<AgentRelease, "agent_id" | "approved_at">,
+    ): Promise<"agent_inactive" | "release_unapproved" | null>;
     // The variable names the release's card declares. Absent, no session
     // takes variables.
     envNames?(workspaceId: string, releaseId: string): Promise<string[]>;
@@ -677,6 +684,24 @@ export function createSessionService(deps: {
       throw new SessionServiceError(
         "RELEASE_PROFILE_MISMATCH",
         `Release ${release.id} runs on profile ${release.runtime_profile_id}, not ${body.profile_id}`,
+      );
+    }
+    const notRunnable = await deps.releases.notRunnableReason(
+      actor.ownerId,
+      release,
+    );
+    if (notRunnable !== null) {
+      throw new SessionServiceError(
+        "AGENT_NOT_RUNNABLE",
+        notRunnable === "agent_inactive"
+          ? "This agent is paused or archived and starts no new session"
+          : "This release was never approved; activate it before starting a session on it",
+        undefined,
+        {
+          reason_code: notRunnable,
+          agent_id: release.agent_id,
+          release_id: release.id,
+        },
       );
     }
     return release;

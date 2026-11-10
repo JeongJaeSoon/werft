@@ -252,7 +252,11 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     return user.id;
   }
 
-  function createSession(headers: HeadersInit, key = crypto.randomUUID()) {
+  function createSession(
+    headers: HeadersInit,
+    key = crypto.randomUUID(),
+    release = releaseId,
+  ) {
     return send(
       "POST",
       "/v1/sessions",
@@ -261,7 +265,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
         profile_id: "claude-coding-v1",
         repository_id: "sample-app",
         message: "Summarise the minutes.",
-        agent_release_id: releaseId,
+        agent_release_id: release,
       },
     );
   }
@@ -530,6 +534,61 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     expect(appendReceipt).toEqual({
       operation: "append_message",
       status: "failed",
+    });
+  });
+
+  test("a release no activation approved, and a paused agent, answer 409 AGENT_NOT_RUNNABLE before any credential check", async () => {
+    // A new version gives a release whose content differs, which nothing
+    // has activated.
+    const edited = await send(
+      "PATCH",
+      `/v1/agents/${agentId}`,
+      asCookie(cookies.admin),
+      { card: { ...card, instructions: "회의록을 읽고 결정만 정리한다." } },
+    );
+    expect(edited.status).toBe(200);
+    const versions = (await edited.json()) as { versions: { id: string }[] };
+    const second = await send(
+      "POST",
+      `/v1/agents/${agentId}/releases`,
+      asCookie(cookies.admin),
+      {
+        version_id: versions.versions.at(-1)?.id,
+        runtime_profile_id: "claude-coding-v1",
+        repository_id: "sample-app",
+      },
+    );
+    expect(second.status).toBe(200);
+    const unapprovedId = createAgentReleaseResponseSchema.parse(
+      await second.json(),
+    ).release.id;
+    expect(unapprovedId).not.toBe(releaseId);
+
+    const unapproved = await createSession(
+      bearer(agentKey),
+      crypto.randomUUID(),
+      unapprovedId,
+    );
+    expect(unapproved.status).toBe(409);
+    expect(await errorOf(unapproved)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: {
+        reason_code: "release_unapproved",
+        agent_id: agentId,
+        release_id: unapprovedId,
+      },
+    });
+
+    await db
+      .update(schema.agents)
+      .set({ status: "paused" })
+      .where(eq(schema.agents.id, agentId));
+    // The approved release is refused too: the agent no longer runs.
+    const paused = await createSession(bearer(agentKey));
+    expect(paused.status).toBe(409);
+    expect(await errorOf(paused)).toMatchObject({
+      code: "AGENT_NOT_RUNNABLE",
+      details: { reason_code: "agent_inactive", agent_id: agentId },
     });
   });
 });

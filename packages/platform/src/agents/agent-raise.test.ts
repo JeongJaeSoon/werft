@@ -146,6 +146,7 @@ function raiseOver(reads: AgentRecord[], stored: typeof version = version) {
     get: async () => reads[Math.min(read++, reads.length - 1)] ?? null,
     findVersion: async () => stored,
     findRelease: async () => null,
+    agentStatus: async () => "active",
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "slug_taken" }),
     update: async () => ({ outcome: "not_found" }),

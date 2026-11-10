@@ -77,6 +77,7 @@ function app(
       resolveRelease: async () => {
         throw new Error("not reached");
       },
+      notRunnableReason: async () => null,
       agentGitHubSettings: async () => null,
       repositoryCeiling: async () => null,
     },
