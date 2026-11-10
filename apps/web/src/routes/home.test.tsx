@@ -730,17 +730,17 @@ describe("홈 요약", () => {
         {
           title: "Slack 이벤트 주소 등록 실패",
           note: "에이전트 1 · 멘션을 받지 못하고 있습니다",
-          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c81?tab=slack",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c81?tab=settings&section=slack",
         },
         {
           title: "Slack 홈 채널 지정 필요",
           note: "에이전트 2 · 홈 채널을 고르면 채널을 연결할 수 있습니다",
-          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c82?tab=slack",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c82?tab=settings&section=slack",
         },
         {
           title: "Slack 이벤트 주소 확인 대기",
           note: "에이전트 3 · Slack이 주소를 확인할 때까지 멘션을 받지 못합니다",
-          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c83?tab=slack",
+          fix: "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c83?tab=settings&section=slack",
         },
       ]);
       const all = within(todo).getByRole("link", { name: "전체 보기 5건" });
@@ -777,7 +777,7 @@ describe("홈 요약", () => {
         });
         expect(button.textContent).toBe(label);
         expect(button.getAttribute("href")).toBe(
-          "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c80?tab=slack",
+          "/agents/5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c80?tab=settings&section=slack",
         );
       },
     );

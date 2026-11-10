@@ -60,7 +60,7 @@ export function SlackInstallCallback() {
         await navigate({
           to: "/agents/$id",
           params: { id },
-          search: { tab: "slack" },
+          search: { tab: "settings", section: "slack" },
           state: (previous) => ({ ...previous, slackInstalled: true }),
           replace: true,
         });
@@ -87,7 +87,11 @@ export function SlackInstallCallback() {
       </output>
       {complete.error || complete.data ? (
         <Button asChild variant="outline">
-          <Link to="/agents/$id" params={{ id }} search={{ tab: "slack" }}>
+          <Link
+            to="/agents/$id"
+            params={{ id }}
+            search={{ tab: "settings", section: "slack" }}
+          >
             {t("slack.app")}
           </Link>
         </Button>

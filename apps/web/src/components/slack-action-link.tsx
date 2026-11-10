@@ -16,7 +16,7 @@ export function SlackActionLink({ agent }: { readonly agent: AgentListItem }) {
     <RouterLink
       to="/agents/$id"
       params={{ id: agent.id }}
-      search={{ tab: "slack" }}
+      search={{ tab: "settings", section: "slack" }}
       className={cn(
         linkVariants(),
         "relative z-1 inline-flex w-fit items-center gap-1 text-caption",

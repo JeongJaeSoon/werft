@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  settingsSection,
+} from "../../test-support/fake-agents.ts";
 import {
   apiError,
   json,
@@ -15,7 +19,7 @@ import { appHarness } from "../../test-support/render-app.tsx";
 
 const { renderAt, screen, waitFor, within } = await appHarness();
 const PATH = `/v1/agents/${AGENT_ID}`;
-const DETAIL = `/agents/${AGENT_ID}?tab=slack`;
+const DETAIL = `/agents/${AGENT_ID}?tab=settings&section=slack`;
 const ID = "00000000-0000-4000-8000-000000000001";
 const AT = "2026-10-24T00:00:00.000Z";
 const summary = {
@@ -2029,7 +2033,7 @@ describe("Slack management", () => {
     }
     await screen.findByText("채널 사용 설정을 저장했습니다.");
     await user.keyboard(" ");
-    await screen.findByRole("alert");
+    await within(settingsSection("slack")).findByRole("alert");
     expect(screen.queryByText("채널 사용 설정을 저장했습니다.")).toBeNull();
     expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
@@ -2070,7 +2074,7 @@ describe("Slack management", () => {
   }
   test("does not load Slack endpoints from the overview tab", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}`, routes());
-    await screen.findByRole("tab", { name: "Slack" });
+    await screen.findByRole("tab", { name: "설정" });
     expect(api.calls.some((call) => call.path.includes("/slack"))).toBe(false);
   });
   test("starts an existing app installation and leaves through app services", async () => {
@@ -2593,7 +2597,7 @@ describe("Slack private channel states", () => {
     await user.click(
       await within(list).findByRole("button", { name: /^채널 승인/ }),
     );
-    const alert = await screen.findByRole("alert");
+    const alert = await within(settingsSection("slack")).findByRole("alert");
     expect(alert.textContent).toContain("다른 곳에서 먼저 바꿨습니다");
     await within(list).findByText("나감");
     expect(within(list).queryByText("승인 대기")).toBeNull();

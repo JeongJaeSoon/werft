@@ -1004,7 +1004,7 @@ function SlackTodo({
                 <Link
                   to="/agents/$id"
                   params={{ id: agent.id }}
-                  search={{ tab: "slack" }}
+                  search={{ tab: "settings", section: "slack" }}
                   aria-label={t("home.todo.ctaName", {
                     action: t(`home.todo.cta.${action}`),
                     agent: agent.name,

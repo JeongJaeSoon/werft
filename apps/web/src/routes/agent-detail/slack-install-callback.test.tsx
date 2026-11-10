@@ -79,7 +79,7 @@ describe("Slack install callback", () => {
     );
   });
 
-  test("returns a successful installation to the Slack tab", async () => {
+  test("returns a successful installation to the Slack section of the settings tab", async () => {
     const { history } = renderAt(CALLBACK, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, me()),
@@ -97,8 +97,14 @@ describe("Slack install callback", () => {
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/agents/${AGENT_ID}`),
     );
-    expect(new URLSearchParams(history.location.search).get("tab")).toBe(
+    const search = new URLSearchParams(history.location.search);
+    expect([search.get("tab"), search.get("section")]).toEqual([
+      "settings",
       "slack",
+    ]);
+    // The install lands on the Slack section of the settings tab.
+    await waitFor(() =>
+      expect(document.activeElement?.id).toBe("agent-settings-slack"),
     );
     await waitFor(() =>
       expect(document.querySelector("[data-slot=toast]")?.textContent).toBe(
@@ -160,7 +166,7 @@ describe("Slack install callback", () => {
       );
       expect(
         screen.getByRole("link", { name: "Slack 앱" }).getAttribute("href"),
-      ).toBe(`/agents/${AGENT_ID}?tab=slack`);
+      ).toBe(`/agents/${AGENT_ID}?tab=settings&section=slack`);
       await waitFor(() =>
         expect(api.calls.filter((call) => call.method === "POST")).toHaveLength(
           1,

@@ -4,6 +4,7 @@ import {
   AGENT_ID,
   agentServer,
   seedRelease as releaseFixture,
+  settingsSection,
 } from "../../test-support/fake-agents.ts";
 import {
   apiError,
@@ -76,50 +77,48 @@ const listed = (
 });
 
 describe("에이전트 상세 탭", () => {
-  test("개요·카드·배포·관리자 탭이 있고, 화살표로 옮기면 주소의 tab이 따라간다", async () => {
+  test("탭은 개요·실행 규칙·접근(MCP)·세션·설정 다섯이고, 화살표로 옮기면 주소의 tab이 따라간다", async () => {
     const { history } = renderAt(DETAIL, {
       ...meOk,
       ...agentServer().routes,
     });
     const user = await setupUser();
     const list = await screen.findByRole("tablist", { name: "에이전트 상세" });
-    expect(
-      within(list)
-        .getAllByRole("tab")
-        .map((tab) => tab.textContent),
-    ).toEqual([
+    const tabs = within(list).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
       "개요",
-      "상세 설정",
-      "릴리스",
-      "접근",
       "실행 규칙",
-      "관리자",
-      "Slack",
-      "GitHub",
+      "접근(MCP)",
+      "세션",
+      "설정",
     ]);
     expect(selected()).toBe("개요");
     expect(tabIn(history)).toBeNull();
+    // The chosen tab alone says so; the others carry no aria-current.
+    expect(
+      tabs.filter((tab) => tab.getAttribute("aria-selected") === "true"),
+    ).toHaveLength(1);
+    expect(tabs.some((tab) => tab.hasAttribute("aria-current"))).toBe(false);
     // Only the chosen panel is in the accessibility tree.
     expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
 
     await user.click(screen.getByRole("tab", { name: "개요" }));
     await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(selected()).toBe("상세 설정"));
-    expect(document.activeElement?.textContent).toBe("상세 설정");
-    expect(tabIn(history)).toBe("card");
+    await waitFor(() => expect(selected()).toBe("실행 규칙"));
+    expect(document.activeElement?.textContent).toBe("실행 규칙");
+    expect(tabIn(history)).toBe("engine");
     await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(selected()).toBe("릴리스"));
-    expect(tabIn(history)).toBe("release");
-    await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(selected()).toBe("접근"));
+    await waitFor(() => expect(selected()).toBe("접근(MCP)"));
     expect(tabIn(history)).toBe("access");
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(selected()).toBe("세션"));
+    expect(tabIn(history)).toBe("sessions");
     await user.keyboard("{End}");
-    await waitFor(() => expect(selected()).toBe("GitHub"));
-    expect(tabIn(history)).toBe("github");
+    await waitFor(() => expect(selected()).toBe("설정"));
+    expect(tabIn(history)).toBe("settings");
     await user.keyboard("{ArrowLeft}");
-    await user.keyboard("{ArrowLeft}");
-    await waitFor(() => expect(selected()).toBe("관리자"));
-    expect(tabIn(history)).toBe("admins");
+    await waitFor(() => expect(selected()).toBe("세션"));
+    expect(tabIn(history)).toBe("sessions");
     await user.click(screen.getByRole("tab", { name: "개요" }));
     await waitFor(() => expect(tabIn(history)).toBeNull());
     // Tab leaves the tab list for the panel instead of walking the tabs.
@@ -129,30 +128,35 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === visiblePanel()).toBe(true);
   });
 
-  test("머리의 버튼 줄은 새 세션 뒤 맨 끝에 에이전트 목록으로 돌아가는 버튼을 두고, 제목 위 위치 줄은 없다", async () => {
+  test("머리는 에이전트 > 이름 위치 줄과 새 세션 하나를 두고, 목록으로 돌아가는 버튼은 위치 줄의 링크가 맡는다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
-    expect(
-      within(header).queryByRole("navigation", { name: "위치" }),
-    ).toBeNull();
-    const back = within(header).getByRole("link", { name: "에이전트 목록" });
+    const trail = within(header).getByRole("navigation", { name: "위치" });
+    const back = within(trail).getByRole("link", { name: "에이전트" });
     expect(back.getAttribute("href")).toBe("/agents");
+    // Only the current crumb says so, not its parent list.
+    const current = trail.querySelectorAll("[aria-current]");
+    expect([...current].map((node) => node.textContent)).toEqual(["결제 담당"]);
+    expect(within(header).queryByRole("link", { name: "에이전트 목록" })).toBe(
+      null,
+    );
     const create = within(header).getByRole("button", {
       name: /이 에이전트로 새 세션/,
     });
+    // No ⋯ menu: the API has no pause or delete of an agent to put in it.
     expect(
       within(header)
         .getAllByRole("button")
         .map((button) => button.textContent),
     ).toEqual(["이 에이전트로 새 세션"]);
-    // The keyboard reaches the title, the command, then the way back.
+    // The way back comes first, then the title, then the command.
+    expect(
+      back.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(
       heading.compareDocumentPosition(create) &
         Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      create.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -179,21 +183,43 @@ describe("에이전트 상세 탭", () => {
     const server = agentServer();
     const { history } = renderAt("/agents", { ...meOk, ...server.routes });
     const user = await setupUser();
-    history.push(`${DETAIL}?tab=release`);
-    await waitFor(() => expect(selected()).toBe("릴리스"));
+    history.push(`${DETAIL}?tab=settings&section=release`);
+    await waitFor(() => expect(selected()).toBe("설정"));
     expect(
       within(visiblePanel()).getByRole("heading", { name: "릴리스", level: 2 }),
     ).toBeDefined();
 
-    await user.click(screen.getByRole("tab", { name: "상세 설정" }));
-    await user.click(screen.getByRole("tab", { name: "관리자" }));
-    expect(tabIn(history)).toBe("admins");
+    await user.click(screen.getByRole("tab", { name: "세션" }));
+    await user.click(screen.getByRole("tab", { name: "접근(MCP)" }));
+    expect(tabIn(history)).toBe("access");
     history.push("/");
     await waitFor(() => expect(history.location.pathname).toBe("/"));
     history.back();
-    await waitFor(() => expect(selected()).toBe("관리자"));
+    await waitFor(() => expect(selected()).toBe("접근(MCP)"));
     history.back();
     await waitFor(() => expect(history.location.pathname).toBe("/agents"));
+  });
+
+  test("옛 tab 주소 다섯은 설정 탭에서 열리고, 키보드가 그 섹션으로 간다", async () => {
+    const server = agentServer();
+    const { history } = renderAt("/agents", { ...meOk, ...server.routes });
+    for (const section of [
+      "card",
+      "release",
+      "admins",
+      "slack",
+      "github",
+    ] as const) {
+      history.push(`${DETAIL}?tab=${section}`);
+      await waitFor(() => expect(selected()).toBe("설정"));
+      await waitFor(() =>
+        expect(document.activeElement?.id).toBe(`agent-settings-${section}`),
+      );
+      // Every section is on the page of the one settings tab.
+      expect(visiblePanel().contains(document.activeElement)).toBe(true);
+      history.push("/agents");
+      await waitFor(() => expect(history.location.pathname).toBe("/agents"));
+    }
   });
 
   test("모르는 tab 값은 개요로 연다", async () => {
@@ -203,7 +229,10 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("카드 탭은 읽기 두 칸으로 시작하고, 카드 편집은 제자리에서 열고 취소하면 버튼으로 돌아간다", async () => {
-    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     const user = await setupUser();
     const summary = await screen.findByRole("region", {
       name: "에이전트 카드",
@@ -254,14 +283,17 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("다른 탭에 다녀와도 저장하지 않은 카드 입력은 남는다", async () => {
-    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     const user = await setupUser();
     await user.click(
       await screen.findByRole("button", { name: "상세 설정 편집" }),
     );
     await user.selectOptions(await screen.findByLabelText("답변 언어"), "en");
-    await user.click(screen.getByRole("tab", { name: "릴리스" }));
-    await user.click(screen.getByRole("tab", { name: "상세 설정" }));
+    await user.click(screen.getByRole("tab", { name: "개요" }));
+    await user.click(screen.getByRole("tab", { name: "설정" }));
     expect(
       (screen.getByLabelText("답변 언어") as HTMLSelectElement).value,
     ).toBe("en");
@@ -274,7 +306,7 @@ describe("에이전트 상세 탭", () => {
     const gate = new Promise<void>((resolve) => {
       respond = resolve;
     });
-    const { history } = renderAt(`${DETAIL}?tab=card`, {
+    const { history } = renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meOk,
       ...server.routes,
       [`PATCH /v1/agents/${AGENT_ID}`]: async (request: Request) => {
@@ -291,14 +323,14 @@ describe("에이전트 상세 탭", () => {
     await waitFor(() => expect(selected()).toBe("개요"));
     respond();
     const saved = await screen.findByText(/저장했습니다/);
-    await waitFor(() => expect(selected()).toBe("상세 설정"));
+    await waitFor(() => expect(selected()).toBe("설정"));
     expect(visiblePanel().contains(saved)).toBe(true);
-    await waitFor(() => expect(tabIn(history)).toBe("card"));
+    await waitFor(() => expect(tabIn(history)).toBe("settings"));
     expect(document.activeElement?.contains(saved)).toBe(true);
   });
 
   test("카드 편집에는 도구 체크 목록이 없고 프로필이 막은 도구를 읽기 전용으로 보인다", async () => {
-    const { api } = renderAt(`${DETAIL}?tab=card`, {
+    const { api } = renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meOk,
       ...agentServer().routes,
     });
@@ -327,8 +359,11 @@ describe("에이전트 상세 탭", () => {
     ).toEqual({ mcp: null, forbidden: [] });
   });
 
-  test("개요의 켜기까지 단계는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
-    renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+  test("개요의 켜기까지 단계는 아직 켜지지 않았다고 하고 설정 탭의 릴리스 섹션으로 잇는다", async () => {
+    const { history } = renderAt(DETAIL, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     const user = await setupUser();
     const section = (
       await screen.findByRole("heading", { name: "켜기까지" })
@@ -336,12 +371,36 @@ describe("에이전트 상세 탭", () => {
     expect(
       await within(section).findByText(/아직 켜지지 않았습니다/),
     ).toBeDefined();
-    within(section).getByRole("button", { name: "릴리스 탭으로" }).focus();
+    // Nothing may scroll the page back to the tab row after the focus lands:
+    // neither the tab row's own effect nor the router's reset on navigation.
+    const scrolled: unknown[] = [];
+    const originalScrollTo = window.scrollTo;
+    window.scrollTo = ((...args: unknown[]) => {
+      scrolled.push(args);
+    }) as typeof window.scrollTo;
+    const proto = Element.prototype as { scrollIntoView?: () => void };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    within(section).getByRole("button", { name: "릴리스로 이동" }).focus();
     await user.keyboard("{Enter}");
-    await waitFor(() => expect(selected()).toBe("릴리스"));
-    // The keyboard goes on to the tab it opened.
-    const releaseTab = screen.getByRole("tab", { name: "릴리스" });
-    expect(document.activeElement === releaseTab).toBe(true);
+    // The tab shows and the keyboard lands in the same turn, not a render later.
+    expect(selected()).toBe("설정");
+    expect(document.activeElement?.id).toBe("agent-settings-release");
+    await waitFor(() => {
+      const search = new URLSearchParams(history.location.search);
+      expect([search.get("tab"), search.get("section")]).toEqual([
+        "settings",
+        "release",
+      ]);
+    });
+    // The URL settling must not pull the keyboard back or away, nor the page up.
+    expect(document.activeElement?.id).toBe("agent-settings-release");
+    if (original) proto.scrollIntoView = original;
+    else Reflect.deleteProperty(proto, "scrollIntoView");
+    window.scrollTo = originalScrollTo;
+    expect(scrolled).toEqual([]);
   });
 
   test("최근 세션은 이 에이전트의 세션만 묻는다", async () => {
@@ -369,7 +428,7 @@ describe("에이전트 상세 탭", () => {
       updated_at: "2026-10-01T00:00:00.000Z",
       ...rest,
     });
-    const { api } = renderAt(DETAIL, {
+    const { api } = renderAt(`${DETAIL}?tab=sessions`, {
       ...meOk,
       ...agentServer().routes,
       [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
@@ -434,7 +493,7 @@ describe("에이전트 상세 탭", () => {
     ) as HTMLElement;
 
   test("최근 세션에 볼 세션이 없으면 빈 상태를 말하고 다시 시도는 없다", async () => {
-    renderAt(DETAIL, {
+    renderAt(`${DETAIL}?tab=sessions`, {
       ...meOk,
       ...agentServer().routes,
       [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
@@ -452,7 +511,7 @@ describe("에이전트 상세 탭", () => {
 
   test("최근 세션을 읽지 못하면 빈 상태가 아니라 실패를 말하고, 다시 시도한다", async () => {
     let fail = true;
-    const { api } = renderAt(DETAIL, {
+    const { api } = renderAt(`${DETAIL}?tab=sessions`, {
       ...meOk,
       ...agentServer().routes,
       [`GET /v1/sessions${AGENT_SESSIONS_SEARCH}`]: () =>
@@ -725,13 +784,13 @@ describe("에이전트 상세 탭", () => {
       ),
     ).toBeDefined();
     expect(
-      within(section).queryByRole("button", { name: "릴리스 탭으로" }),
+      within(section).queryByRole("button", { name: "릴리스로 이동" }),
     ).toBeNull();
     expect(section.textContent).not.toContain(
       "새 세션은 최신 버전으로 시작합니다",
     );
     const user = await setupUser();
-    await user.click(screen.getByRole("tab", { name: "상세 설정" }));
+    await user.click(screen.getByRole("tab", { name: "설정" }));
     const summary = await screen.findByRole("region", {
       name: "에이전트 카드",
     });
@@ -784,7 +843,10 @@ describe("에이전트 상세 탭", () => {
     const server = agentServer();
     server.releases.push(releaseFixture(0));
     expect(server.detail().releases).toHaveLength(1);
-    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...server.routes });
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
+      ...meOk,
+      ...server.routes,
+    });
     const summary = await screen.findByRole("region", {
       name: "에이전트 카드",
     });
@@ -797,7 +859,7 @@ describe("에이전트 상세 탭", () => {
   test("version이 없는 에이전트도 카드 탭에 이름과 식별자를 보인다", async () => {
     const server = agentServer();
     const path = `/v1/agents/${AGENT_ID}`;
-    renderAt(`${DETAIL}?tab=card`, {
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meOk,
       ...server.routes,
       [`GET ${path}`]: () => json(200, { ...server.detail(), versions: [] }),
@@ -835,7 +897,7 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {
-    renderAt(`${DETAIL}?tab=card`, {
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
       ...meOk,
       ...agentServer({ description: "결제 문의 담당" }).routes,
     });
@@ -859,7 +921,10 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("카드 원문을 복사하면 버튼이 복사했다고 바뀌고, 실패하면 직접 복사하라고 한다", async () => {
-    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
+    renderAt(`${DETAIL}?tab=settings&section=card`, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     const section = await screen.findByRole("region", { name: "카드 원문" });
     const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     const written: string[] = [];
@@ -899,16 +964,17 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("관리하지 않는 구성원에게 관리자 탭은 담당 팀과 관리자 목록만 보이고 편집 행동이 없다", async () => {
-    renderAt(`${DETAIL}?tab=admins`, {
+    renderAt(`${DETAIL}?tab=settings&section=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
-    const panel = await screen.findByRole("tabpanel");
-    await within(panel).findByText("재무");
-    await within(panel).findByText(/담당 팀과 별개로/);
-    expect(within(panel).queryByRole("button")).toBeNull();
-    expect(within(panel).queryByRole("combobox")).toBeNull();
+    await screen.findByRole("tabpanel");
+    const admins = within(settingsSection("admins"));
+    await admins.findByText("재무");
+    await admins.findByText(/담당 팀과 별개로/);
+    expect(admins.queryByRole("button")).toBeNull();
+    expect(admins.queryByRole("combobox")).toBeNull();
   });
 
   test("영어 화면도 탭 이름을 옮긴다", async () => {
@@ -920,13 +986,10 @@ describe("에이전트 상세 탭", () => {
         .map((tab) => tab.textContent),
     ).toEqual([
       "Overview",
-      "Settings",
-      "Release",
-      "Access",
       "Run rules",
-      "Admins",
-      "Slack",
-      "GitHub",
+      "Access (MCP)",
+      "Sessions",
+      "Settings",
     ]);
   });
 
@@ -942,7 +1005,10 @@ describe("에이전트 상세 탭", () => {
       card: { ...first.card, language: "en" },
     });
     await released(server, server.versions[1]?.card);
-    renderAt(`${DETAIL}?tab=release`, { ...meOk, ...server.routes });
+    renderAt(`${DETAIL}?tab=settings&section=release`, {
+      ...meOk,
+      ...server.routes,
+    });
     const heading = await screen.findByRole("heading", { level: 1 });
     await waitFor(() =>
       expect(heading.nextElementSibling?.textContent).toBe("릴리스"),
@@ -997,7 +1063,7 @@ describe("에이전트 상세 탭", () => {
   test("배포 탭은 배포 기록 표만 두고 자격 연결은 접근 탭에 있으며, 만든 사람은 구성원 이름으로 쓴다", async () => {
     const server = agentServer();
     await released(server);
-    renderAt(`${DETAIL}?tab=release`, {
+    renderAt(`${DETAIL}?tab=settings&section=release`, {
       ...meOk,
       ...server.routes,
       "GET /v1/members": () =>
@@ -1076,13 +1142,13 @@ describe("에이전트 상세 탭", () => {
       "2026-10-11T02:00:00.000Z",
     );
     expect(
-      within(visiblePanel())
+      within(settingsSection("release"))
         .getAllByRole("heading", { level: 2 })
         .map((heading) => heading.textContent),
     ).toEqual(["릴리스"]);
   });
 
-  test("구성원 목록은 배포 탭을 열 때 읽고, 다른 탭을 볼 때는 읽지 않는다", async () => {
+  test("구성원 목록은 설정 탭을 열 때 읽고, 다른 탭을 볼 때는 읽지 않는다", async () => {
     const server = agentServer();
     await released(server);
     const { api } = renderAt(DETAIL, {
@@ -1094,16 +1160,16 @@ describe("에이전트 상세 탭", () => {
     const user = await setupUser();
     const memberReads = () =>
       api.calls.filter((c) => c.path === "/v1/members").length;
-    await user.click(await screen.findByRole("tab", { name: "상세 설정" }));
+    await user.click(await screen.findByRole("tab", { name: "세션" }));
     expect(memberReads()).toBe(0);
-    await user.click(screen.getByRole("tab", { name: "릴리스" }));
+    await user.click(screen.getByRole("tab", { name: "설정" }));
     await waitFor(() => expect(memberReads()).toBe(1));
   });
 
   test("구성원 목록을 못 읽으면 만든 사람을 '구성원'으로 쓴다", async () => {
     const server = agentServer();
     await released(server);
-    renderAt(`${DETAIL}?tab=release`, {
+    renderAt(`${DETAIL}?tab=settings&section=release`, {
       ...meOk,
       ...server.routes,
       "GET /v1/members": () => apiError(500, "INTERNAL_ERROR", "boom"),
@@ -1114,7 +1180,10 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("release가 없으면 빈 상태만 보이고 릴리스를 만드는 단추는 없다", async () => {
-    renderAt(`${DETAIL}?tab=release`, { ...meOk, ...agentServer().routes });
+    renderAt(`${DETAIL}?tab=settings&section=release`, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     expect(await screen.findByText("아직 릴리스가 없습니다.")).toBeDefined();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("button", { name: "새 릴리스" })).toBeNull();

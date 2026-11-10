@@ -1,5 +1,5 @@
 export const agentAccessKo = {
-  "agent.tabs.access": "접근",
+  "agent.tabs.access": "접근(MCP)",
   "agentAccess.mcp.title": "MCP 서버와 도구",
   "agentAccess.intro":
     "MCP 서버와 자격 증명은 에이전트 설정입니다. 바꿔도 릴리스는 만들어지지 않고, 변경은 릴리스 탭의 '접근 변경'에 남습니다. 실행 중인 세션에는 좁히는 변경만 바로 적용됩니다.",
@@ -82,7 +82,7 @@ export const agentAccessKo = {
 } as const;
 
 export const agentAccessEn: Record<keyof typeof agentAccessKo, string> = {
-  "agent.tabs.access": "Access",
+  "agent.tabs.access": "Access (MCP)",
   "agentAccess.mcp.title": "MCP server and tools",
   "agentAccess.intro":
     "MCP servers and credentials are agent settings. Changing them does not create a release; the change appears as an 'Access change' in the Releases tab. For running sessions, only changes that narrow access apply at once.",
@@ -164,7 +164,7 @@ export const agentAccessEn: Record<keyof typeof agentAccessKo, string> = {
 };
 
 export const agentAccessJa: Record<keyof typeof agentAccessKo, string> = {
-  "agent.tabs.access": "アクセス",
+  "agent.tabs.access": "アクセス(MCP)",
   "agentAccess.mcp.title": "MCPサーバーとツール",
   "agentAccess.intro":
     "MCPサーバーと認証情報はエージェント設定です。変更してもリリースは作られず、変更はリリース履歴に「アクセス変更」として表示されます。実行中のセッションには、アクセスを狭める変更だけがすぐに反映されます。",

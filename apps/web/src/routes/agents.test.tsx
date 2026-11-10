@@ -22,6 +22,7 @@ import {
   agentServer,
   CARD,
   seedRelease as releaseFixture,
+  settingsSection,
   TEAM_ID,
 } from "../test-support/fake-agents.ts";
 
@@ -137,7 +138,7 @@ const profileSelect = async () =>
 
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}`;
-const CARD_TAB = `${DETAIL}?tab=card`;
+const CARD_TAB = `${DETAIL}?tab=settings&section=card`;
 
 // The card tab reads first; its form opens behind this button.
 async function openCardEditor(user: User) {
@@ -148,7 +149,7 @@ async function openCardEditor(user: User) {
     }),
   );
 }
-const RELEASE_TAB = `${DETAIL}?tab=release`;
+const RELEASE_TAB = `${DETAIL}?tab=settings&section=release`;
 
 const PROFILE = "claude-coding-local";
 /** A profile the new-agent flow can release: it needs no repository. */
@@ -170,8 +171,6 @@ const catalogProfile = (
   repository_mode: "optional",
   repository_ids: ["sample-app"],
 });
-const showTab = async (user: User, name: string) =>
-  user.click(await screen.findByRole("tab", { name }));
 const showList = async (user: User, name: string) =>
   user.click(await screen.findByRole("button", { name }));
 // The state badge of the card or row an agent's name links from.
@@ -1096,7 +1095,7 @@ describe("Slack 조치 링크", () => {
     screen
       .getByRole("link", { name })
       .closest("[role=row], [data-slot=card]")
-      ?.querySelector<HTMLAnchorElement>("a[href*='tab=slack']") ?? null;
+      ?.querySelector<HTMLAnchorElement>("a[href*='section=slack']") ?? null;
 
   test("조치가 필요한 카드와 행에만 그 에이전트의 Slack 탭 링크를 이유와 함께 단다", async () => {
     const user = await setupUser();
@@ -1115,7 +1114,7 @@ describe("Slack 조치 링크", () => {
         }
         expect(link?.textContent).toBe(`Slack 조치 필요: ${reason}`);
         expect(link?.getAttribute("href")).toBe(
-          `/agents/${agents[n]?.id}?tab=slack`,
+          `/agents/${agents[n]?.id}?tab=settings&section=slack`,
         );
       });
     check();
@@ -2421,7 +2420,7 @@ describe("에이전트 상세", () => {
         }),
     ).toBe(true);
   });
-  test("카드를 저장하면 릴리스 탭의 기록이 새 릴리스를 보인다", async () => {
+  test("카드를 저장하면 릴리스 섹션의 기록이 새 릴리스를 보인다", async () => {
     const server = agentServer();
     await seedRelease(server);
     renderAt(CARD_TAB, { ...meOk, ...server.routes });
@@ -2432,8 +2431,8 @@ describe("에이전트 상세", () => {
     await screen.findByText(
       "저장하고 새 세션에 적용했습니다. 카드는 버전 2입니다.",
     );
-    await showTab(user, "릴리스");
-    const table = await screen.findByRole("table");
+    // The release list is another section of the tab the card is saved in.
+    const table = await within(settingsSection("release")).findByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(server.releases).toHaveLength(2);
   });
@@ -2900,7 +2899,9 @@ describe("릴리스 되돌리기", () => {
         name: "되돌리기",
       }),
     );
-    const refusal = await screen.findByRole("alert");
+    const refusal = await within(settingsSection("release")).findByRole(
+      "alert",
+    );
     expect(refusal.textContent).toContain(
       "카드 모델 claude-sonnet-5이(가) 프로필 claude-coding-fast에서 실행되지 않아",
     );
@@ -2984,7 +2985,7 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await openCardEditor(user);
-    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    const card = settingsSection("card");
     const cardProfile = (await within(card).findByLabelText(
       "프로필",
     )) as HTMLSelectElement;
@@ -3040,7 +3041,7 @@ describe("편집 중 다른 곳의 저장", () => {
       });
       const user = await setupUser();
       await openCardEditor(user);
-      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      const card = settingsSection("card");
       await user.selectOptions(
         await within(card).findByLabelText("프로필"),
         "claude-coding-both",
@@ -3184,7 +3185,7 @@ describe("편집 중 다른 곳의 저장", () => {
       const user = await setupUser();
       await openCardEditor(user);
       // Only the profile changes, so the card sent is the first version's.
-      const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+      const card = settingsSection("card");
       await user.selectOptions(
         await within(card).findByLabelText("프로필"),
         "claude-coding-both",
@@ -3264,7 +3265,7 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await openCardEditor(user);
-    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    const card = settingsSection("card");
     const cardProfile = (await within(card).findByLabelText(
       "프로필",
     )) as HTMLSelectElement;
@@ -3552,21 +3553,24 @@ describe("편집 중 다른 곳의 저장", () => {
         card: { ...CARD, role: "환불 문의 담당" },
       })),
     };
-    const { api, history } = renderAt(`/agents/${OTHER}?tab=card`, {
-      ...meOk,
-      ...server.routes,
-      [`GET /v1/agents/${OTHER}`]: () => json(200, otherDetail),
-      [`PATCH /v1/agents/${OTHER}`]: () =>
-        json(200, {
-          ...otherDetail,
-          release: {
-            status: "unchanged",
-            reason: null,
-            release_id: null,
-            version_id: null,
-          },
-        }),
-    });
+    const { api, history } = renderAt(
+      `/agents/${OTHER}?tab=settings&section=card`,
+      {
+        ...meOk,
+        ...server.routes,
+        [`GET /v1/agents/${OTHER}`]: () => json(200, otherDetail),
+        [`PATCH /v1/agents/${OTHER}`]: () =>
+          json(200, {
+            ...otherDetail,
+            release: {
+              status: "unchanged",
+              reason: null,
+              release_id: null,
+              version_id: null,
+            },
+          }),
+      },
+    );
     // Visit the other agent first so it is cached when we come back to it.
     await screen.findByRole("heading", { name: "환불 담당" });
     history.push(CARD_TAB);
@@ -3574,7 +3578,7 @@ describe("편집 중 다른 곳의 저장", () => {
     const user = await setupUser();
     await openCardEditor(user);
     await user.selectOptions(screen.getByLabelText("답변 언어"), "en");
-    history.push(`/agents/${OTHER}?tab=card`);
+    history.push(`/agents/${OTHER}?tab=settings&section=card`);
     await screen.findByRole("heading", { name: "환불 담당" });
     await openCardEditor(user);
     expect(

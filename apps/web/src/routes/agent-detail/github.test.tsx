@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "@werft-ai/client";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  settingsSection,
+} from "../../test-support/fake-agents.ts";
 import { apiError, json, me, RECEIPT_ID } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
@@ -10,7 +14,9 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 // against the test DOM.
 const { pendingCount, refusesAgentRef } = await import("./github.tsx");
 const PATH = `/v1/agents/${AGENT_ID}`;
-const DETAIL = `/agents/${AGENT_ID}?tab=github`;
+const DETAIL = `/agents/${AGENT_ID}?tab=settings&section=github`;
+/** The release section reads the same activity, so alerts are told apart by section. */
+const inGitHub = () => within(settingsSection("github"));
 const SESSION = "00000000-0000-4000-8000-0000000000c1";
 
 type Tab = components["schemas"]["AgentGitHubResponse"];
@@ -137,9 +143,25 @@ function routesFor(
         repositories: [],
         unavailable: "ceiling_listed",
       }),
+    ...quietSlack,
     ...extra,
   };
 }
+
+/** The Slack section shares the settings tab; unmocked, it would raise alerts. */
+const quietSlack = {
+  [`GET ${PATH}/slack/app`]: () =>
+    json(200, {
+      slack_app: null,
+      event_url: null,
+      events: { state: "pending", checked_at: null, url: null },
+      warnings: [],
+      config_token: "[REDACTED]",
+    }),
+  [`GET ${PATH}/identities`]: () => json(200, { items: [] }),
+  [`GET ${PATH}/slack/channels`]: () => json(200, { items: [] }),
+  [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+};
 
 const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
@@ -202,7 +224,7 @@ describe("에이전트 GitHub 탭", () => {
     await screen.findByRole("switch", { name: "acme/werft-sandbox 사용" });
     down = true;
     window.dispatchEvent(new Event("visibilitychange"));
-    const alert = await screen.findByRole("alert");
+    const alert = await inGitHub().findByRole("alert");
     expect(alert.getAttribute("data-variant")).toBe("red");
     expect(repoSwitch("werft-sandbox") !== null).toBe(true);
   });
@@ -215,13 +237,15 @@ describe("에이전트 GitHub 탭", () => {
         (request: Request) => Response | Promise<Response>
       > = routesFor(server, TAB);
       const key = `GET ${PATH}/${read}`;
-      let failed = false;
+      // The release section reads the activity first and the GitHub section
+      // reads it again when it mounts, so both reads fail before the retry.
+      let failures = read === "github/activity" ? 2 : 1;
       const { api } = renderAt(DETAIL, {
         ...base,
         [key]: (request: Request) => {
-          if (failed)
+          if (failures === 0)
             return (base[key] as NonNullable<(typeof base)[string]>)(request);
-          failed = true;
+          failures -= 1;
           return apiError(500, "INTERNAL_ERROR", "down");
         },
       });
@@ -230,18 +254,18 @@ describe("에이전트 GitHub 탭", () => {
         await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
         await openSection(user, "최근 기록");
       }
-      const alert = await screen.findByRole("alert");
+      const alert = await inGitHub().findByRole("alert");
       expect(alert.textContent).toContain("불러오지 못했습니다");
       await user.click(
         within(alert).getByRole("button", { name: "다시 시도" }),
       );
       await waitFor(() =>
-        expect(screen.queryByRole("alert") === null).toBe(true),
+        expect(inGitHub().queryByRole("alert") === null).toBe(true),
       );
       const reads = api.calls.filter(
         (c) => c.method === "GET" && c.path === `${PATH}/${read}`,
       );
-      expect(reads).toHaveLength(2);
+      expect(reads).toHaveLength(read === "github/activity" ? 3 : 2);
       expect(
         api.calls.filter(
           (c) => c.method !== "GET" && c.path.startsWith(`${PATH}/github`),
@@ -723,9 +747,11 @@ describe("에이전트 GitHub 탭", () => {
     await openSection(user, "최근 기록");
     expect(await screen.findByText("GitHub 설정 저장")).toBeTruthy();
     expect(screen.getByRole("table", { name: "최근 기록" })).toBeTruthy();
+    // One read for the release section and one when the GitHub section
+    // mounts on the same key; opening the list reads nothing more.
     expect(
       api.calls.filter((c) => c.path === `${PATH}/github/activity`),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
@@ -1230,7 +1256,7 @@ describe("에이전트 GitHub 탭", () => {
     const user = await setupUser();
     await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
-    const alert = await screen.findByRole("alert");
+    const alert = await inGitHub().findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
     expect(screen.queryByText(/저장소를 바꾸지 못했습니다/)).toBeNull();
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
@@ -1267,7 +1293,7 @@ describe("에이전트 GitHub 탭", () => {
     const user = await setupUser();
     await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
-    await screen.findByRole("alert");
+    await inGitHub().findByRole("alert");
     expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe("true");
     await user.click(repoSwitch("docs-site"));
     const row = repoSwitch("docs-site").closest(
@@ -1313,7 +1339,7 @@ describe("에이전트 GitHub 탭", () => {
     const user = await setupUser();
     await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
     await user.click(repoSwitch("docs-site"));
-    await screen.findByRole("alert");
+    await inGitHub().findByRole("alert");
     await user.click(repoSwitch("docs-site"));
     await user.click(repoSwitch("docs-site"));
     release();
@@ -1377,7 +1403,7 @@ describe("에이전트 GitHub 탭", () => {
     await user.click(
       await screen.findByRole("switch", { name: "acme/api 사용" }),
     );
-    await screen.findByRole("alert");
+    await inGitHub().findByRole("alert");
     expect(switchNamed("acme/api 사용").getAttribute("aria-checked")).toBe(
       "true",
     );
@@ -1897,7 +1923,7 @@ describe("에이전트 GitHub 탭", () => {
       };
       failing = false;
       await user.click(
-        await screen.findByRole("button", { name: "다시 시도" }),
+        await inGitHub().findByRole("button", { name: "다시 시도" }),
       );
       // The re-read has landed once the switch shows the saved row.
       await waitFor(() =>
@@ -1962,7 +1988,7 @@ describe("에이전트 GitHub 탭", () => {
       });
       await user.click(switchNamed("push 전 사람 승인"));
       await user.click(repoSwitch("docs-site"));
-      await screen.findByRole("button", { name: "다시 시도" });
+      await inGitHub().findByRole("button", { name: "다시 시도" });
       await user.click(repoSwitch("werft-sandbox"));
       await new Promise((resolve) => setTimeout(resolve, 100));
       live = {
@@ -1980,7 +2006,7 @@ describe("에이전트 GitHub 탭", () => {
       };
       failing = false;
       await user.click(
-        await screen.findByRole("button", { name: "다시 시도" }),
+        await inGitHub().findByRole("button", { name: "다시 시도" }),
       );
       await waitFor(() =>
         expect(repoSwitch("docs-site").getAttribute("aria-checked")).toBe(
