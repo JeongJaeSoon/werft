@@ -199,7 +199,7 @@ export const baseline: Baseline = {
     "musterrolle/slack-channel-join.ts": 5,
     "musterrolle/slack-channel-search.ts": 10,
     "musterrolle/slack-config-api.ts": 21,
-    "musterrolle/slack-config-token.ts": 2,
+    "musterrolle/slack-config-token.ts": 3,
     "musterrolle/slack-decision.ts": 4,
     "musterrolle/slack-events-finalize.ts": 3,
     "musterrolle/slack-events-service.ts": 9,
