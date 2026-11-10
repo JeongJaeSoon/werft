@@ -377,6 +377,8 @@ export type DeliveredInput = {
   deliveryStartedAt: Date;
   /** The person whose input this turn is; null for an agent or operator key. */
   actorId: string | null;
+  /** The traceparent of the request that queued the turn; null when untraced. */
+  traceContext: string | null;
 };
 export type NextInputResult =
   | {

@@ -746,6 +746,7 @@ export function createSessionService(deps: {
         body: CreateSessionRequest;
         shareScope?: "private";
         slackMessage?: SlackMessageRef;
+        traceContext?: string;
       },
     ): Promise<CreateSessionResponse> {
       const release = await pinnedRelease(actor, input.body);
@@ -982,6 +983,9 @@ export function createSessionService(deps: {
         ...(input.slackMessage === undefined
           ? {}
           : { slackMessage: input.slackMessage }),
+        ...(input.traceContext === undefined
+          ? {}
+          : { traceContext: input.traceContext }),
         ...(input.body.permission_wait === undefined
           ? {}
           : { permissionWait: input.body.permission_wait }),
@@ -1052,6 +1056,7 @@ export function createSessionService(deps: {
         idempotencyKey: string;
         body: PostSessionMessageRequest;
         slackMessage?: SlackMessageRef;
+        traceContext?: string;
       },
     ): Promise<PostSessionMessageResponse> {
       await requirePermitted(authorization, actor, "session.submit", {
@@ -1075,6 +1080,9 @@ export function createSessionService(deps: {
         ...(input.slackMessage === undefined
           ? {}
           : { slackMessage: input.slackMessage }),
+        ...(input.traceContext === undefined
+          ? {}
+          : { traceContext: input.traceContext }),
         ...(block ? { profileBlocked: true as const } : {}),
       });
       switch (result.outcome) {

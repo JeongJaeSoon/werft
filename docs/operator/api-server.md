@@ -444,6 +444,8 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 
 켜면 `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·메트릭 경로와 worker gateway(`/internal/**`)는 span이 없고, gateway는 worker가 그 turn의 trace id로 `traceparent`를 보낸 호출만 그 trace의 자식 span을 만든다.
 
+turn을 큐에 넣은 요청(세션 생성의 첫 turn, `POST /v1/sessions/{id}/messages`)의 span `traceparent`는 `turns.trace_context`(마이그레이션 0263, nullable)에 같은 트랜잭션으로 저장되고, worker의 `nextInput` 응답에 `trace_context`로 실린다. 꺼져 있거나 마이그레이션 이전의 turn은 null이라 필드가 빠진다.
+
 ## checkpoint object store
 
 API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`·`AWS_REGION`(+ 선택 `AWS_ENDPOINT_URL`)이 없으면 기동하지 않는다. `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`는 둘 다 주거나 둘 다 뺀다. 하나만 있으면 기동하지 않는다. 둘 다 빼면 AWS SDK 기본 credential chain이 서명한다. EKS에서는 api ServiceAccount의 IRSA role이 그 자리에 오고, chart는 `secrets.objectStoreKeys: false`로 이 경로를 쓴다. chain이 아무 credential도 찾지 못하면 요청은 서명 없이 나가지 않고 실패한다. 이 credential은 워커의 object store route 요청을 서명하는 데도 쓰인다. object store 없이 띄우려면 `CHECKPOINT_OBJECT_STORE=disabled`를 명시한다: 모든 checkpoint가 거절되고 워커 checkpoint 프로토콜은 409 `CHECKPOINT_UNAVAILABLE`로 답하며 기동 로그에 경고가 남는다. 빠진 bucket이 checkpoint 없는 finalize 뒤에 숨지 않도록 침묵 기본값을 두지 않았다. compose `apps` profile은 localstack 값을 기본으로 넣는다.

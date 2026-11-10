@@ -194,6 +194,7 @@ async function insertQueuedTurn(
     actorId: string | null;
     channel: SurfaceKind | null;
     slackMessage: SlackMessageRef | null;
+    traceContext?: string | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -210,6 +211,7 @@ async function insertQueuedTurn(
       actorId: input.actorId,
       channel: input.channel,
       slackMessage: input.slackMessage,
+      traceContext: input.traceContext ?? null,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -418,6 +420,7 @@ export function createPostgresSessionUnitOfWork(
           actorId: actor?.userId ?? null,
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
+          traceContext: input.traceContext ?? null,
         });
 
         if (envCapture.outcome === "resolved") {
@@ -581,6 +584,7 @@ export function createPostgresSessionUnitOfWork(
           actorId: input.principal.actor?.userId ?? null,
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
+          traceContext: input.traceContext ?? null,
         });
         await tx
           .update(sessions)
