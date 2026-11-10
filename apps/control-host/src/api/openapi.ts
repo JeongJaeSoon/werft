@@ -3303,7 +3303,7 @@ export const API_ROUTE_DECLARATIONS = [
         receipt_status: "accepted",
       },
     },
-    errors: [400, 401, 404, 409, 413, 429, 503],
+    errors: [400, 401, 404, 409, 413, 422, 429, 503],
     errorCodes: {
       409: [
         "IDEMPOTENCY_CONFLICT",
@@ -3320,6 +3320,8 @@ export const API_ROUTE_DECLARATIONS = [
       413: ["PAYLOAD_TOO_LARGE", "STORAGE_LIMIT_EXCEEDED"],
     },
     errorNotes: {
+      UNSUPPORTED_CAPABILITY:
+        "A failed session that has no runtime spec pinned on its own model, which it needs to run again once specs are authoritative; nothing is queued.",
       RATE_LIMITED:
         "The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
       PROFILE_BLOCKED:
@@ -4404,7 +4406,8 @@ export const API_ROUTE_DECLARATIONS = [
       REQUEST_STALE: "The session is already active.",
       CHECKPOINT_UNAVAILABLE:
         "The stopped or paused session has no restore point it can resume from.",
-      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+      UNSUPPORTED_CAPABILITY:
+        "The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
       BACKEND_UNAVAILABLE:
         "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
     },
@@ -4447,7 +4450,8 @@ export const API_ROUTE_DECLARATIONS = [
       SESSION_PAUSED: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
       SESSION_RESUMING: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
       SESSION_STOPPED: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
-      UNSUPPORTED_CAPABILITY: "The session runs on a legacy pod binding.",
+      UNSUPPORTED_CAPABILITY:
+        "The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
       BACKEND_UNAVAILABLE:
         "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
     },

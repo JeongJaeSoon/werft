@@ -575,6 +575,12 @@ describe("POST /v1/sessions/{id}/messages validation", () => {
     expect(full.status).toBe(429);
     expect(full.headers.get("Retry-After")).toBe("5");
     expect(await errorCode(full)).toBe("RATE_LIMITED");
+    const unpinned = await postMessage(
+      { message: "hi" },
+      { appendInputAtomic: async () => ({ outcome: "pin_required" }) },
+    );
+    expect(unpinned.status).toBe(422);
+    expect(await errorCode(unpinned)).toBe("UNSUPPORTED_CAPABILITY");
   });
 
   test("maps storage connection failures to a retryable 503", async () => {
@@ -949,6 +955,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
       ],
       [{ outcome: "turn_not_unknown", turnStatus: null }, 404, "NOT_FOUND"],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "pin_required" }, 422, "UNSUPPORTED_CAPABILITY"],
       [{ outcome: "checkpoint_not_covering" }, 409, "CHECKPOINT_UNAVAILABLE"],
       [
         { outcome: "not_in_recovery", admissionState: "active" },
@@ -1142,6 +1149,7 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
         "SESSION_RESUMING",
       ],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "pin_required" }, 422, "UNSUPPORTED_CAPABILITY"],
       [{ outcome: "workspace_reclaiming" }, 503, "BACKEND_UNAVAILABLE"],
       [{ outcome: "not_found" }, 404, "NOT_FOUND"],
       [

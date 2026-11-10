@@ -121,7 +121,17 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @octokit/request-error | 7.1.2 | MIT | control-host |
 | @octokit/types | 17.0.0 | MIT | control-host |
 | @octokit/types | 18.0.0 | MIT | control-host |
-| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host |
+| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/api-logs | 0.223.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/core | 2.12.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/exporter-trace-otlp-proto | 0.223.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/otlp-exporter-base | 0.223.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/otlp-transformer | 0.223.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/resources | 2.12.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/sdk-logs | 0.223.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/sdk-metrics | 2.12.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/sdk-trace | 2.12.0 | Apache-2.0 | control-host, worker |
+| @opentelemetry/semantic-conventions | 1.45.0 | Apache-2.0 | control-host, worker |
 | @radix-ui/primitive | 1.1.7 | MIT | control-host |
 | @radix-ui/react-arrow | 1.1.15 | MIT | control-host |
 | @radix-ui/react-checkbox | 1.3.11 | MIT | control-host |
