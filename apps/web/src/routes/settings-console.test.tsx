@@ -5,7 +5,6 @@ import type {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { json, me } from "../test-support/fake-api.ts";
-import { imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
@@ -32,6 +31,8 @@ const connection = (
   auth_kind: "api_key",
   auto_mode: "unknown",
   credential: { source: "stored", last4: "abcd" },
+  models: ["claude-sonnet-5"],
+  model_families: null,
   created_at: AT,
   disabled_at: null,
   ...rest,
@@ -108,8 +109,6 @@ describe("모델 연결", () => {
     defaults: Record<string, string> = {},
   ) => ({
     "GET /v1/auth/me": () => json(200, signedIn),
-    "GET /v1/profiles": () =>
-      json(200, { items: [imported("coding-claude"), imported("general")] }),
     [`GET ${CONNECTIONS}`]: () =>
       json(200, {
         items: listed,
@@ -237,8 +236,7 @@ describe("모델 연결", () => {
     const table = await screen.findByRole("table", { name: "모델 연결" });
     const imported = rowOf(table, "anthropic");
     expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
-    // Both ceilings run over it.
-    expect(imported.textContent).toContain("프로필 2개");
+    expect(imported.textContent).toContain("claude-sonnet-5");
     expect(imported.textContent).not.toContain("파일");
 
     const stored = rowOf(table, "console-key");
@@ -707,54 +705,6 @@ describe("모델 연결", () => {
       );
     });
 
-    test("focus waits for a button that is still disabled while another refetch runs", async () => {
-      let on = false;
-      let release: () => void = () => {};
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      renderAt(CONNECTIONS_PAGE, {
-        ...routes(),
-        "GET /v1/profiles": async () => {
-          if (on) await gate;
-          return json(200, { items: [] });
-        },
-        [`GET ${CONNECTIONS}`]: () =>
-          json(200, {
-            items: [
-              connection(
-                "off-key",
-                on ? {} : { state: "disabled", disabled_at: AT },
-              ),
-            ],
-            credential_hosts: null,
-            endpoint_defaults: {},
-          }),
-        [`POST ${ENABLE}`]: () => {
-          on = true;
-          return json(200, CHANGE("off-key"));
-        },
-      });
-      const user = await setupUser();
-      const table = await screen.findByRole("table", { name: "모델 연결" });
-      await user.click(
-        within(table).getByRole("button", { name: "off-key 다시 켜기" }),
-      );
-      await user.click(
-        within(await screen.findByRole("dialog")).getByRole("button", {
-          name: "다시 켜기",
-        }),
-      );
-      const disable = (await within(table).findByRole("button", {
-        name: "off-key 사용 중지",
-      })) as HTMLButtonElement;
-      expect(document.activeElement === disable).toBe(false);
-      release();
-      await waitFor(() =>
-        expect(document.activeElement === disable).toBe(true),
-      );
-    });
-
     for (const [reason, words] of [
       [
         "definition_active",
@@ -936,8 +886,8 @@ describe("모델 연결", () => {
   });
 
   test("an admin neither reads the connections nor gets a way to change them", async () => {
-    const { api } = renderAt("/profiles", routes(me(undefined, "admin")));
-    await screen.findByRole("table", { name: "프로필" });
+    const { api } = renderAt(CONNECTIONS_PAGE, routes(me(undefined, "admin")));
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
     expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
       true,
     );
@@ -1063,8 +1013,6 @@ describe("MCP 서버", () => {
 describe("설정의 모델 연결", () => {
   const routes = (signedIn = me()) => ({
     "GET /v1/auth/me": () => json(200, signedIn),
-    "GET /v1/profiles": () =>
-      json(200, { items: [imported("coding-claude"), imported("general")] }),
     [`GET ${CONNECTIONS}`]: () =>
       json(200, {
         items: [connection("anthropic"), connection("console-key")],
@@ -1087,7 +1035,7 @@ describe("설정의 모델 연결", () => {
         .getAllByRole("heading", { name: "모델 연결" })
         .map((h) => h.tagName),
     ).toEqual(["H1"]);
-    expect(rowOf(table, "anthropic").textContent).toContain("프로필 2개");
+    expect(rowOf(table, "anthropic").textContent).toContain("claude-sonnet-5");
     expect(
       within(screen.getByRole("navigation", { name: "설정" }))
         .getByRole("link", { name: "모델 연결" })
@@ -1105,116 +1053,6 @@ describe("설정의 모델 연결", () => {
     ]);
   });
 
-  test("the Profiles screen no longer manages connections", async () => {
-    const { api } = renderAt("/profiles", routes());
-    await screen.findByRole("table", { name: "프로필" });
-    // The table would be on screen once its (independent) query has answered.
-    await waitFor(() =>
-      expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(true),
-    );
-    await act(async () => {});
-    expect(screen.queryByRole("table", { name: "모델 연결" }) === null).toBe(
-      true,
-    );
-    expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
-      true,
-    );
-  });
-
-  describe("the empty-profiles hint", () => {
-    const empty = (items: SettingsConnection[]) => ({
-      "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/profiles": () => json(200, { items: [] }),
-      [`GET ${CONNECTIONS}`]: () =>
-        json(200, { items, credential_hosts: null, endpoint_defaults: {} }),
-    });
-    const HINT = "프로필을 만들려면 먼저 모델 연결이 필요합니다.";
-
-    test("an owner with no active connection gets a link to the connections screen", async () => {
-      renderAt(
-        "/profiles",
-        empty([connection("old", { state: "needs_value" })]),
-      );
-      const link = await screen.findByRole("link", {
-        name: "모델 연결로 가기",
-      });
-      expect(
-        link.getAttribute("href") === "/settings/workspace/model-connections",
-      ).toBe(true);
-      expect(screen.getByText(HINT) !== null).toBe(true);
-    });
-
-    test("an active connection means no hint", async () => {
-      const { api } = renderAt("/profiles", empty([connection("live")]));
-      await screen.findByText("이 설치에 프로필이 없습니다.");
-      await waitFor(() =>
-        expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(true),
-      );
-      await act(async () => {});
-      expect(screen.queryByText(HINT) === null).toBe(true);
-      expect(
-        screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
-      ).toBe(true);
-    });
-
-    for (const [state, answer] of [
-      ["still loading", () => new Promise<Response>(() => {})],
-      ["failed", () => json(500, { error: "boom" })],
-    ] as const) {
-      test(`a connections list that is ${state} is not read as none`, async () => {
-        const { api } = renderAt("/profiles", {
-          ...empty([]),
-          [`GET ${CONNECTIONS}`]: answer,
-        });
-        await screen.findByText("이 설치에 프로필이 없습니다.");
-        await waitFor(() =>
-          expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(
-            true,
-          ),
-        );
-        await act(async () => {});
-        expect(screen.queryByText(HINT) === null).toBe(true);
-        expect(
-          screen.queryByRole("link", { name: "모델 연결로 가기" }) === null,
-        ).toBe(true);
-      });
-    }
-
-    test("a refetch that fails takes the hint away instead of keeping the cached answer", async () => {
-      let failing = false;
-      const { services } = renderAt("/profiles", {
-        ...empty([]),
-        [`GET ${CONNECTIONS}`]: () =>
-          failing
-            ? json(500, { error: "boom" })
-            : json(200, {
-                items: [],
-                credential_hosts: null,
-                endpoint_defaults: {},
-              }),
-      });
-      await screen.findByText(HINT);
-      failing = true;
-      await act(async () => {
-        await services.queryClient.refetchQueries({
-          predicate: (query) => query.state.status === "success",
-        });
-      });
-      await waitFor(() => expect(screen.queryByText(HINT) === null).toBe(true));
-    });
-
-    test("an admin gets no hint and never asks for the connections", async () => {
-      const { api } = renderAt("/profiles", {
-        ...empty([]),
-        "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
-      });
-      await screen.findByText("이 설치에 프로필이 없습니다.");
-      await act(async () => {});
-      expect(screen.queryByText(HINT) === null).toBe(true);
-      expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
-    });
-  });
-
   for (const role of ["admin", "member"] as const) {
     test(`a ${role} gets no menu item, and a direct visit is refused without a request`, async () => {
       const { api } = renderAt(CONNECTIONS_PAGE, routes(me(undefined, role)));
@@ -1228,7 +1066,7 @@ describe("설정의 모델 연결", () => {
       );
       expect(
         api.calls.some(
-          (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",
+          (call) => call.path === CONNECTIONS,
         ),
       ).toBe(false);
     });
