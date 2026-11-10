@@ -130,6 +130,8 @@ export async function writeRestrictionEntry(
           ON CONFLICT (agent_id) DO UPDATE
             SET admin_deny = agent_engine_settings.admin_deny || ${JSON.stringify([entry])}::jsonb,
                 revision = agent_engine_settings.revision + 1,
+                -- The row changed by an operator, not by whoever edited last.
+                updated_by = NULL,
                 updated_at = now()`,
     );
     return { status: "written" } as const;

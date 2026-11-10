@@ -179,40 +179,54 @@ async function apply(
     const skippedExisting: string[] = [];
     const changed: { agent_id: string; reason: string }[] = [];
     let gateClosed = false;
-    for (const entry of plan.agents) {
-      if (entry.decision !== "write") continue;
-      const result = await writeRestrictionEntry(deps.db, {
-        workspaceId: entry.workspace_id,
-        agentId: entry.agent_id,
-        expected: {
-          permissions_deny: entry.permissions_deny,
-          mcp_deny: entry.mcp_deny,
-        },
-        resolve,
-      });
-      if (result.status === "written") written.push(entry.agent_id);
-      else if (result.status === "skipped_existing") {
-        skippedExisting.push(entry.agent_id);
-      } else if (result.status === "gate_closed") {
-        gateClosed = true;
-        break;
-      } else {
-        changed.push({ agent_id: entry.agent_id, reason: result.reason });
-      }
-    }
-    say({
+    // An agent the plan could not move is left, and named: success means the
+    // report had nothing blocked, not only that the writes went through.
+    const blocked = plan.agents
+      .filter((entry) => entry.decision === "blocked")
+      .map((entry) => ({ agent_id: entry.agent_id, reason: entry.reason }));
+    const summary = () => ({
       dry_run: false,
       report_sha256: mode.sha256,
       written,
       skipped_existing: skippedExisting,
       changed_since_report: changed,
+      blocked,
       gate_closed: gateClosed,
       refused_count: gateClosed ? 1 : 0,
       written_count: written.length,
       skipped_existing_count: skippedExisting.length,
       changed_since_report_count: changed.length,
+      blocked_count: blocked.length,
     });
-    return gateClosed || changed.length > 0 ? 1 : 0;
+    try {
+      for (const entry of plan.agents) {
+        if (entry.decision !== "write") continue;
+        const result = await writeRestrictionEntry(deps.db, {
+          workspaceId: entry.workspace_id,
+          agentId: entry.agent_id,
+          expected: {
+            permissions_deny: entry.permissions_deny,
+            mcp_deny: entry.mcp_deny,
+          },
+          resolve,
+        });
+        if (result.status === "written") written.push(entry.agent_id);
+        else if (result.status === "skipped_existing") {
+          skippedExisting.push(entry.agent_id);
+        } else if (result.status === "gate_closed") {
+          gateClosed = true;
+          break;
+        } else {
+          changed.push({ agent_id: entry.agent_id, reason: result.reason });
+        }
+      }
+    } catch (error) {
+      // Each agent commits on its own: say how far it got before the error.
+      say({ ...summary(), error: String(error) });
+      throw error;
+    }
+    say(summary());
+    return gateClosed || changed.length > 0 || blocked.length > 0 ? 1 : 0;
   } finally {
     await lock.release();
   }

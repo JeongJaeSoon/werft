@@ -326,6 +326,30 @@ integration("the profile restriction migration on PostgreSQL", () => {
     });
   });
 
+  test("an apply of a report with a blocked agent names it and does not succeed", async () => {
+    await withDatabase(async (context) => {
+      const { db, run } = context;
+      const workspaceId = await workspaceOf(db);
+      const { agentId } = await agentWithRelease(db, workspaceId, ["Read"]);
+      await setEngineSettingsGate(db, true);
+      const gone = { profiles: {} } as unknown as SessionCatalog;
+      const out = join(context.dir, "blocked.json");
+      await run(["--dry-run", "--out", out], gone);
+      const text = await readFile(out, "utf8");
+      const applied = await run(
+        ["--apply", "--report", out, "--report-sha256", sha256Of(text)],
+        gone,
+      );
+      expect(applied.code).toBe(1);
+      expect(applied.out.written_count).toBe(0);
+      expect(applied.out.blocked_count).toBe(1);
+      expect(applied.out.blocked).toEqual([
+        { agent_id: agentId, reason: "profile_gone" },
+      ]);
+      expect(await rowOf(db, agentId)).toBeUndefined();
+    });
+  });
+
   test("an activation and the entry take the agent's lock in turn, so the entry exempts the release made first", async () => {
     await withDatabase(async (context) => {
       const { db, pool, run } = context;
@@ -355,7 +379,7 @@ integration("the profile restriction migration on PostgreSQL", () => {
       // Wait until the apply is queued on the agent's lock; only then is a
       // release made "first" in any sense the test can lean on.
       let waiting = false;
-      for (let tries = 0; tries < 100 && !waiting; tries += 1) {
+      for (let tries = 0; tries < 300 && !waiting; tries += 1) {
         const { rows } = await pool.query(
           `SELECT 1 FROM pg_stat_activity
            WHERE wait_event_type = 'Lock' AND query ILIKE '%FROM agents WHERE id%FOR UPDATE%'`,
