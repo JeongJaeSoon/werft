@@ -32,9 +32,9 @@ export const AGENT_STATUS_VALUES = ["active", "paused", "archived"] as const;
 export const agentStatusSchema = z.enum(AGENT_STATUS_VALUES);
 
 /**
- * The language an agent answers in. `follow-user` adds no instruction: the
- * model answers in the person's language. The others add one, which the
- * person's own language overrides.
+ * The language an agent answers in. `follow-user`, also the default for a
+ * card that names none, adds no instruction: the model answers in the
+ * person's language. The others add one that holds whatever the person writes.
  */
 export const AGENT_CARD_LANGUAGE_VALUES = [
   "follow-user",
@@ -188,7 +188,7 @@ export const agentCardSchema = z
       .min(1)
       .max(CARD_LEGACY_INSTRUCTIONS_MAX_LENGTH)
       .optional(),
-    language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("ko"),
+    language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("follow-user"),
     /** Must sit inside the runtime profile's model allowlist. */
     model: z.string().min(1).max(128),
     capabilities: agentCapabilitiesSchema,
