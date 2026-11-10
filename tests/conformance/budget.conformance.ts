@@ -14,6 +14,64 @@ const engine = engineFromEnv();
 const api = new Api(e2eEnv({ needsMessages: false }));
 const TIMEOUT = 600_000;
 
+async function docker(args: string[]): Promise<string> {
+  const run = Bun.spawn(["docker", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  // The container writes its log to both streams.
+  const [out, err] = await Promise.all([
+    new Response(run.stdout).text(),
+    new Response(run.stderr).text(),
+  ]);
+  if ((await run.exited) !== 0) throw new Error(`docker ${args[0]} failed`);
+  return `${out}\n${err}`;
+}
+
+/**
+ * How many provider egress authorizations this stack's gateway has refused
+ * for the budget. The log line carries no session id, so the scenario counts
+ * before and after: the stack is the run's own and no other scenario spends.
+ */
+async function budgetRefusals(): Promise<number> {
+  const project = process.env.E2E_COMPOSE_PROJECT;
+  if (!project) throw new Error("E2E_COMPOSE_PROJECT is unset");
+  const ids = (
+    await docker([
+      "ps",
+      "-q",
+      "--filter",
+      `label=com.docker.compose.project=${project}`,
+      "--filter",
+      "label=com.docker.compose.service=api",
+    ])
+  )
+    .split("\n")
+    .filter((line) => line.trim() !== "");
+  expect(ids.length).toBe(1);
+  let count = 0;
+  for (const line of (await docker(["logs", ids[0] as string])).split("\n")) {
+    const start = line.indexOf("{");
+    if (start < 0) continue;
+    try {
+      const entry = JSON.parse(line.slice(start)) as {
+        message?: string;
+        fields?: { code?: string; purpose?: string };
+      };
+      if (
+        entry.message === "Egress authorization refused" &&
+        entry.fields?.purpose === "provider" &&
+        entry.fields.code === "BUDGET_EXCEEDED"
+      ) {
+        count += 1;
+      }
+    } catch {
+      // Not a JSON log line.
+    }
+  }
+  return count;
+}
+
 describe(`cost limit on ${engine.runtimeKind}`, () => {
   scenario(
     engine,
@@ -21,6 +79,7 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
     "the call after the one that spent the limit is refused and the session fails",
     async () => {
       const id = scriptId("budget");
+      const refusedBefore = await budgetRefusals();
       const created = await api.createSession(
         engine.prompt({
           id,
@@ -48,6 +107,10 @@ describe(`cost limit on ${engine.runtimeKind}`, () => {
       expect(usage.budget_exceeded).toBe(true);
       const calls = await engine.modelCalls(id);
       expect(calls.map((call) => call.step)).toEqual([0]);
+
+      // The refusal is the gateway's: a session that failed for another
+      // reason after its first reply would pass every check above.
+      expect(await budgetRefusals()).toBeGreaterThan(refusedBefore);
     },
     TIMEOUT,
   );

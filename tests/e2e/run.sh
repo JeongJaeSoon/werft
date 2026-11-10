@@ -269,6 +269,8 @@ if [ -z "$real_model$local_model" ] && [ "$conformance" != codex_app_server ]; t
   export E2E_FAKE_MCP_BEARER_HASH
 fi
 export CONFORMANCE_RUNTIME_KIND="$conformance"
+# Lets a scenario read this stack's container logs and no other stack's.
+export E2E_COMPOSE_PROJECT="$project"
 if [ "${E2E_UP_ONLY:-0}" = 1 ]; then
   export E2E_KEEP=1
   # Holds the API key, so only here and never in a CI artifact.
@@ -315,10 +317,18 @@ fail="$(count fail)"
 # other skip is a missing variable or a disabled test.
 declared=0
 if [ -n "$conformance" ]; then
-  # Bun prints no `(skip)` line off a terminal; the junit file names the test.
-  declared="$(grep -c '<testcase name="[^"]*\[declared skip: ' "$out/junit.xml" || true)"
+  # Bun prints no `(skip)` line off a terminal; the junit file marks each
+  # skipped testcase with a <skipped> child. A declared name on a test that ran
+  # is as wrong as a skip without the name, so both are counted apart.
+  declared="$(awk '
+    /<testcase / { marked = ($0 ~ /\[declared skip: /) }
+    /<skipped/ && marked { n++ }
+    END { print n + 0 }
+  ' "$out/junit.xml")"
   grep -o '<testcase name="[^"]*\[declared skip: [^"]*"' "$out/junit.xml" |
     sed 's/<testcase name=/declared skip: /' | tee -a "$out/record.txt" >&2 || true
+  marked="$(grep -c '<testcase name="[^"]*\[declared skip: ' "$out/junit.xml" || true)"
+  [ "$marked" = "$declared" ] || { echo "e2e: ${marked} test(s) named as a declared skip, ${declared} skipped" >&2; exit 1; }
 fi
 [ "${skip:-0}" = "$declared" ] || { echo "e2e: ${skip} test(s) skipped, ${declared} declared" >&2; exit 1; }
 [ "${pass:-0}" -gt 0 ] || { echo "e2e: nothing passed" >&2; exit 1; }

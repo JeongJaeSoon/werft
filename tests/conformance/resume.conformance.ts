@@ -16,6 +16,35 @@ const engine = engineFromEnv();
 const api = new Api(e2eEnv({ needsMessages: false }));
 const TIMEOUT = 600_000;
 
+/**
+ * The highest generation among the session's worker containers, stopped ones
+ * included. The local-docker backend starts every new worker of a session one
+ * generation above the last, and the public API does not expose it.
+ */
+async function workerGeneration(sessionId: string): Promise<number> {
+  const docker = Bun.spawn(
+    [
+      "docker",
+      "ps",
+      "-a",
+      "--filter",
+      `label=werft.session-id=${sessionId}`,
+      "--format",
+      '{{.Label "werft.generation"}}',
+    ],
+    { stdout: "pipe", stderr: "inherit" },
+  );
+  const text = await new Response(docker.stdout).text();
+  if ((await docker.exited) !== 0) throw new Error("docker ps failed");
+  const generations = text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map(Number);
+  expect(generations.length).toBeGreaterThan(0);
+  expect(generations.every(Number.isInteger)).toBe(true);
+  return Math.max(...generations);
+}
+
 describe(`resume on ${engine.runtimeKind}`, () => {
   test(
     "a new worker restores the checkpoint and the next turn continues the conversation",
@@ -38,6 +67,7 @@ describe(`resume on ${engine.runtimeKind}`, () => {
         (s) => s.durability.last_checkpointed_turn_id === "1",
       );
       expect(saved.checkpoint_revision).not.toBeNull();
+      const firstGeneration = await workerGeneration(sessionId);
 
       const pause = await api.control(sessionId, "pause", {
         expected_revision: saved.revision,
@@ -67,6 +97,12 @@ describe(`resume on ${engine.runtimeKind}`, () => {
       );
       expect(next.turn_id).toBe("2");
       expect((await api.settledTurn(sessionId, "2")).status).toBe("completed");
+
+      // A resume that kept the first worker would pass the history check from
+      // the conversation it still held in memory.
+      expect(await workerGeneration(sessionId)).toBeGreaterThan(
+        firstGeneration,
+      );
 
       const calls = await engine.modelCalls(after);
       expect(calls.length).toBeGreaterThan(0);
