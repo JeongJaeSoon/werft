@@ -8,7 +8,18 @@
  * Fast mode has its own rates, and each web search adds its
  * per-search fee. US-only inference costs 1.1x on every token rate.
  * An estimate, not a bill: code execution container time is not priced.
+ *
+ * An OpenAI model, which an `openai_responses` session calls, is priced from
+ * `model-prices-openai.ts`.
  */
+
+import {
+  OPENAI_ALL_RATES,
+  OPENAI_CACHE_WRITE_12H,
+  OPENAI_CACHE_WRITE_30M,
+  OPENAI_FAST_MULTIPLIER,
+  openAiRatesFor,
+} from "./model-prices-openai.ts";
 
 type ModelPrice = {
   inputUsdPerMtok: number;
@@ -129,6 +140,7 @@ const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
     ...Object.values(MODEL_PRICES),
     ...Object.values(FAST_MODEL_PRICES),
+    ...OPENAI_ALL_RATES,
   ];
   return price(
     Math.max(...prices.map((known) => known.inputUsdPerMtok)),
@@ -168,6 +180,36 @@ export function priceProviderUsage(usage: ProviderUsage): {
   costUsd: number;
   pricedBy: "table" | "fallback";
 } {
+  // An OpenAI model has no speed or geo to price: its own table decides, and
+  // a model or prompt length it does not cover falls through to the fallback.
+  const openAi = openAiRatesFor(
+    usage.model,
+    usage.inputTokens +
+      usage.cacheCreationInputTokens +
+      usage.cacheReadInputTokens,
+  );
+  if (openAi !== undefined) {
+    const longWrites = Math.min(
+      usage.cacheCreation1hInputTokens,
+      usage.cacheCreationInputTokens,
+    );
+    const shortWrites = usage.cacheCreationInputTokens - longWrites;
+    const tokenCost =
+      (usage.inputTokens * openAi.inputUsdPerMtok +
+        shortWrites * openAi.inputUsdPerMtok * OPENAI_CACHE_WRITE_30M +
+        longWrites * openAi.inputUsdPerMtok * OPENAI_CACHE_WRITE_12H +
+        usage.cacheReadInputTokens * openAi.cacheReadUsdPerMtok +
+        usage.outputTokens * openAi.outputUsdPerMtok) /
+      1_000_000;
+    return {
+      costUsd:
+        // As for Claude, a speed that is not `standard` (`fast`, a tier the
+        // table does not know, or none reported) is priced at the fast rate.
+        tokenCost * (usage.speed === "standard" ? 1 : OPENAI_FAST_MULTIPLIER) +
+        (usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
+      pricedBy: "table",
+    };
+  }
   const table: Readonly<Record<string, ModelPrice>> =
     usage.speed === "standard"
       ? MODEL_PRICES

@@ -11,6 +11,7 @@
     "./checkpoint-objects": "./src/checkpoint-objects.ts",
     "./fake-anthropic": "./src/fake-anthropic.ts",
     "./fake-mcp": "./src/fake-mcp.ts",
+    "./fake-responses": "./src/fake-responses.ts",
     "./fake-slack-api": "./src/fake-slack-api.ts",
     "./git": "./src/git.ts",
     "./git-bundle": "./src/git-bundle.ts",

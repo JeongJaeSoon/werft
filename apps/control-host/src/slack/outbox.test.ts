@@ -57,6 +57,7 @@ import {
   createAgentService,
   createAuthorizationPolicy,
   createOutboxSlackNoticeSink,
+  createRowDelivery,
   createSlackBotApi,
   drainSlackInbox,
   drainSlackOutbox,
@@ -418,17 +419,25 @@ function outboxPass(
   overrides: Partial<Parameters<typeof drainSlackOutbox>[0]> = {},
 ) {
   const secrets = createPostgresSecretStore(db, key);
+  const slackApi = createSlackBotApi({ apiUrl: slack.url });
+  const botToken = (workspaceId: string, slackAppId: string) =>
+    slackBotToken(secrets, workspaceId, slackAppId);
   return drainSlackOutbox({
     outbox: createPostgresSlackOutboxStore(db),
-    slack: createSlackBotApi({ apiUrl: slack.url }),
-    botToken: (workspaceId, slackAppId) =>
-      slackBotToken(secrets, workspaceId, slackAppId),
+    slack: slackApi,
+    botToken,
     logger,
     consoleOrigin: CONSOLE,
     batchSize: 10,
     leaseMs: 30_000,
     deadline: Date.now() + 10_000,
     ...overrides,
+    // A test that swaps the Slack client or the token swaps it for the send too.
+    delivery: createRowDelivery({
+      slack: overrides.slack ?? slackApi,
+      botToken: overrides.botToken ?? botToken,
+      consoleOrigin: CONSOLE,
+    }),
   });
 }
 

@@ -7,7 +7,7 @@ export const teamsKo = {
   "teams.createDescription":
     "이름을 정해 팀을 만듭니다. 구성원은 만든 뒤 팀 화면에서 넣습니다.",
   "teams.creating": "만드는 중…",
-  "teams.created": "{name} 팀을 만들었습니다.",
+  "teams.created": "팀을 만들었습니다: {name}",
   "teams.nameTaken": "같은 이름의 팀이 이미 있습니다 — 다른 이름을 쓰세요.",
   "teams.listLabel": "팀 표",
   "teams.column.team": "팀",
@@ -26,10 +26,10 @@ export const teamsKo = {
   "teams.rename": "이름 바꾸기",
   "teams.renamed": "팀 이름을 바꿨습니다. 지금 이름은 {name}입니다.",
   "teams.delete": "팀 삭제",
-  "teams.deleted": "{name} 팀을 삭제했습니다.",
+  "teams.deleted": "팀을 삭제했습니다: {name}",
   "teams.deleteHint":
     "팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다. 이 팀이 담당 팀인 에이전트가 있으면 그 에이전트의 담당 팀을 먼저 바꿔야 삭제할 수 있습니다.",
-  "teams.deleteTitle": "{name} 팀을 삭제할까요?",
+  "teams.deleteTitle": "다음 팀을 삭제할까요? {name}",
   "teams.deleteConsequence":
     "구성원은 워크스페이스에 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다.",
   "teams.members": "팀 구성원",
@@ -59,7 +59,7 @@ export const teamsKo = {
   "teams.column.addedAt": "추가한 날",
   "teams.removeMember": "제외",
   "teams.removeMemberFor": "{name}님을 팀에서 제외",
-  "teams.removeMemberTitle": "{name}님을 {team} 팀에서 제외할까요?",
+  "teams.removeMemberTitle": "{name}님을 다음 팀에서 제외할까요? {team}",
   "teams.removeMemberConsequence":
     "워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다.",
   "teams.column.workspaceRole": "워크스페이스 역할",
@@ -90,7 +90,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.createDescription":
     "Name the team to create it. Add people from the team's page afterwards.",
   "teams.creating": "Creating…",
-  "teams.created": "Created the {name} team.",
+  "teams.created": "Created team {name}.",
   "teams.nameTaken":
     "A team with that name already exists — choose another name.",
   "teams.listLabel": "Teams table",
@@ -110,10 +110,10 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.rename": "Rename",
   "teams.renamed": "Renamed the team. Its name is now {name}.",
   "teams.delete": "Delete team",
-  "teams.deleted": "Deleted the {name} team.",
+  "teams.deleted": "Deleted team {name}.",
   "teams.deleteHint":
     "Deleting a team also removes it from every agent it administers. While the team is an agent's responsible team, give that agent another responsible team first.",
-  "teams.deleteTitle": "Delete the {name} team?",
+  "teams.deleteTitle": "Delete team {name}?",
   "teams.deleteConsequence":
     "Its members stay in the workspace, but can no longer manage agents through this team.",
   "teams.members": "Team members",
@@ -143,7 +143,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.column.addedAt": "Added",
   "teams.removeMember": "Remove",
   "teams.removeMemberFor": "Remove {name} from the team",
-  "teams.removeMemberTitle": "Remove {name} from the {team} team?",
+  "teams.removeMemberTitle": "Remove {name} from team {team}?",
   "teams.removeMemberConsequence":
     "They stay in the workspace but lose the ability to manage agents through this team. Adding them again restores that access.",
   "teams.column.workspaceRole": "Workspace role",

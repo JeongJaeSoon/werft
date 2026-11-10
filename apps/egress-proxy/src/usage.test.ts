@@ -395,3 +395,287 @@ describe("usageMeter", () => {
     });
   });
 });
+
+describe("usageMeter on a Responses answer", () => {
+  const responsesRequest = encoder.encode(
+    JSON.stringify({ model: "gpt-5.5", max_output_tokens: 700, input: "hi" }),
+  );
+  const meter = (contentType: string, chunks: string[]) => {
+    const m = usageMeter(contentType);
+    for (const chunk of chunks) m.observe(encoder.encode(chunk));
+    return m.result(responsesRequest);
+  };
+  const usage = {
+    input_tokens: 1000,
+    output_tokens: 80,
+    input_tokens_details: { cached_tokens: 600 },
+    output_tokens_details: { reasoning_tokens: 30 },
+  };
+  const read = {
+    model: "gpt-5.5-2026-04-23",
+    input_tokens: 400,
+    output_tokens: 80,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 600,
+    cache_creation_1h_input_tokens: 0,
+    ...noTools,
+    estimated: false,
+  };
+
+  test("a JSON answer moves its cached input to the cache side and keeps the rest as input", () => {
+    const body = JSON.stringify({
+      object: "response",
+      model: "gpt-5.5-2026-04-23",
+      usage,
+    });
+    expect(
+      meter("application/json", [body.slice(0, 15), body.slice(15)]),
+    ).toEqual(read);
+  });
+
+  test("a stream is read from response.completed, whatever came before it", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5-2026-04-23" } },
+      { type: "response.output_text.delta", delta: "hello" },
+      {
+        type: "response.completed",
+        response: { model: "gpt-5.5-2026-04-23", usage },
+      },
+    ]);
+    expect(
+      meter("text/event-stream", [stream.slice(0, 40), stream.slice(40)]),
+    ).toEqual(read);
+  });
+
+  test("response.incomplete still carries a full account", () => {
+    const stream = sse([
+      {
+        type: "response.incomplete",
+        response: { model: "gpt-5.5", usage },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      input_tokens: 400,
+      cache_read_input_tokens: 600,
+      estimated: false,
+    });
+  });
+
+  test("an input with no cached share stays whole input", () => {
+    const body = JSON.stringify({
+      model: "gpt-5.5",
+      usage: { input_tokens: 50, output_tokens: 5 },
+    });
+    expect(meter("application/json", [body])).toMatchObject({
+      input_tokens: 50,
+      cache_read_input_tokens: 0,
+      estimated: false,
+    });
+  });
+
+  test("a stream cut before response.completed charges a token per character delivered", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      { type: "response.output_text.delta", delta: "x".repeat(900) },
+    ]);
+    // More than the 700 the request allowed: the larger count is charged.
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      model: "gpt-5.5",
+      output_tokens: 900,
+      estimated: true,
+    });
+  });
+
+  test("a completed response that names no usage is estimated, not charged nothing", () => {
+    const stream = sse([
+      { type: "response.output_text.delta", delta: "x".repeat(900) },
+      { type: "response.completed", response: { model: "gpt-5.5" } },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      output_tokens: 900,
+      estimated: true,
+    });
+  });
+
+  test("a failed response is estimated even when it reports usage", () => {
+    const stream = sse([
+      {
+        type: "response.failed",
+        response: { model: "gpt-5.5", usage },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      estimated: true,
+    });
+  });
+
+  test("a JSON answer with no usage is charged from its request, bounded by max_output_tokens", () => {
+    expect(meter("application/json", ['{"error":{}}'])).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: responsesRequest.byteLength,
+      output_tokens: 700,
+      estimated: true,
+    });
+    expect(requestEstimate(responsesRequest)).toMatchObject({
+      output_tokens: 700,
+    });
+  });
+
+  test("a Responses call with no usage and no output cap is charged the allowance, however little arrived", () => {
+    const uncapped = encoder.encode(JSON.stringify({ model: "gpt-5.5" }));
+    const noEvent = usageMeter("text/event-stream", { responses: true });
+    expect(noEvent.result(uncapped)).toMatchObject({
+      output_tokens: 32_768,
+      estimated: true,
+    });
+    const noUsage = usageMeter("application/json", { responses: true });
+    noUsage.observe(encoder.encode('{"error":{}}'));
+    expect(noUsage.result(uncapped)).toMatchObject({ output_tokens: 32_768 });
+    // A Messages call is not given the allowance: it must set its own cap.
+    expect(usageMeter("application/json").result(uncapped)).toMatchObject({
+      output_tokens: 0,
+    });
+  });
+
+  test("a stream cut before response.completed is charged what the request allowed", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      { type: "response.output_text.delta", delta: "hel" },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: responsesRequest.byteLength,
+      output_tokens: 700,
+      estimated: true,
+    });
+  });
+
+  test("cache writes come out of the input and the 12-hour ones ride the one-hour slot", () => {
+    const body = JSON.stringify({
+      model: "gpt-6.1-sol",
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 10,
+        input_tokens_details: {
+          cached_tokens: 100,
+          cache_write_tokens: 300,
+          cache_write_tokens_details: {
+            ttl_30m_tokens: 200,
+            ttl_12h_tokens: 100,
+          },
+        },
+      },
+    });
+    expect(meter("application/json", [body])).toMatchObject({
+      input_tokens: 600,
+      cache_read_input_tokens: 100,
+      cache_creation_input_tokens: 300,
+      cache_creation_1h_input_tokens: 100,
+      estimated: false,
+    });
+  });
+
+  test("a cut stream of a request with no output cap is charged a fixed allowance", () => {
+    const uncapped = usageMeter("text/event-stream");
+    uncapped.observe(
+      encoder.encode(
+        sse([{ type: "response.created", response: { model: "gpt-5.5" } }]),
+      ),
+    );
+    expect(
+      uncapped.result(encoder.encode(JSON.stringify({ model: "gpt-5.5" }))),
+    ).toMatchObject({ output_tokens: 32_768, estimated: true });
+  });
+
+  test("a search finished before the stream was cut is still counted", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      {
+        type: "response.output_item.done",
+        item: { type: "web_search_call", status: "completed" },
+      },
+      {
+        type: "response.output_item.done",
+        item: { type: "web_search_call", status: "failed" },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      web_search_requests: 1,
+      estimated: true,
+    });
+  });
+
+  test("the tier a stream announces in response.created prices a cut stream, whatever the request said", () => {
+    const stream = sse([
+      {
+        type: "response.created",
+        response: { model: "gpt-5.5", service_tier: "priority" },
+      },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      speed: "fast",
+    });
+  });
+
+  test("a tier that is not standard or fast is reported under its own name, flex and auto as standard", () => {
+    const tier = (service_tier: string) =>
+      meter("application/json", [
+        JSON.stringify({ model: "gpt-5.5", service_tier, usage }),
+      ]).speed;
+    expect(tier("ultrafast")).toBe("ultrafast");
+    expect(tier("flex")).toBe("standard");
+    expect(tier("auto")).toBe("standard");
+    expect(tier("default")).toBe("standard");
+  });
+
+  test("a priority or fast service_tier is the fast speed, in JSON and in a stream", () => {
+    const answer = { model: "gpt-5.5", service_tier: "priority", usage };
+    expect(meter("application/json", [JSON.stringify(answer)])).toMatchObject({
+      speed: "fast",
+    });
+    expect(
+      meter("text/event-stream", [
+        sse([{ type: "response.completed", response: answer }]),
+      ]),
+    ).toMatchObject({ speed: "fast" });
+    expect(
+      meter("application/json", [
+        JSON.stringify({ ...answer, service_tier: "default" }),
+      ]),
+    ).toMatchObject({ speed: "standard" });
+  });
+
+  test("a request for the fast tier is estimated at the fast speed", () => {
+    expect(
+      requestEstimate(
+        encoder.encode(
+          JSON.stringify({ model: "gpt-5.5", service_tier: "fast" }),
+        ),
+      ),
+    ).toMatchObject({ speed: "fast" });
+  });
+
+  test("each web_search_call that did not fail is a search", () => {
+    const output = [
+      { type: "web_search_call", status: "completed" },
+      { type: "web_search_call", status: "failed" },
+      { type: "web_search_call", status: "completed" },
+      { type: "message" },
+    ];
+    expect(
+      meter("application/json", [
+        JSON.stringify({ model: "gpt-5.5", usage, output }),
+      ]),
+    ).toMatchObject({ web_search_requests: 2 });
+    expect(
+      meter("text/event-stream", [
+        sse([
+          {
+            type: "response.completed",
+            response: { model: "gpt-5.5", usage, output },
+          },
+        ]),
+      ]),
+    ).toMatchObject({ web_search_requests: 2 });
+  });
+});
