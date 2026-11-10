@@ -118,31 +118,21 @@ export function assertStartable(
   }
 }
 
-const RESPONSE_LANGUAGE_NAMES = {
-  ko: "Korean",
-  en: "English",
-  ja: "Japanese",
-} as const;
-
 /**
  * Everything the engine is told beyond the conversation. The repository's own
  * instructions come only as the bundle says (the engine's own reading of
  * AGENTS.md is off), so a profile that keeps them out is believed.
+ *
+ * `config.responseLanguage` is deliberately not used: the owner ruled out
+ * appending it to the prompt, and this engine has no setting for it, so a
+ * Codex session answers in whatever language the person writes in.
  */
 export function developerInstructionsOf(
-  start: Pick<RuntimeStart, "bundle"> & {
-    config: Pick<RuntimeStart["config"], "responseLanguage">;
-  },
+  start: Pick<RuntimeStart, "bundle">,
 ): string | undefined {
   const parts = start.bundle.instructions.map((part) => part.text);
   const repo = start.bundle.repoInstructions?.text;
   if (repo !== null && repo !== undefined) parts.push(repo);
-  const language = start.config.responseLanguage;
-  if (language !== undefined) {
-    parts.push(
-      `Always answer in ${RESPONSE_LANGUAGE_NAMES[language]}, whatever language the person writes in.`,
-    );
-  }
   return parts.length === 0 ? undefined : parts.join("\n\n");
 }
 
@@ -317,10 +307,7 @@ export function codexProfileDigest(profile: RuntimeProfileInput): string {
         cwd: profile.config.cwd,
         endpoint: connection.endpoint,
         instructions:
-          developerInstructionsOf({
-            bundle: profile.bundle,
-            config: {},
-          }) ?? null,
+          developerInstructionsOf({ bundle: profile.bundle }) ?? null,
         model: profile.config.model,
         ownerScope: connection.ownerScope,
         permissionMode: profile.config.permissionMode,

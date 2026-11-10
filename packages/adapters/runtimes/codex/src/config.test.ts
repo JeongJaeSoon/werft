@@ -115,6 +115,16 @@ describe("codexLaunch", () => {
     }
   });
 
+  test("the response language is not put into the prompt", () => {
+    const launch = codexLaunch(startOf({ responseLanguage: "ko" }), DEPS, {});
+    expect(launch.developerInstructions).toBeUndefined();
+    const withBundle = startOf({ responseLanguage: "ko" });
+    withBundle.bundle.instructions = [{ text: "be brief" }] as never;
+    expect(codexLaunch(withBundle, DEPS, {}).developerInstructions).toBe(
+      "be brief",
+    );
+  });
+
   test("user variables reach the tools; a reserved name is refused, not overridden", () => {
     const launch = codexLaunch(
       startOf({ userEnvironment: { FOO: "1" } }),
