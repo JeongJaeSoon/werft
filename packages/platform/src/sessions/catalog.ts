@@ -948,6 +948,12 @@ export type ToolList = "profile" | "release";
  * tool; it is taken within the profile, so no list ever holds a tool the
  * profile does not.
  *
+ * A session whose `runtime_tools_source` is `release` passes the release's
+ * `effective_tools.tools` as `effectiveTools`: that list is the `release`
+ * one as stored, with no intersection with the profile, since the release
+ * already says what the session may use. When it is the profile's own list
+ * the profile's runs and there is no `release` one (the claim is the same).
+ *
  * A claim offers the profile lists of every restore profile before any
  * release list: the protocol caps restore configs, and the profile lists
  * are what every checkpoint from before release lists ran with.
@@ -956,11 +962,24 @@ export function claimToolLists(
   profile: Pick<CatalogProfile, "tools">,
   releaseTools: readonly string[] | null,
   runRelease: boolean = CLAIM_RUNS_RELEASE_TOOLS,
+  effectiveTools: readonly string[] | null = null,
 ): {
   profile: readonly string[];
   release: readonly string[] | null;
   runs: ToolList;
 } {
+  if (effectiveTools !== null) {
+    // The same list twice would offer the config it runs as its own restore
+    // candidate and spend a slot of the cap, so it is the profile's alone.
+    const same =
+      effectiveTools.length === profile.tools.length &&
+      effectiveTools.every((tool, index) => tool === profile.tools[index]);
+    return {
+      profile: profile.tools,
+      release: same ? null : effectiveTools,
+      runs: runRelease && !same ? "release" : "profile",
+    };
+  }
   const chosen = releaseTools === null ? null : new Set(releaseTools);
   const release = chosen && profile.tools.filter((tool) => chosen.has(tool));
   const narrower =

@@ -277,6 +277,7 @@ jobs:
             docker: false
             paths:
               - apps/control-host/src/slack/
+              - packages/adapters/chat/
               - packages/contracts/
               - packages/client/
               - packages/sdk/
@@ -383,6 +384,7 @@ jobs:
               - tests/local-sh.
               - tests/pages-workflow.
               - tests/preview-reap.
+              - tests/verify-werft-response-capture.
               - tests/release-auto.
               - tests/sdk-release.
               - tests/supply-chain.

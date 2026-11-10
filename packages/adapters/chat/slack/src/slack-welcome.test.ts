@@ -4,19 +4,19 @@ import {
   type AgentRelease,
   DEFAULT_SURFACE_CEILING,
 } from "@werft-ai/contracts";
-import type { AgentStore } from "../ports/agent-store.ts";
-import type { SlackOutboxEntry } from "../ports/slack-outbox-store.ts";
 import type {
+  AgentStore,
+  SlackInstalled,
+  SlackOutboxEntry,
   SurfaceBindingRecord,
   SurfaceBindingStore,
-} from "../ports/surface-binding-store.ts";
-import { createSlackChannelJoiner } from "./slack-channel-join.ts";
+} from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotApi,
   type SlackChannelMembership,
-} from "./slack-config-api.ts";
-import type { SlackInstalled } from "./slack-install-service.ts";
+} from "@werft-ai/platform";
+import { createSlackChannelJoiner } from "./slack-channel-join.ts";
 import { slackOutboxText } from "./slack-outbox.ts";
 import {
   createSlackWelcome,

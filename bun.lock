@@ -16,6 +16,7 @@
       "dependencies": {
         "@aws-sdk/client-secrets-manager": "^3.888.0",
         "@hono/zod-openapi": "1.6.3",
+        "@werft-ai/chat-slack": "workspace:*",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/db": "workspace:*",
         "@werft-ai/execution-kubernetes": "workspace:*",
@@ -129,6 +130,18 @@
         "@werft-ai/runtime-registry": "workspace:*",
         "@werft-ai/storage": "workspace:*",
         "@werft-ai/system": "workspace:*",
+      },
+      "devDependencies": {
+        "@werft-ai/testkit": "workspace:*",
+      },
+    },
+    "packages/adapters/chat/slack": {
+      "name": "@werft-ai/chat-slack",
+      "version": "0.0.0",
+      "dependencies": {
+        "@werft-ai/contracts": "workspace:*",
+        "@werft-ai/platform": "workspace:*",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@werft-ai/testkit": "workspace:*",
@@ -1429,6 +1442,8 @@
     "@vueuse/shared": ["@vueuse/shared@13.9.0", "", { "peerDependencies": { "vue": "^3.5.0" } }, "sha512-e89uuTLMh0U5cZ9iDpEI2senqPGfbPRTHM/0AaQkcxnpqjkZqDYP8rpfm7edOz8s+pOCOROEy1PIveSW8+fL5g=="],
 
     "@webcontainer/env": ["@webcontainer/env@1.1.1", "", {}, "sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng=="],
+
+    "@werft-ai/chat-slack": ["@werft-ai/chat-slack@workspace:packages/adapters/chat/slack"],
 
     "@werft-ai/client": ["@werft-ai/client@workspace:packages/client"],
 

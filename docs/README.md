@@ -55,6 +55,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정(설계): 에이전트 행동 도구 카탈로그](contributing/decisions/action-broker.md) | 에이전트가 부르는 정형 도구(Slack 메시지·mrkdwn·의사결정 폼, commit, push, PR, `gh` 입구)의 입력·결과 봉투·실패 코드·멱등성, 그 뒤에서 일하는 control-host 모듈 action-broker의 실행 경로와 자격 증명 위치, 행동 부류 정책, 호출자 매핑, Slack 경계와 `pushApprovability` |
 | [결정(설계): surface·action 모듈, 어댑터, 시험 피라미드](contributing/decisions/surface-action-modules.md) | 사람 쪽 채널(surface)과 에이전트의 바깥 작업(action)의 경계와 목표 트리, `-able` 능력 인터페이스(`Notifiable`·`Approvable` 포함)와 시스템별 능력 표, 예정 능력 표, 설계 원칙별 적용, 의존 방향 규칙, 시험 층 기준과 지울·옮길·남길 시험, 이행 순서 |
 | [결정(설계): 번들 stdio MCP 서버를 worker relay 뒤에 둔다](contributing/decisions/stdio-mcp-relay.md) | 승인된 번들의 stdio MCP 서버를 worker가 턴 단위로 띄우고 `type: "sdk"` relay 뒤에 두는 방법, 도구 해석·이름 충돌·거절 능력·`ready()` 의미·이벤트, 구현 단위와 선행 티켓 |
+| [결정(조사·설계): worker 브라우저·computer-use 도구](contributing/decisions/worker-browser-tools.md) | 브라우저 sidecar 추천, 같은 deny 우선 판정과 호출자 상한, egress·ECH·이미지 크기 실측, 턴 끝 상호작용, 구현 단위 표 |
 | [결정(설계안): 에이전트의 PR 본문 읽기](contributing/decisions/pull-request-read.md) | 에이전트가 PR 본문을 읽는 도구(`get_pull_request`), 덮어쓰기 막기(`expected_body_sha256`), 기존 PR 꼬리 교체의 실제 GitHub 확인 절차. 오너 결정 전 |
 | [결정: 워크스페이스 성과 규칙과 판정](contributing/decisions/achievement-rules.md) | 근거 사실과 성과 두 층, 구분·성과 type·규칙(1:1:1), 바로 인정과 Luna(OpenAI Decisions API) 판정, 판정 비용 원장, 성과당 비용 |
 | [결정: GitHub Packages bot token](contributing/decisions/github-packages-bot-token.md) | 조직 bot classic PAT를 proxy가 붙이는 방식: 저장·scope 확인, 경로 기반 허용 목록, 실패하면 닫히는 감사, npm·Bundler 설정 |

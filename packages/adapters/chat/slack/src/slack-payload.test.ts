@@ -12,17 +12,29 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
+  SlackBotSender,
   SlackCardClaim,
   SlackCardSettleStore,
   SlackOutboxClaim,
   SlackOutboxEntry,
   SlackOutboxStore,
   SlackPromptCard,
+  SlackSendResponse,
   SlackThreadStatusFacts,
   SlackThreadStatusStore,
-} from "../ports/slack-outbox-store.ts";
+} from "@werft-ai/platform";
+import {
+  SLACK_PROMPT_MESSAGES,
+  type SlackPrompt,
+  slackDoneCard,
+  slackNoticeView,
+  slackPromptMessage,
+  slackQuestionAnswers,
+  slackQuestionView,
+  slackRejectOnlyCard,
+  slackSettledCard,
+} from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
-import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
 import {
   createOutboxSlackNoticeSink,
   drainSlackOutbox,
@@ -34,17 +46,6 @@ import {
   slackOutboxText,
   slackReplyBlocks,
 } from "./slack-outbox.ts";
-import {
-  SLACK_PROMPT_MESSAGES,
-  type SlackPrompt,
-  slackDoneCard,
-  slackNoticeView,
-  slackPromptMessage,
-  slackQuestionAnswers,
-  slackQuestionView,
-  slackRejectOnlyCard,
-  slackSettledCard,
-} from "./slack-prompts.ts";
 import {
   type SlackSessionStatusMaterial,
   slackSessionStatus,

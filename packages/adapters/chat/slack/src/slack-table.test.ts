@@ -3,7 +3,7 @@ import {
   markdownToSlackMrkdwn,
   markdownToSlackParts,
   SLACK_TABLE_MAX,
-} from "./slack-mrkdwn.ts";
+} from "@werft-ai/platform";
 import { slackOutboxText, slackReplyBlocks } from "./slack-outbox.ts";
 
 const table = (rows: number, columns: number, cell = "x") =>

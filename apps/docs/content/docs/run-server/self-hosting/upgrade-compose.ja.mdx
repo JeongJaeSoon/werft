@@ -78,7 +78,7 @@ pending.json が残ると start と以前の release への upgrade は拒否さ
 <a id="실행-전-게이트" />
 ## 実行前ゲート
 
-incremental checkpoint と release ツール復元候補の下限を両方含む最初の正式リリースは `v0.1.0` です。リリース設置者はそれより前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
+incremental checkpoint と release ツール復元候補の下限を両方含む最初のタグは `v0.1.0` です。このタグが rollback の下限で、最新の公開リリースは `v0.1.2` です。リリース設置者は `v0.1.0` より前のイメージへ戻しません。正式リリース前の `main-<12>` 環境は、この下限を満たすか別途確認する必要があります。デプロイ時は [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)の commit と三つの digest を一緒に確認します。
 
 対象の変更履歴と現在のデプロイバージョンを照合します。次に該当する場合、機能の有効化や worker 変更前にすべてを満たします。
 
@@ -132,7 +132,7 @@ SDK 更新リリースでは設定文書例（`tests/fixtures/settings/`）の `
 <a id="control-host-롤백-하한-release-도구로-실행" />
 ### control-host の rollback 下限：release ツールでの実行
 
-`v0.1.0` の control-host は release から作ったセッションを、release に固定したツール（`agent_releases.runtime_config_snapshot.tools`、profile ツール内）で実行します。それ以前は profile の全ツールでした。ツールは worker 起動時の claim で渡し、worker は終了までそれを使います。そのためエージェント定義で `tools` を選ぶ、または `forbidden` を設定したエージェントは、既に進行中のセッションも次の claim から絞り込まれます。デプロイ前に起動した worker は、最後の turn 後に入力なしで `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）が経過する、または pause・再起動で終了するまで profile のツールを使います。release なしのセッションや、エージェントが profile 全ツールを残す release のセッションは変わりません。worker イメージと worker protocol は変わりません。
+`v0.1.0` の control-host は release から作ったセッションを、release に固定したツール（`agent_releases.runtime_config_snapshot.tools`、profile ツール内）で実行します。それ以前は profile の全ツールでした。ツールは worker 起動時の claim で渡し、worker は終了までそれを使います。そのためエージェント定義で `tools` を選ぶ、または `forbidden` を設定したエージェントは、既に進行中のセッションも次の claim から絞り込まれます。デプロイ前に起動した worker は、最後の turn 後に入力なしで `WORKER_IDLE_TIMEOUT_SEC`（既定 1800 秒）が経過する、または pause・再起動で終了するまで profile のツールを使います。release なしのセッションや、エージェントが profile 全ツールを残す release のセッションは変わりません。このデプロイ後に release から作ったセッションは `sessions.runtime_tools_source = 'release'` を記録し、claim のツールは release の `effective_tools.tools` そのものになります（profile ツールとの積集合は取りません）。それ以前のセッションは `profile` として読まれ、ツールとチェックポイントのフィンガープリントは変わりません。worker イメージと worker protocol は変わりません。
 
 - **正式リリースの rollback 下限は `v0.1.0` です。** ツール一覧は checkpoint の profile digest に含まれます。このリリースは claim の復元候補に profile と release の両ツール一覧を入れます。非対応のリリース前ビルドへ戻すと、release ツールで作った checkpoint を復元できず、セッションが `recovery_required`（`incompatible_checkpoint`）で止まります。roll-forward 後、`retry_restore` で同じ checkpoint を再試行します。リリース前の main 環境では、復元候補対応を確認したリリースを先にデプロイして rollback 対象にします。
 - **絞り込まれる release 数。** デプロイ前に読み取りクエリで数えます。profile の全ツールを選ぶ release も数えるため上限値です。

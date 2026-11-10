@@ -113,21 +113,9 @@ describe("app shell", () => {
     const group = within(nav).getByRole("group", { name: "워크스페이스" });
     expect(heading.getAttribute("aria-expanded")).toBe("true");
     expect(within(group).getAllByRole("link")).toHaveLength(5);
-    // Every page shows its own tile colour.
-    expect(
-      Array.from(nav.querySelectorAll("[data-slot=icon-tile]"), (tile) =>
-        tile.getAttribute("data-hue"),
-      ),
-    ).toEqual([
-      "blue",
-      "violet",
-      "orange",
-      "teal",
-      "pink",
-      "sky",
-      "green",
-      "slate",
-    ]);
+    // Plain line icons: no coloured tile behind them.
+    expect(nav.querySelectorAll("[data-slot=icon-tile]")).toHaveLength(0);
+    expect(nav.querySelectorAll("a > svg")).toHaveLength(8);
     const user = await setupUser();
     await user.click(heading);
     expect(heading.getAttribute("aria-expanded")).toBe("false");
@@ -345,6 +333,30 @@ describe("app shell", () => {
         .filter((item) => item.getAttribute("aria-hidden") === "true")
         .map((item) => item.textContent),
     ).toEqual(["/"]);
+  });
+
+  test("only the current page's sidebar row is marked, and its icon inherits the text colour", async () => {
+    renderAt("/sessions/map", signedIn);
+    const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
+    await waitFor(() =>
+      expect(
+        [...nav.querySelectorAll("a[aria-current=page]")].map(
+          (link) => link.textContent,
+        ),
+      ).toEqual(["세션"]),
+    );
+    const current = nav.querySelector("a[aria-current=page]");
+    for (const cls of [
+      "aria-[current=page]:bg-sidebar-selected",
+      "aria-[current=page]:text-sidebar-selected-text",
+      "data-[status=active]:bg-sidebar-selected",
+      "data-[status=active]:text-sidebar-selected-text",
+    ]) {
+      expect(current?.className).toContain(cls);
+    }
+    expect(current?.querySelector("svg")?.getAttribute("class")).not.toMatch(
+      /text-/,
+    );
   });
 
   test("the sessions list opens the agent map", async () => {

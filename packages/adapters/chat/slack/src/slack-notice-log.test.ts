@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackNoticeRecord } from "../ports/slack-notice-sink.ts";
-import { createMemorySlackNoticeSink } from "../testing/slack-fakes.ts";
 import { createLoggingSlackNoticeSink } from "./slack-notice-log.ts";
+import type { SlackNoticeRecord } from "./slack-notice-sink.ts";
+import { createMemorySlackNoticeSink } from "./testing/slack-fakes.ts";
 
 const notice = (slackUserId: string): SlackNoticeRecord => ({
   workspaceId: "ws-1",

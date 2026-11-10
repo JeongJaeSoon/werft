@@ -7,16 +7,19 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { LinkedSubject } from "../ports/linked-account-store.ts";
-import type { SlackPromptCard } from "../ports/slack-outbox-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
-import { createAuthorizationPolicy, type IdentityReader } from "./policy.ts";
+import {
+  createAuthorizationPolicy,
+  type IdentityReader,
+  type LinkedSubject,
+  SessionServiceError,
+  type SlackPromptCard,
+  slackPromptMessage,
+} from "@werft-ai/platform";
 import {
   createSlackInteractionService,
   type SlackInteractionDeps,
   slackPushFollowUp,
 } from "./slack-interactions.ts";
-import { slackPromptMessage } from "./slack-prompts.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000a2";

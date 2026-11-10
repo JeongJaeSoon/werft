@@ -262,6 +262,10 @@ services:
       # env file must not get migrated by starting the local stack. An
       # external database is run against by the apps outside compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      # The proxy's lists, read only to warn when the trace collector's host
+      # is on one. Same defaults as the egress-proxy service.
+      EGRESS_ALLOWLIST: ${EGRESS_ALLOWLIST:-}
+      EGRESS_PRIVATE_ALLOWLIST: ${EGRESS_PRIVATE_ALLOWLIST:-api:3000,host.docker.internal:3000}
       # api-key, not none: workers reach this listener through the proxy
       # (api:3000 in EGRESS_PRIVATE_ALLOWLIST) and in `none` mode /v1 takes
       # any X-Owner-Id as the caller's identity, so a compromised worker could

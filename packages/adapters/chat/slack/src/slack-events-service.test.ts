@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole } from "@werft-ai/contracts";
-import {
-  signSlackRequest,
-  slackEventEnvelope,
-} from "@werft-ai/testkit/fake-slack-api";
-import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
+import type { SurfaceBindingRecord } from "@werft-ai/platform";
+import { callerFor } from "@werft-ai/platform";
 import {
   createMemoryAgentIdentityStore,
   createMemorySecretStore,
@@ -12,8 +9,11 @@ import {
   createMemorySlackInboundEventStore,
   createMemorySlackInstallStore,
   fakeSlackValue,
-} from "../testing/slack-fakes.ts";
-import { callerFor } from "./policy.ts";
+} from "@werft-ai/platform/testing/slack";
+import {
+  signSlackRequest,
+  slackEventEnvelope,
+} from "@werft-ai/testkit/fake-slack-api";
 import {
   createSlackEventsService,
   createSlackSigningSecrets,
