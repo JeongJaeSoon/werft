@@ -5,8 +5,10 @@ import {
   USER_LOCALE_VALUES,
   type UserLocale,
 } from "@werft-ai/contracts";
-import type { PendingRequestDisplay } from "../ports/pending-requests.ts";
-import type { SlackPromptCard } from "../ports/slack-outbox-store.ts";
+import type {
+  PendingRequestDisplay,
+  SlackPromptCard,
+} from "@werft-ai/platform";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPrompt,

@@ -39,10 +39,11 @@ import type { ToolCatalogs } from "./profile-tools.ts";
 // An entry never holds a credential value outside `secret_values`: it names a
 // stored value, an environment variable or a Secrets Manager secret.
 //
-// The config block below is the Claude engine's shape whatever kind a
-// profile names; a kind no installed runtime serves leaves the ceiling out
-// as `runtime_unsupported` (`ProfileFeatureGate`). Other kinds get their own block when an adapter
-// for them lands.
+// The config block below is the Claude engine's shape, narrowed for Codex by
+// the two refinements after it (its connection and its tool set); a kind no
+// installed runtime serves leaves the ceiling out as `runtime_unsupported`
+// (`ProfileFeatureGate`). Other kinds get their own block when an adapter for
+// them lands.
 
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
@@ -305,7 +306,32 @@ export const catalogProfileConfigSchema = z
   .refine((profile) => billingFitsEndpoint(profile.provider), {
     message: BILLING_NONE_ENDPOINT_MESSAGE,
     path: ["provider", "billing"],
-  });
+  })
+  // Codex speaks only the Responses API, and no other engine does: a pair the
+  // adapter would refuse at the session's first input is refused here, where
+  // the operator is editing the profile.
+  .refine(
+    (profile) =>
+      (profile.runtime_kind === "codex_app_server") ===
+      (profile.provider.kind === "openai_responses"),
+    {
+      message:
+        "an openai_responses connection serves only codex_app_server profiles, and a codex_app_server profile runs only on one",
+      path: ["provider", "kind"],
+    },
+  )
+  // The Codex engine's tool set is fixed (`CODEX_BUILTIN_TOOLS`): a list that
+  // names another tool, or leaves this one out, is a request it cannot honor.
+  .refine(
+    (profile) =>
+      profile.runtime_kind !== "codex_app_server" ||
+      (profile.tools.length === 1 && profile.tools[0] === "exec_command"),
+    {
+      message:
+        'a codex_app_server profile\'s tools are exactly ["exec_command"]',
+      path: ["tools"],
+    },
+  );
 
 // A GitHub App installation: the API signs a JWT with the App's private key
 // (the referenced value, a PEM) and trades it for an installation token

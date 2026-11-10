@@ -129,12 +129,16 @@ describe("images.yml", () => {
     }
     const builds = steps("docker/build-push-action");
     expect(builds.length).toBe(3);
-    for (const build of builds)
-      expect(build.with?.["build-args"]).toBe(
-        `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
-          `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n` +
-          `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n`,
-      );
+    const common =
+      `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
+      `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n` +
+      `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n`;
+    // Only the build job's matrix has the Codex worker image; its leg picks
+    // the engine with the extra argument, which is empty on every other leg.
+    const codex = `${expression("matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || ''")}\n`;
+    const args = builds.map((build) => build.with?.["build-args"]);
+    expect(args.filter((value) => value === common + codex).length).toBe(1);
+    expect(args.filter((value) => value === common).length).toBe(2);
   });
 
   test("runs BuildKit from the mirror wherever buildx is set up", () => {
