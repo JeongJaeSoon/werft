@@ -88,6 +88,7 @@ export * from "./slack-installations.ts";
 export * from "./slack-outbox.ts";
 export * from "./slack-thread-status.ts";
 export * from "./surface-bindings.ts";
+export * from "./telemetry-ingest-store.ts";
 export * from "./tool-calls.ts";
 export * from "./tool-calls-hist.ts";
 export * from "./tool-unlock.ts";
