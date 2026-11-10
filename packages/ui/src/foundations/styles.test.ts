@@ -510,6 +510,102 @@ describe("tokens.css", () => {
     }
   });
 
+  test("컴포넌트가 쓰는 의미 토큰 이름이 theme.css와 세 테마 블록에 모두 이어진다", () => {
+    // Utility name -> --werft-color-* token. A new role is added here, in
+    // theme.css and in all three blocks of tokens.css together.
+    const SEMANTIC: Record<string, string> = {
+      background: "surface",
+      card: "surface",
+      "surface-sunken": "surface-sunken",
+      foreground: "foreground",
+      "muted-foreground": "muted-foreground",
+      "subtle-foreground": "subtle-foreground",
+      border: "border",
+      "border-strong": "border-strong",
+      input: "border-input",
+      primary: "accent",
+      "primary-foreground": "accent-foreground",
+      "primary-hover": "accent-hover",
+      "destructive-solid": "destructive-solid",
+      "destructive-foreground": "destructive-foreground",
+      hover: "hover",
+      active: "active",
+      skeleton: "skeleton",
+      "focus-ring": "focus-ring",
+      link: "link",
+      "control-checked": "control-checked",
+      "control-unchecked": "control-unchecked",
+      sidebar: "sidebar",
+      "sidebar-hover": "sidebar-hover",
+      "sidebar-accent": "sidebar-accent",
+      "sidebar-selected": "sidebar-selected",
+      "sidebar-selected-text": "sidebar-selected-text",
+    };
+    const light = paletteOf(
+      (d) => d.selector === ":root" && d.atRules.length === 0,
+    );
+    const systemDark = paletteOf((d) =>
+      d.atRules.includes("@media (prefers-color-scheme: dark)"),
+    );
+    const manualDark = paletteOf(
+      (d) => d.selector === ':root[data-theme="dark"]',
+    );
+    const problems: string[] = [];
+    for (const [utility, token] of Object.entries(SEMANTIC)) {
+      const name = `--werft-color-${token}`;
+      if (!THEME.includes(`--color-${utility}: var(${name});`)) {
+        problems.push(`theme.css: --color-${utility} -> ${name} 없음`);
+      }
+      const value = light.get(name);
+      if (value === undefined) problems.push(`라이트: ${name} 없음`);
+      // An alias follows its target, which is a role of its own above.
+      if (value?.startsWith("var(")) continue;
+      if (!systemDark.has(name)) problems.push(`시스템 다크: ${name} 없음`);
+      if (!manualDark.has(name)) problems.push(`수동 다크: ${name} 없음`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test("사이드바 선택 두 토큰은 primary에서 파생한 값이다", () => {
+    // Hex literals (the contrast tests read them), so a new accent that
+    // leaves them behind fails here instead of in the screenshots.
+    const rgb = (hex: string) =>
+      [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+    const themes: [string, Map<string, string>, number][] = [
+      [
+        "light",
+        paletteOf((d) => d.selector === ":root" && d.atRules.length === 0),
+        0.1,
+      ],
+      [
+        "dark",
+        paletteOf((d) => d.selector === ':root[data-theme="dark"]'),
+        0.16,
+      ],
+    ];
+    for (const [theme, palette, share] of themes) {
+      const accent = rgb(palette.get("--werft-color-accent") as string);
+      const base = rgb(palette.get("--werft-color-sidebar") as string);
+      const selected = rgb(
+        palette.get("--werft-color-sidebar-selected") as string,
+      );
+      const mixed = accent.map(
+        (c, i) => c * share + (base[i] as number) * (1 - share),
+      );
+      for (const [i, c] of mixed.entries()) {
+        expect(
+          Math.abs(c - (selected[i] as number)),
+          `${theme} channel ${i}`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+    // Light only: the dark text is deliberately one step brighter than accent.
+    const light = themes[0]?.[1] as Map<string, string>;
+    expect(light.get("--werft-color-sidebar-selected-text")).toBe(
+      light.get("--werft-color-accent"),
+    );
+  });
+
   test("시스템 설정과 수동 전환을 모두 받는다", () => {
     // `data-theme="light"` must win over the OS preference, or the toggle lies.
     expect(TOKENS).toContain(':root:not([data-theme="light"])');
