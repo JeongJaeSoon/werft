@@ -55,6 +55,7 @@ import {
   githubRefusalStatus,
   IMAGE_GIT_AUTHOR,
   MAX_RESTORE_PROFILES,
+  sanitizeToolDecision,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { repoRefOf } from "../action/ports/forge.ts";
@@ -643,6 +644,13 @@ export function createWorkerGateway(deps: {
     error: unknown,
     cut: { sessionId: string; attemptId: string },
   ) => void;
+  onToolAudit?: (finding: {
+    sessionId: string;
+    attemptId: string;
+    dropped: number;
+    conflicts: number;
+    unverified: number;
+  }) => void;
   extensions?: {
     archive(workspaceId: string, digest: string): Promise<Uint8Array | null>;
   };
@@ -2635,11 +2643,16 @@ export function createWorkerGateway(deps: {
       const fence = requireScope(principal, request);
       const profileId =
         principal.kind === "session" ? (principal.profileId ?? null) : null;
+      const reported = request.tool_decisions ?? [];
+      const toolAudits = reported.flatMap((report) =>
+        report === null ? [] : [sanitizeToolDecision(report)],
+      );
       const result = await work.commitEventsAtomic({
         fence,
         turnId: request.turn_id,
         now: now(),
         events: request.events,
+        ...(toolAudits.length === 0 ? {} : { toolAudits }),
         ...(neutralize === undefined
           ? {}
           : {
@@ -2676,6 +2689,20 @@ export function createWorkerGateway(deps: {
         );
       }
       if (result.outcome !== "ok") rejected(result);
+      const dropped = reported.length - toolAudits.length;
+      const audit = result.toolAudit;
+      if (
+        dropped > 0 ||
+        (audit !== undefined && (audit.conflicts > 0 || audit.unverified > 0))
+      ) {
+        deps.onToolAudit?.({
+          sessionId: fence.sessionId,
+          attemptId: fence.attemptId,
+          dropped,
+          conflicts: audit?.conflicts ?? 0,
+          unverified: audit?.unverified ?? 0,
+        });
+      }
       return {
         accepted_through: result.acceptedThrough,
         cursor: result.cursor,

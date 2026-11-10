@@ -94,6 +94,10 @@ describe("reconciler run", () => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 5;
       },
+      expireToolAudits: async (options) => {
+        expect(options).toEqual({ dryRun: false, limit: 12 });
+        return 7;
+      },
       deleteExpiredWebSessions: async (options) => {
         expect(options).toEqual({ dryRun: false, limit: 12 });
         return 6;
@@ -116,6 +120,7 @@ describe("reconciler run", () => {
     expect(result.terminationsOverdue).toBe(2);
     expect(result.parkedExpired).toEqual(["session-f"]);
     expect(result.decisionsExpired).toBe(5);
+    expect(result.toolAuditsExpired).toBe(7);
     expect(result.webSessionsDeleted).toBe(6);
     expect(sink.records).toEqual([
       expect.objectContaining({
@@ -179,6 +184,11 @@ describe("reconciler run", () => {
         level: "info",
         message: "Expired authorization decisions deleted",
         fields: { dry_run: false, deleted_count: 5 },
+      }),
+      expect.objectContaining({
+        level: "info",
+        message: "Expired tool call audits deleted",
+        fields: { dry_run: false, deleted_count: 7 },
       }),
       expect.objectContaining({
         level: "info",
@@ -248,6 +258,10 @@ describe("reconciler run", () => {
         seen.push(dryRun);
         return 0;
       },
+      expireToolAudits: async ({ dryRun }) => {
+        seen.push(dryRun);
+        return 0;
+      },
       deleteExpiredWebSessions: async ({ dryRun }) => {
         seen.push(dryRun);
         return 0;
@@ -258,6 +272,7 @@ describe("reconciler run", () => {
     });
 
     expect(seen).toEqual([
+      true,
       true,
       true,
       true,
@@ -306,6 +321,7 @@ describe("reconciler run", () => {
         expireParked: async () => [],
         announceInputReturns: async () => [],
         expireDecisions: async () => 0,
+        expireToolAudits: async () => 0,
         deleteExpiredWebSessions: async () => 0,
         projectToolCalls: async () => ({
           eventsRead: 10,
@@ -339,6 +355,7 @@ describe("reconciler run", () => {
     const expireParked = async () => [];
     const announceInputReturns = async () => [];
     const expireDecisions = async () => 0;
+    const expireToolAudits = async () => 0;
     const deleteExpiredWebSessions = async () => 0;
     const projectToolCalls = async () => ({
       eventsRead: 0,
@@ -368,6 +385,7 @@ describe("reconciler run", () => {
           expireParked,
           announceInputReturns,
           expireDecisions,
+          expireToolAudits,
           deleteExpiredWebSessions,
           projectToolCalls,
         }),
@@ -386,6 +404,7 @@ describe("reconciler run", () => {
         expireParked,
         announceInputReturns,
         expireDecisions,
+        expireToolAudits,
         deleteExpiredWebSessions,
         projectToolCalls,
       }),
@@ -402,6 +421,7 @@ describe("reconciler run", () => {
         expireParked,
         announceInputReturns,
         expireDecisions,
+        expireToolAudits,
         deleteExpiredWebSessions,
         projectToolCalls,
       }),

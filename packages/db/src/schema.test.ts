@@ -224,6 +224,7 @@ describe("database schema", () => {
       "slack_thread_status",
       "storage_usage",
       "surface_bindings",
+      "tool_call_audits",
       "tool_call_days",
       "tool_call_outcomes",
       "tool_call_progress",
