@@ -34,25 +34,22 @@ export function describeReviewableContract(make: MakeForgeSubject) {
       ]);
     });
 
-    test("each event is filed as asked, not turned into another", async () => {
+    test("an approval or a change request on the author's own pull request is refused, not turned into a comment", async () => {
       const subject = await make();
       const number = await subject.openPullRequest(await subject.newBranch());
       const commitId = subject.pullRequestHeadSha(number);
-      // The App opened this pull request, and GitHub refuses its own approval.
-      const filable = GITHUB_REVIEW_EVENT_VALUES.filter(
-        (event) => event !== "APPROVE",
-      );
-      for (const event of filable) {
-        await subject.api.submitReview({ number, commitId, event, body: "x" });
+      // The App opened this pull request, and GitHub takes only a comment from
+      // an author: the other two events are refused, so a call that turned
+      // them into a comment would be filed instead of refused.
+      for (const event of GITHUB_REVIEW_EVENT_VALUES) {
+        if (event === "COMMENT") continue;
+        const refused = await subject.api
+          .submitReview({ number, commitId, event })
+          .catch((error: unknown) => error);
+        expect(refused).toBeInstanceOf(GitHubCallError);
+        expect(refused).toMatchObject({ status: 422 });
       }
-      expect(
-        subject.reviewsOnForge(number).map((review) => review.event),
-      ).toEqual(filable);
-      const refused = await subject.api
-        .submitReview({ number, commitId, event: "APPROVE" })
-        .catch((error: unknown) => error);
-      expect(refused).toBeInstanceOf(GitHubCallError);
-      expect(refused).toMatchObject({ status: 422 });
+      expect(subject.reviewsOnForge(number)).toEqual([]);
     });
 
     test("a review the forge refuses throws GitHubCallError with its status, sent once", async () => {

@@ -758,11 +758,11 @@ export async function startFakeGitHub(
       );
       if (pull === undefined) return notFound();
       const event = String(input.event ?? "COMMENT");
-      if (event === "APPROVE" && pull.author_app_id === grant.appId) {
+      if (event !== "COMMENT" && pull.author_app_id === grant.appId) {
         return Response.json(
           {
             message: "Unprocessable Entity",
-            errors: ["Can not approve your own pull request"],
+            errors: [`Can not ${event.toLowerCase()} your own pull request`],
           },
           { status: 422 },
         );
