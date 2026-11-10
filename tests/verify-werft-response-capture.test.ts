@@ -42,7 +42,8 @@ describe("maskBody", () => {
     expect(out).not.toContain("abc123");
     expect(out).not.toContain("hunter2");
     expect(out).toContain('"error":"invalid"');
-    expect(out).toContain('"name":"ok"');
+    // A string under a name off the allow list keeps its length only.
+    expect(out).toContain('"name":"(hidden, 2 chars)"');
   });
 
   test("hides Bearer tokens, cookies and Authorization lines", () => {
@@ -266,11 +267,16 @@ describe("createCollector", () => {
   });
 
   test("a response that finishes after report() started is still listed", async () => {
-    const c = setup(async () => ({ body: "late", base64Encoded: false }));
+    const c = setup(async () => ({
+      body: '{"error":"late"}',
+      base64Encoded: false,
+    }));
     for (const m of request("1", 500)) c.onEvent(m);
     const lines = c.report();
     setTimeout(() => c.onEvent(finished("1")), 100);
-    expect(await lines).toEqual(["! failed request: POST /v1/x -> 500 | late"]);
+    expect(await lines).toEqual([
+      '! failed request: POST /v1/x -> 500 | {"error":"late"}',
+    ]);
   });
 
   test("a connection reset after the status keeps method, path, status and the reason", async () => {
@@ -354,11 +360,11 @@ describe("createCollector", () => {
     const lines = c.report();
     setTimeout(() => {
       for (const m of request("B", 503)) c.onEvent(m);
-      release({ body: "a-body", base64Encoded: false });
+      release({ body: '{"error":"a-body"}', base64Encoded: false });
     }, 20);
     const out = await lines;
     expect(out).toHaveLength(2);
-    expect(out[0]).toContain("-> 500 | a-body");
+    expect(out[0]).toContain('-> 500 | {"error":"a-body"}');
     expect(out[1]).toContain("-> 503 | body unavailable");
   });
 
@@ -376,11 +382,11 @@ describe("createCollector", () => {
 
   test("a base64 body is decoded", async () => {
     const c = setup(async () => ({
-      body: Buffer.from("héllo").toString("base64"),
+      body: Buffer.from('{"message":"héllo"}').toString("base64"),
       base64Encoded: true,
     }));
     for (const m of [...request("1", 400), finished("1")]) c.onEvent(m);
-    expect((await c.report())[0]).toContain("| héllo");
+    expect((await c.report())[0]).toContain('| {"message":"héllo"}');
   });
 
   const responded = (
@@ -500,7 +506,10 @@ describe("createCollector", () => {
   });
 
   test("a failed request whose headers arrive after report() started is listed", async () => {
-    const c = setup(async () => ({ body: "late-500", base64Encoded: false }));
+    const c = setup(async () => ({
+      body: '{"error":"late-500"}',
+      base64Encoded: false,
+    }));
     c.onEvent(sentEvent("1"));
     const lines = c.report();
     setTimeout(() => {
@@ -512,18 +521,21 @@ describe("createCollector", () => {
       c.onEvent(finished("1"));
     }, 100);
     expect(await lines).toEqual([
-      "! failed request: POST /v1/x -> 500 | late-500",
+      '! failed request: POST /v1/x -> 500 | {"error":"late-500"}',
     ]);
   });
 
   test("a request sent just after report() started is waited for", async () => {
-    const c = setup(async () => ({ body: "later", base64Encoded: false }));
+    const c = setup(async () => ({
+      body: '{"error":"later"}',
+      base64Encoded: false,
+    }));
     const lines = c.report();
     setTimeout(() => {
       for (const m of [...request("1", 502), finished("1")]) c.onEvent(m);
     }, 100);
     expect(await lines).toEqual([
-      "! failed request: POST /v1/x -> 502 | later",
+      '! failed request: POST /v1/x -> 502 | {"error":"later"}',
     ]);
   });
 
@@ -644,8 +656,10 @@ describe("maskBody: werft#1327 review", () => {
     expect(maskBody("<password>x</password><error>kept</error>")).toBe(
       "(markup with secret-like names withheld, 41 chars)",
     );
-    expect(maskBody("<error>Invalid payload</error>")).toContain(
-      "Invalid payload",
+    // Markup without one is text that does not parse: its length and its
+    // structure, with the words hidden by their length.
+    expect(maskBody("<error>Invalid payload</error>")).toBe(
+      "(not JSON, 30 chars) <(hidden, 5 chars)>(hidden, 7 chars) (hidden, 7 chars)<(hidden, 6 chars)>",
     );
   });
 
@@ -787,9 +801,10 @@ describe("createCollector: werft#1327 review round 2", () => {
 
 describe("shortBody", () => {
   test("cuts past the limit and says how much", () => {
-    const out = shortBody("x".repeat(BODY_LIMIT + 50));
-    expect(out.startsWith("x".repeat(BODY_LIMIT))).toBe(true);
-    expect(out).toContain("+50 chars cut");
+    const body = JSON.stringify({ message: "x".repeat(BODY_LIMIT + 50) });
+    const out = shortBody(body);
+    expect(out.startsWith(body.slice(0, BODY_LIMIT))).toBe(true);
+    expect(out).toContain(`+${body.length - BODY_LIMIT} chars cut`);
   });
 
   test("masks before cutting, so a secret at the edge cannot leak", () => {
@@ -1194,6 +1209,36 @@ describe("maskBody: review inputs", () => {
       `password=%22keep ${S}%22&x=1`,
       ["x=1"],
     ],
+    // 6a56b53 Act-on 1: a session key name (underscore and camel case).
+    ["6a56b53/1 form session_key", `a=1&${"session" + "_key"}=${S}`, ["a=1"]],
+    [
+      "6a56b53/1 JSON sessionKey",
+      str({ ["session" + "Key"]: S, ok: 1 }),
+      ['"ok":1'],
+    ],
+    ["6a56b53/1 cut JSON session_key", `{"${"session" + "_key"}":"${S}`],
+    ["6a56b53/1 semicolon form", `${"session" + "_key"}=${S}; path=/`],
+    ["6a56b53/1 array value", str({ ["session" + "Keys"]: [S] })],
+    // 6a56b53 Act-on 2: a compound code name in text that does not parse.
+    ["6a56b53/2 prose authCode", `${"auth" + "Code"}: ${S}`],
+    ["6a56b53/2 cut JSON user_code", `{"${"user" + "_code"}":"${S}`],
+    // The same names inside an allowed string, where the deny list is the
+    // second layer.
+    [
+      "6a56b53/1 session_key in a message",
+      str({ message: `${"session" + "_key"}: ${S}` }),
+    ],
+    [
+      "6a56b53/2 authCode in a message",
+      str({ message: `${"auth" + "Code"}: ${S}` }),
+    ],
+    // A name the deny list never had: the allow list hides it anyway.
+    [
+      "6a56b53/x unknown secret name",
+      str({ ["hand" + "shake"]: S, ok: 1 }),
+      ['"ok":1'],
+    ],
+    ["6a56b53/x unknown name in a cut body", `{"${"hand" + "shake"}":"${S}`],
   ];
   test.each(rows)("%s", (_name, body, keep = []) => {
     const out = maskBody(body);
@@ -1243,6 +1288,17 @@ describe("maskBody: review inputs", () => {
       "scope=sessions:read",
       ["scope=sessions:read"],
     ],
+    // 6a56b53 review: what must stay readable next to the new rows.
+    [
+      "error code number",
+      str({ code: 404, message: "Not found" }),
+      ['"code":404', "Not found"],
+    ],
+    [
+      "session object status",
+      str({ session: { status: "idle", id: "x" } }),
+      ['"status":"idle"'],
+    ],
   ];
   test.each(readable)("keeps %s", (_name, body, keep) => {
     const out = maskBody(body);
@@ -1255,5 +1311,39 @@ describe("maskBody: a value hidden once is not hidden again", () => {
     const pw = ["pass", "word"].join("");
     const out = maskBody(JSON.stringify({ message: `a=1&${pw}=one%26two` }));
     expect(out).toBe(`{"message":"a=1&${pw}=(hidden)"}`);
+  });
+});
+
+describe("maskBody: deep nesting", () => {
+  // browser.mjs runs under node, whose stack is smaller than bun's: run the
+  // masker there on bodies as deep as the 64 KiB read limit allows.
+  test("a deeply nested body is masked without throwing under node", () => {
+    const script = `
+      import { maskBody } from ${JSON.stringify(`${import.meta.dir}/../.claude/skills/verify-werft/scripts/response-capture.mjs`)};
+      const arrays = "[".repeat(32000) + "1" + "]".repeat(32000);
+      let obj = "1";
+      for (let i = 0; i < 10000; i++) obj = '{"a":' + obj + "}";
+      for (const body of [arrays, obj, "[".repeat(32000)]) maskBody(body);
+      console.log("ok");
+    `;
+    const run = Bun.spawnSync(["node", "--input-type=module", "-e", script]);
+    expect(run.stderr.toString()).toBe("");
+    expect(run.stdout.toString().trim()).toBe("ok");
+  });
+});
+
+describe("formatCapture: a doubly encoded invite path", () => {
+  // 6a56b53 Consider: the invite segment and a space in the token, both
+  // encoded twice.
+  test("the token after it is not printed", () => {
+    const S = ["SENT", "INEL"].join("");
+    const line = formatCapture({
+      method: "GET",
+      url: `http://h/in%2576ite/one%2520${S}`,
+      status: 404,
+      body: "",
+    });
+    expect(line).not.toContain(S);
+    expect(line).toContain("/(token)");
   });
 });

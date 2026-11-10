@@ -50,7 +50,7 @@ export function wanted(status, url, pattern) {
 //     segment is, each read with the segment before it as its parent.
 // The name is %-decoded first. A secret word matches anywhere in it.
 const SECRET_WORDS =
-  "token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf|session[_ -]?id|e-?mail";
+  "token|secret|password|passwd|cookie|authorization|api[_-]?key|private[_-]?key|csrf|session[_ -]?(?:id|key)|e-?mail";
 const SECRET_KEY = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "i");
 const SESSION_NAME = /session$/i;
 const CODE_KEY = /^code$|[a-z][_-]?code$/i;
@@ -73,27 +73,6 @@ function secretName(rawName, parent = "", value = undefined) {
   return (
     CODE_KEY.test(name) && !ERROR_KEY.test(parent) && !ERROR_KEY.test(name)
   );
-}
-
-// A parsed JSON body is masked by key at any depth and for any value type
-// (string, array, object); escaped key spellings are decoded by the parse.
-// Every string value left goes through maskBody again, so form pairs and
-// JSON serialized into a string meet the same steps as a whole body.
-// Nested deeper than this, a string value is hidden whole.
-const MAX_DEPTH = 4;
-function hideSecrets(value, parent, depth) {
-  if (typeof value === "string")
-    return depth < MAX_DEPTH ? maskBody(value, depth + 1) : "(hidden)";
-  if (Array.isArray(value))
-    return value.map((v) => hideSecrets(v, parent, depth));
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [
-        k,
-        secretName(k, parent, v) ? "(hidden)" : hideSecrets(v, k, depth),
-      ]),
-    );
-  return value;
 }
 
 // Printable ASCII escapes (%76 -> v, %2F -> /) are decoded, again and again
@@ -157,10 +136,7 @@ function valueEnd(s, i, bareEnd = /^[^\s,}\]&]*/) {
 // Over-hiding prose such as "token expired: retry" is the safe side. The next
 // separator is found once per position and a name is read 64 characters
 // each way at most, so the scan stays linear in the text.
-const NAME_AT = new RegExp(
-  `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session`,
-  "gi",
-);
+const NAME_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b|code\\b|session`, "gi");
 const nameAround = (text, from, to) => {
   let a = from;
   let b = to;
@@ -262,21 +238,44 @@ function decodeRefs(text) {
 const withheld = (text) =>
   MARKUP.test(text) && SECRET_HINT.test(decodeRefs(text));
 
-// One order for every body and every string value inside one:
-//   1. parse it as JSON, whole or behind a prefix, and mask by key, each
-//      string value going through maskBody again;
-//   2. text that did not parse (the whole body, or the prefix before the
-//      JSON, which may be the start of a cut body) has form pairs hidden on
-//      the raw text, then the text scan;
-//   3. both then get the decoding and the token, cookie, invite, query and
-//      email masks.
+// What a report keeps of a response body. The default is to hide: a string
+// is shown only under a name on the allow list below, and even then it goes
+// through the deny masks (maskText) as a second layer. Everything else
+// leaves its length, so the shape of a body can still be read. A deny list
+// alone kept missing a new spelling of a secret name in every review round;
+// secretName() stays as a veto over the allow list.
+//   - JSON that parses (whole, or behind a prefix): keys and structure stay;
+//     numbers, true, false and null stay unless the name is a secret (a
+//     number under `code` alone stays: an HTTP-like status); a string that
+//     is itself JSON is masked the same way, deeper; other strings stay only
+//     under an allowed name; nesting deeper than MAX_DEPTH is hidden whole,
+//     with no recursion past it.
+//   - Text that does not parse (a cut body, form pairs, prose, markup, the
+//     prefix before JSON): its length, then its first READ_TEXT characters
+//     rendered the same way: names, punctuation and allowed values stay,
+//     any other word is hidden by its length.
+const ALLOWED_NAME =
+  /^(?:error|errors|message|msg|title|reason|status|type|kind|role|scopes?|id|request[_-]?id|retryable|path|field|method|count|total)$/i;
+const MAX_DEPTH = 32;
+const READ_TEXT = 512;
+const NUMBER = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i;
+const hidden = (raw) => `(hidden, ${String(raw).length} chars)`;
+function allowedName(name, parent) {
+  if (/^code$/i.test(name)) return /^errors?$/i.test(parent);
+  return ALLOWED_NAME.test(name);
+}
+// A key is printed when it reads as a name; one that does not (a token used
+// as a key) is shown by its length.
+const showName = (name) =>
+  /^[\w.$ [\]-]{1,64}$/.test(name) ? name : `(name, ${name.length} chars)`;
+
 export function maskBody(text, depth = 0) {
   const raw = String(text);
   const json = parseJson(raw);
-  if (!json) return maskText(raw, false);
+  if (!json) return maskUnparsed(raw);
   return (
-    maskText(json.prefix, false) +
-    maskText(JSON.stringify(hideSecrets(json.value, "", depth)), true)
+    (json.prefix ? maskUnparsed(json.prefix) : "") +
+    JSON.stringify(maskValue(json.value, "", "", depth))
   );
 }
 function parseJson(text) {
@@ -286,6 +285,119 @@ function parseJson(text) {
     return parsePrefixed(text);
   }
 }
+function maskValue(value, name, parent, depth) {
+  if (depth >= MAX_DEPTH) return "(hidden: nested too deep)";
+  if (Array.isArray(value))
+    return value.map((v) => maskValue(v, name, parent, depth + 1));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value))
+      out[showName(k)] = maskValue(v, k, name, depth + 1);
+    return out;
+  }
+  // A number under `code` alone is a status (404), not an OAuth code.
+  if (typeof value === "number" && /^code$/i.test(name)) return value;
+  if (secretName(name, parent, value)) return hidden(value);
+  if (typeof value !== "string") return value;
+  if (/^\s*[[{]/.test(value)) {
+    try {
+      return JSON.stringify(
+        maskValue(JSON.parse(value), name, parent, depth + 1),
+      );
+    } catch {
+      // Not JSON after all: a string like any other.
+    }
+  }
+  return allowedName(name, parent) ? maskText(value, false) : hidden(value);
+}
+
+// The rendering of text that does not parse. It reads names (a word or a
+// quoted string followed by ":" or "="), their values (a form value to the
+// next raw "&", ";" or space; a JSON-like value as valueEnd() reads it) and
+// the nesting of { and [, so `error.code` and `session.id` are known here
+// too. Values are judged as in maskValue(); a word that is neither a name
+// nor a value is hidden by its length.
+const WORD = /^[^\s{}[\]:=,;&"'()<>]+(?:\[[^\]\s]*\])*/;
+function maskUnparsed(text) {
+  const decoded = decodeAscii(text);
+  if (withheld(decoded))
+    return `(markup with secret-like names withheld, ${decoded.length} chars)`;
+  const head = text.slice(0, READ_TEXT);
+  let out = `(not JSON, ${text.length} chars) `;
+  const stack = []; // { name, list } per open { or [
+  let pending = ""; // the name whose value is the next { or [
+  let i = 0;
+  const value = (raw, name, parent) => {
+    const unquoted = /^["']/.test(raw)
+      ? raw.slice(1, raw.endsWith(raw[0]) && raw.length > 1 ? -1 : undefined)
+      : raw;
+    const key = decodeAscii(name);
+    if (/^(?:true|false|null)$/.test(unquoted)) return raw;
+    if (NUMBER.test(unquoted))
+      return secretName(key, parent) && !/^code$/i.test(key)
+        ? hidden(raw)
+        : raw;
+    if (secretName(key, parent) || !allowedName(key, parent))
+      return hidden(raw);
+    return maskText(raw, false);
+  };
+  while (i < head.length) {
+    const c = head[i];
+    if (c === "{" || c === "[") {
+      stack.push({ name: pending, list: c === "[" });
+      pending = "";
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === "}" || c === "]") {
+      stack.pop();
+      out += c;
+      i++;
+      continue;
+    }
+    const quoted = c === '"' || c === "'";
+    const len = quoted
+      ? valueEnd(head, i) - i
+      : (WORD.exec(head.slice(i))?.[0].length ?? 0);
+    if (len === 0) {
+      out += c;
+      i++;
+      continue;
+    }
+    const token = head.slice(i, i + len);
+    const after = /^\s*([:=])\s*/.exec(head.slice(i + len, i + len + 64));
+    const top = stack.at(-1);
+    if (!after) {
+      // A list item is a value of the list's name; anything else is a word.
+      out += top?.list
+        ? value(token, top.name, stack.at(-2)?.name ?? "")
+        : /^(?:true|false|null|\d{1,4})$/.test(token)
+          ? token
+          : hidden(token);
+      i += len;
+      continue;
+    }
+    const name = quoted ? token.slice(1, -1) : token;
+    const parent = top?.name ?? "";
+    out += /^[\w.$ [\]-]{1,64}$/.test(decodeAscii(name))
+      ? token
+      : hidden(token);
+    out += after[0];
+    const j = i + len + after[0].length;
+    if (head[j] === "{" || head[j] === "[") {
+      pending = name;
+      i = j;
+      continue;
+    }
+    const end =
+      after[1] === "=" ? valueEnd(head, j, FORM_BARE) : valueEnd(head, j);
+    if (end > j) out += value(head.slice(j, end), name, parent);
+    i = end;
+  }
+  return text.length > READ_TEXT ? `${out}…` : out;
+}
+
 function maskText(text, parsed) {
   if (text === "") return text;
   let out = parsed ? text : hideFormPairs(text);
@@ -339,8 +451,11 @@ export function safeUrl(raw) {
     // A run that is not valid UTF-8 still gets its ASCII escapes decoded
     // (%FF%2F -> %FF/). Control characters stay escaped so a path cannot add
     // a line to the report.
-    const decoded = u.pathname
-      .replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    // Decoded until it stops changing (five rounds at most), the same as the
+    // masks decode, so a doubly encoded invite segment is found too.
+    let path0 = u.pathname;
+    for (let round = 0; round < 5; round++) {
+      const next = path0.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
         try {
           return decodeURIComponent(run);
         } catch {
@@ -348,19 +463,21 @@ export function safeUrl(raw) {
             String.fromCharCode(Number.parseInt(b.slice(1), 16)),
           );
         }
-      })
-      .replace(
-        // biome-ignore lint/suspicious/noControlCharactersInRegex: that is the point
-        /[\u0000-\u001f\u007f]/g,
-        (c) =>
-          `%${c.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase()}`,
-      );
+      });
+      if (next === path0) break;
+      path0 = next;
+    }
+    const decoded = path0.replace(
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: that is the point
+      /[\u0000-\u001f\u007f]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase()}`,
+    );
     const segments = decoded.split("/");
     const at = segments.findIndex((s) => s.toLowerCase() === "invite");
     const path =
       at === -1
-        ? maskBody(decoded)
-        : `${maskBody(segments.slice(0, at + 1).join("/"))}/(token)`;
+        ? maskText(decoded, false)
+        : `${maskText(segments.slice(0, at + 1).join("/"), false)}/(token)`;
     return `${path}${u.search ? "?(query hidden)" : ""}`;
   } catch {
     return "(unparsable url)";
