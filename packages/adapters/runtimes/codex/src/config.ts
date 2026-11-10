@@ -103,10 +103,12 @@ export function connectionOf(
  * spent. That limit is enforced where every provider call passes, the worker
  * gateway's egress authorization (a session past it gets 403 BUDGET_EXCEEDED
  * on its next provider call) and the next-input dispatch, so the engine is
- * not asked to enforce it a second time. Limits of this: spend reaches the
- * gateway by the proxy's usage report, so a report lost after its retries
- * leaves the stored cost low until the proxy's in-process gate (one process,
- * lost on restart) refuses that session's later calls.
+ * not asked to enforce it a second time. The limit is soft: spend reaches the
+ * gateway by the proxy's usage report, so one long response, parallel calls
+ * or a call sent while a report is in flight can pass it, and after a report
+ * lost past its retries the stored cost stays low until the proxy's
+ * in-process gate (one process, lost on restart) refuses that session's later
+ * calls, so with several proxies or a restart the overshoot has no bound.
  */
 export function assertStartable(
   config: RuntimeStart["config"],
