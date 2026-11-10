@@ -971,7 +971,9 @@ test("hands the worker no OTEL_* key even when the scheduler's own environment h
     expect(env.join("\n")).not.toContain("SECRET");
   } finally {
     for (const key of Object.keys(keys)) {
-      if (before[key] === undefined) delete process.env[key];
+      const original = before[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
     }
   }
 });
