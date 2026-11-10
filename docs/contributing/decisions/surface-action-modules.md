@@ -379,7 +379,10 @@ export interface AgentWelcomer {
 // wider return (it also answers `finalize` for the install route); the check
 // only says that what it returns can stand in for the capability.
 export function createSlackWelcome(deps: SlackWelcomeDeps) {
-  return { welcome, activated, finalize } satisfies AgentWelcomer;
+  const implementation = { welcome, activated, finalize };
+  // On a variable, not on the literal: `satisfies` on a fresh object literal
+  // refuses the extra member.
+  return implementation satisfies AgentWelcomer;
 }
 ```
 
@@ -687,13 +690,14 @@ platform index에 한 PR 주기 동안 재수출을 둘 수는 **없다.** platf
 - 각 PR에서 어댑터는 아직 platform에 있는 Slack 파일을 `@werft-ai/platform`의 index로 import한다(어댑터 → platform은 허용 방향이다). index가 내보내지 않는 이름이 필요하면 그 PR이 index에 더하고 U5 ③이 다시 뺀다.
 - U5 ①을 시작하기 전에 맨 위 묶음이 정말 닫혀 있는지 import 그래프로 확인한다. 닫혀 있지 않은 파일이 있으면 그 파일을 같은 PR 묶음에 넣거나 순서를 바꾼다. 이 표는 읽은 import에서 나온 계획이고, U5 ①의 첫 일이 그래프를 뽑아 표를 확정하는 것이다.
 - Slack이 아닌 platform 서비스가 Slack 파일을 import하는 곳(`agent-service.ts:51`, `surface-binding-service.ts:27-28`)은 U3이 능력 인터페이스로 먼저 끊는다. 그래서 U3이 U5의 선행 조건이다.
-- **platform에 남는 시험 셋이 Slack 파일에 기댄다.** platform의 시험은 어댑터를 import할 수 없으므로(`tests/architecture.test.ts:1057`) 그 파일이 나가는 PR이 함께 고친다. 단언은 지우지 않고 자리를 옮긴다.
+- **platform에 남는 시험 둘이 Slack 파일에 기댄다.** platform의 시험은 어댑터를 import할 수 없으므로(`tests/architecture.test.ts:1057`) 그 파일이 나가는 PR이 함께 고친다. 단언은 지우지 않고 자리를 옮긴다.
 
 | 시험 | 기대는 것 | 나가는 PR | 처리 |
 |---|---|---|---|
 | `sessions/event-codecs.test.ts:10`, `:175` | `slack-outbox.ts`의 `finalReplyText` | U5 ① | codec이 낸 이벤트 모양의 단언은 남기고, 그 이벤트에서 Slack 답 본문이 나온다는 단언은 어댑터의 outbox 시험으로 옮긴다 |
-| `musterrolle/surface-binding-service.test.ts:13-14` | `createSlackChannelKinds`, `SlackApiError`, `SlackBotApi` | U5 ③ | 서비스 시험은 `ChannelKindReader`의 메모리 가짜로 돌린다. Slack 응답을 채널 종류로 바꾸는 단언은 어댑터의 `slack-bot-token` 시험으로 옮긴다 |
-| `musterrolle/service-errors.test.ts:42-51` | Slack 서비스 파일 네 개를 이름으로 읽는 표 | U5 ③ | 그 행들을 어댑터의 같은 시험으로 옮긴다 |
+| `musterrolle/surface-binding-service.test.ts:13-14` | `createSlackChannelKinds`, `SlackApiError`, `SlackBotApi` | U5 ③ | 서비스 단언은 이미 가짜로 돈다(`:104-108`). Slack 구현을 확인하는 묶음(`:159-245`)을 구현과 함께 어댑터로 옮긴다 |
+
+`musterrolle/service-errors.test.ts:42-51`에는 Slack 서비스 파일 이름이 적힌 표가 있지만 의존이 아니다. 시험이 그 이름을 쓰지 않고(`:55-60`) platform 안쪽의 공유 오류 팩토리 `service-errors.ts`만 확인한다. 이 시험은 platform에 그대로 둔다.
 
 - 다른 패키지의 시험이 `@werft-ai/platform`에서 가져오던 Slack 이름과 가짜(`./testing/slack-fakes`)도 같은 PR에서 `@werft-ai/chat-slack`으로 바꾼다. U5 ①의 첫 일인 import 그래프에 시험 파일을 포함한다.
 - `@werft-ai/platform`의 index가 내보내던 Slack 이름을 쓰는 곳은 control-host와 `db`다. control-host는 각 PR에서 import를 `@werft-ai/chat-slack`으로 바꾸고 조립 지점으로 모은다. `db`가 쓰는 이름(저장소 포트 타입, 알림 문구)은 platform에 남으므로 `db`는 바뀌지 않는다.
@@ -802,4 +806,6 @@ Consider 3건도 반영했다: 규칙별 기준선과 검사 범위(R3·R4·R7·
 |---|---|
 | R6의 두 검사는 문자열 리터럴로 쓴 번역 문구를 잡지 못한다(1회차에서 남은 것) | 기계 검사의 보장 범위를 순수성으로 줄이고, 문구와 원문의 구별은 view model 시험과 리뷰의 몫으로 적었다([8절](#8-의존-방향-규칙)) |
 | `createSlackWelcome`의 반환 타입을 `AgentWelcomer`로 적으면 `finalize`가 가려진다. "던지지 않는다"는 `activated`만의 약속이다 | 팩토리는 넓은 반환을 유지하고 `satisfies`로만 검사한다. R9에서 반환 타입 요구를 뺐다([6.2절](#62-능력-인터페이스)) |
-| platform에 남는 시험이 옮겨 가는 Slack 파일을 import한다(`event-codecs.test.ts:10`) | 그런 시험 셋과 처리 방법을 [10.1절](#101-slack-이동의-순서와-재수출)에 적었다 |
+| platform에 남는 시험이 옮겨 가는 Slack 파일을 import한다(`event-codecs.test.ts:10`) | 그런 시험 둘과 처리 방법을 [10.1절](#101-slack-이동의-순서와-재수출)에 적었다 |
+
+3회차(대상 `d0a8cd1ef`)는 2회차 반영분에서 Act-on 2건을 냈고 둘 다 고쳤다: 예시 코드의 `satisfies`를 객체 리터럴이 아니라 변수에 걸고(리터럴에 걸면 `finalize`가 초과 속성으로 거부된다), `service-errors.test.ts`를 Slack 의존 시험 목록에서 뺐다.
