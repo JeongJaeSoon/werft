@@ -92,10 +92,16 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       "http_proxy",
       "https_proxy",
     ];
-    const savedProxy = proxyVariables.map((name) => process.env[name]);
+    // A NO_PROXY of `*` or a listed host in the CI environment would send the
+    // engine around the recorder, so it is cleared here (the adapter adds the
+    // egress host to it itself).
+    const bypassVariables = ["NO_PROXY", "no_proxy"];
+    const touched = [...proxyVariables, ...bypassVariables];
+    const savedProxy = touched.map((name) => process.env[name]);
     for (const name of proxyVariables) {
       process.env[name] = `http://127.0.0.1:${proxy.port}`;
     }
+    for (const name of bypassVariables) delete process.env[name];
     try {
       const runtime = new CodexAgentRuntime({ stateDir: first } as never);
       const run = runtime.start(startOf({ port, work, egressToken: EGRESS }));
@@ -199,11 +205,14 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
           .find((s) => s.path.endsWith("/responses"));
         expect(request?.body).toContain("say hello");
         expect(request?.body).toContain("and again");
+        // The resumed engine too reaches no other host.
+        await Bun.sleep(2000);
+        expect(attempts).toEqual([]);
       } finally {
         await resumed.close();
       }
     } finally {
-      proxyVariables.forEach((name, i) => {
+      touched.forEach((name, i) => {
         const value = savedProxy[i];
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
