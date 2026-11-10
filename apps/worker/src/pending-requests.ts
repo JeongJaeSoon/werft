@@ -105,6 +105,8 @@ type Pending = {
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
+// Far more asks than a turn holds at once; the oldest are forgotten first.
+const REQUEST_IDS_REMEMBERED = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MAX_REGISTER_BACKOFF_MS = 30_000;
 
@@ -123,6 +125,9 @@ const MAX_REGISTER_BACKOFF_MS = 30_000;
 export class PendingRequestRegistry {
   private readonly options: PendingRequestsOptions;
   private readonly pending = new Map<string, Pending>();
+  // The request id each of the run's local ids was registered under. It
+  // outlives the entry: the audit of the answer is made after it is gone.
+  private readonly requestIds = new Map<string, string>();
   // Unsent settlements; a poll removes only what it carried, once it lands.
   private readonly settlements = new Map<string, Settled>();
   // Answers handed to the run whose outcome waits on what the run says.
@@ -181,6 +186,7 @@ export class PendingRequestRegistry {
       return;
     }
     const requestId = `req_${randomUUID()}`;
+    this.bind(request.localId, requestId);
     this.pending.set(requestId, {
       kind: request.kind,
       questions: request.kind === "question" ? request.questions : [],
@@ -203,6 +209,24 @@ export class PendingRequestRegistry {
       () => this.registering.delete(registration),
     );
     this.registering.add(registration);
+  }
+
+  /**
+   * Names the request a run's local id stands for. A request answered from a
+   * grant was registered by an earlier turn, so the caller binds it here.
+   */
+  bind(localId: string, requestId: string): void {
+    this.requestIds.delete(localId);
+    this.requestIds.set(localId, requestId);
+    if (this.requestIds.size > REQUEST_IDS_REMEMBERED) {
+      const [oldest] = this.requestIds.keys();
+      if (oldest !== undefined) this.requestIds.delete(oldest);
+    }
+  }
+
+  /** The request id for a run's local id; undefined when none was registered. */
+  requestIdOf(localId: string): string | undefined {
+    return this.requestIds.get(localId);
   }
 
   /** The run settled one itself, its call aborted: nothing is answered, the gateway is told. */

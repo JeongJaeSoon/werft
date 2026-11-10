@@ -1378,4 +1378,35 @@ describe("attachments", () => {
     expect(orders).toHaveLength(1);
     harness.registry.stop();
   });
+
+  test("keeps the request id a run's local id was registered under after the entry is gone", async () => {
+    const harness = registry();
+    const request = permission("req-audit");
+    expect(harness.registry.requestIdOf(request.localId)).toBeUndefined();
+    const decision = harness.ask(request);
+    const requestId = await harness.idFor("req-audit");
+    expect(harness.registry.requestIdOf(request.localId)).toBe(requestId);
+
+    await harness.answer({
+      kind: "permission",
+      request_id: "req-audit",
+      decision: "allow",
+    } as PostSessionAnswerRequest);
+    await decision;
+    await waitFor(() => harness.registry.outstanding === 0, "the entry to go");
+    expect(harness.registry.requestIdOf(request.localId)).toBe(requestId);
+    harness.registry.stop();
+  });
+
+  test("binds a grant's request id, and forgets the oldest binding past the bound", () => {
+    const harness = registry();
+    harness.registry.bind("local_grant", "req_granted");
+    expect(harness.registry.requestIdOf("local_grant")).toBe("req_granted");
+    for (let index = 0; index < 1_000; index += 1) {
+      harness.registry.bind(`local_${index}`, `req_${index}`);
+    }
+    expect(harness.registry.requestIdOf("local_grant")).toBeUndefined();
+    expect(harness.registry.requestIdOf("local_999")).toBe("req_999");
+    harness.registry.stop();
+  });
 });

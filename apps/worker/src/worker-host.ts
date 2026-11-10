@@ -40,6 +40,7 @@ import {
   type ParkedApproval,
   type RuntimeEvent,
   runtimeRequirementsOf,
+  type ToolDecisionObserver,
   type TurnEnded,
   unmetFeatures,
   type WorkerCheckpointState,
@@ -66,6 +67,7 @@ import {
   scrubbingGateway,
   scrubbingLogger,
 } from "./secret-scrubber.ts";
+import { ToolAuditCollector } from "./tool-audit.ts";
 import { settledWithin, until } from "./waits.ts";
 import { AttachLimitError, type WorkspacePreparer } from "./workspace.ts";
 import type { WorkspaceObserver } from "./workspace-observer.ts";
@@ -103,6 +105,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   maxBudgetUsd?: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
+  /** Told of each judgment on a tool call, for the audit record. */
+  toolDecisions?: ToolDecisionObserver;
   /** The claim's; absent is a session with a repository. */
   workspace?: WorkspaceDescriptor;
 };
@@ -545,6 +549,13 @@ export class WorkerHost {
           reason: error.message,
         }),
     });
+    // Always on: recording a tool judgment does not depend on tracing.
+    const toolAudit = new ToolAuditCollector({
+      scrubber: () => this.scrubber,
+      turnId: () => this.scope.turn_id,
+      requestIdOf: (localId) => this.pending?.requestIdOf(localId),
+      enqueue: (report, turnId) => publisher.audit(report, turnId),
+    });
     this.heartbeat = new Heartbeat({
       gateway: this.options.gateway,
       scope: () => this.scope,
@@ -612,6 +623,7 @@ export class WorkerHost {
               : { maxBudgetUsd: claim.remaining_budget_usd }),
             principal: claim.principal,
             runtimeConfig: claim.runtime_config,
+            toolDecisions: toolAudit,
             workspace: claim.workspace,
           });
           this.engine = run;
@@ -2639,6 +2651,9 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
+      // The allow was registered and answered by an earlier turn; the audit of
+      // this use names that request.
+      this.pending.bind(request.localId, grant.request_id);
       void answer({
         kind: "selected",
         optionKind: "allow_once",

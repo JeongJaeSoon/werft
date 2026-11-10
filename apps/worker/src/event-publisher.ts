@@ -1,5 +1,7 @@
 import {
   type SessionEvent,
+  TOOL_DECISIONS_PER_APPEND_MAX,
+  type ToolDecisionReport,
   type WorkerEvent,
   type WorkerScope,
   workerEventSchema,
@@ -7,6 +9,7 @@ import {
 import { isRetryable, type WorkerGatewayClient } from "@werft-ai/runtime-core";
 
 type Queued = { event: WorkerEvent; turnId: string | null };
+type QueuedAudit = { report: ToolDecisionReport; turnId: string };
 
 export type EventPublisherOptions = {
   gateway: Pick<WorkerGatewayClient, "appendEvents">;
@@ -35,6 +38,9 @@ const DEFAULT_MAX_BATCH_SIZE = 32;
 const DEFAULT_RETRY_DELAY_MS = 500;
 // Far more calls than one turn waits on at once.
 const TOOL_USES_REMEMBERED = 1_000;
+// Judgments wait for an event batch of their own turn to ride on. A stream
+// that stalls for long keeps the newest, so memory stays bounded.
+const AUDITS_QUEUED_MAX = 2_000;
 
 /**
  * Turns projected frames into the attempt's durable event stream.
@@ -55,6 +61,7 @@ export class EventPublisher {
   private readonly retryBudgetMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly queue: Queued[] = [];
+  private readonly audits: QueuedAudit[] = [];
   private acceptedThroughValue = 0;
   private draining: Promise<void> | undefined;
   private failure: unknown;
@@ -106,6 +113,18 @@ export class EventPublisher {
     }
     this.wake();
     this.kick();
+  }
+
+  /**
+   * Queues a judgment on a tool call. It goes out with the next batch of its
+   * turn, in the same request as the events, and is dropped once that is
+   * acknowledged: the API stores both in one transaction, and a resend of
+   * the batch carries the same judgments again.
+   */
+  audit(report: ToolDecisionReport, turnId: string): void {
+    if (this.failure !== undefined) return;
+    this.audits.push({ report, turnId });
+    if (this.audits.length > AUDITS_QUEUED_MAX) this.audits.shift();
   }
 
   /**
@@ -187,6 +206,7 @@ export class EventPublisher {
   abandon(reason: string): void {
     this.failure ??= new Error(`Events were abandoned: ${reason}`);
     this.queue.length = 0;
+    this.audits.length = 0;
     this.wake();
   }
 
@@ -240,15 +260,29 @@ export class EventPublisher {
     let failingSince: number | undefined;
     while (this.sendable()) {
       const batch = this.leadingBatch();
+      const turnId = batch[0]?.turnId ?? null;
+      const carried =
+        turnId === null
+          ? []
+          : this.audits
+              .filter((audit) => audit.turnId === turnId)
+              .slice(0, TOOL_DECISIONS_PER_APPEND_MAX);
       try {
         const response = await this.gateway.appendEvents({
           ...this.scope(),
-          turn_id: batch[0]?.turnId ?? null,
+          turn_id: turnId,
           batch_key: this.batchKey(batch),
           events: batch.map((entry) => entry.event),
+          ...(carried.length === 0
+            ? {}
+            : { tool_decisions: carried.map((audit) => audit.report) }),
         });
         this.acceptedThroughValue = response.accepted_through;
         this.queue.splice(0, batch.length);
+        for (const audit of carried) {
+          const index = this.audits.indexOf(audit);
+          if (index !== -1) this.audits.splice(index, 1);
+        }
         failingSince = undefined;
         this.wake();
       } catch (error) {

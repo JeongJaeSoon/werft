@@ -286,6 +286,9 @@ export function runtimeStart(
         : { transcript: launch.sessionStore }),
     },
     bundle: profile.bundle,
+    ...(launch.toolDecisions === undefined
+      ? {}
+      : { toolDecisions: launch.toolDecisions }),
   };
 }
 
