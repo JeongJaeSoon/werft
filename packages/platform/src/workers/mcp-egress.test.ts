@@ -5,6 +5,7 @@ import type {
   McpSessionState,
 } from "../ports/mcp-egress.ts";
 import { mcpBinding, type SessionCatalog } from "../sessions/catalog.ts";
+import { visibleMcpTools } from "../sessions/mcp-tool-decision.ts";
 import { createMcpEgress, uuidV5 } from "./mcp-egress.ts";
 
 const server = {
@@ -106,6 +107,25 @@ describe("createMcpEgress", () => {
     ).toMatchObject({ code: "FORBIDDEN" });
     expect(await egress(null).decide(fenced, call("whoami"))).toMatchObject({
       code: "FORBIDDEN",
+    });
+    expect(recorded).toEqual([]);
+  });
+
+  test("a denied tool is refused with FORBIDDEN while its sibling passes", async () => {
+    const tools = visibleMcpTools(
+      "fake",
+      ["mcp__fake__whoami", "mcp__fake__wipe"],
+      ["mcp__fake__wipe"],
+    );
+    const { decide, recorded } = egress({ tools });
+    expect(await decide(fenced, call("wipe"))).toEqual({
+      kind: "refused",
+      status: 403,
+      code: "FORBIDDEN",
+      message: "The release does not allow this MCP tool",
+    });
+    expect(await decide(fenced, call("whoami"))).toMatchObject({
+      kind: "granted",
     });
     expect(recorded).toEqual([]);
   });

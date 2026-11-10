@@ -66,6 +66,7 @@ API로 세션을 만들고 쓰는 사람.
 | [결정: 파일 카탈로그를 설정으로](contributing/decisions/settings-replace-file-catalog.md) | 연결·저장소·MCP 서버를 DB·콘솔로 옮기고 설정 파일 로더를 없애는 설계, 자격 증명 경계, 한 번에 옮기는 이전, 내보내기/가져오기, GitHub App 저장소는 설치 목록에서 고름 |
 | [결정(설계): Musterrolle 모듈 경계](contributing/decisions/musterrolle-boundary.md) | 흩어진 신원·역할·권한 코드의 위치 실측, 패키지마다 `musterrolle/` 디렉터리와 공개면 하나로 닫는 목표 경계, architecture 테스트 규칙, 단계별 PR 순서와 증명 방법 |
 | [결정(제안): 로그 레코드 계약과 에러 기록](contributing/decisions/logging-contract.md) | 세 logger의 출력 모양과 로그 소비자, 표준 레코드와 계약 테스트, proxy 무의존 유지, 에러를 문자열로 남기는 규칙, 로그 필드가 바뀌는 단계별 PR |
+| [결정(설계): 관측(OTel) 방향과 도구 호출 감사](contributing/decisions/observability-otel-and-tool-call-audit.md) | OTel 채택 범위와 Langfuse와의 관계, tracer 포트, trace_id·로그 필드, API span 규칙, OTLP 설정 키, 도구 호출 감사 레코드(입력은 해시만, 판정·근거, 가림 목록, 보존, 담당 모듈), 후속 티켓 순서표 |
 | [결정(제안): worker Pod를 누가 만드나](contributing/decisions/k8s-pull-execution.md) | 플랫폼 직접 생성 + 권한 축소(추천)와 KEDA ScaledJob pull의 비교, 두 안의 설계, PoC 실측, Codex 의견 |
 | [결정(설계): 새 에이전트 마법사 재작업](contributing/decisions/agent-wizard-rework.md) | 마법사의 저장소 지정 제거, 역할·지시 사항을 이름·설명으로(에이전트 지시문 칸은 이후 없앴다), 도구 선택과 실행 적용, 담당 팀과 팀 역할 권한, 구현 단위와 순서 |
 | [결정(설계): 에이전트 담당 팀과 액션 RBAC](contributing/decisions/agent-rbac.md) | 에이전트·세션 action별 지금 권한 실측, 담당 팀 안팎 주체별 RBAC 표, 워크스페이스 설정 두 축(바깥쪽의 에이전트 접근, 세션 열람 상한), 담당 팀 필수와 기존 에이전트 이행, 앞선 결정과의 차이, 구현 단위 R1~R5 |
