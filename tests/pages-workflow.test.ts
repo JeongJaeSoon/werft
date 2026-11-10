@@ -20,8 +20,10 @@ const parse = (file: string) =>
           uses?: string;
           id?: string;
           if?: string;
-          with?: Record<string, string>;
+          with?: Record<string, string | number>;
+          "continue-on-error"?: boolean;
         }[];
+        "timeout-minutes"?: number;
       }
     >;
   };
@@ -74,6 +76,26 @@ describe("pages.yml", () => {
       "github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'",
     );
     expect(deploy?.environment?.name).toBe("github-pages");
+  });
+
+  test("a stalled Pages deployment is abandoned early and tried once more inside the job limit", () => {
+    const deploy = pages.jobs.deploy;
+    const steps = deploy?.steps ?? [];
+    const attempts = steps.filter((s) =>
+      s.uses?.startsWith("actions/deploy-pages@"),
+    );
+    expect(attempts.map((s) => s.id)).toEqual(["deploy", "retry"]);
+    expect(attempts[0]?.["continue-on-error"]).toBe(true);
+    expect(attempts[1]?.if).toBe("steps.deploy.outcome == 'failure'");
+    const waitMs = attempts.map((s) => Number(s.with?.timeout));
+    // Healthy deploys take under 30s; both attempts plus the ~2 min of
+    // assembly before them must fit the job limit.
+    // The action replaces a zero or negative value with its 10 minute default.
+    for (const ms of waitMs) expect(ms).toBe(180_000);
+    // The last attempt must fail the job when it fails.
+    expect(attempts[1]?.["continue-on-error"]).toBeUndefined();
+    const total = waitMs.reduce((a, b) => a + b, 0) / 60_000 + 3;
+    expect(total).toBeLessThan(deploy?.["timeout-minutes"] ?? 0);
   });
 
   test("assembles the site with the script ci.yml uses", () => {
