@@ -1068,3 +1068,13 @@ describe("maskBody: quoted form values, form pairs and JSON inside strings", () 
     expect(out).toContain('"retryable":false');
   });
 });
+
+describe("maskBody: session as a word, not a key", () => {
+  test("scope strings such as sessions:read stay readable", () => {
+    const out = maskBody(
+      JSON.stringify({ scopes: ["sessions:read", "sessions:write"] }),
+    );
+    expect(out).toContain("sessions:read");
+    expect(out).toContain("sessions:write");
+  });
+});

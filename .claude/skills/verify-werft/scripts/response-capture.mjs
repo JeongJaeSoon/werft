@@ -138,7 +138,10 @@ function valueEnd(s, i, bareEnd = /^[^\s,}\]&]*/) {
 // characters away or past structure (`,;{}`) is not taken, so prose such
 // as "token is invalid" does not hide the next field.
 const SECRET_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
-const UNPARSED_WORDS = `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session`;
+// `session` counts only as a quoted key ("session", "current_session",
+// \"sessions\" in a serialized string), not as a word: a scope such as
+// sessions:read is not a secret.
+const UNPARSED_WORDS = `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b|session\\w*(?=\\\\?")`;
 const SECRET_OR_CODE_AT = new RegExp(UNPARSED_WORDS, "gi");
 
 // Form pairs (a=1&b=2) are split on the raw text, before %XX is decoded, so
