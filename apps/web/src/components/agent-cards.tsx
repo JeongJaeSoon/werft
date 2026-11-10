@@ -34,7 +34,6 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
 import { AgentStateBadge } from "./agent-state.tsx";
 import { ManagingTeamName } from "./managing-team.tsx";
-import { useProfileDisplay } from "./profile-options.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 import { SlackActionLink } from "./slack-action-link.tsx";
@@ -62,7 +61,7 @@ type Part<T> = Pick<UseQueryResult<T>, "data" | "isError" | "isPending">;
 interface Facts {
   /** The version people talk to, or the newest draft before any release. */
   readonly version: AgentSummary["version"] | undefined;
-  readonly runtime_profile_id: string | null;
+  readonly connection_id: string | null;
   readonly release_label: string | null;
 }
 
@@ -93,7 +92,7 @@ function AgentCardItem({
         settings={{
           facts: ready({
             version: summary.version,
-            runtime_profile_id: summary.runtime_profile_id,
+            connection_id: summary.connection_id,
             release_label: summary.release_label,
           }),
           bound: ready(summary.bound_credential_refs),
@@ -156,7 +155,7 @@ function factsOf(data: AgentDetail): Facts {
       mcp_servers: (version.card.capabilities.mcp ?? []).map((m) => m.server),
       credential_refs: version.card.capabilities.credential_refs ?? [],
     },
-    runtime_profile_id: data.active_release?.runtime_profile_id ?? null,
+    connection_id: data.active_release?.connection_id ?? null,
     release_label: data.active_release?.label ?? null,
   };
 }
@@ -288,7 +287,6 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
   const { t, locale } = useI18n();
   const { facts, bound } = settings;
   const version = facts.data?.version;
-  const profile = useProfileDisplay();
   return (
     <>
       <Fact term={t("agents.cards.release")}>
@@ -302,13 +300,12 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
           ) : null}
         </Detail>
       </Fact>
-      <Fact term={t("agents.cards.profile")}>
-        {/* A slow or refused profile list leaves the id, not a placeholder. */}
+      <Fact term={t("agents.cards.connection")}>
         <Detail query={facts}>
           {facts.data ? (
-            facts.data.runtime_profile_id ? (
-              <span title={facts.data.runtime_profile_id}>
-                {profile.show(facts.data.runtime_profile_id)}
+            facts.data.connection_id ? (
+              <span title={facts.data.connection_id}>
+                {facts.data.connection_id}
               </span>
             ) : (
               <Dash label={t("agent.panel.none")} />

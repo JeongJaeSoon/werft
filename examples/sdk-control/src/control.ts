@@ -12,12 +12,10 @@ import {
 
 const client = new Werft();
 const signal = AbortSignal.timeout(10 * 60_000);
-const profile_id = process.env.WERFT_PROFILE_ID ?? "claude-coding-local";
-const repository_id = process.env.WERFT_REPOSITORY_ID ?? "sample-app";
-// Same runtime and repository, another permission mode: a profile change
-// only works between profiles whose checkpoints restore into each other.
-const next_profile_id =
-  process.env.WERFT_NEXT_PROFILE_ID ?? "claude-coding-auto";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
 
 const script = (id: string, final: string, finalDelayMs?: number) =>
   `GATE-SPEC ${JSON.stringify({ id, steps: [], final, ...(finalDelayMs ? { finalDelayMs } : {}) })}`;
@@ -42,7 +40,7 @@ async function settled(accepted: { receipt_id: string }): Promise<Receipt> {
 
 async function run(): Promise<void> {
   const created = await client.sessions.create(
-    { profile_id, repository_id, message: script("ctl1", "ready") },
+    { agent_release_id, message: script("ctl1", "ready") },
     { signal },
   );
   const id: SessionId = created.session_id;
@@ -112,29 +110,7 @@ async function run(): Promise<void> {
   );
   console.log(`resume: turn ${queued} ${(await turn(queued)).status}`);
 
-  // 4. A new profile for the rest of the conversation.
-  const change = await settled(
-    await client.sessions.changeProfile(
-      id,
-      {
-        expected_revision: (await get()).revision,
-        profile_id: next_profile_id,
-      },
-      { signal },
-    ),
-  );
-  const { previous_profile_id, profile_id: now } = change.result as {
-    previous_profile_id?: string;
-    profile_id?: string;
-  };
-  const afterChange = await turn(
-    await send(script("ctl5", "on the new profile")),
-  );
-  console.log(
-    `profile: ${previous_profile_id} -> ${now}; turn ${afterChange.turn_id} ${afterChange.status} on ${afterChange.attempts.at(-1)?.profile_id}`,
-  );
-
-  // 5. terminate kills the running turn; its outcome is unknown until a
+  // 4. terminate kills the running turn; its outcome is unknown until a
   // person decides. abandon marks it cancelled, then the session resumes.
   const doomed = await send(script("ctl6", "never", SLOW));
   await running(doomed);

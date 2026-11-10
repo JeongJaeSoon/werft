@@ -76,7 +76,7 @@ const outputs: ListSessionOutputsResponse = {
 function routes(answer: () => Response) {
   return {
     "GET /v1/auth/me": () => json(200, me()),
-    "GET /v1/profiles": () => json(200, { items: [] }),
+    "GET /v1/connections": () => json(200, { items: [] }),
     [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, detail),
     [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
       json(200, { answerable: true, items: [] }),

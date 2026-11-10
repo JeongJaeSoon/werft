@@ -46,9 +46,9 @@ export const SLACK_WARNING_KEY = {
     title: "slack.repositoryRequired.title",
     body: "slack.repositoryRequired.body",
   },
-  profile_unavailable: {
-    title: "slack.profileUnavailable.title",
-    body: "slack.profileUnavailable.body",
+  release_unavailable: {
+    title: "slack.releaseUnavailable.title",
+    body: "slack.releaseUnavailable.body",
   },
   no_active_release: {
     title: "slack.noActiveRelease.title",

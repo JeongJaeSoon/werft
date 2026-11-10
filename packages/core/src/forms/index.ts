@@ -6,7 +6,6 @@ import {
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
   createInviteRequestSchema,
-  createWorkspaceProfileRequestSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the forms entry, like the schemas entry, may name zod; the root entry still may not.
 import { z } from "zod";
@@ -30,31 +29,19 @@ export const agentIdentityStep = z.object({
 
 /** The release step of making an agent: the version comes from the saved draft. */
 export const agentReleaseStep = z.object({
-  runtime_profile_id: trimmed(
-    createAgentReleaseRequestSchema.shape.runtime_profile_id,
-  ),
-  /** Empty for none, which only a profile that may go without one takes. */
+  connection_id: trimmed(createAgentReleaseRequestSchema.shape.connection_id),
+  /** Empty for none: a release may go without a repository. */
   repository_id: z.string().trim(),
 });
 
-export const workspaceProfileNameStep = trimmed(
-  createWorkspaceProfileRequestSchema.shape.name,
-);
-export const workspaceProfileStep = createWorkspaceProfileRequestSchema;
-
 export {
-  addedTools,
   canonicalTool,
-  carriedDeny,
   credentialRefSchema,
-  firstVersionDeny,
   GITHUB_APP_PERMISSION_GUIDANCE,
   githubAppWarnings,
   isMcpToolName,
   MCP_TOOL_PREFIX,
   mcpToolOfServer,
-  WORKSPACE_PROFILE_POLICY,
-  workspaceProfileId,
 } from "@werft-ai/contracts";
 
 export const inviteStep = z.object({

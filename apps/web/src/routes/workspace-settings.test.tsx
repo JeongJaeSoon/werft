@@ -15,20 +15,19 @@ import { appHarness } from "../test-support/render-app.tsx";
 const harness = await appHarness();
 const { screen, waitFor, within } = harness;
 
-const PROFILES = {
+const CONNECTIONS = {
   items: [
-    profile("claude-coding-fast", "claude-haiku-5"),
-    profile("claude-coding-local", "claude-sonnet-5"),
-    profile("claude-general", "claude-sonnet-5"),
+    connection("anthropic-fast", ["claude-haiku-5"]),
+    connection("anthropic-main", ["claude-haiku-5", "claude-sonnet-5"]),
   ],
 };
-// Every settings page reads the profile catalog for its model card; the
+// Every settings page reads the connections for its model card; the
 // Slack page also reads the token and the apps it made.
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
     {
-      "GET /v1/profiles": () => json(200, PROFILES),
+      "GET /v1/connections": () => json(200, CONNECTIONS),
       [`GET /v1/workspaces/${WORKSPACE_ID}/engine-settings`]: () =>
         json(200, workspaceEngineSettings()),
       [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
@@ -38,18 +37,13 @@ const renderAt: typeof harness.renderAt = (path, routes, locale) =>
     locale,
   );
 
-function profile(id: string, model: string) {
+function connection(id: string, models: string[]) {
   return {
     id,
-    source: "operator",
-    model,
-    models: [model],
-    tools: ["Read"],
-    permission_mode: "default",
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
+    kind: "anthropic",
     billing: "metered",
-    repository_mode: "required",
+    models,
+    model_successors: {},
   } as const;
 }
 
@@ -590,7 +584,7 @@ describe("워크스페이스 설정", () => {
     );
   });
 
-  test("이름과 ID는 읽기만 하고, 모델 허용 목록은 프로필의 모델을 한 번씩 보인다", async () => {
+  test("이름과 ID는 읽기만 하고, 모델 허용 목록은 연결의 모델을 한 번씩 보인다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
     });
@@ -649,10 +643,10 @@ describe("워크스페이스 설정", () => {
     expect(globalThis.getSelection?.()?.toString()).toBe(WORKSPACE_ID);
   });
 
-  test("프로필을 읽지 못하면 모델 카드에 다시 시도를 둔다", async () => {
+  test("연결을 읽지 못하면 모델 카드에 다시 시도를 둔다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/profiles": () => apiError(500, "INTERNAL_ERROR", "boom"),
+      "GET /v1/connections": () => apiError(500, "INTERNAL_ERROR", "boom"),
     });
     const models = await screen.findByRole("region", {
       name: "모델 허용 목록",
@@ -666,7 +660,7 @@ describe("워크스페이스 설정", () => {
   test("등록된 모델이 없으면 없다고 말한다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
-      "GET /v1/profiles": () => json(200, { items: [] }),
+      "GET /v1/connections": () => json(200, { items: [] }),
     });
     expect(
       await screen.findByText("이 설치에 등록된 모델이 없습니다."),
@@ -683,7 +677,7 @@ describe("워크스페이스 설정", () => {
   test("구성원의 사이드바에는 설정이 없다(내 설정은 계정 메뉴: layout.test)", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    await within(nav).findByRole("link", { name: "프로필" });
+    await within(nav).findByRole("link", { name: "에이전트" });
     expect(within(nav).queryByRole("link", { name: "설정" })).toBeNull();
   });
 

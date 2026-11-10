@@ -55,7 +55,6 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
-import { useProfileDisplay } from "../components/profile-options.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SlackActionLink } from "../components/slack-action-link.tsx";
@@ -65,37 +64,22 @@ import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
 const MODEL_REFUSAL =
-  /^card\.model: model (.+) is not the model of runtime profile (.+)$/;
+  /^card\.model: model (.+) is not a model of connection (.+)$/;
 
 /**
  * What a refused agent action says: a 403 in the words of the disabled
- * button, a model mismatch in our words, any other capability the profile
+ * button, a model mismatch in our words, any other capability the connection
  * does not have with the server's reason.
  */
 export function agentRefusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
-  // Names a profile id from the shared list; without it the id is shown.
-  profileText: (id: string) => string = (id) => id,
 ): string {
   if (error.code === "FORBIDDEN")
     return permissionReason(t, "agent.manage", role);
   // Only making an agent answers this: its slug is taken.
   if (error.code === "ALREADY_EXISTS") return t("agents.slugTaken");
-  if (error.code === "PROFILE_BLOCKED") {
-    const details = error.details as {
-      readonly reason_code?: unknown;
-      readonly profile_id?: unknown;
-    } | null;
-    if (typeof details?.profile_id === "string")
-      return t(
-        details.reason_code === "base_blocked"
-          ? "agent.releases.baseProfileBlocked"
-          : "agent.releases.profileBlocked",
-        { profile: profileText(details.profile_id) },
-      );
-  }
   const model =
     error.code === "UNSUPPORTED_CAPABILITY"
       ? MODEL_REFUSAL.exec(error.message)
@@ -103,7 +87,7 @@ export function agentRefusal(
   if (model)
     return t("agent.releases.modelRefused", {
       card: model[1] ?? "",
-      profile: profileText(model[2] ?? ""),
+      connection: model[2] ?? "",
     });
   if (error.code === "UNSUPPORTED_CAPABILITY" || error.code === "BAD_REQUEST")
     return `${t(errorKey(error.code))} ${error.message}`;
@@ -446,10 +430,9 @@ export { agentState } from "../components/agent-state.tsx";
 export function NewAgentScreen() {
   const { t } = useI18n();
   const role = useRole();
-  const profile = useProfileDisplay();
   const refuse = (error: unknown) =>
     isApiError(error)
-      ? agentRefusal(t, error, role, profile.show)
+      ? agentRefusal(t, error, role)
       : t(errorKey("UNKNOWN"));
   return (
     <Page title={t("agents.newTitle")} description={t("agents.newIntro")}>

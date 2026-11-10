@@ -97,14 +97,14 @@ exports[`query keys 1`] = `
     },
     "agents",
   ],
-  "agentsOnProfile": [
+  "agentsOnConnection": [
     {
       "actor": "user:u-1",
       "workspace": "w-1",
     },
     "agents",
     {
-      "profile": "coding",
+      "connection": "coding",
     },
   ],
   "apiKeys": [
@@ -113,6 +113,13 @@ exports[`query keys 1`] = `
       "workspace": "w-1",
     },
     "api-keys",
+  ],
+  "connections": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "connections",
   ],
   "firstMembers": [
     {
@@ -189,13 +196,6 @@ exports[`query keys 1`] = `
     "sessions",
     "id-1",
     "pending-requests",
-  ],
-  "profiles": [
-    {
-      "actor": "user:u-1",
-      "workspace": "w-1",
-    },
-    "profiles",
   ],
   "session": [
     {
@@ -525,15 +525,15 @@ exports[`query options and the request each query makes 1`] = `
       "retry": false,
     },
   },
-  "agentsOnProfileQuery": {
+  "agentsOnConnectionQuery": {
     "calls": [
       [
         "/v1/agents",
         {
           "params": {
             "query": {
+              "connection_id": "id-1",
               "include": "summary",
-              "runtime_profile_id": "id-1",
             },
           },
         },
@@ -550,7 +550,7 @@ exports[`query options and the request each query makes 1`] = `
         },
         "agents",
         {
-          "profile": "id-1",
+          "connection": "id-1",
         },
       ],
       "retry": false,
@@ -604,6 +604,24 @@ exports[`query options and the request each query makes 1`] = `
       ],
       "retry": false,
       "staleTime": 30000,
+    },
+  },
+  "connectionsQuery": {
+    "calls": [
+      [
+        "/v1/connections",
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "connections",
+      ],
+      "retry": false,
+      "staleTime": 300000,
     },
   },
   "firstMembersQuery": {
@@ -831,24 +849,6 @@ exports[`query options and the request each query makes 1`] = `
       ],
       "refetchInterval": 5000,
       "retry": false,
-    },
-  },
-  "profilesQuery": {
-    "calls": [
-      [
-        "/v1/profiles",
-      ],
-    ],
-    "options": {
-      "queryKey": [
-        {
-          "actor": "user:u-1",
-          "workspace": "w-1",
-        },
-        "profiles",
-      ],
-      "retry": false,
-      "staleTime": 300000,
     },
   },
   "sessionGithubWorkQuery": {

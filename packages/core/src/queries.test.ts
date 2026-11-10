@@ -37,7 +37,7 @@ test("query keys", () => {
     memberSummaries: keys.memberSummaries(["id-2", "id-1"]),
     teamPages: keys.teamPages("ops"),
     agentPages: keys.agentPages("notes"),
-    agentsOnProfile: keys.agentsOnProfile("coding"),
+    agentsOnConnection: keys.agentsOnConnection("coding"),
     agentSummaries: keys.agentSummaries(["id-2", "id-1"]),
     agent: keys.agent("id-1"),
     agentAdmins: keys.agentAdmins("id-1"),
@@ -250,7 +250,7 @@ test("an agent page asks for one page with summaries, the search going with it, 
   );
 });
 
-test("named agents past a page are read 100 at a time, and a profile's agents a page at a time", async () => {
+test("named agents past a page are read 100 at a time, and a connection's agents a page at a time", async () => {
   const { client, calls } = recordingClient();
   const ids = Array.from(
     { length: 150 },
@@ -258,10 +258,10 @@ test("named agents past a page are read 100 at a time, and a profile's agents a 
   );
   const named = queries.agentSummariesQuery(client, ids);
   await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
-  const onProfile = queries.agentsOnProfileQuery(client, "coding");
-  await onProfile.queryFn({
+  const onConnection = queries.agentsOnConnectionQuery(client, "coding");
+  await onConnection.queryFn({
     pageParam: "cursor-2",
-  } as Parameters<typeof onProfile.queryFn>[0]);
+  } as Parameters<typeof onConnection.queryFn>[0]);
   expect(
     calls.map(([, init]) => {
       const query = (init as { params: { query: Record<string, unknown> } })
@@ -273,9 +273,9 @@ test("named agents past a page are read 100 at a time, and a profile's agents a 
   ).toEqual([
     100,
     50,
-    { include: "summary", runtime_profile_id: "coding", cursor: "cursor-2" },
+    { include: "summary", connection_id: "coding", cursor: "cursor-2" },
   ]);
-  expect((onProfile.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
+  expect((onConnection.queryKey as readonly unknown[]).slice(0, 2)).toEqual([
     SCOPE,
     "agents",
   ]);

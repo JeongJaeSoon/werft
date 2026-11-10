@@ -30,7 +30,7 @@ import {
 } from "react";
 import {
   agentListsFilter,
-  profilesQuery,
+  connectionsQuery,
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
@@ -42,12 +42,11 @@ import {
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
-import { useProfileDisplay } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { saveFailureText } from "./effective-behavior.tsx";
-import { releasedProfile } from "./releases.tsx";
+import { releasedConnection } from "./releases.tsx";
 import { draftVersion, latestVersion, shownVersion } from "./versions.tsx";
 
 export function CardEditor({
@@ -55,12 +54,12 @@ export function CardEditor({
   result,
   onOutcome,
   onClose,
-  profileId,
-  onProfileChange,
+  connectionId,
+  onConnectionChange,
 }: {
   readonly detail: AgentDetail;
-  readonly profileId: string | undefined;
-  readonly onProfileChange: (profileId: string) => void;
+  readonly connectionId: string | undefined;
+  readonly onConnectionChange: (connectionId: string) => void;
   readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
   /**
@@ -73,7 +72,6 @@ export function CardEditor({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  const profile = useProfileDisplay();
   const latest = openVersion(detail);
   // The edit is tied to the version it started from, not to whatever a
   // background refetch last brought in, so unsaved input is never replaced.
@@ -100,20 +98,20 @@ export function CardEditor({
     setEdit((e) => ({ ...e, description }));
   const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
   const { name, description, draft } = edit;
-  const catalog = useQuery(profilesQuery(client));
+  const catalog = useQuery(connectionsQuery(client));
   const latestEdit = useRef(edit);
   latestEdit.current = edit;
   const title = useRef<HTMLHeadingElement>(null);
   // The editor replaces the button that opened it.
   useEffect(() => title.current?.focus(), []);
 
-  // The profile the save releases on: the one picked here, else the one the
-  // agent runs. None: the card is kept and nothing is released.
+  // The connection the save releases on: the one picked here, else the one
+  // the agent runs. None: the card is kept and nothing is released.
   // An edit opened on a refused or waiting save starts from that save's
-  // profile too, so fixing its card does not release it elsewhere.
-  const startProfile =
-    detail.draft?.runtime_profile_id ?? releasedProfile(detail);
-  const releaseProfile = profileId ?? startProfile;
+  // connection too, so fixing its card does not release it elsewhere.
+  const startConnection =
+    detail.draft?.connection_id ?? releasedConnection(detail);
+  const releaseConnection = connectionId ?? startConnection;
   const save = useMutation<SaveAgentResponse, ApiError, Submitted>({
     mutationFn: ({
       baseName,
@@ -123,7 +121,6 @@ export function CardEditor({
       draft,
       sendsCard,
     }) => {
-      const waiting = detail.draft;
       const sentCard = draft ? cardFromDraft(draft, base?.card) : undefined;
       return unwrap(
         client.PATCH("/v1/agents/{id}", {
@@ -141,16 +138,8 @@ export function CardEditor({
             ...(sendsCard && sentCard
               ? {
                   card: sentCard,
-                  ...(releaseProfile
-                    ? { runtime_profile_id: releaseProfile }
-                    : {}),
-                  // A fix to a waiting save keeps how it chose its model; a
-                  // changed model or profile is the server's to judge.
-                  ...(waiting &&
-                  base?.id === waiting.version_id &&
-                  sentCard.model === base.card.model &&
-                  releaseProfile === waiting.runtime_profile_id
-                    ? { model_source: waiting.model_source }
+                  ...(releaseConnection
+                    ? { connection_id: releaseConnection }
                     : {}),
                 }
               : {}),
@@ -163,8 +152,7 @@ export function CardEditor({
       // The server keeps one version per card content, so the card just saved
       // may be an older version rather than the highest one.
       const { release } = updated;
-      // The server may write a different model into the card than was sent
-      // (a followed profile's default), so the response names the version.
+      // The response names the version the save kept.
       const versionOf = (id: string | null | undefined) =>
         updated.versions.find((v) => v.id === id);
       const saved = submitted.sendsCard
@@ -244,16 +232,17 @@ export function CardEditor({
     onError: (error) =>
       onOutcome({
         kind: "error",
-        text: agentRefusal(t, error, role, profile.show),
+        text: agentRefusal(t, error, role),
       }),
   });
 
   // A save with nothing changed still sends the card, which the server
   // answers with the same version, as a request needs some field.
-  const profileChanged = profileId !== undefined && profileId !== startProfile;
+  const connectionChanged =
+    connectionId !== undefined && connectionId !== startConnection;
   const sendsCard =
     cardChanged(edit) ||
-    profileChanged ||
+    connectionChanged ||
     (edit.name.trim() === edit.baseName &&
       edit.description.trim() === edit.baseDescription);
   const submit = (event: FormEvent) => {
@@ -314,9 +303,9 @@ export function CardEditor({
               <AgentCardFields
                 draft={draft}
                 catalog={catalog}
+                connectionId={releaseConnection ?? ""}
+                onConnectionChange={onConnectionChange}
                 onChange={setDraft}
-                previewId={releaseProfile}
-                onPreviewChange={onProfileChange}
               />
             </FieldSet>
           ) : null}

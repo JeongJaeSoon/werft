@@ -53,8 +53,8 @@ export type RuntimeFingerprint = {
 
 /**
  * The fingerprint a manifest is held to: `runtime`, or `runtime` with the
- * manifest's own profile digest when that is one the session ran before its
- * profile was changed. Engine, CLI and SDK versions must still match.
+ * manifest's own config digest when that is one the session ran before its
+ * model moved. Engine, CLI and SDK versions must still match.
  */
 export function runtimeFor(
   manifest: { readonly runtime: RuntimeFingerprint },

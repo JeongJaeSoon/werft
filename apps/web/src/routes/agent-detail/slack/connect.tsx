@@ -20,7 +20,6 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
-import { useProfileDisplay } from "../../../components/profile-options.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useSlackApp } from "./actions.ts";
 import {
@@ -52,7 +51,6 @@ export function SlackConnect({
   readonly active?: boolean;
 }) {
   const { t } = useI18n();
-  const profile = useProfileDisplay();
   const me = useMe();
   // The workspace Slack screen is the workspace managers' (app-sidebar).
   const manageWorkspace = useHasPermission("workspace.manage");
@@ -123,10 +121,7 @@ export function SlackConnect({
             <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
             <AlertDescription>
               {t(SLACK_WARNING_KEY[warning.code].body, {
-                profile:
-                  "profile_id" in warning
-                    ? profile.show(warning.profile_id)
-                    : "",
+                release: "release_id" in warning ? warning.release_id : "",
                 previous:
                   "previous_user_id" in warning ? warning.previous_user_id : "",
                 user: "user_id" in warning ? warning.user_id : "",

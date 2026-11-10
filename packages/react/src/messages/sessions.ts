@@ -114,21 +114,6 @@ export const sessionsKo = {
   "session.attention": "확인 필요",
   "session.updated": "마지막 변경",
 
-  "session.profile": "프로필",
-  "session.profile.next": "다음 작업부터 쓸 프로필",
-  "session.profile.hint":
-    "진행 중인 작업은 지금 프로필로 끝나고, 다음 작업부터 새 프로필로 대화를 이어 갑니다.",
-  "session.profile.submit": "프로필 바꾸기",
-  "session.profile.changed": "다음 작업부터 {profile} 프로필을 씁니다.",
-  "session.profile.refused.release":
-    "이 프로필로 바꿀 수 없습니다. 에이전트 릴리스로 만든 세션은 그 릴리스의 프로필만 씁니다.",
-  "session.profile.refused.capability":
-    "이 프로필로 바꿀 수 없습니다. 이 세션의 저장소·런타임·과금 방식과 맞지 않는 프로필이거나, 지금 프로필의 설정이 바뀌었습니다.",
-  "session.profile.none":
-    "같은 런타임과 과금 방식으로 바꿀 수 있는 다른 프로필이 없습니다.",
-  "session.profile.unknown":
-    "지금 프로필이 카탈로그에 없어 다른 프로필로 바꿀 수 없습니다.",
-
   "session.usage": "사용량",
   "session.usage.amount": "누적 비용",
   "session.usage.unmetered": "과금 없음",
@@ -224,8 +209,6 @@ export const sessionsKo = {
   "session.refused.SESSION_CLOSED": "닫힌 세션입니다.",
   "session.refused.RECOVERY_REQUIRED":
     "복구 결정이 필요한 세션이라 지금은 할 수 없습니다.",
-  "session.refused.PROFILE_BLOCKED":
-    "운영자가 이 세션의 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
 
   "inbox.title": "답변 대기",
   "inbox.count": "답을 기다리는 세션 {count}개",
@@ -303,9 +286,9 @@ export const sessionsKo = {
   "session.event.kind.result": "턴 끝",
   "session.event.kind.error": "오류",
   "session.event.error.modelNotAllowed":
-    "{model}이(가) 프로필의 허용 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 허용 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
-  "session.event.error.modelProfileRemoved":
-    "{model}을(를) 쓰던 프로필이나 모델 연결이 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 프로필·연결 복원을 요청하거나, 다른 프로필로 새 세션을 시작하세요.",
+    "{model}이(가) 연결의 모델 목록에서 제외되어 이 세션의 모델 요청이 차단되었습니다. 관리자에게 모델 목록 복원을 요청하거나, 다른 모델로 새 세션을 시작하세요.",
+  "session.event.error.modelConnectionRemoved":
+    "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
     "{from}이(가) 허용 목록에서 빠져 같은 시리즈의 {to}(으)로 옮겼습니다. 다음 턴부터 {to}(으)로 실행됩니다.",
   "session.event.phase.interrupting": "멈추는 중",
@@ -435,21 +418,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.attention": "Needs attention",
   "session.updated": "Last changed",
 
-  "session.profile": "Profile",
-  "session.profile.next": "Profile for the next turn",
-  "session.profile.hint":
-    "The current turn finishes with the current profile. The conversation continues with the new profile from the next turn.",
-  "session.profile.submit": "Change profile",
-  "session.profile.changed": "The next turn will use the {profile} profile.",
-  "session.profile.refused.release":
-    "The session cannot move to this profile. A session made from an agent release runs only that release's profile.",
-  "session.profile.refused.capability":
-    "The session cannot move to this profile. It does not fit the session's repository, runtime or billing, or the current profile's settings have changed.",
-  "session.profile.none":
-    "No other profile runs the same runtime and billing, so there is nothing to change to.",
-  "session.profile.unknown":
-    "The current profile is not in the catalog, so the session cannot change profiles.",
-
   "session.usage": "Usage",
   "session.usage.amount": "Spent so far",
   "session.usage.unmetered": "Not billed",
@@ -547,8 +515,6 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.refused.SESSION_CLOSED": "The session is closed.",
   "session.refused.RECOVERY_REQUIRED":
     "The session needs a recovery decision first.",
-  "session.refused.PROFILE_BLOCKED":
-    "The operator blocked this session's profile, so it takes no messages. Send again once it is unblocked.",
 
   "inbox.title": "Waiting for an answer",
   "inbox.count": "{count} sessions waiting for an answer",
@@ -627,9 +593,9 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
   "session.event.error.modelNotAllowed":
-    "Model requests for this session were blocked because {model} is no longer allowed by its profile. Ask an administrator to restore access, or start a new session with another model.",
-  "session.event.error.modelProfileRemoved":
-    "Model requests for this session were blocked because the profile or model connection that served {model} is gone. Ask an administrator to restore it, or start a new session on another profile.",
+    "Model requests for this session were blocked because {model} is no longer on its connection's model list. Ask an administrator to restore access, or start a new session with another model.",
+  "session.event.error.modelConnectionRemoved":
+    "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
     "{from} left the allowed list, so the session moved to {to}, the next model of the same series. It runs on {to} from this turn on.",
   "session.event.phase.interrupting": "Stopping",
@@ -761,21 +727,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.attention": "要確認",
   "session.updated": "最終更新",
 
-  "session.profile": "プロファイル",
-  "session.profile.next": "次の作業から使うプロファイル",
-  "session.profile.hint":
-    "進行中の作業は現在のプロファイルで完了し、次の作業から新しいプロファイルで会話を続けます。",
-  "session.profile.submit": "プロファイルを変更",
-  "session.profile.changed": "次の作業から {profile} を使います。",
-  "session.profile.refused.release":
-    "このプロファイルには変更できません。エージェントのリリースから作成したセッションは、そのリリースのプロファイルのみ使えます。",
-  "session.profile.refused.capability":
-    "このプロファイルには変更できません。このセッションのリポジトリ・ランタイム・課金方式に合わないか、現在のプロファイルの設定が変更されています。",
-  "session.profile.none":
-    "同じランタイムと課金方式で変更できるプロファイルがほかにありません。",
-  "session.profile.unknown":
-    "現在のプロファイルがカタログにないため、ほかのプロファイルに変更できません。",
-
   "session.usage": "使用量",
   "session.usage.amount": "累計コスト",
   "session.usage.unmetered": "課金なし",
@@ -873,8 +824,6 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.refused.SESSION_CLOSED": "クローズ済みのセッションです。",
   "session.refused.RECOVERY_REQUIRED":
     "復旧方法の決定が必要なセッションのため、現在は実行できません。",
-  "session.refused.PROFILE_BLOCKED":
-    "運用担当者がこのセッションのプロファイルをブロックしたため、指示を受け付けません。解除されたら、もう一度送ってください。",
 
   "inbox.title": "回答待ち",
   "inbox.count": "回答待ちのセッション {count}件",
@@ -924,9 +873,9 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.event.kind.result": "ターン終了",
   "session.event.kind.error": "エラー",
   "session.event.error.modelNotAllowed":
-    "{model} がプロファイルの許可リストから外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
-  "session.event.error.modelProfileRemoved":
-    "{model} を使っていたプロファイルまたはモデル接続がなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別のプロファイルで新しいセッションを開始してください。",
+    "{model} が接続のモデル一覧から外れたため、このセッションのモデルリクエストがブロックされました。管理者に許可の復元を依頼するか、別のモデルで新しいセッションを開始してください。",
+  "session.event.error.modelConnectionRemoved":
+    "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":
     "{from} が許可リストから外れたため、同じシリーズの {to} に切り替えました。このターンから {to} で実行されます。",
   "session.event.phase.interrupting": "停止中",

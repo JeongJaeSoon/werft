@@ -12,8 +12,7 @@ import {
 import { type ApiClient, unwrap } from "@werft-ai/client";
 import type {
   AgentDetail,
-  ModelSource,
-  ProfileSummary,
+  ListConnectionOptionsResponse,
   SaveAgentResponse,
 } from "@werft-ai/contracts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
@@ -50,7 +49,7 @@ import type { z } from "zod";
 import {
   agentListsFilter,
   agentQuery,
-  profilesQuery,
+  connectionsQuery,
   queryKeysOf,
   scopedKey,
 } from "../api/queries.ts";
@@ -65,17 +64,12 @@ import {
   type CardDraft,
   type CardErrors,
   cardDraftOf,
-  chosenProfile,
   EMPTY_DRAFT,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { useTeamChoices } from "./managing-team.tsx";
-import { pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
-
-const releasable = (profile: ProfileSummary) =>
-  pickable(profile) && profile.repository_mode !== "required";
 
 const SlackConnect = lazyRouteComponent(
   () => import("../routes/agent-detail/slack.tsx"),
@@ -168,7 +162,7 @@ interface SavedDraft {
   readonly description: string;
   readonly managingTeamId: string | null;
   readonly card: CardDraft;
-  readonly profileId: string | null;
+  readonly connectionId: string | null;
 }
 
 /** The start of every flow id of who is signed in, in their workspace. */
@@ -192,7 +186,8 @@ function readDraft(flow: string): SavedDraft | null {
       managingTeamId:
         typeof draft.managingTeamId === "string" ? draft.managingTeamId : null,
       card: cardDraftOf(draft.card) ?? EMPTY_DRAFT,
-      profileId: typeof draft.profileId === "string" ? draft.profileId : null,
+      connectionId:
+        typeof draft.connectionId === "string" ? draft.connectionId : null,
     };
   } catch {
     return null;
@@ -276,8 +271,8 @@ export function NewAgentFlow({
   const card = useStepForm(NEW_CARD_STEP, {
     defaultValues: cardDraftOf(restored.card) ?? saved?.card ?? EMPTY_DRAFT,
   });
-  const [previewId, setPreviewId] = useState<string | undefined>(
-    saved?.profileId ?? undefined,
+  const [connectionId, setConnectionId] = useState<string>(
+    saved?.connectionId ?? "",
   );
   const [releaseFailure, setReleaseFailure] = useState<string | null>(null);
   const cardInput = useWatch({ control: card.control }) as CardDraft;
@@ -307,7 +302,7 @@ export function NewAgentFlow({
     description: "",
     managingTeamId: null,
     card: EMPTY_DRAFT,
-    profileId: null,
+    connectionId: null,
   };
   const unsaved = useRef(false);
   unsaved.current =
@@ -322,7 +317,7 @@ export function NewAgentFlow({
     enableBeforeUnload: () => unsaved.current,
     withResolver: true,
   });
-  const catalog = useQuery(profilesQuery(client));
+  const catalog = useQuery(connectionsQuery(client));
   const savedPastJob = funnel.step === "channels";
   const moved = useStepMoved(funnel.step);
 
@@ -345,7 +340,7 @@ export function NewAgentFlow({
   const saveAgent = async (
     values: z.output<typeof NEW_CARD_STEP>,
     context: Steps["job"],
-    profile: ProfileSummary,
+    connection: string,
   ) => {
     const input = card.getValues();
     // An edit of the draft starts from its latest card, so fields the form
@@ -358,12 +353,7 @@ export function NewAgentFlow({
     const sent = base ? agentCardStep(base).parse(input) : values;
     const description =
       typeof context.description === "string" ? context.description : "";
-    const release = {
-      runtime_profile_id: profile.id,
-      model_source: (profile.model === input.model.trim()
-        ? "profile"
-        : "fixed") as ModelSource,
-    };
+    const release = { connection_id: connection };
     const response = (await unwrap(
       saved
         ? client.PATCH("/v1/agents/{id}", {
@@ -395,7 +385,7 @@ export function NewAgentFlow({
       description: detail.agent.description ?? "",
       managingTeamId: detail.agent.managing_team_id,
       card: input,
-      profileId: profile.id,
+      connectionId: connection,
     };
     setSaved(draft);
     setTeam(draft.managingTeamId ?? "");
@@ -451,14 +441,14 @@ export function NewAgentFlow({
             form={card}
             catalog={catalog}
             focus={moved}
-            previewId={previewId}
-            onPreviewChange={setPreviewId}
+            connectionId={connectionId}
+            onConnectionChange={setConnectionId}
             failure={releaseFailure}
             savedAgentId={saved?.agentId}
-            onSave={async (values, profile) => {
+            onSave={async (values, connection) => {
               clearTimeout(keepTimer.current);
               setReleaseFailure(null);
-              const result = await saveAgent(values, context, profile);
+              const result = await saveAgent(values, context, connection);
               if (result.done) {
                 await history.push("channels", {
                   agentId: result.agentId,
@@ -647,33 +637,35 @@ function JobStep({
   form,
   catalog,
   focus,
-  previewId,
-  onPreviewChange,
+  connectionId,
+  onConnectionChange,
   failure,
   savedAgentId,
   onSave,
   refuse,
 }: {
   readonly form: StepForm<typeof NEW_CARD_STEP>;
-  readonly catalog: UseQueryResult<{ items: ProfileSummary[] }>;
+  readonly catalog: UseQueryResult<ListConnectionOptionsResponse>;
   readonly focus: boolean;
-  readonly previewId: string | undefined;
-  readonly onPreviewChange: (profileId: string) => void;
+  readonly connectionId: string;
+  readonly onConnectionChange: (connectionId: string) => void;
   readonly failure: string | null;
   readonly savedAgentId: string | undefined;
   readonly onSave: (
     card: z.output<typeof NEW_CARD_STEP>,
-    profile: ProfileSummary,
+    connectionId: string,
   ) => Promise<unknown>;
   readonly refuse: (error: unknown) => string;
 }) {
   const { t } = useI18n();
   const draft = useWatch({ control: form.control }) as CardDraft;
   const { errors, isSubmitted, isSubmitting } = form.formState;
-  const chosen = catalog.isSuccess
-    ? chosenProfile(catalog.data.items, draft.model, previewId, releasable)
-    : undefined;
-  const profile = chosen && releasable(chosen) ? chosen : undefined;
+  const connection = catalog.data?.items.find(
+    (item) => item.id === connectionId,
+  );
+  // The card's model has to be one the chosen connection offers.
+  const runs =
+    connection !== undefined && connection.models.includes(draft.model);
   const change = (next: CardDraft) => {
     for (const key of CARD_FIELDS)
       if (next[key] !== draft[key])
@@ -692,7 +684,7 @@ function JobStep({
       onSubmit={submitStep(
         form,
         async (values) => {
-          if (profile) await onSave(values, profile);
+          if (runs) await onSave(values, connectionId);
         },
         refuse,
       )}
@@ -702,15 +694,14 @@ function JobStep({
       <AgentCardFields
         draft={draft}
         catalog={catalog}
+        connectionId={connectionId}
+        onConnectionChange={onConnectionChange}
         onChange={change}
         errors={fieldErrors}
-        previewId={previewId}
-        onPreviewChange={onPreviewChange}
-        previewable={releasable}
       />
       <Alerts lines={formAlerts(errors, CARD_ERROR_FIELDS)} />
-      {catalog.isSuccess && profile === undefined && draft.model !== "" ? (
-        <Alerts lines={[t("agents.flow.noProfile")]} />
+      {catalog.isSuccess && !runs && draft.model !== "" ? (
+        <Alerts lines={[t("agents.flow.noConnection")]} />
       ) : null}
       {failure ? <Alerts lines={[failure]} /> : null}
       <div className="flex flex-wrap gap-2">
@@ -719,7 +710,7 @@ function JobStep({
           disabled={
             isSubmitting ||
             !catalog.isSuccess ||
-            (draft.model !== "" && profile === undefined)
+            (draft.model !== "" && !runs)
           }
         >
           {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveNext")}

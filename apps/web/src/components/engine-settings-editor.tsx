@@ -2,8 +2,6 @@ import { useMutation } from "@tanstack/react-query";
 import type { ApiError } from "@werft-ai/client";
 import type { PutEngineSettingsResponse } from "@werft-ai/contracts";
 import {
-  Alert,
-  AlertDescription,
   Button,
   buttonVariants,
   Field,
@@ -59,8 +57,6 @@ export interface EngineSettingsEditorProps {
   readonly settings: EngineRules;
   /** The row's revision; null while nothing was saved. */
   readonly revision: number | null;
-  /** Whether the installation accepts a save now. */
-  readonly writesOpen: boolean;
   /** Why this person may not save, or undefined when they may. */
   readonly withheld: string | undefined;
   readonly save: (body: {
@@ -83,13 +79,11 @@ export function EngineSettingsEditor({
   description,
   settings,
   revision,
-  writesOpen,
   withheld,
   save,
   refresh,
 }: EngineSettingsEditorProps) {
   const { t } = useI18n();
-  const closedId = useId();
   const readOnlyId = useId();
   // A draft keeps the revision it was started from: a refetch that brings a
   // newer revision must not make the save look like it saw those rules.
@@ -102,7 +96,7 @@ export function EngineSettingsEditor({
   const draft = typed?.draft ?? draftOf(settings);
   const locked = lockedIds(settings);
   const dirty = isDirty(draft, settings);
-  const readOnly = withheld !== undefined || !writesOpen;
+  const readOnly = withheld !== undefined;
 
   const mutation = useMutation<
     PutEngineSettingsResponse,
@@ -135,12 +129,6 @@ export function EngineSettingsEditor({
         return;
       }
       const { code, rule } = refusalOf(error);
-      if (code === "engine_settings_writes_closed") {
-        setOutcome({ kind: "error", text: t("engine.writesClosed") });
-        // The page learns the gate shut now, not at the next visit.
-        void refresh();
-        return;
-      }
       const known = REFUSALS.find((name) => name === code);
       const reason = t(
         known
@@ -174,10 +162,7 @@ export function EngineSettingsEditor({
   };
 
   // What explains a box that cannot be typed in, read with the box.
-  const describedBy =
-    [writesOpen ? undefined : closedId, readOnly ? readOnlyId : undefined]
-      .filter((id) => id !== undefined)
-      .join(" ") || undefined;
+  const describedBy = readOnly ? readOnlyId : undefined;
 
   const group = (name: "permissions" | "auto_mode") => {
     const lists = ENGINE_LISTS.filter((list) => list.group === name);
@@ -226,7 +211,7 @@ export function EngineSettingsEditor({
               reason={withheld}
               // aria-disabled, not disabled: a disabled button drops its focus.
               aria-disabled={
-                mutation.isPending || !dirty || !writesOpen || undefined
+                mutation.isPending || !dirty || undefined
               }
             >
               {t(mutation.isPending ? "engine.saving" : "engine.save")}
@@ -241,7 +226,7 @@ export function EngineSettingsEditor({
                 {t("engine.reload")}
               </Button>
             ) : null}
-            {!dirty && withheld === undefined && writesOpen ? (
+            {!dirty && withheld === undefined ? (
               <Text as="span" variant="meta">
                 {t("engine.unchanged")}
               </Text>
@@ -256,11 +241,6 @@ export function EngineSettingsEditor({
       }
     >
       <OutcomeLine outcome={outcome} />
-      {writesOpen ? null : (
-        <Alert variant="amber" id={closedId}>
-          <AlertDescription>{t("engine.writesClosed")}</AlertDescription>
-        </Alert>
-      )}
       {group("permissions")}
       {group("auto_mode")}
     </SettingsSection>

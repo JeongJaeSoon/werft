@@ -17,7 +17,6 @@ import {
   Text,
 } from "@werft-ai/ui";
 import type { ReactNode } from "react";
-import { useProfileDisplay } from "../../components/profile-options.tsx";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type MessageKey, useI18n } from "../../i18n/i18n.tsx";
@@ -40,8 +39,7 @@ const FIELD: Record<string, MessageKey> = {
   model: "agent.releases.field.model",
   tools: "agent.releases.field.tools",
   toolPolicy: "agent.releases.field.toolPolicy",
-  profile: "agent.releases.field.profile",
-  profileDigest: "agent.releases.field.profileDigest",
+  connection: "agent.releases.field.connection",
   pushApproval: "agent.releases.field.pushApproval",
   actionsAllow: "agent.releases.field.actionsAllow",
   rules: "agent.releases.field.rules",
@@ -49,9 +47,9 @@ const FIELD: Record<string, MessageKey> = {
   card: "agent.releases.field.card",
 };
 
-// What a missing value means differs by field: no pin is the profile's range.
+// What a missing value means differs by field: no pin is the workspace's range.
 const ABSENT: Record<string, MessageKey> = {
-  repositories: "agent.releases.absent.profileRepositories",
+  repositories: "agent.releases.absent.workspaceRepositories",
 };
 
 // A badge keeps to one line by default; a long repository name must wrap.
@@ -143,7 +141,6 @@ export function ReleaseChangeList({
   readonly afterLabel: string;
 }) {
   const { t } = useI18n();
-  const profile = useProfileDisplay();
   const absent = (change: ReleaseChange) =>
     t(ABSENT[fieldKey(change)] ?? "agent.releases.absent.none");
   const shownValue = (change: ReleaseChange): ReactNode => {
@@ -164,13 +161,8 @@ export function ReleaseChangeList({
           </div>
         );
       case "value": {
-        // The change itself compares ids; only what is shown is the name.
         const shown = (value: string | null) =>
-          value === null
-            ? absent(change)
-            : fieldKey(change) === "profile"
-              ? profile.show(value)
-              : value;
+          value === null ? absent(change) : value;
         return (
           <div className="flex min-w-0 flex-wrap items-center gap-x-1">
             {withNodes((vars) => t("agent.releases.valueChange", vars), {

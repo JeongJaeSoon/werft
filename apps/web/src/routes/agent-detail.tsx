@@ -50,7 +50,6 @@ import {
   ManagingTeamName,
 } from "../components/managing-team.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
-import { useProfileDisplay } from "../components/profile-options.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
 import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -84,9 +83,8 @@ import {
   PlacedOutcome,
   TakesFocus,
 } from "./agent-detail/placement.tsx";
-import { ProfileFollow } from "./agent-detail/profile-follow.tsx";
 import { Releases } from "./agent-detail/releases.tsx";
-import { rolledBackText, trackingOf } from "./agent-detail/rollback-preview.ts";
+import { rolledBackText } from "./agent-detail/rollback-preview.ts";
 import { VersionHistory } from "./agent-detail/version-history.tsx";
 import { shownVersion } from "./agent-detail/versions.tsx";
 import { agentRefusal } from "./agents.tsx";
@@ -353,7 +351,7 @@ function AgentView({
     if (outcome && home) openTab(home);
   };
   const onOutcome = outcomeAt("releases");
-  const [profileId, setProfileId] = useState<string>();
+  const [connectionId, setConnectionId] = useState<string>();
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -377,13 +375,12 @@ function AgentView({
   const newSessionReason = useNewSessionReason(detail);
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
-  const profile = useProfileDisplay();
   const releaseLabel = (releaseId: string | null) => {
     const release = detail.releases.find((r) => r.id === releaseId);
     return release
       ? t("agent.releaseLabel", {
           release: release.label,
-          profile: profile.show(release.runtime_profile_id),
+          connection: release.connection_id,
         })
       : t("agent.noActive");
   };
@@ -405,10 +402,6 @@ function AgentView({
       release: AgentRelease;
       expected: number;
       seenActive: string | null;
-      before: {
-        tracking: NonNullable<AgentDetail["profile_tracking"]>;
-        modelSource: AgentDetail["model_source"];
-      };
     }
   >({
     mutationFn: ({ release, expected }) =>
@@ -422,7 +415,7 @@ function AgentView({
       onOutcome(null);
       setUnbound(null);
     },
-    onSuccess: async (result, { before }) => {
+    onSuccess: async (result) => {
       setConflict(null);
       if (result.receipt_id === null) {
         onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
@@ -433,8 +426,6 @@ function AgentView({
           text: after
             ? rolledBackText(t, {
                 release: releaseLabel(result.active_release_id),
-                before,
-                after,
               })
             : t("agent.rolledBack.unchecked", {
                 release: releaseLabel(result.active_release_id),
@@ -445,7 +436,7 @@ function AgentView({
         queryKey: queryKeysOf(client).agents,
       });
     },
-    onError: async (error, { release, expected, seenActive, before }) => {
+    onError: async (error, { release, expected, seenActive }) => {
       // The server may have committed before the answer was lost, so the
       // outcome is read, never assumed.
       if (error.code === "NETWORK_ERROR") {
@@ -464,14 +455,12 @@ function AgentView({
                   kind: "notice",
                   text: rolledBackText(t, {
                     release: releaseLabel(release.id),
-                    before,
-                    after,
                   }),
                 }
               : after.agent.activation_revision === expected
                 ? {
                     kind: "error",
-                    text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
+                    text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
                   }
                 : {
                     // The pointer moved but not to the target: this rollback
@@ -506,7 +495,7 @@ function AgentView({
       }
       onOutcome({
         kind: "error",
-        text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
+        text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
       });
     },
   });
@@ -584,7 +573,6 @@ function AgentView({
       </div>
       <TabsContent {...tabPanel("overview")}>
         <AgentGlance detail={detail} />
-        <ProfileFollow detail={detail} manages={manages} />
         <AgentReadiness detail={detail} toRelease={toRelease} />
         <AgentRecentSessions agentId={detail.agent.id} />
       </TabsContent>
@@ -594,8 +582,8 @@ function AgentView({
         {editing && manages ? (
           <CardEditor
             detail={detail}
-            profileId={profileId}
-            onProfileChange={setProfileId}
+            connectionId={connectionId}
+            onConnectionChange={setConnectionId}
             result={<PlacedOutcome placed={placed} at="card" />}
             onOutcome={outcomeAt("card")}
             onClose={(cancelled) => {
@@ -720,10 +708,6 @@ function AgentView({
               release,
               expected: agent.activation_revision,
               seenActive: agent.active_release_id,
-              before: {
-                tracking: trackingOf(detail),
-                modelSource: detail.model_source,
-              },
             })
           }
         />

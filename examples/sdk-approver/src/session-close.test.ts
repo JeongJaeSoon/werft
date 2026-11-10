@@ -17,7 +17,6 @@ test.each(["success", "turn-failed", "close-failed"])(
           const body = (await request.json()) as Record<string, unknown>;
           expect(body.agent_release_id).toBe("sha256:sample-release");
           expect(authorization).toBe("Bearer sample-agent");
-          expect(body.profile_id).toBeUndefined();
           expect(body.repository_id).toBeUndefined();
           return json(
             { session_id: "sample-session", turn_id: "1", status: "queued" },

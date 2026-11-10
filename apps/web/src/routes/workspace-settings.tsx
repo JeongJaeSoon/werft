@@ -30,7 +30,7 @@ import {
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
-import { profilesQuery, queryKeys } from "../api/queries.ts";
+import { connectionsQuery, queryKeys } from "../api/queries.ts";
 import {
   permissionReason,
   refusalText,
@@ -155,14 +155,16 @@ function Basics() {
 }
 
 /**
- * The models this installation's profiles run: the ceiling a session picks
- * under. The operator's catalog sets it, so the console only reads it.
+ * The models this installation's connections offer: what an agent's card may
+ * name. The operator sets them, so this screen only reads them.
  */
 function AllowedModels() {
   const { t } = useI18n();
   const { client } = useWerft();
-  const profiles = useQuery(profilesQuery(client));
-  const models = [...new Set(profiles.data?.items.map((p) => p.model))];
+  const connections = useQuery(connectionsQuery(client));
+  const models = [
+    ...new Set(connections.data?.items.flatMap((c) => c.models) ?? []),
+  ];
   return (
     <SettingsSection
       title={t("workspace.models")}
@@ -177,12 +179,12 @@ function AllowedModels() {
         </>
       }
     >
-      {profiles.isPending ? (
+      {connections.isPending ? (
         <Skeleton width="50%" />
-      ) : profiles.isError ? (
+      ) : connections.isError ? (
         <LoadFailure
-          error={profiles.error}
-          onRetry={() => void profiles.refetch()}
+          error={connections.error}
+          onRetry={() => void connections.refetch()}
         />
       ) : models.length === 0 ? (
         <Text as="div" variant="meta">

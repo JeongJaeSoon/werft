@@ -389,7 +389,6 @@ describe("모델 연결", () => {
     const DISABLE = `${CONNECTIONS}/console-key/disable`;
     const counts = (over: Record<string, unknown> = {}) => ({
       id: "console-key",
-      profile_count: 0,
       agent_count: 0,
       session_count: 0,
       judge_used: false,
@@ -427,12 +426,11 @@ describe("모델 연결", () => {
       const { api, user, confirm } = await openDisable(() =>
         json(
           200,
-          counts({ profile_count: 2, agent_count: 3, session_count: 1 }),
+          counts({ agent_count: 3, session_count: 1 }),
         ),
       );
       const warning = await within(confirm).findByRole("alert");
       expect(warning.textContent).toContain("거절되거나 끊길 수 있습니다");
-      expect(warning.textContent).toContain("프로필: 2개");
       expect(warning.textContent).toContain("에이전트: 3개");
       expect(warning.textContent).toContain("끝나지 않은 세션: 1개");
       expect(warning.textContent).not.toContain("성과 판정");
@@ -444,16 +442,14 @@ describe("모델 연결", () => {
       expect(writes(api.calls).map((call) => call.path)).toEqual([DISABLE]);
     });
 
-    // A retired version still runs what was started on it, so the profile
-    // count alone cannot decide whether to warn.
+    // Each count warns on its own.
     for (const [name, over, line] of [
       ["agents", { agent_count: 2 }, "에이전트: 2개"],
       ["sessions", { session_count: 1 }, "끝나지 않은 세션: 1개"],
     ] as const) {
-      test(`${name} alone warn, with no profile counted`, async () => {
+      test(`${name} alone warn`, async () => {
         const { confirm } = await openDisable(() => json(200, counts(over)));
         const warning = await within(confirm).findByRole("alert");
-        expect(warning.textContent).not.toContain("프로필:");
         expect(warning.textContent).toContain(line);
       });
     }
@@ -463,7 +459,7 @@ describe("모델 연결", () => {
       const { api, confirm } = await openDisable(() => {
         reads += 1;
         return reads === 1
-          ? json(200, counts({ profile_count: 4 }))
+          ? json(200, counts({ agent_count: 4 }))
           : json(500, { code: "INTERNAL", message: "boom", details: null });
       });
       await within(confirm).findByRole("alert");
@@ -473,7 +469,7 @@ describe("모델 연결", () => {
       });
       await within(confirm).findByText(/확인하지 못했습니다/);
       expect(impactCalls(api.calls).length).toBe(2);
-      expect(within(confirm).queryByText(/프로필: 4개/) === null).toBe(true);
+      expect(within(confirm).queryByText(/에이전트: 4개/) === null).toBe(true);
     });
 
     test("a judge setting alone warns, without a word about a judgment stopping", async () => {
@@ -484,17 +480,17 @@ describe("모델 연결", () => {
       expect(warning.textContent).toContain(
         "성과 판정 설정이 이 연결을 가리키고 있습니다.",
       );
-      expect(warning.textContent).not.toContain("프로필:");
+      expect(warning.textContent).not.toContain("에이전트:");
       expect(warning.textContent).not.toContain("모델 호출이 거절되거나");
     });
 
-    test("a judge setting beside affected profiles keeps both lines", async () => {
+    test("a judge setting beside affected agents keeps both lines", async () => {
       const { confirm } = await openDisable(() =>
-        json(200, counts({ profile_count: 2, judge_used: true })),
+        json(200, counts({ agent_count: 2, judge_used: true })),
       );
       const warning = await within(confirm).findByRole("alert");
       expect(warning.textContent).toContain("모델 호출이 거절되거나");
-      expect(warning.textContent).toContain("프로필: 2개");
+      expect(warning.textContent).toContain("에이전트: 2개");
       expect(warning.textContent).toContain(
         "성과 판정 설정이 이 연결을 가리키고 있습니다.",
       );
@@ -539,7 +535,7 @@ describe("모델 연결", () => {
     test("a 200 of another shape is a failed check, never a number read from it", async () => {
       // Production does not validate a response, so the page has to.
       const { confirm } = await openDisable(
-        () => json(200, counts({ profile_count: "2" })),
+        () => json(200, counts({ agent_count: "2" })),
         "warn",
       );
       await within(confirm).findByText(/확인하지 못했습니다/);
@@ -553,7 +549,7 @@ describe("모델 연결", () => {
       });
       const { api, user, confirm } = await openDisable(async () => {
         await gate;
-        return json(200, counts({ profile_count: 1 }));
+        return json(200, counts({ agent_count: 1 }));
       });
       within(confirm).getByText("영향을 확인하는 중…");
       const button = within(confirm).getByRole("button", {
@@ -568,7 +564,7 @@ describe("모델 연결", () => {
 
     test("closing and opening again reads again", async () => {
       const { api, user, table, confirm } = await openDisable(() =>
-        json(200, counts({ profile_count: 1 })),
+        json(200, counts({ agent_count: 1 })),
       );
       await within(confirm).findByRole("alert");
       await user.click(within(confirm).getByRole("button", { name: "취소" }));

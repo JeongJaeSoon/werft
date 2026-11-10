@@ -9,14 +9,13 @@ import {
 const SAMPLE = `${import.meta.dir}/control.ts`;
 const SESSION = "fake-session";
 
-/** Just enough of the session state machine for interrupt, pause, profile and recovery. */
+/** Just enough of the session state machine for interrupt, pause and recovery. */
 function fakeControl(options: { lastTurn: string }) {
-  const turns: { status: string; profile: string; script: string }[] = [];
+  const turns: { status: string; script: string }[] = [];
   const receipts = new Map<string, unknown>();
   let revision = 0;
   let admission = "active";
   let status = "idle";
-  let profile = "claude-coding-local";
 
   const receipt = (operation: string, result: unknown = {}, code = 202) => {
     const id = `receipt-${receipts.size + 1}`;
@@ -33,7 +32,7 @@ function fakeControl(options: { lastTurn: string }) {
           : script === "ctl7"
             ? options.lastTurn
             : "completed";
-    turns.push({ status: next, profile, script });
+    turns.push({ status: next, script });
     return String(turns.length);
   };
   const turnOf = (script: string) => turns.find((t) => t.script === script);
@@ -81,15 +80,6 @@ function fakeControl(options: { lastTurn: string }) {
         status = "idle";
         return receipt("resume");
       }
-      case "profile": {
-        const previous = profile;
-        profile = (body as { profile_id: string }).profile_id;
-        return receipt(
-          "change_profile",
-          { previous_profile_id: previous, profile_id: profile },
-          200,
-        );
-      }
       case "terminate": {
         const doomed = turnOf("ctl6");
         if (doomed) doomed.status = "outcome_unknown";
@@ -132,7 +122,7 @@ function fakeControl(options: { lastTurn: string }) {
         turn_id: turn,
         status: t.status,
         ended_at: ended ? "2026-10-29T00:00:00Z" : null,
-        attempts: [{ profile_id: t.profile }],
+        attempts: [{}],
       });
     }
     if (path === `/v1/sessions/${SESSION}`)
@@ -142,7 +132,7 @@ function fakeControl(options: { lastTurn: string }) {
   return route;
 }
 
-test("interrupts, pauses, changes profile and recovers one session", async () => {
+test("interrupts, pauses and recovers one session", async () => {
   const { exit, stdout, stderr, seen } = await runSample(
     SAMPLE,
     fakeControl({ lastTurn: "completed" }),
@@ -155,18 +145,17 @@ test("interrupts, pauses, changes profile and recovers one session", async () =>
     "wait on turn 4: TURN_BLOCKED (paused)",
     "message while paused: 409 SESSION_PAUSED",
     "resume: turn 4 completed",
-    "profile: claude-coding-local -> claude-coding-auto; turn 5 completed on claude-coding-auto",
     "terminate: receipt accepted, external effects reverted false",
-    "session: failed/recovery_required, turn 6 outcome_unknown",
-    "recovery: abandon, turn 6 cancelled, resumable true",
-    "after recovery: turn 7 completed",
+    "session: failed/recovery_required, turn 5 outcome_unknown",
+    "recovery: abandon, turn 5 cancelled, resumable true",
+    "after recovery: turn 6 completed",
     "close: receipt succeeded",
   ])
     expect(stdout).toContain(line);
   const decision = seen.find((r) => r.path.endsWith("/recovery-decisions"));
   expect(decision?.body).toMatchObject({
     decision: "abandon",
-    target_turn_id: "6",
+    target_turn_id: "5",
   });
 }, 30_000);
 

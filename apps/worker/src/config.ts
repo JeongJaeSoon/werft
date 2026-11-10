@@ -18,7 +18,7 @@ import { type AttachLimits, DEFAULT_ATTACH_LIMITS } from "./workspace.ts";
  * `LocalDockerBackend` injects (`backend.ts` `ENV`), object store included;
  * the rest is timers, which no launcher sets today. What the engine runs —
  * model, tools, permission mode, provider — is not here: the claim carries
- * it, resolved by the server from the session's profile.
+ * it, resolved by the server from the session's spec.
  */
 export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   HOME?: string | undefined;

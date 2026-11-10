@@ -46,7 +46,7 @@ describe("requests carry the generated shape", () => {
     );
     const client = werft(api.fetch);
     await client.sessions.create({
-      profile_id: "p",
+      agent_release_id: "sha256:r",
       repository_id: "r",
       message: "m",
     });

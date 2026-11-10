@@ -7,7 +7,7 @@
 | 환경 변수 | 값 |
 | --- | --- |
 | `WERFT_API_KEY` | 에이전트 key(`sessions:read`, `sessions:write`, `sessions:control`) |
-| `WERFT_AGENT_RELEASE_ID` | 그 에이전트 릴리스의 `sha256:…` ID. 비우면 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`(기본 `claude-coding-local`·`sample-app`) |
+| `WERFT_AGENT_RELEASE_ID` | 그 에이전트 릴리스의 `sha256:…` ID. 필수 |
 | `WERFT_APPROVER_API_KEY` | 같은 workspace의 개인 key(`sessions:read`, `sessions:approve`). 생략하면 `WERFT_API_KEY`로 답하고 결정한다. 그 key가 workspace의 key(개인·에이전트)이면 자기가 시작한 세션이라 403 `self_approval`로 거절되므로, 생략은 operator key에서만 동작한다 |
 
 ```sh

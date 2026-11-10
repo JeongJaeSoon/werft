@@ -3,7 +3,7 @@ import { CLAUDE_AGENT_SDK_VERSION, CLAUDE_CODE_VERSION } from "./versions.ts";
 /**
  * Where a built-in tool's effect happens: inside the worker, out through the
  * egress proxy, or on the model provider's side, where the egress proxy only
- * counts it and the profile's tool list is the one thing that stops it.
+ * counts it and the run's tool list is the one thing that stops it.
  */
 export type ToolBoundary = "local" | "egress" | "provider";
 
@@ -19,7 +19,7 @@ export type BuiltinTool = {
  * the pinned build, it passes PreToolUse on the main loop and inside a
  * subagent (where the engine offers it there at all), that the permission
  * callback sees it wherever the engine asks one, that it does not run when
- * the profile leaves it out, and that a held checkpoint lease stops it.
+ * the run's tool list leaves it out, and that a held checkpoint lease stops it.
  */
 export type BuiltinToolCatalog = {
   /** The name the engine reports for a tool once renamed, keyed by its older names. */
@@ -98,9 +98,9 @@ export function pinnedClaudeToolCatalog(): BuiltinToolCatalog | undefined {
 }
 
 /**
- * A profile's `runtime_version` names either the SDK or the engine build, the
+ * A release's runtime version names either the SDK or the engine build, the
  * same two spellings the runtime accepts for a session. No catalog for a
- * version is not an error: such a profile keeps the tool list it was given.
+ * version is not an error: the caller decides what that means.
  */
 export function toolCatalogFor(
   catalogs: readonly BuiltinToolCatalog[],
@@ -129,8 +129,8 @@ const sameTools = (a: BuiltinToolCatalog, b: BuiltinToolCatalog): boolean =>
 /**
  * Every SDK and engine version, other than the one asked about, of a catalog
  * that lists the same tools (with their boundaries) and aliases as the catalog
- * of `runtimeVersion`. A profile row left at such a version holds the same
- * tool list on this build, so it may run here. A checkpoint is never judged by
+ * of `runtimeVersion`. A release made at such a version holds the same tool
+ * list on this build, so it may run here. A checkpoint is never judged by
  * this: its own fingerprint names the build that wrote it.
  */
 export function equivalentToolCatalogVersions(

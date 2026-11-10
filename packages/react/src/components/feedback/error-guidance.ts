@@ -16,7 +16,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   REQUEST_TIMEOUT:
     "전송이 제때 끝나지 않았습니다 — 연결을 확인하고 다시 보내세요.",
   UNSUPPORTED_CAPABILITY:
-    "허용되지 않은 프로필·저장소이거나 이 세션에서는 할 수 없는 작업입니다 — 목록에서 다시 고르거나 새 세션을 만드세요.",
+    "허용되지 않은 연결·모델·저장소이거나 이 세션에서는 할 수 없는 작업입니다 — 목록에서 다시 고르거나 새 세션을 만드세요.",
   RATE_LIMITED: "요청이 몰렸습니다 — 잠시 뒤 다시 시도하세요.",
   STORAGE_LIMIT_EXCEEDED:
     "저장 한도를 다 썼습니다 — 운영자에게 한도를 늘려 달라고 요청하세요.",
@@ -58,8 +58,6 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "워크스페이스에는 owner가 한 명 이상 있어야 합니다 — 다른 사람을 먼저 owner로 바꾸세요.",
   SCOPE_NOT_GRANTABLE:
     "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
-  RELEASE_PROFILE_MISMATCH:
-    "이 release는 다른 프로필로 만들어졌습니다 — release의 프로필로 세션을 만드세요.",
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   AGENT_NOT_RUNNABLE:
@@ -74,13 +72,11 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
-  PROFILE_DIGEST_MISMATCH:
-    "이 release를 만든 뒤 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
-  PROFILE_BLOCKED:
-    "운영자가 이 프로필이나 그 바탕 설치 프로필을 차단했습니다 — 차단이 풀릴 때까지 기다리거나 다른 프로필을 고르세요.",
+  RELEASE_SPEC_UNAVAILABLE:
+    "릴리스의 연결이 꺼졌거나 그 모델이 연결 목록에서 빠졌습니다 — 쓸 수 있는 연결과 모델로 다시 release한 뒤 활성화하세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
   CATALOG_MISMATCH:
-    "이 세션의 프로필·저장소 조합이 더 이상 허용되지 않아 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
+    "이 세션의 연결·모델·저장소가 더 이상 카탈로그에 없어 입력이 처리되지 않았습니다 — 운영자가 카탈로그를 되돌린 뒤 다시 보내세요.",
   SLACK_NOT_INSTALLED:
     "Slack이 아직 설치되지 않았어요 — owner·admin에게 Slack 설치를 요청하세요.",
   LINK_TEAM_MISMATCH:
@@ -119,8 +115,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "이 설치가 GitHub에서 중지됐습니다 — 그 계정의 GitHub 설치 설정에서 다시 켜세요.",
   PENDING_REQUESTS_OPEN:
     "아직 답하지 않은 승인·질문이 있습니다 — 모두 답하거나 만료된 뒤 재개하세요.",
-  PERMISSION_WAIT_ABOVE_PROFILE:
-    "대기 시간이 프로필 한도보다 깁니다 — 프로필 값 이하로 줄이세요.",
+  PERMISSION_WAIT_ABOVE_LIMIT:
+    "대기 시간이 설치 한도보다 깁니다 — 한도 이하로 줄이세요.",
   TEAM_MANAGES_AGENTS:
     "이 팀이 담당 팀인 에이전트가 있습니다 — 그 에이전트들의 담당 팀을 먼저 옮기세요.",
   VARIABLE_NAME_INVALID:
@@ -175,7 +171,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   REQUEST_TIMEOUT:
     "The request didn't finish in time — check your connection and send it again.",
   UNSUPPORTED_CAPABILITY:
-    "This profile or repository isn't allowed, or this session can't do that — pick again from the list or start a new session.",
+    "This connection, model or repository isn't allowed, or this session can't do that — pick again from the list or start a new session.",
   RATE_LIMITED: "Too many requests at once — try again shortly.",
   STORAGE_LIMIT_EXCEEDED:
     "The storage limit is used up — ask an operator to raise it.",
@@ -218,8 +214,6 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "A workspace needs at least one owner — make someone else an owner first.",
   SCOPE_NOT_GRANTABLE:
     "A key can't be broader than its issuer's current permissions, and agent keys can't approve — narrow the scope and issue it again.",
-  RELEASE_PROFILE_MISMATCH:
-    "This release was made with a different execution profile — create the session with the release's profile.",
   CREDENTIAL_UNBOUND:
     "The connection settings changed, so it couldn't start — contact the agent's administrator.",
   AGENT_NOT_RUNNABLE:
@@ -234,13 +228,11 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "This person's account is suspended — lift the suspension before changing their role or reactivating them.",
   OWNER_PROTECTED:
     "Only an owner can make someone an owner or change an owner's role — ask an owner.",
-  PROFILE_DIGEST_MISMATCH:
-    "The execution profile changed after this release was made — release the same version again, then activate it.",
-  PROFILE_BLOCKED:
-    "An operator blocked this profile or the installation profile it builds on — wait until it's unblocked or pick another profile.",
+  RELEASE_SPEC_UNAVAILABLE:
+    "This release's connection was disabled or its model left the connection's list — release again on an available connection and model, then activate it.",
   ALREADY_EXISTS: "That name is already taken — pick another slug.",
   CATALOG_MISMATCH:
-    "This session's profile and repository are no longer allowed together, so the input wasn't processed — send it again after an operator restores the catalog.",
+    "This session's connection, model or repository is no longer in the catalog, so the input wasn't processed — send it again after an operator restores the catalog.",
   SLACK_NOT_INSTALLED:
     "Slack isn't installed yet — ask an owner or admin to install it.",
   LINK_TEAM_MISMATCH:
@@ -280,8 +272,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "It overlaps with a GitHub App in another role — register the authoring App first, and pick a different App for reviews.",
   PENDING_REQUESTS_OPEN:
     "Approvals or questions are still unanswered — answer them all, or let them expire, then resume.",
-  PERMISSION_WAIT_ABOVE_PROFILE:
-    "The wait is longer than the profile's limit — lower it to the profile's value or less.",
+  PERMISSION_WAIT_ABOVE_LIMIT:
+    "The wait is longer than the installation's limit — lower it to that value or less.",
   TEAM_MANAGES_AGENTS:
     "This team is still the managing team of some agents — move them to another team first.",
   VARIABLE_NAME_INVALID:
@@ -343,7 +335,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   REQUEST_TIMEOUT:
     "送信が時間内に終わりませんでした — 接続を確認して、もう一度送ってください。",
   UNSUPPORTED_CAPABILITY:
-    "許可されていないプロファイル・リポジトリか、このセッションではできない操作です — 一覧から選び直すか、新しいセッションを作成してください。",
+    "許可されていない接続・モデル・リポジトリか、このセッションではできない操作です — 一覧から選び直すか、新しいセッションを作成してください。",
   RATE_LIMITED:
     "リクエストが集中しています — しばらくしてからもう一度お試しください。",
   STORAGE_LIMIT_EXCEEDED:
@@ -396,8 +388,6 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "ワークスペースには owner が 1 人以上必要です — 先に他の人を owner にしてください。",
   SCOPE_NOT_GRANTABLE:
     "発行する人の現在の権限より広い key は作れず、エージェントの key は承認権限を持てません — scope を狭めて発行し直してください。",
-  RELEASE_PROFILE_MISMATCH:
-    "この release は別のプロファイルで作られました — release のプロファイルでセッションを作成してください。",
   CREDENTIAL_UNBOUND:
     "接続設定が変わったため開始できませんでした — エージェントの管理者に問い合わせてください。",
   AGENT_NOT_RUNNABLE:
@@ -412,13 +402,11 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "アカウントが停止されている人です — 先にアカウント停止を解除しないと、ロールの変更や再有効化はできません。",
   OWNER_PROTECTED:
     "owner ロールの付与や owner のロール変更は owner にしかできません — owner に依頼してください。",
-  PROFILE_DIGEST_MISMATCH:
-    "この release を作った後にプロファイルの設定が変わりました — 同じバージョンを release し直してから有効化してください。",
-  PROFILE_BLOCKED:
-    "運用者がこのプロファイルか、そのもとになるインストールプロファイルをブロックしました — ブロックが解除されるまで待つか、別のプロファイルを選んでください。",
+  RELEASE_SPEC_UNAVAILABLE:
+    "この release の接続が無効になったか、そのモデルが接続の一覧から外れました — 使える接続とモデルで release し直してから有効化してください。",
   ALREADY_EXISTS: "同じ名前がすでにあります — 別の slug を選んでください。",
   CATALOG_MISMATCH:
-    "このセッションのプロファイルとリポジトリの組み合わせが許可されなくなったため、入力は処理されませんでした — 運用者がカタログを戻してから、もう一度送ってください。",
+    "このセッションの接続・モデル・リポジトリがカタログになくなったため、入力は処理されませんでした — 運用者がカタログを戻してから、もう一度送ってください。",
   SLACK_NOT_INSTALLED:
     "Slack はまだインストールされていません — owner・admin に Slack のインストールを依頼してください。",
   LINK_TEAM_MISMATCH:
@@ -460,8 +448,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "別の役割の GitHub App と重なっています — 先に作成用 App を登録し、レビュー用には別の App を選んでください。",
   PENDING_REQUESTS_OPEN:
     "まだ答えていない承認・質問があります — すべてに答えるか、期限が切れてから再開してください。",
-  PERMISSION_WAIT_ABOVE_PROFILE:
-    "待ち時間がプロファイルの上限より長いです — プロファイルの値以下にしてください。",
+  PERMISSION_WAIT_ABOVE_LIMIT:
+    "待ち時間がインストールの上限より長いです — 上限以下にしてください。",
   TEAM_MANAGES_AGENTS:
     "このチームが担当チームのエージェントがあります — 先にそのエージェントの担当チームを移してください。",
   VARIABLE_NAME_INVALID:

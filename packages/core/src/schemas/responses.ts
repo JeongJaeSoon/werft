@@ -57,8 +57,6 @@ import {
   githubWorkflowRunSchema,
   healthResponseSchema,
   importSettingsResponseSchema,
-  installationProfileChangeResponseSchema,
-  installationProfileOptionsResponseSchema,
   issuePasswordResetResponseSchema,
   limitsResponseSchema,
   linkAgentIdentityResponseSchema,
@@ -71,6 +69,7 @@ import {
   listAgentIdentitiesResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
+  listConnectionOptionsResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
@@ -79,7 +78,6 @@ import {
   listMembersResponseSchema,
   listMyTeamsResponseSchema,
   listPendingRequestsResponseSchema,
-  listProfilesResponseSchema,
   listPushRequestsResponseSchema,
   listSessionAchievementsResponseSchema,
   listSessionGitHubRefusalsResponseSchema,
@@ -125,7 +123,6 @@ import {
   rejudgeSessionResponseSchema,
   rerunWorkflowResponseSchema,
   resolveSlackBindingResponseSchema,
-  retryProfileRolloutResponseSchema,
   reviewAchievementResponseSchema,
   revokeAgentIdentityResponseSchema,
   revokeApiKeyResponseSchema,
@@ -164,7 +161,6 @@ import {
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
   workspaceEngineSettingsResponseSchema,
-  workspaceProfileChangeResponseSchema,
 } from "@werft-ai/contracts";
 // biome-ignore lint/style/noRestrictedImports: the schemas entry is where the core may name zod; the root entry still may not.
 import type { ZodType } from "zod";
@@ -295,7 +291,6 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/pause": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/close": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/terminate": terminateSessionResponseSchema,
-  "POST /v1/sessions/{id}/profile": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/resume": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/recovery-decisions": receiptAcceptedResponseSchema,
   "POST /v1/sessions/{id}/push-requests": pushRequestSchema,
@@ -392,10 +387,7 @@ export const responseSchemas = {
   "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}":
     agentAdminChangeResponseSchema,
   "GET /v1/administered-agents": listAdministeredAgentsResponseSchema,
-  "GET /v1/profiles": listProfilesResponseSchema,
-  "POST /v1/workspace-profiles": workspaceProfileChangeResponseSchema,
-  "POST /v1/workspace-profiles/{profile_id}/retire":
-    workspaceProfileChangeResponseSchema,
+  "GET /v1/connections": listConnectionOptionsResponseSchema,
   "GET /v1/achievement-categories": listAchievementCategoriesResponseSchema,
   "POST /v1/achievement-categories": achievementCategoryChangeResponseSchema,
   "PATCH /v1/achievement-categories/{id}":
@@ -418,17 +410,6 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/achievement-judge": achievementJudgeResponseSchema,
   "PUT /v1/workspaces/{id}/achievement-judge":
     achievementJudgeChangeResponseSchema,
-  "GET /v1/installation-profiles/options":
-    installationProfileOptionsResponseSchema,
-  "POST /v1/installation-profiles": installationProfileChangeResponseSchema,
-  "POST /v1/installation-profiles/{profile_id}/retire":
-    installationProfileChangeResponseSchema,
-  "POST /v1/installation-profiles/{profile_id}/rollout/retry":
-    retryProfileRolloutResponseSchema,
-  "POST /v1/installation-profiles/{profile_id}/block":
-    installationProfileChangeResponseSchema,
-  "POST /v1/installation-profiles/{profile_id}/unblock":
-    installationProfileChangeResponseSchema,
   "GET /v1/installation/settings/export": exportSettingsResponseSchema,
   "POST /v1/installation/settings/import": importSettingsResponseSchema,
   "GET /v1/installation/settings/connections":
@@ -441,6 +422,8 @@ export const responseSchemas = {
   "POST /v1/installation/settings/connections/{id}/convert":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/auto-mode":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/models":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/connections/{id}/disable":
     settingsChangeResponseSchema,

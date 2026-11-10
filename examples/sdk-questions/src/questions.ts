@@ -14,7 +14,10 @@ import {
 const client = new Werft();
 const signal = AbortSignal.timeout(5 * 60_000);
 // `general` runs without a repository: the session starts in an empty directory.
-const profile_id = process.env.WERFT_PROFILE_ID ?? "general";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
 
 const QUESTION = "Which environment should the report cover?";
 const CHOICE = "staging";
@@ -88,11 +91,11 @@ async function openRequests(sessionId: SessionId): Promise<PendingRequest[]> {
 async function run(): Promise<void> {
   // 1. A question, answered by its handler while waitForTurn polls.
   const created = await client.sessions.create(
-    { profile_id, message: script("qa1", [ask], "staging it is") },
+    { agent_release_id, message: script("qa1", [ask], "staging it is") },
     { signal },
   );
   const sessionId = created.session_id;
-  console.log(`session ${sessionId}: created on ${profile_id}`);
+  console.log(`session ${sessionId}: created on ${agent_release_id}`);
   const waitOptions: WaitForTurnOptions = {
     signal,
     onRequest: { question: answerQuestion },

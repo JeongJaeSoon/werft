@@ -310,7 +310,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal: AbortSignal,
   ): Promise<RuntimeResumePlan> {
     const runtime = this.#options.fingerprint(claim);
-    // Profiles the session ran before its profile was changed; the
+    // Configs the session ran before its model moved; the
     // checkpoints this run takes carry `runtime`.
     const configs = [
       claim.runtime_config,

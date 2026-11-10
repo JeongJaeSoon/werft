@@ -4,7 +4,7 @@
 
 ## key와 실행
 
-에이전트 key(`sessions:read`, `sessions:write`, `sessions:control`)와 그 에이전트의 릴리스 ID로 돌린다. 에이전트 key는 자기 에이전트의 릴리스로만 세션을 만든다. `WERFT_AGENT_RELEASE_ID`를 비우면 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`(기본 `claude-coding-local`·`sample-app`)로 만들므로 개인 key로도 돈다.
+에이전트 key(`sessions:read`, `sessions:write`, `sessions:control`)와 그 에이전트의 릴리스 ID로 돌린다. 에이전트 key는 자기 에이전트의 릴리스로만 세션을 만든다. `WERFT_AGENT_RELEASE_ID`는 필수다. 개인 key로도 돈다.
 
 | 환경 변수 | 값 |
 | --- | --- |

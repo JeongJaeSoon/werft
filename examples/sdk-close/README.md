@@ -4,7 +4,7 @@
 
 ## key와 실행
 
-개인 key를 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`로 발급한다. `WERFT_PROFILE_ID`(기본 `claude-coding-local`)와 `WERFT_REPOSITORY_ID`(기본 `sample-app`)로 대상을 바꾼다.
+개인 key를 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`로 발급한다. `WERFT_AGENT_RELEASE_ID`(필수)로 세션을 만들 에이전트 릴리스를 정한다.
 
 ```sh
 bun examples/sdk-close/src/close-drain.ts

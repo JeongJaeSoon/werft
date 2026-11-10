@@ -147,7 +147,7 @@ export async function stageCheckpointBundle(input: {
  * The first of the instruction files `files` that is committed at the staged
  * instructions commit.
  * A checkpoint that pins none is refused rather than read as having no file,
- * so a profile that wants the file fails instead of resuming without it.
+ * so a run that wants the file fails instead of resuming without it.
  */
 export async function stagedInstructions(
   staged: StagedCheckpoint,

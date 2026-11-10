@@ -59,7 +59,6 @@ export function WorkspaceEngineSettings() {
         description={description}
         settings={query.data.settings}
         revision={query.data.settings_revision}
-        writesOpen={query.data.writes_open}
         withheld={
           manages ? undefined : permissionReason(t, "workspace.manage", role)
         }

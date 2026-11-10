@@ -102,7 +102,7 @@ export function parseImageRuntime(text: string): ImageRuntime {
   };
 }
 
-/** The versions a profile's `runtime_version` may name to run on this image. */
+/** The versions a release's runtime version may name to run on this image. */
 export function imageRuntimeVersions(runtime: ImageRuntime): string[] {
   return [runtime.sdkVersion, runtime.cliVersion];
 }

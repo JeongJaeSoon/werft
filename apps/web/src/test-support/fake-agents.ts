@@ -5,9 +5,9 @@ import {
   type AgentMcpSettings,
   type AgentRelease,
   type AgentVersion,
+  type ConnectionOption,
   CREDENTIAL_REVOKE_NOTICE,
   type CredentialBindingView,
-  type ProfileSummary,
   type TeamView,
 } from "@werft-ai/contracts";
 import {
@@ -18,7 +18,6 @@ import {
   USER_ID,
   WORKSPACE_ID,
 } from "./fake-api.ts";
-import { denyFor } from "./profiles.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
 export const TEAM_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
@@ -49,16 +48,31 @@ const sha = (n: number) => n.toString(16).padStart(64, "0");
 const bindingId = (n: number) =>
   `9e0f1a2b-3c4d-4e5f-8a6b-${n.toString(16).padStart(12, "0")}`;
 
+/** The connections the fake offers: the second runs only the smaller model. */
+export const CONNECTIONS: ConnectionOption[] = [
+  {
+    id: "anthropic-main",
+    kind: "anthropic",
+    billing: "metered",
+    models: ["claude-haiku-5", "claude-sonnet-5"],
+    model_successors: {},
+  },
+  {
+    id: "anthropic-fast",
+    kind: "anthropic",
+    billing: "metered",
+    models: ["claude-haiku-5"],
+    model_successors: {},
+  },
+];
+
 /**
  * The agents API as one stateful server: two tabs on the same server see
  * each other's writes, and activation is a compare-and-swap on the revision
  * exactly as the real route does it.
  */
 export function agentServer({
-  repositoryMode = "optional",
   description: initialDescription = null,
-  tracking: initialTracking = "follow",
-  modelSource: initialModelSource = "fixed",
   afterActivate,
   releaseRefusal,
   activity = [],
@@ -68,14 +82,8 @@ export function agentServer({
 }: {
   mcpSettings?: AgentMcpSettings;
   availableServers?: readonly string[];
-  repositoryMode?: ProfileSummary["repository_mode"];
   description?: string | null;
-  tracking?: "follow" | "pinned";
-  modelSource?: "fixed" | "profile";
-  afterActivate?: (release: AgentRelease) => {
-    tracking?: "follow" | "pinned";
-    modelSource?: "fixed" | "profile";
-  };
+  afterActivate?: (release: AgentRelease) => void;
   releaseRefusal?: string;
   activity?: readonly unknown[];
   releaseRepository?: string | null;
@@ -91,18 +99,19 @@ export function agentServer({
   let active: string | null = null;
   let revision = -1;
   let draftId: string | null = null;
-  let tracking = initialTracking;
-  let modelSource = initialModelSource;
+  let draftConnection = "anthropic-main";
 
-  function saveRelease(
-    body: { runtime_profile_id: string; model_source?: "fixed" | "profile" },
-    versionId: string,
-  ) {
+  function saveRelease(body: { connection_id: string }, versionId: string) {
+    const card = versions.find((v) => v.id === versionId)?.card;
+    const connection = CONNECTIONS.find((c) => c.id === body.connection_id);
+    draftConnection = body.connection_id;
     const refusal =
       releaseRefusal ??
-      (/^(claude-coding-|ws_)/.test(body.runtime_profile_id)
-        ? null
-        : "profile_unknown");
+      (connection === undefined
+        ? "connection_unknown"
+        : card !== undefined && !connection.models.includes(card.model)
+          ? "model_not_in_connection"
+          : null);
     if (refusal !== null) {
       draftId = versionId;
       return {
@@ -113,7 +122,6 @@ export function agentServer({
       };
     }
     draftId = null;
-    const card = versions.find((v) => v.id === versionId)?.card;
     const id = `rel-${versionId.slice(0, 8)}`;
     if (!releases.some((r) => r.id === id)) {
       releases.push(
@@ -121,7 +129,7 @@ export function agentServer({
           id,
           versionId,
           model: card?.model ?? "claude-sonnet-5",
-          profile: body.runtime_profile_id,
+          connection: body.connection_id,
           repositoryId: releaseRepository,
         }),
       );
@@ -129,7 +137,6 @@ export function agentServer({
     previousActive = active;
     active = id;
     revision += 1;
-    modelSource = body.model_source ?? modelSource;
     stamp(revision);
     return {
       status: "applied" as const,
@@ -184,13 +191,10 @@ export function agentServer({
       releases: [...releases],
       active_release: releases.find((r) => r.id === active) ?? null,
       behavior_revision: 0,
-      model_source: modelSource,
-      profile_tracking: tracking,
       draft: draftId
         ? {
             version_id: draftId,
-            runtime_profile_id: "claude-coding-local",
-            model_source: "fixed",
+            connection_id: draftConnection,
             failure: "release_refused",
           }
         : null,
@@ -202,15 +206,7 @@ export function agentServer({
   const routes = {
     "GET /v1/agents": () =>
       json(200, { items: [detail().agent], next_cursor: null }),
-    // Only claude-coding-local releases; the first one is refused, as when
-    // the catalog changed under an open page.
-    "GET /v1/profiles": () =>
-      json(200, {
-        items: [
-          profile("claude-coding-fast", "claude-haiku-5", repositoryMode),
-          profile("claude-coding-local", "claude-sonnet-5", repositoryMode),
-        ],
-      }),
+    "GET /v1/connections": () => json(200, { items: CONNECTIONS }),
     "GET /v1/teams": () => json(200, { items: [TEAM], next_cursor: null }),
     [`GET /v1/teams/${TEAM_ID}`]: () =>
       json(200, {
@@ -238,8 +234,7 @@ export function agentServer({
         description?: string;
         managing_team_id?: string;
         card: AgentCard;
-        runtime_profile_id?: string;
-        model_source?: "fixed" | "profile";
+        connection_id?: string;
       };
       if (
         body.managing_team_id !== undefined &&
@@ -251,7 +246,7 @@ export function agentServer({
       description = body.description ?? null;
       team = TEAM;
       const release =
-        body.runtime_profile_id === undefined
+        body.connection_id === undefined
           ? {
               status: "unchanged" as const,
               reason: null,
@@ -259,12 +254,7 @@ export function agentServer({
               version_id: null,
             }
           : saveRelease(
-              {
-                runtime_profile_id: body.runtime_profile_id,
-                ...(body.model_source
-                  ? { model_source: body.model_source }
-                  : {}),
-              },
+              { connection_id: body.connection_id },
               versions[0]?.id ?? "",
             );
       return json(201, { ...detail(), release });
@@ -355,8 +345,7 @@ export function agentServer({
         name?: string;
         description?: string | null;
         card?: AgentCard;
-        runtime_profile_id?: string;
-        model_source?: "fixed" | "profile";
+        connection_id?: string;
       };
       if (body.name !== undefined) name = body.name;
       if (body.description !== undefined) description = body.description;
@@ -371,12 +360,9 @@ export function agentServer({
         draftId = saved.id;
         fresh = true;
       }
-      if (body.runtime_profile_id !== undefined) {
+      if (body.connection_id !== undefined) {
         const release = saveRelease(
-          {
-            runtime_profile_id: body.runtime_profile_id,
-            ...(body.model_source ? { model_source: body.model_source } : {}),
-          },
+          { connection_id: body.connection_id },
           saved?.id ?? versions.at(-1)?.id ?? "",
         );
         return json(200, { ...detail(), release });
@@ -446,9 +432,7 @@ export function agentServer({
       previousActive = previous;
       stamp(revision);
       const target = releases.find((r) => r.id === active);
-      const changed = target ? afterActivate?.(target) : undefined;
-      tracking = changed?.tracking ?? tracking;
-      modelSource = changed?.modelSource ?? modelSource;
+      if (target) afterActivate?.(target);
       return json(200, {
         active_release_id: active,
         previous_release_id: previous,
@@ -483,14 +467,14 @@ export function seedRelease(
   {
     id = `rel-${n}`,
     versionId = VERSION_IDS[0] ?? "",
-    profile = "claude-coding-local",
+    connection = "anthropic-main",
     model = "claude-sonnet-5",
     createdBy = USER_ID,
     repositoryId = null,
   }: {
     id?: string;
     versionId?: string;
-    profile?: string;
+    connection?: string;
     model?: string;
     createdBy?: string | null;
     repositoryId?: string | null;
@@ -501,9 +485,8 @@ export function seedRelease(
     agent_id: AGENT_ID,
     version_id: versionId,
     card_sha256: sha(n + 10),
-    runtime_profile_id: profile,
+    connection_id: connection,
     repository_id: repositoryId,
-    profile_digest: "digest-1",
     runtime_config_snapshot: { model },
     effective_tools: { tools: ["Read"], mcp: [] },
     policy_pins: {},
@@ -515,26 +498,5 @@ export function seedRelease(
     label: `2026-10-11_10:0${n}:00`,
     activated_at: null,
     deactivated_at: null,
-  };
-}
-
-function profile(
-  id: string,
-  model: string,
-  repositoryMode: ProfileSummary["repository_mode"],
-): ProfileSummary {
-  return {
-    id,
-    source: "operator",
-    model,
-    models: [model],
-    tools: ["Read"],
-    deny: denyFor(["Read"]),
-    permission_mode: "default",
-    runtime_kind: "claude_agent_sdk",
-    runtime_version: "0.3.270",
-    billing: "metered",
-    repository_mode: repositoryMode,
-    repository_ids: ["sample-app"],
   };
 }

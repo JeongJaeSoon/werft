@@ -213,7 +213,7 @@ export function releaseChanges(
     ...configB
   } = after.runtime_config_snapshot;
   const changes: ReleaseChange[] = [
-    // No GitHub pin is every repository the profile allows, not none.
+    // No GitHub pin is every repository the workspace allows, not none.
     ...optionalListChange(
       "repositories",
       "repositories",
@@ -242,20 +242,10 @@ export function releaseChanges(
     ...listChange("tools", "toolPolicy", perTool(toolsA), perTool(toolsB)),
     ...valueChange(
       "settings",
-      { key: "profile" },
-      before.runtime_profile_id,
-      after.runtime_profile_id,
+      { key: "connection" },
+      before.connection_id,
+      after.connection_id,
     ),
-    // Profile values the snapshot leaves out change only this digest.
-    ...(before.profile_digest === after.profile_digest
-      ? []
-      : [
-          {
-            area: "settings",
-            field: { key: "profileDigest" },
-            kind: "changed",
-          } as const,
-        ]),
     ...leafChanges("settings", "", configA, configB, (path) =>
       READABLE_CONFIG.test(path),
     ),

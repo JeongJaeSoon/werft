@@ -17,7 +17,6 @@ import {
   unwrap,
 } from "@werft-ai/client";
 import {
-  type ChangeSessionProfileRequest,
   eventToolCall,
   eventToolResult,
   type PostSessionAnswerResponse,
@@ -109,24 +108,6 @@ const commandParams = (id: string, context: MutationFunctionContext) => ({
     "Idempotency-Key": idempotencyKeys.get(context) ?? crypto.randomUUID(),
   },
 });
-
-/** Moves the session onto another profile from its next turn on. */
-export function useChangeSessionProfile(id: string) {
-  const { client } = useWerft();
-  const queryClient = useQueryClient();
-  return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
-    onMutate: newCommand,
-    mutationFn: (body, context) =>
-      unwrap(
-        client.POST("/v1/sessions/{id}/profile", {
-          params: commandParams(id, context),
-          body,
-        }),
-      ),
-    // The detail query's own key is the filter.
-    onSettled: () => queryClient.invalidateQueries(sessionQuery(client, id)),
-  });
-}
 
 /** A part of a session's server state that an event or a command can make stale. */
 type SessionPart = "list" | "detail" | "pending" | "usage" | "turns" | "github";

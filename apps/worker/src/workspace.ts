@@ -856,7 +856,7 @@ const MAX_LINK_TARGET_BYTES = 4096;
  * followed only to another path in the same tree (`CLAUDE.md -> AGENTS.md`
  * is ordinary); one that leaves it, loops, or ends at anything but a file is
  * refused, as is a file past the cap or one git cannot read. Refused, not
- * thrown: whether the run wants the file at all is the profile's call, made
+ * thrown: whether the run wants the file at all is the run config's call, made
  * later, and a session that never asked for it must not fail over it.
  *
  * Left out, against what the engine itself loads: `.claude/CLAUDE.md`,
@@ -903,7 +903,7 @@ export async function readCommittedInstructions(
     return await firstCommittedInstructions(git, cwd, rev, files);
   } catch (error) {
     // A stop is the preparation's to report. Anything else that goes wrong
-    // with this file is only the business of a profile that asks for it.
+    // with this file is only the business of a run that asks for it.
     if (signal.aborted) throw error;
     return {
       kind: "refused",

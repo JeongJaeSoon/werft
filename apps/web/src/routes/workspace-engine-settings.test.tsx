@@ -18,7 +18,7 @@ const PATH = `/v1/workspaces/${WORKSPACE_ID}/engine-settings`;
 const renderAt: typeof harness.renderAt = (path, routes, locale) =>
   harness.renderAt(
     path,
-    { "GET /v1/profiles": () => json(200, { items: [] }), ...routes },
+    { "GET /v1/connections": () => json(200, { items: [] }), ...routes },
     locale,
   );
 

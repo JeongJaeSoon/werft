@@ -17,10 +17,9 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useState } from "react";
-import { memberSummariesQuery, profilesQuery } from "../../api/queries.ts";
+import { memberSummariesQuery } from "../../api/queries.ts";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
-import { profileDisplay } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
@@ -34,7 +33,6 @@ import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import {
   type RollbackPreview,
   rollbackPreview,
-  trackingLine,
 } from "./rollback-preview.ts";
 
 const COLUMNS = [
@@ -42,12 +40,14 @@ const COLUMNS = [
   "minmax(0,1fr) 120px",
 ] as const;
 
-/** The profile the agent runs on now: its active release's, else its newest. */
-export function releasedProfile(detail: AgentDetail): string | undefined {
+/** The connection the agent runs on now: its active release's, else its newest. */
+export function releasedConnection(
+  detail: AgentDetail,
+): string | undefined {
   const active = detail.releases.find(
     (release) => release.id === detail.agent.active_release_id,
   );
-  return (active ?? detail.releases.at(-1))?.runtime_profile_id;
+  return (active ?? detail.releases.at(-1))?.connection_id;
 }
 
 type Receipt = components["schemas"]["Receipt"];
@@ -97,11 +97,6 @@ export function Releases({
   const { client } = useWerft();
   const manages = useManagesAgent();
   const [confirming, setConfirming] = useState<AgentRelease | null>(null);
-  // Names every role that reads the tab; the rollback preview needs it too.
-  const profiles = useQuery({
-    ...profilesQuery(client),
-    enabled: shown,
-  });
   // Only roles that list members get names; anyone else reads "a member".
   // Read when the tab opens, not with every visit to the agent, and only
   // for the people who made a release.
@@ -136,11 +131,7 @@ export function Releases({
   ].sort((a, b) => b.at.localeCompare(a.at));
   const cards = new Map(detail.versions.map((v) => [v.id, v.card]));
   const at = (iso: string) => <RelativeTime value={iso} locale={locale} />;
-  // Without the profile list the preview still shows what the detail alone
-  // settles, so a slow or failed list never hides the notice.
-  const preview = confirming
-    ? rollbackPreview(detail, confirming, profiles.data?.items ?? [])
-    : null;
+  const preview = confirming ? rollbackPreview(confirming) : null;
 
   return (
     <Section
@@ -224,11 +215,7 @@ export function Releases({
                 });
               const label = t("agent.releaseLabel", {
                 release: name,
-                profile: profileDisplay(
-                  t,
-                  profiles.data?.items,
-                  item.runtime_profile_id,
-                ),
+                connection: item.connection_id,
               });
               // `== null`: an API from before these fields omits them mid-rollout.
               const activated =
@@ -378,16 +365,8 @@ function RollbackConsequence({
     <span className="flex flex-col gap-2">
       <span>{t("agent.rollback.content")}</span>
       {preview ? (
-        <span data-slot="rollback-tracking">
-          {trackingLine(t, preview.tracking)}
-        </span>
-      ) : null}
-      {preview?.modelBecomesFixed ? (
-        <span data-slot="rollback-model">{t("agent.rollback.modelFixed")}</span>
-      ) : null}
-      {preview?.modelMayBecomeFixed ? (
-        <span data-slot="rollback-model">
-          {t("agent.rollback.modelMayFix")}
+        <span data-slot="rollback-connection">
+          {t("agent.rollback.connection", { connection: preview.connection })}
         </span>
       ) : null}
       <span>{t("agent.rollback.settingsKept")}</span>

@@ -14,8 +14,7 @@ import { Werft, waitForTurn } from "@werft-ai/sdk";
 // WERFT_BASE_URL, WERFT_API_KEY 환경 변수를 읽는다.
 const werft = new Werft();
 const created = await werft.sessions.create({
-  profile_id: "claude-coding-local",
-  repository_id: "sample-app",
+  agent_release_id: process.env.WERFT_AGENT_RELEASE_ID!,
   message: "README를 요약해 줘",
 });
 const turn = await waitForTurn(werft, created.session_id, created.turn_id);

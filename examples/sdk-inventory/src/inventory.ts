@@ -9,8 +9,10 @@ import {
 
 const client = new Werft();
 const signal = AbortSignal.timeout(5 * 60_000);
-const profile_id = process.env.WERFT_PROFILE_ID ?? "claude-coding-local";
-const repository_id = process.env.WERFT_REPOSITORY_ID ?? "sample-app";
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+if (!agent_release_id) {
+  throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
+}
 const COUNT = 3;
 // A word no other session's title has, so the search sees only this run.
 const marker = `inventory-${Date.now().toString(36)}`;
@@ -24,8 +26,7 @@ async function run(): Promise<void> {
     Array.from({ length: COUNT }, (_, i) =>
       client.sessions.create(
         {
-          profile_id,
-          repository_id,
+          agent_release_id,
           title: `${marker} #${i + 1}`,
           message: `GATE-SPEC {"id":"${marker}-${i + 1}","steps":[],"final":"inventory item ${i + 1}"}`,
         },

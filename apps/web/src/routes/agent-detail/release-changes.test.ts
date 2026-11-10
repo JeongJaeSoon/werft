@@ -27,9 +27,8 @@ const release = (over: Partial<AgentRelease> = {}): AgentRelease => ({
   agent_id: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d",
   version_id: "v1",
   card_sha256: "a".repeat(64),
-  runtime_profile_id: "claude-coding-local",
+  connection_id: "anthropic-main",
   repository_id: "sample-app",
-  profile_digest: "digest-1",
   runtime_config_snapshot: {
     model: "claude-sonnet-5",
     tools: ["Read", "Bash"],
@@ -66,7 +65,7 @@ const after = release({
   id: "sha256:b",
   version_id: "v2",
   card_sha256: "b".repeat(64),
-  profile_digest: "digest-2",
+  connection_id: "anthropic-fast",
   runtime_config_snapshot: {
     model: "claude-opus-5",
     tools: ["Read", "Bash", "Edit"],
@@ -138,8 +137,10 @@ describe("releaseChanges", () => {
       },
       {
         area: "settings",
-        field: { key: "profileDigest" },
-        kind: "changed",
+        field: { key: "connection" },
+        kind: "value",
+        before: "anthropic-main",
+        after: "anthropic-fast",
       },
       {
         area: "settings",
@@ -283,7 +284,7 @@ describe("releaseChanges", () => {
     ]);
   });
 
-  test("no GitHub pin reads as the profile's range, not as no repository", () => {
+  test("no GitHub pin reads as the workspace's range, not as no repository", () => {
     const { github: _dropped, ...unpinned } = before.policy_pins;
     expect(
       releaseChanges(release({ policy_pins: unpinned }), before, (id) =>

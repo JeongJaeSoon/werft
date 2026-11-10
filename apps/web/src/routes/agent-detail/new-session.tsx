@@ -5,8 +5,8 @@ import type {
   Agent,
   AgentDetail,
   AgentRelease,
+  ConnectionOption,
   CreateSessionResponse,
-  ProfileSummary,
 } from "@werft-ai/contracts";
 import {
   agentSessionListsFilter,
@@ -33,15 +33,15 @@ import {
   Textarea,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useRef, useState } from "react";
-import { profilesQuery } from "../../api/queries.ts";
+import { connectionsQuery } from "../../api/queries.ts";
 import { useCan, useMe } from "../../auth/guard.tsx";
 import { ReasonButton } from "../../auth/reason-button.tsx";
 import { FormError } from "../../components/auth-page.tsx";
-import { startableWhenPinned } from "../../components/profile-options.tsx";
+import { runsModel } from "../../components/connection-options.tsx";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 
 type AgentBlock = "archived" | "paused" | "noRelease";
-type ReleaseBlock = "profile";
+type ReleaseBlock = "connection";
 
 function consolePolicyBlock(
   agent: Pick<Agent, "status" | "active_release_id">,
@@ -50,19 +50,23 @@ function consolePolicyBlock(
   return agent.active_release_id === null ? "noRelease" : null;
 }
 
-// Only the profile is foreseen here. Whether a session starts without a
+// Only the connection is foreseen here. Whether a session starts without a
 // repository, or on its release's, depends on the agent's GitHub settings
 // row, which this screen does not read, so the server's refusal says so.
 function foreseenServerRefusal(
-  release: Pick<AgentRelease, "runtime_profile_id">,
-  profiles: readonly ProfileSummary[] | undefined,
+  release: Pick<AgentRelease, "connection_id" | "runtime_config_snapshot">,
+  connections: readonly ConnectionOption[] | undefined,
 ): ReleaseBlock | null {
-  if (profiles === undefined) return null;
-  const profile = profiles.find(
-    (listed) => listed.id === release.runtime_profile_id,
+  if (connections === undefined) return null;
+  const connection = connections.find(
+    (listed) => listed.id === release.connection_id,
   );
-  return profile === undefined || !startableWhenPinned(profile)
-    ? "profile"
+  const model = release.runtime_config_snapshot.model;
+  return connection === undefined ||
+    (typeof model === "string" &&
+      !runsModel(connection, model) &&
+      connection.model_successors[model] === undefined)
+    ? "connection"
     : null;
 }
 
@@ -78,15 +82,15 @@ export function useNewSessionReason(detail: AgentDetail): string | undefined {
   const { client } = useWerft();
   const scopeReason = useScopeReason();
   const release = detail.active_release;
-  const profiles = useQuery({
-    ...profilesQuery(client),
+  const connections = useQuery({
+    ...connectionsQuery(client),
     enabled: release !== null,
   });
   const stopped = consolePolicyBlock(detail.agent);
   if (stopped !== null) return t(AGENT_REASONS[stopped]);
   if (scopeReason !== undefined) return scopeReason;
   const refused = release
-    ? foreseenServerRefusal(release, profiles.data?.items)
+    ? foreseenServerRefusal(release, connections.data?.items)
     : null;
   return refused === null ? undefined : t(RELEASE_REASONS[refused]);
 }
@@ -112,7 +116,7 @@ const AGENT_REASONS = {
 } as const satisfies Record<AgentBlock, Parameters<Translate>[0]>;
 
 const RELEASE_REASONS = {
-  profile: "agent.newSession.blocked.profile",
+  connection: "agent.newSession.blocked.connection",
 } as const satisfies Record<ReleaseBlock, Parameters<Translate>[0]>;
 
 export function NewSessionReason({

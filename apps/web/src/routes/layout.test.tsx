@@ -23,7 +23,7 @@ const waiting = (id: string) => ({
   runtime: {
     kind: "claude_agent_sdk",
     version: "1.0.0",
-    profile_id: "default",
+    connection_id: "default",
     model: "model-default",
     permission_mode: "default",
   },

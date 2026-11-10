@@ -25,7 +25,7 @@
 bun examples/sdk-approver/src/session-close.ts
 ```
 
-`WERFT_AGENT_RELEASE_ID`가 있으면 `POST /v1/sessions`에 그 값만 대상 정보로 보낸다. 없으면 기존 사용자 key 예제처럼 `WERFT_PROFILE_ID`(기본 `claude-coding-local`)와 `WERFT_REPOSITORY_ID`(기본 `sample-app`)를 쓴다. 승인자 key를 생략하면 같은 클라이언트로 답하므로 해당 key에 승인 권한이 있어야 한다.
+`POST /v1/sessions`에는 `WERFT_AGENT_RELEASE_ID`(필수)만 대상 정보로 보낸다. 승인자 key를 생략하면 같은 클라이언트로 답하므로 해당 key에 승인 권한이 있어야 한다.
 
 ## 실행 결과
 

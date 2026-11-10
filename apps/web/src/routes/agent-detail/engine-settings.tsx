@@ -68,7 +68,6 @@ export function EngineSettings({
       <Beside
         workspace={query.data.workspace.settings}
         agent={query.data.settings}
-        inherited={query.data.inherited}
         reach={query.data.reach}
       />
       {/* A failed refetch keeps the editor: its unsaved draft is the work. */}
@@ -81,7 +80,6 @@ export function EngineSettings({
         description={description}
         settings={query.data.settings}
         revision={query.data.settings_revision}
-        writesOpen={query.data.writes_open}
         withheld={
           manages ? undefined : permissionReason(t, "agent.manage", role)
         }
@@ -121,12 +119,10 @@ function RuleLines({ rules }: { readonly rules: readonly string[] }) {
 function Beside({
   workspace,
   agent,
-  inherited,
   reach,
 }: {
   readonly workspace: EngineRules;
   readonly agent: EngineRules;
-  readonly inherited: { readonly entries: number; readonly rules: number };
   readonly reach: {
     readonly agent_allow_without_effect: {
       readonly permissions: readonly string[];
@@ -182,14 +178,6 @@ function Beside({
           }))}
         />
       )}
-      {inherited.entries > 0 ? (
-        <Text as="div" variant="meta">
-          {t("engine.inherited", {
-            entries: inherited.entries,
-            rules: inherited.rules,
-          })}
-        </Text>
-      ) : null}
       {inactive.length > 0 ? (
         <Text as="div" variant="meta">
           {t("engine.reach.inactive", {

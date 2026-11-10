@@ -10,8 +10,8 @@ import { type Sessions, sessions } from "./resources/sessions.ts";
 import type {
   ApiRoot,
   AuthMe,
+  Connections,
   InstallationLimits,
-  Profiles,
   Receipt,
   ReceiptId,
 } from "./types.ts";
@@ -73,7 +73,10 @@ export class Werft {
   readonly limits: {
     get(options?: RequestOptions): Promise<InstallationLimits>;
   };
-  readonly profiles: { list(options?: RequestOptions): Promise<Profiles> };
+  /** The provider connections a release may run on, with their models. */
+  readonly connections: {
+    list(options?: RequestOptions): Promise<Connections>;
+  };
   readonly root: { get(options?: RequestOptions): Promise<ApiRoot> };
 
   constructor(options: ClientOptions = {}) {
@@ -172,12 +175,13 @@ export class Werft {
         return limits;
       },
     };
-    this.profiles = {
+    this.connections = {
       list: (o) =>
         call(
           policy,
           "read",
-          ({ signal, headers }) => api.GET("/v1/profiles", { signal, headers }),
+          ({ signal, headers }) =>
+            api.GET("/v1/connections", { signal, headers }),
           o,
         ),
     };

@@ -86,20 +86,20 @@ export interface WorkerGatewaySession extends WorkerGatewayClient {
 
 /**
  * `runtimeConfig` is the claim's: the server resolved it from the session's
- * profile. `principal` is the claim's too — the session's owner partition,
+ * spec. `principal` is the claim's too — the session's owner partition,
  * which the runtime hashes into every checkpoint fingerprint. It
  * is never defaulted here: a worker that made one up would let two
  * partitions on one provider resume each other's checkpoints.
  */
 export type RuntimeLaunch = RuntimeResumePlan & {
-  /** The workspace's, read only when the profile lets the file in. */
+  /** The workspace's, read only when the run config lets the file in. */
   committedInstructions: () => string | null;
   correlationId: string;
   /** The claim's git settings for the engine (git-trailers.ts gitEnvironmentFor). */
   gitEnvironment?: GitEnvironment;
   /**
    * The claim's remaining_budget_usd: this run counts its spend from zero.
-   * Absent for a profile that is not billed, whose engine runs with no budget.
+   * Absent for a session that is not billed, whose engine runs with no budget.
    */
   maxBudgetUsd?: number;
   principal: ClaimPrincipal;
@@ -858,7 +858,7 @@ export class WorkerHost {
 
   /**
    * Refuses, before any input, a claim whose settings need a feature the
-   * started engine does not offer — the control plane checked the profile
+   * started engine does not offer — the control plane checked the release
    * against its own copy of the descriptor, which this image may not match.
    * Then tells the gateway this attempt restored what its claim named and can
    * take input: a session resumed out of `paused` admits none until then
@@ -886,7 +886,7 @@ export class WorkerHost {
     );
     if (unmet.length > 0) {
       throw new Error(
-        `Runtime ${claim.runtime.kind} ${claim.runtime.version} cannot run this session's profile: it does not support ${unmet.join(", ")}`,
+        `Runtime ${claim.runtime.kind} ${claim.runtime.version} cannot run this session's settings: it does not support ${unmet.join(", ")}`,
       );
     }
     if (claim.restore === null) return true;

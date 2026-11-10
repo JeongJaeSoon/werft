@@ -25,7 +25,6 @@ export const agentsKo = {
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
   "agents.cards.release": "릴리스",
-  "agents.cards.profile": "프로필",
   "agents.cards.notReleased": "릴리스 전",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "자격 증명",
@@ -65,13 +64,11 @@ export const agentsKo = {
   "agents.flow.name": "이름",
   "agents.flow.job": "하는 일",
   "agents.flow.next": "다음",
-  "agents.flow.jobIntro":
-    "에이전트가 쓸 모델과 프로필 하나를 정합니다. 저장하면 이 프로필로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
+  "agents.flow.jobIntro": "에이전트가 쓸 모델 연결과 모델을 정합니다. 저장하면 이 연결로 첫 릴리스가 만들어져 바로 쓰입니다. 동작 지시는 저장소의 CLAUDE.md나 AGENTS.md에 적습니다.",
   "agents.flow.saveNext": "저장하고 다음",
   "agents.flow.saving": "저장하는 중…",
   "agents.flow.releaseFailed":
     "에이전트는 저장했지만 첫 릴리스를 만들지 못했습니다: {reason}. 저장을 다시 누르면 같은 에이전트를 고쳐 다시 시도합니다.",
-  "agents.flow.noProfile": "쓸 수 있는 프로필이 없습니다",
   "agents.flow.later": "나중에 하기",
   "agents.flow.done":
     "{name}을(를) 켰습니다. 이제 새 세션이 이 에이전트를 씁니다.",
@@ -86,23 +83,10 @@ export const agentsKo = {
   "agentCard.language.hint":
     "사용자 언어 따라가기는 사용자가 쓴 언어로 답합니다. 언어를 고르면 사용자가 다른 언어로 써도 그 언어로만 답합니다. 새 릴리스부터 적용되고 이미 시작한 세션은 그대로입니다.",
   "agentCard.model": "모델",
-  "agentCard.modelHint":
-    "고른 모델을 돌리는 프로필만 아래에서 고를 수 있습니다",
-  "agentCard.blockedTools": "프로필이 막은 도구",
-  "agentCard.blockedNone": "이 프로필이 막은 도구는 없습니다.",
-  "agentCard.blockedUnknown":
-    "이 프로필은 도구 목록을 알 수 없는 런타임이라 막은 도구를 보여 줄 수 없습니다.",
-  "agentCard.blockedHint":
-    "에이전트가 쓰는 도구는 프로필이 정합니다. 에이전트마다 따로 고르지 않습니다.",
-  "agentCard.previewProfile": "프로필",
-  "agentCard.previewProfileHint":
-    "이 프로필이 막은 도구를 보여 주고, 새 릴리스도 이 프로필로 만듭니다. 카드에는 저장하지 않습니다.",
-  "agentCard.noPreview":
-    "이 모델을 돌리는 프로필이 없어 보여 줄 도구가 없습니다.",
-  "agent.created":
-    "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 상세 설정에서 프로필을 골라 저장하세요. 저장하면 첫 릴리스가 만들어집니다.",
+  "agentCard.modelHint": "고른 연결이 제공하는 모델 중에서 고릅니다",
+  "agent.created": "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 상세 설정에서 모델 연결과 모델을 골라 저장하세요. 저장하면 첫 릴리스가 만들어집니다.",
   "agent.noActive": "없음",
-  "agent.releaseLabel": "릴리스 {release} · {profile}",
+  "agent.releaseLabel": "릴리스 {release} · {connection}",
   "agent.versionLabel": "버전 {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
@@ -141,38 +125,16 @@ export const agentsKo = {
     "저장했습니다 — 버전 {version}. 새 세션에는 적용하지 못했습니다: {reason}",
   "agent.save.superseded":
     "더 나중의 저장이 먼저 적용되어 이 저장은 반영되지 않았습니다. 카드는 저장되어 있습니다.",
-  "agent.save.reason.model_not_in_profile": "프로필이 허용하지 않는 모델입니다",
-  "agent.save.reason.tool_not_in_profile":
-    "프로필이 허용하지 않는 도구가 있습니다",
   "agent.save.reason.credential_unbound": "자격 증명이 연결되지 않았습니다",
-  "agent.save.reason.release_refused":
-    "프로필이나 저장소 조건을 만족하지 못했습니다",
-  "agent.save.reason.profile_unknown": "프로필을 찾을 수 없습니다",
+  "agent.save.reason.release_refused": "연결이나 저장소 조건을 만족하지 못했습니다",
   "agent.save.reason.retries_exhausted":
     "여러 번 시도했지만 적용하지 못했습니다",
-  "agent.profileFollow.pinnedTitle": "프로필의 옛 버전을 쓰는 중",
-  "agent.profileFollow.pinnedText":
-    "이 에이전트는 프로필의 새 버전을 따라가지 않고 있습니다. 최신으로 올리면 새 버전이 적용되고 다시 따라갑니다.",
-  "agent.profileFollow.failedTitle": "프로필 새 버전을 적용하지 못했습니다",
-  "agent.profileFollow.failedText": "이유: {reason}",
-  "agent.profileFollow.pendingText":
-    "프로필의 새 버전을 곧 적용합니다. 기다리지 않고 지금 올릴 수도 있습니다.",
-  "agent.profileFollow.raise": "최신으로 올리기",
-  "agent.profileFollow.raising": "올리는 중…",
-  "agent.profileFollow.retry": "다시 시도",
-  "agent.profileFollow.done": "프로필의 최신 버전을 적용했습니다.",
-  "agent.profileFollow.failed": "최신으로 올리지 못했습니다: {reason}",
-  "agent.save.reason.blocked": "운영자가 막은 프로필입니다",
   "agent.save.reason.revision_conflict": "다른 저장과 겹쳐 적용하지 못했습니다",
   "agent.save.reason.other": "이유를 알 수 없습니다",
   "agent.effective.title": "새 세션에 적용되는 값",
   "agent.effective.hint":
     "지금 활성 릴리스 기준입니다. 이미 시작한 세션은 시작할 때의 값을 그대로 씁니다.",
   "agent.effective.none": "아직 릴리스가 없어 적용되는 값이 없습니다.",
-  "agent.effective.profile": "프로필",
-  "agent.effective.titleModel": "제목 모델",
-  "agent.effective.followsProfile": "프로필 기본 모델 따름",
-  "agent.effective.chosen": "직접 선택",
   "agent.draft.pendingTitle": "적용 대기",
   "agent.draft.failedTitle": "적용 실패",
   "agent.draft.pending":
@@ -185,8 +147,7 @@ export const agentsKo = {
   "agent.versions.before": "비교 기준",
   "agent.versions.after": "비교 대상",
   "agent.releases.title": "릴리스",
-  "agent.releases.auto":
-    "릴리스는 프로필이나 카드가 바뀌면 자동으로 만들어집니다.",
+  "agent.releases.auto": "릴리스는 연결이나 카드가 바뀌면 자동으로 만들어집니다.",
   "agent.releases.colVersion": "버전",
   "agent.releases.colStatus": "상태",
   "agent.releases.colBy": "만든 사람",
@@ -197,8 +158,7 @@ export const agentsKo = {
   "agent.releases.previous": "이전",
   "agent.releases.never": "활성화 전",
   "agent.releases.byMember": "구성원",
-  "agent.releases.emptyBody":
-    "프로필이나 카드를 바꿔 저장하면 릴리스가 여기에 쌓입니다.",
+  "agent.releases.emptyBody": "연결이나 카드를 바꿔 저장하면 릴리스가 여기에 쌓입니다.",
   "agent.releases.access": "접근 변경",
   "agent.releases.accessNoRelease":
     "저장소와 GitHub 설정 변경입니다. 새 릴리스를 만들지 않습니다.",
@@ -209,29 +169,15 @@ export const agentsKo = {
   "agent.rollback.title": "{release}(으)로 되돌릴까요?",
   "agent.rollback.content":
     "새 세션이 이 릴리스의 모델·지시·도구로 시작합니다.",
-  "agent.rollback.tracking": "되돌린 뒤 프로필 새 버전 따라가기: {change}.",
-  "agent.rollback.tracking.keepOn": "켜짐 유지",
-  "agent.rollback.tracking.keepOff": "꺼짐 유지",
-  "agent.rollback.tracking.turnedOff": "꺼짐으로 바뀜",
-  "agent.rollback.tracking.turnedOn": "켜짐으로 바뀜",
-  "agent.rollback.tracking.undetermined":
-    "켜져 있습니다. 이 릴리스의 프로필이 최신 판과 실행 방식이 다르면 꺼질 수 있습니다",
-  "agent.rollback.modelFixed": "실행 모델: 직접 고르기로 바뀜.",
-  "agent.rollback.modelMayFix":
-    "실행 모델: 프로필 목록을 읽지 못해 직접 고르기로 바뀌는지 알 수 없음.",
   "agent.rollback.settingsKept": "저장소와 GitHub 설정은 지금 그대로입니다.",
-  "agent.rollback.mayRefuse":
-    "차단된 프로필이거나, 프로필 내용이 달라졌거나, 자격 증명이 연결되지 않았으면 거절되고 지금 설정이 유지됩니다.",
+  "agent.rollback.mayRefuse": "연결이 꺼졌거나 그 모델이 연결에서 빠졌거나, 자격 증명이 연결되지 않았으면 거절되고 지금 설정이 유지됩니다.",
   "agent.rollback.kept": "되돌리지 않았습니다. 지금 설정이 유지됩니다.",
   "agent.rollback.unknown":
     "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고 상태도 다시 읽지 못했습니다. 릴리스 목록에서 활성 릴리스를 확인하세요.",
   "agent.rollback.movedMeanwhile":
     "{release}(으)로 되돌렸는지 확인하지 못했습니다. 응답을 받지 못했고, 그 사이 활성 릴리스가 다른 릴리스로 바뀌었습니다. 릴리스 목록에서 지금 활성 릴리스를 확인하세요.",
   "agent.rolledBack": "{release}(으)로 되돌렸습니다.",
-  "agent.rolledBack.reenable":
-    "다시 따라가게 하려면 프로필 칸에서 '최신으로 올리기'를 누르세요.",
-  "agent.rolledBack.unchecked":
-    "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 따라가기 값은 확인하지 못했습니다.",
+  "agent.rolledBack.unchecked": "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
   "agent.releases.approved": "{at} 처음 활성화",
   "agent.releases.notApproved": "아직 활성화된 적 없음",
@@ -252,15 +198,12 @@ export const agentsKo = {
   "agent.releases.field.model": "모델",
   "agent.releases.field.tools": "쓸 수 있는 도구",
   "agent.releases.field.toolPolicy": "도구별 정책",
-  "agent.releases.field.profile": "프로필",
-  "agent.releases.field.profileDigest": "프로필 설정",
   "agent.releases.field.pushApproval": "푸시 승인",
   "agent.releases.field.actionsAllow": "허용한 워크플로",
   "agent.releases.field.rules": "카드 규칙",
   "agent.releases.field.language": "카드 언어",
   "agent.releases.field.card": "카드의 다른 칸",
   "agent.releases.absent.none": "없음",
-  "agent.releases.absent.profileRepositories": "프로필이 허용하는 저장소 전체",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
@@ -308,8 +251,7 @@ export const agentsKo = {
   "agent.back": "에이전트 목록",
   "agent.panel.none": "없음",
   "agent.card.releasedAt": "릴리스 {at}",
-  "agent.overview.notActive":
-    "아직 켜지지 않았습니다. 상세 설정에서 프로필을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
+  "agent.overview.notActive": "아직 켜지지 않았습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 첫 릴리스가 만들어지고 새 세션이 이 에이전트를 씁니다.",
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
@@ -326,12 +268,9 @@ export const agentsKo = {
     "보관된 에이전트라 세션을 시작할 수 없습니다.",
   "agent.newSession.blocked.paused":
     "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
-  "agent.newSession.blocked.noRelease":
-    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
+  "agent.newSession.blocked.noRelease": "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
   "agent.newSession.blocked.outsider":
     "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
-  "agent.newSession.blocked.profile":
-    "활성 릴리스의 프로필을 쓸 수 없어 세션을 시작할 수 없습니다. 쓸 수 있는 프로필로 다시 릴리스하세요.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -352,8 +291,7 @@ export const agentsKo = {
   "agent.ready.credentialsUnknown": "연결 상태를 불러오지 못했습니다.",
   "agent.ready.release": "릴리스",
   "agent.ready.releaseDone": "릴리스 {count}개가 있습니다.",
-  "agent.ready.releaseTodo":
-    "카드 탭에서 프로필을 골라 저장하면 첫 릴리스가 만들어집니다.",
+  "agent.ready.releaseTodo": "카드 탭에서 모델 연결과 모델을 골라 저장하면 첫 릴리스가 만들어집니다.",
   "agent.ready.activate": "활성화",
   "agent.ready.notRunnable":
     "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
@@ -449,6 +387,23 @@ export const agentsKo = {
     "팀이 없어 에이전트를 만들 수 없습니다. 팀 화면에서 먼저 팀을 만드세요.",
   "agents.flow.toTeams": "팀으로",
   "slack.notConnectedReadOnly": "이 에이전트는 Slack에 연결되지 않았습니다.",
+  "agents.cards.connection": "모델 연결",
+  "agents.flow.noConnection": "고른 연결은 이 모델을 제공하지 않습니다",
+  "agentCard.connection": "모델 연결",
+  "agentCard.connectionPick": "연결을 고르세요",
+  "agentCard.connectionGone": "{id} (꺼졌거나 없어진 연결)",
+  "agentCard.connectionHint": "에이전트가 모델을 부를 연결입니다. 저장하면 이 연결로 새 릴리스가 만들어집니다.",
+  "agentCard.connectionNone": "켜진 모델 연결이 없습니다. 설치 owner가 설정 > 에이전트 연결 > 모델 연결에서 연결과 모델을 추가해야 합니다.",
+  "agent.connection.option": "{id} · {kind}",
+  "agent.connection.optionMismatch": "{connection} (이 모델을 제공하지 않음)",
+  "agent.save.reason.model_not_in_connection": "연결이 제공하지 않는 모델입니다",
+  "agent.save.reason.connection_unknown": "켜진 연결이 아닙니다",
+  "agent.save.reason.runtime_unsupported": "이 연결을 돌릴 런타임이 설치에 없습니다",
+  "agent.effective.connection": "모델 연결",
+  "agent.rollback.connection": "모델 연결: {connection}",
+  "agent.releases.field.connection": "모델 연결",
+  "agent.releases.absent.workspaceRepositories": "워크스페이스가 허용하는 저장소 전체",
+  "agent.newSession.blocked.connection": "활성 릴리스의 모델 연결이 꺼졌거나 그 모델이 연결에서 빠져 세션을 시작할 수 없습니다. 쓸 수 있는 연결과 모델로 다시 릴리스하세요.",
 };
 
 export const agentsEn: Record<keyof typeof agentsKo, string> = {
@@ -478,7 +433,6 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.all": "All",
   "agents.tabs.administered": "Agents I manage",
   "agents.cards.release": "Release",
-  "agents.cards.profile": "Profile",
   "agents.cards.notReleased": "Not released",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "Credentials",
@@ -519,13 +473,11 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.name": "Name",
   "agents.flow.job": "What it does",
   "agents.flow.next": "Next",
-  "agents.flow.jobIntro":
-    "Choose the model the agent uses, and one profile. Saving makes the first release on that profile and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
+  "agents.flow.jobIntro": "Choose the model connection and model the agent uses. Saving makes the first release on that connection and it starts working right away. Instructions for how it works go in the repository's CLAUDE.md or AGENTS.md.",
   "agents.flow.saveNext": "Save and continue",
   "agents.flow.saving": "Saving…",
   "agents.flow.releaseFailed":
     "The agent was saved, but its first release could not be made: {reason}. Saving again edits the same agent and tries again.",
-  "agents.flow.noProfile": "No profile can be used",
   "agents.flow.later": "Do this later",
   "agents.flow.done": "{name} is on. New sessions now use this agent.",
   "agents.flow.open": "Open agent",
@@ -539,23 +491,10 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.language.hint":
     "Follow the user's language answers in whatever language the person writes. A chosen language is always used, even when the person writes in another one. It applies from the next release; sessions already started keep theirs.",
   "agentCard.model": "Model",
-  "agentCard.modelHint":
-    "Only profiles that run the model you pick can be chosen below",
-  "agentCard.blockedTools": "Tools the profile blocks",
-  "agentCard.blockedNone": "This profile blocks no tools.",
-  "agentCard.blockedUnknown":
-    "This profile's runtime has no tool list, so the tools it blocks cannot be shown.",
-  "agentCard.blockedHint":
-    "The profile decides which tools an agent uses. They are not chosen per agent.",
-  "agentCard.previewProfile": "Profile",
-  "agentCard.previewProfileHint":
-    "Shows the tools this profile blocks, and a new release uses this profile. It is not saved on the card.",
-  "agentCard.noPreview":
-    "No profile runs this model, so there are no tools to show.",
-  "agent.created":
-    "Agent created as version 1. To use it in sessions, choose a profile in Settings and save. Saving makes the first release.",
+  "agentCard.modelHint": "Choose among the models the chosen connection offers",
+  "agent.created": "Agent created as version 1. To use it in sessions, choose a model connection and model in Settings and save. Saving makes the first release.",
   "agent.noActive": "None",
-  "agent.releaseLabel": "Release {release} · {profile}",
+  "agent.releaseLabel": "Release {release} · {connection}",
   "agent.versionLabel": "Version {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
@@ -594,40 +533,16 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Saved as version {version}. Not applied to new sessions: {reason}",
   "agent.save.superseded":
     "A later save was applied first, so this one did not take effect. The card is saved.",
-  "agent.save.reason.model_not_in_profile":
-    "the profile does not allow this model",
-  "agent.save.reason.tool_not_in_profile":
-    "the card uses a tool the profile does not allow",
   "agent.save.reason.credential_unbound": "a credential is not connected",
-  "agent.save.reason.release_refused":
-    "the profile or repository conditions are not met",
-  "agent.save.reason.profile_unknown": "the profile was not found",
+  "agent.save.reason.release_refused": "the connection or repository conditions are not met",
   "agent.save.reason.retries_exhausted":
     "it was tried several times and could not be applied",
-  "agent.profileFollow.pinnedTitle": "Running an older version of the profile",
-  "agent.profileFollow.pinnedText":
-    "This agent is not following new versions of its profile. Bring it to the latest to apply the new version and follow it again.",
-  "agent.profileFollow.failedTitle":
-    "The new profile version could not be applied",
-  "agent.profileFollow.failedText": "Reason: {reason}",
-  "agent.profileFollow.pendingText":
-    "The new profile version will be applied shortly. You can also bring it up now instead of waiting.",
-  "agent.profileFollow.raise": "Bring to latest",
-  "agent.profileFollow.raising": "Updating…",
-  "agent.profileFollow.retry": "Try again",
-  "agent.profileFollow.done": "The latest profile version is now applied.",
-  "agent.profileFollow.failed": "Could not bring it to the latest: {reason}",
-  "agent.save.reason.blocked": "the operator blocked this profile",
   "agent.save.reason.revision_conflict": "it overlapped with another save",
   "agent.save.reason.other": "the reason is unknown",
   "agent.effective.title": "Values for new sessions",
   "agent.effective.hint":
     "Read from the active release. Sessions already started keep the values they started with.",
   "agent.effective.none": "There is no release yet, so no values apply.",
-  "agent.effective.profile": "Profile",
-  "agent.effective.titleModel": "Title model",
-  "agent.effective.followsProfile": "Follows the profile's default model",
-  "agent.effective.chosen": "Chosen by hand",
   "agent.draft.pendingTitle": "Waiting to apply",
   "agent.draft.failedTitle": "Could not apply",
   "agent.draft.pending":
@@ -640,8 +555,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.versions.before": "Compare from",
   "agent.versions.after": "Compare to",
   "agent.releases.title": "Releases",
-  "agent.releases.auto":
-    "Releases are made automatically when the profile or the card changes.",
+  "agent.releases.auto": "Releases are made automatically when the connection or the card changes.",
   "agent.releases.colVersion": "Version",
   "agent.releases.colStatus": "Status",
   "agent.releases.colBy": "Created by",
@@ -652,8 +566,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.previous": "Previous",
   "agent.releases.never": "Never active",
   "agent.releases.byMember": "A member",
-  "agent.releases.emptyBody":
-    "Releases appear here once you save a change to the profile or the card.",
+  "agent.releases.emptyBody": "Releases appear here once you save a change to the connection or the card.",
   "agent.releases.access": "Access change",
   "agent.releases.accessNoRelease":
     "A change to repositories and GitHub settings. It makes no new release.",
@@ -664,31 +577,16 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.title": "Roll back to {release}?",
   "agent.rollback.content":
     "New sessions start with this release's model, instructions and tools.",
-  "agent.rollback.tracking":
-    "Following new versions of the profile after the rollback: {change}.",
-  "agent.rollback.tracking.keepOn": "stays on",
-  "agent.rollback.tracking.keepOff": "stays off",
-  "agent.rollback.tracking.turnedOff": "turned off",
-  "agent.rollback.tracking.turnedOn": "turned on",
-  "agent.rollback.tracking.undetermined":
-    "it is on now, and it may turn off if this release's profile runs differently from the newest version",
-  "agent.rollback.modelFixed": "Run model: changes to chosen by hand.",
-  "agent.rollback.modelMayFix":
-    "Run model: the profile list could not be read, so whether it changes to chosen by hand is unknown.",
   "agent.rollback.settingsKept":
     "Repository and GitHub settings stay as they are now.",
-  "agent.rollback.mayRefuse":
-    "A blocked profile, a profile whose content changed, or credentials that are not connected refuse the rollback and the current settings stay.",
+  "agent.rollback.mayRefuse": "A disabled connection, a model taken off it, or credentials that are not connected refuse the rollback and the current settings stay.",
   "agent.rollback.kept": "Nothing was rolled back. The current settings stay.",
   "agent.rollback.unknown":
     "Could not confirm whether it was rolled back to {release}. No answer came back and the state could not be read again. Check the active release in the list.",
   "agent.rollback.movedMeanwhile":
     "Could not confirm whether it was rolled back to {release}. No answer came back, and the active release has changed to a different one since. Check the active release in the list.",
   "agent.rolledBack": "Rolled back to {release}.",
-  "agent.rolledBack.reenable":
-    "To follow the profile again, use 'Bring to latest' in the profile section.",
-  "agent.rolledBack.unchecked":
-    "Rolled back to {release}. The settings could not be read again, so whether the agent still follows its profile is not checked.",
+  "agent.rolledBack.unchecked": "Rolled back to {release}. The settings could not be read again, so the result is not checked.",
   "agent.releases.empty": "No releases yet.",
   "agent.releases.approved": "First activated {at}",
   "agent.releases.notApproved": "Never activated",
@@ -709,16 +607,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.model": "Model",
   "agent.releases.field.tools": "Available tools",
   "agent.releases.field.toolPolicy": "Per-tool policy",
-  "agent.releases.field.profile": "Profile",
-  "agent.releases.field.profileDigest": "Profile settings",
   "agent.releases.field.pushApproval": "Push approval",
   "agent.releases.field.actionsAllow": "Allowed workflows",
   "agent.releases.field.rules": "Card rules",
   "agent.releases.field.language": "Card language",
   "agent.releases.field.card": "Other card fields",
   "agent.releases.absent.none": "None",
-  "agent.releases.absent.profileRepositories":
-    "Every repository the profile allows",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
@@ -766,8 +660,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.back": "Agents",
   "agent.panel.none": "None",
   "agent.card.releasedAt": "Released {at}",
-  "agent.overview.notActive":
-    "Not turned on yet. Choose a profile in Settings and save, and the first release is made and new sessions will use this agent.",
+  "agent.overview.notActive": "Not turned on yet. Choose a model connection and model in Settings and save, and the first release is made and new sessions will use this agent.",
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
@@ -784,12 +677,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "This agent is archived, so no session can start.",
   "agent.newSession.blocked.paused":
     "This agent is paused, so no session can start.",
-  "agent.newSession.blocked.noRelease":
-    "This agent has no active release, so no session can start. Choose a profile in Settings and save to start one.",
+  "agent.newSession.blocked.noRelease": "This agent has no active release, so no session can start. Choose a model connection and model in Settings and save to start one.",
   "agent.newSession.blocked.outsider":
     "Only the responsible team's members and the agent's admins can start a session with it.",
-  "agent.newSession.blocked.profile":
-    "The active release's profile cannot be used, so no session can start. Release it again on a usable profile.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -810,8 +700,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.credentialsUnknown": "Could not load the connections.",
   "agent.ready.release": "Release",
   "agent.ready.releaseDone": "Releases made: {count}.",
-  "agent.ready.releaseTodo":
-    "On the Card tab, pick a profile and save to make the first release.",
+  "agent.ready.releaseTodo": "On the Card tab, pick a model connection and model and save to make the first release.",
   "agent.ready.activate": "Activate",
   "agent.ready.notRunnable":
     "The agent is {status}, so new sessions do not use it.",
@@ -905,6 +794,23 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "There are no teams, so no agent can be made. Make a team on the Teams screen first.",
   "agents.flow.toTeams": "Go to Teams",
   "slack.notConnectedReadOnly": "This agent is not connected to Slack.",
+  "agents.cards.connection": "Model connection",
+  "agents.flow.noConnection": "The chosen connection does not offer this model",
+  "agentCard.connection": "Model connection",
+  "agentCard.connectionPick": "Choose a connection",
+  "agentCard.connectionGone": "{id} (disabled or gone)",
+  "agentCard.connectionHint": "Where the agent calls its model. Saving makes a new release on this connection.",
+  "agentCard.connectionNone": "No model connection is enabled. The installation owner adds connections and their models under Settings > Agent connections > Model connections.",
+  "agent.connection.option": "{id} · {kind}",
+  "agent.connection.optionMismatch": "{connection} (does not offer this model)",
+  "agent.save.reason.model_not_in_connection": "the connection does not offer this model",
+  "agent.save.reason.connection_unknown": "the connection is not enabled",
+  "agent.save.reason.runtime_unsupported": "this installation has no runtime for that connection",
+  "agent.effective.connection": "Model connection",
+  "agent.rollback.connection": "Model connection: {connection}",
+  "agent.releases.field.connection": "Model connection",
+  "agent.releases.absent.workspaceRepositories": "Every repository the workspace allows",
+  "agent.newSession.blocked.connection": "The active release's model connection was disabled or its model left the connection, so no session can start. Release it again on a usable connection and model.",
 };
 
 export const agentsJa: Record<keyof typeof agentsKo, string> = {
@@ -929,7 +835,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.all": "すべて",
   "agents.tabs.administered": "管理しているエージェント",
   "agents.cards.release": "リリース",
-  "agents.cards.profile": "プロファイル",
   "agents.cards.notReleased": "未リリース",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "認証情報",
@@ -969,13 +874,11 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.flow.name": "名前",
   "agents.flow.job": "役割",
   "agents.flow.next": "次へ",
-  "agents.flow.jobIntro":
-    "エージェントが使うモデルとプロファイル1つを選びます。保存するとそのプロファイルで最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
+  "agents.flow.jobIntro": "エージェントが使うモデル接続とモデルを選びます。保存するとその接続で最初のリリースが作成され、すぐに使えます。動作の指示は、リポジトリの CLAUDE.md や AGENTS.md に書きます。",
   "agents.flow.saveNext": "保存して次へ",
   "agents.flow.saving": "保存中…",
   "agents.flow.releaseFailed":
     "エージェントは保存しましたが、最初のリリースを作成できませんでした: {reason}。もう一度保存すると、同じエージェントを更新して再試行します。",
-  "agents.flow.noProfile": "使えるプロファイルがありません",
   "agents.flow.later": "あとで設定",
   "agents.flow.done":
     "{name}を有効にしました。新しいセッションでこのエージェントが使われます。",
@@ -990,23 +893,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.language.hint":
     "「ユーザーの言語に合わせる」は相手が書いた言語で答えます。言語を選ぶと、相手が別の言語で書いてもその言語だけで答えます。次のリリースから適用され、開始済みのセッションは変わりません。",
   "agentCard.model": "モデル",
-  "agentCard.modelHint": "選んだモデルを実行するプロファイルだけを下で選べます",
-  "agentCard.blockedTools": "プロファイルがブロックしているツール",
-  "agentCard.blockedNone":
-    "このプロファイルがブロックしているツールはありません。",
-  "agentCard.blockedUnknown":
-    "このプロファイルのランタイムにはツール一覧がないため、ブロックしているツールを表示できません。",
-  "agentCard.blockedHint":
-    "エージェントが使うツールはプロファイルが決めます。エージェントごとには選びません。",
-  "agentCard.previewProfile": "プロファイル",
-  "agentCard.previewProfileHint":
-    "このプロファイルがブロックしているツールを表示し、新しいリリースもこのプロファイルで作ります。カードには保存しません。",
-  "agentCard.noPreview":
-    "このモデルを実行するプロファイルがないため、表示できるツールがありません。",
-  "agent.created":
-    "エージェントを作成しました（バージョン 1）。セッションで使うには、「詳細設定」でプロファイルを選んで保存してください。保存すると最初のリリースが作成されます。",
+  "agentCard.modelHint": "選んだ接続が提供するモデルから選びます",
+  "agent.created": "エージェントを作成しました（バージョン 1）。セッションで使うには、「詳細設定」でモデル接続とモデルを選んで保存してください。保存すると最初のリリースが作成されます。",
   "agent.noActive": "なし",
-  "agent.releaseLabel": "リリース {release} · {profile}",
+  "agent.releaseLabel": "リリース {release} · {connection}",
   "agent.versionLabel": "バージョン {version}",
   "agent.versionShort": "v{version}",
   "agent.saved":
@@ -1045,30 +935,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "バージョン {version} として保存しました。新しいセッションには適用できませんでした: {reason}",
   "agent.save.superseded":
     "後の保存が先に適用されたため、この保存は反映されていません。カードは保存されています。",
-  "agent.save.reason.model_not_in_profile":
-    "プロファイルが許可していないモデルです",
-  "agent.save.reason.tool_not_in_profile":
-    "プロファイルが許可していないツールがあります",
   "agent.save.reason.credential_unbound": "認証情報が接続されていません",
-  "agent.save.reason.release_refused":
-    "プロファイルまたはリポジトリの条件を満たしていません",
-  "agent.save.reason.profile_unknown": "プロファイルが見つかりません",
+  "agent.save.reason.release_refused": "接続またはリポジトリの条件を満たしていません",
   "agent.save.reason.retries_exhausted":
     "何度か試しましたが適用できませんでした",
-  "agent.profileFollow.pinnedTitle": "プロファイルの古いバージョンを使用中",
-  "agent.profileFollow.pinnedText":
-    "このエージェントはプロファイルの新しいバージョンに追従していません。最新にすると新しいバージョンが適用され、再び追従します。",
-  "agent.profileFollow.failedTitle":
-    "プロファイルの新しいバージョンを適用できませんでした",
-  "agent.profileFollow.failedText": "理由: {reason}",
-  "agent.profileFollow.pendingText":
-    "プロファイルの新しいバージョンをまもなく適用します。待たずに今すぐ最新にすることもできます。",
-  "agent.profileFollow.raise": "最新にする",
-  "agent.profileFollow.raising": "更新中…",
-  "agent.profileFollow.retry": "再試行",
-  "agent.profileFollow.done": "プロファイルの最新バージョンを適用しました。",
-  "agent.profileFollow.failed": "最新にできませんでした: {reason}",
-  "agent.save.reason.blocked": "運用者がブロックしているプロファイルです",
   "agent.save.reason.revision_conflict":
     "ほかの保存と重なって適用できませんでした",
   "agent.save.reason.other": "理由は不明です",
@@ -1076,10 +946,6 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.effective.hint":
     "有効なリリースの値です。すでに開始したセッションは開始時の値のまま動きます。",
   "agent.effective.none": "まだリリースがないため、適用される値はありません。",
-  "agent.effective.profile": "プロファイル",
-  "agent.effective.titleModel": "タイトルモデル",
-  "agent.effective.followsProfile": "プロファイルの既定モデルに従う",
-  "agent.effective.chosen": "手動で選択",
   "agent.draft.pendingTitle": "適用待ち",
   "agent.draft.failedTitle": "適用失敗",
   "agent.draft.pending":
@@ -1092,8 +958,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.versions.before": "比較元",
   "agent.versions.after": "比較先",
   "agent.releases.title": "リリース",
-  "agent.releases.auto":
-    "リリースは、プロファイルやカードが変わると自動で作成されます。",
+  "agent.releases.auto": "リリースは、接続やカードが変わると自動で作成されます。",
   "agent.releases.colVersion": "バージョン",
   "agent.releases.colStatus": "状態",
   "agent.releases.colBy": "作成者",
@@ -1104,8 +969,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.previous": "以前",
   "agent.releases.never": "有効化前",
   "agent.releases.byMember": "メンバー",
-  "agent.releases.emptyBody":
-    "プロファイルやカードの変更を保存すると、リリースがここに表示されます。",
+  "agent.releases.emptyBody": "接続やカードの変更を保存すると、リリースがここに表示されます。",
   "agent.releases.access": "アクセスの変更",
   "agent.releases.accessNoRelease":
     "リポジトリと GitHub 設定の変更です。新しいリリースは作成しません。",
@@ -1116,30 +980,15 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rollback.title": "{release}に戻しますか？",
   "agent.rollback.content":
     "新しいセッションは、このリリースのモデル・指示・ツールで始まります。",
-  "agent.rollback.tracking":
-    "戻した後のプロファイル新バージョンへの追従: {change}。",
-  "agent.rollback.tracking.keepOn": "オンのまま",
-  "agent.rollback.tracking.keepOff": "オフのまま",
-  "agent.rollback.tracking.turnedOff": "オフに変わります",
-  "agent.rollback.tracking.turnedOn": "オンに変わります",
-  "agent.rollback.tracking.undetermined":
-    "現在はオンです。このリリースのプロファイルが最新版と実行方式が異なる場合は、オフになることがあります",
-  "agent.rollback.modelFixed": "実行モデル: 直接指定に変わります。",
-  "agent.rollback.modelMayFix":
-    "実行モデル: プロファイル一覧を読み込めなかったため、直接指定に変わるかは不明です。",
   "agent.rollback.settingsKept": "リポジトリと GitHub の設定は現在のままです。",
-  "agent.rollback.mayRefuse":
-    "ブロックされたプロファイル、内容が変わったプロファイル、資格情報が未接続の場合は拒否され、現在の設定が維持されます。",
+  "agent.rollback.mayRefuse": "接続が無効、モデルが接続から外れた、または資格情報が未接続の場合は拒否され、現在の設定が維持されます。",
   "agent.rollback.kept": "戻していません。現在の設定が維持されます。",
   "agent.rollback.unknown":
     "{release}に戻したか確認できませんでした。応答を受け取れず、状態も再読み込みできませんでした。一覧で有効なリリースを確認してください。",
   "agent.rollback.movedMeanwhile":
     "{release}に戻したか確認できませんでした。応答を受け取れず、その間に有効なリリースが別のものに変わりました。一覧で現在有効なリリースを確認してください。",
   "agent.rolledBack": "{release}に戻しました。",
-  "agent.rolledBack.reenable":
-    "再び追従させるには、プロファイル欄の「最新にする」を押してください。",
-  "agent.rolledBack.unchecked":
-    "{release}に戻しました。設定を読み直せなかったため、追従の状態は確認できていません。",
+  "agent.rolledBack.unchecked": "{release}に戻しました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
   "agent.releases.approved": "{at}に初回有効化",
   "agent.releases.notApproved": "未有効化",
@@ -1160,16 +1009,12 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.field.model": "モデル",
   "agent.releases.field.tools": "使えるツール",
   "agent.releases.field.toolPolicy": "ツールごとのポリシー",
-  "agent.releases.field.profile": "プロファイル",
-  "agent.releases.field.profileDigest": "プロファイルの設定",
   "agent.releases.field.pushApproval": "プッシュ承認",
   "agent.releases.field.actionsAllow": "許可したワークフロー",
   "agent.releases.field.rules": "カードのルール",
   "agent.releases.field.language": "カードの言語",
   "agent.releases.field.card": "カードのその他の項目",
   "agent.releases.absent.none": "なし",
-  "agent.releases.absent.profileRepositories":
-    "プロファイルが許可するすべてのリポジトリ",
   "agent.releases.added": "+ {item}",
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
@@ -1213,8 +1058,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.tabs.release": "リリース",
   "agent.tabs.admins": "管理者",
   "agent.tabs.toRelease": "「リリース」タブへ移動",
-  "agent.overview.notActive":
-    "まだ有効になっていません。「詳細設定」でプロファイルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
+  "agent.overview.notActive": "まだ有効になっていません。「詳細設定」でモデル接続とモデルを選んで保存すると、最初のリリースが作成され、新しいセッションでこのエージェントが使われます。",
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
@@ -1231,12 +1075,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "アーカイブ済みのエージェントのため、セッションを開始できません。",
   "agent.newSession.blocked.paused":
     "一時停止中のエージェントのため、セッションを開始できません。",
-  "agent.newSession.blocked.noRelease":
-    "有効なリリースがないため、セッションを開始できません。「詳細設定」でプロファイルを選んで保存すると開始できます。",
+  "agent.newSession.blocked.noRelease": "有効なリリースがないため、セッションを開始できません。「詳細設定」でモデル接続とモデルを選んで保存すると開始できます。",
   "agent.newSession.blocked.outsider":
     "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
-  "agent.newSession.blocked.profile":
-    "有効なリリースのプロファイルを使えないため、セッションを開始できません。使えるプロファイルでリリースし直してください。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",
@@ -1257,8 +1098,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ready.credentialsUnknown": "接続状態を読み込めませんでした。",
   "agent.ready.release": "リリース",
   "agent.ready.releaseDone": "リリースが{count}件あります。",
-  "agent.ready.releaseTodo":
-    "カードタブでプロファイルを選んで保存すると、最初のリリースが作成されます。",
+  "agent.ready.releaseTodo": "カードタブでモデル接続とモデルを選んで保存すると、最初のリリースが作成されます。",
   "agent.ready.activate": "有効化",
   "agent.ready.notRunnable":
     "エージェントが「{status}」のため、新しいセッションはこのエージェントを使いません。",
@@ -1364,4 +1204,21 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "チームがないため、エージェントを作成できません。先にチーム画面でチームを作成してください。",
   "agents.flow.toTeams": "チームへ",
   "slack.notConnectedReadOnly": "このエージェントはSlackに接続されていません。",
+  "agents.cards.connection": "モデル接続",
+  "agents.flow.noConnection": "選んだ接続はこのモデルを提供していません",
+  "agentCard.connection": "モデル接続",
+  "agentCard.connectionPick": "接続を選んでください",
+  "agentCard.connectionGone": "{id}（無効またはなくなった接続）",
+  "agentCard.connectionHint": "エージェントがモデルを呼ぶ接続です。保存するとこの接続で新しいリリースが作成されます。",
+  "agentCard.connectionNone": "有効なモデル接続がありません。インストールの owner が「設定 > エージェント接続 > モデル接続」で接続とモデルを追加する必要があります。",
+  "agent.connection.option": "{id} · {kind}",
+  "agent.connection.optionMismatch": "{connection}（このモデルを提供していません）",
+  "agent.save.reason.model_not_in_connection": "接続が提供していないモデルです",
+  "agent.save.reason.connection_unknown": "有効な接続ではありません",
+  "agent.save.reason.runtime_unsupported": "この接続を動かすランタイムがインストールにありません",
+  "agent.effective.connection": "モデル接続",
+  "agent.rollback.connection": "モデル接続: {connection}",
+  "agent.releases.field.connection": "モデル接続",
+  "agent.releases.absent.workspaceRepositories": "ワークスペースが許可するすべてのリポジトリ",
+  "agent.newSession.blocked.connection": "有効なリリースのモデル接続が無効になったか、そのモデルが接続から外れたため、セッションを開始できません。使える接続とモデルでリリースし直してください。",
 };

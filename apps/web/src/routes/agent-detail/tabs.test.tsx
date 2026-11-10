@@ -65,7 +65,7 @@ const listed = (
       mcp_servers: [],
       credential_refs: [],
     },
-    runtime_profile_id: null,
+    connection_id: null,
     release_label: null,
     release_model: null,
     bound_credential_refs: [],
@@ -1130,7 +1130,7 @@ async function released(
   await server.routes[`PATCH /v1/agents/${AGENT_ID}`](
     new Request("https://console.test/", {
       method: "PATCH",
-      body: JSON.stringify({ card, runtime_profile_id: "claude-coding-local" }),
+      body: JSON.stringify({ card, connection_id: "anthropic-main" }),
     }),
   );
 }

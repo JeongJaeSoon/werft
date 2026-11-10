@@ -9,7 +9,7 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 const meOk = { "GET /v1/auth/me": () => json(200, me()) };
 const DETAIL = `/agents/${AGENT_ID}?tab=access`;
 const RELEASE_TAB = `/agents/${AGENT_ID}?tab=release`;
-const PROFILE = "claude-coding-local";
+const CONNECTION = "anthropic-main";
 const BINDINGS = `/v1/agents/${AGENT_ID}/credential-bindings`;
 
 function serverNaming(...refs: string[]) {
@@ -201,7 +201,7 @@ async function releasedTwice(server: ReturnType<typeof agentServer>) {
     server.routes[`PATCH /v1/agents/${AGENT_ID}`](
       new Request("http://test", {
         method: "PATCH",
-        body: JSON.stringify({ card, runtime_profile_id: PROFILE }),
+        body: JSON.stringify({ card, connection_id: CONNECTION }),
       }),
     );
   const first = server.versions[0];
@@ -210,7 +210,7 @@ async function releasedTwice(server: ReturnType<typeof agentServer>) {
   await save({ ...first.card, instructions: "환불도 맡는다." });
 }
 
-const FIRST = `릴리스 2026-10-11_10:00:00 · ${PROFILE}(으)로 되돌리기`;
+const FIRST = `릴리스 2026-10-11_10:00:00 · ${CONNECTION}(으)로 되돌리기`;
 
 async function rollBackToFirst(user: Awaited<ReturnType<typeof setupUser>>) {
   await user.click(await screen.findByRole("button", { name: FIRST }));

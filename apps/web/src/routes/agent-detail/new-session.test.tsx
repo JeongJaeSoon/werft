@@ -4,7 +4,7 @@ import type { ApiClient } from "@werft-ai/client";
 import type {
   AgentDetail,
   AuthMeResponse,
-  ProfileSummary,
+  ConnectionOption,
 } from "@werft-ai/contracts";
 import {
   agentSessionListsFilter,
@@ -53,16 +53,13 @@ type Routes = Record<
   (request: Request) => Response | Promise<Response>
 >;
 
-async function released(repositoryMode: ProfileSummary["repository_mode"]) {
-  const server = agentServer({
-    repositoryMode,
-    releaseRepository: repositoryMode === "none" ? null : "sample-app",
-  });
+async function released() {
+  const server = agentServer({ releaseRepository: "sample-app" });
   const routes = server.routes as Routes;
   await routes[`PATCH ${PATH}`]?.(
     new Request(`http://test${PATH}`, {
       method: "PATCH",
-      body: JSON.stringify({ runtime_profile_id: "claude-coding-local" }),
+      body: JSON.stringify({ connection_id: "anthropic-main" }),
     }),
   );
   return server;
@@ -77,31 +74,34 @@ function withRelease(
   return { ...detail, active_release: { ...release, ...over } };
 }
 
-type ProfileChange = (items: ProfileSummary[]) => ProfileSummary[];
+type ConnectionChange = (items: ConnectionOption[]) => ConnectionOption[];
 
-function profilesRoute(server: { routes: unknown }, change: ProfileChange) {
+function connectionsRoute(
+  server: { routes: unknown },
+  change: ConnectionChange,
+) {
   return {
-    "GET /v1/profiles": async (request: Request) => {
-      const listed = await (server.routes as Routes)["GET /v1/profiles"]?.(
+    "GET /v1/connections": async (request: Request) => {
+      const listed = await (server.routes as Routes)["GET /v1/connections"]?.(
         request,
       );
-      const { items } = (await listed?.json()) as { items: ProfileSummary[] };
+      const { items } = (await listed?.json()) as {
+        items: ConnectionOption[];
+      };
       return json(200, { items: change(items) });
     },
   };
 }
 
-const local = "claude-coding-local";
-const installationState =
-  (state: string): ProfileChange =>
+const main = "anthropic-main";
+const withModels =
+  (
+    models: string[],
+    model_successors: Record<string, string> = {},
+  ): ConnectionChange =>
   (items) =>
     items.map((item) =>
-      item.id === local
-        ? ({
-            ...item,
-            installation: { ...item.installation, state },
-          } as ProfileSummary)
-        : item,
+      item.id === main ? { ...item, models, model_successors } : item,
     );
 
 async function button() {
@@ -131,7 +131,7 @@ async function expectBlocked(reason: string) {
 
 describe("이 에이전트로 새 세션", () => {
   test("버튼에서 대화상자를 열어 보내면 활성 릴리스로 세션을 만들고 세션 화면으로 간다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const { api, history } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
@@ -157,7 +157,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("공백뿐인 메시지는 보내지 않고 이유를 보인다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const { api } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
@@ -173,7 +173,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("서버가 거절하면 대화상자에 이유를 보이고 입력을 남긴다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const { history } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
@@ -191,8 +191,8 @@ describe("이 에이전트로 새 세션", () => {
     expect(history.location.pathname).toBe(DETAIL);
   });
 
-  test("저장소를 요구하는 프로필을 서버가 거절하면 화면이 미리 막지 않았어도 대화상자에 이유를 보인다", async () => {
-    const server = await released("required");
+  test("저장소가 필요하다고 서버가 거절하면 화면이 미리 막지 않았어도 대화상자에 이유를 보인다", async () => {
+    const server = await released();
     const detail = withRelease(server.detail(), { repository_id: null });
     renderAt(DETAIL, {
       ...meAs(me()),
@@ -202,19 +202,19 @@ describe("이 에이전트로 새 세션", () => {
         apiError(
           409,
           "UNSUPPORTED_CAPABILITY",
-          "Profile claude-coding-local needs a repository: send repository_id",
+          "Release needs a repository: send repository_id",
         ),
     });
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
     await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain(
-      "프로필",
+      "연결",
     );
   });
 
   test("대화상자를 닫았다 열어도 쓰던 메시지가 남는다", async () => {
-    const server = await released("optional");
+    const server = await released();
     renderAt(DETAIL, { ...meAs(me()), ...server.routes });
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
@@ -232,7 +232,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("응답을 못 받으면 같은 키와 같은 본문으로 다시 보내고, 거절 뒤에는 새 키로 보낸다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const answers = [
       () => {
         throw new TypeError("connection lost");
@@ -286,7 +286,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("응답을 못 받은 뒤 메시지를 고치면 새 키로 고친 본문을 보낸다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const answers = [
       () => {
         throw new TypeError("connection lost");
@@ -325,7 +325,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("보낸 뒤 답이 오기 전에는 Esc로도 취소로도 닫히지 않고, 답이 오면 이동한다", async () => {
-    const server = await released("optional");
+    const server = await released();
     let answer: (response: Response) => void = () => undefined;
     const { history } = renderAt(DETAIL, {
       ...meAs(me()),
@@ -349,7 +349,7 @@ describe("이 에이전트로 새 세션", () => {
   });
 
   test("세션을 만들면 세션 목록과 답변 대기, 에이전트의 세션 목록을 새로 읽게 한다", async () => {
-    const server = await released("optional");
+    const server = await released();
     const { history, services } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
@@ -384,7 +384,7 @@ describe("이 에이전트로 새 세션", () => {
     test("릴리스가 없다", async () => {
       renderAt(DETAIL, { ...meAs(me()), ...agentServer().routes });
       await expectBlocked(
-        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 프로필을 골라 저장하면 시작할 수 있습니다.",
+        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 상세 설정에서 모델 연결과 모델을 골라 저장하면 시작할 수 있습니다.",
       );
     });
 
@@ -393,7 +393,7 @@ describe("이 에이전트로 새 세션", () => {
       ["paused", "일시정지된 에이전트라 세션을 시작할 수 없습니다."],
     ] as const) {
       test(`에이전트가 ${status}다`, async () => {
-        const server = await released("optional");
+        const server = await released();
         const detail = server.detail();
         renderAt(DETAIL, {
           ...meAs(me()),
@@ -406,7 +406,7 @@ describe("이 에이전트로 새 세션", () => {
     }
 
     test("sessions:write가 없다", async () => {
-      const server = await released("optional");
+      const server = await released();
       renderAt(DETAIL, {
         ...meAs(me(["sessions:read"], "member")),
         ...server.routes,
@@ -414,38 +414,38 @@ describe("이 에이전트로 새 세션", () => {
       await expectBlocked("sessions:write 권한이 있어야 할 수 있습니다.");
     });
 
-    const profileReason =
-      "활성 릴리스의 프로필을 쓸 수 없어 세션을 시작할 수 없습니다. 쓸 수 있는 프로필로 다시 릴리스하세요.";
+    const connectionReason =
+      "활성 릴리스의 모델 연결이 꺼졌거나 그 모델이 연결에서 빠져 세션을 시작할 수 없습니다. 쓸 수 있는 연결과 모델로 다시 릴리스하세요.";
 
-    test("프로필이 카탈로그에 없다", async () => {
-      const server = await released("optional");
+    test("연결이 목록에 없다", async () => {
+      const server = await released();
       renderAt(DETAIL, {
         ...meAs(me()),
         ...server.routes,
-        ...profilesRoute(server, (items) =>
-          items.filter((item) => item.id !== local),
+        ...connectionsRoute(server, (items) =>
+          items.filter((item) => item.id !== main),
         ),
       });
-      await expectBlocked(profileReason);
+      await expectBlocked(connectionReason);
     });
 
-    test("프로필이 막혔다", async () => {
-      const server = await released("optional");
+    test("모델이 연결에서 빠졌고 옮겨 갈 모델이 없다", async () => {
+      const server = await released();
       renderAt(
         DETAIL,
         {
           ...meAs(me()),
           ...server.routes,
-          ...profilesRoute(server, installationState("blocked")),
+          ...connectionsRoute(server, withModels(["claude-haiku-5"])),
         },
         "ko",
         "warn",
       );
-      await expectBlocked(profileReason);
+      await expectBlocked(connectionReason);
     });
 
-    test("릴리스에 저장소가 없으면 프로필이 저장소를 요구해도 막지 않는다", async () => {
-      const server = await released("required");
+    test("릴리스에 저장소가 없어도 화면은 막지 않는다", async () => {
+      const server = await released();
       const detail = withRelease(server.detail(), { repository_id: null });
       renderAt(DETAIL, {
         ...meAs(me()),
@@ -459,8 +459,8 @@ describe("이 에이전트로 새 세션", () => {
 
     // A session starts without a repository, or on its release's when the
     // agent has no settings row; only the server knows which, so it decides.
-    test("릴리스의 저장소가 프로필 허용 목록이나 GitHub 설정 밖이어도 화면은 막지 않는다", async () => {
-      const server = await released("optional");
+    test("릴리스의 저장소가 GitHub 설정 밖이어도 화면은 막지 않는다", async () => {
+      const server = await released();
       const detail = withRelease(server.detail(), {
         policy_pins: { github: { repositories: ["other"] } },
       } as never);
@@ -470,11 +470,6 @@ describe("이 에이전트로 새 세션", () => {
           ...meAs(me()),
           ...server.routes,
           [`GET ${PATH}`]: () => json(200, detail),
-          ...profilesRoute(server, (items) =>
-            items.map((item) =>
-              item.id === local ? { ...item, repository_ids: ["other"] } : item,
-            ),
-          ),
         },
         "ko",
         "warn",
@@ -486,51 +481,37 @@ describe("이 에이전트로 새 세션", () => {
     });
   });
 
-  for (const [name, change] of [
-    ["retired", installationState("retired")],
-    [
-      "base_retired",
-      (items: ProfileSummary[]) =>
-        items.map((item) =>
-          item.id === local
-            ? ({
-                ...item,
-                source: "workspace",
-                workspace: { state: "base_retired" },
-              } as ProfileSummary)
-            : item,
+  test("모델이 연결에서 빠졌어도 옮겨 갈 모델이 있으면 서버처럼 시작을 허용한다", async () => {
+    const server = await released();
+    renderAt(
+      DETAIL,
+      {
+        ...meAs(me()),
+        ...server.routes,
+        ...connectionsRoute(
+          server,
+          withModels(["claude-haiku-5"], { "claude-sonnet-5": "claude-haiku-5" }),
         ),
-    ],
-  ] as const) {
-    test(`릴리스가 고정한 프로필이 ${name}여도 서버처럼 시작을 허용한다`, async () => {
-      const server = await released("optional");
-      renderAt(
-        DETAIL,
-        {
-          ...meAs(me()),
-          ...server.routes,
-          ...profilesRoute(server, change),
-        },
-        "ko",
-        "warn",
-      );
-      await openDialog();
-    });
-  }
+      },
+      "ko",
+      "warn",
+    );
+    await openDialog();
+  });
 
-  test("프로필을 읽지 못하면 끄지 않고 서버의 판단에 맡긴다", async () => {
-    const server = await released("optional");
+  test("연결 목록을 읽지 못하면 끄지 않고 서버의 판단에 맡긴다", async () => {
+    const server = await released();
     renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
-      "GET /v1/profiles": () => apiError(500, "INTERNAL_ERROR", "boom"),
+      "GET /v1/connections": () => apiError(500, "INTERNAL_ERROR", "boom"),
     });
     await openDialog();
   });
 
   describe("설정을 읽지 못하는 바깥 멤버", () => {
     const outsider = async (access: "use" | "view") => {
-      const server = await released("optional");
+      const server = await released();
       const who = memberMe();
       const workspace = who.workspace as NonNullable<typeof who.workspace>;
       return {

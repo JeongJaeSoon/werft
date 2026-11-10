@@ -50,20 +50,20 @@ describe("steps validate trimmed values", () => {
     ).toEqual(["slug", "name"]);
   });
 
-  test("the release step needs a profile and sends it and the repository trimmed", () => {
+  test("the release step needs a connection and sends it and the repository trimmed", () => {
     expect(
       agentReleaseStep.safeParse({
-        runtime_profile_id: "  ",
+        connection_id: "  ",
         repository_id: "",
       }).success,
     ).toBe(false);
     expect(
       agentReleaseStep.parse({
-        runtime_profile_id: " claude-coding-local ",
+        connection_id: " anthropic-main ",
         repository_id: " sample-app ",
       }),
     ).toEqual({
-      runtime_profile_id: "claude-coding-local",
+      connection_id: "anthropic-main",
       repository_id: "sample-app",
     });
   });

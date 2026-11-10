@@ -54,7 +54,7 @@ What a credential holds:
 
 1. Issue an agent key for the agent with \`sessions:write\` and \`sessions:read\`: in the console's API keys screen, or \`POST /v1/api-keys\` with \`kind: "agent"\` and its \`agent_id\`. An owner, an admin or that agent's admin may.
 2. \`GET /v1/agents\` with that key answers its agent alone. Its \`active_release_id\` is the release to start on; null until the agent is activated.
-3. \`POST /v1/sessions\` with an \`Idempotency-Key\` and \`{"agent_release_id": "<active_release_id>", "message": "..."}\`. The release supplies the profile and the repository.
+3. \`POST /v1/sessions\` with an \`Idempotency-Key\` and \`{"agent_release_id": "<active_release_id>", "message": "..."}\`. The release supplies the connection, the model and the repository.
 4. \`GET /v1/sessions/{id}\` follows it.
 
 A personal key with \`sessions:write\` may start sessions on any agent's release too, but lists no agents: read \`active_release_id\` from \`GET /v1/agents\` signed in to the console as an owner or an admin.
@@ -231,16 +231,12 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "`If-Match` names another version than the current one, the variable does not exist, or `If-None-Match: *` met one that does. Read it again and retry.",
   PRECONDITION_REQUIRED:
     "The write sent neither `If-Match` nor `If-None-Match: *`.",
-  RELEASE_PROFILE_MISMATCH:
-    "The release was made for another runtime profile than the one named.",
   CREDENTIAL_UNBOUND:
     "The release names a credential its agent has no live binding for; an agent admin must bind it first.",
   AGENT_NOT_RUNNABLE:
     "A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active.",
-  PROFILE_DIGEST_MISMATCH:
-    "The runtime profile's settings changed since the release was made; release the agent again.",
-  PROFILE_BLOCKED:
-    "The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.",
+  RELEASE_SPEC_UNAVAILABLE:
+    "The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.",
   LOGIN_LINK_REQUIRED:
     "The verified address already has an account. It is never joined by email: sign in with the existing account and link the external login there.",
   PUSH_SOURCE_MISSING:
@@ -252,7 +248,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   CHECKPOINT_MOVED:
     "The commit or checkpoint named no longer matches what the push request pinned.",
   CATALOG_MISMATCH:
-    "The catalog no longer allows what the request depends on: the session's (profile, repository) pair, or the repository entry a push request pinned.",
+    "The catalog no longer allows what the request depends on: the session's connection, model or repository, or the repository entry a push request pinned.",
   PUSH_NOT_PUSHED:
     "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
   PULL_REQUEST_MISSING:
@@ -273,8 +269,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "GitHub has suspended the App installation the request named; an owner of that account resumes it on GitHub.",
   PENDING_REQUESTS_OPEN:
     "A request the parked turn waits on is neither answered nor expired yet.",
-  PERMISSION_WAIT_ABOVE_PROFILE:
-    "A requested wait is longer than the profile allows.",
+  PERMISSION_WAIT_ABOVE_LIMIT:
+    "A requested wait is longer than the installation allows.",
   TEAM_MANAGES_AGENTS:
     "The team is still the managing team of live agents, named in `error.details.agent_ids`; give each another managing team first.",
   CONFIG_TOKEN_INVALID:
