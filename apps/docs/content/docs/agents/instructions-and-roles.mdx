@@ -82,7 +82,7 @@ worker가 모델의 시스템 프롬프트에 덧붙이는 지시는 이 순서�
 플랫폼은 이 밖의 문단을 모델에 덧붙이지 않는다. 역할이나 행동을 정하는 문장은 플랫폼이 쓰지 않고, 사실만 전한다. 예전 빌드가 붙이던 플랫폼 문단은 없어졌다. 그 문단으로 만든 체크포인트의 지문은 worker가 계속 알아보므로, 이미 있던 세션도 그대로 재개된다.
 
 <Callout type="warn">
-카드의 `role`·`instructions`·`rules`와 에이전트 이름·설명은 모델에 전달되지 않는다. 모델이 알아야 하는 것은 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다. 카드의 `language`는 `ko`·`en`·`ja`일 때만 Claude Agent SDK의 언어 설정(`settings.language`)으로 전달되고, 시스템 프롬프트에는 들어가지 않는다. `follow-user`는 아무것도 전달하지 않는다.
+카드의 `role`·`instructions`·`rules`와 에이전트 이름·설명은 모델에 전달되지 않는다. 모델이 알아야 하는 것은 저장소의 `AGENTS.md`나 `CLAUDE.md`에 적는다. 카드의 `language`는 `ko`·`en`·`ja`일 때만 Claude Agent SDK의 언어 설정(`settings.language`)으로 전달되고, 시스템 프롬프트에는 들어가지 않는다. `follow-user`는 아무것도 전달하지 않는다. Codex 엔진은 아직 이 값을 쓰지 않는다.
 </Callout>
 
 ## 고치기와 version
