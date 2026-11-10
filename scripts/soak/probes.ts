@@ -48,16 +48,23 @@ export class Api {
     private readonly base: string,
     private readonly key: string,
     private readonly timeoutMs = 30_000,
+    // Answers go under another key: the one that started the session is
+    // refused (`self_approval`).
+    private readonly approveKey: string = key,
   ) {}
 
   async call(method: string, path: string, body?: unknown): Promise<Timed> {
     const sentAt = Date.now();
     const started = performance.now();
+    const key =
+      method === "POST" && path.endsWith("/answers")
+        ? this.approveKey
+        : this.key;
     try {
       const response = await fetch(`${this.base}${path}`, {
         method,
         headers: {
-          authorization: `Bearer ${this.key}`,
+          authorization: `Bearer ${key}`,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
           ...(method === "GET"
             ? {}

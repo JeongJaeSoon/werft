@@ -82,11 +82,12 @@ up() {
   echo "== fixture" >&2
   # Every session runs an agent release: the first owner releases the gate's
   # agent on gate-messages and holds the key the soak uses.
-  local key release vars
+  local key approve release vars
   vars="$(D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)" bun scripts/d2-gate/release.ts)"
   key="$(printf '%s\n' "$vars" | sed -n 's/^D2_GATE_API_KEY=//p')"
+  approve="$(printf '%s\n' "$vars" | sed -n 's/^D2_GATE_APPROVE_KEY=//p')"
   release="$(printf '%s\n' "$vars" | sed -n 's/^D2_GATE_RELEASE_ID=//p')"
-  [ -n "$key" ] && [ -n "$release" ] || { echo "the soak agent was not released" >&2; return 1; }
+  [ -n "$key" ] && [ -n "$approve" ] && [ -n "$release" ] || { echo "the soak agent was not released" >&2; return 1; }
 
   # The reconciler runs as the product runs it, on its own loop.
   dc up -d --wait scheduler reconciler >>"$state/up.log" 2>&1
@@ -101,6 +102,7 @@ up() {
     echo "export SOAK_SCHEDULER_INTERVAL_SEC='${SOAK_SCHEDULER_INTERVAL_SEC:-5}'"
     echo "export SOAK_API_URL='http://127.0.0.1:$(port api 3000)'"
     echo "export SOAK_API_KEY='${key}'"
+    echo "export SOAK_APPROVE_KEY='${approve}'"
     echo "export D2_GATE_RELEASE_ID='${release}'"
     echo "export SOAK_DATABASE_URL='postgres://postgres:dev@127.0.0.1:$(port postgres 5432)/sessions'"
     echo "export SOAK_S3_URL='http://127.0.0.1:$(port localstack 4566)'"

@@ -317,7 +317,7 @@ async function collectMeta(): Promise<void> {
 describe.skipIf(env === null)("D2 gate", () => {
   beforeAll(async () => {
     if (!env) return;
-    api = new PublicApi(env.apiUrl, env.apiKey, env.releaseId);
+    api = new PublicApi(env.apiUrl, env.apiKey, env.releaseId, env.approveKey);
     db = database(env.databaseUrl);
     bucket = new Bucket(env.s3Url);
     chaos = new Chaos(env.chaosUrl);

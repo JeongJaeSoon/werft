@@ -93,7 +93,7 @@ finish() {
   local status=$?
   local pid
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
-  rm -f "$auth"
+  rm -f "$auth" "$auth.approve"
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
     echo "== k8s-replicas: state after the failure" >&2
     k get deploy,pods -o wide >&2 || true
@@ -177,8 +177,12 @@ forward "${api_pods[1]}" "$PORT_B"
 kind_release_key "http://127.0.0.1:${PORT_A}" "$auth" || fail "the checks' agent was not released"
 get() { curl -sS --fail-with-body "http://127.0.0.1:$1$2" -H @"$auth"; }
 # post <port> <path> <body> [idempotency key]
+# An answer goes under the owner's second key: the one that started the
+# session is refused (`self_approval`).
 post() {
-  curl -sS --fail-with-body "http://127.0.0.1:$1$2" -H @"$auth" -H 'Content-Type: application/json' \
+  local header="$auth"
+  case "$2" in */answers) header="${auth}.approve" ;; esac
+  curl -sS --fail-with-body "http://127.0.0.1:$1$2" -H @"$header" -H 'Content-Type: application/json' \
     -H "Idempotency-Key: ${4:-$(openssl rand -hex 16)}" -d "$3"
 }
 # Which replica a port reaches, from its own log: asked of the Pod itself.

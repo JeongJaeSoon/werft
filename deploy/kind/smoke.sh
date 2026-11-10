@@ -107,7 +107,7 @@ auth="$STATE_DIR/smoke-auth-header"
 finish() {
   local status=$?
   [ -z "$forward" ] || kill "$forward" 2>/dev/null || true
-  rm -f "$auth"
+  rm -f "$auth" "$auth.approve"
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
     echo "== k8s-smoke: state after the failure" >&2
     k get deploy,pods,pvc,networkpolicy -o wide >&2 || true

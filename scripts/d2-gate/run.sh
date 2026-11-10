@@ -94,8 +94,9 @@ echo "== fixture" >&2
 # agent on the gate-messages connection and holds the key the gate uses.
 release_vars="$(D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)" bun scripts/d2-gate/release.ts)"
 api_key="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_API_KEY=//p')"
+approve_key="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_APPROVE_KEY=//p')"
 release_id="$(printf '%s\n' "$release_vars" | sed -n 's/^D2_GATE_RELEASE_ID=//p')"
-[ -n "$api_key" ] && [ -n "$release_id" ] || { echo "the gate's agent was not released" >&2; exit 1; }
+[ -n "$api_key" ] && [ -n "$approve_key" ] && [ -n "$release_id" ] || { echo "the gate's agent was not released" >&2; exit 1; }
 
 # The reconciler runs as the product runs it, on its own loop.
 dc up -d --wait scheduler reconciler >>"$out/up.log" 2>&1
@@ -107,6 +108,7 @@ export D2_GATE_PROJECT="$project"
 export D2_GATE_COMMAND="scripts/d2-gate/run.sh"
 export D2_GATE_API_URL="http://127.0.0.1:$(port api 3000)"
 export D2_GATE_API_KEY="$api_key"
+export D2_GATE_APPROVE_KEY="$approve_key"
 export D2_GATE_RELEASE_ID="$release_id"
 export D2_GATE_DATABASE_URL="postgres://postgres:dev@127.0.0.1:$(port postgres 5432)/sessions"
 export D2_GATE_S3_URL="http://127.0.0.1:$(port localstack 4566)"

@@ -9,6 +9,11 @@ import { createHash } from "node:crypto";
 
 export type E2eEnv = {
   apiKey: string;
+  /**
+   * Another key of the same owner, for answering requests: a workspace key
+   * never answers a session it started itself (`self_approval`).
+   */
+  approveKey?: string;
   apiUrl: string;
   messagesUrl: string;
   /** The agent release every session of the suite runs; see e2eStack. */
@@ -213,7 +218,16 @@ export async function e2eStack({
       "sessions:recover",
     ],
   });
-  return { ...env, apiKey: key.secret, releaseId };
+  const approver = await web<{ secret: string }>(201, "POST", "/v1/api-keys", {
+    kind: "personal",
+    scopes: ["sessions:read", "sessions:approve"],
+  });
+  return {
+    ...env,
+    apiKey: key.secret,
+    approveKey: approver.secret,
+    releaseId,
+  };
 }
 
 export type Step = {
@@ -319,8 +333,14 @@ export class Api {
       ? crypto.randomUUID()
       : null,
   ): Promise<ApiResponse<T>> {
+    // An answer goes under the other key: the one that started the session
+    // is refused (`self_approval`).
+    const key =
+      method === "POST" && /\/answers$/.test(path)
+        ? (this.env.approveKey ?? this.env.apiKey)
+        : this.env.apiKey;
     const headers: Record<string, string> = {
-      authorization: `Bearer ${this.env.apiKey}`,
+      authorization: `Bearer ${key}`,
     };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (idempotencyKey !== null) headers["idempotency-key"] = idempotencyKey;

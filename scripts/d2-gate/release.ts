@@ -25,3 +25,6 @@ const stack = await e2eStack({
 });
 console.log(`D2_GATE_RELEASE_ID=${stack.releaseId}`);
 console.log(`D2_GATE_API_KEY=${stack.apiKey}`);
+// The owner's second key answers requests: a key never answers a session it
+// started (`self_approval`).
+console.log(`D2_GATE_APPROVE_KEY=${stack.approveKey}`);

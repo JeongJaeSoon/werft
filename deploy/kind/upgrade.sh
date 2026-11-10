@@ -85,7 +85,7 @@ work="$STATE_DIR/upgrade-work"
 finish() {
   local status=$?
   [ -z "$forward_pid" ] || kill "$forward_pid" 2>/dev/null || true
-  rm -f "$auth"
+  rm -f "$auth" "$auth.approve"
   if [ "$status" != 0 ] && [ -f "$KUBECONFIG" ]; then
     echo "== k8s-upgrade: state after the failure" >&2
     helm history "$RELEASE" --namespace "$NAMESPACE" >&2 || true
@@ -146,8 +146,12 @@ open_api() {
   fail "the api never answered /readyz through the Service"
 }
 get() { curl -sS --fail-with-body "http://127.0.0.1:${API_PORT}$1" -H @"$auth"; }
+# An answer goes under the owner's second key: the one that started the
+# session is refused (`self_approval`).
 post() {
-  curl -sS --fail-with-body "http://127.0.0.1:${API_PORT}$1" -H @"$auth" -H 'Content-Type: application/json' \
+  local header="$auth"
+  case "$1" in */answers) header="${auth}.approve" ;; esac
+  curl -sS --fail-with-body "http://127.0.0.1:${API_PORT}$1" -H @"$header" -H 'Content-Type: application/json' \
     -H "Idempotency-Key: $(openssl rand -hex 16)" -d "$2"
 }
 open_api

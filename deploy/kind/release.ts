@@ -3,7 +3,9 @@
  * release-key.sh): the first owner (bootstrapped with the cluster's
  * BOOTSTRAP_TOKEN) releases an agent on the installation's connection and
  * the sample repository, and issues a personal key, since every session
- * runs an agent release and only a workspace key names one. Made once per
+ * runs an agent release and only a workspace key names one, plus a second
+ * key of the same owner that answers requests (a key never answers a session
+ * it started: `self_approval`). Made once per
  * cluster: a later run finds the agent and reuses its active release.
  * Prints shell assignments.
  *
@@ -23,3 +25,4 @@ process.env.E2E_BOOTSTRAP_TOKEN = bootstrapToken;
 const stack = await e2eStack({ needsMessages: false });
 console.log(`KIND_RELEASE_ID=${stack.releaseId}`);
 console.log(`KIND_API_KEY=${stack.apiKey}`);
+console.log(`KIND_APPROVE_KEY=${stack.approveKey}`);
