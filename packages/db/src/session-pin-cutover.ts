@@ -48,6 +48,30 @@ export async function pinWriterGuard(
   return { authoritative: row?.authoritative ?? false };
 }
 
+/**
+ * True when the pin is authoritative and the session, brought back to a live
+ * status, would break the rule migration 0259 enforces: a release, a pin, and
+ * a pin on the session's own model. A caller that reactivates a stopped
+ * session asks first, so it can refuse in its own words instead of failing on
+ * the trigger.
+ */
+export async function pinRefusesLive(
+  tx: Database,
+  session: {
+    agentReleaseId: string | null;
+    runtimeSpec: Record<string, unknown> | null;
+    model: string | null;
+  },
+): Promise<boolean> {
+  const { authoritative } = await pinWriterGuard(tx);
+  if (!authoritative) return false;
+  return (
+    session.agentReleaseId === null ||
+    session.runtimeSpec === null ||
+    (session.runtimeSpec.model ?? null) !== session.model
+  );
+}
+
 export type PinCutover =
   | { flipped: true; gate: PinGate }
   | { flipped: false; reason: "already_authoritative" }

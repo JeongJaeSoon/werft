@@ -15,6 +15,10 @@ import { sessionPinFromRelease } from "./session-spec-pin.ts";
 
 const PAGE = 200;
 const ENDED = ["failed", "stopped"] as const;
+// A stopped session is brought back by a resume, and the flip refuses a live
+// session without a pin, so the reconciliation pins it though the gate does
+// not count it. A failed one has no way back.
+const NOT_RECONCILED = ["failed"] as const;
 
 export type PinReconciliation = {
   /** Pins written: missing, on another model than the session, or broken. */
@@ -69,7 +73,7 @@ export async function reconcileSessionPins(
       .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
       .where(
         and(
-          notInArray(sessions.status, [...ENDED]),
+          notInArray(sessions.status, [...NOT_RECONCILED]),
           after === null ? undefined : gt(sessions.id, after),
         ),
       )

@@ -18,7 +18,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { agentReleases, sessions } from "./schema.ts";
+import { agentReleases, sessionPinCutover, sessions } from "./schema.ts";
+import { flipPinCutover } from "./session-pin-cutover.ts";
 import { reconcileSessionPins, sessionPinGate } from "./session-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -60,9 +61,11 @@ integration("session pin reconciliation on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  // The gate counts every live session, so each test starts with none.
+  // The gate counts every live session, so each test starts with none. A
+  // failed row is out of both the gate and the reconciliation; a stopped one
+  // is only out of the gate.
   beforeEach(async () => {
-    await db.update(sessions).set({ status: "stopped" });
+    await db.update(sessions).set({ status: "failed" });
   });
 
   async function release(withSpec: boolean) {
@@ -339,6 +342,50 @@ integration("session pin reconciliation on PostgreSQL", () => {
       const next = await sessionPinGate(db);
       expect(next.missing).toBe(1);
       expect(next.modelUnknown).toBe(0);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "a stopped session is pinned too, because a resume brings it back and the flip refuses a live session without a pin; a failed one is left alone",
+    async () => {
+      const rel = await release(true);
+      const stopped = await start(rel);
+      await unpin(stopped);
+      await db
+        .update(sessions)
+        .set({ status: "stopped" })
+        .where(eq(sessions.id, stopped));
+      const failed = await start(rel);
+      await unpin(failed);
+      await db
+        .update(sessions)
+        .set({ status: "failed" })
+        .where(eq(sessions.id, failed));
+
+      const report = await reconcileSessionPins(db);
+
+      expect(report.repaired).toBe(1);
+      expect(verifyReleaseSpec(rel, snake(await rowOf(stopped))).ok).toBe(true);
+      expect((await rowOf(failed)).specSource).toBeNull();
+      // The gate still reads live sessions only, so a stopped one never
+      // holds the flip back.
+      expect((await sessionPinGate(db)).open).toBe(true);
+      // Brought back after the flip, the pinned session is let through.
+      expect((await flipPinCutover(db)).flipped).toBe(true);
+      try {
+        await db
+          .update(sessions)
+          .set({ status: "queued" })
+          .where(eq(sessions.id, stopped));
+        expect((await rowOf(stopped)).status).toBe("queued");
+      } finally {
+        // The flip is for good in production; the other tests here need the
+        // old rules back.
+        await db
+          .update(sessionPinCutover)
+          .set({ authoritative: false, flippedAt: null });
+      }
     },
     TIMEOUT_MS,
   );

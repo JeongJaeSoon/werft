@@ -949,6 +949,7 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
       ],
       [{ outcome: "turn_not_unknown", turnStatus: null }, 404, "NOT_FOUND"],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "pin_required" }, 422, "UNSUPPORTED_CAPABILITY"],
       [{ outcome: "checkpoint_not_covering" }, 409, "CHECKPOINT_UNAVAILABLE"],
       [
         { outcome: "not_in_recovery", admissionState: "active" },
@@ -1142,6 +1143,7 @@ describe("POST /v1/sessions/{id}/resume validation", () => {
         "SESSION_RESUMING",
       ],
       [{ outcome: "unsupported" }, 422, "UNSUPPORTED_CAPABILITY"],
+      [{ outcome: "pin_required" }, 422, "UNSUPPORTED_CAPABILITY"],
       [{ outcome: "workspace_reclaiming" }, 503, "BACKEND_UNAVAILABLE"],
       [{ outcome: "not_found" }, 404, "NOT_FOUND"],
       [

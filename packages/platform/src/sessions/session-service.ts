@@ -1501,6 +1501,11 @@ export function createSessionService(deps: {
             "The stopped session's workspace is being reclaimed; retry the same request shortly",
             { afterSeconds: 10 },
           );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no agent release with a pinned runtime spec, so it cannot run again; create a new session",
+          );
         case "execution_revoked":
           throw executionRevoked();
         case "not_restore_failed":
@@ -1570,6 +1575,11 @@ export function createSessionService(deps: {
             // A claim settles within the pass that took it unless the daemon
             // did not answer; then the next pass settles it.
             { afterSeconds: 10 },
+          );
+        case "pin_required":
+          throw new SessionServiceError(
+            "UNSUPPORTED_CAPABILITY",
+            "This session has no agent release with a pinned runtime spec, so it cannot run again; create a new session",
           );
         case "execution_revoked":
           throw executionRevoked();
