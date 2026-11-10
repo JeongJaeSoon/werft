@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What one app image ships, against THIRD_PARTY_NOTICES.md
-# `image-licenses.sh <control-host|worker|egress-proxy> <image ref>`.
+# `image-licenses.sh <control-host|worker|worker-codex|egress-proxy> <image ref>`.
 #
 # The notices are computed from bun.lock; this is where that model meets a
 # built image. Every npm package under /app must be listed for this app, the

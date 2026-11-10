@@ -31,11 +31,14 @@ const FIXTURES = {
   "fake-model": "tests/fixtures/settings/fake-model.json",
   "local-model": "tests/fixtures/settings/local-model.json",
   "fake-model-unattended": "tests/fixtures/settings/fake-model-unattended.json",
+  "fake-model-codex": "tests/fixtures/settings/fake-model-codex.json",
   "d2-gate": "scripts/d2-gate/settings.json",
 } as const;
 type Fixture = keyof typeof FIXTURES;
+// The Codex example holds one Codex ceiling and none of the Claude profiles
+// the example tests below read by name.
 const EXAMPLES = Object.keys(FIXTURES).filter(
-  (name) => name !== "d2-gate",
+  (name) => name !== "d2-gate" && name !== "fake-model-codex",
 ) as Fixture[];
 
 async function fixture(name: Fixture) {
@@ -337,9 +340,9 @@ describe("installed runtimes", () => {
   });
 
   test("a profile of a kind the image does not ship is refused by name", () => {
-    const seed = seedWith(profile("other", "default", "codex_app_server"));
+    const seed = seedWith(profile("other", "default", "pi_coding_agent"));
     expect(() => installedRuntimes.assertProfiles(seed.profiles ?? {})).toThrow(
-      "Catalog profile(s) refused: other: Runtime codex_app_server is not installed (installed: claude_agent_sdk)",
+      "Catalog profile(s) refused: other: Runtime pi_coding_agent is not installed (installed: claude_agent_sdk, codex_app_server)",
     );
   });
 });

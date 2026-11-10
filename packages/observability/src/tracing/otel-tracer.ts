@@ -23,6 +23,7 @@ import {
 
 import { sanitizeText } from "../redaction.ts";
 import type { TracingSettings } from "./config.ts";
+import type { IngestSpan } from "./ingest-span.ts";
 import {
   currentSpanContext,
   runWithSpanContext,
@@ -188,28 +189,123 @@ function buildWithoutSdkHeaderEnv<T>(build: () => T): T {
   }
 }
 
+function createCollectorExporter(
+  config: Pick<OtelTracerConfig, "endpoint" | "headers" | "tenantHeaders">,
+): WorkspaceBatchExporter {
+  return new WorkspaceBatchExporter(
+    (headers) =>
+      buildWithoutSdkHeaderEnv(
+        () =>
+          new OTLPTraceExporter({
+            ...(config.endpoint === undefined ? {} : { url: config.endpoint }),
+            headers: { ...headers },
+          }),
+      ),
+    config.headers,
+    config.tenantHeaders,
+  );
+}
+
+function hrTime(unixNano: string): [number, number] {
+  const n = BigInt(unixNano);
+  return [Number(n / 1_000_000_000n), Number(n % 1_000_000_000n)];
+}
+
+function readableSpanOf(span: IngestSpan): ReadableSpan {
+  const spanContext = {
+    traceId: span.traceId,
+    spanId: span.spanId,
+    traceFlags: TraceFlags.SAMPLED,
+  };
+  const start = hrTime(span.startUnixNano);
+  const end = hrTime(span.endUnixNano);
+  return {
+    name: span.name,
+    // OTLP numbers kinds from 1 (internal); the API's enum starts at 0.
+    kind: Math.max(0, span.kind - 1) as SpanKind,
+    spanContext: () => spanContext,
+    ...(span.parentSpanId === undefined
+      ? {}
+      : {
+          parentSpanContext: {
+            traceId: span.traceId,
+            spanId: span.parentSpanId,
+            traceFlags: TraceFlags.SAMPLED,
+          },
+        }),
+    startTime: start,
+    endTime: end,
+    status: {
+      code: span.status.code as SpanStatusCode,
+      ...(span.status.message === undefined
+        ? {}
+        : { message: span.status.message }),
+    },
+    attributes: { ...span.attributes },
+    links: span.links.map((link) => ({
+      context: {
+        traceId: link.traceId,
+        spanId: link.spanId,
+        traceFlags: TraceFlags.SAMPLED,
+      },
+      attributes: { ...link.attributes },
+    })),
+    events: span.events.map((event) => ({
+      name: event.name,
+      attributes: { ...event.attributes },
+      time: hrTime(event.timeUnixNano),
+    })),
+    duration: [
+      Math.max(0, end[0] - start[0] - (end[1] < start[1] ? 1 : 0)),
+      (end[1] - start[1] + 1_000_000_000) % 1_000_000_000,
+    ],
+    ended: true,
+    resource: resourceFromAttributes({ ...span.resource }),
+    instrumentationScope: {
+      name: span.scope.name,
+      ...(span.scope.version === undefined
+        ? {}
+        : { version: span.scope.version }),
+    },
+    droppedAttributesCount: 0,
+    droppedEventsCount: 0,
+    droppedLinksCount: 0,
+  };
+}
+
+export interface OtelSpanSink {
+  send(spans: readonly IngestSpan[]): Promise<void>;
+  shutdown(): Promise<void>;
+}
+
+/**
+ * Forwards spans the ingest listener already checked and rewrote, as OTLP to
+ * the operator's collector, one batch per workspace with that workspace's
+ * tenant headers. Rejects when the collector does not accept the batch.
+ */
+export function createOtelSpanSink(
+  config: Pick<TracingSettings, "endpoint" | "headers" | "tenantHeaders">,
+): OtelSpanSink {
+  const exporter = createCollectorExporter(config);
+  return {
+    send: (spans) =>
+      new Promise<void>((resolve, reject) => {
+        exporter.export(spans.map(readableSpanOf), (result) => {
+          if (result.code === 0) resolve();
+          else reject(result.error ?? new Error("collector export failed"));
+        });
+      }),
+    shutdown: () => exporter.shutdown(),
+  };
+}
+
 export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
   // Without a URL the SDK would quietly post to localhost:4318.
   if (config.exporter === undefined && config.endpoint === undefined) {
     throw new Error("createOtelTracer needs an endpoint or an exporter");
   }
   const idGenerator = new ForcedTraceIdGenerator();
-  const exporter =
-    config.exporter ??
-    new WorkspaceBatchExporter(
-      (headers) =>
-        buildWithoutSdkHeaderEnv(
-          () =>
-            new OTLPTraceExporter({
-              ...(config.endpoint === undefined
-                ? {}
-                : { url: config.endpoint }),
-              headers: { ...headers },
-            }),
-        ),
-      config.headers,
-      config.tenantHeaders,
-    );
+  const exporter = config.exporter ?? createCollectorExporter(config);
   const provider = new TracerProvider({
     resource: resourceFromAttributes({
       "service.name": config.serviceName,

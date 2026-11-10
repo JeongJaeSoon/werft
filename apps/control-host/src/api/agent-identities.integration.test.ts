@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { authorizeSlackInput } from "@werft-ai/chat-slack";
 import {
   apiErrorResponseSchema,
   bootstrapResponseSchema,
@@ -34,7 +35,6 @@ import { fixtureTeam } from "@werft-ai/db/testing/fixture-team";
 import {
   type AuthorizationPolicy,
   agentForSlackEvent,
-  authorizeSlackInput,
   createAgentIdentityService,
   createAuthorizationPolicy,
   createSlackBotApi,
