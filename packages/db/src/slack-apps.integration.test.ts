@@ -100,7 +100,11 @@ integration("Slack apps and the config token on PostgreSQL", () => {
     return { userId, principal, audit };
   }
 
-  async function agent(workspaceId: string, released = true) {
+  async function agent(
+    workspaceId: string,
+    released = true,
+    role = "Writes the release notes",
+  ) {
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
@@ -116,7 +120,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       agentId,
       versionNo: 1,
       card: {
-        role: "Writes the release notes",
+        role,
         instructions: "i",
         model: "m",
         capabilities: { tools: [], mcp: null, forbidden: [] },
@@ -692,20 +696,7 @@ integration("Slack apps and the config token on PostgreSQL", () => {
 
     test("an agent whose card role is empty is described by its own description", async () => {
       const workspaceId = await workspace();
-      const agentId = await agent(workspaceId);
-      const versions = await db
-        .select({ id: agentVersions.id })
-        .from(agentVersions)
-        .where(eq(agentVersions.agentId, agentId));
-      const card = {
-        instructions: "i",
-        model: "m",
-        capabilities: { tools: [], mcp: null, forbidden: [] },
-      };
-      await db
-        .update(agentVersions)
-        .set({ card: { ...card, role: "" } })
-        .where(eq(agentVersions.id, versions[0]?.id ?? ""));
+      const agentId = await agent(workspaceId, true, "");
       const manifestRole = async () =>
         (await store().manifestAgent(workspaceId, agentId))?.role;
       expect(await manifestRole()).toBe("");
