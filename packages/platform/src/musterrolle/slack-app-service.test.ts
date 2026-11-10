@@ -728,7 +728,9 @@ describe("Slack app service", () => {
     slack.api.deleteApp = async () => {
       throw new SlackApiError("apps.manifest.delete", "no_permission", true);
     };
+    let exports = 0;
     slack.api.exportApp = async () => {
+      exports += 1;
       throw new SlackApiError("apps.manifest.export", "app_not_found", true);
     };
     const deleted = await service.deleteApp(
@@ -737,6 +739,29 @@ describe("Slack app service", () => {
       made.slack_app.id,
     );
     expect(deleted.slack_app.state).toBe("deleted");
+    expect(exports).toBe(1);
+  });
+
+  test("delete stays refused on no_permission when another user's token holds the workspace", async () => {
+    const { service, slack, tokenStore } = await setup();
+    const made = await service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    slack.state.userId = "U0SECOND";
+    const meta = tokenStore.meta.get(WORKSPACE);
+    if (meta) meta.accessExpiresAt = new Date(0);
+    let exports = 0;
+    slack.api.deleteApp = async () => {
+      throw new SlackApiError("apps.manifest.delete", "no_permission", true);
+    };
+    slack.api.exportApp = async () => {
+      exports += 1;
+      throw new SlackApiError("apps.manifest.export", "app_not_found", true);
+    };
+    await refusal(
+      service.deleteApp(user("owner"), WORKSPACE, made.slack_app.id),
+    );
+    expect(exports).toBe(0);
   });
 
   test("delete stays refused on no_permission while the app still exists in Slack", async () => {
