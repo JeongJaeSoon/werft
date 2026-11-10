@@ -173,7 +173,33 @@ async function apply(
     return 1;
   }
   try {
-    await deps.catalog.workspace_profiles?.refresh(0);
+    // What the data reads as now, against what the report approved: an agent
+    // that needs an entry the report did not list (it was skipped then, or it
+    // is new) is named and nothing is written. A new report is the way on,
+    // not a rule nobody reviewed.
+    const approved = new Map(
+      plan.agents.map((entry) => [entry.agent_id, entry.decision]),
+    );
+    const outOfReport = (await planNow(deps)).agents
+      .filter(
+        (entry) =>
+          entry.decision !== "skip" &&
+          approved.get(entry.agent_id) !== entry.decision,
+      )
+      .map((entry) => ({
+        agent_id: entry.agent_id,
+        now: entry.decision,
+        reason: entry.reason,
+        in_report: approved.get(entry.agent_id) ?? null,
+      }));
+    if (outOfReport.length > 0) {
+      say({
+        ...refusedSummary("the data changed since the report: make a new one"),
+        out_of_report: outOfReport,
+        out_of_report_count: outOfReport.length,
+      });
+      return 1;
+    }
     const resolve = resolverOf(deps.catalog);
     const written: string[] = [];
     const skippedExisting: string[] = [];

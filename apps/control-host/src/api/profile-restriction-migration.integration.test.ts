@@ -326,6 +326,46 @@ integration("the profile restriction migration on PostgreSQL", () => {
     });
   });
 
+  test("an agent that needs an entry but is not in the report stops the apply with nothing written", async () => {
+    await withDatabase(async (context) => {
+      const { db, run } = context;
+      const workspaceId = await workspaceOf(db);
+      const first = await agentWithRelease(
+        db,
+        workspaceId,
+        ALL_TOOLS.slice(0, 2),
+      );
+      await setEngineSettingsGate(db, true);
+      const { out } = await plan(context);
+      const text = await readFile(out, "utf8");
+      // Made after the report was read.
+      const later = await agentWithRelease(
+        db,
+        workspaceId,
+        ALL_TOOLS.slice(0, 2),
+      );
+      const applied = await run([
+        "--apply",
+        "--report",
+        out,
+        "--report-sha256",
+        sha256Of(text),
+      ]);
+      expect(applied.code).toBe(1);
+      expect(applied.out.refused).toContain("make a new one");
+      expect(applied.out.out_of_report).toEqual([
+        {
+          agent_id: later.agentId,
+          now: "write",
+          reason: null,
+          in_report: null,
+        },
+      ]);
+      expect(await rowOf(db, first.agentId)).toBeUndefined();
+      expect(await rowOf(db, later.agentId)).toBeUndefined();
+    });
+  });
+
   test("an apply of a report with a blocked agent names it and does not succeed", async () => {
     await withDatabase(async (context) => {
       const { db, run } = context;
