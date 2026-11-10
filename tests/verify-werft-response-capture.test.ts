@@ -944,3 +944,13 @@ describe("createCollector: body size bound", () => {
     );
   });
 });
+
+describe("maskBody: a parsed body keeps fields after a secret word in prose", () => {
+  test("a message naming a token does not hide the next field", () => {
+    const out = maskBody(
+      '{"error":{"code":"UNAUTHORIZED","message":"Bootstrap token is invalid","retryable":false}}',
+    );
+    expect(out).toContain('"retryable":false');
+    expect(maskBody('{"message":"token=SENTINEL"}')).not.toContain("SENTINEL");
+  });
+});

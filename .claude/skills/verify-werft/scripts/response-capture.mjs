@@ -124,12 +124,16 @@ function valueEnd(s, i) {
 // once per position, so the scan stays linear in the text.
 // A body that did not parse also has `code` hidden: without the parse there
 // is no telling error.code from an OAuth code.
+// A body that parsed has its keys masked already; there the scan looks only
+// for secrets written inside string values, and a separator more than 256
+// characters away or past structure (`,;{}[]`) is not taken, so prose such
+// as "token is invalid" does not hide the next field.
 const SECRET_AT = new RegExp(`${SECRET_WORDS}|\\bsid\\b`, "gi");
 const SECRET_OR_CODE_AT = new RegExp(
   `${SECRET_WORDS}|\\bsid\\b|\\bcode\\b`,
   "gi",
 );
-function hideEmbedded(text, pattern) {
+function hideEmbedded(text, pattern, near) {
   let out = "";
   let last = 0;
   let sep = -1; // the first ":" or "=" at or after the last search start
@@ -142,6 +146,8 @@ function hideEmbedded(text, pattern) {
       sep = next.exec(text)?.index ?? text.length;
     }
     if (sep >= text.length) break;
+    if (near && (sep - from > 256 || /[,;{}[\]]/.test(text.slice(from, sep))))
+      continue;
     const start =
       sep + 1 + /^\s*/.exec(text.slice(sep + 1, sep + 257))[0].length;
     out += `${text.slice(last, start)}"(hidden)"`;
@@ -212,7 +218,7 @@ export function maskBody(text) {
   if (withheld(out))
     return `(markup with secret-like names withheld, ${out.length} chars)`;
   return (
-    hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT)
+    hideEmbedded(out, parsed ? SECRET_AT : SECRET_OR_CODE_AT, parsed)
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 (hidden)")
       .replace(
         /\b((?:set-)?cookie|authorization)\s*[:=]\s*(?:"[^"]*"|"[^"\r\n]*|[^\r\n"])+/gi,
