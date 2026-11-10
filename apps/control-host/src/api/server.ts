@@ -303,7 +303,10 @@ import {
 import { signInWithSlackOff } from "./slack-link.ts";
 import { startSpecReconciliation } from "./spec-reconciliation.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
-import { warnCollectorOnEgressAllowlist } from "./tracing-startup.ts";
+import {
+  startTelemetryIngest,
+  warnCollectorOnEgressAllowlist,
+} from "./tracing-startup.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -1479,6 +1482,16 @@ const server = Bun.serve({
 // With PORT=0 the OS picks the port; this line is the only place it shows.
 logger.info("API listening", { port: server.port });
 
+// Workers send spans here and never to the collector. Off with tracing, so a
+// default installation opens no extra port.
+const ingestListener =
+  tracingSettings === undefined || otelTracer === undefined
+    ? undefined
+    : await startTelemetryIngest(tracingSettings, db, logger);
+if (ingestListener !== undefined) {
+  logger.info("Telemetry ingest listening", { port: ingestListener.port });
+}
+
 // Pools close last: requests still draining hold their clients until then.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
@@ -1486,9 +1499,11 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       signal,
       // The authorizer drains with the API: a proxy exchange mid-regrant
       // gets its answer, and one refused after the stop rides its grace.
-      authorizerListener === undefined
-        ? [server]
-        : [server, authorizerListener],
+      [
+        server,
+        ...(authorizerListener === undefined ? [] : [authorizerListener]),
+        ...(ingestListener === undefined ? [] : [ingestListener]),
+      ],
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "push-intent-runner", close: () => pushIntentRunner.stop() },
@@ -1501,6 +1516,12 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
+        // Spans already accepted get a bounded time to reach the collector.
+        ...(ingestListener === undefined
+          ? []
+          : [
+              { name: "telemetry-ingest", close: () => ingestListener.close() },
+            ]),
         // Flushes the spans of the requests that just drained.
         ...(otelTracer === undefined
           ? []
