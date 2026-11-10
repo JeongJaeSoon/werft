@@ -14,6 +14,8 @@
 | 목표 | `platform/src`를 **도메인 디렉터리**로 나눈다(`github/`, `slack/`, `session/`…). 각 도메인이 자기 `ports/`·`service/`·`policy/`·`tools/`를 갖는다. `db/src`도 같은 도메인 이름으로 나눈다. 바깥 서비스 어댑터는 `packages/adapters/<kind>/<provider>` |
 | 내장 도구 | 메타데이터(이름·입력·출력·행동 부류·기능·거절 코드)는 contracts의 **도구 정의 한 건**, 실행은 platform의 **handler 한 건**. 둘의 이름 집합은 컴파일 시점에 맞물린다. 도구 추가 = 정의 1 + handler 1 |
 | 안전망 | 바깥 import는 패키지 index만 쓰므로(`platform` 소비자는 `@werft-ai/platform` 하나, [3절](#3-옮겨도-바깥이-안-깨지는-이유)) 패키지 안의 이동은 바깥 PR과 충돌하지 않는다. 의존 규칙은 `tests/architecture.test.ts`에 현재 위반을 기준선으로 박아 넣고 줄이기만 한다 |
+| surface | 사람에게 보여 주고 답을 받는 채널은 지금 웹과 Slack뿐이다. GitHub 표시 렌더는 답이 돌아오는 길이 없어 action 쪽에 남기고(LATER), 알림 채널도 계약이 없어 LATER다([10절](#10-surface-후보-점검)) |
+| 다이어그램 | 계층·surface 흐름·도구 레지스트리를 Mermaid로 문서 안에 둔다. 규칙 정본은 `tests/architecture.test.ts`다([11절](#11-아키텍처-다이어그램)) |
 | 순서 | 규칙·기준선 → platform 도메인 하나씩(GitHub 먼저) → db → control-host 라우트. 프로필 제거 3a·4 계열이 만지는 파일은 그 계열이 끝난 뒤에 옮긴다 |
 
 ## 1. 현황 지도
@@ -275,3 +277,137 @@ S5만 동작 불변을 시험으로 증명한다: 이동 전 `github-mcp-server.
 - A4(contracts에 실행 코드 금지)의 현재 위반 수는 S1에서 센다. 많으면 규칙을 목록으로 시작한다.
 - `tools/`(공통 레지스트리)와 `action-broker/`를 한 디렉터리로 합칠지는 S5에서 정한다.
 - Slack API 호출 코드의 위치는 S6 카드가 읽고 정한다(이 문서는 `control-host/src/slack/main.ts` 근방까지만 확인했다).
+
+## 10. surface 후보 점검
+
+오너 질문(2026-11-10): "slack 이나 web 말고 github 나 등등 지금 설계범위내에서 추가로 surface 에 넣어둘만할게 잇을까?"
+
+**정의.** surface는 agent 이벤트를 사람에게 보여 주고 사람의 답을 **단일 결정 서비스**로 돌려보내는 채널이다. agent가 바깥에 효과를 내는 action broker와 구분한다. 코드의 surface 종류는 `web`, `slack`, `api` 셋이다(`packages/contracts/src/kollegium/surfaces.ts:17`). 단일 결정 서비스는 `createPendingRequestService`(`packages/platform/src/sessions/pending-service.ts:27`)이고, 웹과 API는 `registerPendingRoutes`(`apps/control-host/src/api/server.ts:1354`), Slack은 `createSlackInteractionService`가 `pending: pendingRequests`로 받아 같은 서비스에 닿는다(`server.ts:1266-1272`).
+
+판정 기준은 둘이다: 지금 코드에 사람에게 보여 줄 문구·모양을 만드는 곳이 있는가, 사람의 답이 돌아오는가. 둘 다 있으면 IN, 둘 중 하나가 없고 생길 이유가 보이면 LATER, 그 밖은 OUT이다.
+
+| 후보 | 보여 주는 문구·모양을 만드는 곳 | 답이 돌아오는 길 | 판정 |
+|---|---|---|---|
+| 웹 콘솔 | `presentTurnEvent`(`contracts/src/api/present-turn-event.ts:315`)를 `react/src/blocks/session-timeline.tsx:226`이 부른다. 이 함수의 비테스트 호출자는 이것 하나다 | `registerPendingRoutes` → 결정 서비스 | **IN** (이미 있음) |
+| Slack | 카드 `slackPromptMessage`(`platform/src/musterrolle/slack-prompts.ts:538`), 요약 `summarizeToolRequest`(`slack-prompt-summary.ts:170`), 답 본문은 `slack-outbox.ts:161`이 따로 만든다(주석: `presentTurnEvent`의 잘린 요약과 달리 통째로 읽는다) | 상호작용 `slack-interactions.ts:159` → 결정 서비스 | **IN** (이미 있음). 웹과 문구 모델을 공유하지 않는다 |
+| 공개 API·SSE | 문구를 만들지 않는다. SSE 프레임은 봉투 JSON 그대로 낸다(`control-host/src/api/openapi.ts:3408`). `presentTurnEvent`를 쓰는 서버 코드가 없다 | 같은 결정 서비스. `api`는 surface 종류로만 있다(`surfaces.ts:17`) | **OUT**. 원본 이벤트가 계약이고 문구는 클라이언트(`packages/client`, `sdk`)의 몫이다 |
+| GitHub 표시 렌더 | PR 본문 `renderPullRequestBody`(`platform/src/sessions/pull-request-body.ts:249`), 표지 코멘트 `forge.upsertComment`(`pull-request-service.ts:1422`, 표지 `:143`). 둘 다 PR을 만드는 action의 출력이다 | **없다.** `GitHubApi`에 코멘트·리뷰를 읽는 메서드가 없다(쓰기는 `submitReview`, `upsertComment`뿐, `ports/github-gate.ts`). App 매니페스트는 webhook을 끈다(`openapi.ts:1954`), check run 호출도 코드에 없다 | **LATER**. 트리거: PR 리뷰 코멘트나 webhook을 세션 입력으로 받기로 결정할 때. 그 전까지 push·PR 생성과 본문 렌더는 action broker(`change-request/`)에 남긴다 |
+| CLI 출력 | 운영 스크립트가 `console.log`로 쓴다(`control-host/src/api/keys.ts:254,281`, `grants.ts:128`, `settings.ts:331`). 세션 이벤트가 아니다 | 없음 | **OUT**. 운영 도구 출력이지 agent 이벤트 채널이 아니다 |
+| 알림(이메일·Telegram 등) | 계약 없음. `contracts`·`platform`에서 이메일은 계정 식별(`musterrolle/workspaces.ts:24`)로만 나오고 알림 전송 코드는 없다. Slack 안내문(`slack-notices.ts`)은 Slack surface의 일부다 | 없음 | **LATER**. 트리거: 웹·Slack 밖으로 결정 요청을 보내 달라는 요구가 생길 때. 그때 결정 서비스로 돌아오는 서명된 링크 같은 답 경로부터 설계한다 |
+| 감사·receipt 화면 | `packages/react/src/components/receipt/receipt-summary.tsx`, `receipt-link.tsx`, 웹 `agent-detail/github-activity.ts` | 없음(읽기 전용) | **OUT**. 기록을 보여 줄 뿐 답을 받지 않으므로 surface가 아니라 읽기 모델이다 |
+
+결론.
+
+- 지금 IN은 웹과 Slack 둘뿐이다. **GitHub를 surface로 올릴 근거는 아직 없다.** 보여 주는 쪽(PR 본문·코멘트)은 있지만 답이 돌아오는 길이 없어 "채널"이 아니라 action의 출력이다.
+- 이 설계의 구조에 주는 영향: Slack 렌더·카드·상호작용은 `slack/`(S3)로, 웹 문구 모델(`present*`)은 contracts에 그대로, GitHub 표시 렌더는 `change-request/`(S4)에 남는다. surface 전용 디렉터리를 새로 만들지 않는다. 두 번째 surface가 문구 모델을 공유해야 할 때(예: Slack이 `presentTurnEvent`를 쓰기로 할 때) 그 이동을 별도 설계로 다룬다.
+- LATER 둘은 트리거가 오기 전에 코드를 만들지 않는다.
+
+## 11. 아키텍처 다이어그램
+
+형식은 Mermaid 코드 블록이다. GitHub가 문서에서 바로 그린다. 오너가 말한 기존 배포 문서의 Mermaid 관례는 저장소에서 찾지 못했다(`git grep -i mermaid` 결과 0건). 그래서 관례를 따르지 않고 처음 쓴다. `docs/contributing/decisions/`는 사이트 페이지가 아니라 저장소 문서이므로(`tests/docs-site-links.test.ts`의 `ALLOWED`) 사이트 렌더러 지원은 필요 없다.
+
+**규칙 정본은 `tests/architecture.test.ts`이다.** 아래 그림은 그 시험(`:808`, `:1026`, `:1057`, `:1078`, `:1110`, `:1226`)과 각 `package.json`의 `@werft-ai/*` 의존을 옮긴 것이고, 둘이 어긋나면 시험이 맞다. 그림만 바꾸는 PR은 없다.
+
+### (a) 계층과 의존 방향
+
+실선은 허용된 의존이고 점선 X는 금지다. 화살표는 "import한다"이다.
+
+```mermaid
+flowchart TD
+  subgraph apps
+    web["apps/web"]
+    ctl["apps/control-host"]
+    wrk["apps/worker"]
+    egress["apps/egress-proxy"]
+  end
+  subgraph ui["web 쪽 공유"]
+    react["react / ui / core / client"]
+  end
+  subgraph adapters["packages/adapters"]
+    exec["execution/{local-docker,kubernetes}"]
+    rt["runtimes/{claude,registry,...}"]
+  end
+  platform["platform"]
+  db["db"]
+  storage["storage"]
+  rcore["runtime-core"]
+  contracts["contracts"]
+
+  web --> react --> contracts
+  ctl --> platform
+  ctl --> db
+  ctl --> exec
+  ctl --> storage
+  wrk --> rcore
+  wrk --> rt
+  wrk --> storage
+  db --> platform
+  storage --> platform
+  exec --> platform
+  rt --> rcore
+  platform --> contracts
+  platform --> rcore
+  rcore --> contracts
+  ctl --> contracts
+
+  contracts -. "X contracts는 platform·db를 import하지 않는다 (A1)" .-> platform
+  platform -. "X platform은 db·드라이버·ORM·SDK를 import하지 않는다" .-> db
+  wrk -. "X worker는 platform을 import하지 않는다" .-> platform
+  ctl -. "X 앱은 다른 앱을 import하지 않는다" .-> wrk
+  rt -. "X Claude 어댑터는 platform·db·storage에 닿지 않는다" .-> platform
+```
+
+그림에서 줄인 것: `testkit`(devDependency만), `system`·`observability`(의존이 없는 바닥 패키지), `egress-proxy`의 내부.
+
+### (b) surface 흐름
+
+```mermaid
+flowchart LR
+  ev["agent 이벤트<br/>(worker → worker-gateway)"] --> store["세션 이벤트 저장"]
+  store --> sse["SSE·API 봉투 (원본)"]
+  sse --> present["presentTurnEvent<br/>(contracts)"]
+  present --> webui["웹 콘솔 타임라인<br/>(IN)"]
+  store --> slackr["Slack 카드·답 렌더<br/>(platform/slack, IN)"]
+  webui -- "사람의 답" --> routes["pending 라우트"]
+  slackr -- "사람의 답" --> inter["slack-interactions"]
+  routes --> decide["결정 서비스<br/>pending-service"]
+  inter --> decide
+  decide --> sess["세션으로 돌려보냄"]
+
+  gh["GitHub PR 본문·코멘트 렌더<br/>(LATER, 답 경로 없음)"]:::later
+  note["알림 채널<br/>(LATER, 계약 없음)"]:::later
+  store -.-> gh
+  store -.-> note
+
+  classDef later stroke-dasharray: 4 3
+```
+
+### (c) 내장 도구 레지스트리 (목표, S5 이후)
+
+```mermaid
+flowchart LR
+  subgraph contracts
+    defs["도구 정의 한 건<br/>이름·입력·출력·행동 부류·기능·거절 코드"]
+  end
+  subgraph platform
+    disp["tools/dispatch<br/>정의 조회·인수 검증·응답 봉투"]
+    hand["tools/ handler 표<br/>(정의 이름과 satisfies로 맞물림)"]
+    svc["서비스·gate<br/>인가·자격 발급·receipt"]
+    port["ports/ (GitHubApi 등)"]
+  end
+  subgraph apps
+    mcp["control-host MCP 처리기<br/>(egress proxy /mcp/github)"]
+    impl["GitHubApi 구현<br/>control-host/api/forge-github.ts"]
+  end
+  gh["GitHub"]
+
+  mcp --> disp
+  disp -- "읽는다" --> defs
+  disp --> hand
+  hand --> svc
+  svc --> port
+  impl -. "구현한다" .-> port
+  impl --> gh
+```
+
+(c)에서 receipt와 자격 발급은 dispatch가 아니라 서비스·gate에 있다([4.2절](#42-내장-도구-레지스트리)). 도구를 하나 더하면 정의 한 건과 handler 한 건만 늘고 나머지 상자는 그대로다.
