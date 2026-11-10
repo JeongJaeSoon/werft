@@ -15,10 +15,10 @@ unverified="$2"
 staged="$3"
 tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
-test "$(ls "$arches"/*.json | wc -l)" -eq 6
+test "$(ls "$arches"/*.json | wc -l)" -eq 8
 
 mkdir -p "$staged"
-for app in control-host worker egress-proxy; do
+for app in control-host worker worker-codex egress-proxy; do
   amd64="${arches}/${app}-amd64.json"
   arm64="${arches}/${app}-arm64.json"
   list="${unverified}/${app}.json"

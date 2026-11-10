@@ -39,12 +39,25 @@ export async function lockedAdministers(
   agentId: string,
   userId: string,
 ): Promise<boolean> {
+  return (await lockedAdminBasis(tx, workspaceId, agentId, userId)) !== null;
+}
+
+/**
+ * `lockedAdministers`, saying on what: `teamId` null for an admin row of
+ * their own, else the lent team or the managing team they hold it through.
+ */
+export async function lockedAdminBasis(
+  tx: Database,
+  workspaceId: string,
+  agentId: string,
+  userId: string,
+): Promise<{ teamId: string | null } | null> {
   const [agent] = await tx
     .select({ managingTeamId: agents.managingTeamId })
     .from(agents)
     .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId)))
     .for("no key update");
-  if (!agent) return false;
+  if (!agent) return null;
   const direct = await tx
     .select({ agentId: agentAdmins.agentId })
     .from(agentAdmins)
@@ -57,7 +70,7 @@ export async function lockedAdministers(
     )
     .limit(1)
     .for("share");
-  if (direct.length > 0) return true;
+  if (direct.length > 0) return { teamId: null };
   const viaTeam = () =>
     tx
       .select({ teamId: agentAdminTeams.teamId })
@@ -91,9 +104,14 @@ export async function lockedAdministers(
     const held = await viaTeam()
       .limit(1)
       .for("share", { of: [memberTeams, agentAdminTeams, memberTeamMembers] });
-    if (held.length > 0) return true;
+    const via = held[0];
+    if (via) return { teamId: via.teamId };
   }
-  return lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, ["lead"]);
+  return (await lockedTeamRow(tx, workspaceId, agent.managingTeamId, userId, [
+    "lead",
+  ]))
+    ? { teamId: agent.managingTeamId }
+    : null;
 }
 
 /**

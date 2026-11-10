@@ -37,10 +37,10 @@ import {
 } from "../../testing/repository-attachment-fakes.ts";
 import type { PushActor } from "../change-request/push-request-service.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
+import type { GitHubMcpServices } from "../tools/handler.ts";
+import { sessionBoundAuthorization } from "../tools/session-bound.ts";
 import {
   createGitHubMcpServer,
-  type GitHubMcpServices,
-  sessionBoundAuthorization,
   signGitHubMcpGrant,
   verifyGitHubMcpGrant,
 } from "./github-mcp-server.ts";

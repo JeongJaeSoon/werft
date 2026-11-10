@@ -8,6 +8,13 @@ import {
 } from "bun:test";
 import { randomBytes } from "node:crypto";
 import {
+  createSlackAppService,
+  createSlackConfigApi,
+  createSlackConfigTokens,
+  createSlackLinkAppService,
+  createSlackSecretService,
+} from "@werft-ai/chat-slack";
+import {
   apiErrorResponseSchema,
   bootstrapResponseSchema,
   CSRF_HEADER_NAME,
@@ -37,11 +44,6 @@ import {
   callerFor,
   createAuthorizationPolicy,
   createLinkedAccountService,
-  createSlackAppService,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  createSlackLinkAppService,
-  createSlackSecretService,
   MANAGEMENT_ROLES,
   SecretKey,
 } from "@werft-ai/platform";

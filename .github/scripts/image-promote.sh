@@ -30,7 +30,7 @@ case "$ref" in
     ;;
 esac
 
-test "$(ls "$staged"/*.json | wc -l)" -eq 3
+test "$(ls "$staged"/*.json | wc -l)" -eq 4
 
 lookup_err="$(mktemp)"
 trap 'rm -f "$lookup_err"' EXIT

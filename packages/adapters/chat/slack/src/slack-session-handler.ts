@@ -22,18 +22,19 @@ import {
   type Caller,
   type SessionService,
   SessionServiceError,
-  SlackApiError,
-  type SlackBotApi,
-  SlackInboundDropped,
-  type SlackInboundHandler,
-  type SlackInboxLogger,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import {
   authorizeSlackInput,
   type SlackInput,
   slackCallerOf,
 } from "./slack-decision.ts";
+import {
+  SlackInboundDropped,
+  type SlackInboundHandler,
+  type SlackInboxLogger,
+} from "./slack-inbox.ts";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 import { judgeThreadReply } from "./slack-thread-shadow.ts";
 

@@ -290,10 +290,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: &publish-matrix
-        # The Codex worker image is built, scanned and recorded by `build` on
-        # every run; publishing and releasing it is not wired yet (94S-663
-        # leaves it as a follow-up), so these jobs list the three they ship.
-        app: [control-host, worker, egress-proxy]
+        # The same four images `build` makes; worker-codex is apps/worker built
+        # with WORKER_RUNTIME=codex_app_server and ships as its own image.
+        app: [control-host, worker, worker-codex, egress-proxy]
         arch: [amd64, arm64]
     steps: &publish-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -347,6 +346,7 @@ jobs:
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
             APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
+            ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
@@ -702,8 +702,8 @@ jobs:
           bash scripts/test-ops.sh manifest release-manifest.json infra/test-ops.env.example | jq -e '.images.control_host'
           if bash scripts/test-ops.sh upgrade release-manifest.json; then echo "upgrade must be refused in a bundle" >&2; exit 1; fi
 
-  # The GitHub Release of a tag, with one manifest file: the three image
-  # digests, the worker runtime and the chart version. It comes last because
+  # The GitHub Release of a tag, with one manifest file: the four image
+  # digests, both worker runtimes and the chart version. It comes last because
   # the chart is final only once chart-publish has read it back, and it alone
   # holds contents: write. The release is a draft until the manifest is read
   # back; a rerun of the same tag passes on the same content and fails on other

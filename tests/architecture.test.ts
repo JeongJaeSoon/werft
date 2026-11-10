@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { GITHUB_MCP_TOOL_ARGUMENTS } from "@werft-ai/contracts";
 import * as ts from "typescript";
 import {
   type Baseline,
@@ -1089,6 +1090,75 @@ export async function contractsBehaviour(repo: string): Promise<Counts> {
         found.push(`${name} handler`);
   }
   return tally(found);
+}
+
+const TOOL_HANDLERS_FILE =
+  "packages/platform/src/action/tools/github-handlers.ts";
+
+/**
+ * A5: every tool the contracts define has one line in the handler table and
+ * the table has no other line; the table is typed `ToolHandlers`, so the
+ * compiler holds the same pairing; and no per-tool branch lives outside the
+ * table (a tool's name as a string in the server or the shared dispatch).
+ */
+export async function toolHandlerGaps(
+  repo: string,
+  tools: readonly string[],
+): Promise<string[]> {
+  const found: string[] = [];
+  const handlers = await parse(join(repo, TOOL_HANDLERS_FILE));
+  let table: ts.ObjectLiteralExpression | null = null;
+  walk(handlers, (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "GITHUB_TOOL_HANDLERS" &&
+      node.initializer !== undefined
+    ) {
+      const typed =
+        node.type !== undefined &&
+        ts.isTypeReferenceNode(node.type) &&
+        node.type.typeName.getText() === "ToolHandlers";
+      if (!typed) found.push("GITHUB_TOOL_HANDLERS is not typed ToolHandlers");
+      if (ts.isObjectLiteralExpression(node.initializer))
+        table = node.initializer;
+    }
+  });
+  if (table === null) return ["GITHUB_TOOL_HANDLERS is not an object literal"];
+  const lines: string[] = [];
+  for (const member of (table as ts.ObjectLiteralExpression).properties) {
+    const name = member.name;
+    if (
+      name !== undefined &&
+      (ts.isIdentifier(name) || ts.isStringLiteral(name))
+    )
+      lines.push(name.text);
+    else found.push("GITHUB_TOOL_HANDLERS has a line that names no tool");
+  }
+  for (const tool of tools)
+    if (!lines.includes(tool)) found.push(`no handler for ${tool}`);
+  for (const name of lines)
+    if (!tools.includes(name)) found.push(`handler for no tool: ${name}`);
+  for (const name of lines)
+    if (lines.indexOf(name) !== lines.lastIndexOf(name))
+      found.push(`two handlers for ${name}`);
+  const outside = [
+    ...(
+      await productSourcesIn(join(repo, "packages/platform/src/action/tools"))
+    ).map((file) => slashed(relative(repo, file))),
+    "packages/platform/src/action/github/github-mcp-server.ts",
+  ].filter((file) => file !== TOOL_HANDLERS_FILE);
+  for (const file of outside) {
+    walk(await parse(join(repo, file)), (node) => {
+      if (
+        (ts.isStringLiteral(node) ||
+          ts.isNoSubstitutionTemplateLiteral(node)) &&
+        tools.includes(node.text)
+      )
+        found.push(`${file} branches on the tool ${node.text}`);
+    });
+  }
+  return found.sort();
 }
 
 const handlerName = /^handle[A-Z]|Handler$/;
@@ -3053,6 +3123,40 @@ describe("architecture", () => {
       "apps/control-host/src/api/routes/leak.ts -> @werft-ai/chat-slack/src/outbox.ts",
       "apps/control-host/src/api/routes/leak.ts -> @werft-ai/forge-github",
       "apps/worker/src/main.ts -> @werft-ai/chat-slack",
+    ]);
+  });
+
+  test("A5: every defined tool has one handler and nothing outside the table branches on a tool", async () => {
+    expect(
+      await toolHandlerGaps(root, Object.keys(GITHUB_MCP_TOOL_ARGUMENTS)),
+    ).toEqual([]);
+  });
+
+  test("A5 reports a missing, an extra and a duplicate handler, an untyped table and a branch by name", async () => {
+    const dir = "packages/platform/src/action";
+    expect(
+      await inFixture(
+        {
+          [`${dir}/tools/github-handlers.ts`]: [
+            "export const GITHUB_TOOL_HANDLERS = {",
+            "  alpha: async () => 1,",
+            '  "alpha": async () => 2,',
+            "  stray: async () => 3,",
+            "};",
+          ].join("\n"),
+          [`${dir}/tools/dispatch.ts`]:
+            'export const x = (t: string) => t === "beta";',
+          [`${dir}/github/github-mcp-server.ts`]: "export const y = 1;",
+        },
+        (repo) => toolHandlerGaps(repo, ["alpha", "beta"]),
+      ),
+    ).toEqual([
+      "GITHUB_TOOL_HANDLERS is not typed ToolHandlers",
+      "handler for no tool: stray",
+      "no handler for beta",
+      `${dir}/tools/dispatch.ts branches on the tool beta`,
+      "two handlers for alpha",
+      "two handlers for alpha",
     ]);
   });
 

@@ -1,5 +1,4 @@
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
+import { SessionServiceError, type SlackAppStore } from "@werft-ai/platform";
 import type { SlackAppService } from "./slack-app-service.ts";
 import type {
   SlackFinalizeResult,

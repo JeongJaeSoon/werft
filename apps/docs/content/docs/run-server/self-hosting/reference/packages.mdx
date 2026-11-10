@@ -13,7 +13,7 @@ outcome: "이미지와 chart와 manifest의 필드 의미를 확인한다"
 
 | 패키지 | 주소 | `main` 머지 | `v*` 태그 |
 | --- | --- | --- | --- |
-| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | 태그 `main-<12>` | 태그 `v<버전>` |
+| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-worker-codex`, `werft-egress-proxy` | 태그 `main-<12>` | 태그 `v<버전>` |
 | Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전 `<Chart.yaml version>-main-<12>` | 버전 `<버전>`(`v` 없음) |
 | SDK | npm `@werft-ai/sdk` | main 이미지 게시와 별도. [SDK 설치](/getting-started/install)에서 배포 버전 확인 | SDK 배포 버전을 별도로 확인 |
 
@@ -33,7 +33,7 @@ outcome: "이미지와 chart와 manifest의 필드 의미를 확인한다"
 ```bash
 TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # image digests (deployment uses control-host, worker and egress-proxy)
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
 jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
@@ -45,10 +45,11 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 |---|---|
 | `schema` | manifest 형식 버전. 지금은 `1` |
 | `tag`, `commit` | 릴리스 태그와 그 commit(40자 hex) |
-| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`. `<app>`은 `control-host`, `worker`, `egress-proxy` |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`. `<app>`은 `control-host`, `worker`, `worker-codex`, `egress-proxy`. `worker-codex`는 Codex 엔진 worker 이미지이고 chart의 배포 세트에는 들어가지 않는다 |
 | `images.<app>.digest` | 두 아키텍처를 담는 index의 digest. 배포는 이 값으로 고정한다 |
 | `images.<app>.platforms.amd64`, `.arm64` | 그 아키텍처의 manifest digest |
 | `workerRuntime` | worker 이미지가 담은 Claude 실행 환경(`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
+| `workerCodexRuntime` | `worker-codex` 이미지가 담은 Codex 실행 환경(`workerRuntime`과 같은 필드, `engine`은 `codex`) |
 | `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | 같은 run이 게시한 chart. `chart.ref`는 `oci://` 위치 |
 
 값은 `promote`가 레지스트리에서 다시 읽어 확인한 digest와, `chart-publish`가 로그인 없이 읽어 확인한 chart에서 온다. manifest를 만들 때 chart 패키지의 `Chart.yaml`·`values.yaml`이 같은 digest와 버전을 담는지도 대조한다. 한번 붙은 manifest는 바뀌지 않는다. 같은 태그를 다시 돌려 다른 내용이 나오면 job이 실패한다.

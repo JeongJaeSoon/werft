@@ -146,7 +146,9 @@ describe("LinkTabs", () => {
     expect(link.getAttribute("data-slot")).toBe("link-tab");
     const classes = link.className.split(" ");
     expect(classes).toContain("router-link");
-    expect(classes).toContain("after:inset-x-2");
+    expect(classes).toContain(
+      "group-data-[orientation=horizontal]/tabs:after:inset-x-2",
+    );
     await (await setupUser()).click(link);
     expect(onClick).toHaveBeenCalledTimes(1);
     const other = getByRole("link", { name: "에이전트 키" });
@@ -202,15 +204,24 @@ describe("LinkTabs", () => {
 
   test("Tabs line과 같은 v4 치수 클래스와 focus-visible 윤곽을 쓴다", () => {
     const { getByRole } = render(statusTabs("running"));
+    // The shared Tabs classes resolve against these ancestor attributes.
+    expect(getByRole("navigation").getAttribute("data-orientation")).toBe(
+      "horizontal",
+    );
+    expect(getByRole("list").getAttribute("data-variant")).toBe("line");
+    expect(getByRole("navigation").className.split(" ")).toContain(
+      "group/tabs",
+    );
     const list = getByRole("list").className.split(" ");
+    expect(list).toContain("group/tabs-list");
     expect(list).toContain("gap-1");
     expect(list).toContain("border-b");
     const classes = getByRole("link", { name: "실행 중 3" }).className.split(
       " ",
     );
     for (const name of [
-      "h-9",
-      "px-2",
+      "group-data-[variant=line]/tabs-list:h-9",
+      "group-data-[variant=line]/tabs-list:px-2",
       "gap-2",
       "font-medium",
       "text-control",
@@ -218,10 +229,10 @@ describe("LinkTabs", () => {
       "no-underline!",
       "hover:text-foreground",
       "aria-[current=page]:text-foreground",
-      "after:inset-x-2",
-      "after:bottom-[-1px]",
-      "after:h-0.5",
-      "after:rounded-[1px]",
+      "group-data-[orientation=horizontal]/tabs:after:inset-x-2",
+      "group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]",
+      "group-data-[orientation=horizontal]/tabs:after:h-0.5",
+      "group-data-[orientation=horizontal]/tabs:after:rounded-[1px]",
       "aria-[current=page]:after:opacity-100",
       "focus-visible:outline-2",
       "focus-visible:outline-offset-2",
@@ -232,6 +243,17 @@ describe("LinkTabs", () => {
     // Link's own colour would change the tab's look, and v4 keeps one weight
     // for the current tab and the rest.
     expect(classes).not.toContain("text-link");
+    // Only the underline's size and bar are shared with Tabs; its
+    // transitions, radius and svg rules would change how a route tab looks.
+    for (const name of [
+      "transition-all",
+      "after:transition-opacity",
+      "rounded-control",
+      "border",
+      "flex-1",
+    ]) {
+      expect(classes).not.toContain(name);
+    }
     expect(classes.some((name) => name.includes("font-semibold"))).toBe(false);
     // Room for the outline inside the scroll clip, but no negative right
     // margin: that would widen the page past a parent with no padding.

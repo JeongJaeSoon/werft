@@ -20,18 +20,16 @@ import type {
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
 } from "@werft-ai/platform";
+import { type PushSource, pushApprovability } from "@werft-ai/platform";
+import type { RowDelivery } from "./outbox-delivery.ts";
 import {
-  type PushSource,
-  pushApprovability,
   SlackApiError,
   type SlackBotApi,
   type SlackBotSender,
-  type SlackInboxLogger,
   SlackRateLimitedError,
   type SlackSendResponse,
-  slackInboundBackoffMs,
-} from "@werft-ai/platform";
-import type { RowDelivery } from "./outbox-delivery.ts";
+} from "./slack-config-api.ts";
+import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";

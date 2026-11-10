@@ -4,9 +4,6 @@ import {
   createSlackSigningSecrets,
   type SlackEventsService,
 } from "@werft-ai/chat-slack";
-import { scopesForRole, slackEventsResponseSchema } from "@werft-ai/contracts";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
-import { callerFor } from "@werft-ai/platform";
 import {
   createMemoryAgentIdentityStore,
   createMemorySecretStore,
@@ -14,7 +11,10 @@ import {
   createMemorySlackInboundEventStore,
   createMemorySlackInstallStore,
   fakeSlackValue,
-} from "@werft-ai/platform/testing/slack";
+} from "@werft-ai/chat-slack/testing/slack";
+import { scopesForRole, slackEventsResponseSchema } from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { callerFor } from "@werft-ai/platform";
 import {
   signSlackRequest,
   slackEventEnvelope,

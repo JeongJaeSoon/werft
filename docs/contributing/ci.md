@@ -176,7 +176,7 @@ mirror job은 `images.yml`의 게시 job처럼 **리뷰를 거친 코드에서�
 
 ## 컨테이너 패키지 보존 정책 (dry run)
 
-`package-retention.yml`은 매주 월요일 05:41 KST(일요일 20:41 UTC)와 수동 dispatch에서 읽기 전용 보존 목록을 만든다. 관련 PR에서는 보호 규칙 시험과 `packages: read` 권한의 preview를 실행해 같은 목록을 로그로 남긴다. 대상은 이 저장소에 연결된 `werft-control-host`·`werft-worker`·`werft-egress-proxy`와 chart `werft` 네 패키지이며, 다른 패키지는 조회·정리 대상에 넣지 않는다.
+`package-retention.yml`은 매주 월요일 05:41 KST(일요일 20:41 UTC)와 수동 dispatch에서 읽기 전용 보존 목록을 만든다. 관련 PR에서는 보호 규칙 시험과 `packages: read` 권한의 preview를 실행해 같은 목록을 로그로 남긴다. 대상은 이 저장소에 연결된 `werft-control-host`·`werft-worker`·`werft-worker-codex`·`werft-egress-proxy`와 chart `werft` 다섯 패키지이며, 다른 패키지는 조회·정리 대상에 넣지 않는다.
 
 이미지의 `main-<sha>`·`staging-<runid>[-<attempt>][-amd64|-arm64]`, chart의 `0.1.0-main-<sha>`만 후보로 분류한다. 생성·최근 갱신이 7일 미만인 버전과 패키지별 최신 임시 버전 20개는 남긴다. semver와 알 수 없는 태그를 하나라도 함께 가진 digest, 태그 없는 버전은 예외로 남긴다. 조회 권한으로 보이는 GitHub Release의 `release-manifest.json`이 가리키는 이미지 index·platform digest와 chart 버전은 보존한다. 반환된 제품 릴리스의 manifest가 없거나 손상됐으면 중단한다. 남길 OCI index가 참조하는 하위 manifest도 재귀적으로 보존하므로, staging platform을 지워 남긴 multi-arch 이미지를 깨는 목록을 만들지 않는다. registry 응답의 digest도 검증하며 조회 실패는 안전한 생략으로 처리하지 않는다.
 

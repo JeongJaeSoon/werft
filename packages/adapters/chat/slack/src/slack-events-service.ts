@@ -21,8 +21,8 @@ import {
   agentForSlackEvent,
   type SlackInstallStore,
   type SurfaceBindingStore,
-  slackConversationKey,
 } from "@werft-ai/platform";
+import { slackConversationKey } from "./slack-inbox.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Bounds how long another API replica keeps a deleted app's secret. */

@@ -1,8 +1,10 @@
 import { SLACK_BINDING_MESSAGES } from "@werft-ai/contracts";
-import type { SecretStore } from "../ports/secret-store.ts";
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
-import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
+import {
+  type ChannelKindReadable,
+  type SecretStore,
+  SessionServiceError,
+  type SlackAppStore,
+} from "@werft-ai/platform";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import {
   isTokenGone,

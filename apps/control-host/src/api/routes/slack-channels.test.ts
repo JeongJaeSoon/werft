@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+  createSlackBotApi,
+  createSlackChannelSearchService,
+  type SlackChannelSearchService,
+} from "@werft-ai/chat-slack";
+import {
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+  fakeSlackValue,
+} from "@werft-ai/chat-slack/testing/slack";
+import {
   apiErrorResponseSchema,
   lookupSlackChannelsResponseSchema,
   searchSlackChannelsResponseSchema,
@@ -7,16 +17,8 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type AuthorizationPolicy,
-  createSlackBotApi,
-  createSlackChannelSearchService,
   SessionServiceError,
-  type SlackChannelSearchService,
 } from "@werft-ai/platform";
-import {
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-  fakeSlackValue,
-} from "@werft-ai/platform/testing/slack";
 import { createFakeSlackWebApi } from "@werft-ai/testkit/fake-slack-api";
 import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";

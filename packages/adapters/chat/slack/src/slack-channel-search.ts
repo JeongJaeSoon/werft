@@ -8,14 +8,17 @@ import {
   SLACK_CHANNEL_SEARCH_MESSAGES,
   type SlackChannel,
 } from "@werft-ai/contracts";
-import { z } from "zod";
-import type { SecretStore } from "../ports/secret-store.ts";
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
 import {
+  type AgentAuthority,
+  type AuthorizationPolicy,
+  type Caller,
   requirePermitted,
+  type SecretStore,
   SessionServiceError,
-} from "../sessions/session-service.ts";
-import type { AgentAuthority, AuthorizationPolicy, Caller } from "./policy.ts";
+  type SlackAppStore,
+  type SurfaceBindingService,
+} from "@werft-ai/platform";
+import { z } from "zod";
 import {
   SlackApiError,
   type SlackBotApi,
@@ -27,7 +30,6 @@ import {
   isTokenRevoked,
   type SlackTokenRevoked,
 } from "./slack-token-gone.ts";
-import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
 // The channel picker's search (94S-898): one app's whole channel list is read
 // from Slack into a short cache, then filtered and paged here, so typing in
