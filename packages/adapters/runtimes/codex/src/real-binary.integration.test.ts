@@ -66,11 +66,44 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
     await Bun.write(join(work, ".keep"), "");
     const port = server.port as number;
     let threadId = "";
+    // A forward proxy that records where the engine tries to go and refuses:
+    // the egress route bypasses it, so any attempt is a host other than the
+    // provider (the default plugin sync went to github.com and chatgpt.com).
+    const attempts: string[] = [];
+    const proxy = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket, data) {
+          attempts.push(
+            (Buffer.from(data).toString("utf8").split("\r\n")[0] ?? "").slice(
+              0,
+              120,
+            ),
+          );
+          socket.write("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+          socket.end();
+        },
+      },
+    });
+    const proxyVariables = [
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "http_proxy",
+      "https_proxy",
+    ];
+    const savedProxy = proxyVariables.map((name) => process.env[name]);
+    for (const name of proxyVariables) {
+      process.env[name] = `http://127.0.0.1:${proxy.port}`;
+    }
     try {
       const runtime = new CodexAgentRuntime({ stateDir: first } as never);
       const run = runtime.start(startOf({ port, work, egressToken: EGRESS }));
       try {
         const events = await turn(run, "in-1", "say hello");
+        // Background work the engine starts on its own shows up in this window.
+        await Bun.sleep(4000);
+        expect(attempts).toEqual([]);
         expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
           turn: { isError: false, inputs: ["in-1"] },
         });
@@ -170,6 +203,12 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
         await resumed.close();
       }
     } finally {
+      proxyVariables.forEach((name, i) => {
+        const value = savedProxy[i];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      });
+      proxy.stop(true);
       await server.stop(true);
     }
   }, 60_000);

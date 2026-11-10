@@ -228,6 +228,23 @@ export function codexLaunch(
     ["web_search", "disabled"],
     ["features.multi_agent", false],
     ["features.goals", false],
+    ["features.hooks", false],
+    ["features.image_generation", false],
+    ["features.browser_use", false],
+    ["features.browser_use_external", false],
+    ["features.computer_use", false],
+    // Reached out on start with the defaults (seen at the network level):
+    // the plugin marketplace is cloned from github.com into CODEX_HOME, and
+    // connectors and plugin listings go to chatgpt.com.
+    ["features.plugins", false],
+    ["features.plugin_discovery_prefetch", false],
+    ["features.remote_plugin", false],
+    ["features.plugin_sharing", false],
+    ["features.apps", false],
+    ["features.skill_search", false],
+    ["features.skill_mcp_dependency_install", false],
+    ["features.tool_suggest", false],
+    ["features.daemon_auto_start", false],
     // The repository's instructions come from the bundle, as committed.
     ["project_doc_max_bytes", 0],
   ];

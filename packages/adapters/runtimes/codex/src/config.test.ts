@@ -103,6 +103,13 @@ describe("codexLaunch", () => {
       'history.persistence="none"',
       'web_search="disabled"',
       "project_doc_max_bytes=0",
+      // The plugin marketplace sync and connector listings that went to
+      // github.com and chatgpt.com on start with the defaults.
+      "features.plugins=false",
+      "features.plugin_discovery_prefetch=false",
+      "features.remote_plugin=false",
+      "features.apps=false",
+      "features.hooks=false",
     ]) {
       expect(args).toContain(setting);
     }
