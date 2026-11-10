@@ -4,7 +4,7 @@ description: セッションイベントの保存先、秘密値を隠す場所�
 ---
 
 workerがエンジンから受け取ったセッションデータ(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態の変化)は、DBの`events`テーブルに入ります。このテーブルが、機能が頼る正本です。このページでは、テーブルが何を持つか、途切れると何が壊れるか、秘密値をどこで隠すか、誰が内容を読めるかを説明し、Langfuseコレクターのサンプルを起動する方法を示します。
-現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。アプリにはOpenTelemetry(OTel)の依存もtrace exporterもありません。ログの`trace_id`は、観測コンテキストにフィールドがあるだけで、値を入れる場所はありません。
+現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。トレースは、運用者が設定すると標準のOTLPで出力します(デフォルトはオフ。[キーと有効化の方法](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#트레이스-내보내기-otlp))。有効にすると、ログの`trace_id`と`span_id`がアクティブなspanの中で入ります。
 
 ## 全体像
 
@@ -72,7 +72,7 @@ workerのイベント送信の段階が、イベントにattempt単位の`source
 
 `infra/observability/`にコレクターのサンプルが2つあります。Grafana LGTMを起動してtraceを探す方法は[オブザーバビリティ (OTel)](/observability)にあり、ここではLangfuseのサンプルを扱います。どちらのサンプルも、Werftのスタックとは別に起動するcompose projectで、手前にOpenTelemetry Collectorを1つずつ置いて、標準のOTLP/HTTPを受けます。1台のコンピューターでOTLPの受信を確認するための用途で、運用の推奨構成ではありません。どのコレクターを使い、どう運用するかは、運用者が決めます。
 
-**確認できる範囲。** WerftはOTelトレースを出力しません。Werftのセッションを実行しても、コレクターにtraceはできません。この節で確認できるのは、サンプルのコレクターがOTLPのtraceを受け取って画面に表示するところまでで、送るtraceは`send-test-span.sh`が作る偽のspanです。
+**確認できる範囲。** この節のサンプルは、トレース出力をオフにした状態を前提にします。出力をオンにするとWerftがtraceを送りますが、この節で送るものではありません。この節で確認できるのは、サンプルのコレクターがOTLPのtraceを受け取って画面に表示するところまでで、送るtraceは`send-test-span.sh`が作る偽のspanです。
 
 | サンプル | ディレクトリ | OTLP/HTTPの受け口 | 画面 | 受けるシグナル |
 |---|---|---|---|---|

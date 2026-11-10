@@ -41,6 +41,7 @@ import {
   type ParkReadiness,
   type RuntimeEvent,
   runtimeRequirementsOf,
+  type ToolDecisionObserver,
   type TurnEnded,
   unmetFeatures,
   type WorkerCheckpointState,
@@ -77,6 +78,7 @@ import {
   NO_TURN_SPANS,
   type TurnSpans,
 } from "./telemetry/turn-spans.ts";
+import { ToolAuditCollector } from "./tool-audit.ts";
 import { settledWithin, until } from "./waits.ts";
 import { AttachLimitError, type WorkspacePreparer } from "./workspace.ts";
 import type { WorkspaceObserver } from "./workspace-observer.ts";
@@ -115,6 +117,7 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   maxBudgetUsd?: number;
   principal: ClaimPrincipal;
   runtimeConfig: RuntimeConfig;
+  toolDecisions?: ToolDecisionObserver;
   /** The claim's; absent is a session with a repository. */
   workspace?: WorkspaceDescriptor;
 };
@@ -537,6 +540,8 @@ export class WorkerHost {
       scope: () => this.scope,
       now: this.options.now ?? (() => new Date()),
       retryBudgetMs: this.options.timeouts.nextInputRetryTimeoutMs,
+      onAuditsDropped: (count) =>
+        this.logger.warn("worker.tool_audit.dropped", { dropped: count }),
       onFailed: (error) => {
         if (isOwnershipLost(error)) {
           this.lose(describe(error), error);
@@ -588,6 +593,12 @@ export class WorkerHost {
         this.logger.warn("worker.pending.settlement_detail_refused", {
           reason: error.message,
         }),
+    });
+    const toolAudit = new ToolAuditCollector({
+      scrubber: () => this.scrubber,
+      turnId: () => this.scope.turn_id,
+      requestIdOf: (localId) => this.pending?.requestIdOf(localId),
+      enqueue: (report, turnId) => publisher.audit(report, turnId),
     });
     this.heartbeat = new Heartbeat({
       gateway: this.options.gateway,
@@ -657,6 +668,7 @@ export class WorkerHost {
               : { maxBudgetUsd: claim.remaining_budget_usd }),
             principal: claim.principal,
             runtimeConfig: claim.runtime_config,
+            toolDecisions: toolAudit,
             workspace: claim.workspace,
           });
           this.engine = run;
@@ -2742,6 +2754,7 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
+      this.pending.bind(request.localId, grant.request_id);
       this.turn?.spans.granted(request.localId);
       void answer({
         kind: "selected",

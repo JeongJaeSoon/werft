@@ -5,7 +5,10 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "..");
 const parse = (file: string) =>
   Bun.YAML.parse(readFileSync(join(root, file), "utf8")) as {
-    on: Record<string, { branches?: string[]; paths?: string[] } | null>;
+    on: Record<
+      string,
+      { branches?: string[]; tags?: string[]; paths?: string[] } | null
+    >;
     concurrency?: { group: string; "cancel-in-progress": boolean };
     permissions?: Record<string, string>;
     jobs: Record<
@@ -16,6 +19,7 @@ const parse = (file: string) =>
         permissions?: Record<string, string>;
         environment?: { name: string };
         steps?: {
+          name?: string;
           run?: string;
           uses?: string;
           id?: string;
@@ -32,27 +36,14 @@ const pages = parse(".github/workflows/pages.yml");
 const ci = parse(".github/workflows/ci.yml");
 
 describe("pages.yml", () => {
-  test("runs on a main push that touches a site input, or by hand, never on a pull request", () => {
+  test("runs on a release tag or by hand, never on a main push or a pull request", () => {
     expect(Object.keys(pages.on).sort()).toEqual(["push", "workflow_dispatch"]);
-    expect(pages.on.push?.branches).toEqual(["main"]);
-    const paths = pages.on.push?.paths ?? [];
-    for (const input of [
-      "apps/docs/**",
-      "apps/web/**",
-      "packages/**",
-      "docs/**",
-      "bun.lock",
-      "bunfig.toml",
-      ".gitignore",
-      "scripts/pages-site.sh",
-      ".github/workflows/pages.yml",
-    ])
-      expect(paths).toContain(input);
-    // A change to a service app alone starts nothing.
-    expect(paths.some((path) => path.startsWith("apps/control-host"))).toBe(
-      false,
-    );
-    expect(paths.some((path) => path.startsWith("apps/worker"))).toBe(false);
+    expect(pages.on.push).toEqual({ tags: ["v*"] });
+    // The release tag images.yml publishes on, not the sdk-v*/ui-v* packages.
+    const images = Bun.YAML.parse(
+      readFileSync(join(root, ".github/workflows/images.yml"), "utf8"),
+    ) as { on: { push: { tags: string[] } } };
+    expect(images.on.push.tags).toEqual(pages.on.push?.tags);
   });
 
   test("queues deploys instead of cancelling a running one", () => {
@@ -62,7 +53,7 @@ describe("pages.yml", () => {
     });
   });
 
-  test("only the deploy job can write to Pages, and only on main with Pages enabled", () => {
+  test("only the deploy job can write to Pages, and only from a release tag or main with Pages enabled", () => {
     expect(pages.permissions).toEqual({ contents: "read" });
     const writers = Object.entries(pages.jobs)
       .filter(([, job]) => job.permissions?.pages === "write")
@@ -71,9 +62,20 @@ describe("pages.yml", () => {
     const deploy = pages.jobs.deploy;
     expect(deploy?.needs).toEqual(["docs"]);
     expect(deploy?.if).toBe(
-      "github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'",
+      "(startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && vars.PAGES_ENABLED == 'true'",
     );
     expect(deploy?.environment?.name).toBe("github-pages");
+    // A tag can point anywhere; deploy only reviewed commits, before upload.
+    const steps = deploy?.steps ?? [];
+    const onMain = steps.findIndex((s) => s.name === "Commit must be on main");
+    expect(steps[onMain]?.run).toContain(
+      'git merge-base --is-ancestor "$GITHUB_SHA" origin/main',
+    );
+    const firstUpload = steps.findIndex((s) =>
+      s.uses?.startsWith("actions/upload-pages-artifact@"),
+    );
+    expect(onMain).toBeGreaterThan(-1);
+    expect(onMain).toBeLessThan(firstUpload);
   });
 
   test("a stalled Pages deployment is abandoned early and tried once more inside the job limit", () => {

@@ -1569,7 +1569,7 @@ export const turns = pgTable(
     /** W3C traceparent of the API request span that queued the turn; null before 0263 or when the request was untraced. */
     traceContext: text("trace_context"),
     // Why the person or key that queued the turn could use the agent, and
-    // who they were (94S-901). Null before 0266, for a session without an
+    // who they were (94S-901). Null before 0267, for a session without an
     // agent, and for a caller with no workspace. No foreign keys: the row
     // is a record of what held then.
     usageBasis: text("usage_basis"),
@@ -2096,6 +2096,84 @@ export const authzDecisions = pgTable(
     check(
       "authz_decisions_principal_check",
       sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
+  ],
+);
+
+export const toolCallAudits = pgTable(
+  "tool_call_audits",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    workspaceId: uuid("workspace_id"),
+    ownerId: text("owner_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    turnId: bigint("turn_id", { mode: "number" }).notNull(),
+    attemptId: text("attempt_id").notNull(),
+    callKey: text("call_key").notNull(),
+    phase: text().notNull(),
+    toolUseId: text("tool_use_id"),
+    parentToolUseId: text("parent_tool_use_id"),
+    toolName: text("tool_name").notNull(),
+    mcpServer: text("mcp_server"),
+    inputSha256: text("input_sha256"),
+    inputBytes: integer("input_bytes"),
+    decision: text().notNull(),
+    basis: text().notNull(),
+    agentId: uuid("agent_id"),
+    agentReleaseId: text("agent_release_id"),
+    actorUserId: uuid("actor_user_id"),
+    principalKind: text("principal_kind"),
+    principalId: text("principal_id"),
+    surface: text().$type<SurfaceKind>(),
+    pendingRequestId: text("pending_request_id"),
+    answeredBy: jsonb("answered_by"),
+    answerSurface: text("answer_surface").$type<SurfaceKind>(),
+    answerDecisionId: uuid("answer_decision_id"),
+    source: text().notNull(),
+    recordVersion: integer("record_version").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tool_call_audits_call_idx").on(
+      table.sessionId,
+      table.attemptId,
+      table.turnId,
+      table.callKey,
+      table.phase,
+    ),
+    uniqueIndex("tool_call_audits_approval_once_idx")
+      .on(table.pendingRequestId)
+      .where(sql`${table.phase} = 'decided' AND ${table.basis} = 'approval'`),
+    index("tool_call_audits_session_at_idx").on(table.sessionId, table.at),
+    index("tool_call_audits_workspace_at_idx").on(table.workspaceId, table.at),
+    index("tool_call_audits_at_idx").on(table.at),
+    check(
+      "tool_call_audits_phase_check",
+      sql`${table.phase} IN ('asked', 'decided')`,
+    ),
+    check(
+      "tool_call_audits_decision_check",
+      sql`${table.decision} IN ('allow', 'deny', 'require_approval', 'unknown')`,
+    ),
+    check(
+      "tool_call_audits_phase_decision_check",
+      sql`(${table.phase} = 'asked') = (${table.decision} = 'require_approval')`,
+    ),
+    check(
+      "tool_call_audits_source_check",
+      sql`${table.source} IN ('platform', 'worker_report')`,
+    ),
+    check(
+      "tool_call_audits_principal_check",
+      sql`(${table.principalKind} IS NULL) = (${table.principalId} IS NULL)`,
+    ),
+    check(
+      "tool_call_audits_input_check",
+      sql`(${table.inputSha256} IS NULL) = (${table.inputBytes} IS NULL)`,
+    ),
+    check(
+      "tool_call_audits_surface_check",
+      sql`${table.surface} IS NULL OR ${table.surface} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
     ),
   ],
 );

@@ -9,7 +9,10 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
+import type {
+  RuntimeProcessObserver,
+  ToolDecisionObserver,
+} from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { modeSettings, withEngineSettings } from "./engine-settings.ts";
@@ -28,6 +31,7 @@ import { systemPromptAppend } from "./repository-instructions.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
 import { offerableRules } from "./session-rules.ts";
+import { ToolDecisions } from "./tool-decisions.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
@@ -77,6 +81,7 @@ export class ClaudeSdkRuntime {
     private readonly policy: RuntimePolicy,
     private readonly processObserver?: RuntimeProcessObserver,
     private readonly launch: typeof query = query,
+    private readonly toolDecisions?: ToolDecisionObserver,
   ) {}
 
   start(config: ClaudeRuntimeConfig, hooks: RuntimeHooks): DriverRun {
@@ -103,6 +108,7 @@ export class ClaudeSdkRuntime {
         ledger,
         abortController,
         this.processObserver,
+        this.toolDecisions,
       ),
     });
     return new ClaudeSdkRun(
@@ -148,7 +154,9 @@ export function buildSdkOptions(
   ledger = new TurnLedger(config.resume),
   abortController = new AbortController(),
   processObserver?: RuntimeProcessObserver,
+  toolDecisions?: ToolDecisionObserver,
 ): Options {
+  const decisions = new ToolDecisions(toolDecisions);
   const permittedTools = new Set(config.tools);
   const trustedTools = new Set(config.trustedTools ?? []);
   const bypass = config.permissionMode === "bypassPermissions";
@@ -172,7 +180,17 @@ export function buildSdkOptions(
   const disallowed = [...(config.disallowedTools ?? [])];
   assertEngineArgumentBudget(settings, disallowed);
   const settle: HookCallback = async (input) => {
-    if ("tool_use_id" in input) ledger.toolSettled(input.tool_use_id);
+    if ("tool_use_id" in input) {
+      ledger.toolSettled(input.tool_use_id);
+      decisions.ran(input.tool_use_id);
+    }
+    return {};
+  };
+  const settleRefused: HookCallback = async (input) => {
+    if ("tool_use_id" in input) {
+      ledger.toolSettled(input.tool_use_id);
+      decisions.refusedByEngine(input.tool_use_id);
+    }
     return {};
   };
   const append = [
@@ -186,8 +204,15 @@ export function buildSdkOptions(
     canUseTool: async (tool, toolInput, options) => {
       // A denied tool never runs and no PostToolUse follows, so the gate
       // settles it here rather than waiting on a tool_result.
-      const deny = (message: string) => {
+      const deny = (message: string, basis: "not_permitted" | "hook_deny") => {
         ledger.toolSettled(options.toolUseID);
+        decisions.decide({
+          toolUseId: options.toolUseID,
+          tool,
+          input: toolInput,
+          decision: "deny",
+          basis,
+        });
         return {
           behavior: "deny" as const,
           message,
@@ -195,15 +220,23 @@ export function buildSdkOptions(
         };
       };
       if (!permittedTools.has(tool)) {
-        return deny("Tool is outside the server allowlist");
+        return deny("Tool is outside the server allowlist", "not_permitted");
       }
       // PreToolUse already admitted it past any checkpoint lease, and no
       // person is asked, so there is no prompt for the ledger to track.
       if (await readsOnlyMemory(config, tool, toolInput)) {
+        decisions.decide({
+          toolUseId: options.toolUseID,
+          tool,
+          input: toolInput,
+          decision: "allow",
+          basis: "memory_read",
+        });
         return { behavior: "allow", toolUseID: options.toolUseID };
       }
       const admission = ledger.permissionStarting(options.toolUseID);
-      if (!admission.allowed) return deny(admission.message);
+      if (!admission.allowed) return deny(admission.message, "hook_deny");
+      decisions.answeredElsewhere(options.toolUseID);
       let allowed = false;
       try {
         // The engine says a rule would grant more than this ask's own verb.
@@ -242,13 +275,32 @@ export function buildSdkOptions(
           hooks: [
             async (input) => {
               if (!("tool_use_id" in input)) return {};
-              const deny = (reason: string) => ({
-                hookSpecificOutput: {
-                  hookEventName: "PreToolUse" as const,
-                  permissionDecision: "deny" as const,
-                  permissionDecisionReason: reason,
-                },
-              });
+              const toolName = "tool_name" in input ? input.tool_name : "";
+              const toolInput =
+                "tool_input" in input &&
+                typeof input.tool_input === "object" &&
+                input.tool_input !== null
+                  ? (input.tool_input as Record<string, unknown>)
+                  : {};
+              const deny = (
+                reason: string,
+                basis: "not_permitted" | "hook_deny",
+              ) => {
+                decisions.decide({
+                  toolUseId: input.tool_use_id,
+                  tool: toolName,
+                  input: toolInput,
+                  decision: "deny",
+                  basis,
+                });
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: "PreToolUse" as const,
+                    permissionDecision: "deny" as const,
+                    permissionDecisionReason: reason,
+                  },
+                };
+              };
               // The allowlist canUseTool enforces has to hold here too, in
               // every mode: a session rule lets the engine pass a call
               // without asking canUseTool at all, and a hook deny binds
@@ -257,22 +309,19 @@ export function buildSdkOptions(
                 "tool_name" in input &&
                 !permittedTools.has(input.tool_name)
               ) {
-                return deny("Tool is outside the server allowlist");
+                return deny(
+                  "Tool is outside the server allowlist",
+                  "not_permitted",
+                );
               }
               // The host's advice, before the call is admitted: a refusal
               // here is a call that never ran. A check that throws refuses
               // nothing.
               if ("tool_name" in input && hooks.precheckTool !== undefined) {
-                const toolInput =
-                  "tool_input" in input &&
-                  typeof input.tool_input === "object" &&
-                  input.tool_input !== null
-                    ? (input.tool_input as Record<string, unknown>)
-                    : {};
                 const refusal = await hooks
                   .precheckTool(input.tool_name, toolInput)
                   .catch(() => null);
-                if (refusal !== null) return deny(refusal);
+                if (refusal !== null) return deny(refusal, "hook_deny");
               }
               // A guard that lands while another is awaited is awaited too:
               // the call is admitted only past whichever the host holds now.
@@ -283,12 +332,13 @@ export function buildSdkOptions(
                 try {
                   await guard(input.tool_use_id);
                 } catch {
-                  return deny(ADMISSION_GUARD_REFUSED);
+                  return deny(ADMISSION_GUARD_REFUSED, "hook_deny");
                 }
                 passed = guard;
               }
               const admission = ledger.toolStarting(input.tool_use_id);
-              if (!admission.allowed) return deny(admission.message);
+              if (!admission.allowed)
+                return deny(admission.message, "hook_deny");
               // The one judgment this skips is the engine's permission
               // stage (a person's answer, the auto classifier). It comes
               // last so the allowlist, the admission guard and the ledger
@@ -299,6 +349,12 @@ export function buildSdkOptions(
                 trustedTools.has(input.tool_name) &&
                 config.permissionMode !== "plan"
               ) {
+                decisions.admitted(
+                  input.tool_use_id,
+                  input.tool_name,
+                  toolInput,
+                  "trusted_tool",
+                );
                 return {
                   hookSpecificOutput: {
                     hookEventName: "PreToolUse" as const,
@@ -306,6 +362,12 @@ export function buildSdkOptions(
                   },
                 };
               }
+              decisions.admitted(
+                input.tool_use_id,
+                toolName,
+                toolInput,
+                unattended ? "permission_mode" : "engine_internal",
+              );
               return {};
             },
           ],
@@ -313,7 +375,7 @@ export function buildSdkOptions(
       ],
       PostToolUse: [{ hooks: [settle] }],
       PostToolUseFailure: [{ hooks: [settle] }],
-      PermissionDenied: [{ hooks: [settle] }],
+      PermissionDenied: [{ hooks: [settleRefused] }],
     },
     ...(config.maxBudgetUsd === undefined
       ? {}

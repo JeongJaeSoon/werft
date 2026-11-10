@@ -3,7 +3,7 @@ title: "Datadogの監視基準"
 description: Datadog Agentが収集するシグナル、初期monitorのしきい値、DB点検query、定義を適用して検証する方法
 ---
 
-このドキュメントは、サーバーデプロイで確認する最小の監視基準です。Kubernetes(Helm)インストールでプラットフォームが出すメトリクスは、[プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)にあります。アプリにDatadog SDKやOTelは入れません。Datadog Agentが、DockerのJSON stdoutログ、`/readyz`、読み取り専用のPostgreSQL query、ホストのメトリクスを収集します。定義は[`infra/datadog/definitions`](https://github.com/JeongJaeSoon/werft/tree/main/infra/datadog/definitions)だけでバージョン管理し、このリポジトリのツールやCIはDatadog APIを呼び出しません。
+このドキュメントは、サーバーデプロイで確認する最小の監視基準です。Kubernetes(Helm)インストールでプラットフォームが出すメトリクスは、[プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)にあります。アプリにDatadog SDKは入れません。セッションのトレースは、設定したときだけ標準のOTLPで出力します(デフォルトはオフで、特定のコレクターは不要です)。キーは[APIサーバー運用ドキュメント](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#트레이스-내보내기-otlp)にあります。ここで説明するDatadog Agentはトレースではなく、ログ・`/readyz`・DB・ホストを見ます。Datadog Agentが、DockerのJSON stdoutログ、`/readyz`、読み取り専用のPostgreSQL query、ホストのメトリクスを収集します。定義は[`infra/datadog/definitions`](https://github.com/JeongJaeSoon/werft/tree/main/infra/datadog/definitions)だけでバージョン管理し、このリポジトリのツールやCIはDatadog APIを呼び出しません。
 
 すべてのしきい値は、**サーバーデプロイ後の最初の7日間で調整する初期値**です。`threshold_stage:first-week-tuning` tagが付いたmonitorを、最初の週のデータなしに長期の基準とみなしません。すでに埋めた空白は`なし`、その範囲外のためサーバーデプロイ後に優先度を決め直す項目は`デプロイ後に判断`と表記します。
 

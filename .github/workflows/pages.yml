@@ -1,40 +1,23 @@
 name: Pages
 
 # Builds the Pages site (the Fumadocs site, the API reference below /api/)
-# and deploys it. Only a push to main that touches a site input, or a manual
-# run, gets here: a pull request proves the same build and layout in ci.yml
-# (`docs`, `pages`) and never deploys.
-#
-# Its own workflow so a deploy is not cancelled by the next merge's CI run
-# (ci.yml cancels superseded runs), and so a push that changes no site input
-# starts nothing here.
+# and deploys it. The public site describes the released product, so only a
+# release tag (v*, the tag images.yml releases) deploys. A manual run on main
+# pushes an urgent docs fix before the next release; a manual run on a tag
+# redeploys that release. A pull request proves the same build and layout in
+# ci.yml (`docs`, `pages`) and never deploys.
 on:
   push:
-    branches: [main]
-    paths:
-      - apps/docs/**
-      - apps/web/**
-      - packages/**
-      - docs/**
-      - bun.lock
-      - bunfig.toml
-      # Tailwind skips what .gitignore ignores when it scans for classes.
-      - .gitignore
-      - package.json
-      - tsconfig*.json
-      - scripts/pages-site.sh
-      - scripts/check-docs-self-hosting-export.ts
-      - .github/actions/bun-setup/**
-      - .github/workflows/pages.yml
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Never cancel a run that is building or deploying: a later merge must not stop
+# Never cancel a run that is building or deploying: a later run must not stop
 # an earlier one's deploy half-way. Runs queue one behind the other, and
 # GitHub keeps only the newest of the waiting ones, so the site ends at the
-# last merge's content.
+# last started run's content.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -77,7 +60,7 @@ jobs:
   # write to Pages.
   deploy:
     needs: [docs]
-    if: github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'
+    if: (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main') && vars.PAGES_ENABLED == 'true'
     permissions:
       contents: read
       pages: write
@@ -89,6 +72,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Same rule as images.yml's release jobs: a tag is not a review.
+      - name: Commit must be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main"
+            exit 1
+          fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: docs-out

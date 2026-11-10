@@ -30,12 +30,12 @@ control-host 이미지가 `apps/web`을 번들하므로 `e2e`는 이 경로에�
 | 사이트 MDX만 | 실행 | 실행 | 생략 | 아래 두 경로만 실행 | docs·pages 모두 실행 |
 | 실행 가이드 | 실행 | 실행 | 생략 | 두 가이드 모두 실행 | 사이트 경로가 있으면 실행 |
 | 코드·설정·혼합·unknown | 실행 | 전체 suite에 포함 | 실행 | 실행 | 실행 |
-| main push | 위와 동일한 변경 경로 계획 | 위와 동일 | 위와 동일 | 위와 동일 | CI에서는 생략, 별도 `pages.yml`이 담당 |
+| main push | 위와 동일한 변경 경로 계획 | 위와 동일 | 위와 동일 | 위와 동일 | 생략. 사이트는 릴리스 태그에서 `pages.yml`이 빌드·배포 |
 | 수동·정기 실행 | only 선택 또는 전체 | 전체 suite에 포함 | only 선택 또는 전체 | only 선택 또는 전체 | only 선택 또는 전체 |
 
 실행 가이드는 `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`다. 이 경로를 고치면 `quickstart`가 두 가이드의 셸 블록을 그대로 실행한다. 번역된 가이드의 코드 동등성은 문서 검사에서 계속 확인한다.
 
-사이트 content가 바뀌면 docs artifact를 현재 run에서 만들고 pages가 조립한다. 이전 커밋이나 다른 PR의 artifact를 가져와 검증을 대체하지 않는다. main push의 `site` 계획은 `false`이며, 사이트 빌드·배포는 별도 `pages.yml`이 담당한다. PR·수동 실행의 사이트 검증과 main 게시를 중복하지 않는다.
+사이트 content가 바뀌면 docs artifact를 현재 run에서 만들고 pages가 조립한다. 이전 커밋이나 다른 PR의 artifact를 가져와 검증을 대체하지 않는다. main push의 `site` 계획은 `false`다. 사이트 빌드·배포는 `pages.yml`이 릴리스 태그(`v*`)와 수동 실행에서만 한다. main push에서는 사이트를 빌드하지 않으므로, 따로는 통과한 PR 둘이 합쳐져 사이트 빌드가 깨지면 다음 릴리스의 `pages.yml`에서 드러난다.
 
 ## 남기는 검사
 

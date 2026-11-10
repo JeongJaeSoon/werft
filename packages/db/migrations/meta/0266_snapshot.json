@@ -1,5 +1,5 @@
 {
-  "id": "424c1134-d01b-415d-ab3b-cd50ca7099c7",
+  "id": "91f5a9f1-9130-43ff-a5c8-4d559fbdb3f7",
   "prevId": "a44b84d2-4d30-481a-90a6-db77e8d03583",
   "version": "7",
   "dialect": "postgresql",
@@ -12240,30 +12240,6 @@
           "notNull": true,
           "default": "'profile'"
         },
-        "usage_basis": {
-          "name": "usage_basis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_team_id": {
-          "name": "usage_team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_id": {
-          "name": "requester_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "github_policy_start": {
           "name": "github_policy_start",
           "type": "jsonb",
@@ -14179,6 +14155,337 @@
       },
       "isRLSEnabled": false
     },
+    "public.tool_call_audits": {
+      "name": "tool_call_audits",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "call_key": {
+          "name": "call_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tool_use_id": {
+          "name": "tool_use_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parent_tool_use_id": {
+          "name": "parent_tool_use_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_name": {
+          "name": "tool_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mcp_server": {
+          "name": "mcp_server",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_sha256": {
+          "name": "input_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_bytes": {
+          "name": "input_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "basis": {
+          "name": "basis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_release_id": {
+          "name": "agent_release_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "principal_kind": {
+          "name": "principal_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "surface": {
+          "name": "surface",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_request_id": {
+          "name": "pending_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answered_by": {
+          "name": "answered_by",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_surface": {
+          "name": "answer_surface",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_decision_id": {
+          "name": "answer_decision_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "record_version": {
+          "name": "record_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "tool_call_audits_call_idx": {
+          "name": "tool_call_audits_call_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "turn_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "call_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "phase",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_call_audits_approval_once_idx": {
+          "name": "tool_call_audits_approval_once_idx",
+          "columns": [
+            {
+              "expression": "pending_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"tool_call_audits\".\"phase\" = 'decided' AND \"tool_call_audits\".\"basis\" = 'approval'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_call_audits_session_at_idx": {
+          "name": "tool_call_audits_session_at_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_call_audits_workspace_at_idx": {
+          "name": "tool_call_audits_workspace_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tool_call_audits_at_idx": {
+          "name": "tool_call_audits_at_idx",
+          "columns": [
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "tool_call_audits_phase_check": {
+          "name": "tool_call_audits_phase_check",
+          "value": "\"tool_call_audits\".\"phase\" IN ('asked', 'decided')"
+        },
+        "tool_call_audits_decision_check": {
+          "name": "tool_call_audits_decision_check",
+          "value": "\"tool_call_audits\".\"decision\" IN ('allow', 'deny', 'require_approval', 'unknown')"
+        },
+        "tool_call_audits_phase_decision_check": {
+          "name": "tool_call_audits_phase_decision_check",
+          "value": "(\"tool_call_audits\".\"phase\" = 'asked') = (\"tool_call_audits\".\"decision\" = 'require_approval')"
+        },
+        "tool_call_audits_source_check": {
+          "name": "tool_call_audits_source_check",
+          "value": "\"tool_call_audits\".\"source\" IN ('platform', 'worker_report')"
+        },
+        "tool_call_audits_principal_check": {
+          "name": "tool_call_audits_principal_check",
+          "value": "(\"tool_call_audits\".\"principal_kind\" IS NULL) = (\"tool_call_audits\".\"principal_id\" IS NULL)"
+        },
+        "tool_call_audits_input_check": {
+          "name": "tool_call_audits_input_check",
+          "value": "(\"tool_call_audits\".\"input_sha256\" IS NULL) = (\"tool_call_audits\".\"input_bytes\" IS NULL)"
+        },
+        "tool_call_audits_surface_check": {
+          "name": "tool_call_audits_surface_check",
+          "value": "\"tool_call_audits\".\"surface\" IS NULL OR \"tool_call_audits\".\"surface\" IN ('web','slack','api')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.tool_call_days": {
       "name": "tool_call_days",
       "schema": "",
@@ -14808,30 +15115,6 @@
         },
         "trace_context": {
           "name": "trace_context",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_basis": {
-          "name": "usage_basis",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_team_id": {
-          "name": "usage_team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_kind": {
-          "name": "requester_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requester_id": {
-          "name": "requester_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false

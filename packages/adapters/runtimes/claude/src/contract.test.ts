@@ -4,10 +4,12 @@ import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
-import type {
-  ApprovalRequested,
-  RuntimeEvent,
-  TurnEnded,
+import {
+  type ApprovalRequested,
+  approvalInputHash,
+  type ObservedToolDecision,
+  type RuntimeEvent,
+  type TurnEnded,
 } from "@werft-ai/runtime-core";
 
 import {
@@ -971,5 +973,128 @@ describe("trustedTools", () => {
         start([{ ...server, platform: true, trusted: [PUSH] }]),
       ),
     ).toEqual(claudeRuntimeModule.fingerprint(start([server])));
+  });
+});
+
+describe("the judgment a person's answer comes to", () => {
+  async function answered(
+    toolUseId: string,
+    answer: (
+      request: ApprovalRequested,
+    ) => Parameters<ReturnType<typeof claudeContractRun>["answer"]>[0],
+    input: Record<string, unknown> = { command: "ls" },
+  ) {
+    const observed: ObservedToolDecision[] = [];
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks), {
+      toolDecisions: { observe: (decision) => observed.push(decision) },
+    });
+    const events = run.events()[Symbol.asyncIterator]();
+    const pending = collect(events, 3);
+    const decision = script.ask(
+      toolUseId,
+      new AbortController().signal,
+      "Bash",
+      input,
+    );
+    script.push(toolUseFrame(toolUseId));
+    const request = requestOf((await pending)[2]);
+    await run.answer(answer(request));
+    await decision;
+    script.end();
+    return { observed, request };
+  }
+
+  test("an approval is reported as allowed on that approval, with the pre-redaction hash", async () => {
+    const { observed, request } = await answered("toolu_a", (r) => ({
+      localId: r.localId,
+      inputHash: r.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+    }));
+    expect(observed).toEqual([
+      {
+        toolUseId: "toolu_a",
+        parentToolUseId: undefined,
+        tool: "Bash",
+        input: { command: "ls" },
+        decision: "allow",
+        basis: "approval",
+        approval: {
+          localId: request.localId,
+          inputHash: approvalInputHash("Bash", { command: "ls" }),
+        },
+      },
+    ]);
+  });
+
+  test("a refusal, an expiry and a cancel are three different bases", async () => {
+    const refused = await answered("toolu_r", (r) => ({
+      localId: r.localId,
+      inputHash: r.inputHash,
+      kind: "selected",
+      optionKind: "reject_once",
+    }));
+    const expired = await answered("toolu_e", (r) => ({
+      localId: r.localId,
+      inputHash: r.inputHash,
+      kind: "cancelled",
+      reason: "expired",
+    }));
+    const cancelled = await answered("toolu_c", (r) => ({
+      localId: r.localId,
+      inputHash: r.inputHash,
+      kind: "cancelled",
+      reason: "interrupt",
+    }));
+    expect(refused.observed.map((d) => [d.decision, d.basis])).toEqual([
+      ["deny", "approval_denied"],
+    ]);
+    expect(expired.observed.map((d) => [d.decision, d.basis])).toEqual([
+      ["deny", "approval_expired"],
+    ]);
+    expect(cancelled.observed.map((d) => [d.decision, d.basis])).toEqual([
+      ["deny", "approval_cancelled"],
+    ]);
+  });
+
+  test("the observer gets the arguments as the events show them, never the raw secret", async () => {
+    // Assembled at run time so no secret-shaped literal sits in the source.
+    const secret = ["sk", "ant", "api03", "SYNTHETIC".repeat(5)].join("-");
+    const { observed } = await answered(
+      "toolu_s",
+      (r) => ({
+        localId: r.localId,
+        inputHash: r.inputHash,
+        kind: "selected",
+        optionKind: "allow_once",
+      }),
+      { command: `curl -H "x-api-key: ${secret}" https://example.invalid` },
+    );
+    expect(JSON.stringify(observed)).not.toContain(secret);
+  });
+
+  test("an observer that throws changes nothing about the answer", async () => {
+    const script = scriptedDriver();
+    const run = claudeContractRun((hooks) => script.start(hooks), {
+      toolDecisions: {
+        observe: () => {
+          throw new Error("sink down");
+        },
+      },
+    });
+    const events = run.events()[Symbol.asyncIterator]();
+    const pending = collect(events, 3);
+    const decision = script.ask("toolu_x");
+    script.push(toolUseFrame("toolu_x"));
+    const request = requestOf((await pending)[2]);
+    await run.answer({
+      localId: request.localId,
+      inputHash: request.inputHash,
+      kind: "selected",
+      optionKind: "allow_once",
+    });
+    expect(await decision).toEqual({ behavior: "allow" });
+    script.end();
   });
 });

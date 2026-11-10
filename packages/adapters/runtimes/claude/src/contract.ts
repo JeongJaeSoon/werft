@@ -32,6 +32,7 @@ import {
   type RuntimeModule,
   type RuntimeProfileInput,
   type RuntimeStart,
+  type ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
 
 import {
@@ -60,6 +61,7 @@ import { instructionText } from "./repository-instructions.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 import { sameRules, sessionRuleUpdate } from "./session-rules.ts";
 import { ClaudeSessionStore } from "./session-store.ts";
+import { emitToolDecision } from "./tool-decisions.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
 import { namedInputs, turnEndedOf } from "./turn-ended.ts";
 
@@ -257,6 +259,8 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         models: [start.config.model],
       },
       this.deps.processObserver,
+      undefined,
+      start.toolDecisions,
     );
     const precheckTool = this.deps.precheckTool;
     return claudeContractRun(
@@ -269,6 +273,9 @@ export class ClaudeAgentRuntime implements AgentRuntime {
         ...(this.deps.toolCallWaitMs === undefined
           ? {}
           : { toolCallWaitMs: this.deps.toolCallWaitMs }),
+        ...(start.toolDecisions === undefined
+          ? {}
+          : { toolDecisions: start.toolDecisions }),
       },
     );
   }
@@ -323,11 +330,15 @@ export const claudeRuntimeModule: RuntimeModule = {
  */
 export function claudeContractRun(
   start: (hooks: RuntimeHooks) => DriverRun,
-  options: { toolCallWaitMs?: number } = {},
+  options: {
+    toolCallWaitMs?: number;
+    toolDecisions?: ToolDecisionObserver;
+  } = {},
 ): AgentRun {
   return new ClaudeContractRun(
     start,
     options.toolCallWaitMs ?? TOOL_CALL_WAIT_MS,
+    options.toolDecisions,
   );
 }
 
@@ -352,6 +363,7 @@ class ClaudeContractRun implements AgentRun {
   constructor(
     start: (hooks: RuntimeHooks) => DriverRun,
     private readonly toolCallWaitMs: number,
+    private readonly toolDecisions?: ToolDecisionObserver,
   ) {
     this.driver = start({ onPermission: (request) => this.ask(request) });
   }
@@ -500,6 +512,7 @@ class ClaudeContractRun implements AgentRun {
     this.offer(approval);
     const answer = await answered;
     this.unhold(approval.localId);
+    this.reportApproval(approval, request, answer);
     if (this.withdrawnByEngine(approval.localId)) {
       this.push({
         type: "approval.resolved",
@@ -508,6 +521,35 @@ class ClaudeContractRun implements AgentRun {
       });
     }
     return decisionOf(answer, request.input, { offered, shown });
+  }
+
+  /**
+   * What a person's answer, or the lack of one, came to for the call. A
+   * question the model asked is not a permission and is not a judgment on
+   * the call.
+   */
+  private reportApproval(
+    approval: ApprovalRequested,
+    request: PermissionRequest,
+    answer: ApprovalAnswer,
+  ): void {
+    if (approval.kind !== "permission" || answer.kind === "answered") return;
+    const [decision, basis] =
+      answer.kind === "selected"
+        ? answer.optionKind === "allow_once"
+          ? (["allow", "approval"] as const)
+          : (["deny", "approval_denied"] as const)
+        : answer.reason === "expired"
+          ? (["deny", "approval_expired"] as const)
+          : (["deny", "approval_cancelled"] as const);
+    emitToolDecision(this.toolDecisions, {
+      toolUseId: request.toolUseId,
+      tool: request.tool,
+      input: request.input,
+      decision,
+      basis,
+      approval: { localId: approval.localId, inputHash: approval.inputHash },
+    });
   }
 
   private offer(request: ApprovalRequested): void {
