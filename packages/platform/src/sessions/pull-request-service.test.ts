@@ -1759,7 +1759,7 @@ const SIGNATURE =
   "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
 
 describe("structured fields", () => {
-  test("open writes the default template, in Korean, then the tail", async () => {
+  test("open writes the default template, in English, then the tail", async () => {
     const { service, created } = harness();
     const opened = await service.open(actor, SESSION, PUSH, {
       readBody: async () => ({
