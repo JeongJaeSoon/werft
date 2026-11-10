@@ -4,10 +4,7 @@ import type {
   PutAgentUsageResponse,
 } from "@werft-ai/contracts";
 import type { AgentUsageStore } from "../ports/agent-usage-store.ts";
-import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
+import { requirePermitted, SessionServiceError } from "../sessions/index.ts";
 import { personOf } from "./agent-admin-service.ts";
 import { ifMatchOf } from "./env-variable-service.ts";
 import {
