@@ -216,7 +216,6 @@ test("required check only accepts verified product or documentation results", ()
     "check-part",
     "integration-domain",
     "docs-checks",
-    "storybook",
     "docs",
     "demo",
     "ui-pack",
@@ -267,7 +266,6 @@ test("required check only accepts verified product or documentation results", ()
 const plannedConsumers = [
   "helm-chart",
   "k8s-smoke",
-  "storybook",
   "docs",
   "pages",
   "demo",
@@ -293,7 +291,6 @@ function productNeeds() {
     "integration-domain": { result: "success" },
     "helm-chart": { result: "success" },
     "k8s-smoke": { result: "success" },
-    storybook: { result: "success" },
     docs: { result: "success" },
     pages: { result: "success" },
     demo: { result: "success" },
@@ -322,8 +319,7 @@ test("product results bind named jobs to the plan and selection", () => {
   expect(productVerdict(productNeeds())).toBe(0);
   const main = productNeeds();
   main.changes.outputs.site = "false";
-  for (const job of ["storybook", "docs", "pages"] as const)
-    main[job].result = "skipped";
+  for (const job of ["docs", "pages"] as const) main[job].result = "skipped";
   expect(productVerdict(main)).toBe(0);
   const web = productNeeds();
   Object.assign(web.changes.outputs, {
@@ -348,8 +344,7 @@ test("product results bind named jobs to the plan and selection", () => {
   docs["docs-checks"].result = "success";
   expect(productVerdict(docs)).toBe(0);
   docs.changes.outputs.site = "true";
-  for (const job of ["storybook", "docs", "pages"] as const)
-    docs[job].result = "success";
+  for (const job of ["docs", "pages"] as const) docs[job].result = "success";
   expect(productVerdict(docs)).toBe(0);
 });
 
@@ -380,7 +375,7 @@ test.each(["helm", "k8s", "site", "product"])(
       const consumers = {
         helm: ["helm-chart"],
         k8s: ["k8s-smoke"],
-        site: ["storybook", "docs", "pages"],
+        site: ["docs", "pages"],
         product: ["demo", "ui-pack", "workspace-quota"],
       } as const;
       for (const job of consumers[flag as keyof typeof consumers])
@@ -616,7 +611,6 @@ test("all product and site consumers use the same explicit plan", () => {
   for (const [name, flag] of [
     ["check-part", "tests"],
     ["integration-domain", "tests"],
-    ["storybook", "site"],
     ["docs", "site"],
     ["demo", "product"],
     ["ui-pack", "product"],
@@ -630,7 +624,7 @@ test("all product and site consumers use the same explicit plan", () => {
     expect([job?.needs].flat()).toContain("changes");
     expect(job?.if).toContain(`needs.changes.outputs.${flag} == 'true'`);
   }
-  expect(workflow.jobs.pages?.needs).toEqual(["docs", "storybook"]);
+  expect(workflow.jobs.pages?.needs).toEqual(["docs"]);
   expect(
     workflow.jobs.changes?.steps.find((step) => step.id === "plan")?.env
       ?.BASE_REF,
