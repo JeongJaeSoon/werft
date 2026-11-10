@@ -566,8 +566,6 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
-        if (input.profileBlocked) return { outcome: "profile_blocked" };
-
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -623,6 +621,9 @@ export function createPostgresSessionUnitOfWork(
         if (input.agentPrivate || (usage !== null && !usage.allowed)) {
           return { outcome: "agent_private" };
         }
+        // After the reach and the usage, so the block's words (the profile's
+        // name) are said only to someone who sees the session and its agent.
+        if (input.profileBlocked) return { outcome: "profile_blocked" };
         if (session.takeoverRequiredAt !== null) {
           return { outcome: "awaiting_takeover" };
         }

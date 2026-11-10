@@ -244,21 +244,21 @@ describe("a start of a private agent by someone outside it", () => {
     );
   });
 
-  test("a changed body under the same key is the idempotency conflict", async () => {
-    const { service } = setup({ usage: closed, accept: "conflict" });
-    const error = await failure(
-      service.createSession(actor, start("rel-1") as never),
-    );
-    expect((error as SessionServiceError).code).toBe("IDEMPOTENCY_CONFLICT");
-  });
-
-  test("a requester the write finds gone is told so, not that the release is missing", async () => {
-    const { service } = setup({ usage: closed, accept: "actor_inactive" });
-    const error = await failure(
-      service.createSession(actor, start("rel-1") as never),
-    );
-    expect((error as SessionServiceError).code).toBe("FORBIDDEN");
-  });
+  // A missing release never reaches the write, so whatever the write finds
+  // (a key reused for another body, a key that does not reach the agent, a
+  // requester gone) must read as the missing release too.
+  for (const outcome of ["conflict", "actor_inactive"] as const) {
+    test(`a write that finds ${outcome} still answers as a missing release`, async () => {
+      const { service } = setup({ usage: closed, accept: outcome });
+      const hidden = await failure(
+        service.createSession(actor, start("rel-1") as never),
+      );
+      const missing = await failure(
+        setup({}).service.createSession(actor, start("rel-gone") as never),
+      );
+      expect(shapeOf(hidden)).toBe(shapeOf(missing));
+    });
+  }
 });
 
 describe("an agent that turned private after the release was read", () => {

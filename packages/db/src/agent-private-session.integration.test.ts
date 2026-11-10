@@ -408,6 +408,23 @@ integration("private agents on PostgreSQL", () => {
       );
     });
 
+    test("a blocked profile is named only to someone who may use the agent", async () => {
+      const w = await world();
+      const sessionId = await session(w.insider, w.releaseId);
+      const blocked = (by: Caller) =>
+        uow().appendInputAtomic({
+          principal: by,
+          sessionId,
+          idempotencyKey: randomUUID(),
+          payloadHash: "append",
+          message: "more",
+          limits: LIMITS,
+          profileBlocked: true,
+        });
+      expect(await blocked(w.outsider)).toEqual({ outcome: "agent_private" });
+      expect(await blocked(w.insider)).toEqual({ outcome: "profile_blocked" });
+    });
+
     test("a session the requester cannot see stays not found, whatever its agent", async () => {
       const w = await world();
       const sessionId = await session(w.insider, w.releaseId);

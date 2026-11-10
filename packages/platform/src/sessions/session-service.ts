@@ -855,14 +855,10 @@ export function createSessionService(deps: {
       message: input.body.message,
       limits: inputLimits,
     });
-    if (result.outcome === "conflict") return idempotencyConflict();
     if (result.outcome === "replayed") return result.response;
-    if (result.outcome === "actor_inactive") {
-      throw new SessionServiceError(
-        "FORBIDDEN",
-        "This principal is no longer a member of the workspace",
-      );
-    }
+    // Whatever else the write found (a key reused for another body, a key
+    // that does not reach this agent, a requester gone) is something a missing
+    // release never reaches, so it says what a missing release says.
     throw new SessionServiceError("NOT_FOUND", "Resource not found");
   }
 
