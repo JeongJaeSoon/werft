@@ -1249,3 +1249,11 @@ describe("maskBody: review inputs", () => {
     for (const k of keep) expect(out).toContain(k);
   });
 });
+
+describe("maskBody: a value hidden once is not hidden again", () => {
+  test("a form pair in a JSON message reads as one hidden value", () => {
+    const pw = ["pass", "word"].join("");
+    const out = maskBody(JSON.stringify({ message: `a=1&${pw}=one%26two` }));
+    expect(out).toBe(`{"message":"a=1&${pw}=(hidden)"}`);
+  });
+});

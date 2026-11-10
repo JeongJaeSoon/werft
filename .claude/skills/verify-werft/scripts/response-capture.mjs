@@ -211,6 +211,11 @@ function hideEmbedded(text) {
     if (sep >= text.length) break;
     const start =
       sep + 1 + /^\s*/.exec(text.slice(sep + 1, sep + 257))[0].length;
+    // Already hidden by the form step: leave it as it is.
+    if (text.startsWith("(hidden)", start)) {
+      pattern.lastIndex = start + 8;
+      continue;
+    }
     out += `${text.slice(last, start)}"(hidden)"`;
     // Outside JSON a bare value runs to a space or the next form pair: a
     // bracket inside it (a[0]=…) must not end it before a later secret key.
@@ -303,7 +308,7 @@ function maskText(text, parsed) {
       )
       .replace(/\/invite\/[^/?#\s"'<>\\]+/gi, "/invite/(token)")
       .replace(
-        /((?:code|state|sid|[a-z_]{0,40}(?:token|secret|password|passwd|api[_-]?key|session[_-]?id|e-?mail))(?:=|%3D))(?:(?!%26|%23)[^&#\s"])+/gi,
+        /((?:code|state|sid|[a-z_]{0,40}(?:token|secret|password|passwd|api[_-]?key|session[_-]?id|e-?mail))(?:=|%3D))(?:(?!%26|%23)[^&#\s"\\])+/gi,
         "$1(hidden)",
       )
       // Bounded runs keep this linear on a long word with no @ in it.
