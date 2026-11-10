@@ -4,9 +4,9 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 
-// Documentation lives on the docs site. A link from the product, the site, the
-// Storybook or a published package README to a Markdown file or a docs
-// directory on github.com opens a raw README instead of a site page.
+// Documentation lives on the docs site. A link from the product, the site or a
+// published package README to a Markdown file or a docs directory on
+// github.com opens a raw README instead of a site page.
 const SITE = "https://jeongjaesoon.github.io/werft";
 const REPO_DOC =
   /https:\/\/(?:github\.com\/jeongjaesoon\/werft\/(?:blob|tree|raw)|raw\.githubusercontent\.com\/jeongjaesoon\/werft)\/([^\s)"'`>#?]+)/gi;
@@ -37,8 +37,6 @@ function repoPath(refAndPath: string): string {
 // site page for it. Drop an entry when its page exists: the stale-entry test
 // below fails on one nothing links to any more.
 const ALLOWED: Record<string, string> = {
-  "packages/ui/README.md":
-    "contributor rules for building screens; the Storybook introduction links its source of truth",
   "examples/LICENSE": "license file of the sample code",
   "CHANGELOG.md":
     "the changelog is one repository file in Korean, holding what a release's generated notes cannot: security fixes and operator actions",

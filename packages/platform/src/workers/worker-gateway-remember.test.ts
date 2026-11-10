@@ -93,7 +93,14 @@ function wired() {
     pendingControlAtomic: async () => ({
       outcome: "ok",
       control: null,
-      answers: [{ sequence: 1, answer: stored, inputHash: HASH }],
+      answers: [
+        {
+          sequence: 1,
+          answer: stored,
+          inputHash: HASH,
+          answerSurface: "slack",
+        },
+      ],
     }),
   } as unknown as WorkerPendingStore;
   const binding = {
@@ -158,7 +165,9 @@ function wired() {
         credential: { kind: "launch_nonce", nonce: "n" },
       },
     );
-  const poll = (capabilities?: { approval_remember: true }) =>
+  const poll = (
+    capabilities?: { approval_remember: true } | { answer_surface: true },
+  ) =>
     gateway.pendingControl(principal, {
       ...scope,
       ...(capabilities === undefined ? {} : { capabilities }),
@@ -188,6 +197,20 @@ describe("an answer remembered for the session, across worker versions", () => {
   test("the same response with remember is what the older parser refuses", async () => {
     const response = await wired().poll({ approval_remember: true });
     expect(oldAnswers.safeParse(response).success).toBe(false);
+  });
+
+  test("answer_surface reaches only a poller that announced it", async () => {
+    const announced = pendingControlResponseSchema.parse(
+      await wired().poll({ answer_surface: true }),
+    );
+    expect(announced.answers[0]?.answer_surface).toBe("slack");
+
+    for (const response of [
+      await wired().poll(),
+      await wired().poll({ approval_remember: true }),
+    ]) {
+      expect(response.answers[0]).not.toHaveProperty("answer_surface");
+    }
   });
 
   test("a claim that announces it carries the rules a parked allow keeps", async () => {

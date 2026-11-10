@@ -16,7 +16,7 @@ Werft는 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실
 
 ## 기여
 
-개발 환경, 구성요소와 경계, CI, Storybook, 콘솔 데모는 [`docs/contributing/`](docs/contributing/)에 있다. 시작은 [개발 환경과 검증](docs/contributing/development.md)이고, 전체 색인은 [docs/README.md](docs/README.md)다.
+개발 환경, 구성요소와 경계, CI, 콘솔 데모는 [`docs/contributing/`](docs/contributing/)에 있다. 시작은 [개발 환경과 검증](docs/contributing/development.md)이고, 전체 색인은 [docs/README.md](docs/README.md)다.
 
 ## 라이선스
 

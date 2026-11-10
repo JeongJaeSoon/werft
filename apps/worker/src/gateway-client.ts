@@ -58,6 +58,7 @@ const REFUSABLE_CAPABILITIES = [
   "permission_rules",
   "engine_settings",
   "response_language",
+  "answer_surface",
 ] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.
@@ -94,6 +95,12 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     this.call =
       options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.requestTimeoutMs = options.requestTimeoutMs;
+  }
+
+  private currentTraceparent: (() => string | undefined) | undefined;
+
+  useTraceparent(current: () => string | undefined): void {
+    this.currentTraceparent = current;
   }
 
   useCredential(credential: string): void {
@@ -319,12 +326,14 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     decoder: Decoder<T>,
   ): Promise<T> {
     let response: Response;
+    const traceparent = this.currentTraceparent?.();
     try {
       response = await this.call(`${this.baseUrl}/internal/worker${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.credential}`,
           "Content-Type": "application/json",
+          ...(traceparent === undefined ? {} : { traceparent }),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(this.requestTimeoutMs),

@@ -79,18 +79,9 @@ scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 
 
 verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 소스를 바꾸면 `doctor.sh`는 "built from"이 달라졌다며 exit 1을 낸다. 개발 모드에서는 정상이다.
 
-## UI 컴포넌트 보기 (Storybook)
+## 문서 사이트 게시 (GitHub Pages)
 
-`packages/ui`의 primitive·pattern과 화면 상태(로딩·빈·오류)는 [apps/storybook](../../apps/storybook)에서 스토리로 본다. 툴바의 Theme으로 라이트·다크를, Viewport로 390px(Mobile 390)·360px·768px·1440px를 바꾼다.
-
-```bash
-bun install
-bun run --filter @werft-ai/storybook dev     # http://localhost:6006
-bun run --filter @werft-ai/storybook build   # static build: apps/storybook/dist
-bun run --filter @werft-ai/storybook test:stories  # renders every story in Chrome; fails on an a11y (axe) violation
-```
-
-Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 사이트 입력(`apps/docs`, `apps/storybook`, `apps/web`, `packages`, `docs`, lockfile 등)을 바꾼 main push나 수동 실행에서만 돌고, 진행 중인 배포를 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`storybook`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다. 읽는 쪽 설명은 문서 사이트의 [Storybook](https://jeongjaesoon.github.io/werft/ko/ui/storybook/) 페이지에 있다.
+CI의 `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, API 레퍼런스를 `/api/`에 모은다. 배포는 별도 workflow `pages.yml`이 한다. 사이트 입력(`apps/docs`, `apps/web`, `packages`, `docs`, lockfile 등)을 바꾼 main push나 수동 실행에서만 돌고, 진행 중인 배포를 취소하지 않고 줄 세운다. PR에서는 `ci.yml`의 `docs`·`pages` job이 같은 빌드와 배치(`scripts/pages-site.sh`)를 검사만 한다.
 
 ## e2e·gate·soak 도구 진입점
 

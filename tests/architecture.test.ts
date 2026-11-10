@@ -231,7 +231,6 @@ function kindMentionAllowed(hit: string): boolean {
     /\/(test-support|fixtures)\//.test(path) ||
     // Testing helpers, one directory at a time so a new one is a decision.
     path.startsWith("apps/worker/src/testing/") ||
-    /^apps\/storybook\/src\/.*(\.stories\.tsx|-fixtures\.ts)$/.test(path) ||
     // Example payloads in the user documentation.
     /^apps\/docs\/content\/.*\.mdx$/.test(path) ||
     // A workspace profile whose base profile is gone keeps no kind of its

@@ -176,6 +176,7 @@ export type DeliveredAnswer = {
   sequence: number;
   answer: PostSessionAnswerRequest;
   inputHash: string;
+  answerSurface?: SurfaceKind | null;
 };
 
 export type PendingControlInput = {

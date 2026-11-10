@@ -150,7 +150,7 @@ egress_proxy_smoke() {
   [ "$exit_code" = 0 ] || { echo "expected the proxy to exit 0 on SIGTERM, not be killed" >&2; exit 1; }
 }
 
-# A published image holds no test source, testkit, Storybook or demo tool.
+# A published image holds no test source, testkit or demo tool.
 # Two counts: scripts/image-prune.sh's own list run inside the image, and the
 # names the release checklist is written in, spelled out here so a list that
 # is too narrow cannot vouch for itself. Neither may print anything.
@@ -161,9 +161,9 @@ assert_published_tree() {
     "$image" /tmp/image-prune.sh --list /app)"
   # A dependency's own tests (zod's) are not ours: node_modules is skipped.
   named="$(docker run --rm --entrypoint find "$image" /app -name node_modules -prune -o \
-    \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.stories.tsx' \
+    \( -name '*.test.ts' -o -name '*.test.tsx' \
        -o -name '*.snap' -o -name __snapshots__ -o -name pglite-release.ts \
-       -o -name storybook -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
+       -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
   echo "test sources and demo files in the image: $(printf '%s' "${listed}${named}" | grep -c . || true)"
   if [ -n "${listed}${named}" ]; then
     printf '%s\n%s\n' "$listed" "$named" >&2
