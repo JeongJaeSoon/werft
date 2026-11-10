@@ -198,11 +198,6 @@ try {
     /test-support|__fixtures__|\.test\.|fonts|\.woff2$/.test(path),
   );
   if (stray.length > 0) fail(`the tarball carries ${stray.join(", ")}`);
-  const missing = ["LICENSE", "NOTICE.md", "LICENSE-APACHE-2.0"].filter(
-    (file) => !paths.includes(file),
-  );
-  if (missing.length > 0) fail(`the tarball lacks ${missing.join(", ")}`);
-  console.log("license files: LICENSE, NOTICE.md, LICENSE-APACHE-2.0 present");
 
   step("consumer app");
   const app = join(work, "app");

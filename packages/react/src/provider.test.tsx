@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ApiClient } from "@werft-ai/client";
 import { meQuery } from "@werft-ai/core";
-import { useAriaLocale } from "@werft-ai/ui/foundations";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -68,15 +67,6 @@ describe("WerftProvider", () => {
     expect(render(<Message name="sessions.title" />, { locale: "ja" })).toBe(
       sessionsJa["sessions.title"],
     );
-  });
-
-  test("React Aria follows the host's locale", () => {
-    function Tag() {
-      return <>{useAriaLocale()}</>;
-    }
-    expect(render(<Tag />)).toBe("ko-KR");
-    expect(render(<Tag />, { locale: "ja" })).toBe("ja-JP");
-    expect(render(<Tag />, { locale: "en" })).toBe("en-US");
   });
 
   test("messages replace the defaults key by key", () => {

@@ -98,12 +98,7 @@ rmSync(OUT, { recursive: true, force: true });
 await build({
   config: false,
   cwd: PACKAGE_ROOT,
-  entry: [
-    "src/index.ts",
-    "src/foundations/index.ts",
-    "src/primitives/index.ts",
-    "src/patterns/index.ts",
-  ],
+  entry: ["src/index.ts", "src/primitives/index.ts", "src/patterns/index.ts"],
   format: "esm",
   platform: "neutral",
   unbundle: true,
@@ -118,10 +113,6 @@ for (const file of ["tokens.css", "theme.css"]) {
   cpSync(join(FOUNDATIONS, file), join(OUT, file));
 }
 cpSync(join(PACKAGE_ROOT, "../../LICENSE"), join(OUT, "LICENSE"));
-// Copied Apache-2.0 source (NOTICE.md lists it) must travel with its license.
-for (const file of ["NOTICE.md", "LICENSE-APACHE-2.0"]) {
-  cpSync(join(PACKAGE_ROOT, file), join(OUT, file));
-}
 
 const source: Manifest = await Bun.file(
   join(PACKAGE_ROOT, "package.json"),
