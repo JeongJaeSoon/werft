@@ -15,7 +15,7 @@ outcome: "지원 창과 worker pin을 보존하며 chart를 교체한다"
 
 [변경 기록](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md)에서 대상 버전의 운영자 작업을 먼저 읽는다.
 
-설치별 values, jq·helm·kubectl, 현재 deployed revision과 worker-previous.json, DB·S3 백업이 필요하다. kind에서 승인을 기다리는 세션과 checkpoint를 남기고 멈춘 세션을 둔 채 worker 이미지를 바꾸지 않는 `helm upgrade`와 `helm rollback`을 실행해, hook 순서와 세션 상태·이벤트·checkpoint 이어짐을 확인했다(`deploy/kind/upgrade.sh`). worker 이미지가 바뀌는 upgrade·rollback과 영향 세션을 승인하는 흐름은 실행 확인하지 않았다. fixture chart render와 게시 chart 설치를 구분한다.
+설치별 values, jq·helm·kubectl, 현재 deployed revision과 worker-previous.json, DB·S3 백업이 필요하다. kind에서 승인을 기다리는 세션과 checkpoint를 남기고 멈춘 세션을 둔 채, 이미지와 schema는 그대로 두고 `extraEnv`만 바꿔 Pod를 다시 띄우는 `helm upgrade`와 `helm rollback`(migrate는 할 일이 없었다)을 실행해 hook 순서와 세션 상태·이벤트·checkpoint 이어짐을 확인했다(`deploy/kind/upgrade.sh`). control-host 이미지를 바꾸거나 새 migration이 있는 upgrade·rollback(rollback 뒤의 새 schema와 옛 코드), worker 이미지가 바뀌는 upgrade·rollback, 영향 세션을 승인하는 흐름은 실행 확인하지 않았다. fixture chart render와 게시 chart 설치를 구분한다.
 
 [공통 실행 전 게이트](/run-server/self-hosting/upgrade-compose#실행-전-게이트)의 활성화 순서와 롤백 하한을 먼저 대조한다. Compose 전용 검사 명령 대신 아래 Helm hook과 직접 검사를 사용한다.
 

@@ -36,6 +36,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 export CLUSTER_NAME="${CLUSTER_NAME:-werft-upgrade}"
 export KIND_MODEL=fake
+# The teardown deletes what this run installed; on OrbStack's shared cluster
+# that is a namespace the run does not own.
+if [ "${CLUSTER_PROVIDER:-kind}" != kind ]; then
+  echo "upgrade.sh runs on kind only, not CLUSTER_PROVIDER=${CLUSTER_PROVIDER}" >&2
+  exit 1
+fi
+export CLUSTER_PROVIDER=kind
 export NAMESPACE="${NAMESPACE:-werft}"
 export RELEASE="${RELEASE:-werft}"
 if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
@@ -107,6 +114,8 @@ mkdir -p "$work"
 "$here/up.sh"
 echo "kind: $(kind version)"
 helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$work/release-values.json"
+# A reused cluster may not start at revision 1; the rollback target is this one.
+base="$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)"
 pass
 
 # A key for this run alone, in a 0600 header file, never in an argument or
@@ -174,6 +183,8 @@ prefix_kept() {
   local name="$1" before="$2" count
   event_ids "$name" >"$work/ids-now-${name}"
   count="$(wc -l <"$before" | tr -d ' ')"
+  # An empty list (a failed read) would match anything.
+  [ "$count" -ge 3 ] || fail "${name}: only ${count} events were read before, too few to compare"
   head -n "$count" "$work/ids-now-${name}" | cmp -s - "$before" ||
     fail "${name}: the first ${count} events are not the ones it had before"
   [ -z "$(sort "$work/ids-now-${name}" | uniq -d)" ] || fail "${name}: an event id appears twice"
@@ -251,13 +262,16 @@ helm upgrade "$RELEASE" "$root/deploy/helm/werft" --namespace "$NAMESPACE" \
   ${UPGRADE_EXTRA_ARGS:-} --wait --timeout 10m
 rollout
 helm history "$RELEASE" --namespace "$NAMESPACE"
-[ "$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)" = 2 ] || fail "the upgrade is not revision 2"
+[ "$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)" = "$((base + 1))" ] || fail "the upgrade is not revision $((base + 1))"
 check_job="$(k get "job/${fullname}-upgrade-check" -o json)" || fail "no upgrade-check Job ran"
 migrate_job="$(k get "job/${fullname}-migrate" -o json)" || fail "no migrate Job ran"
 verdict="$(k logs "job/${fullname}-upgrade-check" | jq -c 'select(.verdict)')"
 echo "upgrade-check: ${verdict}"
 echo "$verdict" | jq -e '.verdict == "proceed"' >/dev/null || fail "upgrade-check did not say proceed"
 echo "$check_job" | jq -e '.status.succeeded == 1' >/dev/null || fail "the upgrade-check Job did not succeed"
+# The chart's lookup of the running scheduler gave the Job the deployed image.
+echo "$check_job" | jq -e '[.spec.template.spec.containers[0].env[] | select(.name == "UPGRADE_DEPLOYED_WORKER_IMAGE" or .name == "WORKER_IMAGE") | .value] | length == 2 and .[0] != "" and .[0] == .[1]' >/dev/null ||
+  fail "the upgrade-check Job did not get the deployed worker image from the running scheduler"
 echo "$migrate_job" | jq -e '.status.succeeded == 1' >/dev/null || fail "the migrate Job did not succeed"
 check_done="$(epoch "$check_job" .status.completionTime)"
 migrate_start="$(epoch "$migrate_job" .status.startTime)"
@@ -297,6 +311,9 @@ wait_session "a checkpoint newer than the paused one" \
 get "/v1/sessions/${s2}" | jq -c '.durability | {checkpoint_revision, last_completed_turn_id, last_checkpointed_turn_id, checkpoint_fallback_revision}'
 # Matched in the raw stream, whatever shape the event has.
 curl -sSN --max-time 4 "http://127.0.0.1:${API_PORT}/v1/sessions/${s2}/events" -H @"$auth" 2>/dev/null >"$work/s2-after-resume.sse" || true
+# Without the second turn's own text the file could be empty or a failed read,
+# and the absence check below would pass on it.
+grep -q 'turn two done' "$work/s2-after-resume.sse" || fail "S2's stream has no text of turn 2"
 ! grep -E 'checkpoint_restore_failed|checkpoint_restore_fallback|checkpoint_objects_lost|context_gap_detected' "$work/s2-after-resume.sse" ||
   fail "S2's restore from the pause's checkpoint reported a failure"
 echo "turn 2 of S2 completed on the new release from the paused checkpoint; no restore failure event"
@@ -305,13 +322,12 @@ event_ids "$s2" >"$work/ids-s2-mid"
 pass
 
 step rollback
-snapshot_pods before-rollback
 check_uid="$(echo "$check_job" | jq -r .metadata.uid)"
 migrate_uid="$(echo "$migrate_job" | jq -r .metadata.uid)"
-helm rollback "$RELEASE" 1 --namespace "$NAMESPACE" --wait --timeout 10m
+helm rollback "$RELEASE" "$base" --namespace "$NAMESPACE" --wait --timeout 10m
 rollout
 helm history "$RELEASE" --namespace "$NAMESPACE"
-[ "$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)" = 3 ] || fail "the rollback is not revision 3"
+[ "$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)" = "$((base + 2))" ] || fail "the rollback is not revision $((base + 2))"
 [ "$(k get "job/${fullname}-upgrade-check" -o jsonpath='{.metadata.uid}')" = "$check_uid" ] &&
   [ "$(k get "job/${fullname}-migrate" -o jsonpath='{.metadata.uid}')" = "$migrate_uid" ] ||
   fail "a hook Job was created by the rollback"

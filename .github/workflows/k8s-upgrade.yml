@@ -14,6 +14,7 @@ on:
   pull_request:
     paths:
       - deploy/helm/werft/**
+      - apps/control-host/src/api/upgrade-check.ts
       - deploy/kind/upgrade.sh
       - deploy/kind/up.sh
       - .github/workflows/k8s-upgrade.yml
