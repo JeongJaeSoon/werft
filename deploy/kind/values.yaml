@@ -6,3 +6,7 @@ config:
     endpointUrl: http://localstack:4566
   egress:
     credentialPrivateAllowlist: "localstack:4566"
+# BOOTSTRAP_TOKEN joins the api's environment so the checks can release
+# their agent as the first owner (release-key.sh); up.sh writes it.
+secrets:
+  catalogEnv: [ANTHROPIC_API_KEY, BOOTSTRAP_TOKEN]

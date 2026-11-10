@@ -726,7 +726,7 @@ integration("sessions API on PostgreSQL", () => {
 
   test("legacy rows without a catalog key expose repository_id null and never the repo URL", async () => {
     // An M0 row: the client sent the URL directly, so it may embed
-    // credentials. It has no profile/repository catalog keys.
+    // credentials. It has no repository catalog key.
     const legacyOwner = crypto.randomUUID();
     const legacyId = crypto.randomUUID();
     const secret = "legacy-basic-auth-password";

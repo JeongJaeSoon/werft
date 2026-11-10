@@ -63,7 +63,6 @@ import { noWorkspace } from "../apps/worker/src/workspace.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
 const LEASE_TTL_MS = 10_000;
 const MARGIN_MS = 3_000;
 const HEARTBEAT_MS = 300;

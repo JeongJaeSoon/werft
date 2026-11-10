@@ -194,10 +194,7 @@ function checkPeriod(
   );
 }
 
-export const USAGE_SUMMARY_GROUP_BY_VALUES = [
-  "agent",
-  "user",
-] as const;
+export const USAGE_SUMMARY_GROUP_BY_VALUES = ["agent", "user"] as const;
 
 /** The summary's scopes: the period scopes and one agent's sessions. */
 export const USAGE_SUMMARY_TOTALS_SCOPE_VALUES = [

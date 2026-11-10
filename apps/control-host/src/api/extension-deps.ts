@@ -7,7 +7,7 @@ import { installedRuntimes } from "./catalog-config.ts";
 
 /**
  * What resolves a session's bundles and checks an agent's bundles against the
- * profile a release activates it on. Every service that creates sessions or
+ * runtime a release activates it on. Every service that creates sessions or
  * activates releases takes it, the operator CLIs included: a path without it
  * would activate what the API refuses.
  */

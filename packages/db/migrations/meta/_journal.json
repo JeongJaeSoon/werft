@@ -1226,6 +1226,13 @@
       "when": 1794337141854,
       "tag": "0265_agent_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 266,
+      "version": "7",
+      "when": 1794343920514,
+      "tag": "0266_remove_profiles",
+      "breakpoints": true
     }
   ]
 }

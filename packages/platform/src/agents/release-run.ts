@@ -1,10 +1,14 @@
-import type { PermissionMode, RuntimeKind } from "@werft-ai/contracts";
+import {
+  type PermissionMode,
+  RUNTIME_KINDS_WITH_AUTO_MODE,
+  type RuntimeKind,
+} from "@werft-ai/contracts";
 import {
   type CatalogConnectionView,
   connectionOf,
   runtimeKindOfProvider,
-} from "../sessions/catalog.ts";
-import type { ToolCatalogs } from "../sessions/tool-names.ts";
+  type ToolCatalogs,
+} from "../sessions/index.ts";
 import type { ReleaseRun } from "./release-ids.ts";
 
 /**
@@ -60,7 +64,8 @@ export function releaseRunOf(
     };
   }
   const permission_mode: PermissionMode =
-    kind === "claude_agent_sdk" && connection.auto_mode === "supported"
+    RUNTIME_KINDS_WITH_AUTO_MODE.includes(kind) &&
+    connection.auto_mode === "supported"
       ? "auto"
       : "default";
   return {

@@ -46,8 +46,8 @@ export function eventNeutralizer(
  * as the process runs: history first, then whatever an older replica stores
  * meanwhile. Nothing waits on it; a replica that finds the fill held by
  * another tries again later. Each pass starts once `beforePass` resolves (the
- * workspace profiles read afresh): the cursor passes a row whose runtime it
- * could not tell, so the profiles have to be current first.
+ * catalog read afresh): the cursor passes a row whose runtime it could not
+ * tell, so the catalog has to be current first.
  */
 export function startNeutralFill(
   db: Database,

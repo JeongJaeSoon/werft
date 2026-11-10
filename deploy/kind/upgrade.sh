@@ -120,15 +120,10 @@ helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$work/release-valu
 base="$(helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq .version)"
 pass
 
-# A key for this run alone, in a 0600 header file, never in an argument or
-# the log.
 { set +x; } 2>/dev/null
 umask 077
-key="$(k exec "deploy/${fullname}-api" -- bun run apps/control-host/src/api/keys.ts create kind-upgrade \
-  --scopes sessions:read,sessions:write,sessions:control,sessions:approve 2>/dev/null)"
-[ -n "$key" ] || fail "the key CLI printed no key"
-printf 'Authorization: Bearer %s\n' "$key" >"$auth"
-unset key
+# shellcheck source=release-key.sh
+. "$here/release-key.sh"
 # Through the Service, and again after each rollout: a forward to a Pod ends
 # with that Pod.
 open_api() {
@@ -156,6 +151,9 @@ post() {
     -H "Idempotency-Key: $(openssl rand -hex 16)" -d "$2"
 }
 open_api
+# Every session runs an agent release: the first owner releases the checks'
+# agent and its key, in a 0600 header file, starts the sessions.
+kind_release_key "http://127.0.0.1:${API_PORT}" "$auth" || fail "the checks' agent was not released"
 
 wait_turn() {
   local sid="$1" turn="$2" status="" _
@@ -207,7 +205,7 @@ settle_receipt() {
 step sessions
 new_session() {
   local spec="$1"
-  post /v1/sessions "$(jq -nc --arg m "GATE-SPEC ${spec}" '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')" |
+  post /v1/sessions "$(jq -nc --arg m "GATE-SPEC ${spec}" --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app", message: $m}')" |
     jq -r .session_id
 }
 s1="$(new_session '{"id":"upgrade-wait","final":"approved turn done","steps":[{"tool":"Bash","input":{"command":"echo upgrade | tee up.txt","description":"write a file"}}]}')"

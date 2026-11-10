@@ -21,7 +21,9 @@ import {
   workspaceLimitModeSchema,
 } from "../shared/index.ts";
 import {
+  RUNTIME_KIND_OF_PROVIDER,
   RUNTIME_KIND_VALUES,
+  RUNTIME_KINDS_WITH_AUTO_MODE,
   runtimeKindSchema,
 } from "../shared/runtime-kind.ts";
 import {
@@ -30,7 +32,12 @@ import {
 } from "./push-request.ts";
 import { receiptStatusSchema } from "./receipt.ts";
 
-export { RUNTIME_KIND_VALUES, runtimeKindSchema };
+export {
+  RUNTIME_KIND_OF_PROVIDER,
+  RUNTIME_KIND_VALUES,
+  RUNTIME_KINDS_WITH_AUTO_MODE,
+  runtimeKindSchema,
+};
 
 export const SESSION_STATUS_VALUES = [
   "queued",

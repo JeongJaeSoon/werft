@@ -46,7 +46,6 @@ import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
 const catalog: SessionCatalog = testCatalog({
   provider: {
     kind: "litellm",

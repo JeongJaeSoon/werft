@@ -21,8 +21,8 @@ import {
   userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
-import { cardEnvDeclarationSchema } from "./env-variables.ts";
 import { providerKindSchema } from "../shared/provider-kind.ts";
+import { cardEnvDeclarationSchema } from "./env-variables.ts";
 
 export {
   AGENT_DESCRIPTION_MAX_LENGTH,

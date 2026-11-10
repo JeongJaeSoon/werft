@@ -548,7 +548,7 @@ describe("the agent's repositories read as owner/repo", () => {
     ]);
   });
 
-  test("a row with an App of its own is a choice only where the ceiling names it", async () => {
+  test("a row with an App of its own is a choice under `installed`, and under a list only where named", async () => {
     const OWN = {
       ...ROW,
       id: "ghe",
@@ -561,12 +561,7 @@ describe("the agent's repositories read as owner/repo", () => {
       ((await agentPage()).all_repositories ?? []).map(
         (entry) => entry.repository,
       );
-    // `installed` opens the console App's rows, not this one.
-    expect(await names()).toEqual(["acme/widget"]);
-    ceilingHeld = {
-      repository_ids: ["ghe"],
-      github_app_repositories: "installed",
-    };
+    // `installed` opens every row a GitHub App reaches, this one too.
     expect(await names()).toEqual(["acme/ghe", "acme/widget"]);
     // Under a list the console App's rows need naming too.
     ceilingHeld = {

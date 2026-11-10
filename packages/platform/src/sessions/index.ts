@@ -1,9 +1,12 @@
 // The entrance other platform domains import (A2 in package-structure.md):
-// only the names action/ and decision/ use, not a barrel over the directory.
+// only the names other domains use, not a barrel over the directory.
 export { additionalRepositoryAllowed } from "./additional-repositories.ts";
 export {
+  type CatalogConnectionView,
+  connectionOf,
   repositoryBinding,
   repositoryUpstreamOf,
+  runtimeKindOfProvider,
   type SessionCatalog,
 } from "./catalog.ts";
 export {
@@ -24,3 +27,4 @@ export {
   SessionServiceError,
   selfApproval,
 } from "./session-service.ts";
+export type { ToolCatalogs } from "./tool-names.ts";

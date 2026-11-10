@@ -527,7 +527,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       })),
     ).toEqual([{ id: agentIds.mine, active_release_id: releases.mine }]);
 
-    // The release alone names the profile and the repository.
+    // The release alone names the connection and the repository.
     const created = await send(
       "POST",
       "/v1/sessions",

@@ -102,8 +102,7 @@ export type McpSettingsMigrationDeps = { db: Database; pool: Pool };
 
 type Say = (summary: Record<string, unknown>) => void;
 
-const LOCKED =
-  "another profile migration, tool unlock or MCP settings migration is running";
+const LOCKED = "another MCP settings migration is running";
 
 async function planNow(db: Database, includeDrafts: boolean) {
   return planMcpSettingsMigration({

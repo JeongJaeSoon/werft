@@ -15,6 +15,7 @@ import {
   newSessionGitHubPolicy,
   type ProviderKind,
   type RepositoryCeiling,
+  RUNTIME_KIND_OF_PROVIDER,
   type RuntimeConfig,
   type RuntimeKind,
   type runtimeConfigSchema,
@@ -955,7 +956,7 @@ export function connectionOf<C extends CatalogConnectionView>(
 
 /** The runtime a connection's kind runs on. */
 export function runtimeKindOfProvider(kind: ProviderKind): RuntimeKind {
-  return kind === "openai_responses" ? "codex_app_server" : "claude_agent_sdk";
+  return RUNTIME_KIND_OF_PROVIDER[kind];
 }
 
 /**

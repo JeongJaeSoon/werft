@@ -851,7 +851,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
 
   // agent-wizard-rework.md item 1: the new-agent flow releases without a
   // repository, and such an agent sets GitHub up from the tab first.
-  test("a release without a repository on an optional profile saves its first settings", async () => {
+  test("a release without a repository saves its first settings", async () => {
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "no-repo",
       name: "no-repo",

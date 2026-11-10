@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type AgentCard, agentCardSchema } from "@werft-ai/contracts";
 import { testConnection } from "../testing/catalog-fakes.ts";
+import { runtimeConfigOfSpec } from "../workers/runtime-config-of-spec.ts";
 import {
   cardContentSha256,
   deriveReleaseId,
@@ -11,7 +12,6 @@ import {
 import {
   buildSpecSource,
   releaseSpecRecord,
-  runtimeConfigOfSpec,
   specWithModel,
   verifyReleaseSpec,
 } from "./release-spec.ts";

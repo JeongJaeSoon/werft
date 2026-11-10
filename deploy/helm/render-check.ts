@@ -436,7 +436,7 @@ function checkSlack(
 const WORKER_IMAGE_ROLES = ["api", "slack", "scheduler"];
 
 /**
- * The api and slack judge profile pins by the worker images' runtimes and the
+ * The api and slack judge release spec pins by the worker images' runtimes and the
  * scheduler picks each session's image by them: all three get the same
  * values, and only the scheduler, which launches on it, the previous image.
  */

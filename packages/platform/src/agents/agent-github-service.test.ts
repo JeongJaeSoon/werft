@@ -425,7 +425,7 @@ describe("the agent GitHub tab's options", () => {
       );
     };
 
-    test("`installed` reaches the console App's repositories; a listed id reaches its own", async () => {
+    test("`installed` reaches every repository on a GitHub App, its own or the console's; a listed id reaches its own", async () => {
       expect(
         await reasons({
           repositoryCeiling: {
@@ -435,7 +435,7 @@ describe("the agent GitHub tab's options", () => {
         }),
       ).toEqual({
         "elsewhere-app": null,
-        "ghe-app": "repository_not_allowed",
+        "ghe-app": null,
         "sample-app": null,
       });
       expect(
@@ -903,7 +903,7 @@ describe("repositories read as owner/repo", () => {
       expect(toggles).toHaveLength(0);
     });
 
-    test("the ceiling judges what is turned on: ids, installed App rows, own-App rows", async () => {
+    test("the ceiling judges what is turned on: ids, and under `installed` every App row", async () => {
       const turnOn = (
         enabling: { id: string; authKind: string; via: "catalog" | "github" },
         ceiling: RepositoryCeiling,
@@ -942,13 +942,13 @@ describe("repositories read as owner/repo", () => {
           listed,
         ),
       ).toBe("BAD_REQUEST:repository_not_allowed");
-      // An own-App row is not "installed" under the console App's ceiling.
+      // An own-App row is a GitHub App's too: an `installed` ceiling opens it.
       expect(
         await turnOn(
           { id: "own", authKind: "github_app_explicit", via: "catalog" },
           installed,
         ),
-      ).toBe("BAD_REQUEST:repository_not_allowed");
+      ).toBe("saved");
       expect(
         await turnOn(
           { id: "sample-app", authKind: "basic", via: "catalog" },

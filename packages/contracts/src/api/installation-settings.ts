@@ -117,7 +117,9 @@ export const connectionAutoModeSchema = z.enum([
 
 export const connectionModelFamiliesSchema = z.record(
   z.string().min(1).max(128),
-  z.object({ family: z.string().min(1).max(128), rank: z.number().int() }).strict(),
+  z
+    .object({ family: z.string().min(1).max(128), rank: z.number().int() })
+    .strict(),
 );
 
 export const settingsConnectionSchema = z

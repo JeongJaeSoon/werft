@@ -17,7 +17,6 @@ import { useState } from "react";
 import { agentQuery, queryKeysOf } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
-import { useProfileDisplay } from "../../components/profile-options.tsx";
 import { RevisionDiff } from "../../components/revision-diff.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
@@ -25,7 +24,7 @@ import { CredentialUnbound, unboundRefs } from "./credentials.tsx";
 import { mcpSettingsQuery } from "./mcp-settings.ts";
 import { type Placed, PlacedOutcome, TakesFocus } from "./placement.tsx";
 import { Releases } from "./releases.tsx";
-import { rolledBackText, trackingOf } from "./rollback-preview.ts";
+import { rolledBackText } from "./rollback-preview.ts";
 
 /** What the screen showed when its activation lost the race. */
 interface Conflict {
@@ -52,7 +51,6 @@ export function useReleaseActivation({
   const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
-  const profile = useProfileDisplay();
   const { agent } = detail;
   const [conflict, setConflict] = useState<Conflict | null>(null);
   // The names the last refused activation found unbound.
@@ -65,7 +63,7 @@ export function useReleaseActivation({
     return release
       ? t("agent.releaseLabel", {
           release: release.label,
-          profile: profile.show(release.runtime_profile_id),
+          connection: release.connection_id,
         })
       : t("agent.noActive");
   };
@@ -87,10 +85,6 @@ export function useReleaseActivation({
       release: AgentRelease;
       expected: number;
       seenActive: string | null;
-      before: {
-        tracking: NonNullable<AgentDetail["profile_tracking"]>;
-        modelSource: AgentDetail["model_source"];
-      };
     }
   >({
     mutationFn: ({ release, expected }) =>
@@ -104,7 +98,7 @@ export function useReleaseActivation({
       onOutcome(null);
       setUnbound(null);
     },
-    onSuccess: async (result, { before }) => {
+    onSuccess: async (result) => {
       setConflict(null);
       if (result.receipt_id === null) {
         onOutcome({ kind: "notice", text: t("agent.alreadyActive") });
@@ -115,8 +109,6 @@ export function useReleaseActivation({
           text: after
             ? rolledBackText(t, {
                 release: releaseLabel(result.active_release_id),
-                before,
-                after,
               })
             : t("agent.rolledBack.unchecked", {
                 release: releaseLabel(result.active_release_id),
@@ -127,7 +119,7 @@ export function useReleaseActivation({
         queryKey: queryKeysOf(client).agents,
       });
     },
-    onError: async (error, { release, expected, seenActive, before }) => {
+    onError: async (error, { release, expected, seenActive }) => {
       // The server may have committed before the answer was lost, so the
       // outcome is read, never assumed.
       if (error.code === "NETWORK_ERROR") {
@@ -146,14 +138,12 @@ export function useReleaseActivation({
                   kind: "notice",
                   text: rolledBackText(t, {
                     release: releaseLabel(release.id),
-                    before,
-                    after,
                   }),
                 }
               : after.agent.activation_revision === expected
                 ? {
                     kind: "error",
-                    text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
+                    text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
                   }
                 : {
                     // The pointer moved but not to the target: this rollback
@@ -188,7 +178,7 @@ export function useReleaseActivation({
       }
       onOutcome({
         kind: "error",
-        text: `${agentRefusal(t, error, role, profile.show)} ${t("agent.rollback.kept")}`,
+        text: `${agentRefusal(t, error, role)} ${t("agent.rollback.kept")}`,
       });
     },
   });
@@ -203,10 +193,6 @@ export function useReleaseActivation({
         release,
         expected: agent.activation_revision,
         seenActive: agent.active_release_id,
-        before: {
-          tracking: trackingOf(detail),
-          modelSource: detail.model_source,
-        },
       }),
   };
 }

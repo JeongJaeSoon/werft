@@ -4,7 +4,7 @@ import {
   toolCatalogFor,
 } from "@werft-ai/runtime-codecs";
 
-/** The built-in tool catalogs this image's runtimes support, which a profile's deny names. */
+/** The built-in tool catalogs this image's runtimes support, which a release's tools name. */
 export const installedToolCatalogView: ToolCatalogs = {
   all: installedToolCatalogs,
   for: (runtimeKind, runtimeVersion) =>

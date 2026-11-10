@@ -17,13 +17,10 @@ import {
 } from "@werft-ai/contracts";
 import {
   type Caller,
-  type CatalogProfile,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  type SessionCatalog,
   type TeamActor,
-  withSeededInstallation,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -41,32 +38,13 @@ import { createDatabaseIdentityReader } from "./identity-reader.ts";
 import { createPostgresTeamStore } from "./member-teams.ts";
 import { migrate } from "./migrate.ts";
 import * as schema from "./schema.ts";
+import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
 const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
 
-const PROFILE: CatalogProfile = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  repository: "optional",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "catalog-provider-key",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const CATALOG: SessionCatalog = withSeededInstallation({
-  profiles: { coding: PROFILE },
-  repositories: {},
-});
+const CATALOG = testSessionCatalog();
 
 const card = agentCardRequestSchema.parse({
   role: "재무 분석가",
@@ -179,6 +157,7 @@ integration("agent usage on PostgreSQL", () => {
       store: createPostgresAgentStore(db),
       catalog: CATALOG,
       credentials: createPostgresCredentialBindingStore(db),
+      runtimes: TEST_RUNTIMES,
     });
 
   async function person(workspaceId: string, role: WorkspaceRole) {

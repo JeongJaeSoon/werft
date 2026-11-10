@@ -153,15 +153,10 @@ echo "api A=${api_pods[0]} B=${api_pods[1]}"
 echo "egress-proxy ${proxy_pods[0]} ${proxy_pods[1]}"
 pass
 
-# A key for this run alone, in a 0600 header file, never in an argument or
-# the log.
 { set +x; } 2>/dev/null
 umask 077
-key="$(k exec "pod/${api_pods[0]}" -- bun run apps/control-host/src/api/keys.ts create kind-replicas \
-  --scopes sessions:read,sessions:write,sessions:control,sessions:approve 2>/dev/null)"
-[ -n "$key" ] || fail "the key CLI printed no key"
-printf 'Authorization: Bearer %s\n' "$key" >"$auth"
-unset key
+# shellcheck source=release-key.sh
+. "$here/release-key.sh"
 forward() {
   local pod="$1" port="$2"
   k port-forward --address 127.0.0.1 "pod/${pod}" "${port}:3000" >"$work/forward-${port}.log" 2>&1 &
@@ -177,6 +172,9 @@ forward() {
 }
 forward "${api_pods[0]}" "$PORT_A"
 forward "${api_pods[1]}" "$PORT_B"
+# Every session runs an agent release: the first owner releases the checks'
+# agent and its key, in a 0600 header file, starts the sessions.
+kind_release_key "http://127.0.0.1:${PORT_A}" "$auth" || fail "the checks' agent was not released"
 get() { curl -sS --fail-with-body "http://127.0.0.1:$1$2" -H @"$auth"; }
 # post <port> <path> <body> [idempotency key]
 post() {
@@ -240,7 +238,7 @@ assert_once() {
 asks=4
 spec="$(jq -nc --argjson n "$asks" '{id: "replicas-flow", final: "replicas flow done",
   steps: [range(0; $n) | {tool: "Bash", input: {command: ("echo replicas " + tostring + " | tee hello" + tostring + ".txt"), description: "write a file"}}]}')"
-body="$(jq -nc --arg m "GATE-SPEC ${spec}" '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')"
+body="$(jq -nc --arg m "GATE-SPEC ${spec}" --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app", message: $m}')"
 created_session="$(post "$PORT_A" /v1/sessions "$body")"
 sid="$(echo "$created_session" | jq -r .session_id)"
 echo "created on A: ${sid} $(echo "$created_session" | jq -c '{turn_id, status}')"
@@ -338,7 +336,7 @@ terminate() {
 }
 terminate "$PORT_A" "$sid"
 spec3='{"id":"replicas-spread","steps":[],"final":"spread done"}'
-body3="$(jq -nc --arg m "GATE-SPEC ${spec3}" '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')"
+body3="$(jq -nc --arg m "GATE-SPEC ${spec3}" --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app", message: $m}')"
 for pair in $(seq 1 $((SPREAD_SESSIONS / 2))); do
   on_a="$(post "$PORT_A" /v1/sessions "$body3" | jq -r .session_id)"
   on_b="$(post "$PORT_B" /v1/sessions "$body3" | jq -r .session_id)"

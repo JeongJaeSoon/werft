@@ -14,6 +14,7 @@ export * from "./agents/model-move-runner.ts";
 export * from "./agents/release-ids.ts";
 export * from "./agents/release-run.ts";
 export * from "./agents/release-spec.ts";
+export * from "./workers/runtime-config-of-spec.ts";
 export * from "./checkpoints/checkpoint-collector.ts";
 export * from "./checkpoints/checkpoint-service.ts";
 export * from "./checkpoints/durability.ts";

@@ -35,7 +35,7 @@
 # EXTRA_VALUES, the CI mirror):
 #   KIND_MODEL=fake      default: the fake-model settings and fake
 #                        Messages API; no provider account, no cost
-#   KIND_MODEL=real      opt-in, paid: the chart's claude-coding-real profile
+#   KIND_MODEL=real      opt-in, paid: an agent on the real-model connection
 #                        against api.anthropic.com, under a 1 USD session
 #                        cost limit. The key is the shell's ANTHROPIC_API_KEY,
 #                        else the ANTHROPIC_API_KEY line of the file
@@ -175,15 +175,10 @@ fi
 pass
 
 step session
-# A key for this run alone, read from the key CLI's stdout into a 0600
-# header file, so it never reaches an argument or the log.
 { set +x; } 2>/dev/null
 umask 077
-key="$(k exec "deploy/${fullname}-api" -- bun run apps/control-host/src/api/keys.ts create kind-smoke \
-  --scopes sessions:read,sessions:write,sessions:control 2>/dev/null)"
-[ -n "$key" ] || fail "the key CLI printed no key"
-printf 'Authorization: Bearer %s\n' "$key" >"$auth"
-unset key
+# shellcheck source=release-key.sh
+. "$here/release-key.sh"
 k port-forward --address 127.0.0.1 "svc/${fullname}-api" "${API_PORT}:3000" >"$STATE_DIR/smoke-port-forward.log" 2>&1 &
 forward=$!
 # Only through our own forward: one that failed (the port taken) would hand
@@ -194,6 +189,9 @@ for _ in $(seq 1 30); do
     curl -s -o /dev/null "$API/healthz" && break
   sleep 1
 done
+# Every session runs an agent release: the first owner releases the smoke's
+# agent and its key, in a 0600 header file, starts the session.
+kind_release_key "$API" "$auth" || fail "the smoke's agent was not released"
 get() { curl -sS --fail-with-body "$API$1" -H @"$auth"; }
 post() {
   curl -sS --fail-with-body "$API$1" -H @"$auth" -H 'Content-Type: application/json' \
@@ -204,10 +202,10 @@ installation="$(k get "deploy/${fullname}-scheduler" \
 workers="app.kubernetes.io/part-of=werft,app.kubernetes.io/component=worker,werft.installation=${installation}"
 
 if [ "$KIND_MODEL" = fake ]; then
-  body="$(jq -nc '{profile_id: "claude-coding-local", repository_id: "sample-app",
+  body="$(jq -nc --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app",
     message: ("GATE-SPEC " + ({id: "kind-smoke", steps: [], final: "kind smoke done"} | tojson))}')"
 else
-  body="$(jq -nc '{profile_id: "claude-coding-real", repository_id: "sample-app",
+  body="$(jq -nc --arg r "$KIND_RELEASE_ID" '{agent_release_id: $r, repository_id: "sample-app",
     message: "Reply with the single word ok. Use no tools."}')"
 fi
 created_session="$(post /v1/sessions "$body")"

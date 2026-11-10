@@ -79,7 +79,6 @@ import { until } from "./until.ts";
 const databaseUrl = process.env.QUEUE_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
 
-const PROFILE_ID = "claude-coding-v1";
 const RAW_MARKER = "raw-park-marker-5d2c";
 
 const catalog: SessionCatalog = testCatalog({

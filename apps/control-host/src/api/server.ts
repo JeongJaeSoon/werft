@@ -80,6 +80,7 @@ import {
 } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
+  CATALOG_REFRESH_MS,
   composeSlackFinalize,
   createAchievementJudge,
   createAchievementRuleService,
@@ -92,6 +93,7 @@ import {
   createAgentUsageService,
   createApiKeyService,
   createAuthorizationPolicy,
+  createCatalogRegistry,
   createCredentialBindingService,
   createDecisionsClient,
   createEngineSettingsService,
@@ -112,7 +114,6 @@ import {
   createModelMoveRunner,
   createOutcomeRefresher,
   createPendingRequestService,
-  createCatalogRegistry,
   createPullRequestDrain,
   createPullRequestService,
   createPushExecutor,
@@ -155,7 +156,6 @@ import {
   SessionServiceError,
   slackBotToken,
   slackPublicUrlsOf,
-  CATALOG_REFRESH_MS,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";

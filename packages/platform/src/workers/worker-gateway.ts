@@ -57,7 +57,6 @@ import {
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { repoRefOf } from "../action/ports/forge.ts";
-import { runtimeConfigOfSpec } from "../agents/release-spec.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -167,6 +166,7 @@ import {
   type PackageRegistry,
   PUBLIC_PACKAGE_REGISTRIES,
 } from "./package-registries.ts";
+import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
 
 // The repository binding of a session without a repository of its own:
 // its repository route reaches only attached ones, each through the gate.

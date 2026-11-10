@@ -32,7 +32,9 @@ const MODEL = "claude-sonnet-5";
  */
 export function demoDataRefusal(
   env: Record<string, string | undefined>,
-  connections: Readonly<Record<string, Pick<CatalogProviderConfig, "endpoint">>>,
+  connections: Readonly<
+    Record<string, Pick<CatalogProviderConfig, "endpoint">>
+  >,
 ): string | null {
   const refusal = demoAccountsRefusal(env);
   if (refusal) return refusal;

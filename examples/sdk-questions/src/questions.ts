@@ -14,7 +14,7 @@ import {
 const client = new Werft();
 const signal = AbortSignal.timeout(5 * 60_000);
 // `general` runs without a repository: the session starts in an empty directory.
-const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID ?? "";
 if (!agent_release_id) {
   throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
 }

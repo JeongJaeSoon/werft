@@ -17,7 +17,7 @@ const client = new Werft({
   defaultHeaders: { "x-werft-sample": "sdk-reliability" },
 });
 const signal = AbortSignal.timeout(5 * 60_000);
-const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID;
+const agent_release_id = process.env.WERFT_AGENT_RELEASE_ID ?? "";
 if (!agent_release_id) {
   throw new Error("set WERFT_AGENT_RELEASE_ID to the agent release to run");
 }
