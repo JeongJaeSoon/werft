@@ -39,7 +39,9 @@ config:
     # Workers' checkpoint uploads and restores go through the credential
     # route to the bucket's virtual-hosted endpoint (path-style
     # s3.<region>.amazonaws.com when the bucket name has a dot).
-    credentialAllowlist: "api.anthropic.com:443,agent-platform-prod-checkpoints.s3.ap-northeast-1.amazonaws.com:443"
+    # api.openai.com:443 is the Codex engine's provider; a deployment that runs
+    # only one engine lists only that engine's host.
+    credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,agent-platform-prod-checkpoints.s3.ap-northeast-1.amazonaws.com:443"
 
 worker:
   storageClass: gp3

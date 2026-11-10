@@ -41,8 +41,8 @@ fi
 # cannot pass as "nothing to build".
 scope=${3:-all}
 case "$scope" in
-  all) scans=({control-host,worker,egress-proxy}-{amd64,arm64} npm) ;;
-  amd64) scans=({control-host,worker,egress-proxy}-amd64 npm) ;;
+  all) scans=({control-host,worker,worker-codex,egress-proxy}-{amd64,arm64} npm) ;;
+  amd64) scans=({control-host,worker,worker-codex,egress-proxy}-amd64 npm) ;;
   dependencies) scans=(npm) ;;
   *) echo "::error::unknown scan scope"; exit 2 ;;
 esac

@@ -39,8 +39,34 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-export const IMAGES = ["control-host", "worker", "egress-proxy"] as const;
+export const IMAGES = [
+  "control-host",
+  "worker",
+  "worker-codex",
+  "egress-proxy",
+] as const;
 export type Image = (typeof IMAGES)[number];
+
+/** The app directory (and Dockerfile) an image is built from. */
+export function appOf(image: Image): string {
+  return image === "worker-codex" ? "worker" : image;
+}
+
+/**
+ * apps/worker/Dockerfile builds one image per engine (WORKER_RUNTIME), and the
+ * lockfile records the registry as checked in (Claude). The Codex build swaps
+ * the registry's engine dependency before it installs, so its closure is
+ * computed with the same swap.
+ */
+const ENGINE_SWAP: Partial<
+  Record<Image, { registry: string; from: string; to: string }>
+> = {
+  "worker-codex": {
+    registry: "@werft-ai/runtime-registry",
+    from: "@werft-ai/runtime-claude",
+    to: "@werft-ai/runtime-codex",
+  },
+};
 
 /**
  * Which workspaces each image's `bun install --production` starts from.
@@ -51,6 +77,7 @@ export type Image = (typeof IMAGES)[number];
 const IMAGE_ROOTS: Record<Image, readonly string[]> = {
   "control-host": ["apps/control-host", "packages/ui", "packages/client"],
   worker: ["apps/worker"],
+  "worker-codex": ["apps/worker"],
   "egress-proxy": [],
 };
 
@@ -63,6 +90,7 @@ const IMAGE_ROOTS: Record<Image, readonly string[]> = {
 export const REMOVED_AFTER_INSTALL: Record<Image, readonly string[]> = {
   "control-host": [],
   worker: ["@anthropic-ai/claude-agent-sdk-linux-*-musl"],
+  "worker-codex": [],
   "egress-proxy": [],
 };
 
@@ -262,7 +290,20 @@ export function imageClosure(
     const workspace = lock.workspaces[path];
     if (workspace === undefined) throw new Error(`no workspace ${path}`);
     const from = path === "" ? [] : [workspace.name];
-    for (const [name, optional] of dependencyNames(workspace, [])) {
+    const swap = ENGINE_SWAP[image];
+    const source =
+      swap !== undefined && workspace.name === swap.registry
+        ? {
+            ...workspace,
+            dependencies: Object.fromEntries(
+              Object.entries(workspace.dependencies ?? {}).map(
+                ([name, range]) =>
+                  name === swap.from ? [swap.to, range] : [name, range],
+              ),
+            ),
+          }
+        : workspace;
+    for (const [name, optional] of dependencyNames(source, [])) {
       visitDependency(from, name, optional);
     }
   };
@@ -615,6 +656,16 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
       `- **권리와 조건.** \`${AGENT_SDK}@${sdk.version}\`과 그 플랫폼 빌드가 싣는 \`claude\` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.`,
       "- **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.",
       `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64, linux/arm64)마다 실행 파일 안의 \`Bun v<버전>\` 표시로 이 버전을 확인한다.`,
+    );
+  }
+  const codex = rows.find((row) => row.name === "@openai/codex");
+  if (codex !== undefined) {
+    lines.push(
+      "",
+      "### Codex 실행 파일 (worker-codex)",
+      "",
+      `- **라이선스.** \`@openai/codex@${codex.version}\`과 그 플랫폼 빌드(\`linux-x64\`, \`linux-arm64\`)는 Apache-2.0이다. 패키지가 싣는 LICENSE·NOTICE는 이미지 안 \`/app/node_modules/@openai/\` 아래에 함께 들어 있다.`,
+      "- **싣는 방식.** OpenAI가 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. `WORKER_RUNTIME=codex_app_server`로 빌드한 worker 이미지에만 들어가며, 버전은 정확히 고정되어 빌드 로그에 `codex-cli <버전>`으로 찍힌다.",
     );
   }
   return `${lines.join("\n")}\n`;
@@ -1172,7 +1223,7 @@ function verifyImageFacts(
 ): string[] {
   const problems: string[] = [];
   const base = baseImageOf(
-    readFileSync(join(root, "apps", image, "Dockerfile"), "utf8"),
+    readFileSync(join(root, "apps", appOf(image), "Dockerfile"), "utf8"),
   );
   const build = BUN_BUILDS[base.bun];
   if (Bun.version !== base.bun || Bun.revision !== build?.revision) {

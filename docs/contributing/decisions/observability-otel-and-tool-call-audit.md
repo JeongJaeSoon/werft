@@ -493,6 +493,13 @@ T5, T3 ··> X1   (관련. 착수 전에 범위를 나눈다)
 - 선행: T1, T6. T9·738·734가 기다린다.
 - 기대는 절: 2.2절(위조 한계), 3.3절(exporter), 4.1절(trace_id 고정), 6절(`TRACE_INGEST_*`, `TRACE_MAX_BYTES_PER_TRACE`, `TRACE_FENCED_GRACE_SEC`, 테넌트 키)
 - 이 문서가 바꾸는 것: 본문의 "trace_id가 이 attempt가 받은 turn id에서 나온 값(`SHA-256("werft.turn:" + turn_id)` 앞 16바이트)"은 틀린 식이다. 공개 `turn_id`는 세션 안의 순번이라 세션이 다르면 같은 값이 나온다. 검사 기준은 `turnTraceId(session_id, turn_id)`(4.1절)다.
+- 이 문서가 더하는 것(전송 형식, T3와 맞춤):
+  - 요청: `POST {telemetry.ingest_url}/v1/traces`, `Content-Type: application/json`(OTLP/HTTP JSON `ExportTraceServiceRequest`), `Authorization: Bearer <세션 credential>`. 다른 헤더는 읽지 않는다. 세션·attempt·execution·fence는 credential 행에서 얻는다. `Content-Encoding`은 거절한다(415).
+  - protobuf가 아니라 JSON인 이유: 사용하는 `@opentelemetry/otlp-transformer`에는 protobuf 인코더만 있고 요청 디코더가 없다. ingest는 속성을 읽고 고쳐 써야 하므로 디코딩이 필요하다. 수집기로 나가는 쪽은 그대로 `http/protobuf`다.
+  - 응답: 200(일부를 버렸으면 `partialSuccess.rejectedSpans`), 400 형식 오류, 401 credential 없음·모름, 409 fence를 `TRACE_FENCED_GRACE_SEC`보다 오래 전에 잃음, 413 본문 상한, 415 형식, 429 분당 상한(`Retry-After`), 503 동시 처리 상한. worker는 2xx가 아니면 버린다.
+  - 위조 방지: `werft.workspace_id`·`werft.session_id`·`werft.attempt_id`·`session.id`·`gen_ai.conversation.id`·`werft.fenced`·`werft.content_dropped`와 `langfuse.*`는 worker가 보낸 값을 resource·span·event·link 어디서든 지우고, 앞의 다섯은 credential이 가리키는 값으로 다시 찍는다. resource에는 `werft.execution_id`·`werft.execution_generation`도 찍는다.
+  - 내용 속성의 목록은 `packages/observability`의 `isContentAttribute`가 정한다. worker와 ingest가 같은 목록을 쓴다.
+  - 워크스페이스별 내용 모드의 출처는 아직 없다(X1이 만든다). ingest는 설치 상한(`TRACE_CONTENT_MODE`)을 적용한다.
 - 수용 기준:
   - 4MiB 이하 batch는 ingest 포트에서 받고, 공개 API 포트의 본문 상한은 바뀌지 않는다 — 확인: 통합 테스트(두 포트에 같은 batch 전송)
   - credential이 다른 세션이거나 fence가 맞지 않는 요청은 거절된다. grace 안의 fence 잃은 attempt 데이터는 `werft.fenced=true`로 들어간다 — 확인: 통합 테스트

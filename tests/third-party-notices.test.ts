@@ -166,6 +166,18 @@ describe("image closure from bun.lock", () => {
     }
     expect(imageClosure(real, "egress-proxy").size).toBe(0);
   });
+
+  test("each worker image holds its own engine and not the other's", () => {
+    const real = parseLockfile(readFileSync(join(root, "bun.lock"), "utf8"));
+    const names = (image: "worker" | "worker-codex") =>
+      new Set([...imageClosure(real, image).values()].map((pkg) => pkg.name));
+    expect(names("worker").has("@anthropic-ai/claude-agent-sdk")).toBe(true);
+    expect(names("worker").has("@openai/codex")).toBe(false);
+    expect(names("worker-codex").has("@openai/codex")).toBe(true);
+    expect(names("worker-codex").has("@anthropic-ai/claude-agent-sdk")).toBe(
+      false,
+    );
+  });
 });
 
 describe("license policy", () => {

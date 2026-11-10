@@ -1,8 +1,19 @@
 import {
+  createPostgresTelemetryIngestStore,
+  type Database,
+} from "@werft-ai/db";
+import {
   endpointOnEgressAllowlist,
   type StructuredLogger,
   type TracingSettings,
 } from "@werft-ai/observability";
+import {
+  LoggedDropCounter,
+  postgresAttemptAuthenticator,
+  postgresTurnTraceDirectory,
+  valueMasker,
+} from "../ingest/adapters.ts";
+import { type IngestListener, startIngestListener } from "../ingest/start.ts";
 
 const EGRESS_LISTS = ["EGRESS_PRIVATE_ALLOWLIST", "EGRESS_ALLOWLIST"] as const;
 
@@ -32,4 +43,40 @@ export function warnCollectorOnEgressAllowlist(
     },
   );
   return true;
+}
+
+/**
+ * Opens the telemetry ingest listener and the collector sink behind it.
+ * The SDK adapter is loaded here so an installation with tracing off never
+ * imports it.
+ */
+export async function startTelemetryIngest(
+  settings: TracingSettings,
+  db: Database,
+  logger: Pick<StructuredLogger, "warn">,
+): Promise<IngestListener> {
+  const { createOtelSpanSink } = await import("@werft-ai/observability/otel");
+  const sink = createOtelSpanSink(settings);
+  const store = createPostgresTelemetryIngestStore(db);
+  const listener = startIngestListener({
+    settings,
+    authenticator: postgresAttemptAuthenticator(store),
+    turns: postgresTurnTraceDirectory(store),
+    sink,
+    masker: valueMasker,
+    drops: new LoggedDropCounter(logger),
+  });
+  return {
+    get port() {
+      return listener.port;
+    },
+    stop: (closeActiveConnections) => listener.stop(closeActiveConnections),
+    get pendingRequests() {
+      return listener.pendingRequests;
+    },
+    async close() {
+      await listener.close();
+      await sink.shutdown();
+    },
+  };
 }

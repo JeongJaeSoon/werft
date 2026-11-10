@@ -49,14 +49,18 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고, scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
-API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). `engine`은 지금 `claude`뿐이고, chart는 다른 이름을 렌더링 때 `images.worker.runtime.engine must be one of: claude`로 거절한다. 직접 빌드한 이미지에는 그 JSON이 없다. images.yml과 같은 명령으로 이미지에서 읽는다.
+API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). `engine`은 `claude`와 `codex`이고, chart는 다른 이름을 렌더링 때 `images.worker.runtime.engine must be one of: claude, codex`로 거절한다. 직접 빌드한 이미지에는 그 JSON이 없다. images.yml과 같은 명령으로 이미지에서 읽는다.
 
 ```bash
 docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-둘 다 없으면 런타임 조합을 읽지 않으므로 아래 pin 유지도 적용되지 않는다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 다만 내장 도구 지원 목록이 현재 이미지의 목록과 같은 이전 버전은 싣는 것으로 본다(업그레이드 뒤에도 그 profile이 새 세션을 시작한다). 목록이 다른 SDK를 올리는 릴리스는 상한마다 `runtime_version`을 올린 새 버전을 함께 만든다(콘솔 또는 `POST /v1/installation-profiles`).
+**worker 이미지 하나는 엔진 하나를 담는다.** `apps/worker/Dockerfile`은 빌드 인자 `WORKER_RUNTIME`으로 엔진을 고른다. 비워 두면 Claude 이미지이고, `--build-arg WORKER_RUNTIME=codex_app_server`를 주면 Codex 이미지다(빌드 로그에 `codex-cli 0.167.0`이 찍히고, 다른 버전이면 빌드가 실패한다). CI는 Codex 이미지를 `werft-worker-codex`라는 별도 이미지로 만든다. Codex를 쓰는 배포는 `WORKER_IMAGE`(chart는 `images.worker`)를 그 이미지로 두고 위 명령으로 읽은 `runtime`(`engine`은 `codex`)을 함께 넣는다. 로컬 스택은 `infra/compose.codex-worker.yml` 오버레이로 같은 이미지를 빌드한다. Codex 세션이 OpenAI Responses API를 부르는 배포는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`에 `api.openai.com:443`도 넣는다. Codex 엔진은 예산(`maxBudgetUsd`)이 있는 세션의 시작을 거절한다. proxy가 사용량 보고를 받지 못하면 예산을 집행할 수 없는데, Codex에는 엔진 쪽 예산이 겹치지 않기 때문이다.
+
+**엔진을 바꾸는 방법.** 한 배포가 두 엔진의 이미지를 동시에 고르는 길은 없다. 새 세션은 언제나 현재 이미지로 시작하고, 직전 이미지는 체크포인트를 이어 받는 데만 쓰인다. 그래서 설치할 때 엔진을 정하는 것이 가장 단순하다. 이미 도는 배포의 `WORKER_IMAGE`를 다른 엔진의 이미지로 바꾸려면 업그레이드 검사(`upgrade-check`)의 규칙을 그대로 따른다. 새 설정의 `WORKER_IMAGE_PREVIOUS`가 지금 배포된 이미지여야 하고, 검사가 이어 받을 수 없다고 출력하는 세션(엔진이 다른 체크포인트뿐 아니라 SDK·CLI 버전이나 digest 방식이 맞지 않는 것, 런타임이 기록되지 않은 것도 포함한다)은 모두 `upgrade.approvedSessions`에 정확히 그 출력 목록으로 승인해야 한다. 체크포인트는 엔진 사이에서 옮길 수 없으므로, 전환 뒤에는 직전 이미지(옛 엔진)에서 이어 받던 세션이 끝나야 직전 이미지를 비울 수 있다.
+
+`WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`이 둘 다 없으면 런타임 조합을 읽지 않으므로 아래 pin 유지도 적용되지 않는다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 다만 내장 도구 지원 목록이 현재 이미지의 목록과 같은 이전 버전은 싣는 것으로 본다(업그레이드 뒤에도 그 profile이 새 세션을 시작한다). 목록이 다른 SDK를 올리는 릴리스는 상한마다 `runtime_version`을 올린 새 버전을 함께 만든다(콘솔 또는 `POST /v1/installation-profiles`).
 
 GitHub Packages bot token([결정](https://github.com/JeongJaeSoon/werft/blob/main/docs/contributing/decisions/github-packages-bot-token.md))을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
 
