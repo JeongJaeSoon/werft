@@ -126,8 +126,12 @@ jobs:
           export DOCKER_CONFIG="$RUNNER_TEMP/no-login"
           mkdir -p "$DOCKER_CONFIG"
           for app in control-host worker worker-codex egress-proxy; do
-            # Releases before the Codex image have no entry for it.
-            jq -e --arg a "$app" '.images[$a]' "$MANIFEST" >/dev/null || { echo "skip ${app}: not in this release"; continue; }
+            # Releases before the Codex image have no entry for it; any other
+            # missing image still fails the jq below.
+            if [ "$app" = worker-codex ] && ! jq -e '.images["worker-codex"]' "$MANIFEST" >/dev/null; then
+              echo "skip ${app}: not in this release"
+              continue
+            fi
             ref="$(jq -r --arg a "$app" '.images[$a] | "\(.image)@\(.digest)"' "$MANIFEST")"
             echo "pull ${ref}"
             docker pull "$ref"
