@@ -115,7 +115,7 @@ Firecracker에는 디스플레이 장치가 없다. 데스크톱(d)을 띄우려
 - Chromium은 백그라운드 요청을 보낸다. 실측에서 `clients2.google.com:80`, `www.google.com:443`으로 요청이 나갔고 proxy가 거절했다. 로그 소음일 뿐 우회는 아니다. 구현할 때 끌 수 있는 것은 정책 파일로 끈다.
 - **ECH.** [5.3절](#53-ech-gate)을 본다. 정책 파일이 빠지면 허용 목적지도 열리지 않는다. 쉽게 지나칠 수 있으니 이미지 검증(`image:verify`류)에 넣는다.
 - **allowlist의 폭.** 지금 allowlist는 설치 전체에 하나다(`EGRESS_ALLOWLIST`). 브라우저는 worker가 갈 수 있는 곳에 똑같이 갈 수 있다. 웹 조사용으로 allowlist를 넓히면 worker의 `curl`도 같이 넓어진다. 그래서 U1~U8은 **기존 allowlist를 그대로** 쓴다. release마다 브라우저가 갈 수 있는 목적지를 따로 두는 일은 U9에서 proxy 쪽 판정으로 한다. 지금의 MCP egress authorizer처럼 요청마다 다시 판정한다.
-- **sidecar의 MCP 엔드포인트는 worker만 부를 수 있어야 한다.** 엔진의 Bash는 worker와 같은 컨테이너(같은 network namespace, 로컬 docker에서는 같은 network)에서 돌므로, 인증 없는 포트는 엔진이 relay를 건너뛰고 `tools/call`을 직접 보내 deny와 호출자 상한을 우회하는 길이다. 5.2절의 실행 예시(`--host 0.0.0.0 --allowed-hosts '*'`)는 측정용이고 그대로 쓰지 않는다. 구현은 두 가지를 갖춘다: (1) sidecar 앞단이 attempt마다 새로 만든 bearer를 검증한다. 값은 backend가 sidecar와 worker 프로세스에만 전하고 엔진의 argv·env·파일에는 없다. (2) 도구 목록을 sidecar 쪽에서도 release 고정 집합으로 거른다. 필수 시험(U6의 선행): 엔진 Bash에서 token 없이 보낸 `tools/call`은 거절되고, token이 있어도 고정 집합 밖 도구(`browser_run_code_unsafe` 포함)는 실행되지 않는다.
+- **sidecar의 MCP 엔드포인트는 worker만 부를 수 있어야 한다.** 엔진의 Bash는 worker와 같은 컨테이너(같은 network namespace, 로컬 docker에서는 같은 network)에서 돌므로, 인증 없는 포트는 엔진이 relay를 건너뛰고 `tools/call`을 직접 보내 deny와 호출자 상한을 우회하는 길이다. 5.2절의 실행 예시(`--host 0.0.0.0 --allowed-hosts '*'`)는 측정용이고 그대로 쓰지 않는다. 구현은 두 가지를 갖춘다: (1) sidecar 앞단이 attempt마다 새로 만든 bearer를 검증한다. 값은 backend가 sidecar와 worker 프로세스에만 전하고 엔진의 argv·env·파일에는 없다. (2) 도구 목록을 sidecar 쪽에서도 release 고정 집합으로 거른다. (3) **원본 Playwright MCP는 포트를 열지 않는다.** 앞단이 자식 프로세스로 띄워 stdio로만 연결하고, 앞단의 MCP·파일 전송 엔드포인트가 sidecar에서 밖으로 열린 유일한 경로다. 같은 Pod의 network namespace에서는 localhost 바인딩도 엔진 Bash에 열려 있으므로 포트 바인딩으로는 격리가 되지 않는다. 필수 시험(U6의 선행): 엔진 Bash에서 sidecar의 열린 포트를 모두 훑어 앞단 외에 응답하는 것이 없고, token 없이 보낸 `tools/call`과 파일 전송 요청은 거절되고, token이 있어도 고정 집합 밖 도구(`browser_run_code_unsafe` 포함)는 실행되지 않는다.
 - **credential route `:3129`.** k8s NetworkPolicy는 worker Pod에 `:3128`과 `:3129`를 모두 연다(`deploy/helm/werft/templates/networkpolicies.yaml`). 같은 Pod의 sidecar는 두 포트에 도달할 수 있고 `:3128`에만 간다는 보장은 네트워크가 주지 않는다. 막는 것은 attempt token의 부재다. 시험: sidecar에는 token, worker home, credential 파일이 전달되지 않는다.  이 route는 attempt token이 있어야 쓸 수 있고, token은 worker 프로세스에만 있다. k8s sidecar는 Pod의 network namespace를 공유하므로 worker의 localhost 포트가 보인다. relay와 브라우저 사이 연결은 sidecar 쪽 포트 하나로만 둔다. worker 쪽에는 브라우저를 위해 새 listen 포트를 열지 않는다.
 
 ### 3.2 다운로드·업로드 파일이 workspace 밖으로 새는가
@@ -124,16 +124,18 @@ Firecracker에는 디스플레이 장치가 없다. 데스크톱(d)을 띄우려
 |---|---|---|
 | 다운로드 | 페이지가 파일을 떨어뜨린다 | sidecar에는 workspace를 **마운트하지 않는다**. 다운로드와 `--output-dir`은 sidecar의 tmpfs(`/tmp/pw-out`)에 둔다. workspace로 옮길 때는 relay가 정해진 도구(`browser_download_to_workspace`류)로 크기 상한을 걸어 복사한다. (a)에서는 브라우저가 workspace를 직접 쓸 수 있으므로 이 통제를 할 수 없다 |
 | 업로드 | `browser_file_upload`로 workspace 파일을 허용된 사이트에 올린다. 프롬프트 주입에 따른 유출 경로다 | sidecar는 workspace를 보지 못한다. 올릴 파일은 relay가 전송 계약(아래)으로 sidecar에 올려 준 것만 쓴다. 이 도구는 첫 release에서 deny로 둔다(아래 "임의 코드" 줄). Playwright MCP도 기본적으로 파일 접근을 workspace roots로 제한하고 `file://` 이동을 막는다(`--allow-unrestricted-file-access`는 쓰지 않는다) |
-| 임의 코드 | `browser_evaluate`, `browser_run_code_unsafe` | release 기본 정책에서 `browser_run_code_unsafe`, `browser_evaluate`, `browser_file_upload`를 release deny로 고정해 엔진에 보이지도 않게 한다. 사람의 승인으로 풀어 주는 길은 첫 release에 두지 않는다. 판정 함수에는 `ask`가 없고, 엔진의 승인 경로(`canUseTool`)는 `bypassPermissions`와 `auto`가 통과시키는 호출에서는 불리지 않으므로(`packages/adapters/runtimes/claude/src/runtime.ts:154`) 모든 권한 모드에서 강제되는 장벽이 아니다. 승인 장벽을 모든 모드에서 강제하는 방법을 정한 뒤에야 U10이 이 셋을 승인 대상으로 연다 |
+| 임의 코드 | `browser_evaluate`, `browser_run_code_unsafe` | release 기본 정책에서 `browser_run_code_unsafe`, `browser_evaluate`, `browser_file_upload`를 release deny로 고정해 엔진에 보이지도 않게 한다. 사람의 승인으로 풀어 주는 길은 첫 release에 두지 않는다. 판정 함수에는 `ask`가 없고, 엔진의 승인 경로(`canUseTool`)는 `bypassPermissions`와 `auto`가 통과시키는 호출에서는 불리지 않으므로(`packages/adapters/runtimes/claude/src/runtime.ts:154`) 모든 권한 모드에서 강제되는 장벽이 아니다. 승인 장벽을 모든 모드에서 강제하는 방법을 정한 뒤에야 U10이 `browser_evaluate`와 `browser_file_upload`를 승인 대상으로 연다. `browser_run_code_unsafe`는 계속 deny다 |
 | 페이지 내용 | 웹 페이지의 지시가 엔진에게 프롬프트 주입이 된다 | 브라우저 도구의 결과는 바깥에서 온 데이터로 표시한다. 쓰기 성격의 도구(push, PR)는 기존 approval 경로를 그대로 탄다 |
 
 **파일 전송 계약.** 다운로드와 업로드의 바이트는 공유 디렉터리가 아니라 worker가 sidecar의 인증된 전용 엔드포인트로 읽고 쓴다. sidecar가 바꿀 수 있는 디렉터리를 worker가 믿고 복사하는 길을 없애려는 것이다.
 
-- 읽기: 엔드포인트는 sidecar의 출력 디렉터리 바로 아래 일반 파일만 이름으로 내보낸다(경로 구분자, `..`, symlink, 장치·소켓 거절). 크기 상한을 넘으면 중단한다.
-- workspace 쓰기: 목적지는 workspace의 고정 하위 폴더 하나다. 이름은 새로 정한 안전한 이름으로 바꾸고, 같은 폴더의 임시 파일에 `O_EXCL`로 쓴 뒤 rename한다. 복사 중 sidecar 쪽 파일이 바뀌어도 이미 받은 바이트만 쓴다.
-- 업로드: 반대로 worker가 workspace의 일반 파일(`lstat`로 symlink 거절)을 읽어 상한 안에서 sidecar에 올린다. 상한은 다운로드와 같은 값이다.
-- 장벽: workspace에 쓰는 이 경로는 엔진의 승인 대기 호출이라 lease가 `tool_in_flight`로 막지 못한다([3.6절](#36-턴-끝체크포인트와-sidecar-수명)). 그래서 stdio relay의 `quiesce` 대기와 같은 장벽을 거친 뒤에 쓴다.
-- 시험(U5b): `../`, symlink 교체, 복사 중 원본 변경, 상한 초과, 장벽 대기 중 abort.
+전송 엔드포인트는 MCP와 같은 앞단 소유이고 같은 bearer를 요구한다. 경로를 문자열로 검사하고 따로 여는 방식(검사와 open 사이의 경쟁)은 쓰지 않는다. 어느 쪽이든 **신뢰하는 디렉터리 핸들을 먼저 열고, 그 핸들 기준으로 링크를 따라가지 않는 open을 한 뒤, 열린 핸들을 `fstat`으로 검증한다.**
+
+- 읽기(sidecar 쪽): 앞단이 출력 디렉터리 핸들 기준으로 이름 하나를 `O_NOFOLLOW`로 열고 열린 핸들이 일반 파일이고 크기 상한 안인지 `fstat`으로 본 뒤 그 핸들에서 스트리밍한다(경로 구분자, `..`, 장치·소켓 거절).
+- workspace 쓰기(worker 쪽): 목적지는 workspace의 고정 하위 폴더이고, worker는 그 폴더를 먼저 열어 핸들을 얻는다(폴더 자체가 symlink이면 거절하고, 엔진이 폴더를 교체해도 이미 연 핸들만 쓴다). 이름은 새로 정한 안전한 이름으로 바꾸고, 같은 핸들 기준으로 임시 파일을 `O_EXCL`로 만들어 쓴 뒤 같은 핸들 기준으로 rename한다. 복사 중 sidecar 쪽 파일이 바뀌어도 이미 받은 바이트만 쓴다.
+- 업로드(worker 쪽): workspace의 파일을 위와 같이 핸들 기준 `O_NOFOLLOW`로 열고 `fstat`으로 일반 파일과 상한을 확인한 뒤 그 핸들에서 읽어 sidecar에 올린다. `lstat` 뒤에 따로 여는 방식은 쓰지 않는다.
+- 장벽: workspace에 쓰는 이 경로는 엔진의 승인 대기 호출이라 lease가 `tool_in_flight`로 막지 못한다([3.6절](#36-턴-끝체크포인트와-sidecar-수명)). stdio relay의 `quiesce`는 서버 프로세스를 끄는 계약(소유 종류 `hook`·`mcp:<서버>`)이어서 그대로는 이 경로를 막지 못하고, stdio 서버가 없는 세션에서는 아예 잡히지 않는다. 그래서 U5b의 첫 일은 그 장벽의 상태(`open`·`quiesced`·`closed`와 lease 해제까지 유지)를 프로세스가 아닌 소비자도 등록할 수 있는 worker 공통 입장 장벽으로 일반화하는 것이다. 장벽이 잡히면 새 쓰기를 막고 진행 중 쓰기를 기다리며, 대기가 풀린 뒤 3.5절의 판정을 다시 받고 나서 쓴다.
+- 시험(U5b): `../`, 파일 교체, 상위 폴더 교체, 복사 중 원본 변경, 상한 초과, 장벽 대기 중 abort, stdio 서버가 없는 browser 세션에서 승인 답변과 캡처가 겹치는 경쟁.
 
 ### 3.3 쿠키·자격 증명
 
@@ -162,7 +164,7 @@ Firecracker에는 디스플레이 장치가 없다. 데스크톱(d)을 띄우려
 - **호출 시점에도 같은 판정을 한다.** sidecar는 egress `/mcp/<name>` 길 밖에 있어서 egress의 `decide`가 보지 못한다. stdio relay가 정한 판정 전용 worker 경로(`McpToolGate`의 `visible`·`permits`, 캐시 없음, 닫힌 채 실패)를 그대로 쓴다. 브라우저 쪽에서 새로 만드는 판정 코드는 없다. 그러므로 브라우저 단위는 그 경로가 머지된 뒤에만 켠다([9절](#9-구현-단위)).
 - **서버 전체를 막는 길.** MCP 자격 설계가 더하는 `mcp__서버__*` 규칙이 머지되면 `mcp__browser__*` 한 줄로 브라우저 전체를 막는다. 그 전에는 도구 이름 하나씩이다.
 - **이름 공간.** `browser`는 번들 stdio 서버·catalog 원격 서버와 같은 하나의 이름 공간에 든다. catalog에 `browser`라는 서버가 있으면 release 활성화와 세션 생성이 거부한다. 이름 검사는 stdio relay의 이름 단위가 소유하므로 브라우저는 그 검사에 `browser`를 예약어로 더하기만 한다.
-- **claim 모양.** 브라우저는 `runtime_config.mcp_servers`에 넣지 않는다. 그 배열은 egress token을 쓰는 원격 서버용이고 상한이 있다(MCP 자격 설계는 9로 올리자고 한다). 브라우저는 token이 없다. `capabilities.browser`와 `effectiveTools.browser`로 따로 싣는다([4.3절](#43-능력-인터페이스)).
+- **claim 모양.** 브라우저는 `runtime_config.mcp_servers`에 넣지 않는다. 그 배열은 egress token을 쓰는 원격 서버용이고 상한이 있다(MCP 자격 설계는 9로 올리자고 한다). 브라우저는 egress용 token이 없다(sidecar 앞단의 bearer는 별개다). `capabilities.browser`와 `effectiveTools.browser`로 따로 싣는다([4.3절](#43-능력-인터페이스)).
 - **판정이 하지 않는 일.** 같은 판정을 지난다고 해서 브라우저가 어디로 가는지까지 정하는 것은 아니다. 목적지는 3.1절대로 네트워크와 egress-proxy가 정한다.
 
 ### 3.6 턴 끝·체크포인트와 sidecar 수명
@@ -261,7 +263,7 @@ export interface BrowserSidecarCapable {
 
 - 컨트롤 플레인이 세션을 만들 때 release의 `capabilities.browser`에서 sidecar 이미지 digest, 자원 한도, 화면 이미지 허용 여부를 해석해 **세션 행에 고정**한다. 이미지가 나중에 바뀌어도 이미 시작한 세션은 고정한 값으로 재개한다.
 - 그 값이 `LaunchIntent.browser`(없으면 sidecar를 만들지 않는다)로 backend에 가고, launch fingerprint와 재사용 판정에 들어간다. 지문에 빠지면 브라우저 없이 만든 실행이 브라우저가 필요한 세션에 재사용될 수 있다.
-- sidecar 인증 token(3.1절)은 backend가 attempt마다 만들고, worker에는 claim으로만 전한다.
+- sidecar 인증 bearer(3.1절)는 backend가 attempt와 sidecar마다 만든다. egress용 attempt token(`:3129`)과 이름과 필드를 나눈다(`browser.bearer`는 sidecar 앞단 전용이고 egress에서 쓸 수 없다). 발급은 attempt 소유권으로 fence된 경로로 하고, 같은 경로가 claim 발행 쪽에 등록한다. claim이 재시도되거나 실행이 재사용될 때는 같은 sidecar에 대해 같은 bearer를 돌려주고, sidecar가 새로 만들어지면 새 bearer가 나가며 옛 값은 거절된다. 값은 엔진 설정, 파일, 로그, 이벤트에 가지 않는다. 시험: 재실행·동시 ensure·claim 재시도에서 worker와 sidecar의 값이 일치하고, 다른 attempt의 값은 거절되며, 값이 엔진 argv·env·transcript에 없다.
 
 연결 지점:
 
@@ -476,7 +478,7 @@ t=3355ms after nav: procs=13 rss_mb=989 pss_mb=437
 
 | 지적 | 처리 |
 |---|---|
-| 인증 없는 sidecar 포트를 엔진 Bash가 직접 부르면 relay의 deny와 호출자 상한을 건너뛴다 | 3.1절에 worker 전용 bearer와 sidecar 쪽 도구 거름을 요구로 적고, 직접 호출 거절 시험을 U6의 선행으로 둔다. U2가 앞단을 만든다 |
+| 인증 없는 sidecar 포트를 엔진 Bash가 직접 부르면 relay의 deny와 호출자 상한을 건너뛴다 | 3.1절에 worker 전용 bearer와 sidecar 쪽 도구 거름을 요구로 적고, 직접 호출 거절 시험을 U6의 선행으로 둔다. U2c가 앞단을 만든다 |
 | 엔진의 승인 경로는 `bypassPermissions`·`auto`에서 불리지 않아 "승인 대상"이 보장되지 않는다 | 첫 release는 `browser_evaluate`·`browser_file_upload`도 deny로 둔다. 모든 모드에서 강제되는 승인 장벽을 정한 뒤 U10이 연다 |
 | 승인 대기 호출은 lease의 실행 중 검사에서 빠져 workspace 복사가 캡처와 겹칠 수 있다 | worker의 파일 전송 경로가 stdio relay의 `quiesce` 대기와 같은 장벽을 거친다(3.2절, 3.6절). U5b |
 | 파일 전송이 크기 제한에서 끝나 경로 탈출·symlink·복사 중 변경을 막지 못한다 | 공유 디렉터리를 없애고 인증된 엔드포인트로 바이트를 읽고 쓰는 전송 계약을 3.2절에 적었다 |
@@ -487,7 +489,19 @@ Consider와 Noted도 반영했다. U5를 U5(조립)와 U5b(파일 전송)로 쪼
 
 기각된 지적: 어댑터가 platform·db에 닿는다(판정은 컨트롤 플레인, worker가 gate를 조립), sidecar가 `background_writer`에 걸린다(별도 컨테이너이고 workspace 마운트가 없다). 서버 이름을 예약한 점과 token 없는 브라우저가 원격 배열 밖에 있는 점은 아직 머지되지 않은 MCP 자격 설계와 충돌하지 않는다. 그 설계의 `mcp__서버__*` deny 규칙이 들어오면 브라우저 gate도 같은 해석을 쓰는 회귀 시험을 둔다.
 
-### 2라운드 (수정 `1db3b90ee`..): 결과는 PR의 sticky 댓글에 적는다
+### 2라운드 (수정분 `1db3b90ee..955f001d3`): Act-on 5
+
+| 지적 | 처리 |
+|---|---|
+| bearer 앞단 뒤의 원본 MCP 포트가 같은 network namespace에서 엔진 Bash에 열려 있다 | 원본 Playwright MCP는 포트를 열지 않고 앞단의 자식 프로세스 stdio로만 연결한다. 열린 포트를 훑는 시험을 U6의 선행으로 둔다(3.1절, U2c) |
+| backend가 만든 bearer를 claim으로 전하는 fence된 계약이 없다 | `browser.bearer`를 egress token과 분리하고 발급·등록·재시도 동일 값 계약을 4.3절과 U2b에 적었다 |
+| `lstat` 뒤 open과 고정 하위 폴더 교체로 symlink 경쟁이 남는다 | 신뢰 핸들 기준 `O_NOFOLLOW` open과 열린 핸들의 `fstat`, 같은 핸들 기준 임시 파일·rename으로 바꿨다. 상위 폴더 교체 시험을 더했다(3.2절) |
+| stdio relay의 `quiesce`는 서버 프로세스용이라 browser 전송을 막지 못하고 stdio 서버 없는 세션에서는 잡히지 않는다 | U5b의 첫 일을 그 장벽을 프로세스가 아닌 소비자도 등록하는 worker 공통 입장 장벽으로 일반화하는 것으로 정했다 |
+| U6b를 선행이라 하면서 U6 뒤에 뒀다 | U6b를 U6 앞으로 옮기고 U6의 선행에 넣었다. U6b 없이는 claude만 켜진다 |
+
+Consider도 반영했다. U2를 이미지(U2)와 앞단 서버(U2c)로 나눴고, U6의 선행에 U5b를 넣었고, `browser_run_code_unsafe`는 U10에서도 열지 않는다고 3.2절에 통일했다. "token이 없다"는 "egress용 token이 없다"로 좁혔다.
+
+### 3라운드: 결과는 PR의 sticky 댓글에 적는다
 
 ## 9. 구현 단위
 
@@ -496,15 +510,15 @@ Consider와 Noted도 반영했다. U5를 U5(조립)와 U5b(파일 전송)로 쪼
 | 단위 | 내용 | 선행 | 티켓 | 무거운 이미지 변경 |
 |---|---|---|---|---|
 | **U1** 계약·능력 협상 | `agentCapabilitiesSchema.browser`(optional, default 없음), `effectiveToolsSchema.browser`, `workerCapabilitiesSchema.browser`, worker-protocol claim의 `runtime_config.browser`(sidecar 이미지 digest·고정 도구·화면 이미지 허용), `FeatureKey "browser"`. 서버 이름 `browser` 예약. **요구 기능을 `runtime_config.browser`에서 강제로 도출**해(`runtimeRequirementsOf`, `features.ts`) 능력이 없는 worker는 claim 단계에서 세션을 받지 못한다. 런타임 확인은 `run.ready()` 뒤라서(`worker-host.ts`) 그것만으로는 부족하다. worker의 활성 기능 상수 `browser`는 꺼 둔 채 둔다 | 없음 | 신규 | 아니오 |
-| **U2** sidecar 이미지 | `apps/browser`(또는 `images/browser`): 같은 베이스 digest 규칙, `apt-get upgrade`, `THIRD_PARTY_NOTICES`·`DEBIAN_SOURCES` 절차, ECH 정책 파일, 실행 인자 기본값(`--isolated --no-sandbox --image-responses omit --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp`). `image:verify`에 "정책 파일이 있고 ECH가 꺼진다", 이미지 스캔(images.yml)에 추가. **MCP 엔드포인트 앞에 bearer 검증 앞단**(3.1절)과 파일 전송용 읽기·쓰기 엔드포인트(3.2절)를 둔다 | 없음(U1과 병렬) | 신규 | **예.** 새 이미지(압축 약 407 MB). worker 이미지는 그대로 |
-| **U2b** launch 계약·세션 고정 | release의 `capabilities.browser`를 세션 행에 해석·고정, `LaunchIntent.browser`와 scheduler 조립, launch fingerprint·재사용 판정에 포함, attempt별 sidecar 인증 token을 backend가 만들어 claim으로 전하는 계약. backend 구현은 없음 | U1, U2(이미지 digest) | 신규 | 아니오 |
+| **U2** sidecar 이미지 | `apps/browser`(또는 `images/browser`): 같은 베이스 digest 규칙, `apt-get upgrade`, `THIRD_PARTY_NOTICES`·`DEBIAN_SOURCES` 절차, ECH 정책 파일, 실행 인자 기본값(`--isolated --no-sandbox --image-responses omit --disable-quic --force-webrtc-ip-handling-policy=disable_non_proxied_udp`). `image:verify`에 "정책 파일이 있고 ECH가 꺼진다", 이미지 스캔(images.yml)에 추가 | 없음(U1과 병렬) | 신규 | **예.** 새 이미지(압축 약 407 MB). worker 이미지는 그대로 |
+| **U2c** sidecar 앞단 | 이미지 안의 앞단 서버: bearer 검증, 원본 Playwright MCP를 자식 프로세스 stdio로만 연결(포트 없음), 도구 목록을 release 고정 집합으로 거름, 파일 전송 읽기·쓰기 엔드포인트(핸들 기준 `O_NOFOLLOW`·`fstat` 검증, 3.2절). 시험은 앞단 단독으로 돈다 | U2 | 신규 | **예.** U2 이미지에 코드가 더해진다 |
+| **U2b** launch 계약·세션 고정 | release의 `capabilities.browser`를 세션 행에 해석·고정, `LaunchIntent.browser`와 scheduler 조립, launch fingerprint·재사용 판정에 포함, attempt별 sidecar bearer(`browser.bearer`, egress token과 분리)의 fence된 발급·등록·claim 전달·재시도 시 동일 값 계약(4.3절). backend 구현은 없음 | U1, U2c(최종 이미지 digest) | 신규 | 아니오 |
 | **U3** local-docker sidecar | `BrowserSidecarCapable`의 local-docker 구현(실행 전용 internal network에 컨테이너), isolation contract 버전 상승, 정리 시험(attempt 종료 때 컨테이너 제거), egress 통합 시험(`egress.integration.test.ts` 계열)에 허용·차단·ECH 사례, sidecar에 token·home·credential 파일이 가지 않는 시험, backend 생성 전 로컬 기능 검사 | U2b | 신규 | 아니오 |
 | **U4** k8s sidecar | `BrowserSidecarCapable`의 k8s 구현(`specs.ts`에 컨테이너 추가, 메모리·pids 한도, tmpfs 출력 디렉터리, NetworkPolicy 확인), helm 값 | U3 | 신규 | 아니오 |
 | **U5** worker 조립 | `browserUpstream`(sidecar bearer 사용)과 stdio relay가 만든 `McpToolGate` 구현 연결, 호출 시한, 결과 크기·화면 이미지 상한, 재개 뒤 첫 호출 알림. 엔진 어댑터는 바꾸지 않는다. gate는 새로 만들지 않고 stdio relay의 구현을 쓴다 | U1, U2b, U3, stdio relay U1(`McpUpstream` 분리), U2(이름 공간 검사), U2b(판정 전용 경로), U3(worker `McpToolGate` 구현) | 신규(선행은 기존: stdio relay 구현 티켓들) | 아니오 |
-| **U5b** 파일 전송 | 3.2절의 전송 계약: 인증된 엔드포인트로 읽고 쓰기, 경로·symlink·크기 검증, 임시 파일+rename, `quiesce` 대기와 같은 장벽, 시험(`../`, symlink 교체, 복사 중 변경, 상한, 장벽 대기 중 abort). 업로드·다운로드 도구는 이 단위가 만든다 | U5, stdio relay U4(`quiesce` 장벽) | 신규 | 아니오 |
-| **U6** 켬 | worker가 `browser: true`를 알린다. release 기본 도구 집합에서 `browser_run_code_unsafe`·`browser_evaluate`·`browser_file_upload`를 deny로 고정한다. 필수 시험: 엔진 Bash에서 token 없이 보낸 직접 `tools/call` 거절(3.1절), claude 실제 엔진으로 deny 우선·호출자 상한(`bypassPermissions`·`auto` 포함) | U4, U5, 호출자 상한 집행 티켓 | 신규(선행은 기존: 호출자 상한 집행) | 아니오 |
-| **U6b** codex relay 주입 | codex 어댑터가 `type: "sdk"` relay 주입을 받게 한다. 지금은 MCP 서버가 있으면 시작을 거절한다(`codex/config.ts`). 브라우저 단위가 아니라 codex MCP 지원 단위이고, 이미 열린 codex 쪽 티켓이 있으면 그것에 합친다 | stdio relay U1 | 신규(확인: codex app-server 어댑터 후속) | 아니오 |
-| **U7** 스크린샷 | release의 `capabilities.browser.screenshots`를 켜고 transcript에 화면 이미지가 있다는 표시를 세션 상세에 남긴다. 이미지 크기·수 상한과 `MAX_TRANSCRIPT_BYTES` 예산 시험 | U6 | 신규 | 아니오 |
+| **U5b** 파일 전송 | 3.2절의 전송 계약: 인증된 엔드포인트로 읽고 쓰기, 핸들 기준 `O_NOFOLLOW`·`fstat` 검증, 임시 파일+rename, 시험(`../`, 파일·상위 폴더 교체, 복사 중 변경, 상한, 장벽 대기 중 abort). 첫 일은 stdio relay U4의 `open`·`quiesced`·`closed` 장벽을 프로세스가 아닌 소비자도 등록하는 worker 공통 입장 장벽으로 일반화하는 것이다(stdio 서버가 없는 세션에서도 잡힘, 승인 답변과 캡처 경쟁 시험). 업로드·다운로드 도구는 이 단위가 만든다 | U2c, U5, stdio relay U4(`quiesce` 장벽) | 신규 | 아니오 |
+| **U6b** codex relay 주입 | codex 어댑터가 `type: "sdk"` relay 주입을 받게 한다. 지금은 MCP 서버가 있으면 시작을 거절한다(`codex/config.ts`). 브라우저 단위가 아니라 codex MCP 지원 단위이고, 이미 열린 codex 쪽 티켓이 있으면 그것에 합친다. 이 단위가 없으면 U6은 claude에만 켜지고 codex worker는 능력을 알리지 않아 claim 단계에서 거절된다 | stdio relay U1 | 신규(확인: codex app-server 어댑터 후속) | 아니오 |
+| **U6** 켬 | worker가 `browser: true`를 알린다(엔진별로 relay를 받는 엔진만). release 기본 도구 집합에서 `browser_run_code_unsafe`·`browser_evaluate`·`browser_file_upload`를 deny로 고정한다. 필수 시험: 엔진 Bash에서 token 없이 보낸 직접 `tools/call`·파일 전송 거절과 원본 MCP 직접 접근 불가(3.1절), claude 실제 엔진으로 deny 우선·호출자 상한(`bypassPermissions`·`auto` 포함) | U4, U5, U5b, U6b(codex를 켤 때), 호출자 상한 집행 티켓 | 신규(선행은 기존: 호출자 상한 집행) | 아니오 || **U7** 스크린샷 | release의 `capabilities.browser.screenshots`를 켜고 transcript에 화면 이미지가 있다는 표시를 세션 상세에 남긴다. 이미지 크기·수 상한과 `MAX_TRANSCRIPT_BYTES` 예산 시험 | U6 | 신규 | 아니오 |
 | **U8** gVisor 선택지 | helm 값 `browser.runtimeClassName`. Pod 단위 RuntimeClass라 브라우저를 별도 Pod로 빼는 안과 비교해 정한다. KVM 없는 노드에서 gVisor 측정(5.5절) | U4 | 신규 | 아니오 |
 | **U9** release별 목적지와 로그인 | 브라우저 전용 목적지 목록을 proxy 판정으로 구현한다(MCP egress authorizer 모양). 로그인이 필요한 사이트의 자격 주입 설계. MCP 자격 설계의 결과(서버별 token, 설치 범위 비밀)를 입력으로 삼는다 | U6, MCP 자격 설계 구현 단위 | 신규 | 아니오 |
 | **U10** 승인 대상 도구 열기 | 모든 권한 모드(`bypassPermissions`, `auto` 포함)에서 강제되는 승인 장벽을 정하고 시험한 뒤 `browser_evaluate`·`browser_file_upload`를 승인 대상으로 연다. 장벽을 만들 수 없으면 계속 deny로 둔다 | U5b, U6 | 신규 | 아니오 |
