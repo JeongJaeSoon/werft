@@ -18,7 +18,8 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
-import { agentReleases, sessions } from "./schema.ts";
+import { agentReleases, sessionPinCutover, sessions } from "./schema.ts";
+import { flipPinCutover } from "./session-pin-cutover.ts";
 import { reconcileSessionPins, sessionPinGate } from "./session-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -60,9 +61,11 @@ integration("session pin reconciliation on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  // The gate counts every live session, so each test starts with none.
+  // The gate counts every live session and the reconciliation reads every
+  // session of a release, so each test starts with none of either: the old
+  // rows end and let go of their release.
   beforeEach(async () => {
-    await db.update(sessions).set({ status: "stopped" });
+    await db.update(sessions).set({ status: "stopped", agentReleaseId: null });
   });
 
   async function release(withSpec: boolean) {
@@ -339,6 +342,118 @@ integration("session pin reconciliation on PostgreSQL", () => {
       const next = await sessionPinGate(db);
       expect(next.missing).toBe(1);
       expect(next.modelUnknown).toBe(0);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "once the pin is authoritative, a new input revives a failed session only if it has a pin on its own model, and a refusal records nothing",
+    async () => {
+      const ownerId = crypto.randomUUID();
+      const inputs = createPostgresSessionUnitOfWork(db);
+      const limits = {
+        queuedInputLimitPerSession: 1_000,
+        storageLimitBytes: 1e15,
+      };
+      const first = async (releaseId: string | null) => {
+        const accepted = await inputs.acceptInputAtomic({
+          limits,
+          principal: { ownerId },
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          profileId: "p",
+          repository: "none",
+          model: "sonnet-5-0",
+          ...(releaseId === null ? {} : { agentReleaseId: releaseId }),
+          message: "go",
+        });
+        if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+        const id = accepted.response.session_id;
+        await db
+          .update(sessions)
+          .set({ status: "failed" })
+          .where(eq(sessions.id, id));
+        return id;
+      };
+      const append = (sessionId: string) =>
+        inputs.appendInputAtomic({
+          limits,
+          principal: { ownerId },
+          sessionId,
+          idempotencyKey: crypto.randomUUID(),
+          payloadHash: crypto.randomUUID(),
+          message: "again",
+        });
+      const pinned = await first(await release(true));
+      const bare = await first(null);
+
+      await db
+        .update(sessionPinCutover)
+        .set({ authoritative: true, flippedAt: new Date() });
+      try {
+        const before = await rowOf(bare);
+        expect(await append(bare)).toEqual({ outcome: "pin_required" });
+        expect(await rowOf(bare)).toEqual(before);
+        const revived = await append(pinned);
+        expect(revived.outcome).toBe("accepted");
+        expect((await rowOf(pinned)).status).toBe("queued");
+      } finally {
+        await db
+          .update(sessionPinCutover)
+          .set({ authoritative: false, flippedAt: null });
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "an ended session is pinned too, because a resume, a recovery decision or a new input brings it back and the flip refuses a live session without a pin",
+    async () => {
+      const rel = await release(true);
+      const stopped = await start(rel);
+      await unpin(stopped);
+      await db
+        .update(sessions)
+        .set({ status: "stopped" })
+        .where(eq(sessions.id, stopped));
+      const failed = await start(rel);
+      await unpin(failed);
+      await db
+        .update(sessions)
+        .set({ status: "failed" })
+        .where(eq(sessions.id, failed));
+
+      const report = await reconcileSessionPins(db);
+
+      expect(report.repaired).toBe(2);
+      for (const id of [stopped, failed]) {
+        expect(verifyReleaseSpec(rel, snake(await rowOf(id))).ok).toBe(true);
+      }
+      // A pin that already holds is not read again for an ended session.
+      expect(await reconcileSessionPins(db)).toEqual({
+        repaired: 0,
+        raced: 0,
+        unresolved: 0,
+        modelUnknown: 0,
+      });
+      // The gate still reads live sessions only, so a stopped one never
+      // holds the flip back.
+      expect((await sessionPinGate(db)).open).toBe(true);
+      // Brought back after the flip, the pinned session is let through.
+      expect((await flipPinCutover(db)).flipped).toBe(true);
+      try {
+        await db
+          .update(sessions)
+          .set({ status: "queued" })
+          .where(eq(sessions.id, stopped));
+        expect((await rowOf(stopped)).status).toBe("queued");
+      } finally {
+        // The flip is for good in production; the other tests here need the
+        // old rules back.
+        await db
+          .update(sessionPinCutover)
+          .set({ authoritative: false, flippedAt: null });
+      }
     },
     TIMEOUT_MS,
   );
