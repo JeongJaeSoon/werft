@@ -22,7 +22,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **`v0.1.0`에서 올리면 DB 마이그레이션 27개(`0236`~`0262`)가 `migrate`에서 적용된다.** 새 열·테이블·인덱스를 더하는 것이 대부분이지만, 기존 행을 채우거나 바꾸는 `UPDATE`·`INSERT`·`DELETE`와 제약 변경이 든 것도 있다. `0243_agent_managing_team_required`는 백필 뒤 `SET NOT NULL`을 건다. 적용한 뒤에는 `v0.1.0` 이미지로 되돌려도 동작한다고 보장하지 않으니 올리기 전에 DB를 백업한다.
+- **`v0.1.0`에서 올리면 DB 마이그레이션 27개(`0236`~`0262`)가 `migrate`에서 적용된다.** 새 열·테이블·인덱스를 더하는 것이 대부분이지만, 기존 행을 채우거나 바꾸는 `UPDATE`·`INSERT`와 제약 변경이 든 것도 있다. `0243_agent_managing_team_required`는 백필 뒤 `SET NOT NULL`을 건다. 적용한 뒤에는 `v0.1.0` 이미지로 되돌려도 동작한다고 보장하지 않으니 올리기 전에 DB를 백업한다.
 - **올리는 순서는 control-host·API·검증기·GC·세션 보관 CronJob을 먼저, worker를 나중에 한다**(아래 체크포인트 항목). 옛 이미지로 시작한 정리 Job이 끝났는지 확인한 뒤 worker를 올린다. `AGENT_ACTION_FLOWS`는 이 버전이 읽지 않으므로 켜는 절차는 없다.
 - **Slack 연동 env를 정리했다. 공개 주소는 `CONSOLE_ORIGIN` 하나다**(JeongJaeSoon/werft#1439). Slack 계정 연결의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)와 이벤트 주소(`<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>`)는 여기서 계산하고, 설정 > 연동 > Slack 화면에 복사할 수 있게 보인다. 올리기 전에 `CONSOLE_ORIGIN`을 api와 slack role에 넣는다.
   - `SLACK_OIDC_REDIRECT_URI`: 이제 읽는 값이 아니다. `CONSOLE_ORIGIN`이 없을 때만 이번 릴리스에서 그 origin을 폴백으로 쓰고, 다음 릴리스에서 폴백도 없앤다. 시작할 때 "폐기 예정" 경고가 나온다. `CONSOLE_ORIGIN`을 넣은 뒤 지운다.
