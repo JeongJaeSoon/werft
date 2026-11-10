@@ -8,9 +8,11 @@ import {
   type SlackQuestionViewMetadata,
   type UserLocale,
 } from "@werft-ai/contracts";
-import type { ToolSummaryContext } from "../ports/pending-requests.ts";
-import type { PushRequestDisplay } from "../ports/push-requests.ts";
-import type { SlackPromptCard } from "../ports/slack-outbox-store.ts";
+import type {
+  PushRequestDisplay,
+  SlackPromptCard,
+  ToolSummaryContext,
+} from "@werft-ai/platform";
 import { summarizeToolRequest } from "./slack-prompt-summary.ts";
 
 /** A request a session waits on that a person can settle in its thread. */

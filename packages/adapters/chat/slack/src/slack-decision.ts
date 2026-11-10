@@ -10,14 +10,15 @@ import {
   slackNoticeFor,
   slackUserKindOf,
 } from "@werft-ai/contracts";
-import type {
-  AgentIdentityStore,
-  SlackEventKey,
-} from "../ports/agent-identity-store.ts";
-import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
-import { agentForSlackEvent } from "./agent-identity-service.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
+import {
+  type AgentIdentityStore,
+  type AuthorizationPolicy,
+  agentForSlackEvent,
+  type Caller,
+  type LinkedAccountStore,
+  type SlackEventKey,
+  type SurfaceBindingStore,
+} from "@werft-ai/platform";
 
 export type SlackInput = {
   /** The event's app and team, and the agent its request URL names. */

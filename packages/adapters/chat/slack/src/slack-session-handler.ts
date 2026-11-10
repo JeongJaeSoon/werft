@@ -19,9 +19,7 @@ import type {
 import {
   type AuthorizationPolicy,
   agentForSlackEvent,
-  authorizeSlackInput,
   type Caller,
-  judgeThreadReply,
   type SessionService,
   SessionServiceError,
   SlackApiError,
@@ -29,11 +27,15 @@ import {
   SlackInboundDropped,
   type SlackInboundHandler,
   type SlackInboxLogger,
-  type SlackInput,
-  slackCallerOf,
 } from "@werft-ai/platform";
 import { z } from "zod";
+import {
+  authorizeSlackInput,
+  type SlackInput,
+  slackCallerOf,
+} from "./slack-decision.ts";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
+import { judgeThreadReply } from "./slack-thread-shadow.ts";
 
 const slackMessageSchema = z.object({
   type: z.enum(["app_mention", "message"]),

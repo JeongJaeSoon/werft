@@ -13,13 +13,13 @@ import {
   type LinkedSubject,
   SessionServiceError,
   type SlackPromptCard,
-  slackPromptMessage,
 } from "@werft-ai/platform";
 import {
   createSlackInteractionService,
   type SlackInteractionDeps,
   slackPushFollowUp,
 } from "./slack-interactions.ts";
+import { slackPromptMessage } from "./slack-prompts.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000a2";
