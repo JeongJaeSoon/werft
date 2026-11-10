@@ -6,6 +6,7 @@ import type {
   RuntimeFingerprint,
 } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor, RuntimeKind } from "./descriptor.ts";
+import type { EventCodec } from "./event-codec.ts";
 import type {
   TranscriptStore,
   TranscriptStoreOptions,
@@ -62,6 +63,12 @@ export type ToolPrecheck = (
 export interface RuntimeModule {
   readonly descriptor: RuntimeDescriptor;
   readonly checkpointCodec: CheckpointCodec;
+  /**
+   * Reads the events this adapter's mapper writes, for a reader inside the
+   * worker that needs the engine-neutral fields before the control plane adds
+   * them.
+   */
+  readonly eventCodec?: EventCodec;
   /** Throws `RuntimeMismatch` for a session made for another build. */
   assertCompatible(runtime: SessionRuntime): void;
   /**

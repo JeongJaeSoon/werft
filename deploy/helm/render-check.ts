@@ -1344,6 +1344,22 @@ for (const [label, args, message] of MUST_FAIL) {
   }
 }
 
+// A deployment that runs the Codex worker image names its engine and the
+// chart carries it to api, slack and the scheduler like Claude's.
+{
+  const codex = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set-json",
+    'images.worker.runtime={"engine":"codex","sdkVersion":"0.167.0","cliVersion":"0.167.0","profileDigestScheme":1}',
+  ]);
+  if (!codex.ok || !codex.out.includes(String.raw`\"engine\":\"codex\"`)) {
+    errors.push(
+      `a Codex worker runtime: expected a render carrying engine codex, got ${codex.ok ? "no such value" : codex.out.slice(0, 200)}`,
+    );
+  }
+}
+
 // The chart takes a runtime value exactly when the readers do: one it lets
 // through and they refuse stops api, slack and the scheduler at startup. The
 // engine name is the one rule the chart keeps beyond them (see MUST_FAIL), so

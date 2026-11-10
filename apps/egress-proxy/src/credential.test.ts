@@ -1358,6 +1358,29 @@ describe("startCredentialProxy", () => {
       await Bun.sleep(100);
       expect(auth.reported).toHaveLength(3);
     });
+
+    test("a session whose report was given up on is refused as a spent budget from then on", async () => {
+      const up = upstream(() =>
+        Response.json({ model: "m", usage: { input_tokens: 1 } }),
+      );
+      const auth = authorizer(
+        provider(up),
+        () => new Response(null, { status: 503 }),
+      );
+      const server = proxy(auth.url, up.port, {
+        usageReportBackoffMs: [10],
+      });
+      await (await messages(server.port)).text();
+      // The first try and its one retry are both refused: the report is lost.
+      await until(() => auth.reported.length === 2);
+      await Bun.sleep(100);
+      const seenBefore = up.seen.length;
+
+      const refused = await messages(server.port);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toContain("BUDGET_EXCEEDED:");
+      expect(up.seen).toHaveLength(seenBefore);
+    });
   });
 
   test("the authorizer's refusal reaches the worker, and nothing is sent upstream", async () => {

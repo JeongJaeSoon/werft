@@ -9,6 +9,18 @@ import {
 import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import {
+  createOutboxSlackNoticeSink,
+  createRowDelivery,
+  drainSlackOutbox,
+  reconcileSlackThreadStatuses,
+  SLACK_CARD_SETTLE_TIMING,
+  SLACK_OUTBOX_MESSAGES,
+  SLACK_RETRY_AFTER_MAX_MS,
+  SLACK_THREAD_STATUS_TIMING,
+  settleSlackCards,
+  writeSlackThreadStatuses,
+} from "@werft-ai/chat-slack";
+import {
   agentCardRequestSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
@@ -56,24 +68,14 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  createOutboxSlackNoticeSink,
-  createRowDelivery,
   createSlackBotApi,
   drainSlackInbox,
-  drainSlackOutbox,
   type PushSource,
-  reconcileSlackThreadStatuses,
   SecretKey,
-  SLACK_CARD_SETTLE_TIMING,
-  SLACK_OUTBOX_MESSAGES,
-  SLACK_RETRY_AFTER_MAX_MS,
-  SLACK_THREAD_STATUS_TIMING,
   SlackApiError,
   type SlackBotApi,
-  settleSlackCards,
   slackBotToken,
   slackConversationKey,
-  writeSlackThreadStatuses,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "connections": {
+    "fake-responses": {
+      "kind": "openai_responses",
+      "endpoint": "http://fake-responses:4030",
+      "auth": {
+        "kind": "api_key",
+        "secret_id": "werft/local/fake-messages"
+      }
+    }
+  },
+  "repositories": {},
+  "mcp_servers": {},
+  "profiles": {
+    "codex-local": {
+      "runtime_kind": "codex_app_server",
+      "runtime_version": "0.167.0",
+      "model": "gpt-5.5",
+      "tools": ["exec_command"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "openai_responses",
+        "endpoint": "http://fake-responses:4030",
+        "auth": {
+          "kind": "api_key",
+          "secret_id": "werft/local/fake-messages"
+        }
+      },
+      "repository": "none"
+    }
+  }
+}

@@ -13,6 +13,7 @@ import {
   type RegisterPendingRequest,
   type RepositoryAttachOrder,
   type RepositoryAttachResult,
+  type SurfaceKind,
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
@@ -60,9 +61,31 @@ export type PendingRequestsOptions = {
   onAttachments?: (orders: RepositoryAttachOrder[]) => void;
   /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
   onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
+  // Observation only: the registry never waits on it.
+  onDecided?: (decided: PendingDecided) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
+
+export type PendingDecided = {
+  requestId: string;
+  localId: string;
+  toolCallId: string;
+  kind: "permission" | "question";
+  decision: string;
+  answerSurface?: SurfaceKind;
+};
+
+function decisionLabel(decision: ApprovalDecisionPayload): string {
+  switch (decision.kind) {
+    case "cancelled":
+      return decision.reason;
+    case "answered":
+      return "answered";
+    default:
+      return decision.optionKind.startsWith("allow") ? "allow" : "deny";
+  }
+}
 
 type Settled = Omit<PendingSettlement, "request_id">;
 
@@ -389,7 +412,26 @@ export class PendingRequestRegistry {
    * A cancel is settled as one at once, with its reason; anything else waits
    * on what the run says it did with it.
    */
-  private close(requestId: string, decision: ApprovalDecisionPayload): void {
+  private close(
+    requestId: string,
+    decision: ApprovalDecisionPayload,
+    answerSurface?: SurfaceKind,
+  ): void {
+    const waiting = this.pending.get(requestId);
+    if (waiting !== undefined) {
+      try {
+        this.options.onDecided?.({
+          requestId,
+          localId: waiting.localId,
+          toolCallId: waiting.toolCallId,
+          kind: waiting.kind,
+          decision: decisionLabel(decision),
+          ...(answerSurface === undefined ? {} : { answerSurface }),
+        });
+      } catch {
+        // Telemetry must not hold back the answer the engine is waiting for.
+      }
+    }
     if (decision.kind === "cancelled") {
       void this.drop(
         requestId,
@@ -691,10 +733,15 @@ export class PendingRequestRegistry {
         const answers = [...response.answers].sort(
           (a, b) => a.sequence - b.sequence,
         );
-        for (const { sequence, answer, input_hash } of answers) {
+        for (const {
+          sequence,
+          answer,
+          input_hash,
+          answer_surface,
+        } of answers) {
           if (sequence <= this.answersAfter) continue;
           this.answersAfter = sequence;
-          if (this.apply(answer, input_hash)) answered = true;
+          if (this.apply(answer, input_hash, answer_surface)) answered = true;
         }
         if (response.control !== null) {
           this.options.onControl?.(response.control, { answered });
@@ -783,7 +830,11 @@ export class PendingRequestRegistry {
   }
 
   /** True when the answer reached its callback as one. */
-  private apply(answer: PostSessionAnswerRequest, inputHash: string): boolean {
+  private apply(
+    answer: PostSessionAnswerRequest,
+    inputHash: string,
+    surface?: SurfaceKind,
+  ): boolean {
     if (this.parked.has(answer.request_id)) return false;
     const entry = this.pending.get(answer.request_id);
     if (entry === undefined) {
@@ -834,6 +885,7 @@ export class PendingRequestRegistry {
                 ? {}
                 : { message: answer.reason }),
             },
+        surface,
       );
       return true;
     }
@@ -848,10 +900,11 @@ export class PendingRequestRegistry {
       });
       return true;
     }
-    this.close(answer.request_id, {
-      kind: "answered",
-      answers: answer.answers,
-    });
+    this.close(
+      answer.request_id,
+      { kind: "answered", answers: answer.answers },
+      surface,
+    );
     return true;
   }
 }

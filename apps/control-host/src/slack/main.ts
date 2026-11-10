@@ -43,18 +43,10 @@ import {
 import {
   agentEnvNames,
   createAuthorizationPolicy,
-  createLoggingSlackNoticeSink,
-  createOutboxSlackNoticeSink,
   createProfileRegistry,
-  createRowDelivery,
   createSessionService,
   createSlackBotApi,
-  createSlackMemberJoinedHandler,
-  createSlackMemberLeftHandler,
-  createSlackSessionHandler,
-  createSlackWelcome,
   drainSlackInbox,
-  drainSlackOutbox,
   installationLimitsFromEnv,
   profileCatalog,
   releaseNotRunnableReason,
@@ -65,7 +57,6 @@ import {
   type SlackInboundEventStore,
   type SlackInboundHandler,
   type SlackInboxDrain,
-  type SlackNoticeSink,
   settingsView,
   slackBotToken,
   withConsoleRepositories,
@@ -82,6 +73,17 @@ import { extensionDepsFor } from "../api/extension-deps.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
+import {
+  createLoggingSlackNoticeSink,
+  createOutboxSlackNoticeSink,
+  createRowDelivery,
+  createSlackMemberJoinedHandler,
+  createSlackMemberLeftHandler,
+  createSlackSessionHandler,
+  createSlackWelcome,
+  drainSlackOutbox,
+  type SlackNoticeSink,
+} from "../wiring/chat-slack.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 

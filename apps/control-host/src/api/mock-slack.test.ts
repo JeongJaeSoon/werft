@@ -1,11 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
-  createSlackBotApi,
-  SlackApiError,
   slackPromptMessage,
   slackSettledCard,
   verifySlackSignature,
-} from "@werft-ai/platform";
+} from "@werft-ai/chat-slack";
+import { createSlackBotApi, SlackApiError } from "@werft-ai/platform";
 import {
   createFakeSlackWebApi,
   startFakeSlackApi,
