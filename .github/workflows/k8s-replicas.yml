@@ -5,15 +5,14 @@
 # with no turn run twice. It builds the three images, so it is heavier than
 # the `k8s-smoke` job in ci.yml and stays off that path.
 #
-# Not a required check. The pull request trigger covers only the api and
-# egress-proxy templates, the script and this file.
+# Not a required check. The pull request trigger covers only the chart, the
+# scripts and this file.
 name: K8s replicas
 
 on:
   pull_request:
     paths:
-      - deploy/helm/werft/templates/api.yaml
-      - deploy/helm/werft/templates/egress-proxy.yaml
+      - deploy/helm/werft/**
       - deploy/kind/replicas.sh
       - deploy/kind/up.sh
       - .github/workflows/k8s-replicas.yml

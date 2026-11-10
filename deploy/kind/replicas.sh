@@ -6,18 +6,22 @@
 # to the Service.
 #
 #   1. replicas    two Ready Pods of each Deployment, on two different Pods
-#   2. flow        a session created on api A: its stream read on api B sees
-#                  the permission question live; pending-requests on B; the
-#                  answer sent to A (and once more to B under the same
-#                  Idempotency-Key: the same receipt, no second effect);
-#                  turn 1 completes with one reported turn; a message on B
-#                  runs turn 2, read back on A
+#   2. flow        a session created on api A whose first turn asks four
+#                  permission questions: api B's stream carries each within
+#                  seconds of the worker publishing it (B's own LISTEN/NOTIFY
+#                  wakeup, not its 15 s keepalive re-read); pending-requests
+#                  on B; the answers sent to A (the first once more to B under
+#                  the same Idempotency-Key: the same receipt); turn 1
+#                  completes; a message on B runs turn 2, read back on A
 #   3. resume      the full event list read on A and the list resumed on B
 #                  from a cursor (Last-Event-ID) are the same events, in the
-#                  same order, none twice
-#   4. spread      several sessions created alternately on A and B all
-#                  complete once each (usage: one reported turn), no worker
-#                  ran a turn twice
+#                  same order, none twice; each turn's frames name one
+#                  attempt, the one the turn names
+#   4. spread      sessions created in pairs, one on A and one on B, complete
+#                  once each (one reported turn, one attempt). Pairs, because
+#                  a worker Pod holds a CPU and several GiB while its session
+#                  idles. Two creates at once do not race one turn's claim:
+#                  that stays out of this test's reach.
 #   5. proxy       both egress-proxy Pods answer a worker-labelled Pod
 #                  directly, and both served provider routes during step 4
 #
@@ -50,6 +54,11 @@ PROBE_IMAGE="${PROBE_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8e
 PORT_A="${REPLICAS_PORT_A:-13081}"
 PORT_B="${REPLICAS_PORT_B:-13082}"
 SPREAD_SESSIONS="${SPREAD_SESSIONS:-8}"
+# They go in pairs, one on each replica.
+if ! [[ "$SPREAD_SESSIONS" =~ ^[1-9][0-9]*$ ]] || [ $((SPREAD_SESSIONS % 2)) != 0 ]; then
+  echo "SPREAD_SESSIONS must be an even number, not '${SPREAD_SESSIONS}'" >&2
+  exit 1
+fi
 
 if [ "${1:-}" = down ]; then
   exec "$here/up.sh" down
@@ -119,15 +128,18 @@ for component in api egress-proxy; do
   echo "${component}: ${ready}/${want} Ready"
   [ "$want" = 2 ] && [ "$ready" = 2 ] || fail "${component} is not at two Ready replicas"
 done
-# Running Pods of a component, one name per line, into the array named $1
-# (bash 3.2 on macOS has no mapfile).
+# Ready Pods of a component that are not being deleted, one name per line,
+# into the array named $1 (bash 3.2 on macOS has no mapfile). up.sh restarts
+# the api after importing the settings, so the old ReplicaSet's Pod can still
+# be Running while it terminates.
 running_pods() {
   local name="$1" component="$2" pod
   eval "${name}=()"
   while IFS= read -r pod; do
     [ -z "$pod" ] || eval "${name}+=(\"\$pod\")"
-  done < <(k get pods -l "app.kubernetes.io/component=${component}" --field-selector=status.phase=Running \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+  done < <(k get pods -l "app.kubernetes.io/component=${component}" -o json |
+    jq -r '.items[] | select(.metadata.deletionTimestamp == null)
+      | select(any(.status.conditions[]?; .type == "Ready" and .status == "True")) | .metadata.name')
 }
 running_pods api_pods api
 running_pods proxy_pods egress-proxy
@@ -193,35 +205,84 @@ sse() {
 event_ids() { sed -n 's/^id: *//p' "$1"; }
 
 step flow
-# The first turn asks permission (tee writes a file), so the session waits.
-spec='{"id":"replicas-flow","steps":[{"tool":"Bash","input":{"command":"echo replicas | tee hello.txt","description":"write a file"}}],"final":"replicas flow done"}'
+# Frames of an event stream with the time each line arrived, to the
+# millisecond (perl is on macOS and on the runner).
+sse_stamped() {
+  curl -sSN --max-time "$3" "http://127.0.0.1:${1}/v1/sessions/${2}/events" -H @"$auth" 2>/dev/null |
+    perl -MTime::HiRes=time -ne 'BEGIN { $| = 1 } printf "%.3f %s", time, $_' >"$4" || true
+}
+# The attempt ids the frames of one turn carry, one per line, each once.
+attempts_of() {
+  sed -n 's/^data: //p' "$1" | jq -r --arg t "$2" 'select(.turn_id == $t) | .attempt_id // empty' | sort -u
+}
+# assert_one_attempt <port> <sid> <turn> <sse file>: the turn has exactly one
+# attempt, and it is the one its event frames name. A turn claimed and run
+# twice would list a second attempt.
+assert_one_attempt() {
+  local ids attempts
+  ids="$(attempts_of "$4" "$3")"
+  attempts="$(get "$1" "/v1/sessions/$2/turns/$3" | jq -r '.attempts[].attempt_id')"
+  [ "$(printf '%s\n' "$attempts" | grep -c .)" = 1 ] && [ "$ids" = "$attempts" ] ||
+    fail "turn $3 of $2: the turn lists attempts [$(echo $attempts)], its frames name [$(echo $ids)]"
+  echo "turn $3: one attempt ${attempts}"
+}
+
+# Four turns' worth of permission questions: each Bash step asks, the session
+# waits, and the answer goes to the other replica than the one reading.
+asks=4
+spec="$(jq -nc --argjson n "$asks" '{id: "replicas-flow", final: "replicas flow done",
+  steps: [range(0; $n) | {tool: "Bash", input: {command: ("echo replicas " + tostring + " | tee hello" + tostring + ".txt"), description: "write a file"}}]}')"
 body="$(jq -nc --arg m "GATE-SPEC ${spec}" '{profile_id: "claude-coding-local", repository_id: "sample-app", message: $m}')"
 created_session="$(post "$PORT_A" /v1/sessions "$body")"
 sid="$(echo "$created_session" | jq -r .session_id)"
 echo "created on A: ${sid} $(echo "$created_session" | jq -c '{turn_id, status}')"
-# Read on B while the worker is still starting: the question must arrive
-# through B's own wakeup, not from A.
-sse "$PORT_B" "$sid" "$work/flow-b.sse" 60 &
-reader=$!
-pids+=("$reader")
-for _ in $(seq 1 60); do
-  grep -q '^event: question' "$work/flow-b.sse" 2>/dev/null && break
-  sleep 1
+# Read on B from the start. B re-reads on its 15 s keepalive too, so one
+# question arriving at once proves little; each of the questions below must
+# reach B within a few seconds of when the worker published it, and polling
+# alone would manage that for all of them only by chance.
+sse_stamped "$PORT_B" "$sid" 240 "$work/flow-b.sse" &
+pids+=("$!")
+last_request=""
+for n in $(seq 1 "$asks"); do
+  for _ in $(seq 1 90); do
+    [ "$(grep -c ' event: question$' "$work/flow-b.sse" 2>/dev/null || true)" -ge "$n" ] && break
+    sleep 1
+  done
+  [ "$(grep -c ' event: question$' "$work/flow-b.sse" 2>/dev/null || true)" -ge "$n" ] ||
+    fail "api B's stream never carried permission question ${n}"
+  pending="$(get "$PORT_B" "/v1/sessions/${sid}/pending-requests")"
+  echo "question ${n}: $(echo "$pending" | jq -c '.items[] | {kind, tool, turn_id}')"
+  [ "$(echo "$pending" | jq '.items | length')" = 1 ] || fail "B does not see exactly one pending request"
+  request_id="$(echo "$pending" | jq -r '.items[0].request_id')"
+  [ "$request_id" != "$last_request" ] || fail "question ${n} is the request already answered"
+  last_request="$request_id"
+  [ "$(get "$PORT_A" "/v1/sessions/${sid}" | jq -r .status)" = needs_input ] || fail "A does not say needs_input"
+  answer="$(jq -nc --arg r "$request_id" '{request_id: $r, kind: "permission", action: "allow"}')"
+  if [ "$n" = 1 ]; then
+    # The same Idempotency-Key on the other replica: one answer, one receipt.
+    idem="$(openssl rand -hex 16)"
+    first="$(post "$PORT_A" "/v1/sessions/${sid}/answers" "$answer" "$idem")"
+    second="$(post "$PORT_B" "/v1/sessions/${sid}/answers" "$answer" "$idem")"
+    echo "answer on A: $(echo "$first" | jq -c .)  same key on B: $(echo "$second" | jq -c .)"
+    receipt="$(echo "$first" | jq -r .receipt_id)"
+    [ -n "$receipt" ] && [ "$receipt" != null ] && [ "$receipt" = "$(echo "$second" | jq -r .receipt_id)" ] ||
+      fail "the same Idempotency-Key gave another receipt on the other replica"
+  else
+    post "$PORT_A" "/v1/sessions/${sid}/answers" "$answer" >/dev/null
+  fi
 done
-grep -q '^event: question' "$work/flow-b.sse" || fail "api B's stream never carried the permission question"
-echo "api B stream: $(sed -n 's/^event: *//p' "$work/flow-b.sse" | tr '\n' ' ')"
-pending="$(get "$PORT_B" "/v1/sessions/${sid}/pending-requests")"
-echo "$pending" | jq -c '.items[] | {kind, tool, turn_id}'
-[ "$(echo "$pending" | jq '.items | length')" = 1 ] || fail "B does not see exactly one pending request"
-request_id="$(echo "$pending" | jq -r '.items[0].request_id')"
-[ "$(get "$PORT_A" "/v1/sessions/${sid}" | jq -r .status)" = needs_input ] || fail "A does not say needs_input"
-answer="$(jq -nc --arg r "$request_id" '{request_id: $r, kind: "permission", action: "allow"}')"
-idem="$(openssl rand -hex 16)"
-first="$(post "$PORT_A" "/v1/sessions/${sid}/answers" "$answer" "$idem")"
-second="$(post "$PORT_B" "/v1/sessions/${sid}/answers" "$answer" "$idem")"
-echo "answer on A: $(echo "$first" | jq -c .)  same key on B: $(echo "$second" | jq -c .)"
-[ "$(echo "$first" | jq -r .receipt_id)" = "$(echo "$second" | jq -r .receipt_id)" ] ||
-  fail "the same Idempotency-Key gave another receipt on the other replica"
+# Seconds from a question's occurred_at (the worker's clock, on this node's
+# clock) to its arrival on B's stream.
+latencies="$(awk '$2 == "event:" && $3 == "question" { q = 1; next }
+  q && $2 == "data:" { print $1 "\t" substr($0, index($0, "data: ") + 6); q = 0 }' "$work/flow-b.sse" |
+  jq -Rr 'split("\t") as $p
+    | ($p[1] | fromjson | .occurred_at | capture("^(?<a>[^.Z]+)(\\.(?<f>[0-9]+))?Z$")) as $c
+    | (($c.a + "Z" | fromdateiso8601) + (("0." + ($c.f // "0")) | tonumber)) as $t
+    | (($p[0] | tonumber) - $t)')"
+echo "seconds from occurred_at to arrival on B:" $latencies
+[ "$(echo "$latencies" | grep -c .)" = "$asks" ] || fail "B's stream carried $(echo "$latencies" | grep -c .) of ${asks} questions"
+echo "$latencies" | jq -e -s 'all(. < 4 and . > -2)' >/dev/null ||
+  fail "a question reached B later than the wakeup would take: B did not hear the NOTIFY"
 wait_turn "$PORT_B" "$sid" 1
 echo "turn 1 completed (read on B)"
 usage="$(get "$PORT_A" "/v1/sessions/${sid}/usage")"
@@ -244,6 +305,9 @@ echo "events: A=$(wc -l <"$work/ids-a" | tr -d ' ') B=$(wc -l <"$work/ids-b" | t
 [ "$(wc -l <"$work/ids-a")" -ge 4 ] || fail "too few events to resume from"
 cmp -s "$work/ids-a" "$work/ids-b" || fail "A and B list different events for the same session"
 [ -z "$(sort "$work/ids-a" | uniq -d)" ] || fail "an event id appears twice"
+# Four approvals and a second turn, and still one attempt per turn.
+assert_one_attempt "$PORT_B" "$sid" 1 "$work/full-a.sse"
+assert_one_attempt "$PORT_A" "$sid" 2 "$work/full-b.sse"
 cursor="$(sed -n 2p "$work/ids-a")"
 sse "$PORT_B" "$sid" "$work/resumed-b.sse" 8 "$cursor"
 event_ids "$work/resumed-b.sse" >"$work/ids-resumed"
@@ -279,6 +343,8 @@ for pair in $(seq 1 $((SPREAD_SESSIONS / 2))); do
     reported="$(get "$port" "/v1/sessions/${s}/usage" | jq .cost.reported_turn_count)"
     printf 'pair %s: created on :%s, completed read on :%s  %s  reported turns %s\n' "$pair" "$port" "$other" "$s" "$reported"
     [ "$reported" = 1 ] || fail "session ${s} reported ${reported} turns"
+    sse "$other" "$s" "$work/spread-${s}.sse" 3
+    assert_one_attempt "$port" "$s" 1 "$work/spread-${s}.sse"
     terminate "$other" "$s"
   done
 done
@@ -315,8 +381,8 @@ for pod in "${proxy_pods[@]}"; do
   k exec replicas-probe -- sh -c "http_proxy=http://${ip}:3128 wget -S -T 5 -O /dev/null http://localstack:4566/ 2>&1 | grep -q 'HTTP/'" ||
     fail "a worker-labelled Pod got no HTTP answer from ${pod} (${ip}:3128)"
   routes="$(k logs "pod/${pod}" | grep -c '"Credential route"' || true)"
-  echo "${pod} (${ip}): answered the probe; served ${routes} provider/credential route request(s) in step spread"
-  [ "$routes" -ge 1 ] || fail "${pod} served no credential route while ${SPREAD_SESSIONS} sessions ran"
+  echo "${pod} (${ip}): answered the probe; served ${routes} credential route request(s) since the install"
+  [ "$routes" -ge 1 ] || fail "${pod} served no credential route while the sessions ran"
 done
 pass
 
