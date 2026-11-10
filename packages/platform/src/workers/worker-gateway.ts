@@ -138,6 +138,7 @@ import {
   profileGone,
   profileModels,
   profilePins,
+  providerPathAllowed,
   providerUpstreamOf,
   refreshWorkspaceProfilesFor,
   repositoryBinding,
@@ -1564,6 +1565,7 @@ export function createWorkerGateway(deps: {
   // spares the engine's calls a lookup that claims; the row decides.
   async function authorizedTitleEgress(
     token: string,
+    path: string | undefined,
   ): Promise<EgressGrant | null> {
     if (deps.titles === undefined || !token.startsWith(TITLE_TOKEN_PREFIX)) {
       return null;
@@ -1589,11 +1591,26 @@ export function createWorkerGateway(deps: {
     }
     const profile = titleProfile(catalog, result);
     if (profile === null) moved("session's profile");
+    requireProviderPath(profile.provider.kind, path);
     return {
       session_id: result.sessionId,
       attempt_id: result.attemptId,
       upstream: providerUpstreamOf(profile),
     };
+  }
+
+  // The provider route a session's connection kind does not serve is
+  // refused here: the proxy parses the path, only this side knows the kind.
+  function requireProviderPath(
+    kind: Parameters<typeof providerPathAllowed>[0],
+    path: string | undefined,
+  ): void {
+    if (providerPathAllowed(kind, path)) return;
+    throw new WorkerGatewayError(
+      403,
+      "FORBIDDEN",
+      "This provider route is not served by the session's connection",
+    );
   }
 
   // What an egress token stands for once its attempt still owns the session;
@@ -2228,9 +2245,11 @@ export function createWorkerGateway(deps: {
       purpose: "provider" | "repository";
       /** repository only: another repository than the session's own. */
       repository_id?: string | undefined;
+      /** provider only: `/v1/responses`; absent is a Messages call. */
+      path?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
-        const titled = await authorizedTitleEgress(request.token);
+        const titled = await authorizedTitleEgress(request.token, request.path);
         if (titled !== null) return titled;
       }
       const result = await authorizedEgress(request);
@@ -2305,6 +2324,7 @@ export function createWorkerGateway(deps: {
           }
           moved("session's profile");
         }
+        requireProviderPath(listed.provider.kind, request.path);
         return grant(providerUpstreamOf(listed));
       }
       const other = request.repository_id;
