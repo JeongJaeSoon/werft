@@ -11,6 +11,7 @@ import type {
   AgentMcpService,
   AgentPullRequestService,
   AgentService,
+  AgentUsageService,
   ApiKeyService,
   CredentialBindingService,
   EngineSettingsService,
@@ -57,6 +58,7 @@ import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentMcpRoutes } from "./routes/agent-mcp.ts";
 import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";
+import { registerAgentUsageRoutes } from "./routes/agent-usage.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerApiKeyRoutes } from "./routes/api-keys.ts";
 import { registerAuthRoutes, registerPublicAuthRoutes } from "./routes/auth.ts";
@@ -173,6 +175,7 @@ function apiApp() {
       });
       registerApiKeyRoutes(router, {} as ApiKeyService);
       registerTeamRoutes(router, {} as TeamService, {} as AgentAdminService);
+      registerAgentUsageRoutes(router, {} as AgentUsageService);
       registerCredentialBindingRoutes(router, {} as CredentialBindingService);
       registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerPauseRoutes(router, {} as SessionService);

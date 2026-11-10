@@ -185,8 +185,8 @@ all three render this one definition and cannot disagree.
 {{- fail (printf "%s.%s must be a non-empty string: set the runtime images.yml recorded" $name $key) -}}
 {{- end -}}
 {{- end -}}
-{{- /* The engines with a checkpoint codec (CLAUDE_CHECKPOINT_ENGINE). */ -}}
-{{- $engines := list "claude" -}}
+{{- /* The engines with a checkpoint codec (the codecs package registers each). */ -}}
+{{- $engines := list "claude" "codex" -}}
 {{- if not (has (index $runtime "engine") $engines) -}}
 {{- fail (printf "%s.engine must be one of: %s" $name (join ", " $engines)) -}}
 {{- end -}}

@@ -234,7 +234,6 @@ function kindMentionAllowed(hit: string): boolean {
     // The spec a test release pins (agent release spec helpers).
     path.startsWith("packages/db/src/testing/") ||
     path.startsWith("packages/platform/src/testing/") ||
-    /^apps\/storybook\/src\/.*(\.stories\.tsx|-fixtures\.ts)$/.test(path) ||
     // Example payloads in the user documentation.
     /^apps\/docs\/content\/.*\.mdx$/.test(path)
   );

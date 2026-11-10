@@ -67,6 +67,16 @@ import {
   scrubbingGateway,
   scrubbingLogger,
 } from "./secret-scrubber.ts";
+import {
+  protectSession,
+  type TelemetryFactory,
+  type TelemetrySession,
+} from "./telemetry/session.ts";
+import {
+  type CheckpointSpan,
+  NO_TURN_SPANS,
+  type TurnSpans,
+} from "./telemetry/turn-spans.ts";
 import { settledWithin, until } from "./waits.ts";
 import { AttachLimitError, type WorkspacePreparer } from "./workspace.ts";
 import type { WorkspaceObserver } from "./workspace-observer.ts";
@@ -82,6 +92,7 @@ export type ObjectStoreAccess = { useToken(token: string): void };
 export interface WorkerGatewaySession extends WorkerGatewayClient {
   /** Swaps the launch nonce for the credential bootstrapClaim issued. */
   useCredential(credential: string): void;
+  useTraceparent?(current: () => string | undefined): void;
 }
 
 /**
@@ -172,6 +183,7 @@ export type WorkerHostOptions = {
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
   approvalCheckpointMs?: number;
+  telemetry?: TelemetryFactory;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
   /**
@@ -286,6 +298,7 @@ type Turn = {
   timers: ReturnType<typeof setTimeout>[];
   turnId: string;
   uuid: string;
+  spans: TurnSpans;
 };
 
 /** A run without `parkable` cannot be cut where it waits on a person. */
@@ -293,6 +306,7 @@ function parkReadinessOf(run: AgentRun): ParkReadiness {
   return run.parkable?.() ?? { ok: false, reason: "not_supported" };
 }
 
+const TELEMETRY_SHUTDOWN_MS = 1_500;
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
 const CHECKPOINT_PROCESS_GRACE_MS = 1_000;
@@ -367,7 +381,9 @@ export class WorkerHost {
   private scopeValue: WorkerScope | undefined;
   private claimValue: BootstrapClaimResponse | undefined;
   private turnCoAuthorWritten = false;
+  private checkpointRevision: number | null = null;
   private scrubber: SecretScrubber;
+  private tracing: TelemetrySession | undefined;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
   private readonly abandoned: Promise<void>;
@@ -476,6 +492,7 @@ export class WorkerHost {
       auth_revision: claim.auth_revision,
     };
     this.grants = [...(claim.grants ?? [])];
+    this.checkpointRevision = claim.restore?.revision ?? null;
     this.logger.info("worker.claimed", {
       session_id: claim.session_id,
       attempt_id: claim.attempt_id,
@@ -494,6 +511,26 @@ export class WorkerHost {
       ...claimSecrets(claim, this.options.execution.bootstrapNonce),
       ...(this.options.secrets ?? []),
     ]);
+    if (claim.telemetry?.enabled === true && this.options.telemetry) {
+      const { telemetry } = claim;
+      const build = this.options.telemetry;
+      this.tracing = protectSession(() =>
+        build({
+          telemetry,
+          claim,
+          execution: {
+            id: this.options.execution.id,
+            generation: this.options.execution.generation,
+          },
+          masker: { mask: (text) => this.scrubber.scrub(text) },
+        }),
+      );
+      if (this.tracing !== undefined) {
+        this.options.gateway.useTraceparent?.(() =>
+          this.turn?.spans.traceparent(),
+        );
+      }
+    }
     const scrubbed = scrubbingGateway(this.options.gateway, this.scrubber);
     const publisher = new EventPublisher({
       gateway: scrubbed,
@@ -546,6 +583,7 @@ export class WorkerHost {
       onOwnershipLost: (error) => this.lose(describe(error), error),
       onControl: (control, poll) => this.onControl(control, poll),
       onAttachments: (orders) => this.onAttachments(claim, orders),
+      onDecided: (decided) => this.turn?.spans.decided(decided),
       onSettlementDetailRefused: (error) =>
         this.logger.warn("worker.pending.settlement_detail_refused", {
           reason: error.message,
@@ -605,6 +643,7 @@ export class WorkerHost {
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           const gitEnvironment = this.options.gitEnvironment?.(claim);
+          const engineStartedAt = Date.now();
           run = launcher.start({
             ...plan,
             committedInstructions:
@@ -624,6 +663,7 @@ export class WorkerHost {
           this.attemptState = "running";
           this.pumping = this.pump(run);
           ready = await this.reportReady(run, plan, claim);
+          this.tracing?.emitter.noteEngineStart(engineStartedAt, Date.now());
         }
       } finally {
         startup.disarm();
@@ -1358,6 +1398,8 @@ export class WorkerHost {
       message: string;
       turn_id: string;
       co_author?: { name: string; email: string } | null | undefined;
+      trace_context?: string | undefined;
+      content_mode?: "full" | "metadata" | undefined;
     },
   ): Promise<void> {
     // Delivered while the engine was already gone, or to an attempt whose
@@ -1412,6 +1454,21 @@ export class WorkerHost {
       input.input_id,
     );
     const turn = this.beginTurn(input.turn_id, uuid);
+    const telemetry = claim?.telemetry;
+    if (this.tracing !== undefined && telemetry?.enabled === true) {
+      turn.spans = this.tracing.emitter.beginTurn(
+        {
+          turnId: input.turn_id,
+          message: input.message,
+          traceContext: input.trace_context,
+          checkpointRevision: this.checkpointRevision,
+        },
+        {
+          mode: input.content_mode ?? telemetry.content_mode,
+          maxBytes: telemetry.content_max_bytes,
+        },
+      );
+    }
     this.logger.info("worker.turn.started", {
       turn_id: input.turn_id,
       input_id: input.input_id,
@@ -1423,6 +1480,7 @@ export class WorkerHost {
     // budget as an engine that does.
     this.armDeadline(run, turn);
     let unwatch: (() => void) | undefined;
+    let settledAs: Settlement | undefined;
     try {
       unwatch = await this.armQuota(run, turn);
       await this.deliver(run, turn, input.message);
@@ -1433,6 +1491,7 @@ export class WorkerHost {
         this.abandoned.then(() => undefined),
       ]);
       try {
+        settledAs = settlement;
         // Owner loss forbids every further durable write, including this one.
         if (settlement === undefined || this.ownerLost) return;
         if (settlement.status === "outcome_unknown") {
@@ -1453,6 +1512,14 @@ export class WorkerHost {
     } finally {
       unwatch?.();
       clearTurnTimers(turn);
+      // After the checkpoint and the finalize, so `werft.checkpoint` is inside
+      // the root; sending starts at once and waits for nobody.
+      turn.spans.end({
+        status: settledAs?.status ?? "outcome_unknown",
+        reason: settledAs?.reason ?? null,
+        usage: settledAs?.usage,
+      });
+      this.tracing?.flush();
     }
   }
 
@@ -1649,6 +1716,7 @@ export class WorkerHost {
     const finalSourceSequence = this.publisher?.hold() ?? 0;
     const interrupted = settlement.status === "interrupted";
     let captured: Captured | undefined;
+    let checkpointSpan: CheckpointSpan | undefined;
     // What may still commit this turn's checkpoint. The lease is released
     // only once it has answered: untilAbandoned stops waiting for a request,
     // it does not stop the request, and a pointer CAS that lands after
@@ -1670,10 +1738,17 @@ export class WorkerHost {
         if (interruptTurn !== undefined) {
           this.logInterruptStage(interruptTurn, "capture_started");
         }
+        const span = (
+          this.turn?.turnId === turnId ? this.turn.spans : NO_TURN_SPANS
+        ).beginCheckpoint();
+        checkpointSpan = span;
         const rawCapturing = this.capture(
           run,
           parked ? { pendingApprovals: parking.approvals } : undefined,
-        );
+        ).catch((error: unknown) => {
+          span.fail(describe(error));
+          throw error;
+        });
         const capturing =
           interruptTurn === undefined
             ? rawCapturing
@@ -1723,6 +1798,7 @@ export class WorkerHost {
           budget?.disarm();
         }
         if (captured === undefined) {
+          checkpointSpan?.fail("The checkpoint was abandoned");
           finishInterruptCapture({ outcome: "abandoned" });
           capturing.then(
             ({ lease }) => lease?.release(),
@@ -1833,6 +1909,7 @@ export class WorkerHost {
         // been had the publish failed here — but only when no earlier attempt
         // is still out that might commit it under the first body.
         if (undecided) throw error;
+        checkpointSpan?.fail(describe(error));
         this.logger.warn("worker.checkpoint.failed", {
           stage: "finalize",
           reason: describe(error),
@@ -1852,6 +1929,9 @@ export class WorkerHost {
       }
       if (finalized === undefined) return;
       outstanding = undefined;
+      if (terminal === settlement && checkpoint !== null) {
+        this.checkpointRevision = checkpoint.revision;
+      }
       this.dropGrants(turnId);
       this.turns.push({
         turnId,
@@ -1865,6 +1945,7 @@ export class WorkerHost {
       this.turn = undefined;
       this.scope.turn_id = null;
     } finally {
+      checkpointSpan?.end();
       const lease = captured?.lease;
       if (lease != null) {
         if (outstanding === undefined) lease.release();
@@ -1899,6 +1980,7 @@ export class WorkerHost {
       timers: [],
       turnId,
       uuid,
+      spans: NO_TURN_SPANS,
     };
     this.turn = turn;
     return turn;
@@ -2421,12 +2503,27 @@ export class WorkerHost {
   private pump(run: AgentRun): Promise<void> {
     return (async () => {
       try {
+        // A `tool.called` follows the public event that carries its call.
+        let publicIsOurs = true;
         for await (const event of run.events()) {
+          const framed =
+            event.type === "public" ? this.frameTurn(event.inputs) : undefined;
+          if (event.type === "public") publicIsOurs = framed !== null;
+          const turn = this.turn;
+          // Another input's events belong to no turn, by the rule settlement
+          // applies, so they must not reach this turn's spans either.
+          const ours =
+            event.type === "public"
+              ? framed !== null
+              : event.type === "tool.called"
+                ? publicIsOurs
+                : event.type === "turn.ended" && turn !== undefined
+                  ? event.turn.inputs.length === 0 ||
+                    event.turn.inputs.includes(turn.uuid)
+                  : true;
+          if (turn?.closed === false && ours) turn.spans.onEvent(event);
           if (event.type === "public") {
-            this.publisher?.publish(
-              [event.event],
-              this.frameTurn(event.inputs),
-            );
+            this.publisher?.publish([event.event], framed ?? null);
           } else if (event.type === "inputs.named") {
             this.frameTurn(event.inputs);
           } else if (event.type === "tool.called") {
@@ -2645,6 +2742,7 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
+      this.turn?.spans.granted(request.localId);
       void answer({
         kind: "selected",
         optionKind: "allow_once",
@@ -3035,6 +3133,9 @@ export class WorkerHost {
         reason: "The stop grace ran out before the gateway answered",
       });
     }
+    // After the release, never before: an ingest that has stalled costs the
+    // spans still queued, not the session's hand-back.
+    await this.tracing?.shutdown(TELEMETRY_SHUTDOWN_MS);
   }
 
   /**

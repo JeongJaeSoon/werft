@@ -46,7 +46,7 @@ API로 세션을 만들고 쓰는 사람.
 | [구성요소와 경계](contributing/architecture.md) | 저장소 구성, 앱과 패키지의 경계 |
 | [CI에서 실행되는 것](contributing/ci.md) | CI job과 그 조건 |
 | [변경 경로에 따른 CI 계획](contributing/ci-path-plan.md) | 바뀐 경로로 문서 전용·축소·전체 검증을 고르는 규칙과 required 판정 |
-| [콘솔 데모](contributing/console-demo.md) | 서버 없는 읽기 전용 데모의 구성, 다시 녹화하고 공개 전 검사하는 절차 |
+| [콘솔 데모](contributing/console-demo.md) | 서버 없이 예시 데이터로 콘솔 화면을 보는 데모 모드 |
 | [로컬 모델로 확인하기](contributing/local-model.md) | Ollama·LiteLLM으로 확인 |
 | [콘솔·Slack 용어집](contributing/i18n-glossary.md) | 화면·Slack 알림에서 쓰는 한국어·일본어·영어 용어 |
 | [결정: transcript 저장](contributing/decisions/session-store.md) | SessionStore를 고른 이유, 실패 계약, 그 계약을 지키는 테스트 |

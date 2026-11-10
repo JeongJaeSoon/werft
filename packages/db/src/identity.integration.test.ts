@@ -274,7 +274,7 @@ integration("0100 identity migration on PostgreSQL", () => {
       ]);
 
       await withPool(database.url, async (pool) => {
-        // 0265 drops every session and what hangs off it (the profile
+        // 0266 drops every session and what hangs off it (the profile
         // removal); the keys and receipts stay as they were.
         const after = await legacySnapshot(pool);
         expect(after.api_keys).toEqual(before.api_keys);
@@ -319,7 +319,7 @@ integration("0100 identity migration on PostgreSQL", () => {
           scopes: string[] | null;
         }>("SELECT workspace_id, scopes FROM api_keys");
         expect(key.rows[0]).toEqual({ workspace_id: null, scopes: null });
-        // The turns went with their sessions (0265); the receipt keeps no actor.
+        // The turns went with their sessions (0266); the receipt keeps no actor.
         const actor = await pool.query<{ actor: unknown }>(
           "SELECT actor FROM receipts LIMIT 1",
         );

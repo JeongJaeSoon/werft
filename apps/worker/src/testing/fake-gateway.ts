@@ -8,6 +8,7 @@ import {
   type CheckpointRef,
   type CheckpointRequest,
   type CheckpointRequestResponse,
+  type ClaimTelemetry,
   type ControlIntent,
   type FinalizeRequest,
   type FinalizeResponse,
@@ -80,6 +81,7 @@ export type FakeWorkerGatewayOptions = {
   sessionId?: string;
   /** The repository the claim names; a placeholder nothing clones by default. */
   workspace?: WorkspaceDescriptor;
+  telemetry?: ClaimTelemetry;
 };
 
 type CoAuthor = { name: string; email: string } | null;
@@ -88,6 +90,8 @@ type Queued = {
   message: string;
   turnId: string;
   coAuthor?: CoAuthor;
+  traceContext?: string;
+  contentMode?: "full" | "metadata";
 };
 
 /**
@@ -169,11 +173,17 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     answer: PostSessionAnswerRequest;
     sequence: number;
     input_hash: string;
+    answer_surface?: "web" | "slack" | "api";
   }> = [];
   private readonly options: Required<
-    Omit<FakeWorkerGatewayOptions, "checkpoints" | "restore" | "workspace">
+    Omit<
+      FakeWorkerGatewayOptions,
+      "checkpoints" | "restore" | "workspace" | "telemetry"
+    >
   > &
-    Pick<FakeWorkerGatewayOptions, "restore" | "workspace">;
+    Pick<FakeWorkerGatewayOptions, "restore" | "workspace" | "telemetry">;
+  private currentTraceparent: (() => string | undefined) | undefined;
+  readonly traceparents: Array<{ call: string; traceparent?: string }> = [];
   private readonly queue: Queued[] = [];
   private acceptedThrough = 0;
   private nextTurn: number;
@@ -211,11 +221,33 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       ...(options.workspace === undefined
         ? {}
         : { workspace: options.workspace }),
+      ...(options.telemetry === undefined
+        ? {}
+        : { telemetry: options.telemetry }),
     };
   }
 
+  useTraceparent(current: () => string | undefined): void {
+    this.currentTraceparent = current;
+  }
+
+  private traced(call: string): void {
+    const traceparent = this.currentTraceparent?.();
+    this.traceparents.push({
+      call,
+      ...(traceparent === undefined ? {} : { traceparent }),
+    });
+  }
+
   /** Puts one message on the session queue and returns the turn it became. */
-  enqueue(message: string, options: { coAuthor?: CoAuthor } = {}): string {
+  enqueue(
+    message: string,
+    options: {
+      coAuthor?: CoAuthor;
+      traceContext?: string;
+      contentMode?: "full" | "metadata";
+    } = {},
+  ): string {
     const turnId = String(this.nextTurn);
     this.nextTurn += 1;
     this.queue.push({
@@ -223,6 +255,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       message,
       turnId,
       ...(options.coAuthor === undefined ? {} : { coAuthor: options.coAuthor }),
+      ...(options.traceContext === undefined
+        ? {}
+        : { traceContext: options.traceContext }),
+      ...(options.contentMode === undefined
+        ? {}
+        : { contentMode: options.contentMode }),
     });
     for (const wake of this.waiting.splice(0)) wake();
     return turnId;
@@ -232,7 +270,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
    * Makes an answer available to the next `pendingControl` poll, bound to
    * the arguments the request was registered with, as the real one is.
    */
-  answer(answer: PostSessionAnswerRequest): void {
+  answer(
+    answer: PostSessionAnswerRequest,
+    surface?: "web" | "slack" | "api",
+  ): void {
     const registered = this.registrations.find(
       (entry) => entry.request_id === answer.request_id,
     );
@@ -240,6 +281,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       answer,
       sequence: this.answers.length + 1,
       input_hash: registered?.input_hash ?? "0".repeat(64),
+      ...(surface === undefined ? {} : { answer_surface: surface }),
     });
   }
 
@@ -343,11 +385,15 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       restore: this.options.restore ?? null,
       remaining_budget_usd: this.options.remainingBudgetUsd,
       ...(this.grants.length === 0 ? {} : { grants: [...this.grants] }),
+      ...(this.options.telemetry === undefined
+        ? {}
+        : { telemetry: this.options.telemetry }),
     };
   }
 
   async nextInput(request: NextInputRequest): Promise<NextInputResponse> {
     this.calls.push("nextInput");
+    this.traced("nextInput");
     if (this.overBudget) {
       return {
         input: null,
@@ -382,6 +428,12 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
               ...(next.coAuthor === undefined
                 ? {}
                 : { co_author: next.coAuthor }),
+              ...(next.traceContext === undefined
+                ? {}
+                : { trace_context: next.traceContext }),
+              ...(next.contentMode === undefined
+                ? {}
+                : { content_mode: next.contentMode }),
             },
       lease_expires_at: this.leaseExpiresAt(),
     };
@@ -416,6 +468,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     request: AppendEventsRequest,
   ): Promise<AppendEventsResponse> {
     this.calls.push("appendEvents");
+    this.traced("appendEvents");
     if (this.appendFailure !== undefined) throw this.appendFailure;
     for (const event of request.events) {
       if (event.source_sequence !== this.acceptedThrough + 1) {
@@ -530,6 +583,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
 
   async finalize(request: FinalizeRequest): Promise<FinalizeResponse> {
     this.calls.push("finalize");
+    this.traced("finalize");
     const replay = this.finalized.find(
       (earlier) => earlier.finalize_key === request.finalize_key,
     );

@@ -106,6 +106,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       engine_settings: true,
       user_env: true,
       response_language: true,
+      answer_surface: true,
     });
   });
 
@@ -125,6 +126,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -132,6 +134,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -163,6 +166,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -170,6 +174,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -177,6 +182,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -246,6 +252,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -253,6 +260,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -272,12 +280,14 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -315,6 +325,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -322,6 +333,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -329,12 +341,14 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
         permission_rules: true,
         engine_settings: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -354,6 +368,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -361,6 +376,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         engine_settings: true,
         user_env: true,
+        answer_surface: true,
       },
     ]);
   });
@@ -380,6 +396,7 @@ describe("claim against a control-host older than user_env", () => {
         engine_settings: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
       {
         approval_remember: true,
@@ -387,6 +404,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        answer_surface: true,
       },
     ]);
   });

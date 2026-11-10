@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "connections": {
+    "fake-responses": {
+      "kind": "openai_responses",
+      "endpoint": "http://fake-responses:4030",
+      "auth": {
+        "kind": "api_key",
+        "secret_id": "werft/local/fake-messages"
+      },
+      "models": ["gpt-5.5"]
+    }
+  },
+  "repositories": {},
+  "mcp_servers": {}
+}

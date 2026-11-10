@@ -52,12 +52,16 @@ terminate が既に消えた execution で即完了する、または scheduler/
 
 worker も起動時に交差検査します。`WORKER_PROVIDER_MAX_RETRIES` がなければ起動しません。コード既定値のない設置上限で、scheduler が常に渡します。`WORKER_NEXT_INPUT_WAIT_SEC` が `WORKER_REQUEST_TIMEOUT_SEC` 以上でも起動しません。その設定ではすべての long poll が request timeout で切れるためです。scheduler と reconciler は空の `DATABASE_URL` を未設定と見なし、`QUEUE_DATABASE_URL` を使います。
 
-API と slack role は `WORKER_IMAGE_RUNTIME`・`WORKER_IMAGE_PREVIOUS_RUNTIME` から現在・直前の worker イメージの runtime の組み合わせを読みます。手入力せず、images.yml が出力した worker digest JSON の `runtime` をそのまま入れます（`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`）。`engine` は現在 `claude` のみで、chart は他の名前を render 時に `images.worker.runtime.engine must be one of: claude` として拒否します。自前イメージにはその JSON がないため、images.yml と同じコマンドでイメージから読みます。
+API と slack role は `WORKER_IMAGE_RUNTIME`・`WORKER_IMAGE_PREVIOUS_RUNTIME` から現在・直前の worker イメージの runtime の組み合わせを読みます。手入力せず、images.yml が出力した worker digest JSON の `runtime` をそのまま入れます（`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`）。`engine` は `claude` と `codex` で、chart は他の名前を render 時に `images.worker.runtime.engine must be one of: claude, codex` として拒否します。自前イメージにはその JSON がないため、images.yml と同じコマンドでイメージから読みます。
 
 ```bash
 docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
+
+**worker イメージ一つが載せるエンジンは一つです。** `apps/worker/Dockerfile` はビルド引数 `WORKER_RUNTIME` でエンジンを選びます。空なら Claude イメージ、`--build-arg WORKER_RUNTIME=codex_app_server` を渡すと Codex イメージです（ビルドログに `codex-cli 0.167.0` が出力され、別のバージョンならビルドは失敗します）。CI は Codex イメージを `werft-worker-codex` という別イメージとして作ります。Codex を使うデプロイは `WORKER_IMAGE`（chart では `images.worker`）をそのイメージにし、上のコマンドで読んだ `runtime`（`engine` は `codex`）を合わせて設定します。ローカルスタックは `infra/compose.codex-worker.yml` オーバーレイで同じイメージをビルドします。Codex セッションが実際の OpenAI Responses API を呼ぶデプロイでは、proxy の `EGRESS_CREDENTIAL_ALLOWLIST` に `api.openai.com:443` も加えます。Codex エンジンは予算（`maxBudgetUsd`）のあるセッションの開始を拒否します。proxy が使用量の報告を受け取れないと予算を執行できず、Codex にはエンジン側の予算が重ならないためです。
+
+**エンジンを切り替えるには。** 一つのデプロイが二つのエンジンのイメージを同時に選ぶ方法はありません。新規セッションは常に現在のイメージで起動し、直前イメージは checkpoint の再開にだけ使われます。そのため、インストール時にエンジンを決めるのが最も単純です。稼働中のデプロイの `WORKER_IMAGE` を別のエンジンのイメージに置き換えるには、アップグレード検査（`upgrade-check`）の規則にそのまま従います。新しい設定の `WORKER_IMAGE_PREVIOUS` はいま配備されているイメージでなければならず、検査が再開できないと出力するセッション（checkpoint のエンジンが違うものだけでなく、SDK・CLI のバージョンや digest 方式が合わないもの、ランタイムが記録されていないものも含む）は、出力された一覧そのものを `upgrade.approvedSessions` で承認します。checkpoint はエンジン間で移せないため、切り替え後は直前イメージ（旧エンジン）で再開していたセッションが終わってから直前イメージを空にできます。
 
 両方なければ runtime の組み合わせを読まず、下記 pin 維持も適用しません。`WORKER_IMAGE_PREVIOUS_RUNTIME` だけがある、または値を読めなければ起動しません。設定すると、直前のイメージのバージョンで作ったリリースとそのセッションも動き続けます。リリースは作成時にイメージが載せていたランタイムのバージョンを固定するので、現在・直前のどちらのイメージも載せていないバージョンのリリースは新規セッションを受け付けません。そのエージェントはリリースし直します。
 

@@ -15,6 +15,14 @@ export {
   type SamplerKind,
   type TracingSettings,
 } from "./tracing/config.ts";
+export { isContentAttribute } from "./tracing/content-attributes.ts";
+export type {
+  IngestAttributes,
+  IngestAttributeValue,
+  IngestSpan,
+  IngestSpanEvent,
+  IngestSpanLink,
+} from "./tracing/ingest-span.ts";
 export {
   type ClaimTelemetry,
   createTelemetryPolicy,

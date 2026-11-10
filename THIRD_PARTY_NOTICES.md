@@ -41,6 +41,11 @@
 - **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.
 - **내장 런타임.** 이 실행 파일은 Bun 1.4.4 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64, linux/arm64)마다 실행 파일 안의 `Bun v<버전>` 표시로 이 버전을 확인한다.
 
+### Codex 실행 파일 (worker-codex)
+
+- **라이선스.** `@openai/codex@0.167.0`과 그 플랫폼 빌드(`linux-x64`, `linux-arm64`)는 Apache-2.0이다. 패키지가 싣는 LICENSE·NOTICE는 이미지 안 `/app/node_modules/@openai/` 아래에 함께 들어 있다.
+- **싣는 방식.** OpenAI가 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. `WORKER_RUNTIME=codex_app_server`로 빌드한 worker 이미지에만 들어가며, 버전은 정확히 고정되어 빌드 로그에 `codex-cli <버전>`으로 찍힌다.
+
 ## 배포 조건이 붙은 구성요소
 
 허용 목록(MIT·Apache-2.0·BSD 계열·ISC 등) 밖의 라이선스다. 각각 스크립트의 `REVIEWED`에 검토 사유가 있다.
@@ -60,39 +65,39 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @anthropic-ai/claude-agent-sdk-linux-x64 | 0.3.319 | SEE LICENSE IN LICENSE.md | worker |
 | @anthropic-ai/sdk | 0.125.0 | MIT | worker |
 | @asteasolutions/zod-to-openapi | 9.1.0 | MIT | control-host |
-| @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker |
-| @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker |
+| @aws-sdk/checksums | 3.1001.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/client-s3 | 3.1131.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @aws-sdk/client-secrets-manager | 3.1138.0 | Apache-2.0 | control-host |
-| @aws-sdk/core | 3.978.0 | Apache-2.0 | control-host, worker |
-| @aws-sdk/core | 3.978.1 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-env | 3.972.71 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-env | 3.972.72 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-http | 3.972.73 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-http | 3.972.74 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-ini | 3.973.16 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-ini | 3.973.17 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-login | 3.972.78 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-login | 3.972.79 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-node | 3.972.83 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-node | 3.972.84 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-process | 3.972.71 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-process | 3.972.72 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-sso | 3.973.15 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-sso | 3.973.16 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-web-identity | 3.972.77 | Apache-2.0 | control-host, worker |
-| @aws-sdk/credential-provider-web-identity | 3.972.78 | Apache-2.0 | control-host, worker |
-| @aws-sdk/middleware-sdk-s3 | 3.972.76 | Apache-2.0 | control-host, worker |
-| @aws-sdk/nested-clients | 3.997.45 | Apache-2.0 | control-host, worker |
-| @aws-sdk/nested-clients | 3.997.46 | Apache-2.0 | control-host, worker |
-| @aws-sdk/signature-v4-multi-region | 3.996.46 | Apache-2.0 | control-host, worker |
-| @aws-sdk/signature-v4-multi-region | 3.996.47 | Apache-2.0 | control-host, worker |
-| @aws-sdk/token-providers | 3.1129.0 | Apache-2.0 | control-host, worker |
-| @aws-sdk/token-providers | 3.1138.0 | Apache-2.0 | control-host, worker |
-| @aws-sdk/types | 3.974.5 | Apache-2.0 | control-host, worker |
-| @aws-sdk/types | 3.974.6 | Apache-2.0 | control-host, worker |
-| @aws-sdk/xml-builder | 3.972.40 | Apache-2.0 | control-host, worker |
-| @aws-sdk/xml-builder | 3.972.41 | Apache-2.0 | control-host, worker |
-| @aws/lambda-invoke-store | 0.3.0 | Apache-2.0 | control-host, worker |
+| @aws-sdk/core | 3.978.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/core | 3.978.1 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-env | 3.972.71 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-env | 3.972.72 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-http | 3.972.73 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-http | 3.972.74 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-ini | 3.973.16 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-ini | 3.973.17 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-login | 3.972.78 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-login | 3.972.79 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-node | 3.972.83 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-node | 3.972.84 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-process | 3.972.71 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-process | 3.972.72 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-sso | 3.973.15 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-sso | 3.973.16 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-web-identity | 3.972.77 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/credential-provider-web-identity | 3.972.78 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/middleware-sdk-s3 | 3.972.76 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/nested-clients | 3.997.45 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/nested-clients | 3.997.46 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/signature-v4-multi-region | 3.996.46 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/signature-v4-multi-region | 3.996.47 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/token-providers | 3.1129.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/token-providers | 3.1138.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/types | 3.974.5 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/types | 3.974.6 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/xml-builder | 3.972.40 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws-sdk/xml-builder | 3.972.41 | Apache-2.0 | control-host, worker, worker-codex |
+| @aws/lambda-invoke-store | 0.3.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @babel/runtime | 7.29.7 | MIT | worker |
 | @electric-sql/pglite | 0.3.10 | Apache-2.0 | control-host |
 | @floating-ui/core | 1.8.0 | MIT | control-host |
@@ -121,17 +126,20 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @octokit/request-error | 7.1.2 | MIT | control-host |
 | @octokit/types | 17.0.0 | MIT | control-host |
 | @octokit/types | 18.0.0 | MIT | control-host |
-| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/api-logs | 0.223.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/core | 2.12.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/exporter-trace-otlp-proto | 0.223.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/otlp-exporter-base | 0.223.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/otlp-transformer | 0.223.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/resources | 2.12.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/sdk-logs | 0.223.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/sdk-metrics | 2.12.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/sdk-trace | 2.12.0 | Apache-2.0 | control-host, worker |
-| @opentelemetry/semantic-conventions | 1.45.0 | Apache-2.0 | control-host, worker |
+| @openai/codex | 0.167.0 | Apache-2.0 | worker-codex |
+| @openai/codex | 0.167.0-linux-arm64 | Apache-2.0 | worker-codex |
+| @openai/codex | 0.167.0-linux-x64 | Apache-2.0 | worker-codex |
+| @opentelemetry/api | 1.9.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/api-logs | 0.223.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/core | 2.12.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/exporter-trace-otlp-proto | 0.223.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/otlp-exporter-base | 0.223.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/otlp-transformer | 0.223.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/resources | 2.12.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/sdk-logs | 0.223.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/sdk-metrics | 2.12.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/sdk-trace | 2.12.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @opentelemetry/semantic-conventions | 1.45.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @radix-ui/primitive | 1.1.7 | MIT | control-host |
 | @radix-ui/react-arrow | 1.1.15 | MIT | control-host |
 | @radix-ui/react-checkbox | 1.3.11 | MIT | control-host |
@@ -162,14 +170,14 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | @radix-ui/react-use-rect | 1.1.4 | MIT | control-host |
 | @radix-ui/react-use-size | 1.1.4 | MIT | control-host |
 | @radix-ui/rect | 1.1.3 | MIT | control-host |
-| @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker |
-| @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker |
-| @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker |
-| @smithy/fetch-http-handler | 5.8.0 | Apache-2.0 | control-host, worker |
-| @smithy/node-http-handler | 4.12.1 | Apache-2.0 | control-host, worker |
-| @smithy/signature-v4 | 5.7.3 | Apache-2.0 | control-host, worker |
-| @smithy/types | 4.18.0 | Apache-2.0 | control-host, worker |
-| @smithy/types | 4.19.0 | Apache-2.0 | control-host, worker |
+| @smithy/core | 3.34.1 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/core | 3.35.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/credential-provider-imds | 4.5.2 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/fetch-http-handler | 5.8.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/node-http-handler | 4.12.1 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/signature-v4 | 5.7.3 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/types | 4.18.0 | Apache-2.0 | control-host, worker, worker-codex |
+| @smithy/types | 4.19.0 | Apache-2.0 | control-host, worker, worker-codex |
 | @stablelib/base64 | 1.0.1 | MIT | worker |
 | @types/node | 26.5.1 | MIT | control-host |
 | @types/pg | 8.15.5 | MIT | control-host |
@@ -182,7 +190,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | before-after-hook | 4.0.0 | Apache-2.0 | control-host |
 | body-parser | 2.4.0 | MIT | worker |
 | bottleneck | 2.19.5 | MIT | control-host |
-| bowser | 2.14.1 | MIT | control-host, worker |
+| bowser | 2.14.1 | MIT | control-host, worker, worker-codex |
 | bun-types | 1.3.14 | MIT | control-host |
 | bytes | 3.1.2 | MIT | worker |
 | call-bind-apply-helpers | 1.0.2 | MIT | worker |
@@ -301,7 +309,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | toad-cache | 3.7.4 | MIT | control-host |
 | toidentifier | 1.0.1 | MIT | worker |
 | ts-algebra | 2.0.0 | MIT | worker |
-| tslib | 2.8.1 | 0BSD | control-host, worker |
+| tslib | 2.8.1 | 0BSD | control-host, worker, worker-codex |
 | type-is | 2.1.0 | MIT | worker |
 | undici-types | 8.9.0 | MIT | control-host |
 | universal-github-app-jwt | 2.2.2 | MIT | control-host |
@@ -314,7 +322,7 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 | wrappy | 1.0.2 | ISC | worker |
 | xtend | 4.0.2 | MIT | control-host |
 | yaml | 2.9.1 | ISC | control-host |
-| zod | 4.6.7 | MIT | control-host, worker |
+| zod | 4.6.7 | MIT | control-host, worker, worker-codex |
 | zod-to-json-schema | 3.25.2 | ISC | worker |
 
 ## 라이선스 파일이 없는 npm 패키지
@@ -329,6 +337,9 @@ Apache-2.0 패키지가 NOTICE 파일을 싣고 있으면 그 전문을 아래 "
 - `@aws-sdk/nested-clients@3.997.46` (Apache-2.0): AWS SDK for JavaScript Team, https://github.com/aws/aws-sdk-js-v3.git
 - `@hono/zod-openapi@1.6.3` (MIT): 저작자 표기 없음, https://github.com/honojs/middleware.git
 - `@hono/zod-validator@0.9.1` (MIT): 저작자 표기 없음, https://github.com/honojs/middleware.git
+- `@openai/codex@0.167.0` (Apache-2.0): 저작자 표기 없음, https://github.com/openai/codex.git
+- `@openai/codex@0.167.0-linux-arm64` (Apache-2.0): 저작자 표기 없음, https://github.com/openai/codex.git
+- `@openai/codex@0.167.0-linux-x64` (Apache-2.0): 저작자 표기 없음, https://github.com/openai/codex.git
 - `bun-types@1.3.14` (MIT): 저작자 표기 없음, https://github.com/oven-sh/bun
 - `drizzle-orm@0.45.2` (Apache-2.0): Drizzle Team, https://github.com/drizzle-team/drizzle-orm.git
 - `pg-types@2.2.0` (MIT): Brian M. Carlson, git://github.com/brianc/node-pg-types.git

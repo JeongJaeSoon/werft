@@ -78,6 +78,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "remove_team_member",
   "set_team_member_role",
   "set_agent_managing_team",
+  // Who may use an agent: its scope and teams (94S-900).
+  "set_agent_usage",
   // The workspace's two agent access settings (agent-rbac (c)).
   "set_agent_access_settings",
   "add_agent_admin",

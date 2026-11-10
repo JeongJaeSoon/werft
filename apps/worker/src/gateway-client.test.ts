@@ -310,4 +310,18 @@ describe("HttpWorkerGatewayClient", () => {
     expect(error).toBeInstanceOf(WorkerGatewayRequestError);
     expect(error.retryable).toBe(false);
   });
+
+  test("sends the current traceparent per request and none when it is unset", async () => {
+    const { gateway, recorded } = client(() => apiError(409, "conflict"));
+    const first = `00-${"a".repeat(32)}-${"b".repeat(16)}-01`;
+    let current: string | undefined;
+    gateway.useTraceparent(() => current);
+
+    await gateway.release({ ...scope, reason: "done" }).catch(() => {});
+    current = first;
+    await gateway.release({ ...scope, reason: "done" }).catch(() => {});
+
+    expect(recorded[0]?.headers.traceparent).toBeUndefined();
+    expect(recorded[1]?.headers.traceparent).toBe(first);
+  });
 });

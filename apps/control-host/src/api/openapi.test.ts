@@ -460,6 +460,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/activate",
         "/v1/agents/{id}/credential-bindings",
         "/v1/agents/{id}/credential-bindings/{binding_id}",
+        "/v1/agents/{id}/usage",
         "/v1/agents/{id}/variables",
         "/v1/agents/{id}/variables/{name}",
         "/v1/workspace/variables",

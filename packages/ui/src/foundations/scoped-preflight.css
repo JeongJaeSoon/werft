@@ -5,9 +5,8 @@
  * <button>, an underlined blue <a>, list markers, heading sizes. Not the
  * `border` shorthand: it would also reset theme.css's border colour.
  *
- * Only the prebuilt styles.css (scripts/build-package.ts) and the Storybook
- * "No preflight" story load this. The workspace's styles.css does not: apps
- * here run Tailwind's own preflight.
+ * Only the prebuilt styles.css (scripts/build-package.ts) loads this. The
+ * workspace's styles.css does not: apps here run Tailwind's own preflight.
  */
 @layer base {
   :where(

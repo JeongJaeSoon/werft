@@ -184,10 +184,7 @@ test("generated, executable and workflow files next to prose are not prose", () 
 });
 
 test("a web-only PR drops the domains, chart jobs and guides no changed path reaches", () => {
-  for (const path of [
-    "apps/web/src/app.tsx",
-    "apps/storybook/src/a.stories.tsx",
-  ]) {
+  for (const path of ["apps/web/src/app.tsx"]) {
     const result = plan(
       fixture(undefined, [path, "docs/operator/settings.md"]),
     );
@@ -228,7 +225,7 @@ test("any shared path next to a web change brings back everything", () => {
   }
 });
 
-test("site content keeps the current docs, storybook and assembly chain", () => {
+test("site content keeps the current docs and assembly chain", () => {
   const result = plan(fixture(undefined, ["apps/docs/content/docs/intro.mdx"]));
   expect(result.exitCode).toBe(0);
   expect(result.output.site).toBe("true");

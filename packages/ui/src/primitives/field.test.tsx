@@ -211,8 +211,7 @@ describe("Field", () => {
     expect(new FormData(form).get("model")).toBe("deep");
   });
 
-  // happy-dom computes no layout, so the height is pinned by class; the px
-  // values are measured in Storybook.
+  // happy-dom computes no layout, so the height is pinned by class.
   test("NativeSelect 기본·sm은 Input·Button과 같은 컨트롤 높이 토큰을 쓴다", () => {
     const { getByRole } = render(
       <>

@@ -135,6 +135,8 @@ describe("database schema", () => {
       "agent_mcp_settings",
       "agent_pull_request_settings",
       "agent_releases",
+      "agent_usage",
+      "agent_usage_targets",
       "agent_versions",
       "agents",
       "api_keys",

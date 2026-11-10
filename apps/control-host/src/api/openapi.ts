@@ -34,6 +34,7 @@ import {
   agentIdParamsSchema,
   agentMcpResponseSchema,
   agentPullRequestResponseSchema,
+  agentUsageSchema,
   agentVariableParamsSchema,
   apiErrorResponseSchema,
   apiKeyIdParamsSchema,
@@ -197,6 +198,8 @@ import {
   putAgentMcpSettingsResponseSchema,
   putAgentPullRequestSettingsRequestSchema,
   putAgentPullRequestSettingsResponseSchema,
+  putAgentUsageRequestSchema,
+  putAgentUsageResponseSchema,
   putEngineSettingsRequestSchema,
   putEngineSettingsResponseSchema,
   putEnvVariableGrantsRequestSchema,
@@ -450,6 +453,7 @@ const requestComponents = {
   SetTeamMemberRoleRequest: setTeamMemberRoleRequestSchema,
   AddAgentAdminRequest: addAgentAdminRequestSchema,
   SetAgentManagingTeamRequest: setAgentManagingTeamRequestSchema,
+  PutAgentUsageRequest: putAgentUsageRequestSchema,
   LinkAgentIdentityRequest: linkAgentIdentityRequestSchema,
   PutSlackBindingRequest: putSlackBindingRequestSchema,
   ResolveSlackBindingRequest: resolveSlackBindingRequestSchema,
@@ -620,6 +624,8 @@ const responseComponents = {
   TeamDetail: teamDetailSchema,
   TeamChangeResponse: teamChangeResponseSchema,
   DeleteTeamResponse: deleteTeamResponseSchema,
+  AgentUsage: agentUsageSchema,
+  PutAgentUsageResponse: putAgentUsageResponseSchema,
   AgentAdmins: agentAdminsViewSchema,
   AgentAdminChangeResponse: agentAdminChangeResponseSchema,
   SetAgentManagingTeamResponse: setAgentManagingTeamResponseSchema,
@@ -822,9 +828,9 @@ export type RouteDeclaration = {
   errorNotes?: Partial<Record<ApiErrorCode, string>>;
   lastEventId?: boolean;
   // Optimistic concurrency: `If-Match` names the version the caller read, the
-  // resource's `version` or its `grant_version`; `ifNoneMatch` also takes `*`
-  // to create.
-  ifMatch?: "version" | "grant_version";
+  // resource's `version`, `grant_version` or `revision`; `ifNoneMatch` also
+  // takes `*` to create.
+  ifMatch?: "version" | "grant_version" | "revision";
   ifNoneMatch?: true;
   // The service checks `scope` itself, so it can record the refusal; the
   // /v1 scope table leaves the route alone. The document still shows it.
@@ -6322,6 +6328,62 @@ export const API_ROUTE_DECLARATIONS = [
       example: { agent: EXAMPLE_AGENT, receipt_id: EXAMPLE_RECEIPT_ID },
     },
     errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/agents/{id}/usage",
+    operationId: "getAgentUsage",
+    tag: "Agents",
+    summary: "Who may use an agent",
+    description:
+      "`scope` is `workspace` (every member of the workspace) or `private` (the members of `teams`). Owners, admins and the agent's own admins read it, as they edit it; never an API key. `revision` is the `If-Match` of the next edit; it moves with every change, and with the archive of a team the agent lists. Reading it changes no session: this is the setting, not a decision.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "AgentUsage",
+      description: "The agent's usage setting.",
+      example: {
+        scope: "private",
+        teams: [{ id: EXAMPLE_TEAM_ID, name: "Platform" }],
+        revision: 2,
+      },
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "put",
+    path: "/v1/agents/{id}/usage",
+    operationId: "putAgentUsage",
+    tag: "Agents",
+    summary: "Replace who may use an agent",
+    description:
+      "Owners, admins and the agent's own admins; never an API key. The whole setting is replaced and `If-Match: <revision>` is required, so two edits cannot overwrite each other: the later one answers 412. `private` names at least one team and `workspace` none (400). An owner or admin names any live team; anyone else adds only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`), and removing a team needs only this right. A team that is not in the workspace or is deleted is 404. Archiving a team removes it from every list and moves those agents' `revision`; an agent left `private` with no team admits no one but the people who manage it. Writes a `set_agent_usage` receipt with the setting before and after unless nothing changed (`receipt_id` null, `revision` kept).",
+    auth: "session",
+    body: "PutAgentUsageRequest",
+    requestExample: {
+      scope: "private",
+      teams: [{ id: EXAMPLE_TEAM_ID }],
+    },
+    success: {
+      status: 200,
+      schema: "PutAgentUsageResponse",
+      description: "The setting now held, and its new `revision`.",
+      example: {
+        usage: {
+          scope: "private",
+          teams: [{ id: EXAMPLE_TEAM_ID, name: "Platform" }],
+          revision: 3,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 404, 412, 413, 428, 503],
+    errorCodes: {
+      412: ["VERSION_MISMATCH"],
+      428: ["PRECONDITION_REQUIRED"],
+    },
+    ifMatch: "revision",
     idempotent: false,
   },
   {

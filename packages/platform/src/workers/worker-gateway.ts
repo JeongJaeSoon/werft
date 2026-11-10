@@ -2376,6 +2376,12 @@ export function createWorkerGateway(deps: {
           sequence: item.sequence,
           answer: withoutUnparsedRemember(item.answer, request.capabilities),
           input_hash: item.inputHash,
+          // An image that did not announce `answer_surface` has a strict
+          // schema that refuses the field along with the whole poll.
+          ...(item.answerSurface == null ||
+          request.capabilities?.answer_surface !== true
+            ? {}
+            : { answer_surface: item.answerSurface }),
         })),
       };
     },

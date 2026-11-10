@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke for one app image: `image-smoke.sh <control-host|worker|egress-proxy> <image ref>`.
+# Smoke for one app image: `image-smoke.sh <control-host|worker|worker-codex|egress-proxy> <image ref>`.
 # Shared by images.yml's build (loaded image) and publish (the digest that
 # was actually pushed) jobs so both check the same things.
 set -euo pipefail
@@ -150,7 +150,7 @@ egress_proxy_smoke() {
   [ "$exit_code" = 0 ] || { echo "expected the proxy to exit 0 on SIGTERM, not be killed" >&2; exit 1; }
 }
 
-# A published image holds no test source, testkit, Storybook or demo tool.
+# A published image holds no test source, testkit or demo tool.
 # Two counts: scripts/image-prune.sh's own list run inside the image, and the
 # names the release checklist is written in, spelled out here so a list that
 # is too narrow cannot vouch for itself. Neither may print anything.
@@ -161,9 +161,9 @@ assert_published_tree() {
     "$image" /tmp/image-prune.sh --list /app)"
   # A dependency's own tests (zod's) are not ours: node_modules is skipped.
   named="$(docker run --rm --entrypoint find "$image" /app -name node_modules -prune -o \
-    \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.stories.tsx' \
+    \( -name '*.test.ts' -o -name '*.test.tsx' \
        -o -name '*.snap' -o -name __snapshots__ -o -name pglite-release.ts \
-       -o -name storybook -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
+       -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
   echo "test sources and demo files in the image: $(printf '%s' "${listed}${named}" | grep -c . || true)"
   if [ -n "${listed}${named}" ]; then
     printf '%s\n%s\n' "$listed" "$named" >&2
@@ -174,13 +174,24 @@ assert_published_tree() {
 assert_published_tree "$image"
 
 case "$app" in
-  worker)
+  worker|worker-codex)
     # The ticket's check: the bundled executable resolves and is the version
-    # the SDK pin promises. Also non-root, git, git-lfs and gh present,
+    # the engine pin promises. Also non-root, git, git-lfs and gh present,
     # workspace mount point.
-    version="$(docker run --rm "$image" claude --version)"
-    echo "claude --version: $version"
-    echo "$version" | grep -q '^2\.1\.319 ' || { echo "expected 2.1.319"; exit 1; }
+    if [ "$app" = worker ]; then
+      version="$(docker run --rm "$image" claude --version)"
+      echo "claude --version: $version"
+      echo "$version" | grep -q '^2\.1\.319 ' || { echo "expected 2.1.319"; exit 1; }
+      # One image holds one engine: the other's package is not here.
+      docker run --rm "$image" test ! -e node_modules/@openai
+    else
+      # image:verify resolves the executable the way the runtime does and
+      # prints its own version (the build log shows the same line).
+      version="$(docker run --rm "$image" bun run --filter @werft-ai/runtime-registry image:verify 2>&1)"
+      echo "$version"
+      echo "$version" | grep -q 'codex-cli 0\.167\.0$' || { echo "expected codex-cli 0.167.0"; exit 1; }
+      docker run --rm "$image" test ! -e node_modules/@anthropic-ai
+    fi
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && git lfs version && gh --version && test -d /workspace'
     docker run --rm "$image" bun build --target=bun --outdir=/tmp/resolve apps/worker/src/main.ts >/dev/null
     # a commit in a fresh repository needs no identity of its own

@@ -34,7 +34,11 @@ images:
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
     # {engine: claude, sdkVersion: 0.3.280, cliVersion: 2.1.280,
-    # profileDigestScheme: 1}; an image that also resumes older checkpoints
+    # profileDigestScheme: 1}; the Codex worker image (apps/worker built with
+    # WORKER_RUNTIME=codex_app_server, a repository of its own) names
+    # {engine: codex, sdkVersion: 0.167.0, cliVersion: 0.167.0, ...}. One
+    # worker image holds one engine, so a deployment sets repository, digest
+    # and runtime for the engine it runs. An image that also resumes older checkpoints
     # adds restorableSchemes: [1, 2] (it must include profileDigestScheme). Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
