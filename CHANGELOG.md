@@ -12,6 +12,14 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## 미출시
 
+## v0.1.2
+
+`v0.1.0` 뒤 첫 게시 릴리스다. `v0.1.1` 태그는 게시에 실패해 패키지와 Release가 없으므로, 아래 `v0.1.1` 절의 변경도 모두 이 버전에 들어 있다. `v0.1.0`에서 올리면 이 절과 `v0.1.1` 절의 "운영자가 할 일"을 모두 따른다.
+
+### 보안
+
+- **`werft-worker` 이미지의 git-lfs가 링크한 `github.com/klauspost/compress`를 1.20.2로 올렸다**(GO-2026-6865, JeongJaeSoon/werft#1277). 자세한 영향은 `v0.1.1` 절의 보안 항목과 같다. `v0.1.0`의 worker 이미지는 취약 버전을 담고 있으므로 올리기를 권한다.
+
 ### 운영자가 할 일
 
 - **Slack 연동 env를 정리했다. 공개 주소는 `CONSOLE_ORIGIN` 하나다**(JeongJaeSoon/werft#1439). Slack 계정 연결의 redirect(`<CONSOLE_ORIGIN>/settings/linked-accounts/slack`)와 이벤트 주소(`<CONSOLE_ORIGIN>/v1/slack/events/<agent_id>`)는 여기서 계산하고, 설정 > 연동 > Slack 화면에 복사할 수 있게 보인다. 올리기 전에 `CONSOLE_ORIGIN`을 api와 slack role에 넣는다.
@@ -24,6 +32,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **worker는 이제 모든 세션의 체크포인트에 로컬 브랜치를 담는다**(`workspace.sources`, `refs/checkpoint/source/*`). 옛 API·검증기는 이를 거절하므로 API·검증기·GC·세션 보관 CronJob을 먼저 올리고 worker를 나중에 올린다. 순서가 어긋나면 새 worker의 체크포인트가 거절되는 동안 push가 막히지만 데이터는 잃지 않는다.
 
 ## v0.1.1
+
+`v0.1.1`은 게시되지 않았고 변경은 `v0.1.2`에 포함된다. 아래는 그 변경 가운데 `v0.1.0` 뒤 `main`에 먼저 들어간 것이다.
 
 `v0.1.0` 뒤 `main`에 들어간 변경이다. 보안 수정이 있으므로 `v0.1.0`을 쓰는 곳은 올리기를 권한다. `v0.1.1` 태그로 게시하면 이미지 태그는 `v0.1.1`, chart 버전은 `0.1.1`이고 둘 다 태그에서 정해진다(`Chart.yaml`의 `version`은 태그 릴리스에 쓰이지 않는다).
 
