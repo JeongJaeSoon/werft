@@ -1,6 +1,7 @@
 import type { AgentAuthority } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { administers, insideAgent } from "./administers.ts";
+import { usageOf as usageDecisionOf } from "./agent-usage.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -124,6 +125,18 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
         )
         .limit(1);
       return row !== undefined;
+    },
+
+    async usageOf(workspaceId, agentId, who) {
+      if (![workspaceId, agentId].every((v) => UUID.test(v))) {
+        return { allowed: false };
+      }
+      return usageDecisionOf(db, {
+        workspaceId,
+        agentId: agentId.toLowerCase(),
+        who,
+        lock: false,
+      });
     },
 
     async isInside(workspaceId, agentId, userId) {

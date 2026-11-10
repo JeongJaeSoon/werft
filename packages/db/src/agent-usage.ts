@@ -1,8 +1,11 @@
 import type { AgentUsageScope } from "@werft-ai/contracts";
-import type {
-  AgentUsageState,
-  AgentUsageStore,
-  PutAgentUsageResult,
+import {
+  type AgentUsageState,
+  type AgentUsageStore,
+  decideUsage,
+  type PutAgentUsageResult,
+  type UsageDecision,
+  type UsageFacts,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
@@ -28,6 +31,173 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // order and one waits for the other.
 
 type Reader = Pick<Database, "select">;
+
+type Lockable<R> = PromiseLike<R> & {
+  for(strength: "share"): PromiseLike<R>;
+};
+
+const MANAGERS: readonly string[] = ["owner", "admin"];
+
+/**
+ * Whether `who` may use the agent, as of this read, or as of these locks
+ * (94S-901). One function for both so the policy's answer and the store's
+ * re-decision cannot differ. With `lock`, rows are taken FOR SHARE in the
+ * order of the notes' P1.6c, in one pass and never through another helper:
+ * agent → agent_usage → admin rows → every team it reads (id order) →
+ * relation rows → the requester's member rows. The caller holds the user,
+ * membership, key and session rows already, which come before the agent.
+ * A team's archive and an edit of the usage take the agent_usage row first,
+ * so each waits for this transaction or is seen by it.
+ */
+export async function usageOf(
+  tx: Reader,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    who: {
+      userId: string | null;
+      role: string | null;
+      keyAgentId: string | null;
+    };
+    lock: boolean;
+  },
+): Promise<UsageDecision> {
+  const { workspaceId, agentId, who, lock } = input;
+  const run = <R>(query: Lockable<R>): PromiseLike<R> =>
+    lock ? query.for("share") : query;
+  const [agent] = await run(
+    tx
+      .select({ managingTeamId: agents.managingTeamId })
+      .from(agents)
+      .where(and(eq(agents.workspaceId, workspaceId), eq(agents.id, agentId))),
+  );
+  if (!agent) return { allowed: false };
+  // An agent made by hand without its row reads as the default it would get.
+  const [usage] = await run(
+    tx
+      .select({ scope: agentUsage.scope })
+      .from(agentUsage)
+      .where(eq(agentUsage.agentId, agentId)),
+  );
+  const scope = (usage?.scope ?? "workspace") as AgentUsageScope;
+  const agentKey =
+    who.keyAgentId !== null && who.keyAgentId.toLowerCase() === agentId;
+  const facts: UsageFacts = {
+    scope,
+    agentKey,
+    personless: who.userId === null,
+    workspaceManager: who.role !== null && MANAGERS.includes(who.role),
+    directAdmin: false,
+    usageTeams: [],
+    adminTeams: [],
+    managingLead: null,
+    managingMember: null,
+  };
+  if (agentKey || scope === "workspace" || who.userId === null) {
+    return decideUsage(facts);
+  }
+  const userId = who.userId.toLowerCase();
+
+  // The usage row is held, so its targets and the admin rows cannot move
+  // under the reads below; the agent row is held too (admin and managing-team
+  // changes take it first).
+  const [direct] = await run(
+    tx
+      .select({ userId: agentAdmins.userId })
+      .from(agentAdmins)
+      .where(
+        and(
+          eq(agentAdmins.workspaceId, workspaceId),
+          eq(agentAdmins.agentId, agentId),
+          eq(agentAdmins.userId, userId),
+        ),
+      ),
+  );
+  facts.directAdmin = direct !== undefined;
+  const targets = (
+    await tx
+      .select({ teamId: agentUsageTargets.teamId })
+      .from(agentUsageTargets)
+      .where(eq(agentUsageTargets.agentId, agentId))
+  ).flatMap((row) => (row.teamId === null ? [] : [row.teamId]));
+  const lent = (
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.workspaceId, workspaceId),
+          eq(agentAdminTeams.agentId, agentId),
+        ),
+      )
+  ).map((row) => row.teamId);
+  const teamIds = [
+    ...new Set([...targets, ...lent, agent.managingTeamId]),
+  ].sort();
+  const live = new Set(
+    (
+      await run(
+        tx
+          .select({ id: memberTeams.id })
+          .from(memberTeams)
+          .where(
+            and(
+              eq(memberTeams.workspaceId, workspaceId),
+              inArray(memberTeams.id, teamIds),
+              isNull(memberTeams.archivedAt),
+            ),
+          )
+          .orderBy(asc(memberTeams.id)),
+      )
+    ).map((row) => row.id),
+  );
+  if (lock && lent.some((id) => live.has(id))) {
+    await tx
+      .select({ teamId: agentAdminTeams.teamId })
+      .from(agentAdminTeams)
+      .where(
+        and(
+          eq(agentAdminTeams.agentId, agentId),
+          inArray(
+            agentAdminTeams.teamId,
+            lent.filter((id) => live.has(id)),
+          ),
+        ),
+      )
+      .orderBy(asc(agentAdminTeams.teamId))
+      .for("share");
+  }
+  const roleIn = new Map<string, string>();
+  if (live.size > 0) {
+    const mine = await run(
+      tx
+        .select({
+          teamId: memberTeamMembers.teamId,
+          role: memberTeamMembers.role,
+        })
+        .from(memberTeamMembers)
+        .where(
+          and(
+            inArray(memberTeamMembers.teamId, [...live]),
+            eq(memberTeamMembers.userId, userId),
+            isNull(memberTeamMembers.removedAt),
+          ),
+        )
+        .orderBy(asc(memberTeamMembers.teamId), asc(memberTeamMembers.id)),
+    );
+    for (const row of mine) roleIn.set(row.teamId, row.role);
+  }
+  const inLive = (ids: readonly string[]) =>
+    ids.filter((id) => live.has(id) && roleIn.has(id));
+  facts.usageTeams = inLive(targets);
+  facts.adminTeams = inLive(lent);
+  const managing = agent.managingTeamId;
+  if (live.has(managing) && roleIn.has(managing)) {
+    facts.managingMember = managing;
+    if (roleIn.get(managing) === "lead") facts.managingLead = managing;
+  }
+  return decideUsage(facts);
+}
 
 // One statement, so the scope and revision belong to the teams beside them.
 async function readState(

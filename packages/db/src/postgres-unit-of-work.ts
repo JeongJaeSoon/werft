@@ -45,6 +45,7 @@ import type {
   SessionRecord,
   SessionUnitOfWork,
   SessionViewer,
+  UsageDecision,
 } from "@werft-ai/platform";
 import {
   InvalidCursorError,
@@ -115,9 +116,11 @@ import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   keyReaches,
+  lockAgentUsage,
   lockAgentUse,
   lockRequester,
   lockSessionReach,
+  type Requester,
 } from "./requester-locks.ts";
 import { startupFailedAttention } from "./restore-failures.ts";
 import {
@@ -185,6 +188,28 @@ async function recordAcceptance(
   });
 }
 
+// What a turn, and the session's first one, keep of who asked and why they
+// could (94S-901). A key with no person is the requester itself.
+function usageRecord(usage: UsageDecision | null, requester: Requester) {
+  const kind =
+    requester.userId !== null
+      ? ("user" as const)
+      : requester.apiKeyId !== null
+        ? ("api_key" as const)
+        : null;
+  return {
+    usageBasis: usage?.allowed ? usage.basis : null,
+    usageTeamId: usage?.allowed ? usage.teamId : null,
+    requesterKind: kind,
+    requesterId:
+      kind === "user"
+        ? requester.userId
+        : kind === "api_key"
+          ? requester.apiKeyId
+          : null,
+  };
+}
+
 async function insertQueuedTurn(
   tx: Database,
   input: {
@@ -195,6 +220,10 @@ async function insertQueuedTurn(
     channel: SurfaceKind | null;
     slackMessage: SlackMessageRef | null;
     traceContext?: string | null;
+    usageBasis?: string | null;
+    usageTeamId?: string | null;
+    requesterKind?: string | null;
+    requesterId?: string | null;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -212,6 +241,10 @@ async function insertQueuedTurn(
       channel: input.channel,
       slackMessage: input.slackMessage,
       traceContext: input.traceContext ?? null,
+      usageBasis: input.usageBasis ?? null,
+      usageTeamId: input.usageTeamId ?? null,
+      requesterKind: input.requesterKind ?? null,
+      requesterId: input.requesterId ?? null,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
@@ -267,12 +300,6 @@ export function createPostgresSessionUnitOfWork(
             response: createSessionResponseSchema.parse(existing.result),
           };
         }
-        if (input.notRunnableReason !== undefined) {
-          return {
-            outcome: "not_runnable" as const,
-            reason: input.notRunnableReason,
-          };
-        }
         const unbound = async (releaseId: string) => {
           const { receiptId } = await recordUnboundRefusal(tx, {
             ownerId: scope.principal,
@@ -284,17 +311,10 @@ export function createPostgresSessionUnitOfWork(
           });
           return { outcome: "credential_unbound" as const, receiptId };
         };
-        if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
-          // No requester lock follows here, so the agent row can be locked
-          // first without crossing the order a key revoke takes (key, agent).
-          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
-          if (reason !== null) return { outcome: "not_runnable", reason };
-          return unbound(input.agentReleaseId);
-        }
-
-        if (input.repository === null || input.extensionsRefused) {
-          return { outcome: "unsupported" };
-        }
+        // Who asks is judged first, so every refusal below (a paused agent,
+        // an unbound credential, a profile the catalog lost) is said only to
+        // someone who may still use the agent: it names the agent's admins
+        // or its state (94S-901).
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -308,6 +328,33 @@ export function createPostgresSessionUnitOfWork(
         }
         // AUTH_MODE=none and keys from before workspaces have no settings.
         const workspaceId = input.principal.actor?.workspaceId;
+        let usage: UsageDecision | null = null;
+        if (input.agentReleaseId !== undefined && workspaceId) {
+          // Before any lock on a team (lockAgentUse below): see lockAgentUsage.
+          usage = await lockAgentUsage(
+            tx,
+            requester,
+            workspaceId,
+            input.agentReleaseId,
+          );
+          if (input.agentPrivate || !usage.allowed) {
+            return { outcome: "agent_private" };
+          }
+        }
+        if (input.notRunnableReason !== undefined) {
+          return {
+            outcome: "not_runnable" as const,
+            reason: input.notRunnableReason,
+          };
+        }
+        if (input.credentialsUnbound && input.agentReleaseId !== undefined) {
+          const reason = await lockedAgentInactive(tx, input.agentReleaseId);
+          if (reason !== null) return { outcome: "not_runnable", reason };
+          return unbound(input.agentReleaseId);
+        }
+        if (input.repository === null || input.extensionsRefused) {
+          return { outcome: "unsupported" };
+        }
         if (
           input.agentReleaseId !== undefined &&
           workspaceId &&
@@ -441,6 +488,7 @@ export function createPostgresSessionUnitOfWork(
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,
           createdByApiKeyId: actor?.apiKeyId ?? null,
+          ...usageRecord(usage, requester),
         });
         if (input.shareScope !== undefined) {
           if (!actor?.workspaceId) {
@@ -461,6 +509,7 @@ export function createPostgresSessionUnitOfWork(
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
+          ...usageRecord(usage, requester),
         });
 
         if (envCapture.outcome === "resolved") {
@@ -517,8 +566,6 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
-        if (input.profileBlocked) return { outcome: "profile_blocked" };
-
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -556,9 +603,27 @@ export function createPostgresSessionUnitOfWork(
         if (!(await keyReaches(tx, requester, session.agentReleaseId))) {
           return { outcome: "actor_inactive" };
         }
+        // Locked before the reach below takes any team (see lockAgentUsage),
+        // but said after it: a session the requester cannot see does not exist
+        // for them, whoever its agent is.
+        const usage =
+          session.agentReleaseId !== null && session.workspaceId !== null
+            ? await lockAgentUsage(
+                tx,
+                requester,
+                session.workspaceId,
+                session.agentReleaseId,
+              )
+            : null;
         if ((await lockSessionReach(tx, requester, session)) !== "ok") {
           return { outcome: "not_found" };
         }
+        if (input.agentPrivate || (usage !== null && !usage.allowed)) {
+          return { outcome: "agent_private" };
+        }
+        // After the reach and the usage, so the block's words (the profile's
+        // name) are said only to someone who sees the session and its agent.
+        if (input.profileBlocked) return { outcome: "profile_blocked" };
         if (session.takeoverRequiredAt !== null) {
           return { outcome: "awaiting_takeover" };
         }
@@ -625,6 +690,7 @@ export function createPostgresSessionUnitOfWork(
           channel: input.channel ?? null,
           slackMessage: input.slackMessage ?? null,
           traceContext: input.traceContext ?? null,
+          ...usageRecord(usage, requester),
         });
         await tx
           .update(sessions)

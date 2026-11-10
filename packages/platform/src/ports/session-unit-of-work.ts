@@ -87,6 +87,11 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
+  // The policy found the agent private and the requester outside it
+  // (94S-901): only a replay of an earlier acceptance goes through. Without
+  // it the write still judges the requester over locked rows. Carries the
+  // visibility result and nothing else.
+  agentPrivate?: true;
   // The pinned agent is paused or archived, or the release never approved:
   // only a replay of an earlier acceptance goes through, and the check runs
   // before the unbound one.
@@ -112,6 +117,8 @@ export type AcceptSessionResult =
   | { outcome: "actor_inactive" }
   /** Outside the agent while axis A is not `use`, judged in the write. */
   | { outcome: "agent_use_refused" }
+  /** The agent is private and the requester is not among those who use it. */
+  | { outcome: "agent_private" }
   | { outcome: "not_runnable"; reason: "agent_inactive" | "release_unapproved" }
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
@@ -134,11 +141,15 @@ export type AppendMessageInput = {
   // The operator blocked the session's profile: only a replay of an earlier
   // acceptance goes through.
   profileBlocked?: true;
+  // As `AcceptSessionInput.agentPrivate`: only a replay goes through.
+  agentPrivate?: true;
 };
 
 export type AppendMessageResult =
   | { outcome: "accepted" | "replayed"; response: PostSessionMessageResponse }
   | { outcome: "conflict" | "not_found" | "profile_blocked" }
+  /** A session the requester sees, of an agent they may not use. */
+  | { outcome: "agent_private" }
   // The session exists but its admission state does not take new input.
   | { outcome: "rejected"; admissionState: Exclude<AdmissionState, "active"> }
   // The session cannot be checkpointed (blocking pending reason): a turn run
