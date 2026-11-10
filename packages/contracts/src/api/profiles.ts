@@ -5,6 +5,7 @@ import {
   timestampSchema,
   userIdSchema,
 } from "../shared/ids.ts";
+import { providerKindSchema } from "../shared/provider-kind.ts";
 import { permissionModeSchema, runtimeKindSchema } from "./session.ts";
 
 const projectSettingsSchema = z.object({ claude_md: z.boolean() }).strict();
@@ -401,7 +402,7 @@ export const installationProfileOptionsResponseSchema = z
       z
         .object({
           id: z.string().min(1),
-          kind: z.enum(["anthropic", "litellm"]),
+          kind: providerKindSchema,
           billing: z.enum(["metered", "none"]),
         })
         .strict(),
