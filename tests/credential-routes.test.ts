@@ -28,6 +28,10 @@ import {
   textReply,
 } from "@werft-ai/testkit/fake-anthropic";
 import {
+  type FakeResponsesServer,
+  startFakeResponsesServer,
+} from "@werft-ai/testkit/fake-responses";
+import {
   createServedRepository,
   type GitHttpServer,
   startGitHttpServer,
@@ -65,11 +69,13 @@ import { GitWorkspace } from "../apps/worker/src/workspace.ts";
 
 const AUTHORIZER_BEARER = `authorizer-${crypto.randomUUID()}`;
 const PROFILE_ID = "claude-coding-v1";
+const RESPONSES_PROFILE_ID = "codex-coding-v1";
 const REPOSITORY_HOST = "git.test";
 const silentProxy = createProxyLogger("error", () => {});
 
 let client: PGlite | undefined;
 let messages: FakeAnthropicServer | undefined;
+let responses: FakeResponsesServer | undefined;
 let repository: GitHttpServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
@@ -84,6 +90,7 @@ afterEach(async () => {
   proxy?.stop();
   authorizer?.stop(true);
   messages?.stop();
+  responses?.stop();
   await repository?.stop();
   await isolated?.dispose();
   if (scratch !== undefined) {
@@ -93,6 +100,7 @@ afterEach(async () => {
   proxy = undefined;
   authorizer = undefined;
   messages = undefined;
+  responses = undefined;
   repository = undefined;
   isolated = undefined;
   scratch = undefined;
@@ -108,7 +116,9 @@ type Topology = {
   repositoryUrl: string;
 };
 
-async function topology(): Promise<Topology> {
+const RESPONSES_UPSTREAM_VALUE = `catalog-openai-${crypto.randomUUID()}`;
+
+async function topology(profileId = PROFILE_ID): Promise<Topology> {
   if (client === undefined) throw new Error("no database");
   const db = drizzle(client, { schema });
   const providerValue = `catalog-provider-${crypto.randomUUID()}`;
@@ -118,6 +128,10 @@ async function topology(): Promise<Topology> {
   messages = startFakeAnthropicServer(
     textReply("through the credential route"),
   );
+  responses = startFakeResponsesServer({
+    text: "through the Responses route",
+    usage: { input_tokens: 1000, output_tokens: 2000, cached_tokens: 400 },
+  });
   repository = await startGitHttpServer({ authorization: basic });
   await createServedRepository(repository, "app", {
     "README.md": "hello\n",
@@ -144,12 +158,28 @@ async function topology(): Promise<Topology> {
             },
           },
         },
+        [RESPONSES_PROFILE_ID]: {
+          runtime_kind: "claude_agent_sdk",
+          runtime_version: "0.3.270",
+          model: "gpt-5.5",
+          tools: [],
+          permission_mode: "default",
+          provider: {
+            kind: "openai_responses",
+            endpoint: responses.url,
+            auth: {
+              kind: "api_key",
+              value: RESPONSES_UPSTREAM_VALUE,
+              ref: { value_env: "OPENAI_KEY" },
+            },
+          },
+        },
       },
       repositories: {
         app: {
           url: repositoryUrl,
           branch: "main",
-          profiles: [PROFILE_ID],
+          profiles: [PROFILE_ID, RESPONSES_PROFILE_ID],
           auth: { kind: "github_app", registered: true },
         },
       },
@@ -181,6 +211,7 @@ async function topology(): Promise<Topology> {
   });
   const upstreams = [
     { host: "127.0.0.1", port: Number(new URL(messages.url).port) },
+    { host: "127.0.0.1", port: Number(new URL(responses.url).port) },
     { host: REPOSITORY_HOST, port: repository.port },
   ];
   proxy = startCredentialProxy({
@@ -201,7 +232,7 @@ async function topology(): Promise<Topology> {
     principal: { ownerId: "owner-a" },
     idempotencyKey: crypto.randomUUID(),
     payloadHash: "hash",
-    profileId: PROFILE_ID,
+    profileId,
     repository: { id: "app", url: repositoryUrl, branch: "main" },
     message: "hello",
   });
@@ -544,6 +575,122 @@ describe("credential routes end to end", () => {
     // The engine priced the same calls the same way.
     expect(settled.session).toBeCloseTo(sdkCost, 6);
   }, 60_000);
+
+  describe("the Responses route", () => {
+    const direct = (
+      credentialUrl: string,
+      claim: BootstrapClaimResponse,
+      path = "/provider/v1/responses",
+      stream = false,
+    ) =>
+      fetch(`${credentialUrl}${path}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${claim.runtime_config.provider.auth.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: claim.runtime_config.model,
+          max_output_tokens: 16,
+          stream,
+          input: "hi",
+        }),
+      });
+
+    test("an openai_responses session reaches the upstream with the catalog key only at the proxy, and the call is metered", async () => {
+      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      if (responses === undefined) throw new Error("no Responses server");
+      expect(claim.runtime_config.provider.kind).toBe("openai_responses");
+      expect(JSON.stringify(claim)).not.toContain(RESPONSES_UPSTREAM_VALUE);
+
+      const answer = await direct(credentialUrl, claim, undefined, true);
+      expect(answer.status).toBe(200);
+      expect(await answer.text()).toContain("response.completed");
+
+      expect(responses.requests).toHaveLength(1);
+      const [seen] = responses.requests;
+      expect(seen?.path).toBe("/v1/responses");
+      expect(seen?.headers.authorization).toBe(
+        `Bearer ${RESPONSES_UPSTREAM_VALUE}`,
+      );
+      expect(JSON.stringify(seen?.headers)).not.toContain(
+        claim.runtime_config.provider.auth.token,
+      );
+
+      // 1000 prompt tokens of which 400 came from cache, 2000 out.
+      const { costUsd } = priceProviderUsage({
+        model: claim.runtime_config.model,
+        inputTokens: 600,
+        outputTokens: 2000,
+        cacheCreationInputTokens: 0,
+        cacheCreation1hInputTokens: 0,
+        cacheReadInputTokens: 400,
+        speed: "standard",
+        inferenceGeo: "global",
+        webSearchRequests: 0,
+        webFetchRequests: 0,
+        codeExecutionRequests: 0,
+        estimated: false,
+      });
+      expect(costUsd).toBeGreaterThan(0);
+      expect(await meteredCost(claim.session_id, 1)).toEqual({
+        session: costUsd,
+        metered: costUsd,
+      });
+    }, 60_000);
+
+    test("a direct call on the engine's token stops once the session has spent its limit", async () => {
+      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      if (client === undefined || responses === undefined) {
+        throw new Error("no topology");
+      }
+      const within = await direct(credentialUrl, claim);
+      expect(within.status).toBe(200);
+      await within.text();
+      const served = responses.requests.length;
+      await drizzle(client, { schema })
+        .update(schema.sessions)
+        .set({ costUsd: 1_000 })
+        .where(eq(schema.sessions.id, claim.session_id));
+      const over = await direct(credentialUrl, claim);
+      expect(over.status).toBe(403);
+      expect(await over.text()).toContain("BUDGET_EXCEEDED");
+      expect(responses.requests).toHaveLength(served);
+    }, 60_000);
+
+    test("a Claude session is refused /v1/responses before any upstream is contacted", async () => {
+      const { claim, credentialUrl } = await topology();
+      const refused = await direct(credentialUrl, claim);
+      expect(refused.status).toBe(403);
+      await refused.text();
+      expect(responses?.requests).toEqual([]);
+      expect(messages?.requests).toEqual([]);
+    }, 60_000);
+
+    test("an openai_responses session is refused the Messages route", async () => {
+      const { claim, credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const refused = await direct(
+        credentialUrl,
+        claim,
+        "/provider/v1/messages",
+      );
+      expect(refused.status).toBe(403);
+      await refused.text();
+      expect(responses?.requests).toEqual([]);
+      expect(messages?.requests).toEqual([]);
+    }, 60_000);
+
+    test("a token the gateway never issued is refused", async () => {
+      const { credentialUrl } = await topology(RESPONSES_PROFILE_ID);
+      const unknown = await fetch(`${credentialUrl}/provider/v1/responses`, {
+        method: "POST",
+        headers: { authorization: "Bearer not-issued" },
+        body: "{}",
+      });
+      expect(unknown.status).toBe(401);
+      expect(responses?.requests).toEqual([]);
+    }, 60_000);
+  });
 
   test("the route refuses a token for the other purpose and one it never issued", async () => {
     const { claim, credentialUrl } = await topology();
