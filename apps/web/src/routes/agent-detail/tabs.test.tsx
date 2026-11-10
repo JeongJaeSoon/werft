@@ -397,7 +397,8 @@ describe("에이전트 상세 탭", () => {
     });
     // The URL settling must not pull the keyboard back or away, nor the page up.
     expect(document.activeElement?.id).toBe("agent-settings-release");
-    proto.scrollIntoView = original;
+    if (original) proto.scrollIntoView = original;
+    else Reflect.deleteProperty(proto, "scrollIntoView");
     window.scrollTo = originalScrollTo;
     expect(scrolled).toEqual([]);
   });
