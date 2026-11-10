@@ -67,6 +67,23 @@ export const OPENAI_SHORT_RATES: readonly OpenAiRates[] = Object.values(
   CARDS,
 ).map((entry) => entry.short);
 
+/** Short and long rates both: the fallback must not undercut a long card. */
+export const OPENAI_ALL_RATES: readonly OpenAiRates[] = Object.values(
+  CARDS,
+).flatMap((entry) =>
+  entry.long === undefined ? [entry.short] : [entry.short, entry.long],
+);
+
+/**
+ * GPT-5.6 and later bill a cache write above the input rate: 1.25x for the
+ * default 30 minutes, 2.5x for the 12-hour lifetime. Fast mode doubles every
+ * rate of a model that has it; a model that has none is charged the same
+ * doubling, which only errs high.
+ */
+export const OPENAI_CACHE_WRITE_30M = 1.25;
+export const OPENAI_CACHE_WRITE_12H = 2.5;
+export const OPENAI_FAST_MULTIPLIER = 2;
+
 const DATED_SNAPSHOT = /-\d{4}-\d{2}-\d{2}$/;
 
 /**

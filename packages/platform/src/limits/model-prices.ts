@@ -13,7 +13,13 @@
  * `model-prices-openai.ts`.
  */
 
-import { OPENAI_SHORT_RATES, openAiRatesFor } from "./model-prices-openai.ts";
+import {
+  OPENAI_ALL_RATES,
+  OPENAI_CACHE_WRITE_12H,
+  OPENAI_CACHE_WRITE_30M,
+  OPENAI_FAST_MULTIPLIER,
+  openAiRatesFor,
+} from "./model-prices-openai.ts";
 
 type ModelPrice = {
   inputUsdPerMtok: number;
@@ -134,7 +140,7 @@ const FALLBACK_PRICE: ModelPrice = (() => {
   const prices = [
     ...Object.values(MODEL_PRICES),
     ...Object.values(FAST_MODEL_PRICES),
-    ...OPENAI_SHORT_RATES,
+    ...OPENAI_ALL_RATES,
   ];
   return price(
     Math.max(...prices.map((known) => known.inputUsdPerMtok)),
@@ -183,12 +189,24 @@ export function priceProviderUsage(usage: ProviderUsage): {
       usage.cacheReadInputTokens,
   );
   if (openAi !== undefined) {
+    const longWrites = Math.min(
+      usage.cacheCreation1hInputTokens,
+      usage.cacheCreationInputTokens,
+    );
+    const shortWrites = usage.cacheCreationInputTokens - longWrites;
+    const tokenCost =
+      (usage.inputTokens * openAi.inputUsdPerMtok +
+        shortWrites * openAi.inputUsdPerMtok * OPENAI_CACHE_WRITE_30M +
+        longWrites * openAi.inputUsdPerMtok * OPENAI_CACHE_WRITE_12H +
+        usage.cacheReadInputTokens * openAi.cacheReadUsdPerMtok +
+        usage.outputTokens * openAi.outputUsdPerMtok) /
+      1_000_000;
     return {
       costUsd:
-        (usage.inputTokens * openAi.inputUsdPerMtok +
-          usage.cacheReadInputTokens * openAi.cacheReadUsdPerMtok +
-          usage.outputTokens * openAi.outputUsdPerMtok) /
-        1_000_000,
+        // Only the speeds the Responses meter names: a report that names
+        // none (an earlier proxy's) is a standard call.
+        tokenCost * (usage.speed === "fast" ? OPENAI_FAST_MULTIPLIER : 1) +
+        (usage.webSearchRequests * WEB_SEARCH_MICRO_USD) / 1_000_000,
       pricedBy: "table",
     };
   }

@@ -156,6 +156,23 @@ export type CredentialRoute = {
 // `openai_responses` session and refuses it to every other, and refuses the
 // Messages paths to that session in turn.
 const RESPONSES_PATH = "/v1/responses";
+
+/**
+ * A `background` response is queued and keeps generating after the
+ * connection that would meter it has closed, so it is refused outright.
+ */
+function runsInBackground(body: Uint8Array): boolean {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(body));
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as Record<string, unknown>).background === true
+    );
+  } catch {
+    return false;
+  }
+}
 const PROVIDER_PATHS = new Set([
   "/v1/messages",
   "/v1/messages/count_tokens",
@@ -2018,6 +2035,17 @@ export function startCredentialProxy(
             return reply(400, "only an LFS download batch is routed");
           }
           whole = Promise.resolve(batch);
+        }
+        if (route.purpose === "provider" && route.path === RESPONSES_PATH) {
+          const read = whole === null ? null : await whole;
+          if (read instanceof Uint8Array && runsInBackground(read)) {
+            release();
+            return reply(
+              400,
+              "a background response outlives the metered connection",
+              route.purpose,
+            );
+          }
         }
         const authorized = await authorize(token, route.purpose, question);
         if (authorized.kind === "refused") {

@@ -750,6 +750,23 @@ describe("startCredentialProxy", () => {
       expect(JSON.stringify(seen)).not.toContain(WORKER_TOKEN);
     });
 
+    test("a background response is refused before the authorizer or the upstream is asked", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const refused = await responses(server.port, {
+        body: '{"model":"gpt-5.5","background":true,"store":true}',
+      });
+      expect(refused.status).toBe(400);
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      // Only `true` is background: an explicit false is an ordinary call.
+      const plain = await responses(server.port, {
+        body: '{"model":"gpt-5.5","background":false}',
+      });
+      expect(plain.status).toBe(200);
+    });
+
     test("a Messages call still asks without a path, so an authorizer of the earlier release answers it", async () => {
       const up = upstream(() => Response.json({ id: "msg_1" }));
       const auth = authorizer(

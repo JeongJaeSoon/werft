@@ -335,6 +335,63 @@ describe("priceProviderUsage for an OpenAI model", () => {
     expect(priced.costUsd).toBeGreaterThan((300_000 * 0.75) / 1_000_000);
   });
 
+  test("a cache write costs 1.25x the input rate, a 12-hour one 2.5x", () => {
+    const plain = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      inputTokens: 100_000,
+    }).costUsd;
+    const written = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      cacheCreationInputTokens: 100_000,
+    }).costUsd;
+    const twelveHours = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      cacheCreationInputTokens: 100_000,
+      cacheCreation1hInputTokens: 100_000,
+    }).costUsd;
+    expect(written).toBeCloseTo(plain * 1.25, 9);
+    expect(twelveHours).toBeCloseTo(plain * 2.5, 9);
+  });
+
+  test("the fast speed doubles the token cost", () => {
+    const call = { ...openAi, model: "gpt-6.1-sol", outputTokens: 100_000 };
+    expect(priceProviderUsage({ ...call, speed: "fast" }).costUsd).toBeCloseTo(
+      priceProviderUsage(call).costUsd * 2,
+      9,
+    );
+  });
+
+  test("a web search adds its call fee to the tokens", () => {
+    const call = {
+      ...openAi,
+      model: "gpt-5.5",
+      inputTokens: 100,
+      outputTokens: 100,
+    };
+    expect(
+      priceProviderUsage({ ...call, webSearchRequests: 1 }).costUsd -
+        priceProviderUsage(call).costUsd,
+    ).toBeCloseTo(0.01, 9);
+  });
+
+  test("the fallback is never cheaper than a known long-context card", () => {
+    const unknown = priceProviderUsage({
+      ...openAi,
+      model: "gpt-9",
+      inputTokens: 1_000_000,
+    });
+    const longest = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6-astra",
+      inputTokens: 1_000_000,
+    });
+    expect(unknown.pricedBy).toBe("fallback");
+    expect(unknown.costUsd).toBeGreaterThanOrEqual(longest.costUsd);
+  });
+
   test("an OpenAI model the table does not know is charged the highest rate", () => {
     const priced = priceProviderUsage({
       ...openAi,

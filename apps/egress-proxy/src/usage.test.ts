@@ -476,22 +476,23 @@ describe("usageMeter on a Responses answer", () => {
   test("a stream cut before response.completed charges a token per character delivered", () => {
     const stream = sse([
       { type: "response.created", response: { model: "gpt-5.5" } },
-      { type: "response.output_text.delta", delta: "x".repeat(300) },
+      { type: "response.output_text.delta", delta: "x".repeat(900) },
     ]);
+    // More than the 700 the request allowed: the larger count is charged.
     expect(meter("text/event-stream", [stream])).toMatchObject({
       model: "gpt-5.5",
-      output_tokens: 300,
+      output_tokens: 900,
       estimated: true,
     });
   });
 
   test("a completed response that names no usage is estimated, not charged nothing", () => {
     const stream = sse([
-      { type: "response.output_text.delta", delta: "x".repeat(120) },
+      { type: "response.output_text.delta", delta: "x".repeat(900) },
       { type: "response.completed", response: { model: "gpt-5.5" } },
     ]);
     expect(meter("text/event-stream", [stream])).toMatchObject({
-      output_tokens: 120,
+      output_tokens: 900,
       estimated: true,
     });
   });
@@ -518,5 +519,94 @@ describe("usageMeter on a Responses answer", () => {
     expect(requestEstimate(responsesRequest)).toMatchObject({
       output_tokens: 700,
     });
+  });
+
+  test("a stream cut before response.completed is charged what the request allowed", () => {
+    const stream = sse([
+      { type: "response.created", response: { model: "gpt-5.5" } },
+      { type: "response.output_text.delta", delta: "hel" },
+    ]);
+    expect(meter("text/event-stream", [stream])).toMatchObject({
+      model: "gpt-5.5",
+      input_tokens: responsesRequest.byteLength,
+      output_tokens: 700,
+      estimated: true,
+    });
+  });
+
+  test("cache writes come out of the input and the 12-hour ones ride the one-hour slot", () => {
+    const body = JSON.stringify({
+      model: "gpt-6.1-sol",
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 10,
+        input_tokens_details: {
+          cached_tokens: 100,
+          cache_write_tokens: 300,
+          cache_write_tokens_details: {
+            ttl_30m_tokens: 200,
+            ttl_12h_tokens: 100,
+          },
+        },
+      },
+    });
+    expect(meter("application/json", [body])).toMatchObject({
+      input_tokens: 600,
+      cache_read_input_tokens: 100,
+      cache_creation_input_tokens: 300,
+      cache_creation_1h_input_tokens: 100,
+      estimated: false,
+    });
+  });
+
+  test("a priority or fast service_tier is the fast speed, in JSON and in a stream", () => {
+    const answer = { model: "gpt-5.5", service_tier: "priority", usage };
+    expect(meter("application/json", [JSON.stringify(answer)])).toMatchObject({
+      speed: "fast",
+    });
+    expect(
+      meter("text/event-stream", [
+        sse([{ type: "response.completed", response: answer }]),
+      ]),
+    ).toMatchObject({ speed: "fast" });
+    expect(
+      meter("application/json", [
+        JSON.stringify({ ...answer, service_tier: "default" }),
+      ]),
+    ).toMatchObject({ speed: "standard" });
+  });
+
+  test("a request for the fast tier is estimated at the fast speed", () => {
+    expect(
+      requestEstimate(
+        encoder.encode(
+          JSON.stringify({ model: "gpt-5.5", service_tier: "fast" }),
+        ),
+      ),
+    ).toMatchObject({ speed: "fast" });
+  });
+
+  test("each web_search_call that did not fail is a search", () => {
+    const output = [
+      { type: "web_search_call", status: "completed" },
+      { type: "web_search_call", status: "failed" },
+      { type: "web_search_call", status: "completed" },
+      { type: "message" },
+    ];
+    expect(
+      meter("application/json", [
+        JSON.stringify({ model: "gpt-5.5", usage, output }),
+      ]),
+    ).toMatchObject({ web_search_requests: 2 });
+    expect(
+      meter("text/event-stream", [
+        sse([
+          {
+            type: "response.completed",
+            response: { model: "gpt-5.5", usage, output },
+          },
+        ]),
+      ]),
+    ).toMatchObject({ web_search_requests: 2 });
   });
 });
