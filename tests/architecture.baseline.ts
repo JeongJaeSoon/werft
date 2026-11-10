@@ -131,6 +131,7 @@ export const baseline: Baseline = {
     "workers/github-mcp-egress.ts -> sessions/github-mcp-server.ts",
     "workers/legacy-runtime-configs.ts -> sessions/catalog.ts",
     "workers/mcp-egress.ts -> sessions/catalog.ts",
+    "workers/mcp-egress.ts -> sessions/mcp-tool-decision.ts",
     "workers/worker-gateway.ts -> checkpoints/checkpoint-service.ts",
     "workers/worker-gateway.ts -> checkpoints/checkpoint-support.ts",
     "workers/worker-gateway.ts -> checkpoints/durability.ts",
