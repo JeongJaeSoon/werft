@@ -1,11 +1,11 @@
 // Runs inside this verification project's API container; never returns credentials.
 import { createHmac } from "node:crypto";
+import { createSlackSigningSecrets } from "@werft-ai/chat-slack";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSecretStore,
   createPostgresSlackAppStore,
 } from "@werft-ai/db";
-import { createSlackSigningSecrets } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { loadSecretKey } from "./apps/control-host/src/api/catalog-config.ts";

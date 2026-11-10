@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { scopesForRole, slackEventsResponseSchema } from "@werft-ai/contracts";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
-  callerFor,
   createSlackEventsService,
   createSlackSigningSecrets,
   type SlackEventsService,
-} from "@werft-ai/platform";
+} from "@werft-ai/chat-slack";
+import { scopesForRole, slackEventsResponseSchema } from "@werft-ai/contracts";
+import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import { callerFor } from "@werft-ai/platform";
 import {
   createMemoryAgentIdentityStore,
   createMemorySecretStore,

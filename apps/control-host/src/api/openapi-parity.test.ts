@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
 import type {
+  SlackEventsService,
+  SlackInteractionService,
+} from "@werft-ai/chat-slack";
+import type {
   AchievementRuleService,
   AgentAdminService,
   AgentGitHubService,
@@ -35,9 +39,7 @@ import type {
   SettingsDocumentService,
   SlackAppService,
   SlackChannelSearchService,
-  SlackEventsService,
   SlackInstallService,
-  SlackInteractionService,
   SlackSecretService,
   SurfaceBindingService,
   TeamService,

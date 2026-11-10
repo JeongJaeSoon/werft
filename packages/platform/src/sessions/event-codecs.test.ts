@@ -7,7 +7,6 @@ import {
   workerEventSchema,
 } from "@werft-ai/contracts";
 import type { EventCodec } from "@werft-ai/runtime-core";
-import { finalReplyText } from "../musterrolle/slack-outbox.ts";
 import type { CatalogProfileView } from "./catalog.ts";
 import { createNeutralizer, neutralFieldsOf } from "./event-codecs.ts";
 
@@ -171,10 +170,5 @@ describe("createNeutralizer", () => {
     expect(presentTurnEvent(events[4] as SessionEventPayload).error).not.toBe(
       true,
     );
-    expect(
-      finalReplyText(
-        events.map((event) => ({ type: event.event, payload: event.data })),
-      ),
-    ).toBe("Done.");
   });
 });

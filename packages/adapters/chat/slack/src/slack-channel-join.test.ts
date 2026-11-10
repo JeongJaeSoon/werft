@@ -3,20 +3,22 @@ import type {
   SurfaceChannelKind,
   SurfaceMembership,
 } from "@werft-ai/contracts";
-import type { SlackInboundClaim } from "../ports/slack-inbound-event-store.ts";
-import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
+import type {
+  SlackInboundClaim,
+  SurfaceBindingRecord,
+} from "@werft-ai/platform";
+import {
+  SlackApiError,
+  type SlackBotApi,
+  type SlackChannelMembership,
+  SlackRateLimitedError,
+} from "@werft-ai/platform";
 import {
   createSlackChannelJoiner,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
   joinSlackChannel,
 } from "./slack-channel-join.ts";
-import {
-  SlackApiError,
-  type SlackBotApi,
-  type SlackChannelMembership,
-  SlackRateLimitedError,
-} from "./slack-config-api.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000a1";

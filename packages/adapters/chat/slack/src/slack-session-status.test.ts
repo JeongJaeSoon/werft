@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SlackThreadStatusFacts } from "../ports/slack-outbox-store.ts";
+import type { SlackThreadStatusFacts } from "@werft-ai/platform";
 import {
   type SlackSessionStatusMaterial,
   type SlackThreadStatus,
