@@ -47,18 +47,25 @@ const ERROR_KEY = /^errors?$|^error[_-]?code$|^status[_-]?code$/i;
 
 // A parsed JSON body is masked by key at any depth and for any value type
 // (string, array, object); escaped key spellings are decoded by the parse.
+// Every string value left goes through maskBody again, so form pairs and
+// JSON serialized into a string meet the same steps as a whole body.
 function secretKey(key, parent) {
   if (SECRET_KEY.test(key)) return true;
   if (/^id$/i.test(key) && /^session$/i.test(parent)) return true;
   return CODE_KEY.test(key) && !ERROR_KEY.test(parent) && !ERROR_KEY.test(key);
 }
-function hideSecrets(value, parent = "") {
-  if (Array.isArray(value)) return value.map((v) => hideSecrets(v, parent));
+// Nested deeper than this, a string value is hidden whole.
+const MAX_DEPTH = 4;
+function hideSecrets(value, parent, depth) {
+  if (typeof value === "string")
+    return depth < MAX_DEPTH ? maskBody(value, depth + 1) : "(hidden)";
+  if (Array.isArray(value))
+    return value.map((v) => hideSecrets(v, parent, depth));
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) => [
         k,
-        secretKey(k, parent) ? "(hidden)" : hideSecrets(v, k),
+        secretKey(k, parent) ? "(hidden)" : hideSecrets(v, k, depth),
       ]),
     );
   return value;
@@ -137,13 +144,20 @@ const SECRET_OR_CODE_AT = new RegExp(UNPARSED_WORDS, "gi");
 // Form pairs (a=1&b=2) are split on the raw text, before %XX is decoded, so
 // an encoded "&", ";" or space inside a secret value cannot end its mask and
 // leave the rest of the value in the report. The key is decoded to be read.
+// A quoted value runs to its closing quote (to the end when there is none).
+// A pair whose own separators are encoded (a%3D1%26password%3D…) sits inside
+// the value of the pair before it: a value whose key is not secret is
+// searched again, a bounded number of times.
 const UNPARSED_KEY = new RegExp(UNPARSED_WORDS, "i");
-function hideFormPairs(text) {
-  return text.replace(
-    /(^|[&;?\s])([^=&;\s]+)=([^&;\s]+)/g,
-    (whole, lead, key) =>
-      UNPARSED_KEY.test(decodeAscii(key)) ? `${lead}${key}=(hidden)` : whole,
-  );
+const FORM_PAIR =
+  /(^|[&;?\s]|%2[60]|%3B)([^=&;\s]+?)(=|%3D)("[^"]*"?|'[^']*'?|[^&;\s]+)/gi;
+function hideFormPairs(text, rounds = 3) {
+  return text.replace(FORM_PAIR, (whole, lead, key, eq, value) => {
+    if (UNPARSED_KEY.test(decodeAscii(key)))
+      return `${lead}${key}${eq}(hidden)`;
+    if (rounds <= 1 || !/%2[60]|%3B/i.test(value)) return whole;
+    return `${lead}${key}${eq}${hideFormPairs(value, rounds - 1)}`;
+  });
 }
 function hideEmbedded(text, pattern, near) {
   let out = "";
@@ -208,17 +222,23 @@ function decodeRefs(text) {
 const withheld = (text) =>
   MARKUP.test(text) && SECRET_HINT.test(decodeRefs(text));
 
-export function maskBody(text) {
+// One order for every body and every string value inside one: parse (plain or
+// behind a prefix) and mask by key, string values recursing; or, when it does
+// not parse, hide form pairs on the raw text; then decode and run the text
+// masks below.
+export function maskBody(text, depth = 0) {
   let out = String(text);
   let parsed = false;
   try {
-    out = JSON.stringify(hideSecrets(JSON.parse(out)));
+    out = JSON.stringify(hideSecrets(JSON.parse(out), "", depth));
     parsed = true;
   } catch {
     // Not JSON (HTML, plain text, a cut body): the patterns below still run.
     const prefixed = parsePrefixed(out);
     if (prefixed) {
-      out = prefixed.prefix + JSON.stringify(hideSecrets(prefixed.value));
+      out =
+        prefixed.prefix +
+        JSON.stringify(hideSecrets(prefixed.value, "", depth));
       parsed = true;
     }
   }

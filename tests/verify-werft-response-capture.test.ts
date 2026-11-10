@@ -1007,3 +1007,64 @@ describe("maskBody: encoded separators and cut nested JSON", () => {
     ).toBe(false);
   });
 });
+
+// Orchestrator review of werft#1327 at 62a1f6c (Act-on 1-3 and Consider).
+// Secrets are built by concatenation from a placeholder word.
+describe("maskBody: quoted form values, form pairs and JSON inside strings", () => {
+  const S = ["SENT", "INEL"].join("");
+  const leaks = (text: string) => maskBody(text).includes(S);
+
+  test("a quoted form value with a space is hidden to its closing quote", () => {
+    expect(leaks(`password="keep ${S}"&x=1`)).toBe(false);
+    expect(leaks(`a=1&client_secret="one ${S} two"`)).toBe(false);
+    expect(leaks(`password="cut ${S}`)).toBe(false);
+    expect(leaks(`token='one ${S}'&x=1`)).toBe(false);
+    expect(maskBody(`password="keep ${S}"&x=1`)).toContain("x=1");
+  });
+
+  test("form pairs in a string value of a parsed body", () => {
+    expect(leaks(JSON.stringify({ message: `a=1&password=keep%26${S}` }))).toBe(
+      false,
+    );
+    expect(leaks(JSON.stringify({ message: `password=one%20${S}` }))).toBe(
+      false,
+    );
+    expect(
+      leaks(`)]}'\n${JSON.stringify({ e: { m: `token=x%3B${S}` } })}`),
+    ).toBe(false);
+  });
+
+  test("JSON serialized into a string value is masked like JSON", () => {
+    const inner = JSON.stringify({ session: { id: S } });
+    expect(leaks(JSON.stringify({ detail: inner }))).toBe(false);
+    expect(leaks(JSON.stringify({ a: [JSON.stringify({ x: inner })] }))).toBe(
+      false,
+    );
+    // Cut inside the string: it cannot be parsed, so the text rules apply.
+    expect(leaks(JSON.stringify({ detail: inner.slice(0, -3) }))).toBe(false);
+    // The error code inside stays readable.
+    expect(
+      maskBody(
+        JSON.stringify({
+          detail: JSON.stringify({ error: { code: "E_ONE" } }),
+        }),
+      ),
+    ).toContain("E_ONE");
+  });
+
+  test("a form pair whose separators are all encoded", () => {
+    expect(leaks(`a%3D1%26password%3Dkeep%2526${S}`)).toBe(false);
+    expect(leaks(`password%3Dkeep%2526${S}`)).toBe(false);
+  });
+
+  test("plain fields of a parsed body stay readable", () => {
+    const out = maskBody(
+      JSON.stringify({
+        error: { code: "UNAUTHORIZED", message: "Bootstrap token is invalid" },
+        retryable: false,
+      }),
+    );
+    expect(out).toContain("Bootstrap token is invalid");
+    expect(out).toContain('"retryable":false');
+  });
+});
