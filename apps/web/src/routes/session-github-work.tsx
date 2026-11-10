@@ -219,11 +219,16 @@ function Decision({
         queryKey: queryKeysOf(client).sessionGithubWork(sessionId),
       }),
   });
+  // Like Slack's reject-only card: a push that cannot be approved can still be rejected.
+  const unapprovable =
+    request.approvability?.approvable === false
+      ? request.approvability.reason
+      : null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button
         size="sm"
-        disabled={decide.isPending}
+        disabled={decide.isPending || unapprovable !== null}
         onClick={() => decide.mutate("approve")}
       >
         {t("session.github.approve")}
@@ -237,6 +242,11 @@ function Decision({
         {t("session.github.reject")}
       </Button>
       <Code title={request.git_commit}>{request.git_commit.slice(0, 7)}</Code>
+      {unapprovable === null ? null : (
+        <Text as="span" variant="meta">
+          {t(unapprovable.key)}
+        </Text>
+      )}
       {decide.error ? (
         <Text as="span" variant="meta" role="alert">
           {t(decisionErrorKey(decide.error.code))}

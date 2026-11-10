@@ -28,6 +28,7 @@ import type {
 } from "./approval-card.tsx";
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { ToolSummary } from "./tool-summary.tsx";
 
 export interface ApprovalRowMessages extends ApprovalCardMessages {
   /**
@@ -187,6 +188,7 @@ export function ApprovalRow({
                 {notice}
               </span>
             </div>
+            <ToolSummary summary={request.summary} verb={messages.summary} />
             {/* The input opens below the whole line, so the summary stays put. */}
             {inputToggle}
           </div>
@@ -215,6 +217,7 @@ export function ApprovalRow({
                 {notice}
               </span>
             </div>
+            <ToolSummary summary={request.summary} verb={messages.summary} />
             {/* Its own line: after a dot it wrapped alone on a narrow line. */}
             {inputToggle}
           </div>

@@ -494,6 +494,7 @@ export function PendingAnswers({
                   error={errorFor(request)}
                   messages={{
                     title: (tool) => t("session.pending.permission", { tool }),
+                    summary: (verb) => t(verb.key, verb.params),
                     input: t("session.answer.input"),
                     expires,
                     expired: t("session.pending.expired"),

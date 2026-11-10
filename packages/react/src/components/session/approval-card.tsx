@@ -1,4 +1,4 @@
-import type { PendingRequest } from "@werft-ai/contracts";
+import type { PendingRequest, ToolVerbMessage } from "@werft-ai/contracts";
 import {
   Button,
   CodeBlock,
@@ -24,11 +24,14 @@ import {
 
 import { Busy } from "./busy.tsx";
 import { useExpired, useExpiryFocus } from "./expiry.ts";
+import { ToolSummary } from "./tool-summary.tsx";
 
 export type PermissionRequest = Extract<PendingRequest, { kind: "permission" }>;
 
 export interface ApprovalCardMessages {
   readonly title: (tool: string) => string;
+  /** Words the verb of the request's `summary`; without it no summary shows. */
+  readonly summary?: ((verb: ToolVerbMessage) => string) | undefined;
   /** Names the folded view of the tool input. */
   readonly input: string;
   /** Takes the formatted expiry time. */
@@ -164,6 +167,7 @@ export function ApprovalCard({
           </Text>
         </span>
       </div>
+      <ToolSummary summary={request.summary} verb={messages.summary} />
       {/* Full width on its own line, so an opened input never shares a row with the buttons. */}
       <details className="min-w-0">
         <summary className="cursor-pointer rounded-control py-1 text-muted-foreground text-caption">
