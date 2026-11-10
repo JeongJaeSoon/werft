@@ -21,6 +21,11 @@ import type {
 } from "../ports/slack-outbox-store.ts";
 import { pushApprovability } from "../sessions/push-approvability.ts";
 import type { PushSource } from "../sessions/push-request-service.ts";
+import type {
+  DeliveryInput,
+  DeliveryOutcome,
+} from "../surface/ports/delivery.ts";
+import type { RowDelivery } from "./outbox-delivery.ts";
 import {
   SlackApiError,
   type SlackBotApi,
@@ -38,10 +43,7 @@ import {
   slackSettledCard,
   slackSettledResult,
 } from "./slack-prompts.ts";
-import {
-  classifySlackSendResult,
-  SLACK_SEND_MAX_ATTEMPTS,
-} from "./slack-send-result.ts";
+import { classifySlackSendResult } from "./slack-send-result.ts";
 import {
   reconcileSlackThreadStatuses,
   writeSlackThreadStatuses,
@@ -318,7 +320,7 @@ export function createOutboxSlackNoticeSink(
   };
 }
 
-function sessionUrl(consoleOrigin: string | null, sessionId: string) {
+export function sessionUrl(consoleOrigin: string | null, sessionId: string) {
   return consoleOrigin === null
     ? undefined
     : new URL(`/sessions/${sessionId}`, consoleOrigin).toString();
@@ -411,6 +413,26 @@ export async function enqueueSlackPrompts(deps: {
     });
   }
   return pending.length;
+}
+
+/** The row settle a delivery ends in; `lease_lost` settles nothing. */
+function settleOf(
+  outcome: Exclude<DeliveryOutcome, { kind: "lease_lost" }>,
+): SlackOutboxSettle {
+  switch (outcome.kind) {
+    case "sent":
+      return { status: "sent", slackTs: outcome.ref };
+    case "retry":
+      return {
+        status: "pending",
+        errorCode: outcome.code,
+        retryInMs: outcome.retryAfterMs,
+      };
+    case "failed":
+      return { status: "failed", errorCode: outcome.code };
+    case "uncertain":
+      return { status: "uncertain", errorCode: outcome.code };
+  }
 }
 
 export type SlackOutboxDrain = {
@@ -852,6 +874,8 @@ export async function drainSlackOutbox(deps: {
   botToken:
     | ((workspaceId: string, slackAppId: string) => Promise<string | null>)
     | null;
+  /** How a claimed row reaches the channel; see `createRowDelivery`. */
+  delivery: RowDelivery;
   logger: SlackInboxLogger;
   consoleOrigin: string | null;
   batchSize: number;
@@ -895,65 +919,22 @@ export async function drainSlackOutbox(deps: {
       dedupeKey: `uncertain:${row.id}`,
     });
   };
-  // An instruction goes under its sender's name and profile image. An app
-  // installed before chat:write.customize may be refused the name; Slack
-  // posted nothing then, so it goes once more as the app.
-  // Read before beginSend, so a slow users.info spends no send lease.
-  const senderImage = (botToken: string, claim: SlackOutboxClaim) =>
-    claim.kind !== "instruction" ||
-    claim.body.sender?.slack_user_id === undefined
-      ? Promise.resolve(null)
-      : deps.slack
-          .userImage(botToken, claim.body.sender.slack_user_id)
-          .catch(() => null);
-  const postMessage = async (
-    botToken: string,
-    claim: SlackOutboxClaim,
-    text: string,
-    iconUrl: string | null,
-  ) => {
-    const target = {
-      channelId: claim.channelId,
-      threadTs: claim.threadTs,
-      text,
-    };
-    const presentation = slackOutboxPresentation(claim);
-    if (presentation.kind !== "instruction") {
-      if (presentation.kind === "text") {
-        return deps.slack.postMessage(botToken, target);
-      }
-      const response = await deps.slack.postMessage(botToken, {
-        ...target,
-        blocks: presentation.blocks,
-      });
-      if (!presentation.fallback) return response;
-      // Slack posted nothing when it refused the blocks (an app or workspace
-      // without table support); the same reply goes once more as plain text.
-      const error =
-        typeof response.body === "object" && response.body !== null
-          ? (response.body as { error?: unknown }).error
-          : undefined;
-      return error === "invalid_blocks" || error === "msg_blocks_too_long"
-        ? deps.slack.postMessage(botToken, target)
-        : response;
+  // The notice kinds go through Notifiable, a decision request through
+  // Approvable; the rest the sender posts itself.
+  const deliver = (input: DeliveryInput) => {
+    switch (input.row.kind) {
+      case "notice":
+      case "failure_notice":
+      case "action_notice":
+      case "model_notice":
+        return deps.delivery.notifiable.notify(input);
+      case "input_notice":
+        return deps.delivery.approvable.requestDecision(input);
+      case "instruction":
+      case "reply":
+      case "welcome":
+        return deps.delivery.direct(input);
     }
-    const { sender } = presentation;
-    const response = await deps.slack.postMessage(botToken, {
-      ...target,
-      username: sender.username,
-      ...(iconUrl === null ? {} : { iconUrl }),
-    });
-    const refused =
-      typeof response.body === "object" &&
-      response.body !== null &&
-      (response.body as { error?: unknown }).error === "missing_scope";
-    if (!refused) return response;
-    // Posted as the app, the sender's name moves into the text; a row queued
-    // before the name left the text has it there already.
-    return deps.slack.postMessage(botToken, {
-      ...target,
-      text: slackInstructionFallbackText(claim.body, text, sender.username),
-    });
   };
   for (const lost of await deps.outbox.expireSending()) {
     drain.uncertain += 1;
@@ -1089,67 +1070,18 @@ export async function drainSlackOutbox(deps: {
         return true;
       };
 
-      let botToken: string | null;
-      try {
-        botToken = await deps.botToken(claim.workspaceId, claim.slackAppId);
-      } catch {
-        botToken = null;
-      }
-      if (botToken === null) {
-        await settle(
-          claim.attempts >= SLACK_SEND_MAX_ATTEMPTS
-            ? { status: "failed", errorCode: "no_bot_token" }
-            : {
-                status: "pending",
-                errorCode: "no_bot_token",
-                retryInMs: slackInboundBackoffMs(claim.attempts),
-              },
-        );
-        continue;
-      }
-      const iconUrl = await senderImage(botToken, claim);
-      if (!(await deps.outbox.beginSend(claim))) {
+      const outcome = await deliver({
+        row: claim,
+        attempts: claim.attempts,
+        begin: async () => deps.outbox.beginSend(claim),
+      });
+      if (outcome.kind === "lease_lost") {
         drain.lost += 1;
         deps.logger.warn("Slack outbox lease lost before send", ids);
         continue;
       }
-
-      // A card's text is slackCardText's, escaped and linked already.
-      // A model notice is a direct message with no thread: it opens the
-      // session instead.
-      const modelLink =
-        claim.kind === "model_notice" && claim.sessionId !== null
-          ? sessionUrl(deps.consoleOrigin, claim.sessionId)
-          : undefined;
-      const text =
-        claim.kind === "input_notice" && claim.body.blocks !== undefined
-          ? claim.body.text
-          : slackOutboxText(
-              modelLink === undefined
-                ? claim.body
-                : { ...claim.body, link_url: modelLink },
-            );
-      let outcome: SlackOutboxSettle;
-      try {
-        const response =
-          claim.kind === "notice" && claim.slackUserId !== null
-            ? await deps.slack.postEphemeral(botToken, {
-                channelId: claim.channelId,
-                userId: claim.slackUserId,
-                threadTs: claim.threadTs,
-                text,
-              })
-            : await postMessage(botToken, claim, text, iconUrl);
-        outcome = slackOutboxSettleFor(claim.attempts, response);
-      } catch (error) {
-        // No answer came: the request may have reached Slack.
-        outcome = {
-          status: "uncertain",
-          errorCode: error instanceof SlackApiError ? error.code : "send_threw",
-        };
-      }
-      const settled = await settle(outcome);
-      if (settled && outcome.status === "uncertain") {
+      const settled = await settle(settleOf(outcome));
+      if (settled && outcome.kind === "uncertain") {
         await noticeUncertain(claim);
       }
     }
