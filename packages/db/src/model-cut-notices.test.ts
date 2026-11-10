@@ -245,8 +245,8 @@ describe("enqueueModelCutNotices", () => {
       rows.find((row) => row.channelId === who.slackUserId)?.body.text;
     expect(textOf(creator)).toStartWith("The session stopped.");
     expect(textOf(direct)).toStartWith("セッションが止まりました。");
-    // No locale on the account reads Korean.
-    expect(textOf(lead)).toStartWith("세션이 멈췄어요.");
+    // No locale on the account reads English.
+    expect(textOf(lead)).toStartWith("The session stopped.");
   });
 
   test("a second cut of the session, or a later administrator, adds nothing for the told", async () => {

@@ -438,8 +438,11 @@ describe("app shell", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "다시 시도" }));
     expect(await screen.findByRole("heading", { name: "홈" })).toBeDefined();
+    // Only the reads: a console opening in ko with no saved language also saves ko.
     expect(
-      api.calls.filter((call) => call.path === "/v1/auth/me"),
+      api.calls.filter(
+        (call) => call.method === "GET" && call.path === "/v1/auth/me",
+      ),
     ).toHaveLength(2);
   });
 

@@ -105,7 +105,7 @@ const COPY: Record<UserLocale, Copy> = {
 };
 
 /**
- * The notice's words in the reader's language (Korean when unknown). The
+ * The notice's words in the reader's language (English when unknown). The
  * link goes in the row's `link_url`, which the outbox labels itself.
  */
 export function actionNoticeText(
