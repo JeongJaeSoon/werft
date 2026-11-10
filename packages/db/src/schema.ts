@@ -1548,6 +1548,8 @@ export const turns = pgTable(
     channel: text().$type<SurfaceKind>(),
     /** The Slack message the input came from; null off Slack and before 0193. */
     slackMessage: jsonb("slack_message").$type<SlackMessageRef>(),
+    /** W3C traceparent of the API request span that queued the turn; null before 0263 or when the request was untraced. */
+    traceContext: text("trace_context"),
   },
   (table) => [
     uniqueIndex("turns_session_sequence_uniq").on(
