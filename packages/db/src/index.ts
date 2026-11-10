@@ -54,6 +54,7 @@ export * from "./pause-control.ts";
 export * from "./pending-control.ts";
 export * from "./pending-requests.ts";
 export * from "./postgres-unit-of-work.ts";
+export * from "./profile-freeze.ts";
 export * from "./profile-migration.ts";
 export * from "./profile-restriction-migration.ts";
 export * from "./profile-rollouts.ts";

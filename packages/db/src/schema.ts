@@ -3674,6 +3674,59 @@ export const engineSettingsGate = pgTable(
   (table) => [check("engine_settings_gate_single", sql`${table.id} = 1`)],
 );
 
+// The one row that decides whether profile tables may still change and whether
+// the profile read path may be switched off. States: open (writes allowed or
+// frozen for a reconcile) -> certified (the reconcile passed; profile tables
+// stay frozen) -> cleanup_started -> finalized. Past `certified` nothing moves
+// back, which a trigger enforces (the migration), not the code. A writer holds
+// the row FOR SHARE for its transaction; the freezer takes it FOR UPDATE.
+export const profileFreeze = pgTable(
+  "profile_freeze",
+  {
+    id: integer().primaryKey().default(1),
+    writesFrozen: boolean("writes_frozen").notNull().default(false),
+    /** Bumped on every freeze and unfreeze, so a pass for one window never counts for the next. */
+    reconcileGeneration: bigint("reconcile_generation", { mode: "number" })
+      .notNull()
+      .default(0),
+    /** Equals reconcileGeneration only while a reconcile of that window passed. */
+    certifiedGeneration: bigint("certified_generation", { mode: "number" }),
+    phase: text().notNull().default("open"),
+    cleanupStartedAt: timestamp("cleanup_started_at", { withTimezone: true }),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** No foreign key: the row outlives the account. */
+    changedBy: uuid("changed_by"),
+    /** Names the operator report this state came from. */
+    receipt: text(),
+  },
+  (table) => [
+    check("profile_freeze_single", sql`${table.id} = 1`),
+    check(
+      "profile_freeze_phase_check",
+      sql`${table.phase} IN ('open', 'certified', 'cleanup_started', 'finalized')`,
+    ),
+    check(
+      "profile_freeze_generation_check",
+      sql`${table.reconcileGeneration} >= 0
+        AND (${table.certifiedGeneration} IS NULL OR ${table.certifiedGeneration} = ${table.reconcileGeneration})`,
+    ),
+    // certified and later phases are frozen and carry the pass they rest on.
+    check(
+      "profile_freeze_phase_state_check",
+      sql`(${table.phase} = 'open' AND ${table.certifiedGeneration} IS NULL)
+        OR (${table.phase} <> 'open' AND ${table.writesFrozen} AND ${table.certifiedGeneration} IS NOT NULL)`,
+    ),
+    check(
+      "profile_freeze_marks_check",
+      sql`(${table.cleanupStartedAt} IS NOT NULL) = (${table.phase} IN ('cleanup_started', 'finalized'))
+        AND (${table.finalizedAt} IS NOT NULL) = (${table.phase} = 'finalized')`,
+    ),
+  ],
+);
+
 // How an agent's pull request bodies differ from the workspace's. Apart from
 // `agent_github_settings`: a row there makes the agent's sessions follow it
 // instead of their release, and saving a template must not do that. No row:
