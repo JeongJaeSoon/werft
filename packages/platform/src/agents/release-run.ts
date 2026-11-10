@@ -1,6 +1,7 @@
 import {
   type PermissionMode,
   RUNTIME_KINDS_WITH_AUTO_MODE,
+  RUNTIME_SUBAGENT_TOOL,
   type RuntimeKind,
 } from "@werft-ai/contracts";
 import {
@@ -25,7 +26,7 @@ export type ReleaseRunRefusal = {
 /**
  * What a release on `connectionId` runs apart from its card. The runtime is
  * the one the connection's kind runs on, at the version the image ships; its
- * tools are that runtime's whole built-in catalog, which the workspace's and
+ * tools are that runtime's whole built-in catalog and its subagent tool, which the workspace's and
  * the agent's rules then narrow. The engine runs `auto` where an operator
  * judged that its classifier works over the connection, and `default` (a
  * person answers what the rules leave open) everywhere else.
@@ -74,9 +75,20 @@ export function releaseRunOf(
       connection_id: connectionId,
       connection,
       runtime: { kind, version },
-      tools: tools.tools.map((tool) => tool.name),
+      tools: withSubagentTool(
+        kind,
+        tools.tools.map((tool) => tool.name),
+      ),
       permission_mode,
       project_settings: { claude_md: true },
     },
   };
+}
+
+/** The catalog's tools and, where the runtime has one, its subagent tool. */
+function withSubagentTool(kind: RuntimeKind, tools: string[]): string[] {
+  const subagent = RUNTIME_SUBAGENT_TOOL[kind];
+  return subagent === undefined || tools.includes(subagent)
+    ? tools
+    : [...tools, subagent];
 }

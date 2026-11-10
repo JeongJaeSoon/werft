@@ -31,3 +31,13 @@ export const RUNTIME_KIND_OF_PROVIDER = {
 export const RUNTIME_KINDS_WITH_AUTO_MODE: readonly RuntimeKind[] = [
   claudeRuntime,
 ];
+
+/**
+ * The tool each runtime starts a subagent with. It is not in the built-in
+ * tool catalog (a subagent cannot be checked from inside a subagent), so a
+ * release adds it to the catalog's tools: subagents run on the release's own
+ * tools, and a workspace or agent deny rule on it turns them off.
+ */
+export const RUNTIME_SUBAGENT_TOOL: Partial<Record<RuntimeKind, string>> = {
+  [claudeRuntime]: "Agent",
+};

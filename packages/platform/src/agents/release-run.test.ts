@@ -18,7 +18,7 @@ const responses = testConnection({
 });
 
 describe("releaseRunOf", () => {
-  test("runs the connection kind's runtime at the image's version, with its whole tool catalog", () => {
+  test("runs the connection kind's runtime at the image's version, with its whole tool catalog and its subagent tool", () => {
     const found = releaseRunOf(
       testCatalog(),
       TEST_RUNTIMES,
@@ -28,7 +28,7 @@ describe("releaseRunOf", () => {
     expect(found.run).toMatchObject({
       connection_id: TEST_CONNECTION_ID,
       runtime: { kind: "claude_agent_sdk", version: "0.3.270" },
-      tools: ["Read", "Edit", "Bash"],
+      tools: ["Read", "Edit", "Bash", "Agent"],
       permission_mode: "default",
       project_settings: { claude_md: true },
     });

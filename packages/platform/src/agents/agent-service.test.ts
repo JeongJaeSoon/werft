@@ -314,7 +314,7 @@ describe("agent service", () => {
     const first = await service.createRelease(owner, AGENT, release);
     expect(first.created).toBe(true);
     expect(first.release.effective_tools).toEqual({
-      tools: ["Read", "Grep"],
+      tools: ["Read", "Grep", "Agent"],
       mcp: [],
     });
     // The path accepts an upper-case uuid; the hash is over the stored id.
@@ -379,7 +379,7 @@ describe("agent service", () => {
       connection: { id: "conn-1", kind: "litellm" },
       model: "claude-sonnet-5",
       permission_mode: "default",
-      tools: ["Read", "Grep"],
+      tools: ["Read", "Grep", "Agent"],
     });
     expect(stored.spec.spec_source).not.toHaveProperty("release_id");
   });
@@ -444,7 +444,7 @@ describe("agent service", () => {
     const { release: made } = await serviceOver(
       memoryStore(["Read", "WebFetch"]).store,
     ).createRelease(owner, AGENT, release);
-    expect(made.effective_tools.tools).toEqual(["Read", "Grep"]);
+    expect(made.effective_tools.tools).toEqual(["Read", "Grep", "Agent"]);
   });
 
   test("a card on a model the connection does not offer makes no release", async () => {
