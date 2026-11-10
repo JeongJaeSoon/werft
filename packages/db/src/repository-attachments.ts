@@ -206,7 +206,6 @@ export function createPostgresRepositoryAttachments(
       const [row] = await db
         .select({
           id: activeRelease.id,
-          profileId: activeRelease.runtimeProfileId,
           github: sql<unknown>`${activeRelease.policyPins} -> 'github'`,
           ...agentSettingsColumns,
         })
@@ -224,14 +223,14 @@ export function createPostgresRepositoryAttachments(
         .where(eq(sessions.id, rawSessionId.toLowerCase()))
         .limit(1);
       if (row === undefined) return null;
-      const { id, profileId } = row;
+      const { id } = row;
       // What a session started now would run on, so a repository the agent's
       // settings no longer list is not offered as "allowed in a newer release".
       const { settings } = newSessionGitHubPolicy(
         agentGitHubSettingsRowOf(row),
         row.github,
       );
-      return { id, profileId, github: settings };
+      return { id, github: settings };
     },
 
     async list(rawSessionId) {

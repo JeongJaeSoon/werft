@@ -29,8 +29,7 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
         return row?.id ?? null;
       }
       if (resource.kind === "session") {
-        // A session belongs to the agent of the release it was pinned to; one
-        // made from a profile alone belongs to none.
+        // A session belongs to the agent of the release it was pinned to.
         const [row] = await db
           .select({ agentId: agentReleases.agentId })
           .from(sessions)

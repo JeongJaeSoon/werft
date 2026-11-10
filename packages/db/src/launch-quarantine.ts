@@ -47,9 +47,9 @@ export function catalogMismatchCause(detail: string): LaunchGiveUpCause {
     code: "CATALOG_MISMATCH",
     terminalReason: "catalog_mismatch",
     receiptPrefix:
-      "the catalog no longer allows this session's profile and repository",
+      "the catalog no longer holds this session's connection, model or repository",
     resumePrefix:
-      "the catalog no longer allows this session's profile and repository, so no worker may restore it",
+      "the catalog no longer holds this session's connection, model or repository, so no worker may restore it",
     detail,
   };
 }

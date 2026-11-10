@@ -79,6 +79,7 @@ import {
   resolveReleaseContent,
 } from "./release-ids.ts";
 import { type InstalledRuntimes, releaseRunOf } from "./release-run.ts";
+import { buildSpecSource, releaseSpecRecord } from "./release-spec.ts";
 
 /**
  * The release a session pins, refused when its connection no longer runs its
@@ -295,6 +296,27 @@ export function createAgentService(deps: {
     return found.run;
   }
 
+  /** The spec a release of `identity` on `run`'s connection pins. */
+  function specOf(
+    id: string,
+    identity: Pick<AgentRelease, "connection_id" | "runtime_config_snapshot">,
+    run: ReleaseRun,
+  ) {
+    const built = buildSpecSource({
+      release: { id, ...identity },
+      connection: run.connection,
+    });
+    if (!built.ok) {
+      throw new SessionServiceError(
+        "UNSUPPORTED_CAPABILITY",
+        `The release's spec cannot be made: ${built.message}`,
+        undefined,
+        { reason_code: "spec_invalid" },
+      );
+    }
+    return releaseSpecRecord(built.source);
+  }
+
   function personOf(caller: Caller): string {
     const userId = caller.actor?.userId;
     if (!userId) {
@@ -479,6 +501,7 @@ export function createAgentService(deps: {
         ...(github === undefined ? {} : { github }),
       },
     };
+    const releaseId = deriveReleaseId(identity);
     const inserted = await store.insertRelease({
       principal: caller,
       workspaceId: caller.ownerId,
@@ -491,11 +514,12 @@ export function createAgentService(deps: {
       refuseGitHubWhenSettings: carry,
       reason: input.reason,
       release: {
-        id: deriveReleaseId(identity),
+        id: releaseId,
         version_id: version.id,
         created_by: userId,
         note: null,
         ...identity,
+        spec: specOf(releaseId, identity, run),
       },
     });
     switch (inserted.outcome) {
@@ -510,7 +534,7 @@ export function createAgentService(deps: {
       default:
         assertReleaseIdentity(inserted.release);
     }
-    const releaseId = inserted.release.id;
+    // The id it was inserted under, the one derived above.
     const missing = await credentials.unboundRefs(caller.ownerId, releaseId);
     if (missing.length > 0) return failed("credential_unbound");
     const activated = await store.activate({
@@ -1114,6 +1138,7 @@ export function createAgentService(deps: {
           created_by: userId,
           note: request.note ?? null,
           ...identity,
+          spec: specOf(deriveReleaseId(identity), identity, run),
         },
       });
       switch (result.outcome) {

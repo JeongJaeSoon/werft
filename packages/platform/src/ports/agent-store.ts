@@ -10,6 +10,7 @@ import type {
   ListAgentsResponse,
   WorkspaceRole,
 } from "@werft-ai/contracts";
+import type { ReleaseSpecRecord } from "../agents/release-spec.ts";
 import type { OutsideAgentAccess, Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 
@@ -29,7 +30,11 @@ export type NewAgentRelease = Omit<
   | "label"
   | "activated_at"
   | "deactivated_at"
-> & { created_by: string };
+> & {
+  created_by: string;
+  /** What its sessions run, stored beside it (agents/release-spec.ts). */
+  spec: ReleaseSpecRecord;
+};
 
 // Every write re-checks the acting person's membership under a share lock in
 // its own transaction; `actor_inactive` is an offboarding that won that race.

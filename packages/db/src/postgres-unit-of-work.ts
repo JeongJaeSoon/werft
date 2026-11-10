@@ -15,13 +15,16 @@ import {
   postSessionMessageResponseSchema,
   type Receipt,
   type ReceiptSessionTarget,
+  type RuntimeKind,
   readStoredEvent,
   receiptSchema,
   SESSION_STATUS_VALUES,
   type SessionExtension,
   type SessionStatus,
   type SlackMessageRef,
+  type SpecSource,
   SSE_SCHEMA_VERSION,
+  specSourceSchema,
   type SseEvent,
   type SurfaceKind,
   sseEventSchema,
@@ -147,7 +150,7 @@ import {
   sameChunks,
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
-import { pinRefusesLive } from "./session-pin-cutover.ts";
+import { pinRefusesLive } from "./session-spec-pin.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 import { newSessionPin } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
@@ -397,14 +400,13 @@ export function createPostgresSessionUnitOfWork(
                 branch: input.repository.branch,
               };
         const githubPolicyStart =
-          input.captureGitHubPolicyStart === true &&
-          input.agentReleaseId !== undefined
+          input.captureGitHubPolicyStart === true
             ? await captureGitHubPolicyStart(tx, input.agentReleaseId)
             : null;
-        const engineSettingsStart =
-          input.agentReleaseId === undefined
-            ? null
-            : await captureEngineSettingsStart(tx, input.agentReleaseId);
+        const engineSettingsStart = await captureEngineSettingsStart(
+          tx,
+          input.agentReleaseId,
+        );
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
@@ -420,18 +422,14 @@ export function createPostgresSessionUnitOfWork(
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
-          profileId: input.profileId,
-          profileFingerprint: input.profileFingerprint ?? null,
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
-          agentReleaseId: input.agentReleaseId ?? null,
-          ...(input.agentReleaseId === undefined
-            ? {}
-            : ((await newSessionPin(
-                tx,
-                input.agentReleaseId,
-                input.model ?? null,
-              )) ?? {})),
+          agentReleaseId: input.agentReleaseId,
+          ...((await newSessionPin(
+            tx,
+            input.agentReleaseId,
+            input.model ?? null,
+          )) ?? {}),
           platformPrompt: input.platformPrompt ?? null,
           permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
@@ -513,8 +511,6 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
-        if (input.profileBlocked) return { outcome: "profile_blocked" };
-
         const requester = await lockRequester(
           tx,
           input.principal,
@@ -598,7 +594,7 @@ export function createPostgresSessionUnitOfWork(
         // pin refuses unless the session has one on its own model.
         if (
           session.status === "failed" &&
-          (await pinRefusesLive(tx, session))
+          pinRefusesLive(session)
         ) {
           return { outcome: "pin_required" };
         }
@@ -832,6 +828,12 @@ type EventPageRow = {
   fetched: string;
 };
 
+/** A stored spec source as the read model shows it; null when it does not parse. */
+function specOf(stored: unknown): SpecSource | null {
+  const parsed = specSourceSchema.safeParse(stored);
+  return parsed.success ? parsed.data : null;
+}
+
 export function createPostgresSessionReader(
   db: Database,
   options: {
@@ -887,7 +889,7 @@ export function createPostgresSessionReader(
     const [row] = await db
       .select({
         id: sessions.id,
-        profileId: sessions.profileId,
+        runtimeKind: sql<RuntimeKind | null>`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         retiredCheckpointRevision: sessions.contextResetCheckpointRevision,
       })
       .from(sessions)
@@ -1087,8 +1089,7 @@ export function createPostgresSessionReader(
         admission_state: row.admissionState,
         status: publicStatus(row.status, awaitingInput),
         input_wait: summaryWait(inputWaits.get(row.id) ?? null),
-        profile_id: row.profileId,
-        profile_fingerprint: row.profileFingerprint,
+        spec: specOf(row.specSource),
         model: row.model,
         repository_id: row.repositoryId,
         repository: sessionRepositoryOf(row),
@@ -1431,7 +1432,7 @@ export function createPostgresSessionReader(
             branch: row.branch,
             repository_mode: row.repositoryMode,
             github_policy_source: row.githubPolicySource,
-            profile_fingerprint: row.profileFingerprint,
+            spec: specOf(row.specSource),
             durability: projectDurability({
               checkpointCommittedAt: row.checkpointCommittedAt,
               checkpointFallbackRevision: row.checkpointFallbackRevision,
@@ -1527,7 +1528,6 @@ export function createPostgresSessionReader(
           execution_generation: attempt.executionGeneration,
           started_at: attempt.startedAt.toISOString(),
           ended_at: attempt.endedAt?.toISOString() ?? null,
-          profile_id: attempt.profileId,
         })),
       };
     },
@@ -1608,7 +1608,7 @@ export function createPostgresSessionReader(
         const stored = readStoredEvent(row.type, row.payload);
         const payload =
           stored.readable && row.bare && options.neutralize
-            ? options.neutralize(owned.profileId, stored.payload)
+            ? options.neutralize(owned.runtimeKind, stored.payload)
             : stored.payload;
         if (payload !== stored.payload) {
           filledBytes +=

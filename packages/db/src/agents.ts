@@ -7,7 +7,6 @@ import {
   agentReleaseSchema,
   behaviorKey,
   type ListAgentsResponse,
-  type ModelSource,
   type ReceiptOperation,
   storedAgentCardSchema,
   type WorkspaceRole,
@@ -54,12 +53,6 @@ import {
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
 import { enqueueModelMoveNotices } from "./model-move-notices.ts";
-import {
-  isNewestProfile,
-  openRolloutStep,
-  resolveFailedItems,
-  runsLineageOf,
-} from "./profile-rollouts.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
@@ -72,7 +65,6 @@ import {
   memberTeams,
   receipts,
 } from "./schema.ts";
-import { recordToolUnlockItem } from "./tool-unlock.ts";
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -214,9 +206,8 @@ function releaseOf(
     agent_id: row.agentId,
     version_id: row.versionId,
     card_sha256: row.cardSha256,
-    runtime_profile_id: row.runtimeProfileId,
+    connection_id: row.connectionId,
     repository_id: row.repositoryId,
-    profile_digest: row.profileDigest,
     runtime_config_snapshot: row.runtimeConfigSnapshot,
     effective_tools: row.effectiveTools,
     policy_pins: row.policyPins,
@@ -256,18 +247,12 @@ async function detailOf(
     active_release:
       releases.find((release) => release.id === agent.activeReleaseId) ?? null,
     behavior_revision: agent.behaviorRevision,
-    model_source: agent.modelSource as ModelSource,
-    profile_tracking: agent.profileTracking === "pinned" ? "pinned" : "follow",
-    profile_rollout: await openRolloutStep(db, agent.id, agent.activeReleaseId),
     draft:
-      agent.draftVersionId === null ||
-      agent.draftProfileId === null ||
-      agent.draftModelSource === null
+      agent.draftVersionId === null || agent.draftConnectionId === null
         ? null
         : {
             version_id: agent.draftVersionId,
-            runtime_profile_id: agent.draftProfileId,
-            model_source: agent.draftModelSource as ModelSource,
+            connection_id: agent.draftConnectionId,
             failure: agent.draftFailure,
           },
   };
@@ -275,7 +260,7 @@ async function detailOf(
 
 /**
  * What the active release runs, as `behaviorKey` reads it: the card of its
- * version with the model its snapshot pins, on its profile.
+ * version with the model its snapshot pins, on its connection.
  */
 async function activeBehaviorKey(
   tx: Database,
@@ -284,7 +269,7 @@ async function activeBehaviorKey(
   if (releaseId === null) return null;
   const [row] = await tx
     .select({
-      profileId: agentReleases.runtimeProfileId,
+      connectionId: agentReleases.connectionId,
       snapshot: agentReleases.runtimeConfigSnapshot,
       card: agentVersions.card,
     })
@@ -298,7 +283,7 @@ async function activeBehaviorKey(
   return behaviorKey(
     storedAgentCardSchema.parse(row.card),
     model,
-    row.profileId,
+    row.connectionId,
   );
 }
 
@@ -356,8 +341,6 @@ async function lockAgent(tx: Database, workspaceId: string, agentId: string) {
       activeReleaseId: agents.activeReleaseId,
       activationRevision: agents.activationRevision,
       behaviorRevision: agents.behaviorRevision,
-      modelSource: agents.modelSource,
-      profileTracking: agents.profileTracking,
       draftVersionId: agents.draftVersionId,
       autoModelMigration: agents.autoModelMigration,
     })
@@ -447,10 +430,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   agents.id,
                   query.ids.map((id) => id.toLowerCase()),
                 ),
-            // The release's profile is a setting: filtering on it keeps only
-            // the agents whose settings the reader reads, so the rows never
-            // tell anyone else which profile an agent runs.
-            query.runtime_profile_id === undefined
+            // The release's connection is a setting: filtering on it keeps
+            // only the agents whose settings the reader reads, so the rows
+            // never tell anyone else which connection an agent runs on.
+            query.connection_id === undefined
               ? undefined
               : and(
                   insideAgent(
@@ -459,7 +442,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                     reader.userId.toLowerCase(),
                     agents.id,
                   ),
-                  sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
+                  sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.connectionId} = ${query.connection_id})`,
                 ),
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
@@ -731,7 +714,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               behaviorKey(
                 input.card.card,
                 input.card.card.model,
-                behavior.runtimeProfileId,
+                behavior.connectionId,
               );
             // Every intent to change behavior takes a revision, a repeat of
             // what runs included: it is what retires a save still in flight.
@@ -742,16 +725,13 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                 updatedAt: DB_NOW,
                 ...(same
                   ? {
-                      modelSource: behavior.modelSource,
                       draftVersionId: null,
-                      draftProfileId: null,
-                      draftModelSource: null,
+                      draftConnectionId: null,
                       draftFailure: null,
                     }
                   : {
                       draftVersionId: stored.id,
-                      draftProfileId: behavior.runtimeProfileId,
-                      draftModelSource: behavior.modelSource,
+                      draftConnectionId: behavior.connectionId,
                       draftFailure: null,
                     }),
               })
@@ -798,25 +778,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       return failed.length > 0;
     },
 
-    followProfile(input) {
-      return db.transaction(async (tx) => {
-        const locked = await lockAgentToChange(tx, input, input.agentId);
-        if ("outcome" in locked) return locked;
-        // The judgment that the agent already runs the newest version was
-        // made on this revision; a revert since then must not be undone.
-        if (
-          locked.agent.activationRevision !== input.expectedActivationRevision
-        )
-          return { outcome: "superseded" as const };
-        await tx
-          .update(agents)
-          .set({ profileTracking: "follow", updatedAt: DB_NOW })
-          .where(eq(agents.id, locked.agent.id));
-        await resolveFailedItems(tx, locked.agent.id);
-        return { outcome: "updated" as const };
-      });
-    },
-
     async hasGitHubSettings(agentId) {
       const [row] = await db
         .select({ agentId: agentGitHubSettings.agentId })
@@ -831,7 +792,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .select({
           workspaceId: agents.workspaceId,
           agentId: agents.id,
-          profileId: agentReleases.runtimeProfileId,
+          connectionId: agentReleases.connectionId,
           model: sql<string>`${agentReleases.runtimeConfigSnapshot} ->> 'model'`,
         })
         .from(agents)
@@ -947,14 +908,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             agentId: release.agent_id,
             versionId: release.version_id,
             cardSha256: release.card_sha256,
-            runtimeProfileId: release.runtime_profile_id,
+            connectionId: release.connection_id,
             repositoryId: release.repository_id,
-            profileDigest: release.profile_digest,
             runtimeConfigSnapshot: release.runtime_config_snapshot,
             effectiveTools: release.effective_tools,
             policyPins: release.policy_pins,
             createdBy: release.created_by,
             note: release.note,
+            runtimeSpec: release.spec.runtime_spec,
+            specSource: release.spec.spec_source,
+            specSourceDigest: release.spec.spec_source_digest,
+            specDigest: release.spec.spec_digest,
             createdAt: sql`clock_timestamp()`,
           })
           .onConflictDoNothing({ target: agentReleases.id })
@@ -1011,38 +975,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         ) {
           return { outcome: "superseded" };
         }
-        // A rollout is judged again on what the lock now shows, whatever the
-        // process that asked had read.
-        if (
-          (intent?.kind === "rollout" || intent?.kind === "raise") &&
-          ((intent.kind === "rollout" && agent.profileTracking !== "follow") ||
-            agent.behaviorRevision !== intent.behaviorRevision ||
-            !(await isNewestProfile(tx, intent.targetProfileId)) ||
-            !(await runsLineageOf(tx, input.agentId, intent.targetProfileId)))
-        ) {
-          return { outcome: "superseded" };
-        }
-        if (
-          intent?.kind === "migrate" &&
-          agent.activeReleaseId !== input.releaseId &&
-          (agent.activeReleaseId !== intent.expected.activeReleaseId ||
-            agent.activationRevision !== intent.expected.activationRevision ||
-            agent.behaviorRevision !== intent.expected.behaviorRevision ||
-            agent.profileTracking !== intent.expected.tracking ||
-            agent.modelSource !== intent.expected.modelSource)
-        ) {
-          return { outcome: "superseded" };
-        }
-        // The plan was read on these values; anything since is a person's.
-        if (
-          intent?.kind === "tool_unlock" &&
-          agent.activeReleaseId !== input.releaseId &&
-          (agent.activeReleaseId !== intent.expected.activeReleaseId ||
-            agent.activationRevision !== intent.expected.activationRevision ||
-            agent.behaviorRevision !== intent.expected.behaviorRevision)
-        ) {
-          return { outcome: "superseded" };
-        }
         if (
           intent?.kind === "model_migration" &&
           agent.activeReleaseId !== input.releaseId &&
@@ -1054,51 +986,26 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           return { outcome: "superseded" };
         }
         const intentColumns =
-          intent?.kind === "migrate"
-            ? { profileTracking: intent.tracking }
-            : intent?.kind === "save"
-              ? {
-                  modelSource: intent.modelSource,
-                  draftVersionId: null,
-                  draftProfileId: null,
-                  draftModelSource: null,
-                  draftFailure: null,
-                }
-              : intent?.kind === "raise"
-                ? { profileTracking: "follow" }
-                : intent?.kind === "direct"
-                  ? {
-                      behaviorRevision: sql`${agents.behaviorRevision} + 1`,
-                      modelSource: intent.releaseRunsProfileDefault
-                        ? sql`${agents.modelSource}`
-                        : "fixed",
-                      ...(intent.pinsProfile === true
-                        ? { profileTracking: "pinned" }
-                        : {}),
-                    }
-                  : {};
+          intent?.kind === "save"
+            ? {
+                draftVersionId: null,
+                draftConnectionId: null,
+                draftFailure: null,
+              }
+            : intent?.kind === "direct"
+              ? { behaviorRevision: sql`${agents.behaviorRevision} + 1` }
+              : {};
         // expected + 1: a retry of a request whose first attempt already swapped.
         if (
           agent.activeReleaseId === input.releaseId &&
           (current === input.expectedRevision ||
             current === input.expectedRevision + 1)
         ) {
-          // A migrate retry writes nothing: a person may have changed the
-          // agent since the first attempt, and that change is theirs.
-          if (intent !== undefined && intent.kind !== "migrate") {
+          if (intent !== undefined) {
             await tx
               .update(agents)
               .set({ ...intentColumns, updatedAt: DB_NOW })
               .where(eq(agents.id, agent.id));
-          }
-          if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
-          if (intent?.kind === "tool_unlock" && intent.rolloutId !== null) {
-            await recordToolUnlockItem(tx, {
-              rolloutId: intent.rolloutId,
-              agentId: agent.id,
-              generation: intent.expected.activationRevision,
-              result: { status: "applied" },
-            });
           }
           return {
             outcome: "unchanged",
@@ -1137,17 +1044,6 @@ export function createPostgresAgentStore(db: Database): AgentStore {
               sql`${agentReleases.approvedBy} IS NULL`,
             ),
           );
-        if (intent?.kind === "raise") await resolveFailedItems(tx, agent.id);
-        // With the swap, so a crash between the two cannot leave a done
-        // agent without its item.
-        if (intent?.kind === "tool_unlock" && intent.rolloutId !== null) {
-          await recordToolUnlockItem(tx, {
-            rolloutId: intent.rolloutId,
-            agentId: agent.id,
-            generation: intent.expected.activationRevision,
-            result: { status: "applied" },
-          });
-        }
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "activate_agent",
           workspaceId: input.workspaceId,
@@ -1157,36 +1053,12 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             previous_release_id: agent.activeReleaseId,
             activation_revision: swapped.revision,
             reason: input.reason ?? null,
-            ...(intent?.kind === "migrate"
-              ? {
-                  migration: {
-                    id: intent.migrationId,
-                    revert: intent.revert === true,
-                    tracking_before: agent.profileTracking,
-                    tracking_after: intent.tracking,
-                    behavior_revision: agent.behaviorRevision,
-                    model_source: agent.modelSource,
-                  },
-                }
-              : {}),
             ...(intent?.kind === "model_migration"
               ? {
                   model_migration: {
                     from: intent.from,
                     to: intent.to,
                     automatic: true,
-                  },
-                }
-              : {}),
-            ...(intent?.kind === "tool_unlock"
-              ? {
-                  tool_unlock: {
-                    rollout_id: intent.rolloutId,
-                    tools_before: intent.tools.before,
-                    tools_after: intent.tools.after,
-                    unlocked: intent.tools.after.filter(
-                      (tool) => !intent.tools.before.includes(tool),
-                    ),
                   },
                 }
               : {}),

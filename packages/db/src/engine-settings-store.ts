@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  adminDenySchema,
   type StoredEngineSettings,
   storedEngineSettingsSchema,
 } from "@werft-ai/contracts";
@@ -17,7 +16,6 @@ import type { Database } from "./queries.ts";
 import {
   agentEngineSettings,
   agents,
-  engineSettingsGate,
   receipts,
   workspaceEngineSettings,
   workspaces,
@@ -85,33 +83,10 @@ const savedOf = (row: {
   revision: row.revision,
 });
 
-/**
- * The gate under a share lock for the whole transaction: closing it takes the
- * row exclusively, so a save that is running finishes before the gate shuts.
- * A missing row reads as closed.
- */
-async function writesOpenLocked(tx: Database): Promise<boolean> {
-  const [gate] = await tx
-    .select({ writesOpen: engineSettingsGate.writesOpen })
-    .from(engineSettingsGate)
-    .where(eq(engineSettingsGate.id, 1))
-    .for("share");
-  return gate?.writesOpen === true;
-}
-
 export function createPostgresEngineSettingsStore(
   db: Database,
 ): EngineSettingsStore {
   return {
-    async writesOpen() {
-      const [gate] = await db
-        .select({ writesOpen: engineSettingsGate.writesOpen })
-        .from(engineSettingsGate)
-        .where(eq(engineSettingsGate.id, 1))
-        .limit(1);
-      return gate?.writesOpen === true;
-    },
-
     async workspace(workspaceId) {
       const [row] = await db
         .select()
@@ -142,31 +117,13 @@ export function createPostgresEngineSettingsStore(
           .where(and(eq(agents.id, id), eq(agents.workspaceId, workspaceId)))
           .limit(1);
         if (exists === undefined) return null;
-        return {
-          settings: NO_RULES,
-          revision: null,
-          inherited: { entries: 0, rules: 0 },
-        };
+        return { settings: NO_RULES, revision: null };
       }
-      const entries = adminDenySchema.parse(row.adminDeny);
-      return {
-        ...savedOf(row),
-        inherited: {
-          entries: entries.length,
-          rules: entries.reduce(
-            (sum, entry) =>
-              sum + entry.permissions_deny.length + entry.mcp_deny.length,
-            0,
-          ),
-        },
-      };
+      return savedOf(row);
     },
 
     putWorkspace(input) {
       return db.transaction(async (tx) => {
-        if (!(await writesOpenLocked(tx))) {
-          return { outcome: "writes_closed" as const };
-        }
         if (!(await lockManager(tx, input.workspaceId, input.userId))) {
           return { outcome: "actor_inactive" as const };
         }
@@ -224,9 +181,6 @@ export function createPostgresEngineSettingsStore(
 
     putAgent(input) {
       return db.transaction(async (tx) => {
-        if (!(await writesOpenLocked(tx))) {
-          return { outcome: "writes_closed" as const };
-        }
         const agentId = input.agentId.toLowerCase();
         // Account, membership, agent, then the right to manage it: the order a
         // session start and the MCP save take.
@@ -256,8 +210,6 @@ export function createPostgresEngineSettingsStore(
                 .returning({ revision: agentEngineSettings.revision });
               return inserted?.revision ?? null;
             }
-            // Only the rule columns: the inherited restrictions in
-            // `admin_deny` are an operator's and stay as they are.
             const [updated] = await tx
               .update(agentEngineSettings)
               .set({

@@ -5,7 +5,7 @@ import {
 } from "@werft-ai/contracts";
 import { eq } from "drizzle-orm";
 import type { Database } from "./queries.ts";
-import { engineSettingsGate, workspaceEngineSettings } from "./schema.ts";
+import { workspaceEngineSettings } from "./schema.ts";
 
 export type WorkspaceEngineSettingsView = StoredEngineSettings & {
   readonly revision: number;
@@ -40,19 +40,4 @@ export async function workspaceEngineSettingsOf(
     );
   }
   return { ...checked.settings, revision: found.revision };
-}
-
-/**
- * Whether engine settings may be written. A missing row reads as closed: the
- * migration seeds it, and a database without it must not accept a rule.
- */
-export async function engineSettingsWritesOpen(
-  executor: Database,
-): Promise<boolean> {
-  const [gate] = await executor
-    .select({ writesOpen: engineSettingsGate.writesOpen })
-    .from(engineSettingsGate)
-    .where(eq(engineSettingsGate.id, 1))
-    .limit(1);
-  return gate?.writesOpen === true;
 }

@@ -9,6 +9,7 @@ import {
   credentialSourceOf,
   type ExistingSettings,
   type ExistingSettingsEntry,
+  modelFamiliesSchema,
   planSettingsImport,
   repositoryAuthKindOf,
   repositoryNameOf,
@@ -47,7 +48,6 @@ function repositoryEntryOf(row: RepositoryRow): unknown {
   return {
     url: row.url,
     branch: row.branch,
-    ...(row.profiles === null ? {} : { profiles: row.profiles }),
     ...(auth === null ? {} : { auth }),
   };
 }
@@ -157,6 +157,12 @@ async function insertRow(
         credentialSource: source ?? "external",
         origin,
         createdBy,
+        ...(add.models === undefined
+          ? {}
+          : {
+              models: [...add.models.models],
+              modelFamilies: add.models.model_families ?? null,
+            }),
       });
       return;
     case "repository": {
@@ -169,7 +175,6 @@ async function insertRow(
         name,
         url: add.entry.url,
         branch: add.entry.branch,
-        profiles: add.entry.profiles ? [...add.entry.profiles] : null,
         authKind,
         auth: own
           ? (add.entry.auth as Record<string, unknown> | undefined)
@@ -253,6 +258,7 @@ export function createPostgresSettingsDocumentStore(
           const last4 = await storedLast4(tx, await firstWorkspace(tx));
           const entries: SettingsEntries = {
             connections: {},
+            connection_models: {},
             repositories: {},
             mcp_servers: {},
           };
@@ -260,6 +266,13 @@ export function createPostgresSettingsDocumentStore(
             if (row.disabledAt !== null) continue;
             entries.connections[row.id] =
               row.definition as SettingsEntries["connections"][string];
+            const families = modelFamiliesSchema.safeParse(row.modelFamilies);
+            if (row.models.length > 0 || families.success) {
+              (entries.connection_models ??= {})[row.id] = {
+                models: [...row.models],
+                ...(families.success ? { model_families: families.data } : {}),
+              };
+            }
           }
           for (const row of await tx.select().from(catalogRepositories)) {
             if (row.removedAt !== null) continue;
@@ -325,15 +338,7 @@ export function createPostgresSettingsDocumentStore(
       }>(result);
     },
 
-    async connectionUse({ profileIds, connectionId }) {
-      // No profile to look for makes both counts zero without a query.
-      const among = (column: ReturnType<typeof sql.raw>) =>
-        profileIds.length === 0
-          ? sql`false`
-          : sql`${column} IN (${sql.join(
-              profileIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`;
+    async connectionUse({ connectionId }) {
       const result = await db.execute<{
         agents: string;
         sessions: string;
@@ -343,17 +348,11 @@ export function createPostgresSettingsDocumentStore(
           (SELECT count(*) FROM agents a
              JOIN agent_releases r
                ON r.agent_id = a.id AND r.id = a.active_release_id
-            WHERE a.status = 'active' AND ${among(sql.raw("r.runtime_profile_id"))}
+            WHERE a.status = 'active' AND r.connection_id = ${connectionId}
           ) AS agents,
-          -- A bound attempt runs the profile it claimed, so a session moved
-          -- onto another profile since is still counted under the old one.
           (SELECT count(*) FROM sessions s
             WHERE s.status NOT IN ('failed', 'stopped')
-              AND (${among(sql.raw("s.profile_id"))}
-                OR EXISTS (
-                  SELECT 1 FROM attempts t
-                   WHERE t.session_id = s.id AND t.ended_at IS NULL
-                     AND ${among(sql.raw("t.profile_id"))}))
+              AND s.runtime_spec -> 'connection' ->> 'id' = ${connectionId}
           ) AS sessions,
           EXISTS (
             SELECT 1 FROM workspaces w
@@ -583,6 +582,7 @@ function consoleWrites(
   | "setValue"
   | "convertConnection"
   | "setConnectionAutoMode"
+  | "setConnectionModels"
   | "disable"
   | "enableConnection"
   | "setMcpWorkspaces"
@@ -752,8 +752,8 @@ function consoleWrites(
         if (held.disabled) {
           return { outcome: "conflict" as const, reason: "disabled" };
         }
-        // This column only: the definition is hashed into every profile
-        // fingerprint and release pin made over the connection.
+        // This column only: the definition is what releases made over the
+        // connection pinned.
         await tx
           .update(providerConnections)
           .set({ autoMode })
@@ -763,6 +763,30 @@ function consoleWrites(
           actor,
           "set_connection_auto_mode",
           { connection_id: id, auto_mode: autoMode },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    setConnectionModels(id, models, actor) {
+      return asWriter("connection", actor, async (tx) => {
+        const held = await heldRow(tx, "connection", id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        await tx
+          .update(providerConnections)
+          .set({
+            models: [...models.models],
+            modelFamilies: models.model_families,
+          })
+          .where(eq(providerConnections.id, id));
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_connection_models",
+          { connection_id: id, models: [...models.models] },
         );
         return { outcome: "done" as const, receiptId };
       });
@@ -821,7 +845,7 @@ function consoleWrites(
         if (!held.disabled) {
           return { outcome: "conflict" as const, reason: "not_disabled" };
         }
-        // A profile finds its connection by what it is, so two live rows
+        // A re-import finds its connection by what it is, so two live rows
         // holding one definition (or one's old reference) would make the
         // match depend on which of them is usable at the moment.
         const namesOf = (
@@ -924,6 +948,13 @@ function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
                 createdAt: row.createdAt,
                 disabledAt: row.disabledAt,
                 autoMode: row.autoMode,
+                models: row.models,
+                modelFamilies: (() => {
+                  const parsed = modelFamiliesSchema.safeParse(
+                    row.modelFamilies,
+                  );
+                  return parsed.success ? parsed.data : null;
+                })(),
               }));
             case "mcp":
               return (

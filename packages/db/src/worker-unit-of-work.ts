@@ -11,6 +11,7 @@ import {
   RESPONSE_LANGUAGE_VALUES,
   rememberRuleSchema,
   type SessionExtension,
+  specSourceSchema,
   type TerminalTurnStatus,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
@@ -25,6 +26,7 @@ import {
   type CheckpointPointer,
   type CheckpointStateInput,
   type CheckpointStateResult,
+  type ClaimCatalog,
   type ClaimEngineSettings,
   type ClaimInput,
   type ClaimResult,
@@ -44,12 +46,12 @@ import {
   type FinalizeResult,
   type HeartbeatInput,
   type HeartbeatResult,
+  LEGACY_CONFIG_TOKEN,
   launchNonceFingerprint,
   type NextInputInput,
   type NextInputResult,
   nextPendingReason,
   type PeekFinalizeResult,
-  type PolicyPair,
   type ProviderUsageInput,
   type ProviderUsageResult,
   payloadHash,
@@ -57,11 +59,10 @@ import {
   type ReadyResult,
   type ReleaseInput,
   type ReleaseResult,
-  type RepositoryPair,
   type ResolvedCredential,
   type RestoreBaseInput,
   type RestoreBaseResult,
-  type RunnablePair,
+  runtimeConfigOfSpec,
   type SessionBudget,
   sameCombination,
   storedPendingReasonHoldsWork,
@@ -69,6 +70,7 @@ import {
   transcriptLimitReachedEvent,
   transcriptWarnBytes,
   verifyReleaseSpec,
+  withEarlierConfig,
   type WorkerBinding,
   type WorkerFence,
   type WorkerUnitOfWork,
@@ -85,10 +87,8 @@ import {
   isNotNull,
   isNull,
   lt,
-  lte,
   max,
   notInArray,
-  or,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -184,7 +184,6 @@ import {
   checkpoints,
   events,
   executions,
-  installationProfiles,
   MAX_SESSION_COST_USD,
   pendingRequests,
   permissionGrants,
@@ -200,7 +199,6 @@ import {
   workerImageRefusals,
   workerLaunches,
   workers,
-  workspaceProfiles,
 } from "./schema.ts";
 import {
   notBefore,
@@ -585,10 +583,8 @@ export async function advanceCheckpointPointer(
     parentRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
-    // The runtime fingerprint in the manifest was computed from the profile
-    // this attempt claimed, which the session may have changed since.
-    profileId: sql`(SELECT ${attempts.profileId} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
-    profileFingerprint: sql`(SELECT ${attempts.profileFingerprint} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
+    // The runtime fingerprint in the manifest was computed from the model
+    // this attempt claimed, which the session may have moved from since.
     model: sql`(SELECT ${attempts.model} FROM ${attempts} WHERE ${attempts.id} = ${input.fence.attemptId})`,
     transcriptBytes: input.transcriptBytes ?? null,
     ...runtimeColumns(input.runtime),
@@ -1006,73 +1002,87 @@ function sessionRepositoryOf(
 
 type RunnableFields = Pick<
   SessionRow,
-  | "profileId"
-  | "profileFingerprint"
+  | "runtimeSpec"
   | "model"
   | "repositoryMode"
   | "repositoryId"
   | "repoUrl"
   | "branch"
-  | "githubPolicySource"
 >;
 
-function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
-  if (pair.profileId !== session.profileId) return false;
-  if (pair.policy) {
-    return (
-      (session.githubPolicySource !== "release" || pair.workspaceScoped) &&
-      (session.repositoryMode === "none" ||
-        pair.repositories.some(
-          (repository) =>
-            repository.repositoryId === session.repositoryId &&
-            repository.url === session.repoUrl &&
-            repository.branch === session.branch,
-        ))
-    );
-  }
-  if (pair.repositoryId === null) return session.repositoryMode === "none";
+/** The connection the session's spec names; null without a spec. */
+export function specConnectionId(session: {
+  runtimeSpec: Record<string, unknown> | null;
+}): string | null {
+  const id = (session.runtimeSpec?.connection as { id?: unknown } | undefined)
+    ?.id;
+  return typeof id === "string" ? id : null;
+}
+
+function specRuntimeVersion(session: {
+  runtimeSpec: Record<string, unknown> | null;
+}): string | null {
+  const version = (
+    session.runtimeSpec?.runtime as { version?: unknown } | undefined
+  )?.version;
+  return typeof version === "string" ? version : null;
+}
+
+function repositoryHeld(session: RunnableFields, runnable: ClaimCatalog) {
   return (
-    session.repositoryMode === "repository" &&
-    pair.repositoryId === session.repositoryId &&
-    pair.url === session.repoUrl &&
-    pair.branch === session.branch
+    session.repositoryMode === "none" ||
+    runnable.repositories.some(
+      (repository) =>
+        repository.repositoryId === session.repositoryId &&
+        repository.url === session.repoUrl &&
+        repository.branch === session.branch,
+    )
   );
 }
 
 /**
- * The session's model when its profile is still offered here, with models of
- * its own, but none of them is the session's; null when anything else moved
- * (a dropped pair, a row without a model). Read from the pairs' models, not
- * their fingerprints: a version 1 fingerprint names its model, so it stops
- * matching whichever way the list changed.
+ * Whether this host runs the session as it was created: its spec's
+ * connection offers its model here, its runtime ships with the images, and
+ * its repository row is the one it was created on. The same predicate as
+ * `runnableCondition`.
+ */
+export function runsHere(
+  session: RunnableFields,
+  runnable: ClaimCatalog,
+): boolean {
+  const connectionId = specConnectionId(session);
+  const connection = runnable.connections.find(
+    (candidate) => candidate.id === connectionId,
+  );
+  const version = specRuntimeVersion(session);
+  return (
+    connection !== undefined &&
+    session.model !== null &&
+    connection.models.includes(session.model) &&
+    version !== null &&
+    (runnable.runtimeVersions === null ||
+      runnable.runtimeVersions.includes(version)) &&
+    repositoryHeld(session, runnable)
+  );
+}
+
+/**
+ * The session's model when its connection is still offered here, with
+ * models of its own, but none of them is the session's; null when anything
+ * else moved.
  */
 export function removedModelOf(
   session: RunnableFields,
-  runnable: readonly RunnablePair[],
+  runnable: ClaimCatalog,
 ): string | null {
   const { model } = session;
   if (model === null) return null;
-  const named = runnable.filter(
-    (pair) => allowsPair(pair, session) && pair.model !== null,
+  const connection = runnable.connections.find(
+    (candidate) => candidate.id === specConnectionId(session),
   );
-  return named.length > 0 && named.every((pair) => pair.model !== model)
+  return connection !== undefined && !connection.models.includes(model)
     ? model
     : null;
-}
-
-// A row from before has no fingerprint; it runs on whatever the
-// pair's profile is now, and the claim that binds it pins that.
-export function runnablePairOf(
-  session: RunnableFields,
-  runnable: readonly RunnablePair[],
-): RunnablePair | undefined {
-  return runnable.find(
-    (pair) =>
-      allowsPair(pair, session) &&
-      (session.profileFingerprint === null ||
-        (session.profileFingerprint === pair.profileFingerprint &&
-          (pair.model === null || pair.model === session.model))),
-  );
 }
 
 function replayableBinding(
@@ -1100,105 +1110,32 @@ function replayableBinding(
 
 // A row of mode repository with no repository id predates the catalog and
 // matches nothing: the SQL tuple holds a NULL. The same predicate as
-// runnablePairOf.
-export function runnableCondition(all: readonly RunnablePair[]): SQL {
-  const withRepository = all.filter(
-    (pair): pair is RepositoryPair => typeof pair.repositoryId === "string",
+// runsHere.
+export function runnableCondition(runnable: ClaimCatalog): SQL {
+  const pairs = runnable.connections.flatMap((connection) =>
+    connection.models.map((model) => sql`(${connection.id}, ${model})`),
   );
-  const without = all.filter((pair) => pair.repositoryId === null);
-  const policy = all.filter((pair): pair is PolicyPair => pair.policy === true);
-  const conditions: SQL[] = [];
-  if (withRepository.length > 0) {
-    const pairs = sql.join(
-      withRepository.map(
-        (pair) =>
-          sql`(${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch})`,
-      ),
-      sql`, `,
-    );
-    const pinned = pinnedCondition(
-      withRepository,
-      (pair) =>
-        sql`${pair.profileId}, ${pair.repositoryId}, ${pair.url}, ${pair.branch}, ${pair.profileFingerprint}`,
-      sql`${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}, ${sessions.profileFingerprint}`,
-    );
-    conditions.push(
-      sql`(${sessions.repositoryMode} = 'repository' AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND (${sessions.profileId}, ${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${pairs}))))`,
-    );
-  }
-  if (without.length > 0) {
-    const profiles = sql.join(
-      without.map((pair) => sql`${pair.profileId}`),
-      sql`, `,
-    );
-    const pinned = pinnedCondition(
-      without,
-      (pair) => sql`${pair.profileId}, ${pair.profileFingerprint}`,
-      sql`${sessions.profileId}, ${sessions.profileFingerprint}`,
-    );
-    conditions.push(
-      sql`(${sessions.repositoryMode} = 'none' AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${profiles}))))`,
-    );
-  }
-  const [firstPolicy] = policy;
-  if (firstPolicy !== undefined) {
-    const idList = (pairs: readonly PolicyPair[]) =>
-      sql.join(
-        pairs.map((pair) => sql`${pair.profileId}`),
-        sql`, `,
-      );
-    const scoped = policy.filter((pair) => pair.workspaceScoped);
-    const judged =
-      scoped.length === 0
-        ? sql`${sessions.githubPolicySource} <> 'release'`
-        : sql`(${sessions.githubPolicySource} <> 'release' OR ${sessions.profileId} IN (${idList(scoped)}))`;
-    // Every pair holds the same list, so the tuples stay one per repository.
-    const repositories = firstPolicy.repositories.map(
-      (repository) =>
-        sql`(${repository.repositoryId}, ${repository.url}, ${repository.branch})`,
-    );
-    const onRepository =
-      repositories.length === 0
+  if (pairs.length === 0) return sql`false`;
+  const onConnection = sql`(${sessions.runtimeSpec} -> 'connection' ->> 'id', ${sessions.model}) IN (${sql.join(pairs, sql`, `)})`;
+  const versions = runnable.runtimeVersions;
+  const onRuntime =
+    versions === null
+      ? sql`true`
+      : versions.length === 0
         ? sql`false`
-        : sql`(${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${sql.join(repositories, sql`, `)})`;
-    const pinned = pinnedCondition(
-      policy,
-      (pair) => sql`${pair.profileId}, ${pair.profileFingerprint}`,
-      sql`${sessions.profileId}, ${sessions.profileFingerprint}`,
-    );
-    conditions.push(
-      sql`(${judged} AND (${sessions.repositoryMode} = 'none' OR ${onRepository}) AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${idList(policy)}))))`,
-    );
-  }
-  if (conditions.length === 0) return sql`false`;
-  return sql`(${sql.join(conditions, sql` OR `)})`;
-}
-
-function pinnedCondition<Pair extends RunnablePair>(
-  all: readonly Pair[],
-  values: (pair: Pair) => SQL,
-  columns: SQL,
-): SQL {
-  const byFingerprint = all.filter((pair) => pair.model === null);
-  const byModel = all.filter((pair) => pair.model !== null);
-  const conditions: SQL[] = [];
-  if (byFingerprint.length > 0) {
-    const tuples = sql.join(
-      byFingerprint.map((pair) => sql`(${values(pair)})`),
-      sql`, `,
-    );
-    conditions.push(sql`(${columns}) IN (${tuples})`);
-  }
-  if (byModel.length > 0) {
-    const tuples = sql.join(
-      byModel.map((pair) => sql`(${values(pair)}, ${pair.model})`),
-      sql`, `,
-    );
-    conditions.push(sql`(${columns}, ${sessions.model}) IN (${tuples})`);
-  }
-  return conditions.length === 0
-    ? sql`false`
-    : sql`(${sql.join(conditions, sql` OR `)})`;
+        : sql`(${sessions.runtimeSpec} -> 'runtime' ->> 'version') IN (${sql.join(
+            versions.map((version) => sql`${version}`),
+            sql`, `,
+          )})`;
+  const repositories = runnable.repositories.map(
+    (repository) =>
+      sql`(${repository.repositoryId}, ${repository.url}, ${repository.branch})`,
+  );
+  const onRepository =
+    repositories.length === 0
+      ? sql`${sessions.repositoryMode} = 'none'`
+      : sql`(${sessions.repositoryMode} = 'none' OR (${sessions.repositoryMode} = 'repository' AND (${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${sql.join(repositories, sql`, `)})))`;
+  return sql`(${onConnection} AND ${onRuntime} AND ${onRepository})`;
 }
 
 function budgetOf(input: {
@@ -1243,9 +1180,9 @@ function budgetEnded(
  */
 /**
  * A session with a pod keeps its model until its turn ends, and the proxy's
- * cut stays what it was. A version 1 pin names its model in the hash, so the
- * row's pin moves with it (its model column may be null). A locked row is
- * left to its holder unless `wait`. Returns how many moved.
+ * cut stays what it was. The config it ran is kept, so a checkpoint made on
+ * it still restores. A locked row is left to its holder unless `wait`.
+ * Returns how many moved.
  */
 export async function moveSessionsToSuccessors(
   tx: Database,
@@ -1266,11 +1203,8 @@ export async function moveSessionsToSuccessors(
         and(
           eq(unassignedSessions.partition, launch.partition),
           eq(sessions.partition, launch.partition),
-          eq(sessions.profileId, move.profileId),
-          eq(sessions.profileFingerprint, move.fromFingerprint),
-          move.fromFingerprint === move.toFingerprint
-            ? eq(sessions.model, move.from)
-            : or(eq(sessions.model, move.from), isNull(sessions.model)),
+          sql`${sessions.runtimeSpec} -> 'connection' ->> 'id' = ${move.connectionId}`,
+          eq(sessions.model, move.from),
           isNull(sessions.podId),
           inArray(sessions.admissionState, LAUNCHABLE_ADMISSION_STATES),
           isNull(sessions.executionRevokedAt),
@@ -1310,9 +1244,9 @@ export async function moveSessionsToSuccessors(
         .update(sessions)
         .set({
           model: move.to,
-          profileFingerprint: move.toFingerprint,
           updatedAt: input.now,
           ...(pin ?? {}),
+          legacyRuntimeConfigs: await earlierConfigs(tx, id),
         })
         .where(eq(sessions.id, id));
       await recordEvent(tx, {
@@ -1332,6 +1266,37 @@ export async function moveSessionsToSuccessors(
   return moved;
 }
 
+/**
+ * The session's configs before its model moves: the one it ran, then the
+ * ones kept before, as a claim offers them for a restore (without the
+ * credential, MCP servers and variables a claim sets itself).
+ */
+async function earlierConfigs(tx: Database, sessionId: string) {
+  const [held] = await tx
+    .select({
+      specSource: sessions.specSource,
+      platformPrompt: sessions.platformPrompt,
+      repositoryMode: sessions.repositoryMode,
+      legacy: sessions.legacyRuntimeConfigs,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  const source = specSourceSchema.safeParse(held?.specSource);
+  if (held === undefined || !source.success) return held?.legacy ?? null;
+  const config = runtimeConfigOfSpec(
+    source.data,
+    LEGACY_CONFIG_TOKEN,
+    held.repositoryMode === "repository",
+  );
+  return withEarlierConfig(
+    held.legacy,
+    held.platformPrompt === null
+      ? config
+      : { ...config, platform_prompt: held.platformPrompt },
+  );
+}
+
 async function giveUpOnCatalogMismatch(
   tx: Database,
   launch: typeof workerLaunches.$inferSelect,
@@ -1341,7 +1306,7 @@ async function giveUpOnCatalogMismatch(
     | "runnable"
     | "settingsGeneration"
     | "unsettledRepositoryIds"
-    | "settledProfileIds"
+    | "settledConnectionIds"
     | "costLimitUsd"
     | "tokenLimit"
   >,
@@ -1362,24 +1327,16 @@ async function giveUpOnCatalogMismatch(
     // Reserved for this launch and no later one.
     session.executionId !== launch.executionId ||
     budgetExceeded(session, budgetOf(input)) ||
-    runnablePairOf(session, runnable) !== undefined ||
-    (session.profileId !== null &&
-      !input.settledProfileIds.has(session.profileId)) ||
+    runsHere(session, runnable) ||
+    !input.settledConnectionIds.has(specConnectionId(session) ?? "") ||
     (session.repositoryId !== null &&
       input.unsettledRepositoryIds.has(session.repositoryId))
   ) {
     return null;
   }
-  // The ceiling before the generation: a ceiling write locks its row and
-  // then, through its trigger, the generation, so the other order deadlocks.
-  const blocked =
-    input.settingsGeneration === null
-      ? undefined
-      : await profileBlocked(tx, session.profileId);
   // Held until the claim commits: a settings write waits for this give-up
-  // rather than committing a row the claim judged without. Never waited for: a write in
-  // flight may go on to lock the ceiling held above, so the give-up yields
-  // and the claim is asked again.
+  // rather than committing a row the claim judged without. Never waited
+  // for: the give-up yields and the claim is asked again.
   const [settings] =
     input.settingsGeneration === null
       ? []
@@ -1394,9 +1351,7 @@ async function giveUpOnCatalogMismatch(
   const behind =
     settings === undefined ||
     (input.settingsGeneration ?? 0) < settings.generation;
-  if (behind && !(blocked ?? (await profileBlocked(tx, session.profileId)))) {
-    return null;
-  }
+  if (behind) return null;
   // Skipped when locked, as the candidate query does: another claim holding
   // it is binding the session and waits on the row lock taken above, so
   // waiting for it here would deadlock, and failing the session under it
@@ -1443,12 +1398,17 @@ async function giveUpOnCatalogMismatch(
   }
   const removed = removedModelOf(session, runnable);
   // Names ids only: the stored URL may embed a credential.
+  const connectionId = specConnectionId(session);
   const detail =
     removed !== null
-      ? `model ${removed} was taken off the allowed list of profile ${session.profileId}`
-      : runnable.some((pair) => allowsPair(pair, session))
-        ? `profile ${session.profileId} has other settings in this host's catalog than the session was created with`
-        : `profile ${session.profileId ?? "(none)"} and repository ${session.repositoryId ?? "(none)"} at the session's URL and branch are not an allowed pair in this host's catalog`;
+      ? `model ${removed} was taken off the model list of connection ${connectionId}`
+      : !runnable.connections.some(
+            (connection) => connection.id === connectionId,
+          )
+        ? `connection ${connectionId ?? "(none)"} is not in this host's catalog`
+        : !repositoryHeld(session, runnable)
+          ? `repository ${session.repositoryId ?? "(none)"} at the session's URL and branch is not in this host's catalog`
+          : `runtime ${specRuntimeVersion(session) ?? "(none)"} of the session is not shipped by this host's worker images`;
   await countLaunchGiveUp(tx, launch.executionId, detail);
   // The stream and the DMs say which model left, as they do for an attempt
   // cut while running; the session's own lock is held.
@@ -1512,30 +1472,6 @@ async function countLaunchGiveUp(
       replacementReason: null,
     })
     .where(eq(workerLaunches.executionId, executionId));
-}
-
-/**
- * Whether `profileId`, or the ceiling a workspace version of that id is on,
- * is blocked. Held until the claim commits, so an unblock waits for the
- * give-up judged under the block.
- */
-async function profileBlocked(
-  tx: Database,
-  profileId: string | null,
-): Promise<boolean> {
-  if (profileId === null) return false;
-  const [version] = await tx
-    .select({ baseProfileId: workspaceProfiles.baseProfileId })
-    .from(workspaceProfiles)
-    .where(eq(workspaceProfiles.id, profileId))
-    .limit(1);
-  const [ceiling] = await tx
-    .select({ blockedAt: installationProfiles.blockedAt })
-    .from(installationProfiles)
-    .where(eq(installationProfiles.id, version?.baseProfileId ?? profileId))
-    .limit(1)
-    .for("share");
-  return ceiling !== undefined && ceiling.blockedAt !== null;
 }
 
 async function drainRequested(
@@ -1662,15 +1598,12 @@ async function bindingOf(
     authRevision: attempt.authRevision,
     leaseExpiresAt: attempt.leaseExpiresAt,
     leaseRemainingMs: leaseRemainingMs(attempt.leaseExpiresAt, at),
-    profileId: session.profileId,
-    profileFingerprint: session.profileFingerprint,
-    model: session.model,
+    ...sessionSpecOf(session),
     unmetered: session.unmetered,
     ownerScope: session.ownerId,
     repository: sessionRepositoryOf(session),
-    ...(await withRestoreProfiles(
-      tx,
-      session.id,
+    ...(await withRestoreConfigs(
+      session,
       restore === undefined ? await restoreRef(tx, session) : restore,
     )),
     costUsd: session.costUsd,
@@ -1699,46 +1632,50 @@ function pinnedExtensionsOf(
   return (session.extensions as SessionExtension[] | null) ?? [];
 }
 
-// A snapshot this image cannot read allows no tool rather than guessing.
+/**
+ * The session's spec, verified against its digests: what a claim runs. A
+ * live session always holds one (`sessions_pin_required`), and the claim
+ * binds only a session whose spec names a connection and model it runs, so
+ * one that does not verify here is a broken row, never a guess.
+ */
+export function sessionSpecOf(
+  session: Pick<
+    SessionRow,
+    | "id"
+    | "model"
+    | "specSource"
+    | "runtimeSpec"
+    | "specSourceDigest"
+    | "specDigest"
+  >,
+): Pick<WorkerBinding, "spec" | "specDigest" | "model"> {
+  const verdict = verifyReleaseSpec({
+    spec_source: session.specSource,
+    runtime_spec: session.runtimeSpec,
+    spec_source_digest: session.specSourceDigest,
+    spec_digest: session.specDigest,
+  });
+  if (!verdict.ok) {
+    throw new Error(`session ${session.id} has no spec that verifies`);
+  }
+  return {
+    spec: verdict.record.spec_source,
+    specDigest: verdict.record.spec_digest,
+    model: verdict.record.spec_source.model,
+  };
+}
+
 async function releaseRunOf(
   tx: Database,
   session: SessionRow,
-): Promise<
-  Pick<WorkerBinding, "releaseTools" | "releaseSpec" | "releaseLanguage">
-> {
-  if (session.agentReleaseId === null) {
-    return { releaseTools: null, releaseSpec: null, releaseLanguage: null };
-  }
+): Promise<Pick<WorkerBinding, "releaseLanguage">> {
+  if (session.agentReleaseId === null) return { releaseLanguage: null };
   const [release] = await tx
-    .select({
-      snapshot: agentReleases.runtimeConfigSnapshot,
-      runtimeSpec: agentReleases.runtimeSpec,
-      specSource: agentReleases.specSource,
-      specSourceDigest: agentReleases.specSourceDigest,
-      specDigest: agentReleases.specDigest,
-    })
+    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
     .from(agentReleases)
     .where(eq(agentReleases.id, session.agentReleaseId))
     .limit(1);
-  const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
-  // A pair that does not verify is treated as no spec, never as a spec.
-  const verdict =
-    release === undefined || release.runtimeSpec === null
-      ? null
-      : verifyReleaseSpec(session.agentReleaseId, {
-          spec_source: release.specSource,
-          runtime_spec: release.runtimeSpec,
-          spec_source_digest: release.specSourceDigest,
-          spec_digest: release.specDigest,
-        });
-  return {
-    releaseTools:
-      Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
-        ? tools
-        : [],
-    releaseSpec: verdict?.ok === true ? verdict.record.runtime_spec : null,
-    releaseLanguage: responseLanguageOf(release?.snapshot),
-  };
+  return { releaseLanguage: responseLanguageOf(release?.snapshot) };
 }
 
 // `follow-user`, a value this image does not know and a release made before
@@ -1847,58 +1784,15 @@ async function grantMissedBy(
   return missed !== undefined;
 }
 
-// The profiles the checkpoints a restore may land on were committed under:
-// the pointer's and any earlier one a fallback walks back to, newest first,
-// so a cap on how many the claim carries drops the oldest. A row from before
-// the column names none; it ran the session's own.
-async function withRestoreProfiles(
-  tx: Database,
-  sessionId: string,
+// The configs the session ran before its model moved, for a restore that
+// lands on a checkpoint made on one of them. Nothing without a restore.
+function withRestoreConfigs(
+  session: Pick<SessionRow, "legacyRuntimeConfigs">,
   restore: CheckpointRef | null,
-): Promise<
-  Pick<WorkerBinding, "restore" | "restoreProfiles" | "legacyRuntimeConfigs">
-> {
-  if (restore === null) return { restore, restoreProfiles: [] };
-  const [kept] = await tx
-    .select({ configs: sessions.legacyRuntimeConfigs })
-    .from(sessions)
-    .where(eq(sessions.id, sessionId));
-  const rows = await tx
-    .select({
-      profileId: checkpoints.profileId,
-      profileFingerprint: checkpoints.profileFingerprint,
-      model: checkpoints.model,
-    })
-    .from(checkpoints)
-    .where(
-      and(
-        eq(checkpoints.sessionId, sessionId),
-        lte(checkpoints.revision, restore.revision),
-        isNotNull(checkpoints.profileId),
-        isNotNull(checkpoints.profileFingerprint),
-      ),
-    )
-    .groupBy(
-      checkpoints.profileId,
-      checkpoints.profileFingerprint,
-      checkpoints.model,
-    )
-    .orderBy(desc(max(checkpoints.revision)));
-  return {
-    restore,
-    legacyRuntimeConfigs: kept?.configs ?? null,
-    restoreProfiles: rows.flatMap((row) =>
-      row.profileId === null || row.profileFingerprint === null
-        ? []
-        : [
-            {
-              profileId: row.profileId,
-              profileFingerprint: row.profileFingerprint,
-              model: row.model,
-            },
-          ],
-    ),
-  };
+): Pick<WorkerBinding, "restore" | "legacyRuntimeConfigs"> {
+  return restore === null
+    ? { restore }
+    : { restore, legacyRuntimeConfigs: session.legacyRuntimeConfigs ?? null };
 }
 
 async function issueCredentials(
@@ -1908,9 +1802,11 @@ async function issueCredentials(
   session: Pick<
     SessionRow,
     | "id"
-    | "profileId"
-    | "profileFingerprint"
     | "model"
+    | "specSource"
+    | "runtimeSpec"
+    | "specSourceDigest"
+    | "specDigest"
     | "repositoryMode"
     | "repositoryId"
     | "agentReleaseId"
@@ -1919,8 +1815,15 @@ async function issueCredentials(
   >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
+  const { spec, specDigest, model } = sessionSpecOf(session);
   const bindings = input.egress.bindingsOf({
-    ...session,
+    id: session.id,
+    connectionId: spec.connection.id,
+    specDigest,
+    model,
+    repositoryMode: session.repositoryMode,
+    repositoryId: session.repositoryId,
+    githubPolicySource: session.githubPolicySource,
     mcp: await sessionMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
   });
@@ -1980,24 +1883,6 @@ async function issueCredentials(
           },
         ]),
   ]);
-}
-
-async function firstProviderBinding(
-  tx: Database,
-  attemptId: string,
-): Promise<string | null> {
-  const [issued] = await tx
-    .select({ binding: workerCredentials.binding })
-    .from(workerCredentials)
-    .where(
-      and(
-        eq(workerCredentials.attemptId, attemptId),
-        eq(workerCredentials.purpose, "provider"),
-      ),
-    )
-    .orderBy(asc(workerCredentials.createdAt))
-    .limit(1);
-  return issued?.binding ?? null;
 }
 
 async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
@@ -2157,21 +2042,12 @@ export function createPostgresWorkerUnitOfWork(
               reason: replayRules.reason,
             };
           }
-          // A retry can land on a replica whose catalog lost this profile.
-          // Rotating the token first would revoke the old one, bump the
-          // revision and then fail on the way out, leaving a binding nobody
-          // holds a token for and a retry that mutates again.
-          const pair = runnablePairOf(bound.session, input.runnable);
-          if (
-            pair === undefined ||
-            // A row from before bound by a claim that did not pin it
-            // the provider token that claim issued names the settings it ran
-            // under, and a replay may not trade them for this catalog's.
-            (bound.session.profileFingerprint === null &&
-              (await firstProviderBinding(tx, bound.attempt.id)) !==
-                pair.profileFingerprint)
-          ) {
-            return { outcome: "profile_unavailable" };
+          // A retry can land on a replica whose catalog lost this
+          // connection. Rotating the token first would revoke the old one,
+          // bump the revision and then fail on the way out, leaving a
+          // binding nobody holds a token for and a retry that mutates again.
+          if (!runsHere(bound.session, input.runnable)) {
+            return { outcome: "connection_unavailable" };
           }
           await revokeCredentials(tx, bound.attempt.id, input.now);
           await issueCredentials(
@@ -2187,11 +2063,6 @@ export function createPostgresWorkerUnitOfWork(
             .update(sessions)
             .set({
               authRevision: sql`${sessions.authRevision} + 1`,
-              profileFingerprint: pair.profileFingerprint,
-              model:
-                bound.session.profileFingerprint === null
-                  ? pair.model
-                  : bound.session.model,
               updatedAt: input.now,
             })
             .where(eq(sessions.id, bound.session.id))
@@ -2202,13 +2073,11 @@ export function createPostgresWorkerUnitOfWork(
             // The attempt has not started, so the replay gets a whole lease:
             // handing back the expired one would answer "claimed" and then
             // refuse every call the worker makes with it.
-            // It has run nothing yet either, so it takes the profile the
+            // It has run nothing yet either, so it takes the model the
             // session names now, as the tokens just issued do.
             .set({
               authRevision: session.authRevision,
               leaseExpiresAt,
-              profileId: session.profileId,
-              profileFingerprint: session.profileFingerprint,
               model: session.model,
             })
             .where(eq(attempts.id, bound.attempt.id))
@@ -2299,10 +2168,9 @@ export function createPostgresWorkerUnitOfWork(
           .for("update");
         // A terminate can commit between the candidate read and this lock,
         // and so can an exit that starts a restore backoff.
-        const pair = locked && runnablePairOf(locked, input.runnable);
         if (
           !locked ||
-          !pair ||
+          !runsHere(locked, input.runnable) ||
           locked.podId !== null ||
           !LAUNCHABLE_ADMISSION_STATES.includes(locked.admissionState) ||
           locked.executionRevokedAt !== null ||
@@ -2375,10 +2243,6 @@ export function createPostgresWorkerUnitOfWork(
             executionGeneration: launch.generation,
             executionId: launch.executionId,
             podId: launch.executionId,
-            // Pins a row from before; any other holds this already.
-            profileFingerprint: pair.profileFingerprint,
-            model:
-              locked.profileFingerprint === null ? pair.model : locked.model,
             restoreAttemptId: input.attemptId,
             updatedAt: input.now,
           })
@@ -2407,8 +2271,6 @@ export function createPostgresWorkerUnitOfWork(
             state: "allocated",
             leaseExpiresAt,
             startedAt: input.now,
-            profileId: session.profileId,
-            profileFingerprint: session.profileFingerprint,
             model: session.model,
           })
           .returning();
@@ -2460,7 +2322,9 @@ export function createPostgresWorkerUnitOfWork(
           leaseEpoch: attempts.leaseEpoch,
           executionGeneration: attempts.executionGeneration,
           authRevision: attempts.authRevision,
-          profileId: sessions.profileId,
+          runtimeKind: sql<
+            string | null
+          >`${sessions.runtimeSpec} -> 'runtime' ->> 'kind'`,
         })
         .from(workerCredentials)
         .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
@@ -2526,13 +2390,11 @@ export function createPostgresWorkerUnitOfWork(
           sessionId: fence.sessionId,
           attemptId: fence.attemptId,
           binding,
-          // The profile the attempt claimed: a change on the session since
-          // reaches the next attempt, not the turn this one is running.
-          profileId: fenced.attempt.profileId ?? fenced.session.profileId,
-          model:
-            fenced.attempt.profileId === null
-              ? fenced.session.model
-              : fenced.attempt.model,
+          // The session's connection, and the model the attempt claimed: a
+          // move on the session since reaches the next attempt, not the turn
+          // this one is running.
+          connectionId: specConnectionId(fenced.session),
+          model: fenced.attempt.model ?? fenced.session.model,
           repository: sessionRepositoryOf(fenced.session),
           githubPolicySource: fenced.session.githubPolicySource,
           costUsd: fenced.session.costUsd,
@@ -2697,18 +2559,12 @@ export function createPostgresWorkerUnitOfWork(
         // unfinished once the execution goes, which costs the session a
         // recovery decision it never needed.
         const draining = fenced.attempt.state === "draining";
-        // The session's profile was changed after this attempt claimed it:
-        // it finishes what it holds on its own profile and goes, and the
-        // next claim runs the new one.
-        // An attempt with no model ran a version 1 fingerprint, which names
-        // its model; the session's may have been backfilled since.
-        const profileMoved =
-          fenced.attempt.profileFingerprint !== null &&
-          (fenced.attempt.profileId !== fenced.session.profileId ||
-            fenced.attempt.profileFingerprint !==
-              fenced.session.profileFingerprint ||
-            (fenced.attempt.model !== null &&
-              fenced.attempt.model !== fenced.session.model));
+        // The session's model moved after this attempt claimed it: it
+        // finishes what it holds on its own model and goes, and the next
+        // claim runs the new one.
+        const modelMoved =
+          fenced.attempt.model !== null &&
+          fenced.attempt.model !== fenced.session.model;
 
         const [head] = await tx
           .select({ message: queueMessages, turn: turns })
@@ -2745,7 +2601,7 @@ export function createPostgresWorkerUnitOfWork(
           outcome: "ok" as const,
           input: null,
           leaseExpiresAt,
-          ...(draining || profileMoved ? { draining: true as const } : {}),
+          ...(draining || modelMoved ? { draining: true as const } : {}),
           ...(overBudget ? { blocked: "BUDGET_EXCEEDED" as const } : {}),
         };
         if (!head) return none;
@@ -2758,7 +2614,7 @@ export function createPostgresWorkerUnitOfWork(
           turn.attemptId === fence.attemptId &&
           OPEN_TURN_STATUSES.includes(turn.status);
         if (turn.status !== "queued" && !redelivery) return none;
-        if ((draining || profileMoved) && !redelivery) return none;
+        if ((draining || modelMoved) && !redelivery) return none;
         // The turn carries a grant this attempt's claim never had: the
         // engine would ask again for what was already allowed. It goes, and
         // the next claim takes the grant.

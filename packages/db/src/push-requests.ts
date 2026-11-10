@@ -385,7 +385,6 @@ export function createPostgresPushRequests(
       const [row] = await db
         .select({
           repositoryId: sessions.repositoryId,
-          profileId: sessions.profileId,
           checkpointRevision: sessions.checkpointRevision,
           attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
@@ -416,7 +415,6 @@ export function createPostgresPushRequests(
       const policy = githubPolicyOfRow(row);
       return {
         repositoryId: row.repositoryId,
-        profileId: row.profileId,
         checkpointRevision: row.checkpointRevision,
         attached: row.attached,
         policySource: policy.source,

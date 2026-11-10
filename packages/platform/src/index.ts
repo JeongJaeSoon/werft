@@ -168,6 +168,7 @@ export * from "./sessions/session-title.ts";
 export * from "./sessions/session-titler.ts";
 export * from "./usage/usage-service.ts";
 export * from "./workers/github-mcp-egress.ts";
+export * from "./workers/legacy-runtime-configs.ts";
 export * from "./workers/github-packages.ts";
 export * from "./workers/github-packages-egress.ts";
 export * from "./workers/package-registries.ts";

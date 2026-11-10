@@ -1,3 +1,4 @@
+import type { RuntimeKind } from "@werft-ai/contracts";
 import { type NeutralizeEvent, neutralFieldsOf } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import { rowsOf } from "./control-unit-of-work.ts";
@@ -82,7 +83,7 @@ type BatchRow = {
   payload: unknown;
   bare: boolean;
   safe: boolean;
-  profile_id: string | null;
+  runtime_kind: RuntimeKind | null;
 };
 
 function fillBatch(
@@ -108,7 +109,7 @@ function fillBatch(
     const from = read === null ? cursor : Math.max(read, cursor);
     const rows = rowsOf<BatchRow>(
       await tx.execute(sql`
-        SELECT b.id, b.type, b.payload, b.bare, b.safe, s.profile_id
+        SELECT b.id, b.type, b.payload, b.bare, b.safe, s.runtime_spec -> 'runtime' ->> 'kind' AS runtime_kind
         FROM (
           SELECT id, session_id, type,
             CASE WHEN type IN (${sql.join(
@@ -128,7 +129,7 @@ function fillBatch(
     const added = rows.flatMap((row) => {
       const fields =
         row.bare && row.payload !== null
-          ? neutralFieldsOf(options.neutralize, row.profile_id, {
+          ? neutralFieldsOf(options.neutralize, row.runtime_kind, {
               event: row.type,
               data: row.payload,
             })
