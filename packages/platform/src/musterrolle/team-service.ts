@@ -247,6 +247,11 @@ export function createTeamService(deps: {
           throw NOT_FOUND();
         case "actor_inactive":
           throw OUTRANKED();
+        case "conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "Agents changed who may use them while the team was archived; try again",
+          );
         case "manages_agents":
           throw new SessionServiceError(
             "TEAM_MANAGES_AGENTS",

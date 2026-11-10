@@ -49,9 +49,13 @@ export type RenameTeamResult =
   | { outcome: "renamed" | "unchanged"; team: Team }
   | { outcome: "not_found" | "name_taken" | "actor_inactive" };
 
-/** `manages_agents`: the team is the managing team of these live agents. */
+/**
+ * `manages_agents`: the team is the managing team of these live agents.
+ * `conflict`: agents kept starting to list the team while the archive tried
+ * to lock them; nothing was written, so the caller may ask again.
+ */
 export type DeleteTeamResult =
-  | { outcome: "deleted" | "not_found" | "actor_inactive" }
+  | { outcome: "deleted" | "not_found" | "actor_inactive" | "conflict" }
   | { outcome: "manages_agents"; agentIds: string[] };
 
 /**

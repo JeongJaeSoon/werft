@@ -771,12 +771,21 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}` | 구성원 역할 변경(`lead`·`member`) |
 | `DELETE /v1/teams/{team_id}/members/{user_id}` | 구성원 제거 |
 | `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 담당 팀 지정·변경 |
+| `GET /v1/agents/{id}/usage`, `PUT /v1/agents/{id}/usage` `{"scope","teams":[{"id"}]}` | 에이전트를 쓸 수 있는 범위. `workspace`는 워크스페이스 전원, `private`은 나열한 팀의 구성원. PUT은 전체 교체이고 `If-Match: <revision>`이 필수다(어긋나면 `412 VERSION_MISMATCH`, 없으면 `428 PRECONDITION_REQUIRED`) |
 | `GET /v1/agents/{id}/admins` | 에이전트의 관리자(사람·팀) |
 | `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
 | `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
 
-바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름, 같은 역할, 같은 담당 팀) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage` 행으로 `authz_decisions`에 남는다.
+바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름, 같은 역할, 같은 담당 팀, 같은 사용 범위) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage`·`agent.usage.manage` 행으로 `authz_decisions`에 남는다.
+
+사용 범위(`agent_usage`, 마이그레이션 0265)는 이 단계에서 세션 동작을 바꾸지 않는다. 설정과 편집 API만 있고, 세션을 만들거나 입력할 때 읽는 판정은 뒤 단계다.
+
+- 마이그레이션이 기존 에이전트마다 `scope = workspace` 한 행을 넣고, `POST /v1/agents`도 같은 트랜잭션에서 넣는다. `limits_revision`은 호출자 한도(뒤 단계)가 쓰며 이 API는 읽지도 올리지도 않는다.
+- `agent.usage.manage`는 owner·admin과 그 에이전트의 관리자(사람만, API key는 403)다. 읽기도 같은 사람만 한다(담당 팀의 일반 구성원은 설정은 읽어도 누가 쓰는지는 읽지 못한다).
+- `private`은 팀이 1개 이상이고 `workspace`는 팀이 없다(아니면 `400`). 팀을 새로 넣는 사람은 owner·admin이거나 그 팀의 구성원이어야 한다(아니면 `403`, `reason_code: team_not_allowed`). 빼기, 이미 있는 팀을 유지하기는 `agent.usage.manage`면 된다.
+- 팀을 삭제하면 그 팀을 나열한 모든 에이전트에서 팀이 빠지고 그 에이전트들의 `revision`이 오른다. 팀이 모두 빠진 `private` 에이전트는 `private`인 채로 남고, 에이전트를 관리하는 사람 말고는 쓸 수 없는 상태가 된다. 삭제와 겹치는 PUT 때문에 삭제가 3번 시도해도 정리되지 않으면 `409 REVISION_CONFLICT`이고 아무것도 쓰지 않으니 다시 보낸다.
+- 롤백 하한은 0265다. 이전 이미지로 내리면 새 에이전트에 행이 생기지 않지만 이 단계에서는 어떤 판정도 행을 읽지 않는다. 두 테이블은 남는다.
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/teams \
