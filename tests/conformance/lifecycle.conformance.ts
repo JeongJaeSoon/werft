@@ -12,6 +12,13 @@ const engine = engineFromEnv();
 const api = new Api(e2eEnv({ needsMessages: false }));
 const TIMEOUT = 600_000;
 
+/** An event id is `ev_` and the stored row's id in base 36. */
+function position(id: string | undefined): number {
+  const value = Number.parseInt(String(id).replace(/^ev_/, ""), 36);
+  expect(Number.isInteger(value)).toBe(true);
+  return value;
+}
+
 describe(`session lifecycle on ${engine.runtimeKind}`, () => {
   test(
     "create, message, replay the events, interrupt, terminate",
@@ -35,7 +42,7 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
         (event) => event.event === "result" && event.data.turn_id === "1",
       );
       expect(events.map((event) => event.event)).toContain("result");
-      const ids = events.map((event) => Number(event.id));
+      const ids = events.map((event) => position(event.id));
       expect(ids).toEqual([...ids].sort((a, b) => a - b));
 
       // 3. replay: reconnecting with Last-Event-ID resumes strictly after it.
@@ -53,13 +60,22 @@ describe(`session lifecycle on ${engine.runtimeKind}`, () => {
         events.slice(cut).map((event) => event.id),
       );
 
-      // 4. message: a second turn on the same session.
+      // 4. message: a second turn on the same session, whose events a stream
+      // opened after the first turn's last one delivers.
+      const tail = api.events(
+        sessionId,
+        (event) => event.event === "result" && event.data.turn_id === "2",
+        180_000,
+        lastId,
+      );
       const second = await api.send(
         sessionId,
         engine.prompt({ id: scriptId("life-2"), commands: [], final: "two" }),
       );
       expect(second.turn_id).toBe("2");
       expect((await api.settledTurn(sessionId, "2")).status).toBe("completed");
+      const delivered = await tail;
+      expect(position(delivered[0]?.id)).toBeGreaterThan(position(lastId));
 
       // 5. interrupt: a turn held in a slow model call stops on request.
       const slowId = scriptId("life-slow");
