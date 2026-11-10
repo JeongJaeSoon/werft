@@ -347,7 +347,6 @@ jobs:
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
             APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
-            ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
