@@ -12,12 +12,12 @@ import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
 import { AchievementRulesScreen } from "./routes/achievement-rules.tsx";
 import { AchievementsScreen } from "./routes/achievements.tsx";
-import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
-  AgentDetailScreen,
   type AgentSearch,
   agentSearch,
-} from "./routes/agent-detail.tsx";
+} from "./routes/agent-detail/navigation.ts";
+import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
+import { AgentDetailScreen } from "./routes/agent-detail.tsx";
 import { AgentsScreen, NewAgentScreen } from "./routes/agents.tsx";
 import {
   AgentKeysScreen,
