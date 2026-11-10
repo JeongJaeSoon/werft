@@ -80,6 +80,23 @@ describe("the tool table", () => {
     expect([...GITHUB_MCP_FIXED_TOOLS] as string[]).toEqual(TOOL_NAMES);
   });
 
+  test("keeps each refusal override on the tool that had it", () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(GITHUB_MCP_REFUSAL_OVERRIDES).map(
+          ([tool, overrides]) => [tool, Object.keys(overrides ?? {})],
+        ),
+      ),
+    ).toEqual({
+      open_pull_request: ["push_failed"],
+      update_pull_request: ["push_failed"],
+      comment_pull_request: ["push_failed"],
+      close_pull_request: ["push_failed", "forge_failed"],
+      reopen_pull_request: ["push_failed", "forge_failed"],
+      merge_pull_request: ["push_failed"],
+    });
+  });
+
   test("keeps a refusal override only on a row that lists the code", () => {
     for (const [tool, overrides] of Object.entries(
       GITHUB_MCP_REFUSAL_OVERRIDES,
