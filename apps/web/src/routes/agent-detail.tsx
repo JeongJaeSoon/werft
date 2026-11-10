@@ -198,7 +198,10 @@ function AgentView({
       {/* overflow-y-hidden: the active underline overhangs the row by 1px, and
           overflow-x alone makes y `auto` (a vertical scrollbar where scrollbars
           take space). */}
-      <div ref={tabRow} className="overflow-x-auto overflow-y-hidden border-b">
+      <div
+        ref={tabRow}
+        className="overflow-x-auto overflow-y-hidden border-b [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+      >
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>
           {AGENT_TABS.map((name) => (
             <TabsTrigger key={name} value={name}>
