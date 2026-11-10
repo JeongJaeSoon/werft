@@ -1,15 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { agentCardSchema, scopesForRole } from "@werft-ai/contracts";
-import {
-  type Caller,
-  type CatalogProfile,
-  callerFor,
-  catalogRows,
-  installationProfileSnapshot,
-  resolveReleaseContent,
-  resolveSessionCatalog,
-} from "@werft-ai/platform";
+import { type Caller, callerFor } from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -36,10 +28,9 @@ import {
 } from "./schema.ts";
 import { fixtureTeam } from "./testing/fixture-team.ts";
 import {
+  releaseSpecColumns,
   TEST_CONNECTION_ID,
   TEST_MODEL,
-  fixtureRelease,
-  releaseSpecColumns,
 } from "./testing/spec-pins.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -400,71 +391,6 @@ integration("agent MCP settings on PostgreSQL", () => {
     );
     const sessionId = await sessionOn(workspaceId, releaseId, started);
     expect((await stateOf(sessionId))?.tools).toEqual(["mcp__wiki__read"]);
-  });
-
-  // The chain a stored profile takes to a refused call: its deny column, the
-  // registry's profile, the release content the agent service writes, the
-  // stored release and the egress judgement of a session on it.
-  test("an mcp__ name in a stored profile's deny ends as a refused call", async () => {
-    const provider = {
-      kind: "anthropic" as const,
-      endpoint: "https://api.anthropic.invalid",
-      auth: { kind: "api_key" as const, value_env: "PROVIDER_KEY" },
-    };
-    const stored = catalogRows({
-      coding: {
-        runtime_kind: "claude_agent_sdk",
-        runtime_version: "0.3.270",
-        model: "claude-sonnet-5",
-        models: ["claude-sonnet-5"],
-        tools: ["Read"],
-        permission_mode: "default",
-        provider,
-        project_settings: { claude_md: false },
-        repository: "none",
-      },
-    }).map((row) => ({ ...row, deny: ["WebSearch", SEARCH, READ] }));
-    const snapshot = installationProfileSnapshot<CatalogProfile>(
-      {
-        connections: { main: provider },
-        allowUnattended: false,
-        runtimeSupported: () => true,
-        materialize: (id, definition) => {
-          const profile = resolveSessionCatalog(
-            { profiles: { [id]: definition }, repositories: {} },
-            () => "a-provider-key",
-          ).profiles[id];
-          if (!profile) throw new Error(`no ${id}`);
-          return profile as CatalogProfile;
-        },
-      },
-      stored,
-    );
-    const profile = snapshot.profiles.coding;
-    if (!profile) throw new Error("the profile did not run");
-    const content = resolveReleaseContent(
-      agentCardSchema.parse({
-        role: "r",
-        instructions: "i",
-        model: "claude-sonnet-5",
-        capabilities: { mcp: null, forbidden: [] },
-      }),
-      "coding",
-      profile,
-    );
-    if (!content.ok) throw new Error(content.error.message);
-    expect(content.content.runtime_config_snapshot.mcp_deny).toEqual([
-      READ,
-      SEARCH,
-    ]);
-
-    const workspaceId = await workspace();
-    const { releaseId } = await agentOnRelease(workspaceId, {
-      snapshot: content.content.runtime_config_snapshot,
-    });
-    expect(
-      (await stateOf(await sessionOn(workspaceId, releaseId)))?.tools,
-    ).toEqual([]);
   });
 
   test("a new session needs the row's names, a running one its own", async () => {

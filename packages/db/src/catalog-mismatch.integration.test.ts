@@ -670,7 +670,7 @@ integration("claim against a catalog that dropped the pair", () => {
       const writer = await pool.connect();
       try {
         await writer.query("BEGIN");
-        // As seeding several ceilings: one written, the generation held.
+        // As a settings import: one row written, the generation held.
         await writer.query(
           "INSERT INTO provider_connections (id, definition, credential_source, origin) VALUES ('in_flight', '{}', 'external', 'import')",
         );
