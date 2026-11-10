@@ -351,6 +351,7 @@ jobs:
               - packages/testkit/src/fake-anthropic.
               - packages/testkit/src/fake-git.
               - packages/testkit/src/fake-github.
+              - packages/testkit/src/fake-responses.
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/agent-sdk-compat/
