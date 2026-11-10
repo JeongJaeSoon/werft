@@ -95,6 +95,56 @@ describe("bounded span exporter", () => {
     expect(sent.reduce((a, b) => a + b, 0)).toBe(5);
   });
 
+  test("spans still waiting to be encoded count against the limit", async () => {
+    const delivered: number[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const exporter = createBoundedSpanExporter({
+      send: async (body) => {
+        await gate;
+        delivered.push(
+          JSON.parse(new TextDecoder().decode(body)).resourceSpans[0]
+            .scopeSpans[0].spans.length,
+        );
+      },
+      maxSpans: 10,
+      chunkBytes: 1,
+    });
+    const spans = await finishedSpans(20);
+    export_(exporter, spans.slice(0, 10));
+    // Let the encoder start; every span yields because the chunk size is 1.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    export_(exporter, spans.slice(10));
+    await Bun.sleep(20);
+
+    expect(exporter.dropped()).toBeGreaterThanOrEqual(9);
+    release();
+    await exporter.drained();
+    expect(exporter.dropped() + delivered.reduce((sum, n) => sum + n, 0)).toBe(
+      20,
+    );
+  });
+
+  test("with exportOnEnd every span the SDK finishes is counted, delivered or dropped", async () => {
+    const exporter = createBoundedSpanExporter({
+      send: () => new Promise<void>(() => {}),
+      maxSpans: 100,
+    });
+    const tracer = createOtelTracer({
+      ...settings,
+      exporter,
+      exportOnEnd: true,
+    });
+    for (let i = 0; i < 3000; i += 1) {
+      await tracer.withSpan("s", {}, async () => {});
+    }
+    await Bun.sleep(30);
+
+    expect(exporter.dropped()).toBe(2900);
+  });
+
   test("the byte limit evicts too", async () => {
     const exporter = createBoundedSpanExporter({
       maxBytes: 3000,

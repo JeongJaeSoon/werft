@@ -2497,12 +2497,15 @@ export class WorkerHost {
     return (async () => {
       try {
         for await (const event of run.events()) {
-          if (this.turn?.closed === false) this.turn.spans.onEvent(event);
+          // A late event of an earlier turn belongs to no turn, so it must not
+          // reach this turn's spans either.
+          const framed =
+            event.type === "public" ? this.frameTurn(event.inputs) : undefined;
+          if (this.turn?.closed === false && framed !== null) {
+            this.turn.spans.onEvent(event);
+          }
           if (event.type === "public") {
-            this.publisher?.publish(
-              [event.event],
-              this.frameTurn(event.inputs),
-            );
+            this.publisher?.publish([event.event], framed ?? null);
           } else if (event.type === "inputs.named") {
             this.frameTurn(event.inputs);
           } else if (event.type === "tool.called") {

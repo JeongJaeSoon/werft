@@ -17,6 +17,7 @@ import {
   type ReadableSpan,
   type Sampler,
   SamplingDecision,
+  SimpleSpanProcessor,
   type SpanExporter,
   TracerProvider,
 } from "@opentelemetry/sdk-trace";
@@ -47,6 +48,12 @@ export interface OtelTracerConfig
   readonly resourceAttributes?: Readonly<Record<string, string | number>>;
   /** Replaces the OTLP exporter; endpoint and headers are then unused. */
   readonly exporter?: SpanExporterLike;
+  /**
+   * Hands each finished span straight to `exporter` instead of buffering it in
+   * the SDK, whose full queue drops the newest span without counting it. Only
+   * for an exporter that bounds and counts its own queue.
+   */
+  readonly exportOnEnd?: boolean;
 }
 
 export type OtelTracer = Tracer & {
@@ -228,7 +235,11 @@ export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
     }),
     sampler: new TraceIdSampler(config.sampler.ratio),
     idGenerator,
-    spanProcessors: [new BatchSpanProcessor({ exporter })],
+    spanProcessors: [
+      config.exportOnEnd === true
+        ? new SimpleSpanProcessor({ exporter })
+        : new BatchSpanProcessor({ exporter }),
+    ],
   });
   const tracer = provider.getTracer("@werft-ai/observability");
 

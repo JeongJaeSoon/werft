@@ -12,7 +12,6 @@ import type { PendingDecided } from "../pending-requests.ts";
 import {
   type ContentMasker,
   type ContentPolicy,
-  contentText,
   setContentAttribute,
 } from "./content.ts";
 
@@ -114,6 +113,26 @@ export class SpanEmitter {
 interface Waiting {
   span: Span;
   kind: "permission" | "question";
+  toolCallId: string;
+}
+
+// The decision a person's answer makes for the tool span, in the audit list's
+// words. Calls nobody was asked about carry none: the worker cannot see why
+// the engine let them through.
+function approvalOutcome(decision: string): {
+  decision: "allow" | "deny";
+  basis: string;
+} {
+  switch (decision) {
+    case "allow":
+      return { decision: "allow", basis: "approval" };
+    case "deny":
+      return { decision: "deny", basis: "approval_denied" };
+    case "expired":
+      return { decision: "deny", basis: "approval_expired" };
+    default:
+      return { decision: "deny", basis: "approval_cancelled" };
+  }
 }
 
 class ActiveTurn implements TurnSpans {
@@ -142,11 +161,9 @@ class ActiveTurn implements TurnSpans {
   }
 
   input(message: string): void {
-    this.content(
-      this.root,
-      "gen_ai.input.messages",
-      JSON.stringify([{ role: "user", content: message }]),
-    );
+    this.content(this.root, "gen_ai.input.messages", [
+      { role: "user", content: message },
+    ]);
   }
 
   traceparent(): string {
@@ -174,7 +191,11 @@ class ActiveTurn implements TurnSpans {
           parent,
         );
         span.setAttribute("gen_ai.tool.call.id", request.toolCallId);
-        this.waits.set(request.localId, { span, kind: request.kind });
+        this.waits.set(request.localId, {
+          span,
+          kind: request.kind,
+          toolCallId: request.toolCallId,
+        });
         return;
       }
       case "approval.resolved": {
@@ -207,6 +228,14 @@ class ActiveTurn implements TurnSpans {
     );
     if (decided.answerSurface !== undefined) {
       wait.span.setAttribute("werft.answer_surface", decided.answerSurface);
+    }
+    if (wait.kind === "permission") {
+      const tool = this.tools.get(wait.toolCallId);
+      if (tool !== undefined) {
+        const outcome = approvalOutcome(decided.decision);
+        tool.setAttribute("werft.tool.decision", outcome.decision);
+        tool.setAttribute("werft.tool.decision_basis", outcome.basis);
+      }
     }
     wait.span.end(this.now());
   }
@@ -253,13 +282,9 @@ class ActiveTurn implements TurnSpans {
       );
     }
     if (this.answer.length > 0) {
-      this.content(
-        this.root,
-        "gen_ai.output.messages",
-        JSON.stringify([
-          { role: "assistant", content: this.answer.join("\n") },
-        ]),
-      );
+      this.content(this.root, "gen_ai.output.messages", [
+        { role: "assistant", content: this.answer.join("\n") },
+      ]);
     }
     this.usage(this.root, outcome.usage);
     const lost = this.options.dropped?.() ?? 0;
@@ -307,7 +332,7 @@ class ActiveTurn implements TurnSpans {
         this.content(
           span,
           "gen_ai.tool.call.result",
-          contentText(result?.text ?? data.content),
+          result?.text ?? data.content,
         );
         if (result?.is_error === true || data.is_error === true) {
           span.setError("tool reported an error");
@@ -330,7 +355,7 @@ class ActiveTurn implements TurnSpans {
       this.content(
         span,
         "gen_ai.tool.call.arguments",
-        contentText(this.toolInputs.get(toolCallId)),
+        this.toolInputs.get(toolCallId),
       );
       this.toolInputs.delete(toolCallId);
     }
@@ -351,7 +376,7 @@ class ActiveTurn implements TurnSpans {
     });
   }
 
-  private content(span: Span, key: string, value: string): void {
+  private content(span: Span, key: string, value: unknown): void {
     setContentAttribute(span, key, value, this.policy, this.options.masker);
   }
 

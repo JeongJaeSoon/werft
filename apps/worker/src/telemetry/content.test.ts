@@ -36,6 +36,32 @@ describe("setContentAttribute", () => {
     );
   });
 
+  test("masks the raw strings, so JSON escaping cannot hide a value from its pattern", () => {
+    const { span, attributes } = recordingSpan();
+    const tricky = 'plum"marker\\value';
+    const masker = { mask: (text: string) => text.replaceAll(tricky, "***") };
+
+    setContentAttribute(
+      span,
+      "k",
+      [
+        {
+          role: "user",
+          content: `say ${tricky}`,
+          args: { [tricky]: [tricky] },
+        },
+      ],
+      { mode: "full", maxBytes: 1_000 },
+      masker,
+    );
+
+    const text = String(attributes.k);
+    expect(text).not.toContain("plum");
+    expect(JSON.parse(text)).toEqual([
+      { role: "user", content: "say ***", args: { "***": ["***"] } },
+    ]);
+  });
+
   test("sets nothing in metadata mode", () => {
     const { span, attributes } = recordingSpan();
     setContentAttribute(

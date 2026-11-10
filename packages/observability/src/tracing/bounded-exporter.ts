@@ -33,15 +33,37 @@ export function createBoundedSpanExporter(
   const maxSpans = options.maxSpans ?? DEFAULT_QUEUE_MAX_SPANS;
   const maxBytes = options.maxBytes ?? DEFAULT_QUEUE_MAX_BYTES;
   const chunkBytes = options.chunkBytes ?? SERIALIZE_CHUNK_BYTES;
+  // Spans not yet encoded, then encoded chunks not yet sent. Together with the
+  // group being encoded they are what `maxSpans` bounds.
+  const pending: ReadableSpan[] = [];
   const queue: Chunk[] = [];
+  let group: ReadableSpan[] = [];
   let queuedSpans = 0;
   let queuedBytes = 0;
   let dropped = 0;
-  let encoding: Promise<void> = Promise.resolve();
+  let encoding = false;
+  let encoder: Promise<void> = Promise.resolve();
   let draining: Promise<void> | undefined;
 
   const serialize = (spans: ReadableSpan[]): Uint8Array | undefined =>
     JsonTraceSerializer.serializeRequest(spans);
+
+  const held = (): number => queuedSpans + pending.length + group.length;
+
+  function evictOldest(): boolean {
+    const oldest = queue.shift();
+    if (oldest !== undefined) {
+      queuedSpans -= oldest.spans;
+      queuedBytes -= oldest.body.byteLength;
+      dropped += oldest.spans;
+      return true;
+    }
+    if (pending.shift() !== undefined) {
+      dropped += 1;
+      return true;
+    }
+    return false;
+  }
 
   function enqueue(chunk: Chunk): void {
     if (chunk.spans > maxSpans || chunk.body.byteLength > maxBytes) {
@@ -50,49 +72,64 @@ export function createBoundedSpanExporter(
     }
     while (
       queue.length > 0 &&
-      (queuedSpans + chunk.spans > maxSpans ||
+      (held() + chunk.spans > maxSpans ||
         queuedBytes + chunk.body.byteLength > maxBytes)
     ) {
-      const oldest = queue.shift() as Chunk;
-      queuedSpans -= oldest.spans;
-      queuedBytes -= oldest.body.byteLength;
-      dropped += oldest.spans;
+      evictOldest();
     }
     queue.push(chunk);
     queuedSpans += chunk.spans;
     queuedBytes += chunk.body.byteLength;
   }
 
-  async function encode(spans: ReadableSpan[]): Promise<void> {
-    let group: ReadableSpan[] = [];
-    let size = 0;
-    const flushGroup = (): void => {
-      if (group.length === 0) return;
-      const body = serialize(group);
-      if (body === undefined) dropped += group.length;
-      else enqueue({ body, spans: group.length });
-      group = [];
-      size = 0;
-    };
-    for (const span of spans) {
-      const single = serialize([span]);
-      if (single === undefined) {
-        dropped += 1;
-        continue;
-      }
-      if (group.length > 0 && size + single.byteLength > chunkBytes) {
-        flushGroup();
-        await yieldToEventLoop();
-      }
-      group.push(span);
-      size += single.byteLength;
+  function flushGroup(): void {
+    if (group.length === 0) return;
+    const spans = group;
+    group = [];
+    let body: Uint8Array | undefined;
+    try {
+      body = serialize(spans);
+    } catch {
+      body = undefined;
     }
-    flushGroup();
+    if (body === undefined) dropped += spans.length;
+    else enqueue({ body, spans: spans.length });
+  }
+
+  async function encodePending(): Promise<void> {
+    let size = 0;
+    try {
+      // Spans that end in the same tick leave in one request.
+      await yieldToEventLoop();
+      while (pending.length > 0) {
+        const span = pending.shift() as ReadableSpan;
+        let single: Uint8Array | undefined;
+        try {
+          single = serialize([span]);
+        } catch {
+          single = undefined;
+        }
+        if (single === undefined) {
+          dropped += 1;
+          continue;
+        }
+        if (group.length > 0 && size + single.byteLength > chunkBytes) {
+          flushGroup();
+          size = 0;
+          await yieldToEventLoop();
+        }
+        group.push(span);
+        size += single.byteLength;
+      }
+      flushGroup();
+    } finally {
+      encoding = false;
+    }
   }
 
   async function drain(): Promise<void> {
     for (;;) {
-      await encoding;
+      await encoder;
       const next = queue.shift();
       if (next === undefined) return;
       queuedSpans -= next.spans;
@@ -115,7 +152,7 @@ export function createBoundedSpanExporter(
 
   async function drained(): Promise<void> {
     for (;;) {
-      await encoding;
+      await encoder;
       if (draining === undefined && queue.length === 0) return;
       await draining;
     }
@@ -124,12 +161,13 @@ export function createBoundedSpanExporter(
   return {
     export(spans, resultCallback) {
       resultCallback({ code: 0 });
-      const batch = [...spans];
-      encoding = encoding
-        .then(() => encode(batch))
-        .catch(() => {
-          dropped += batch.length;
-        });
+      pending.push(...spans);
+      // Spans not yet encoded count too, or a stalled sender lets them pile up.
+      while (held() > maxSpans && evictOldest()) {}
+      if (!encoding && pending.length > 0) {
+        encoding = true;
+        encoder = encodePending();
+      }
       kick();
     },
     forceFlush: drained,

@@ -81,6 +81,7 @@ export function createIngestTelemetry(
       headers: {},
       tenantHeaders: () => ({}),
       exporter,
+      exportOnEnd: true,
       resourceAttributes: {
         "werft.execution_id": execution.id,
         "werft.attempt_id": claim.attempt_id,

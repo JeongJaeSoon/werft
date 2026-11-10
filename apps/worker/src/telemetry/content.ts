@@ -29,26 +29,45 @@ export function truncateUtf8(
   };
 }
 
+function maskLeaves(value: unknown, masker: ContentMasker): unknown {
+  if (typeof value === "string") return masker.mask(value);
+  if (Array.isArray(value))
+    return value.map((item) => maskLeaves(item, masker));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([name, item]) => [
+        masker.mask(name),
+        maskLeaves(item, masker),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
+ * Text for an attribute, masked on the raw strings: JSON escaping a quote or a
+ * backslash would otherwise hide a secret from its pattern.
+ */
+export function maskedText(value: unknown, masker: ContentMasker): string {
+  if (typeof value === "string") return masker.mask(value);
+  try {
+    return JSON.stringify(maskLeaves(value, masker)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 // Mask before cutting: a secret cut in half would escape its pattern.
 export function setContentAttribute(
   span: Span,
   key: string,
-  value: string,
+  value: unknown,
   policy: ContentPolicy,
   masker: ContentMasker,
 ): void {
   if (policy.mode !== "full") return;
-  const cut = truncateUtf8(masker.mask(value), policy.maxBytes);
+  const cut = truncateUtf8(maskedText(value, masker), policy.maxBytes);
   span.setAttribute(key, cut.text);
   if (cut.truncated)
     span.setAttribute(`werft.truncated.${key}`, cut.originalBytes);
-}
-
-export function contentText(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return "";
-  }
 }

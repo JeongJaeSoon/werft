@@ -274,12 +274,48 @@ describe("WorkerHost spans", () => {
       "werft.answer_surface": "slack",
       "werft.pending_request_id": requestId,
     });
+    expect(tool.attributes).toMatchObject({
+      "werft.tool.decision": "allow",
+      "werft.tool.decision_basis": "approval",
+    });
     expect(root.attributes["werft.attempt_id"]).toBe("att_fake");
     expect(root.resource).toMatchObject({
       "werft.execution_id": "exec-1",
       "werft.attempt_id": "att_fake",
       "werft.execution_generation": 1,
     });
+  });
+
+  test("a late event for another input never reaches this turn's spans", async () => {
+    const run = new ScriptedRun();
+    const { factory, finished } = recording();
+    const { gateway, worker } = build(run, ON, factory);
+    run.onSend = (sent) => {
+      const other = { uuid: "earlier-input" } as AgentInput;
+      run.push(
+        publicEvent(
+          "late",
+          "assistant",
+          { type: "assistant", text: "from the earlier turn" },
+          other,
+        ),
+        publicEvent(
+          "own",
+          "assistant",
+          { type: "assistant", text: "from this turn" },
+          sent,
+        ),
+        ended(sent),
+      );
+    };
+    gateway.enqueue("hi");
+    await worker.runLoop();
+    await Bun.sleep(20);
+
+    const root = named(finished, "werft.turn")[0] as Finished;
+    const output = String(root.attributes["gen_ai.output.messages"]);
+    expect(output).toContain("from this turn");
+    expect(output).not.toContain("from the earlier turn");
   });
 
   test("a claim without telemetry builds nothing and sends no traceparent", async () => {
