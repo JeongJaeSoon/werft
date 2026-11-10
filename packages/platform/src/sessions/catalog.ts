@@ -163,6 +163,14 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
       billing: billingSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("openai_responses"),
+      endpoint: webUrl,
+      auth: credentialRef(z.literal("api_key")),
+      billing: billingSchema,
+    })
+    .strict(),
 ]);
 
 export const catalogConnectionsSchema = z.record(
@@ -178,7 +186,10 @@ export const catalogConnectionsSchema = z.record(
  */
 export const CONNECTION_ENDPOINT_DEFAULTS: Readonly<
   Partial<Record<z.infer<typeof catalogProviderSchema>["kind"], string>>
-> = { anthropic: "https://api.anthropic.com" };
+> = {
+  anthropic: "https://api.anthropic.com",
+  openai_responses: "https://api.openai.com",
+};
 
 const PRIVATE_NAME_SUFFIXES = [
   ".internal",
@@ -559,6 +570,12 @@ export type CatalogProfile = {
           value: string;
           ref: CredentialRef;
         };
+      }
+    | {
+        kind: "openai_responses";
+        endpoint: string;
+        auth: { kind: "api_key"; value: string; ref: CredentialRef };
+        billing?: "none" | undefined;
       };
 };
 

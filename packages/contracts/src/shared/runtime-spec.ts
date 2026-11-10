@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { providerKindSchema } from "./provider-kind.ts";
 import { runtimeKindSchema } from "./runtime-kind.ts";
 
 // What a release runs as, with no runtime profile in the way. A release holds
@@ -68,7 +69,7 @@ const runtimeSchema = z
 const connectionSchema = z
   .object({
     id: nonEmpty,
-    kind: z.enum(["anthropic", "litellm"]),
+    kind: providerKindSchema,
     endpoint: endpointSchema,
     billing: z.enum(["per_token", "none"]),
   })

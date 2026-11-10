@@ -17,6 +17,45 @@ const bundle = {
   scope: "agent",
 } as const;
 
+describe("runtime_config.provider", () => {
+  const withProvider = (provider: Record<string, unknown>) => ({
+    ...base,
+    provider,
+  });
+  const auth = { kind: "egress_token", token: "t" };
+
+  test("openai_responses parses with an egress token, and keeps the earlier kinds", () => {
+    for (const kind of ["anthropic", "litellm", "openai_responses"]) {
+      expect(
+        runtimeConfigSchema.safeParse(
+          withProvider({ kind, endpoint: "https://x.invalid", auth }),
+        ).success,
+      ).toBe(true);
+    }
+  });
+
+  test("an unknown kind, a stray key and a held credential are refused", () => {
+    for (const provider of [
+      { kind: "openai", endpoint: "https://x.invalid", auth },
+      {
+        kind: "openai_responses",
+        endpoint: "https://x.invalid",
+        auth,
+        key: "k",
+      },
+      {
+        kind: "openai_responses",
+        endpoint: "https://x.invalid",
+        auth: { kind: "api_key", value: "k" },
+      },
+    ]) {
+      expect(
+        runtimeConfigSchema.safeParse(withProvider(provider)).success,
+      ).toBe(false);
+    }
+  });
+});
+
 describe("runtime_config.extensions", () => {
   test("a config without the field parses and stays without it", () => {
     const parsed = runtimeConfigSchema.parse(base);

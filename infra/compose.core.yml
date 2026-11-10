@@ -175,7 +175,7 @@ services:
       # The four package hosts are the packages route's public registries
       # (npm, RubyGems, the Go module proxy and its checksum database);
       # dropping one closes that registry for every session.
-      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
+      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
       # Hosts the packages route follows a registry's redirect to. None of
       # today's public registries redirects.
       EGRESS_PACKAGES_REDIRECT_ALLOWLIST: ${EGRESS_PACKAGES_REDIRECT_ALLOWLIST:-}
@@ -287,7 +287,7 @@ services:
       # The egress proxy's credential lists, the same defaults: the console
       # warns when a connection's endpoint is on neither. Only a warning;
       # the proxy is what refuses.
-      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
+      EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.

@@ -181,6 +181,26 @@ describe("parseSettingsDocument", () => {
     ).toThrow(SettingsDocumentError);
   });
 
+  test("an openai_responses entry takes OpenAI's address, an api_key and no bearer", () => {
+    const entry = (auth: Record<string, unknown>) => ({
+      version: 1,
+      connections: { c: { kind: "openai_responses", auth } },
+    });
+    const entries = parseSettingsDocument(
+      entry({ kind: "api_key", value_env: "OPENAI_API_KEY" }),
+    );
+    expect(entries.connections.c).toMatchObject({
+      kind: "openai_responses",
+      endpoint: "https://api.openai.com",
+    });
+    expect(
+      parseSettingsDocument(settingsDocumentOf(entries)).connections,
+    ).toEqual(entries.connections);
+    expect(() =>
+      parseSettingsDocument(entry({ kind: "bearer", value_env: "K" })),
+    ).toThrow(SettingsDocumentError);
+  });
+
   test("an export without a stored value's last4 still holds no value", () => {
     const text = JSON.stringify(
       settingsDocumentOf(parseSettingsDocument(DOCUMENT)),
