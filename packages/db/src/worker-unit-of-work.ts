@@ -2862,6 +2862,7 @@ export function createPostgresWorkerUnitOfWork(
             message: followUpFact(turn.message),
             deliveryStartedAt,
             actorId: turn.actorId,
+            traceContext: turn.traceContext,
           },
         };
       });
