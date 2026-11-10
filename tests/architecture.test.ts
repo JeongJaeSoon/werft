@@ -3111,11 +3111,11 @@ describe("architecture", () => {
   });
 
   test("R6 already holds for the two view-model files that move into surface/", async () => {
-    const api = join(contractsSrc(root), "api");
+    const surface = join(contractsSrc(root), "surface");
     expect(
       await impurities(root, [
-        join(api, "present-turn-event.ts"),
-        join(api, "present-action.ts"),
+        join(surface, "present-turn-event.ts"),
+        join(surface, "present-action.ts"),
       ]),
     ).toEqual([]);
   });
