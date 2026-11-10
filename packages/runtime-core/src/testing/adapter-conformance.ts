@@ -42,14 +42,24 @@ export type AdapterConformanceHarness = {
    *   engine   the engine's permission stage judged it, as for any tool
    *   refused  the adapter refused it before running
    * `admission: "fails"` is a host whose checkpoint admission guard throws.
+   *
+   * An engine whose descriptor declares no MCP leaves this out and supplies
+   * `mcpBundle` instead: a harness that returned fixed answers here would
+   * pass without the engine having anything to judge.
    */
-  toolJudgment(call: {
+  toolJudgment?(call: {
     allowlist: readonly string[];
     trusted: readonly string[];
     tool: string;
     permissionMode: PermissionMode;
     admission: "ok" | "fails";
   }): Promise<"skipped" | "engine" | "refused">;
+  /**
+   * For an engine without MCP: starts a run whose bundle names an MCP server
+   * and says whether the adapter `refused` it before the engine ran or let
+   * the run `started` (the server's tools would then run unjudged).
+   */
+  mcpBundle?(): Promise<"refused" | "started">;
 };
 
 export type AdapterConformanceItem = {
@@ -123,16 +133,28 @@ export const ADAPTER_CONFORMANCE: readonly AdapterConformanceItem[] = [
     },
   },
   {
-    name: "3. a trusted tool of a platform server runs with no judgment of the engine's, after the allowlist and the admission guard; every other tool goes through the permission stage",
+    name: "3. a trusted tool of a platform server runs with no judgment of the engine's, after the allowlist and the admission guard; every other tool goes through the permission stage (an engine without MCP refuses the bundle before it starts)",
     async check(harness) {
+      const { toolJudgment } = harness;
+      if (toolJudgment === undefined) {
+        if (harness.mcpBundle === undefined) {
+          throw new Error(
+            "A harness without toolJudgment has to show how its engine refuses an MCP bundle (mcpBundle)",
+          );
+        }
+        deepStrictEqual(await harness.mcpBundle(), "refused");
+        return;
+      }
       const trusted = "mcp__github__request_push";
       const other = "mcp__github__submit_review";
       const allowlist = ["Bash", trusted, other];
       const judged = async (
         tool: string,
-        over: Partial<Parameters<AdapterConformanceHarness["toolJudgment"]>[0]>,
+        over: Partial<
+          Parameters<NonNullable<AdapterConformanceHarness["toolJudgment"]>>[0]
+        >,
       ) =>
-        harness.toolJudgment({
+        toolJudgment.call(harness, {
           allowlist,
           trusted: [trusted],
           tool,

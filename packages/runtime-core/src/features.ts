@@ -36,7 +36,12 @@ export function featureSupport(
     case "session_resume":
       return table.resume && table.checkpoint ? "native" : "none";
     case "approval_park":
-      return table.interrupt && table.checkpoint && table.resume
+      // Parking cuts the turn at an approval and resumes it from a
+      // checkpoint taken there, so the engine has to offer that checkpoint.
+      return table.interrupt &&
+        table.checkpoint &&
+        table.approvalCheckpoint &&
+        table.resume
         ? "native"
         : "none";
     case "classifier_review":
