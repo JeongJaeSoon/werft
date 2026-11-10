@@ -28,6 +28,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import {
+  effectiveToolsSchema,
   MAX_RESTORE_PROFILES,
   type PlatformPrompt,
   type RuntimeConfig,
@@ -307,7 +308,8 @@ export type SessionRow = {
   release_github: boolean | null;
   release_id: string | null;
   release_tools: unknown;
-  // sessions.runtime_tools_source and the release's effective_tools.tools.
+  // sessions.runtime_tools_source and the release's whole effective_tools
+  // value, which the claim judges as one (unreadable allows no tool).
   tools_source?: unknown;
   release_effective_tools?: unknown;
   repo_url: string | null;
@@ -337,12 +339,8 @@ export function claimedSessionOf(
     effectiveTools:
       row.release_id === null || row.tools_source !== "release"
         ? null
-        : Array.isArray(row.release_effective_tools) &&
-            row.release_effective_tools.every(
-              (tool) => typeof tool === "string",
-            )
-          ? (row.release_effective_tools as string[])
-          : [],
+        : (effectiveToolsSchema.safeParse(row.release_effective_tools).data
+            ?.tools ?? []),
     // Counted as attached whenever pinned, unreadable or not: one config too
     // many only makes the count stricter.
     githubAttached: row.release_github === true,

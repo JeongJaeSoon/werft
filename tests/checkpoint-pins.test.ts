@@ -1534,7 +1534,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       release_github: false,
       release_id: "rel-1",
       release_tools: ["Read", "Grep"],
-      release_effective_tools: effectiveTools,
+      release_effective_tools: { tools: effectiveTools, mcp: [] },
       repo_url: null,
       repository_id: null,
       repository_mode: "repository" as const,
@@ -1553,6 +1553,55 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         release_effective_tools: "garbled",
       }).effectiveTools,
     ).toEqual([]);
+    // The claim reads the whole value, so a half-readable one allows nothing.
+    expect(
+      claimedSessionOf({
+        ...row,
+        tools_source: "release",
+        release_effective_tools: { tools: ["Read"], mcp: "unreadable" },
+      }).effectiveTools,
+    ).toEqual([]);
+
+    // A checkpoint sealed under the effective list resumes with no alternate;
+    // one sealed under the profile's list resumes through the profile config.
+    const runClaim = sessionClaim(session, resolved);
+    const [[ownKey, profileClaim]] = restoreClaims(session, [], resolved);
+    for (const [sealedClaim, alternatesNeeded] of [
+      [runClaim, false],
+      [profileClaim, true],
+    ] as const) {
+      const objects = createMemoryCheckpointObjectStore({ versioned: true });
+      const seeded = await seed(
+        objects,
+        [],
+        undefined,
+        imageClaimFingerprint(sealedClaim).profileSha256,
+      );
+      const { sessionId } = seeded.row;
+      const pointer = pointerOf({
+        ...seeded.row,
+        manifestVersion: seeded.row.manifestVersion as string,
+      });
+      const image = imageOf({
+        [sessionId]: runClaim,
+        [ownKey]: profileClaim,
+      });
+      const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
+      expect(
+        (await restorePlan(objects, pointer, seeded, runtime)).status,
+      ).toBe(alternatesNeeded ? "incompatible" : "ready");
+      expect(
+        (
+          await restorePlan(
+            objects,
+            pointer,
+            seeded,
+            runtime,
+            alternateDigests(image, [ownKey]),
+          )
+        ).status,
+      ).toBe("ready");
+    }
   });
 
   test("earlier profiles are offered as the gateway's claim offers them", async () => {
