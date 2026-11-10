@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import ts from "typescript";
 
 // Every function that writes a table the profile freeze covers must take the
 // freeze barrier before the write, in its own transaction. This guard reads
 // the source, so a writer added later cannot slip past the freeze unnoticed.
 
-const SRC = import.meta.dir;
+const ROOT = join(import.meta.dir, "../../..");
 
 const FROZEN_TABLES = [
   "agent_releases",
@@ -44,20 +44,22 @@ const TOOL_UNLOCK_IN_5B2 =
   "called by control-host with the plain db handle; wired with its caller (PR 5b-2)";
 
 export const NOT_YET_WIRED: Record<string, string> = {
-  "profile-rollouts.ts::resolveFailedItems": CALLER_TAKES_BARRIER,
-  "profile-rollouts.ts::writeProfileRollout": CALLER_TAKES_BARRIER,
-  "profile-rollouts.ts::createPostgresProfileRolloutStore > claim":
+  "packages/db/src/profile-rollouts.ts::resolveFailedItems":
+    CALLER_TAKES_BARRIER,
+  "packages/db/src/profile-rollouts.ts::writeProfileRollout":
+    CALLER_TAKES_BARRIER,
+  "packages/db/src/profile-rollouts.ts::createPostgresProfileRolloutStore > claim":
     RUNNER_WIRED_IN_5B2,
-  "profile-rollouts.ts::createPostgresProfileRolloutStore > settle":
+  "packages/db/src/profile-rollouts.ts::createPostgresProfileRolloutStore > settle":
     RUNNER_WIRED_IN_5B2,
-  "profile-rollouts.ts::createPostgresProfileRolloutStore > abandon":
+  "packages/db/src/profile-rollouts.ts::createPostgresProfileRolloutStore > abandon":
     RUNNER_WIRED_IN_5B2,
-  "profile-rollouts.ts::createPostgresProfileRolloutStore > retry":
+  "packages/db/src/profile-rollouts.ts::createPostgresProfileRolloutStore > retry":
     RUNNER_WIRED_IN_5B2,
-  "profile-rollouts.ts::createPostgresProfileRolloutStore > retryFailed":
+  "packages/db/src/profile-rollouts.ts::createPostgresProfileRolloutStore > retryFailed":
     RUNNER_WIRED_IN_5B2,
-  "tool-unlock.ts::openToolUnlockRollout": TOOL_UNLOCK_IN_5B2,
-  "tool-unlock.ts::recordToolUnlockItem": TOOL_UNLOCK_IN_5B2,
+  "packages/db/src/tool-unlock.ts::openToolUnlockRollout": TOOL_UNLOCK_IN_5B2,
+  "packages/db/src/tool-unlock.ts::recordToolUnlockItem": TOOL_UNLOCK_IN_5B2,
 };
 
 const SQL_WRITE = new RegExp(
@@ -65,9 +67,25 @@ const SQL_WRITE = new RegExp(
   "i",
 );
 
+// Every production source file of the workspace, as a path from its root: a
+// writer added outside packages/db would otherwise go unseen.
+const SKIPPED_DIRS = new Set(["node_modules", "dist", "migrations", "bench"]);
+
+const walk = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return SKIPPED_DIRS.has(entry.name) ? [] : walk(path);
+    }
+    const production =
+      /\.tsx?$/.test(entry.name) && !/\.(test|d)\.tsx?$/.test(entry.name);
+    return production ? [path] : [];
+  });
+
 const sourceFiles = (): string[] =>
-  readdirSync(SRC)
-    .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+  ["packages", "apps"]
+    .flatMap((top) => walk(join(ROOT, top)))
+    .map((path) => relative(ROOT, path))
     .sort();
 
 type Write = { file: string; fn: string; line: number; guarded: boolean };
@@ -186,7 +204,7 @@ export const writesIn = (file: string, text: string): Write[] => {
 
 const allWrites = (): Write[] =>
   sourceFiles().flatMap((file) =>
-    writesIn(file, readFileSync(join(SRC, file), "utf8")),
+    writesIn(file, readFileSync(join(ROOT, file), "utf8")),
   );
 
 describe("profile freeze source guard", () => {
