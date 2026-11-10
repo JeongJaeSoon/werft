@@ -1,0 +1,11 @@
+# Overlay for tests/e2e/run.sh --conformance <runtime_kind>, after the e2e
+# overlay and before the engine's own. Paths are relative to infra/.
+#
+# A pending approval expires after PENDING_REQUEST_TTL_SEC (30 minutes by
+# default), too long to wait for in a scenario. The scenarios answer an
+# approval within seconds, so 90 seconds leaves them room and lets the expiry
+# scenario end in about a minute and a half.
+services:
+  api:
+    environment:
+      PENDING_REQUEST_TTL_SEC: "90"
