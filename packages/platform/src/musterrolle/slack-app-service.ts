@@ -30,7 +30,7 @@ import {
   SlackApiError,
   type SlackConfigApi,
 } from "./slack-config-api.ts";
-import type { SlackConfigTokens } from "./slack-config-token.ts";
+import { type SlackConfigTokens, slackLacksApp } from "./slack-config-token.ts";
 import { slackEventsUrl } from "./slack-events-finalize.ts";
 import {
   type AgentAppManifestInput,
@@ -493,7 +493,18 @@ export function createSlackAppService(deps: {
         );
       } catch (error) {
         if (!(error instanceof SlackApiError)) throw error;
-        if (!(error.answered && SLACK_APP_GONE_CODES.has(error.code))) {
+        const gone =
+          error.answered &&
+          (SLACK_APP_GONE_CODES.has(error.code) ||
+            // Slack answers delete for an app removed in its own UI with
+            // no_permission, which a foreign app gets too: export decides.
+            (error.code === "no_permission" &&
+              begun.app.createdByTokenUser !== null &&
+              (await slackLacksApp(api, tokens, workspaceId, {
+                appId,
+                maker: begun.app.createdByTokenUser,
+              }))));
+        if (!gone) {
           throw error.answered
             ? refuse(error)
             : answerLost("apps.manifest.delete");
