@@ -86,13 +86,24 @@ export function describeChannelJoinableContract(
       });
     });
 
-    test("the DM row, a binding that is off, no credential and a silent provider are null, with nothing recorded", async () => {
+    test("the DM row and a binding that are off are null, with nothing recorded", async () => {
       const subject = await make();
       expect(await subject.join(subject.dmBinding())).toBeNull();
       expect(await subject.join(subject.offBinding())).toBeNull();
-      subject.goSilent();
-      expect(await subject.join(subject.binding("public_bot_out"))).toBeNull();
+      expect(subject.recorded()).toEqual([]);
+    });
+
+    test("no credential is null, with nothing recorded and no join asked", async () => {
+      const subject = await make();
       subject.withoutToken();
+      expect(await subject.join(subject.binding("public_bot_out"))).toBeNull();
+      expect(subject.joinsMade()).toBe(0);
+      expect(subject.recorded()).toEqual([]);
+    });
+
+    test("a silent provider is null, with nothing recorded", async () => {
+      const subject = await make();
+      subject.goSilent();
       expect(await subject.join(subject.binding("public_bot_out"))).toBeNull();
       expect(subject.recorded()).toEqual([]);
     });

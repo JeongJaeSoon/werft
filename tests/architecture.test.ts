@@ -3607,8 +3607,20 @@ describe("architecture", () => {
     const directories = [...(await workspacePackages()), join(root, "tests")];
     const offenders: string[] = [];
     for (const directory of directories) {
-      for (const file of await typescriptFiles(directory, () => true)) {
-        if (file.includes(`${sep}dist${sep}`)) continue;
+      const entries = await readdir(directory, {
+        recursive: true,
+        withFileTypes: true,
+      });
+      const files = entries
+        .filter(
+          (entry) =>
+            entry.isFile() &&
+            /\.tsx?$/.test(entry.name) &&
+            !entry.parentPath.includes(`${sep}node_modules`) &&
+            !entry.parentPath.includes(`${sep}dist`),
+        )
+        .map((entry) => join(entry.parentPath, entry.name));
+      for (const file of files) {
         for (const line of contractsModuleDeclarations(await parse(file))) {
           offenders.push(`${slashed(relative(root, file))}:${line}`);
         }

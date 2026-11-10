@@ -102,7 +102,7 @@ export function describeDeliveryContract(
       expect(await deliver(inputOf(subject.row(kind), 1))).toEqual({
         kind: "retry",
         code: "ratelimited",
-        retryAfterMs: expect.any(Number),
+        retryAfterMs: 7000,
       });
     });
 
