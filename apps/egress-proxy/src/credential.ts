@@ -182,7 +182,43 @@ function unmeterableResponsesRequest(body: Uint8Array): string | null {
   ) {
     return "a stored response or conversation is not carried by the request";
   }
+  if (carriesRemoteInput(request.input, 0)) {
+    return "a file or image the request only names is not carried by it";
+  }
   return null;
+}
+
+// Deep enough for `input` items holding `content` parts, no deeper.
+const REMOTE_INPUT_DEPTH = 6;
+
+/**
+ * Whether an input part names a file or image the upstream would fetch (by
+ * id or URL) instead of carrying it: its size is not in the request bytes.
+ * Inline `data:` images and `file_data` are carried, and so are fine.
+ */
+function carriesRemoteInput(value: unknown, depth: number): boolean {
+  if (
+    depth > REMOTE_INPUT_DEPTH ||
+    typeof value !== "object" ||
+    value === null
+  ) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some((part) => carriesRemoteInput(part, depth + 1));
+  }
+  const part = value as Record<string, unknown>;
+  if (part.type === "input_file") {
+    return (part.file_id ?? null) !== null || (part.file_url ?? null) !== null;
+  }
+  if (part.type === "input_image") {
+    return (
+      (part.file_id ?? null) !== null ||
+      (typeof part.image_url === "string" &&
+        !part.image_url.startsWith("data:"))
+    );
+  }
+  return carriesRemoteInput(part.content, depth + 1);
 }
 const PROVIDER_PATHS = new Set([
   "/v1/messages",
@@ -1743,6 +1779,7 @@ export function startCredentialProxy(
     }
     const meter = usageMeter(response.headers.get("content-type"), {
       requestModel: route.purpose === "judgment",
+      responses: route.purpose === "provider" && route.path === RESPONSES_PATH,
     });
     const exchangeId = crypto.randomUUID();
     return new Response(

@@ -521,6 +521,22 @@ describe("usageMeter on a Responses answer", () => {
     });
   });
 
+  test("a Responses call with no usage and no output cap is charged the allowance, however little arrived", () => {
+    const uncapped = encoder.encode(JSON.stringify({ model: "gpt-5.5" }));
+    const noEvent = usageMeter("text/event-stream", { responses: true });
+    expect(noEvent.result(uncapped)).toMatchObject({
+      output_tokens: 32_768,
+      estimated: true,
+    });
+    const noUsage = usageMeter("application/json", { responses: true });
+    noUsage.observe(encoder.encode('{"error":{}}'));
+    expect(noUsage.result(uncapped)).toMatchObject({ output_tokens: 32_768 });
+    // A Messages call is not given the allowance: it must set its own cap.
+    expect(usageMeter("application/json").result(uncapped)).toMatchObject({
+      output_tokens: 0,
+    });
+  });
+
   test("a stream cut before response.completed is charged what the request allowed", () => {
     const stream = sse([
       { type: "response.created", response: { model: "gpt-5.5" } },

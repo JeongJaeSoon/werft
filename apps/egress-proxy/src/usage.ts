@@ -265,13 +265,19 @@ function usageOf(
 }
 
 /** A call charged from its request alone: see the module comment. */
-export function requestEstimate(request: Uint8Array | null): MessagesUsage {
+export function requestEstimate(
+  request: Uint8Array | null,
+  responses = false,
+): MessagesUsage {
   const { model, maxTokens, speed, inferenceGeo } = requested(request);
   return usageOf(
     model,
     {
       input_tokens: request?.byteLength ?? 0,
-      output_tokens: maxTokens,
+      // A Messages request must set its cap; a Responses request may not, and
+      // then bills whatever the model reasoned.
+      output_tokens:
+        maxTokens === 0 && responses ? UNCAPPED_OUTPUT_ALLOWANCE : maxTokens,
       speed,
       inferenceGeo,
     },
@@ -293,7 +299,7 @@ export type UsageMeter = {
  */
 export function usageMeter(
   contentType: string | null,
-  options: { requestModel?: boolean } = {},
+  options: { requestModel?: boolean; responses?: boolean } = {},
 ): UsageMeter {
   const decoder = new TextDecoder();
   if ((contentType ?? "").toLowerCase().startsWith("text/event-stream")) {
@@ -304,7 +310,7 @@ export function usageMeter(
     let searched = 0;
     // A Responses stream states its usage only in the last event, so one cut
     // short has no count to start from.
-    let responses = false;
+    let responses = options.responses === true;
     let line = "";
     let skipping = false;
     const event = (data: string) => {
@@ -427,11 +433,11 @@ export function usageMeter(
         }
       },
       result(request) {
-        if (model === undefined) return requestEstimate(request);
+        if (model === undefined) return requestEstimate(request, responses);
         if (stopped) return usageOf(model, counts, false, request);
         // Hidden reasoning is billed as output yet never delivered, so a cut
         // Responses stream is charged what the request allowed.
-        const allowed = responses ? requestEstimate(request) : undefined;
+        const allowed = responses ? requestEstimate(request, true) : undefined;
         return usageOf(
           model,
           {
@@ -445,11 +451,7 @@ export function usageMeter(
             output_tokens: Math.max(
               counts.output_tokens ?? 0,
               delivered,
-              allowed === undefined
-                ? 0
-                : allowed.output_tokens > 0
-                  ? allowed.output_tokens
-                  : UNCAPPED_OUTPUT_ALLOWANCE,
+              allowed?.output_tokens ?? 0,
             ),
             web_search_requests: Math.max(
               counts.web_search_requests ?? 0,
@@ -493,7 +495,7 @@ export function usageMeter(
           }
         } catch {}
       }
-      return requestEstimate(request);
+      return requestEstimate(request, options.responses === true);
     },
   };
 }

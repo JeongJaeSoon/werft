@@ -767,6 +767,35 @@ describe("startCredentialProxy", () => {
       expect(plain.status).toBe(200);
     });
 
+    test("a file or image the request only names is refused, one it carries is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const message = (...content: unknown[]) =>
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ role: "user", content }],
+        });
+      for (const body of [
+        message({ type: "input_file", file_url: "https://x.test/a.pdf" }),
+        message({ type: "input_file", file_id: "file_1" }),
+        message({ type: "input_image", image_url: "https://x.test/a.png" }),
+        message({ type: "input_image", file_id: "file_2" }),
+      ]) {
+        expect((await responses(server.port, { body })).status).toBe(400);
+      }
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const carried = await responses(server.port, {
+        body: message(
+          { type: "input_text", text: "hi" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+          { type: "input_file", filename: "a.txt", file_data: "AAAA" },
+        ),
+      });
+      expect(carried.status).toBe(200);
+    });
+
     test("a request that continues a stored response or conversation is refused, a null one is not", async () => {
       const up = upstream(() => Response.json({ id: "resp_1" }));
       const auth = authorizer(bearerKey(up));
