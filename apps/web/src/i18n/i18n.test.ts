@@ -29,6 +29,11 @@ import { apiKeysEn, apiKeysJa, apiKeysKo } from "./api-keys.ts";
 import { authEn, authJa, authKo } from "./auth.ts";
 import { commonEn, commonJa, commonKo } from "./common.ts";
 import { en, slackEn } from "./en.ts";
+import {
+  engineSettingsEn,
+  engineSettingsJa,
+  engineSettingsKo,
+} from "./engine-settings.ts";
 import { errorsEn, errorsJa, errorsKo } from "./errors.ts";
 import { githubEn, githubJa, githubKo } from "./github.ts";
 import {
@@ -245,6 +250,7 @@ describe("i18n", () => {
         githubUserLinkKo,
         agentGitHubKo,
         agentAccessKo,
+        engineSettingsKo,
         usageKo,
         achievementsKo,
         achievementRulesKo,
@@ -275,6 +281,7 @@ describe("i18n", () => {
         githubUserLinkJa,
         agentGitHubJa,
         agentAccessJa,
+        engineSettingsJa,
         usageJa,
         achievementsJa,
         achievementRulesJa,
@@ -305,6 +312,7 @@ describe("i18n", () => {
         githubUserLinkEn,
         agentGitHubEn,
         agentAccessEn,
+        engineSettingsEn,
         usageEn,
         achievementsEn,
         achievementRulesEn,

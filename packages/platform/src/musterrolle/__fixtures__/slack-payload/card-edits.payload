@@ -1,0 +1,77 @@
+{
+  "request-gone": [
+    [
+      "abandon",
+      "request_gone"
+    ]
+  ],
+  "settled-on-web": [
+    [
+      "updateMessage",
+      {
+        "blocks": [
+          {
+            "elements": [
+              {
+                "text": ":white_check_mark: *Allowed for session on the web* · <@U0DECIDER>",
+                "type": "mrkdwn"
+              },
+              {
+                "emoji": false,
+                "text": "Run a command: git status",
+                "type": "plain_text"
+              },
+              {
+                "text": "<https://console.example/sessions/019a0000|Open on the web>",
+                "type": "mrkdwn"
+              }
+            ],
+            "type": "context"
+          }
+        ],
+        "channelId": "C0OPS",
+        "text": "*Allowed for session on the web* · <@U0DECIDER>\nRun a command: git status\n<https://console.example/sessions/019a0000|Open on the web>",
+        "ts": "200.000200"
+      }
+    ],
+    [
+      "finish",
+      "allowedSession"
+    ]
+  ],
+  "turn-notice-done": [
+    [
+      "updateMessage",
+      {
+        "blocks": [
+          {
+            "elements": [
+              {
+                "text": ":white_circle: *Handled*",
+                "type": "mrkdwn"
+              }
+            ],
+            "type": "context"
+          }
+        ],
+        "channelId": "C0OPS",
+        "text": "Handled\nCheck it in the web console",
+        "ts": "200.000200"
+      }
+    ],
+    [
+      "finish",
+      "done"
+    ]
+  ],
+  "turn-notice-still-waiting": [
+    [
+      "skip"
+    ]
+  ],
+  "unchanged-card-is-skipped": [
+    [
+      "skip"
+    ]
+  ]
+}
