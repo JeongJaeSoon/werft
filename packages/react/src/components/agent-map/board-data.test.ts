@@ -238,7 +238,7 @@ describe("runNodesOf", () => {
   const frames = [
     use(1, "read-1", "Read", { file_path: "chart.tsx" }),
     result(2, "read-1"),
-    use(3, "bash-1", "Bash", { command: "bun run storybook" }),
+    use(3, "bash-1", "Bash", { command: "bun run build" }),
     result(4, "bash-1", true),
     ...["막대 차트", "선 차트", "범례"].map((description, i) =>
       use(5 + i, `task-${i}`, "Task", {
@@ -271,7 +271,7 @@ describe("runNodesOf", () => {
       own?.tools.map((tool) => [tool.name, tool.target, tool.state]),
     ).toEqual([
       ["Task", "Explore × 3", "running"],
-      ["Bash", "bun run storybook", "error"],
+      ["Bash", "bun run build", "error"],
       ["Read", "chart.tsx", "ok"],
     ]);
     expect(own?.hiddenTools).toBeUndefined();

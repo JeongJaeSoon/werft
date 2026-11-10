@@ -32,9 +32,9 @@ function fontLicenses(): Plugin {
 
 /**
  * `--mode demo`: the read-only demo (src/demo/main.tsx) that answers from
- * recorded fixtures. Relative asset paths let it sit under any static path.
- * The recording lives in JeongJaeSoon/agent-platform-demo; DEMO_FIXTURES
- * points the build at it, else the placeholder in src/demo/fixtures.json.
+ * fixtures. Relative asset paths let it sit under any static path.
+ * DEMO_FIXTURES points the build at a fixture file, else the placeholder in
+ * src/demo/fixtures.json.
  */
 function demoEntry(): Plugin {
   const fixtures = process.env.DEMO_FIXTURES;
@@ -67,7 +67,6 @@ export default defineConfig(({ mode }) => ({
   ],
   // packages/ui resolves through a workspace symlink; without this a second
   // React or query-core copy breaks hooks and the query cache at runtime.
-  // apps/storybook/.storybook/main.ts keeps the same list.
   resolve: {
     dedupe: [
       "react",

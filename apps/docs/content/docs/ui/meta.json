@@ -1,11 +1,4 @@
 {
   "title": "UI 컴포넌트",
-  "pages": [
-    "index",
-    "install",
-    "theme",
-    "session-blocks",
-    "package",
-    "storybook"
-  ]
+  "pages": ["index", "install", "theme", "session-blocks", "package"]
 }

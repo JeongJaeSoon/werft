@@ -296,7 +296,7 @@ describe("CopyButton", () => {
 
 // WCAG 2.5.3 (axe label-content-name-mismatch): the text inside the button
 // is part of its name. axe itself needs a canvas happy-dom lacks, so the
-// Storybook run checks the same states in Chrome (copy-button.stories.tsx).
+// rule is checked by hand here.
 describe("CopyButton 이름과 보이는 글자", () => {
   const labelInName = (button: HTMLElement, name: string) =>
     name
