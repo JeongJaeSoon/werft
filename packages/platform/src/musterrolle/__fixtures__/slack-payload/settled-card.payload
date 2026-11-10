@@ -216,5 +216,40 @@
       }
     ],
     "text": "*Answered on the web* · <@U0DECIDER>\nWhich branch should I rebase onto?\nChose main\nAnything else I should know?\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "question-typed-answer": {
+    "blocks": [
+      {
+        "text": {
+          "emoji": false,
+          "text": "Anything else I should know?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "text": ":speech_balloon:",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "Chose a typed answer",
+            "type": "plain_text"
+          },
+          {
+            "text": "· <@U0DECIDER>",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "<https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "*Answered* · <@U0DECIDER>\nAnything else I should know?\nChose a typed answer\n<https://console.example/sessions/019a0000|Open on the web>"
   }
 }

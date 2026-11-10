@@ -70,7 +70,7 @@
       "text": "Cancel",
       "type": "plain_text"
     },
-    "private_metadata": "{\"session_id\":\"019a0000-0000-7000-8000-0000000000a5\",\"request_id\":\"q_1\",\"channel_id\":\"C0OPS\",\"message_ts\":\"100.000100\"}",
+    "private_metadata": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_1\",\"c\":\"C0OPS\",\"m\":\"200.000200\",\"t\":\"100.000100\"}",
     "submit": {
       "emoji": false,
       "text": "Send",
@@ -82,6 +82,710 @@
       "type": "plain_text"
     },
     "type": "modal"
+  },
+  "interaction-modals": {
+    "en": {
+      "already": {
+        "allowed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request was already allowed",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "allowedSession": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request was already allowed for the session",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "answered": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request was already answered",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "approved": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This push request was already approved",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "closed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request expired or can no longer be answered",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "denied": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request was already denied",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "expired": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This request has expired",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "rejected": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "This push request was already rejected",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "Cancel",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "Answer the question",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        }
+      },
+      "loading": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "Loading the question…",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "Cancel",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "Answer the question",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      },
+      "unavailable": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "This request can't be answered here. See the note in the thread",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "Cancel",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "Answer the question",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      }
+    },
+    "ja": {
+      "already": {
+        "allowed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでに許可されたリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "allowedSession": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでにセッション中は許可されたリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "answered": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでに回答したリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "approved": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでに承認されたpushリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "closed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "期限切れか、もう回答できないリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "denied": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでに拒否されたリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "expired": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "期限切れのリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "rejected": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "すでに却下されたpushリクエストです",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "キャンセル",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "質問に回答",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        }
+      },
+      "loading": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "質問を読み込んでいます…",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "キャンセル",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "質問に回答",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      },
+      "unavailable": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "このリクエストにはここで回答できません。スレッドの案内を確認してください",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "キャンセル",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "質問に回答",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      }
+    },
+    "ko": {
+      "already": {
+        "allowed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 허용된 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "allowedSession": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 이 세션 동안 허용된 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "answered": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 답한 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "approved": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 승인된 push 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "closed": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "만료됐거나 더 이상 답할 수 없는 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "denied": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 거부된 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "expired": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "만료된 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        },
+        "rejected": {
+          "blocks": [
+            {
+              "text": {
+                "emoji": false,
+                "text": "이미 거절된 push 요청이에요",
+                "type": "plain_text"
+              },
+              "type": "section"
+            }
+          ],
+          "close": {
+            "emoji": false,
+            "text": "취소",
+            "type": "plain_text"
+          },
+          "title": {
+            "emoji": false,
+            "text": "질문에 답하기",
+            "type": "plain_text"
+          },
+          "type": "modal"
+        }
+      },
+      "loading": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "질문을 불러오고 있어요…",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "취소",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "질문에 답하기",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      },
+      "unavailable": {
+        "blocks": [
+          {
+            "text": {
+              "emoji": false,
+              "text": "이 요청은 여기서 답할 수 없어요. 스레드의 안내를 확인해 주세요",
+              "type": "plain_text"
+            },
+            "type": "section"
+          }
+        ],
+        "close": {
+          "emoji": false,
+          "text": "취소",
+          "type": "plain_text"
+        },
+        "title": {
+          "emoji": false,
+          "text": "질문에 답하기",
+          "type": "plain_text"
+        },
+        "type": "modal"
+      }
+    }
   },
   "multi-select": {
     "blocks": [
@@ -124,7 +828,7 @@
       "text": "취소",
       "type": "plain_text"
     },
-    "private_metadata": "{\"session_id\":\"019a0000-0000-7000-8000-0000000000a5\",\"request_id\":\"q_1\",\"channel_id\":\"C0OPS\",\"message_ts\":\"100.000100\"}",
+    "private_metadata": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_1\",\"c\":\"C0OPS\",\"m\":\"200.000200\",\"t\":\"100.000100\"}",
     "submit": {
       "emoji": false,
       "text": "보내기",
@@ -206,6 +910,101 @@
         "type": "plain_text"
       },
       "type": "modal"
+    }
+  },
+  "submit-answers": {
+    "en": {
+      "accepted": {
+        "answers": [
+          {
+            "question_id": "q-1",
+            "selected_option_ids": [
+              "o1"
+            ]
+          },
+          {
+            "free_text": "rebase please",
+            "question_id": "q-2",
+            "selected_option_ids": []
+          }
+        ],
+        "ok": true
+      },
+      "bad-index": {
+        "errors": {
+          "q0": "Choose or type an answer"
+        },
+        "ok": false
+      },
+      "empty": {
+        "errors": {
+          "q0": "Choose or type an answer",
+          "q1.text": "Choose or type an answer"
+        },
+        "ok": false
+      }
+    },
+    "ja": {
+      "accepted": {
+        "answers": [
+          {
+            "question_id": "q-1",
+            "selected_option_ids": [
+              "o1"
+            ]
+          },
+          {
+            "free_text": "rebase please",
+            "question_id": "q-2",
+            "selected_option_ids": []
+          }
+        ],
+        "ok": true
+      },
+      "bad-index": {
+        "errors": {
+          "q0": "回答を選ぶか入力してください"
+        },
+        "ok": false
+      },
+      "empty": {
+        "errors": {
+          "q0": "回答を選ぶか入力してください",
+          "q1.text": "回答を選ぶか入力してください"
+        },
+        "ok": false
+      }
+    },
+    "ko": {
+      "accepted": {
+        "answers": [
+          {
+            "question_id": "q-1",
+            "selected_option_ids": [
+              "o1"
+            ]
+          },
+          {
+            "free_text": "rebase please",
+            "question_id": "q-2",
+            "selected_option_ids": []
+          }
+        ],
+        "ok": true
+      },
+      "bad-index": {
+        "errors": {
+          "q0": "답을 고르거나 입력해 주세요"
+        },
+        "ok": false
+      },
+      "empty": {
+        "errors": {
+          "q0": "답을 고르거나 입력해 주세요",
+          "q1.text": "답을 고르거나 입력해 주세요"
+        },
+        "ok": false
+      }
     }
   }
 }

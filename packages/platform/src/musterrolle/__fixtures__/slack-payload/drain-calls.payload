@@ -142,6 +142,23 @@
       }
     ]
   ],
+  "model-notice-link": [
+    [
+      "postMessage",
+      {
+        "channelId": "C0OPS",
+        "text": "The model was changed\n\n<https://console.example/sessions/019a0000-0000-7000-8000-0000000000a5|Open on the web>",
+        "threadTs": ""
+      }
+    ],
+    [
+      "settle",
+      {
+        "slackTs": "200.000200",
+        "status": "sent"
+      }
+    ]
+  ],
   "notice-ephemeral": [
     [
       "postEphemeral",
@@ -354,7 +371,7 @@
       }
     ]
   ],
-  "uncertain-reply-then-notice": [
+  "uncertain-reply-and-its-notice": [
     [
       "postMessage",
       {

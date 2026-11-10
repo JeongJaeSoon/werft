@@ -12,10 +12,14 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
+  SlackCardClaim,
+  SlackCardSettleStore,
   SlackOutboxClaim,
   SlackOutboxEntry,
   SlackOutboxStore,
   SlackPromptCard,
+  SlackThreadStatusFacts,
+  SlackThreadStatusStore,
 } from "../ports/slack-outbox-store.ts";
 import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
 import {
@@ -24,15 +28,18 @@ import {
   enqueueSlackInstructions,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
+  settleSlackCards,
   slackOutboxPresentation,
   slackOutboxText,
   slackReplyBlocks,
 } from "./slack-outbox.ts";
 import {
+  SLACK_PROMPT_MESSAGES,
   type SlackPrompt,
   slackDoneCard,
   slackNoticeView,
   slackPromptMessage,
+  slackQuestionAnswers,
   slackQuestionView,
   slackRejectOnlyCard,
   slackSettledCard,
@@ -40,6 +47,7 @@ import {
 import {
   type SlackSessionStatusMaterial,
   slackSessionStatus,
+  writeSlackThreadStatuses,
 } from "./slack-session-status.ts";
 import { deploymentWelcome } from "./slack-welcome.ts";
 
@@ -151,6 +159,51 @@ describe("Slack payload fixtures: cards", () => {
         locale: "ko",
         requesterSlackUserId: null,
       }),
+      // One question with options answers by buttons; past the modal's limits
+      // the card sends the person to the web.
+      "question-single-buttons": slackPromptMessage(
+        {
+          kind: "question",
+          sessionId: SESSION,
+          requestId: "q_2",
+          questions: [{ ...choose, allow_free_text: false }],
+          expiresAt: EXPIRES,
+        },
+        options("en"),
+      ),
+      "question-over-limit-opens-web": {
+        "eleven-questions": slackPromptMessage(
+          {
+            kind: "question",
+            sessionId: SESSION,
+            requestId: "q_3",
+            questions: Array.from({ length: 11 }, (_, i) => ({
+              ...free,
+              question_id: `q-${i}`,
+            })),
+            expiresAt: EXPIRES,
+          },
+          options("ko"),
+        ),
+        "hundred-and-one-options": slackPromptMessage(
+          {
+            kind: "question",
+            sessionId: SESSION,
+            requestId: "q_4",
+            questions: [
+              {
+                ...choose,
+                options: Array.from({ length: 101 }, (_, i) => ({
+                  option_id: `o${i}`,
+                  label: `option ${i}`,
+                })),
+              },
+            ],
+            expiresAt: EXPIRES,
+          },
+          options("en"),
+        ),
+      },
       "question-two-choices-and-free": Object.fromEntries(
         LOCALES.map((locale) => [
           locale,
@@ -209,7 +262,11 @@ describe("Slack payload fixtures: cards", () => {
   const questionCard = (
     over: Record<string, unknown>,
     questions: PendingQuestion[],
-    answers: { question_id: string; selected_option_ids: string[] }[],
+    answers: {
+      question_id: string;
+      selected_option_ids: string[];
+      typed?: boolean;
+    }[],
     via: "slack" | "web" = "slack",
   ): SlackPromptCard =>
     ({
@@ -219,7 +276,7 @@ describe("Slack payload fixtures: cards", () => {
       display: {
         kind: "question",
         questions,
-        answers: answers.map((a) => ({ ...a, typed: false })),
+        answers: answers.map((a) => ({ typed: false, ...a })),
         state: "answered",
         decision: null,
         decidedByUserId: "user-1",
@@ -282,6 +339,13 @@ describe("Slack payload fixtures: cards", () => {
           "web",
         ),
       ),
+      "question-typed-answer": slackSettledCard(
+        questionCard(
+          {},
+          [free],
+          [{ question_id: "q-2", selected_option_ids: [], typed: true }],
+        ),
+      ),
       "push-approved": slackSettledCard(pushCard("approved", "ko")),
       "push-rejected": slackSettledCard(pushCard("rejected")),
       "open-is-null": slackSettledCard(pushCard("requested")),
@@ -309,18 +373,61 @@ describe("Slack payload fixtures: cards", () => {
   });
 
   test("question modal and notice modal", () => {
+    // The shape slackQuestionViewMetadataSchema accepts, which the submit reads back.
     const metadata = {
-      session_id: SESSION,
-      request_id: "q_1",
-      channel_id: "C0OPS",
-      message_ts: "100.000100",
-    } as never;
+      s: SESSION,
+      r: "q_1",
+      c: "C0OPS",
+      m: "200.000200",
+      t: "100.000100",
+    };
     expectFixture("question-view", {
       "choices-and-free": slackQuestionView([choose, free], metadata, "en"),
       "multi-select": slackQuestionView(
         [{ ...choose, multi_select: true, allow_free_text: false }],
         metadata,
         "ko",
+      ),
+      // What the press answers with: loading, unavailable, already settled.
+      "interaction-modals": Object.fromEntries(
+        LOCALES.map((locale) => {
+          const copy = SLACK_PROMPT_MESSAGES[locale];
+          return [
+            locale,
+            {
+              loading: slackNoticeView(copy.loading, locale),
+              unavailable: slackNoticeView(copy.unavailable, locale),
+              already: Object.fromEntries(
+                Object.entries(copy.already).map(([result, text]) => [
+                  result,
+                  slackNoticeView(text, locale),
+                ]),
+              ),
+            },
+          ];
+        }),
+      ),
+      // The submit's answer: the blocks to fix, or the answers it accepts.
+      "submit-answers": Object.fromEntries(
+        LOCALES.map((locale) => [
+          locale,
+          {
+            empty: slackQuestionAnswers([choose, free], {}, locale),
+            "bad-index": slackQuestionAnswers(
+              [choose],
+              { q0: { v: { selected_option: { value: "9" } } } },
+              locale,
+            ),
+            accepted: slackQuestionAnswers(
+              [choose, free],
+              {
+                q0: { v: { selected_option: { value: "1" } } },
+                "q1.text": { v: { value: "  rebase please  " } },
+              },
+              locale,
+            ),
+          },
+        ]),
       ),
       notice: Object.fromEntries(
         LOCALES.map((locale) => [
@@ -346,7 +453,7 @@ describe("Slack payload fixtures: replies, instructions, notices", () => {
 
   test("reply text and blocks", () => {
     const body = {
-      text: TABLE_REPLY,
+      text: `${TABLE_REPLY}\n\n<@U0ASKER> yes, <@U0ELSE> no`,
       link_url: LINK,
       locale: "ko" as const,
       mention_user_ids: ["U0ASKER"],
@@ -699,7 +806,16 @@ describe("Slack payload fixtures: what the drain sends", () => {
         }),
         [],
       ),
-      "uncertain-reply-then-notice": await sent(claim({}), [
+      // A model notice is a DM; the drain adds the session link itself.
+      "model-notice-link": await sent(
+        claim({
+          kind: "model_notice",
+          threadTs: "",
+          body: { text: "The model was changed", locale: "en" },
+        }),
+        [],
+      ),
+      "uncertain-reply-and-its-notice": await sent(claim({}), [
         response({ httpStatus: 502, body: null }),
       ]),
       presentation: [
@@ -742,6 +858,198 @@ describe("Slack payload fixtures: thread status", () => {
       closed: slackSessionStatus(
         material({ lifecycle: "closed", approvablePush: true }),
       ),
+    });
+  });
+});
+
+describe("Slack payload fixtures: card edits and status writes", () => {
+  const fence = { id: "card-1", claimToken: "claim-token-1" };
+  const cardClaim = (over: Partial<SlackCardClaim>): SlackCardClaim => ({
+    ...fence,
+    workspaceId: "workspace-1",
+    slackAppId: "app-1",
+    sessionId: SESSION,
+    channelId: "C0OPS",
+    slackTs: "200.000200",
+    dedupeKey: `prompt:link-1:toolu_1`,
+    body: { text: "open card", blocks: [{ type: "divider" }], locale: "en" },
+    rendered: "open",
+    uncertainRev: 0,
+    uncertain: false,
+    inherited: false,
+    attempts: 0,
+    ...over,
+  });
+  const decided = {
+    locale: "en" as const,
+    decidedVia: "web" as const,
+    linkUrl: LINK,
+    deciderSlackUserId: "U0DECIDER",
+  };
+
+  /** Runs one card through the real settle pass; returns every edit sent. */
+  async function edited(
+    claim: SlackCardClaim,
+    card: SlackPromptCard | null,
+    turnWaits = false,
+  ) {
+    const calls: unknown[] = [];
+    const batches = [[claim], []];
+    const store = {
+      markDue: async () => 0,
+      markDueAt: async () => false,
+      markDueById: async () => false,
+      openPushCards: async () => [],
+      expireInflight: async () => 0,
+      claim: async () => batches.shift() ?? [],
+      card: async () => card,
+      turnWaits: async () => turnWaits,
+      beginSend: async () => new Date(0),
+      finish: async (_f: unknown, sent: { rendered: string }) => {
+        calls.push(["finish", sent.rendered]);
+        return true;
+      },
+      skip: async () => {
+        calls.push(["skip"]);
+        return true;
+      },
+      uncertain: async () => {},
+      defer: async () => true,
+      abandon: async (_f: unknown, error: string) => {
+        calls.push(["abandon", error]);
+        return true;
+      },
+    } as unknown as SlackCardSettleStore;
+    await settleSlackCards({
+      store,
+      slack: {
+        updateMessage: async (_token: string, input: unknown) => {
+          calls.push(["updateMessage", input]);
+        },
+      } as never,
+      botToken: async () => "test-credential",
+      logger: { info: () => {}, warn: () => {} },
+      batchSize: 10,
+      deadline: 1_000,
+      now: () => 0,
+    });
+    return calls;
+  }
+
+  test("updateMessage arguments for each way a card is redrawn", async () => {
+    const permissionDisplay = {
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "git status" },
+      context: {},
+      state: "answered",
+      decision: "allow",
+      remember: "session",
+      decidedByUserId: "user-1",
+      closedReason: null,
+      createdAt: "2026-11-02T00:00:00Z",
+      expiresAt: EXPIRES,
+    };
+    expectFixture("card-edits", {
+      "settled-on-web": await edited(cardClaim({}), {
+        ...decided,
+        display: permissionDisplay,
+      } as SlackPromptCard),
+      "unchanged-card-is-skipped": await edited(
+        cardClaim({ rendered: "allowedSession" }),
+        { ...decided, display: permissionDisplay } as SlackPromptCard,
+      ),
+      "request-gone": await edited(cardClaim({}), null),
+      "turn-notice-done": await edited(
+        cardClaim({ dedupeKey: "reply:link-1:1" }),
+        null,
+      ),
+      "turn-notice-still-waiting": await edited(
+        cardClaim({ dedupeKey: "reply:link-1:1", rendered: "open" }),
+        null,
+        true,
+      ),
+    });
+  });
+
+  /** Runs one thread through the real status writer; returns its sends. */
+  async function statusWritten(
+    facts: SlackThreadStatusFacts,
+    sentStatus: string | null = null,
+  ) {
+    const calls: unknown[] = [];
+    const batches = [
+      [
+        {
+          sessionLinkId: "link-1",
+          sessionId: SESSION,
+          workspaceId: "workspace-1",
+          slackAppId: "app-1",
+          channelId: "C0OPS",
+          threadTs: "100.000100",
+          claimToken: "claim-token-1",
+          dirtyRev: 1,
+          uncertainRev: 0,
+          uncertain: false,
+          inherited: false,
+          sentStatus,
+          sentAt: null,
+        },
+      ],
+      [],
+    ];
+    const store = {
+      expireInflight: async () => 0,
+      claim: async () => batches.shift() ?? [],
+      facts: async () => facts,
+      beginSend: async () => new Date(0),
+      finish: async () => true,
+      skip: async () => {
+        calls.push(["skip"]);
+        return true;
+      },
+      uncertain: async () => {},
+      defer: async () => true,
+      disable: async () => true,
+    } as unknown as SlackThreadStatusStore;
+    await writeSlackThreadStatuses({
+      store,
+      slack: {
+        setStatus: async (_token: string, input: unknown) => {
+          calls.push(["setStatus", input]);
+        },
+      },
+      botToken: async () => "test-credential",
+      logger: { info: () => {}, warn: () => {} },
+      batchSize: 10,
+      deadline: 1_000,
+      now: () => 0,
+    });
+    return calls;
+  }
+
+  test("setStatus arguments per session state", async () => {
+    const facts = (
+      over: Partial<SlackThreadStatusFacts>,
+    ): SlackThreadStatusFacts => ({
+      admissionState: "open" as never,
+      executionRevoked: false,
+      unknownTurn: false,
+      checkpointRevision: null,
+      answerableRequest: false,
+      runningTurn: false,
+      queuedTurn: false,
+      requestedPushes: [],
+      actionStages: [],
+      ...over,
+    });
+    expectFixture("status-writes", {
+      running: await statusWritten(facts({ runningTurn: true })),
+      "waiting-on-request": await statusWritten(
+        facts({ answerableRequest: true }),
+      ),
+      closed: await statusWritten(facts({ admissionState: "closed" as never })),
+      "unchanged-is-skipped": await statusWritten(facts({}), "active"),
     });
   });
 });

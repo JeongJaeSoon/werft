@@ -55,7 +55,7 @@
     },
     {
       "text": {
-        "text": "끝: 문서 (https://docs.example/a)",
+        "text": "끝: 문서 (https://docs.example/a)\n\n<@U0ASKER> yes, &lt;@U0ELSE&gt; no",
         "type": "mrkdwn"
       },
       "type": "section"
@@ -68,5 +68,5 @@
       "type": "section"
     }
   ],
-  "table-text": "저장소는 2개입니다. &lt;!here&gt; *굵게*\n\n*acme/web* — 상태: 기본 저장소\n*acme/api* — 상태: 붙일 수 있음\n\n끝: 문서 (https://docs.example/a)\n\n<https://console.example/sessions/019a0000|웹에서 열기>"
+  "table-text": "저장소는 2개입니다. &lt;!here&gt; *굵게*\n\n*acme/web* — 상태: 기본 저장소\n*acme/api* — 상태: 붙일 수 있음\n\n끝: 문서 (https://docs.example/a)\n\n<@U0ASKER> yes, &lt;@U0ELSE&gt; no\n\n<https://console.example/sessions/019a0000|웹에서 열기>"
 }

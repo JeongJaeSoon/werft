@@ -1076,6 +1076,153 @@
     ],
     "text": "A push needs your approval\nrepo-1 · agent/fix-login\nCheck it in the web console"
   },
+  "question-over-limit-opens-web": {
+    "eleven-questions": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *답이 필요한 질문이 있어요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "이 요청은 웹에서 답해 주세요",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "prompt.open_web",
+              "text": {
+                "emoji": false,
+                "text": "웹에서 열기",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "url": "https://console.example/sessions/019a0000"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "답하지 않으면 <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>에 만료돼요 · <https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> 답이 필요한 질문이 있어요\nAnything else I should know?\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    },
+    "hundred-and-one-options": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A question needs your answer*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Please answer this request on the web",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "prompt.open_web",
+              "text": {
+                "emoji": false,
+                "text": "Open on the web",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "url": "https://console.example/sessions/019a0000"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> A question needs your answer\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Open on the web>"
+    }
+  },
+  "question-single-buttons": {
+    "blocks": [
+      {
+        "text": {
+          "text": "<@U0ASKER> *A question needs your answer*",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "text": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "question.option:0",
+            "text": {
+              "emoji": false,
+              "text": "main",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_2\",\"o\":\"0\"}"
+          },
+          {
+            "action_id": "question.option:1",
+            "text": {
+              "emoji": false,
+              "text": "release/2026-11",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_2\",\"o\":\"1\"}"
+          }
+        ],
+        "type": "actions"
+      },
+      {
+        "block_id": "prompt.meta",
+        "elements": [
+          {
+            "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "<@U0ASKER> A question needs your answer\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
   "question-two-choices-and-free": {
     "en": {
       "blocks": [
