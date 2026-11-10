@@ -117,6 +117,29 @@ describe("validateEngineSettings", () => {
     );
   });
 
+  test("permission rules have a byte limit apart from the count", () => {
+    // Three lists of 24 rules of 253 characters: within every count, about
+    // 18 KB of JSON against the 6 KB an agent may save.
+    const list = (tag: string) =>
+      Array.from(
+        { length: 24 },
+        (_, index) =>
+          `Bash(${tag}${index.toString().padStart(2, "0")}${"a".repeat(242)})`,
+      );
+    expect(
+      refusedAs({
+        permissions: { allow: list("a"), ask: list("b"), deny: list("c") },
+        auto_mode: {},
+      }),
+    ).toBe("settings_too_large");
+    expect(
+      refusedAs({
+        permissions: { deny: list("c").slice(0, 8) },
+        auto_mode: {},
+      }),
+    ).toBe("accepted");
+  });
+
   test("the size limit counts the JSON text, escapes included", () => {
     // 20 sentences would pass a count of 16 only if cut; 16 sentences of
     // quotes become two bytes each in JSON and push the text over 4 KB.
@@ -322,10 +345,11 @@ describe("validateAdminDeny", () => {
   test("the rule budget counts the union of all entries, not each entry", () => {
     const rules = (from: number, count: number) =>
       Array.from({ length: count }, (_, index) => `Bash(c${from + index})`);
+    // The same 20 rules in two entries are 20, not 40.
     expect(
       refused([
-        entry({ permissions_deny: rules(0, 16), mcp_deny: [] }),
-        entry({ permissions_deny: rules(0, 16), mcp_deny: [] }),
+        entry({ permissions_deny: rules(0, 20), mcp_deny: [] }),
+        entry({ permissions_deny: rules(0, 20), mcp_deny: [] }),
       ]),
     ).toBe("accepted");
     expect(
@@ -335,6 +359,34 @@ describe("validateAdminDeny", () => {
       ]),
     ).toBe("too_many_rules");
     expect(ADMIN_DENY_RULES_MAX).toBe(32);
+  });
+
+  test("the rule budget counts both routes together", () => {
+    const rules = (count: number) =>
+      Array.from({ length: count }, (_, index) => `Bash(c${index})`);
+    const mcp = (count: number) =>
+      Array.from({ length: count }, (_, index) => `mcp__docs__t${index}`);
+    expect(
+      refused([entry({ permissions_deny: rules(16), mcp_deny: mcp(16) })]),
+    ).toBe("accepted");
+    expect(
+      refused([entry({ permissions_deny: rules(20), mcp_deny: mcp(20) })]),
+    ).toBe("too_many_rules");
+  });
+
+  test("the rule text has a byte limit of its own", () => {
+    // 32 rules within the count limit, each 253 characters: over 8 KB of JSON.
+    const long = Array.from(
+      { length: 32 },
+      (_, index) =>
+        `Bash(${index.toString().padStart(2, "0")}${"a".repeat(244)})`,
+    );
+    expect(refused([entry({ permissions_deny: long, mcp_deny: [] })])).toBe(
+      "settings_too_large",
+    );
+    expect(
+      refused([entry({ permissions_deny: long.slice(0, 16), mcp_deny: [] })]),
+    ).toBe("accepted");
   });
 
   test("the release lists have their own budget apart from the rules", () => {
