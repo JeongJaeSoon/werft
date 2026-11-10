@@ -67,7 +67,7 @@ pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다.
 
 ## 실행 전 게이트
 
-incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함하는 최초 정식 릴리스는 `v0.1.0`이다. 릴리스 설치자는 이 버전보다 앞선 이미지로 돌아가지 않는다. 정식 릴리스 이전의 `main-<12>` 설치는 이 하한을 충족하는지 따로 확인해야 한다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
+incremental checkpoint와 release 도구 복원 후보 하한을 모두 포함하는 첫 태그는 `v0.1.0`이다. 이 태그가 롤백 하한이고 최신 게시 릴리스는 `v0.1.2`다. 릴리스 설치자는 `v0.1.0`보다 앞선 이미지로 돌아가지 않는다. 정식 릴리스 이전의 `main-<12>` 설치는 이 하한을 충족하는지 따로 확인해야 한다. 배포할 때는 [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기)의 commit과 세 digest를 함께 확인한다.
 
 대상 변경 기록과 현재 배포 버전을 대조한다. 아래 조건이 해당되면 기능을 켜거나 worker를 바꾸기 전에 모두 충족한다.
 
