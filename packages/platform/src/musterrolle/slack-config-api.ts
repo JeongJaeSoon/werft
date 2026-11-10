@@ -29,17 +29,24 @@ export class SlackApiError extends Error {
   /** Null when no answer came. */
   readonly httpStatus: number | null;
   readonly failure: SlackCallFailure;
+  /** Slack's `errors` lines (`pointer: message`); never the rest of the body. */
+  readonly details: readonly string[];
 
   constructor(
     readonly method: string,
     readonly code: string,
     readonly answered: boolean,
-    detail: { httpStatus?: number; failure?: SlackCallFailure } = {},
+    detail: {
+      httpStatus?: number;
+      failure?: SlackCallFailure;
+      details?: readonly string[];
+    } = {},
   ) {
     super(`${method}: ${code}`);
     this.name = "SlackApiError";
     this.httpStatus = detail.httpStatus ?? null;
     this.failure = detail.failure ?? "slack_error";
+    this.details = detail.details ?? [];
   }
 }
 
@@ -182,6 +189,27 @@ export type SlackApiOptions = {
   timeoutMs?: number;
 };
 
+const ERROR_LINES_MAX = 10;
+const ERROR_LINE_MAX = 300;
+
+// A manifest refusal names what is wrong in `errors: [{message, pointer}]`.
+// Only those two strings are kept, bounded; the rest of the body may hold secrets.
+function errorLines(errors: unknown): string[] {
+  if (!Array.isArray(errors)) return [];
+  const lines: string[] = [];
+  for (const entry of errors.slice(0, ERROR_LINES_MAX)) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { message, pointer } = entry as Record<string, unknown>;
+    if (typeof message !== "string" || message === "") continue;
+    const line =
+      typeof pointer === "string" && pointer !== ""
+        ? `${pointer}: ${message}`
+        : message;
+    lines.push(line.slice(0, ERROR_LINE_MAX));
+  }
+  return lines;
+}
+
 /** `httpStatus` when the headers came and the body broke off. */
 function noAnswer(method: string, error: unknown, httpStatus?: number) {
   const failure =
@@ -253,6 +281,7 @@ function slackCaller(options?: SlackApiOptions) {
         {
           httpStatus: response.status,
           failure: named ? "slack_error" : "http_status",
+          details: named ? errorLines(body.errors) : [],
         },
       );
     }

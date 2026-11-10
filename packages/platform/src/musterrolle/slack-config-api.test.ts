@@ -174,6 +174,37 @@ describe("how an oauth.v2.access call failed", () => {
     });
   });
 
+  test("invalid_manifest keeps Slack's errors array as message and pointer lines, nothing else of the body", async () => {
+    const leaked = ["fixture", "leaked", "value"].join("-");
+    const api = createSlackConfigApi({
+      apiUrl: "http://slack.invalid/api",
+      fetch: (async () =>
+        Response.json({
+          ok: false,
+          error: "invalid_manifest",
+          errors: [
+            {
+              message: "The description cannot be empty",
+              pointer: "/features/agent_view/agent_description",
+              extra: leaked,
+            },
+            { message: 7 },
+          ],
+          credentials: { client_secret: leaked },
+        })) as unknown as typeof fetch,
+    });
+    const error = await api.createApp(["fixture", "token"].join("-"), {}).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    if (!(error instanceof SlackApiError)) throw new Error("no SlackApiError");
+    expect(error.code).toBe("invalid_manifest");
+    expect(error.details).toEqual([
+      "/features/agent_view/agent_description: The description cannot be empty",
+    ]);
+    expect(JSON.stringify(error.details)).not.toContain(leaked);
+  });
+
   test("an ok:true answer that does not parse is unexpected_answer, without its body", async () => {
     expect(
       await failureOf(() =>

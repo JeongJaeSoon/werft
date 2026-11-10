@@ -31,6 +31,7 @@ export type SlackAppAgent = {
   id: string;
   name: string;
   slug: string;
+  /** The active release card's role, else the agent's description; may be empty. */
   role: string;
 };
 

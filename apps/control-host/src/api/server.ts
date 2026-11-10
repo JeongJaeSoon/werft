@@ -673,6 +673,7 @@ const slackApps = createSlackAppService({
   api: slackConfigApi,
   consoleOrigin,
   eventsPublicUrl: slackEventsPublicUrl,
+  logger,
   onAgentAppChanged: (agentId) => slackSigningSecrets?.invalidate(agentId),
   activeReleaseWarning: async (workspaceId, agentId) => {
     const release = (await agentStore.get(workspaceId, agentId))

@@ -690,6 +690,32 @@ integration("Slack apps and the config token on PostgreSQL", () => {
       ]);
     });
 
+    test("an agent whose card role is empty is described by its own description", async () => {
+      const workspaceId = await workspace();
+      const agentId = await agent(workspaceId);
+      const versions = await db
+        .select({ id: agentVersions.id })
+        .from(agentVersions)
+        .where(eq(agentVersions.agentId, agentId));
+      const card = {
+        instructions: "i",
+        model: "m",
+        capabilities: { tools: [], mcp: null, forbidden: [] },
+      };
+      await db
+        .update(agentVersions)
+        .set({ card: { ...card, role: "" } })
+        .where(eq(agentVersions.id, versions[0]?.id ?? ""));
+      const manifestRole = async () =>
+        (await store().manifestAgent(workspaceId, agentId))?.role;
+      expect(await manifestRole()).toBe("");
+      await db
+        .update(agents)
+        .set({ description: "Summarizes releases" })
+        .where(eq(agents.id, agentId));
+      expect(await manifestRole()).toBe("Summarizes releases");
+    });
+
     test("an agent with no active release, or another workspace's agent, gets no app", async () => {
       const workspaceId = await workspace();
       expect(

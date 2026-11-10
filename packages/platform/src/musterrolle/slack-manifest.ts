@@ -5,6 +5,10 @@ const APP_NAME_MAX = 35;
 const BOT_NAME_MAX = 80;
 const AGENT_DESCRIPTION_MAX = 300;
 
+// Slack requires agent_description whenever agent_view is present and rejects
+// an empty one as invalid_manifest, so the field cannot be dropped.
+export const AGENT_DESCRIPTION_FALLBACK = "Werft 에이전트";
+
 export const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 
 export type AgentAppManifestInput = {
@@ -12,7 +16,7 @@ export type AgentAppManifestInput = {
   name: string;
   /** The agent's slug: a bot display name allows only a-z, 0-9, `-_.`. */
   botName: string;
-  /** The active release card's role. */
+  /** The active release card's role, else the agent's description; may be empty. */
   description: string;
   redirectUrl: string;
   /**
@@ -51,7 +55,7 @@ export function buildAgentAppManifest(input: AgentAppManifestInput) {
       },
       agent_view: {
         agent_description: clip(
-          input.description.trim(),
+          input.description.trim() || AGENT_DESCRIPTION_FALLBACK,
           AGENT_DESCRIPTION_MAX,
         ),
       },

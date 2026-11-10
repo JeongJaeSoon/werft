@@ -134,6 +134,7 @@ async function agentForApp(
       slug: agents.slug,
       status: agents.status,
       activeReleaseId: agents.activeReleaseId,
+      description: agents.description,
     })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
@@ -142,7 +143,13 @@ async function agentForApp(
     .for("no key update");
   if (!agent || agent.status === "archived") return null;
   if (agent.activeReleaseId === null) {
-    return { ...agent, role: "", active: false };
+    return {
+      id: agent.id,
+      name: agent.name,
+      slug: agent.slug,
+      role: "",
+      active: false,
+    };
   }
   const [version] = await tx
     .select({ card: agentVersions.card })
@@ -159,7 +166,12 @@ async function agentForApp(
     id: agent.id,
     name: agent.name,
     slug: agent.slug,
-    role: typeof role === "string" ? role : "",
+    // An agent made without a role has an empty one, and Slack rejects an
+    // empty app description, so its own description stands in.
+    role:
+      typeof role === "string" && role.trim() !== ""
+        ? role
+        : (agent.description ?? ""),
     active: true,
   };
 }

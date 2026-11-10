@@ -151,10 +151,21 @@ export function createSlackAppService(deps: {
     workspaceId: string,
     agentId: string,
   ) => Promise<SlackAgentWarning | null>;
+  /** Where a Slack refusal's detail goes; the response carries only its code. */
+  logger?: { warn(message: string, fields?: Record<string, unknown>): void };
   now?: () => Date;
   newId?: () => string;
 }) {
   const { authorization, api } = deps;
+  const refuse = (error: SlackApiError) => {
+    deps.logger?.warn("Slack refused the app manifest", {
+      method: error.method,
+      slack_error: error.code,
+      http_status: error.httpStatus,
+      details: error.details,
+    });
+    return slackRefused(error);
+  };
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
@@ -289,7 +300,7 @@ export function createSlackAppService(deps: {
           error.code === "CONFIG_TOKEN_INVALID");
       if (!refused) throw answerLost("apps.manifest.create");
       await apps.failCreate(workspaceId, begun.app.id);
-      if (error instanceof SlackApiError) throw slackRefused(error);
+      if (error instanceof SlackApiError) throw refuse(error);
       throw error;
     }
     const record = await finish(apps, {
@@ -484,7 +495,7 @@ export function createSlackAppService(deps: {
         if (!(error instanceof SlackApiError)) throw error;
         if (!(error.answered && SLACK_APP_GONE_CODES.has(error.code))) {
           throw error.answered
-            ? slackRefused(error)
+            ? refuse(error)
             : answerLost("apps.manifest.delete");
         }
       }
@@ -565,7 +576,7 @@ export function createSlackAppService(deps: {
         });
       if (error instanceof SlackApiError) {
         throw error.answered
-          ? slackRefused(error)
+          ? refuse(error)
           : answerLost("apps.manifest.update");
       }
       throw error;
