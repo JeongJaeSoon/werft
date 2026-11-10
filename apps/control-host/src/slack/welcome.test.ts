@@ -41,6 +41,7 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
+  createRowDelivery,
   createSlackBotApi,
   createSlackChannelJoiner,
   createSlackChannelKinds,
@@ -352,11 +353,18 @@ const callsOf = (method: string) =>
 
 function outboxPass() {
   const secrets = createPostgresSecretStore(db, key);
+  const slackApi = createSlackBotApi({ apiUrl: slack.url });
+  const botToken = (workspaceId: string, slackAppId: string) =>
+    slackBotToken(secrets, workspaceId, slackAppId);
   return drainSlackOutbox({
     outbox: createPostgresSlackOutboxStore(db),
-    slack: createSlackBotApi({ apiUrl: slack.url }),
-    botToken: (workspaceId, slackAppId) =>
-      slackBotToken(secrets, workspaceId, slackAppId),
+    slack: slackApi,
+    botToken,
+    delivery: createRowDelivery({
+      slack: slackApi,
+      botToken,
+      consoleOrigin: null,
+    }),
     logger,
     consoleOrigin: null,
     batchSize: 10,

@@ -1404,14 +1404,33 @@ export function isUnmetered(profile: CatalogProfileView): boolean {
 
 /** Where a provider route goes and how it authenticates there. */
 export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
-  const { auth, endpoint } = profile.provider;
+  const { auth, endpoint, kind } = profile.provider;
   return {
     url: endpoint,
+    // OpenAI takes its API key as a bearer token, whatever the connection
+    // calls the credential.
     headers:
-      auth.kind === "bearer"
+      auth.kind === "bearer" || kind === "openai_responses"
         ? [["authorization", `Bearer ${auth.value}`]]
         : [["x-api-key", auth.value]],
   };
+}
+
+/** The one provider path only an `openai_responses` connection serves. */
+export const RESPONSES_PROVIDER_PATH = "/v1/responses";
+
+/**
+ * Whether a session on a connection of this kind may call the provider route
+ * at `path`. The proxy names a path only for `/v1/responses` (none means a
+ * Messages call), so the rule is that the Responses path and an
+ * `openai_responses` connection go together: a Claude or LiteLLM session is
+ * refused the Responses path, and an OpenAI one the Messages paths.
+ */
+export function providerPathAllowed(
+  kind: CatalogProfile["provider"]["kind"],
+  path: string | undefined,
+): boolean {
+  return (kind === "openai_responses") === (path === RESPONSES_PROVIDER_PATH);
 }
 
 /**

@@ -1274,7 +1274,7 @@ function TeamPage({
           <ConfirmDialog
             open={deleting}
             onOpenChange={setDeleting}
-            title={`${team.name} 팀을 삭제할까요?`}
+            title={`다음 팀을 삭제할까요? ${team.name}`}
             consequence="구성원은 워크스페이스에 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다."
             confirmLabel="팀 삭제"
             cancelLabel="취소"
@@ -1476,7 +1476,7 @@ function TeamMembers({
         onOpenChange={(open) => {
           if (!open) setRemoving(null);
         }}
-        title={`${removing?.display_name ?? removing?.email ?? ""}님을 ${team.name} 팀에서 제외할까요?`}
+        title={`${removing?.display_name ?? removing?.email ?? ""}님을 다음 팀에서 제외할까요? ${team.name}`}
         consequence="워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다."
         confirmLabel="제외"
         cancelLabel="취소"

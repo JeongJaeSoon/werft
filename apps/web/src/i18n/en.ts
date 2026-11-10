@@ -7,6 +7,7 @@ import { agentsEn } from "./agents.ts";
 import { apiKeysEn } from "./api-keys.ts";
 import { authEn } from "./auth.ts";
 import { commonEn } from "./common.ts";
+import { engineSettingsEn } from "./engine-settings.ts";
 import { errorsEn } from "./errors.ts";
 import { githubEn } from "./github.ts";
 import { githubUserLinkEn } from "./github-user-link.ts";
@@ -242,6 +243,7 @@ export const en: Record<MessageKey, string> = {
   ...githubUserLinkEn,
   ...agentGitHubEn,
   ...agentAccessEn,
+  ...engineSettingsEn,
   ...usageEn,
   ...achievementsEn,
   ...achievementRulesEn,

@@ -260,6 +260,7 @@ jobs:
               - apps/control-host/src/metrics/
               - apps/control-host/src/pass-loop/
               - apps/control-host/src/reconciler/
+              - packages/adapters/forge/
               - tests/catalog-mismatch.
               - tests/context-gap-flow.
               - tests/drain-park-flow.
@@ -352,6 +353,7 @@ jobs:
               - packages/testkit/src/fake-anthropic.
               - packages/testkit/src/fake-git.
               - packages/testkit/src/fake-github.
+              - packages/testkit/src/fake-responses.
               - packages/testkit/src/scripted-messages.
               - packages/testkit/src/workspace.
               - tests/agent-sdk-compat/

@@ -32,6 +32,7 @@ import {
   memberships,
   users,
 } from "@werft-ai/db";
+import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAgentGitHubService,
@@ -52,7 +53,6 @@ import {
   DatabaseIdentityStore,
   LoginLockout,
 } from "./auth.ts";
-import { createGitHubAppDirectory } from "./forge-github.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentPullRequestRoutes } from "./routes/agent-pull-request.ts";

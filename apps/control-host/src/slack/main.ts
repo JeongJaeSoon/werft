@@ -46,6 +46,7 @@ import {
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
   createProfileRegistry,
+  createRowDelivery,
   createSessionService,
   createSlackBotApi,
   createSlackMemberJoinedHandler,
@@ -345,13 +346,23 @@ export async function main(
     });
     if (drain.claimed > 0) logger.info("Slack inbox pass", drain);
     const secrets = createPostgresSecretStore(db, secretKey);
+    const slackApi = createSlackBotApi({
+      apiUrl: slackApiUrlFrom(environment),
+    });
+    const botToken = (workspaceId: string, slackAppId: string) =>
+      slackBotToken(secrets, workspaceId, slackAppId);
+    const consoleOrigin = consoleOriginFrom(environment);
     const sent = await drainSlackOutbox({
       outbox,
-      slack: createSlackBotApi({ apiUrl: slackApiUrlFrom(environment) }),
-      botToken: (workspaceId, slackAppId) =>
-        slackBotToken(secrets, workspaceId, slackAppId),
+      slack: slackApi,
+      botToken,
+      delivery: createRowDelivery({
+        slack: slackApi,
+        botToken,
+        consoleOrigin,
+      }),
       logger,
-      consoleOrigin: consoleOriginFrom(environment),
+      consoleOrigin,
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,
       deadline,

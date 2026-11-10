@@ -1,0 +1,142 @@
+{
+  "done": {
+    "en": {
+      "blocks": [
+        {
+          "elements": [
+            {
+              "text": ":white_circle: *Handled*",
+              "type": "mrkdwn"
+            },
+            {
+              "text": "<https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "Handled\n<https://console.example/sessions/019a0000|Open on the web>"
+    },
+    "ja": {
+      "blocks": [
+        {
+          "elements": [
+            {
+              "text": ":white_circle: *対応済みです*",
+              "type": "mrkdwn"
+            },
+            {
+              "text": "<https://console.example/sessions/019a0000|Webで開く>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "対応済みです\n<https://console.example/sessions/019a0000|Webで開く>"
+    },
+    "ko": {
+      "blocks": [
+        {
+          "elements": [
+            {
+              "text": ":white_circle: *처리됐어요*",
+              "type": "mrkdwn"
+            },
+            {
+              "text": "<https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "처리됐어요\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    }
+  },
+  "done-no-link": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":white_circle: *Handled*",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "Handled\nCheck it in the web console"
+  },
+  "reject-only-pinned-source-invalid": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":warning: *이 push가 가리키는 체크포인트를 더는 확인할 수 없어 승인할 수 없어요*",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "acme/web ← abcdef1",
+            "type": "plain_text"
+          }
+        ],
+        "type": "context"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "push.reject",
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "거절",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+          }
+        ],
+        "type": "actions"
+      }
+    ],
+    "text": "이 push가 가리키는 체크포인트를 더는 확인할 수 없어 승인할 수 없어요\nacme/web ← abcdef1\n<https://console.example/sessions/019a0000|웹에서 열기>"
+  },
+  "reject-only-stale": {
+    "blocks": [
+      {
+        "elements": [
+          {
+            "text": ":warning: *A newer commit means this push can no longer be approved*",
+            "type": "mrkdwn"
+          },
+          {
+            "emoji": false,
+            "text": "acme/web ← abcdef1",
+            "type": "plain_text"
+          }
+        ],
+        "type": "context"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "push.reject",
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "Reject",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+          }
+        ],
+        "type": "actions"
+      }
+    ],
+    "text": "A newer commit means this push can no longer be approved\nacme/web ← abcdef1\n<https://console.example/sessions/019a0000|Open on the web>"
+  }
+}
