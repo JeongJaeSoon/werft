@@ -748,10 +748,10 @@ export function mcpUpstreamOf(server: CatalogMcpServer): EgressUpstream {
   };
 }
 
-/** The release's MCP tools a session runs: its `allow` pins for the server. */
-export function pinnedMcpTools(
+function pinnedWith(
   serverId: string,
   perTool: Readonly<Record<string, string>>,
+  wanted: string,
 ): string[] {
   const prefix = `${MCP_TOOL_PREFIX}${serverId}__`;
   return Object.entries(perTool)
@@ -759,10 +759,29 @@ export function pinnedMcpTools(
       ([tool, policy]) =>
         tool.startsWith(prefix) &&
         tool.length > prefix.length &&
-        policy === "allow",
+        policy === wanted,
     )
     .map(([tool]) => tool)
     .sort();
+}
+
+/** The release's MCP tools a session runs: its `allow` pins for the server. */
+export function pinnedMcpTools(
+  serverId: string,
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return pinnedWith(serverId, perTool, "allow");
+}
+
+/**
+ * The release's `deny` pins for the server. They are an explicit block list,
+ * so another allow source (the agent's saved settings) cannot reopen them.
+ */
+export function deniedMcpTools(
+  serverId: string,
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return pinnedWith(serverId, perTool, "deny");
 }
 
 /** The built-in `github` server a session's release attaches (design github-agent.md §3). */

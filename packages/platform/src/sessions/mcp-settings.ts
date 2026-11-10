@@ -1,4 +1,5 @@
-import { MCP_TOOL_PREFIX, mcpStartSchema } from "@werft-ai/contracts";
+import { mcpStartSchema } from "@werft-ai/contracts";
+import { visibleMcpTools } from "./mcp-tool-decision.ts";
 
 /** The agent's saved MCP settings, as the readers need them. */
 export type AgentMcpSettingsView = {
@@ -13,7 +14,10 @@ export type ReleaseMcpView = {
   server: string | null;
   /** The release's `allow` pins for `server`. */
   tools: readonly string[];
-  /** `runtime_config_snapshot.mcp_deny`: names no session of the release may call. */
+  /**
+   * Names no session of the release may call, whatever else allows them: the
+   * release's `deny` pins (`deniedMcpTools`) and `runtime_config_snapshot.mcp_deny`.
+   */
   deny: readonly string[];
 };
 
@@ -45,18 +49,8 @@ export function effectiveMcp(input: {
   row: AgentMcpSettingsView | null;
   release: ReleaseMcpView;
 }): EffectiveMcp {
-  const denied = new Set(input.release.deny);
-  const within = (server: string, tools: readonly string[]): string[] => {
-    const prefix = `${MCP_TOOL_PREFIX}${server}__`;
-    return tools
-      .filter(
-        (tool) =>
-          tool.startsWith(prefix) &&
-          tool.length > prefix.length &&
-          !denied.has(tool),
-      )
-      .sort();
-  };
+  const within = (server: string, tools: readonly string[]): string[] =>
+    visibleMcpTools(server, tools, input.release.deny);
 
   if (input.start !== null && input.start !== undefined) {
     const start = mcpStartSchema.safeParse(input.start);
