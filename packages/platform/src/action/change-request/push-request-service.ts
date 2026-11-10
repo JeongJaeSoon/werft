@@ -14,29 +14,36 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
-import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
+import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
+import {
+  pinnedCarries,
+  pushApprovability,
+} from "../../decision/push-approvability.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   deciderKeyOf,
   receiptActorOf,
-} from "../musterrolle/policy.ts";
-import type { PushIntentJob, PushIntentStore } from "../ports/push-intents.ts";
+} from "../../musterrolle/policy.ts";
+import type {
+  PushIntentJob,
+  PushIntentStore,
+} from "../../ports/push-intents.ts";
 import {
   PUSH_REFUSAL_ERRORS,
   type PushRequestStore,
   type PushWriteResult,
-} from "../ports/push-requests.ts";
-import { additionalRepositoryAllowed } from "./additional-repositories.ts";
-import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
-import { pinnedCarries, pushApprovability } from "./push-approvability.ts";
+} from "../../ports/push-requests.ts";
 import {
+  additionalRepositoryAllowed,
   idempotencyConflict,
   payloadHash,
+  repositoryBinding,
   requirePermitted,
+  type SessionCatalog,
   SessionServiceError,
   selfApproval,
-} from "./session-service.ts";
+} from "../../sessions/index.ts";
 
 export type PushActor = {
   /** Who asks the authorization policy, as every other session entry does. */

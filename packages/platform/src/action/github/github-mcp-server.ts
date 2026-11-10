@@ -16,21 +16,26 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { z } from "zod";
+import type { AuthorizationPolicy, Caller } from "../../musterrolle/policy.ts";
+import {
+  type GitHubMcpStore,
+  SavedRulesUnavailable,
+} from "../../ports/github-mcp.ts";
+import {
+  type RepositoryAttachmentService,
+  SessionServiceError,
+} from "../../sessions/index.ts";
+import type { PullRequestService } from "../change-request/pull-request-service.ts";
+import type {
+  PushActor,
+  PushRequestService,
+} from "../change-request/push-request-service.ts";
 import {
   type PersonRejection,
   refusalFromServiceError,
   refusalOf,
-} from "../action-broker/refusal.ts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import {
-  type GitHubMcpStore,
-  SavedRulesUnavailable,
-} from "../ports/github-mcp.ts";
+} from "../refusal.ts";
 import type { GitHubWorkService } from "./github-work-service.ts";
-import type { PullRequestService } from "./pull-request-service.ts";
-import type { PushActor, PushRequestService } from "./push-request-service.ts";
-import type { RepositoryAttachmentService } from "./repository-attachment-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 /**
  * The built-in `github` MCP server (design github-agent.md §3 "내장 MCP 서버

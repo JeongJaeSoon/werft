@@ -7,24 +7,27 @@ import {
   pushDecisionOf,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
-import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
+import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../../musterrolle/policy.ts";
 import type {
   CreatePushRequestInput,
   PushPolicyApproval,
   PushRefusalRecord,
   PushRequestStore,
-} from "../ports/push-requests.ts";
-import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
+} from "../../ports/push-requests.ts";
+import type {
+  InstallationProfileEntry,
+  SessionCatalog,
+} from "../../sessions/catalog.ts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   createPushRequestService,
   mayDecidePush,
 } from "./push-request-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";

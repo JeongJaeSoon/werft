@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
-import type { ForgePullRequestWithBody } from "../action/ports/forge.ts";
-import { ForgeCredentialError } from "../action/ports/forge.ts";
-import type { GitHubApi } from "../action/ports/github-api.ts";
-import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import { type GitHubGate, GitHubGateError } from "../ports/github-gate.ts";
+import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
+import { type GitHubGate, GitHubGateError } from "../../ports/github-gate.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,
@@ -12,13 +9,22 @@ import {
   type PullRequestJob,
   type PullRequestSettled,
   pullRequestBackoffMs,
-} from "../ports/pull-request-drain.ts";
+} from "../../ports/pull-request-drain.ts";
+import {
+  repositoryBinding,
+  type SessionCatalog,
+} from "../../sessions/catalog.ts";
+import {
+  pushRequestMarker,
+  pushRequestMarkerOf,
+} from "../../sessions/git-attribution.ts";
 import {
   type FakeFile,
   fakeRepositoryReads,
-} from "../testing/repository-tree-fake.ts";
-import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
-import { pushRequestMarker, pushRequestMarkerOf } from "./git-attribution.ts";
+} from "../../testing/repository-tree-fake.ts";
+import type { ForgePullRequestWithBody } from "../ports/forge.ts";
+import { ForgeCredentialError } from "../ports/forge.ts";
+import type { GitHubApi } from "../ports/github-api.ts";
 import { createPullRequestDrain } from "./pull-request-drain.ts";
 import { createPullRequestService } from "./pull-request-service.ts";
 

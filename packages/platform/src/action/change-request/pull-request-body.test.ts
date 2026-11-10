@@ -3,7 +3,7 @@ import type { UserLocale } from "@werft-ai/contracts";
 import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
-} from "./git-attribution.ts";
+} from "../../sessions/git-attribution.ts";
 import {
   type PullRequestFields,
   renderPullRequestBody,

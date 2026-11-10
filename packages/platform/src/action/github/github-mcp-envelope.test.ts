@@ -8,11 +8,11 @@ import {
   type PushRequest,
   type ReceiptActor,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   createGitHubMcpServer,
   type GitHubMcpServices,
 } from "./github-mcp-server.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 // Every tool of the built-in server, over the MCP wire: `tools/list` as a
 // snapshot, and one success and one refusal of `tools/call` per tool, each

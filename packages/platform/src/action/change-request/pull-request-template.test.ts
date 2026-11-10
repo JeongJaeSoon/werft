@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  type FakeFile,
-  fakeRepositoryReads,
-} from "../testing/repository-tree-fake.ts";
-import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
   withPullRequestTail,
-} from "./git-attribution.ts";
+} from "../../sessions/git-attribution.ts";
+import {
+  type FakeFile,
+  fakeRepositoryReads,
+} from "../../testing/repository-tree-fake.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
 import {
   fillTemplate,

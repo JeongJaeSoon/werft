@@ -5,9 +5,9 @@ import {
   PULL_REQUEST_TEMPLATE_MAX_BYTES,
   type PullRequestTemplateRecord,
 } from "@werft-ai/contracts";
-import type { RepositoryReadable } from "../action/ports/capabilities.ts";
-import type { GitTreeEntry } from "../action/ports/github-api.ts";
-import { closeOpenBlocks } from "./git-attribution.ts";
+import { closeOpenBlocks } from "../../sessions/index.ts";
+import type { RepositoryReadable } from "../ports/capabilities.ts";
+import type { GitTreeEntry } from "../ports/github-api.ts";
 import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
 
 // `&#12;` is an entity, not a reference. An address is broken in its path,
