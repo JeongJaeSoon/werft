@@ -488,7 +488,7 @@ describe("the run judging a platform tool call", () => {
   });
 
   test("a run closed while a trusted call is judged does not let it through", async () => {
-    const t = setup({ precheck: async () => null });
+    const t = setup();
     await t.run.ready();
     const pending = t.call();
     t.run.abort();
