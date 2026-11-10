@@ -134,6 +134,8 @@ export function protectRelease(
   const images = object(manifest.images);
   const digests = new Set<string>();
   for (const app of APPS) {
+    // Releases before the Codex image have no entry for it.
+    if (app === "worker-codex" && images[app] === undefined) continue;
     const image = object(images[app]);
     if (image.image !== `ghcr.io/${owner.toLowerCase()}/werft-${app}`)
       throw new Error(`unexpected manifest image for ${app}`);

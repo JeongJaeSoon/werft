@@ -702,8 +702,8 @@ jobs:
           bash scripts/test-ops.sh manifest release-manifest.json infra/test-ops.env.example | jq -e '.images.control_host'
           if bash scripts/test-ops.sh upgrade release-manifest.json; then echo "upgrade must be refused in a bundle" >&2; exit 1; fi
 
-  # The GitHub Release of a tag, with one manifest file: the three image
-  # digests, the worker runtime and the chart version. It comes last because
+  # The GitHub Release of a tag, with one manifest file: the four image
+  # digests, both worker runtimes and the chart version. It comes last because
   # the chart is final only once chart-publish has read it back, and it alone
   # holds contents: write. The release is a draft until the manifest is read
   # back; a rerun of the same tag passes on the same content and fails on other

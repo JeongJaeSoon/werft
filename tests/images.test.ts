@@ -2234,7 +2234,8 @@ esac
   });
 
   describe("image-promote.sh", () => {
-    const apps3 = ["control-host", "egress-proxy", "worker"];
+    // In the order the registry's file names sort: "-" comes before "_" and ".".
+    const apps3 = ["control-host", "egress-proxy", "worker-codex", "worker"];
     const sha = "0123456789abcdef0123456789abcdef01234567";
     const digest = (app: string, build = "a") => `sha256:${build}-${app}`;
     const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
@@ -2405,8 +2406,8 @@ esac
       expect(store.tagged()).toEqual([`ghcr.io_o_werft-control-host_${main}`]);
       expect(store.published()).toEqual([]);
       expect(store.promote().code).toBe(0);
-      expect(store.tagged().length).toBe(3);
-      expect(store.published().length).toBe(3);
+      expect(store.tagged().length).toBe(4);
+      expect(store.published().length).toBe(4);
     });
 
     test("a tag that reads back wrong is not published", () => {
