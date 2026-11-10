@@ -61,11 +61,11 @@ integration("session pin reconciliation on PostgreSQL", () => {
     await database.drop();
   }, 60_000);
 
-  // The gate counts every live session, so each test starts with none. A
-  // failed row is out of both the gate and the reconciliation; a stopped one
-  // is only out of the gate.
+  // The gate counts every live session and the reconciliation reads every
+  // session of a release, so each test starts with none of either: the old
+  // rows end and let go of their release.
   beforeEach(async () => {
-    await db.update(sessions).set({ status: "failed" });
+    await db.update(sessions).set({ status: "stopped", agentReleaseId: null });
   });
 
   async function release(withSpec: boolean) {
@@ -347,7 +347,7 @@ integration("session pin reconciliation on PostgreSQL", () => {
   );
 
   test(
-    "a stopped session is pinned too, because a resume brings it back and the flip refuses a live session without a pin; a failed one is left alone",
+    "an ended session is pinned too, because a resume, a recovery decision or a new input brings it back and the flip refuses a live session without a pin",
     async () => {
       const rel = await release(true);
       const stopped = await start(rel);
@@ -365,9 +365,17 @@ integration("session pin reconciliation on PostgreSQL", () => {
 
       const report = await reconcileSessionPins(db);
 
-      expect(report.repaired).toBe(1);
-      expect(verifyReleaseSpec(rel, snake(await rowOf(stopped))).ok).toBe(true);
-      expect((await rowOf(failed)).specSource).toBeNull();
+      expect(report.repaired).toBe(2);
+      for (const id of [stopped, failed]) {
+        expect(verifyReleaseSpec(rel, snake(await rowOf(id))).ok).toBe(true);
+      }
+      // A pin that already holds is not read again for an ended session.
+      expect(await reconcileSessionPins(db)).toEqual({
+        repaired: 0,
+        raced: 0,
+        unresolved: 0,
+        modelUnknown: 0,
+      });
       // The gate still reads live sessions only, so a stopped one never
       // holds the flip back.
       expect((await sessionPinGate(db)).open).toBe(true);

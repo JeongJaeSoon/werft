@@ -57568,7 +57568,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no agent release with a pinned runtime spec, which a session needs once specs are authoritative.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -57993,7 +57993,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no agent release with a pinned runtime spec, which a session needs once specs are authoritative.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

@@ -612,6 +612,7 @@ async function retryRestore(
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
   }
+  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
   const queued = await queuedTurnCount(tx, session.id);
   await tx
     .update(sessions)

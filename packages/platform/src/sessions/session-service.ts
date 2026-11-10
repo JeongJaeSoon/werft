@@ -1504,7 +1504,7 @@ export function createSessionService(deps: {
         case "pin_required":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
-            "This session has no agent release with a pinned runtime spec, so it cannot run again; create a new session",
+            "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
           );
         case "execution_revoked":
           throw executionRevoked();
@@ -1579,7 +1579,7 @@ export function createSessionService(deps: {
         case "pin_required":
           throw new SessionServiceError(
             "UNSUPPORTED_CAPABILITY",
-            "This session has no agent release with a pinned runtime spec, so it cannot run again; create a new session",
+            "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
           );
         case "execution_revoked":
           throw executionRevoked();

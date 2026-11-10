@@ -4405,7 +4405,7 @@ export const API_ROUTE_DECLARATIONS = [
       CHECKPOINT_UNAVAILABLE:
         "The stopped or paused session has no restore point it can resume from.",
       UNSUPPORTED_CAPABILITY:
-        "The session runs on a legacy pod binding, or has no agent release with a pinned runtime spec, which a session needs once specs are authoritative.",
+        "The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
       BACKEND_UNAVAILABLE:
         "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
     },
@@ -4449,7 +4449,7 @@ export const API_ROUTE_DECLARATIONS = [
       SESSION_RESUMING: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
       SESSION_STOPPED: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
       UNSUPPORTED_CAPABILITY:
-        "The session runs on a legacy pod binding, or has no agent release with a pinned runtime spec, which a session needs once specs are authoritative.",
+        "The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
       BACKEND_UNAVAILABLE:
         "Also while the stopped session's workspace is being reclaimed; `Retry-After` is 10.",
     },
