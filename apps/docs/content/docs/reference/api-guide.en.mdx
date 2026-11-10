@@ -18,7 +18,7 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **Goal.** Get a Bearer API key and confirm in one call the minimum scopes the later use cases need. Reading, session input, approval, control and recovery are split into `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control` and `sessions:recover`.
 
-**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. `demo-key` issues the demo owner's personal key and `demo-release` prints the active release id of the demo agent `release-notes`. Answers to pending requests go with a second key (`APPROVER_KEY`): a workspace key cannot answer a request of a session it started (403 `self_approval`). In production, skip the `scripts/local.sh` lines, put your key into `KEY` and the active release id of the agent you use (the agent's Release tab) into `WERFT_AGENT_RELEASE_ID`.
+**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. `demo-key` issues the demo owner's personal key and `demo-release` prints the active release id of the demo agent `release-notes`. Answers to pending requests and push-request approvals or rejections go with a second key (`APPROVER_KEY`): a workspace key cannot answer a request of a session it started, nor approve or reject its push requests (403 `self_approval`). In production, skip the `scripts/local.sh` lines, put your key into `KEY` and the active release id of the agent you use (the agent's Release tab) into `WERFT_AGENT_RELEASE_ID`.
 
 ```bash
 scripts/local.sh up --fake-model
@@ -420,25 +420,25 @@ echo "$push_request" | jq -e --arg branch "agent/$SID" \
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
 
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUTH[@]}" \
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
 echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
   | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
 
-again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
 test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
-curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
 
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
 echo "$approved" | jq -e '.state == "approved"'
@@ -449,7 +449,7 @@ for _ in $(seq 1 30); do
   echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
   sleep 1
 done
-curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROVE[@]}" \
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 

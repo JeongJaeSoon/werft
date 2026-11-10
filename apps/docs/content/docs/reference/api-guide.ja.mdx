@@ -18,7 +18,7 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **目標.** Bearer API key を用意し、後のユースケースに必要な最小限の scope を 1 回の呼び出しで確認します。読み取り、セッション入力、承認、制御、復旧は `sessions:read`、`sessions:write`、`sessions:approve`、`sessions:control`、`sessions:recover` に分かれています。
 
-**手順.** key の要らない fake モデル(`--fake-model`、[開発用サーバーの実行](/run-server/dev-server))でローカルスタックを起動し、key を発行して、`GET /v1` で key が有効なことを確認します。`demo-key` はデモ owner の個人 key を、`demo-release` はデモエージェント `release-notes` の有効な release id を返します。保留中の要求への回答は 2 本目の key(`APPROVER_KEY`)で送ります。workspace key は自分が開いたセッションの要求に回答できません(403 `self_approval`)。本番では `scripts/local.sh` の行を省き、自分の key を `KEY` に、使うエージェントの有効な release id(エージェント詳細のリリースタブ)を `WERFT_AGENT_RELEASE_ID` に入れます。
+**手順.** key の要らない fake モデル(`--fake-model`、[開発用サーバーの実行](/run-server/dev-server))でローカルスタックを起動し、key を発行して、`GET /v1` で key が有効なことを確認します。`demo-key` はデモ owner の個人 key を、`demo-release` はデモエージェント `release-notes` の有効な release id を返します。保留中の要求への回答と push 要求の承認・却下は 2 本目の key(`APPROVER_KEY`)で送ります。workspace key は自分が開いたセッションの要求に回答することも、その push 要求を承認・却下することもできません(403 `self_approval`)。本番では `scripts/local.sh` の行を省き、自分の key を `KEY` に、使うエージェントの有効な release id(エージェント詳細のリリースタブ)を `WERFT_AGENT_RELEASE_ID` に入れます。
 
 ```bash
 scripts/local.sh up --fake-model
@@ -420,25 +420,25 @@ echo "$push_request" | jq -e --arg branch "agent/$SID" \
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
 
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUTH[@]}" \
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
 echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
-curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${APPROVE[@]}" \
   | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
 
-again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
 test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
-curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${APPROVE[@]}" \
   | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
 
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
 echo "$approved" | jq -e '.state == "approved"'
@@ -449,7 +449,7 @@ for _ in $(seq 1 30); do
   echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
   sleep 1
 done
-curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@]}" \
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${APPROVE[@]}" \
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
