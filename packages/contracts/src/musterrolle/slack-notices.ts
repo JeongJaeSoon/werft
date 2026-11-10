@@ -90,6 +90,7 @@ const NOTICE_FOR: Record<
   role: "noRight",
   surface_ceiling: "noRight",
   agent_ceiling: "noRight",
+  agent_private: "noRight",
   disabled: "noRight",
   guest_disabled: "guestDisabled",
   external_user: "membersOnly",

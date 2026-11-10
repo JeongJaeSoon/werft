@@ -570,6 +570,9 @@ export const AUTHORIZATION_REASON_VALUES = [
   "role",
   "surface_ceiling",
   "agent_ceiling",
+  // A private agent used by someone outside its teams, admins and managers
+  // (94S-901). A start is answered as a missing release instead.
+  "agent_private",
   "disabled",
   "stale_link",
   "credential_unbound",

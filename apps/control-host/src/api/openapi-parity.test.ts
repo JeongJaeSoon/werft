@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import type {
+  SlackAppService,
+  SlackChannelSearchService,
   SlackEventsService,
+  SlackInstallService,
   SlackInteractionService,
+  SlackSecretService,
 } from "@werft-ai/chat-slack";
 import type {
   AchievementRuleService,
@@ -38,10 +42,6 @@ import type {
   SessionShareService,
   SettingsConsoleService,
   SettingsDocumentService,
-  SlackAppService,
-  SlackChannelSearchService,
-  SlackInstallService,
-  SlackSecretService,
   SurfaceBindingService,
   TeamService,
   UsageService,

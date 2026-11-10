@@ -1,20 +1,22 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createSlackAppService,
+  createSlackConfigTokens,
+  SlackApiError,
+} from "@werft-ai/chat-slack";
+import { createFakeSlackConfigApi } from "@werft-ai/chat-slack/testing/slack";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import {
   type AgentAuthority,
   callerFor,
   createAuthorizationPolicy,
-  createSlackAppService,
-  createSlackConfigTokens,
   MANAGEMENT_ROLES,
   type SecretAudit,
   SecretKey,
   SessionServiceError,
-  SlackApiError,
   type SlackConfigTokenStore,
 } from "@werft-ai/platform";
-import { createFakeSlackConfigApi } from "@werft-ai/platform/testing/slack";
 import {
   createTempDatabase,
   type TempDatabase,

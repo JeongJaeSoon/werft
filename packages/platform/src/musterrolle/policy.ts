@@ -24,6 +24,7 @@ import type {
   SessionShareStore,
   SessionViewer,
 } from "../ports/session-share-store.ts";
+import type { UsageDecision } from "./agent-usage-decision.ts";
 
 export type RecordedActor = {
   principal: PrincipalRef;
@@ -194,7 +195,26 @@ export interface AgentAuthority {
     workspaceId: string,
     releaseId: string,
   ): Promise<string | null>;
+  /**
+   * Whether the person behind a caller may use the agent (94S-901), read
+   * without a lock. Without it every agent is open: a deployment with no
+   * agent store has no private ones.
+   */
+  usageOf?(
+    workspaceId: string,
+    agentId: string,
+    who: UsageRequester,
+  ): Promise<UsageDecision>;
 }
+
+/** The caller as the usage decision sees them. */
+export type UsageRequester = {
+  /** The person: the user, or a personal key's creator. */
+  userId: string | null;
+  role: WorkspaceRole | null;
+  /** The agent a key is bound to. */
+  keyAgentId: string | null;
+};
 
 // Without a store an agent is only ever named directly, and nobody
 // administers one.
@@ -264,9 +284,20 @@ export const workspaceWideSessions: SessionAccess = {
   },
 };
 
-export const POLICY_VERSION = "m15";
+export const POLICY_VERSION = "m16";
 
 export interface AuthorizationPolicy {
+  /**
+   * The agent a release belongs to and whether this subject may use it, for a
+   * start that must answer as a missing release when they may not. Null when
+   * the release or the subject cannot be resolved: the caller goes on as for
+   * any other release. Records nothing.
+   */
+  usageOfRelease?(
+    subject: AuthorizationSubject,
+    ownerScope: string,
+    releaseId: string,
+  ): Promise<{ agentId: string; usage: UsageDecision } | null>;
   /**
    * `record: false` decides without keeping the decision: for what a screen
    * offers, never for an act.
@@ -542,6 +573,28 @@ export function createAuthorizationPolicy(
       ? "ok"
       : "role";
   }
+  // A personal key uses an agent as its creator; an agent's key as that
+  // agent; any other key has no person.
+  async function usageFor(
+    reading: Extract<IdentityReading, { status: "ok" }>,
+    workspaceId: string,
+    agentId: string,
+  ): Promise<UsageDecision> {
+    if (!agents.usageOf)
+      return { allowed: true, basis: "public", teamId: null };
+    const { principal } = reading;
+    const person =
+      principal.kind === "user"
+        ? { userId: principal.id, role: principal.role }
+        : {
+            userId: reading.keyCreator?.userId ?? null,
+            role: reading.keyCreator?.role ?? null,
+          };
+    return agents.usageOf(workspaceId, agentId, {
+      ...person,
+      keyAgentId: reading.keyAgentId ?? null,
+    });
+  }
   const decisions = deps.decisions;
   const newDecisionId = deps.newDecisionId ?? (() => crypto.randomUUID());
 
@@ -736,6 +789,22 @@ export function createAuthorizationPolicy(
     }
     // No agent identity has a ceiling to multiply by yet.
     if (subject.agent !== undefined) return ["agent_ceiling", scopes];
+    // Who may use a private agent (94S-901), after every refusal that is
+    // the same for a public one, and before the credential check, whose
+    // answer names the agent's admins. A workspace's session that is
+    // visible to the requester is answered here too: the share does not
+    // make the agent theirs.
+    if (
+      action === "session.submit" &&
+      principal.workspace_id !== null &&
+      (resource.release_id !== undefined || resource.id !== null)
+    ) {
+      const agentId = await agentOfResource(resource);
+      if (agentId !== null) {
+        const usage = await usageFor(reading, resource.owner_scope, agentId);
+        if (!usage.allowed) return ["agent_private", scopes];
+      }
+    }
     // Re-read at every start: a binding revoked since activation stops the
     // next session.
     if (resource.release_id !== undefined) {
@@ -791,6 +860,32 @@ export function createAuthorizationPolicy(
   }
 
   return {
+    async usageOfRelease(subject, ownerScope, releaseId) {
+      if (
+        subject.principal === null ||
+        agents.agentOfRelease === undefined ||
+        !agents.usageOf
+      ) {
+        return null;
+      }
+      const reading = await identity.reread({
+        ...subject,
+        principal: subject.principal,
+      });
+      if (
+        reading.status !== "ok" ||
+        reading.principal.workspace_id === null ||
+        ownerScope !== ownerScopeOf(reading.principal)
+      ) {
+        return null;
+      }
+      const agentId = await agents.agentOfRelease(ownerScope, releaseId);
+      if (agentId === null) return null;
+      return {
+        agentId,
+        usage: await usageFor(reading, ownerScope, agentId.toLowerCase()),
+      };
+    },
     async authorize(request, options) {
       const decision_id = newDecisionId();
       let reason: AuthorizationReason;

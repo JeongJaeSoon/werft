@@ -1,6 +1,7 @@
 import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
-import type { Principal } from "@werft-ai/platform";
+import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull } from "drizzle-orm";
+import { usageOf } from "./agent-usage.ts";
 import { lockActorAccount } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -150,6 +151,38 @@ export async function keyReaches(
     .where(eq(agentReleases.id, releaseId))
     .limit(1);
   return release?.agentId === requester.keyAgentId;
+}
+
+/**
+ * Whether the requester may use `releaseId`'s agent, judged again over the
+ * rows the policy's usage decision rests on (94S-901): agent, agent_usage,
+ * every team it reads in id order, relation rows, member rows, in one pass
+ * (`usageOf`). Take it before any helper that locks teams (lockAgentUse,
+ * lockSessionReach): a team's archive holds agent_usage and then the team,
+ * so a team lock taken first here would cross it.
+ */
+export async function lockAgentUsage(
+  tx: Database,
+  requester: Requester,
+  workspaceId: string,
+  releaseId: string,
+): Promise<UsageDecision> {
+  const [release] = await tx
+    .select({ agentId: agentReleases.agentId })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1);
+  if (!release) return { allowed: false };
+  return usageOf(tx, {
+    workspaceId,
+    agentId: release.agentId,
+    who: {
+      userId: requester.userId,
+      role: requester.role,
+      keyAgentId: requester.keyAgentId,
+    },
+    lock: true,
+  });
 }
 
 /**

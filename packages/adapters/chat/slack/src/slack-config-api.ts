@@ -4,9 +4,8 @@ import {
   type SurfaceChannelKind,
   slackPermalinkSchema,
 } from "@werft-ai/contracts";
+import type { CreatedSlackApp, RotatedConfigToken } from "@werft-ai/platform";
 import { z } from "zod";
-import type { CreatedSlackApp } from "../ports/slack-app-store.ts";
-import type { RotatedConfigToken } from "../ports/slack-config-token-store.ts";
 
 // The App Configuration API calls the platform makes with a workspace's
 // config token: rotating the token and creating, updating and deleting the

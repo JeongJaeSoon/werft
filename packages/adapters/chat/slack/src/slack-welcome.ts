@@ -6,13 +6,13 @@ import type {
   AgentStore,
   ChannelJoinable,
   SlackAppStore,
-  SlackInboxLogger,
-  SlackInstallFinalize,
   SlackOutboxEntry,
   SlackOutboxStore,
   SurfaceBindingStore,
   WelcomeOutcome,
 } from "@werft-ai/platform";
+import type { SlackInboxLogger } from "./slack-inbox.ts";
+import type { SlackInstallFinalize } from "./slack-install-service.ts";
 
 /** The welcome's words; the outbox escapes them, so a name mentions no one. */
 export function slackWelcomeText(agentName: string): string {

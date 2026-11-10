@@ -6,21 +6,17 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
-  createFakeSlackWebApi,
-  type SeedSlackChannel,
-} from "@werft-ai/testkit/fake-slack-api";
-import { SessionServiceError } from "../sessions/session-service.ts";
-import {
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-  fakeSlackValue,
-} from "../testing/slack-fakes.ts";
-import {
   type AgentAuthority,
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "./policy.ts";
+  SessionServiceError,
+  type SurfaceBindingService,
+} from "@werft-ai/platform";
+import {
+  createFakeSlackWebApi,
+  type SeedSlackChannel,
+} from "@werft-ai/testkit/fake-slack-api";
 import {
   createSlackChannelCache,
   createSlackChannelSearchService,
@@ -35,7 +31,11 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackTokenRevoked } from "./slack-token-gone.ts";
-import type { SurfaceBindingService } from "./surface-binding-service.ts";
+import {
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+  fakeSlackValue,
+} from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";

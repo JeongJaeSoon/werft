@@ -731,6 +731,7 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 - 요청한 `scopes`가 발급자의 지금 scope를 넘으면 `403 SCOPE_NOT_GRANTABLE`이다. admin은 `sessions:recover`가 든 key를 만들 수 없다. 그 안에서는 개인 key와 에이전트 key가 같은 scope를 고른다(`sessions:approve` 포함). 이미 발급한 key의 scope는 바뀌지 않는다.
 - 권한이 없으면 `403 FORBIDDEN`이고 `error.details.reason_code`에 판정 이유(`role`, `agent_ceiling` 등)가 있다.
+- 비공개 에이전트(`GET /v1/agents/{id}/usage`)는 그 팀의 멤버, workspace owner·admin, 에이전트 관리자, 관리 팀 멤버만 쓴다. 그 밖의 사람이 `agent_release_id`로 세션을 만들면 없는 release와 같은 `404`(본문까지 같다)이고, 보이는 세션에 입력하면 `403 FORBIDDEN`에 `reason_code: agent_private`(연락할 관리자는 알려 주지 않는다)다. 승인(`session.approve`)과 resume은 사용 허가를 보지 않는다. 세션과 첫 turn은 `usage_basis`(`public`·`team`·`workspace`·`agent_admin`·`manager`·`agent_key`), `usage_team_id`, `requester_kind`, `requester_id`를 남긴다.
 - 에이전트 key로 세션을 만들려면 `POST /v1/sessions`에 그 에이전트의 `agent_release_id`를 넣는다. `profile_id`는 빼면 그 release의 프로필이고, 보내면 그 프로필이어야 한다(`409 RELEASE_PROFILE_MISMATCH`). `repository_id`를 빼면 GitHub 설정 행이 있는 에이전트는 저장소 없이 시작하고, 행이 없는 에이전트는 release의 `repository_id`로 시작한다(아래 "새 세션의 시작 저장소" 절). release의 프로필이 카탈로그에서 빠졌거나 release 뒤에 바뀌었으면 `409 PROFILE_DIGEST_MISMATCH`다. 에이전트가 일시중지·보관 상태이면 `409 AGENT_NOT_RUNNABLE`(`error.details.reason_code: agent_inactive`)이고, release가 한 번도 승인(활성화)되지 않았으면 같은 코드에 `reason_code: release_unapproved`다. 승인은 그 release의 `approved_at`이 정한다. 그래서 지금 활성이 아니어도 승인된 이전 release에 묶은 세션은 에이전트가 활성인 동안 그대로 시작한다. 이미 만들어진 세션을 다시 여는 요청은 이 검사를 받지 않는다. Slack에서 온 입력도 같은 검사를 받아 거절되고, 사용자에게는 일반 실패 안내가 가며 코드와 `reason_code`는 로그에 남는다. release를 넣지 않은 세션이나 다른 에이전트의 세션은 `403`(`agent_ceiling`)이다. 세션 목록과 receipt 조회도 에이전트를 가리지 못해 `403`이다. 실행은 아직 `profile_id`를 따르고, release의 지시문과 도구 정책은 세션에 고정만 된다.
 - 목록(`GET /v1/api-keys`)은 자기 개인 key와 자기가 관리하는 에이전트의 key만 보인다. 비밀값은 발급 응답에서 한 번만 나온다.
 - 폐기는 `DELETE /v1/api-keys/{id}`이고 발급과 같은 권한이 든다. 남의 개인 key는 `404`다. 이미 폐기한 key는 아무것도 바꾸지 않고 `receipt_id: null`을 돌려준다.
@@ -1239,7 +1240,7 @@ Slack 채널은 멘션·스레드 답글·승인 버튼마다 `authorizeSlackInp
 | 세션이 이 워크스페이스에 없다 | `not_found` | 이 세션은 공유 범위 밖이라 요청할 수 없어요. 세션을 만든 사람에게 공유를 요청하세요 |
 | 새 세션의 자격 연결이 없다 | `credential_unbound` | 연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요 |
 
-공개 상한이 요약까지(`disclosure: "summary"`)인 채널의 읽기는 거절이 아니라 `redact`(`reason_code: surface_ceiling`, `redact: {view: "summary"}`)다. 채널은 본문 대신 요약과 웹 링크를 보이고, 웹은 링크를 연 사람을 다시 판정한다. 같은 채널의 요청·승인은 좁아지지 않는다. Slack 입력과 승인은 허용도 모두 `authz_decisions`에 남고, 거절과 redact도 남는다. 이 기록을 쓰지 못하면 허용과 redact 모두 `error`로 거절한다(안내는 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"). 판정 행의 `policy_version`은 `m15`다.
+공개 상한이 요약까지(`disclosure: "summary"`)인 채널의 읽기는 거절이 아니라 `redact`(`reason_code: surface_ceiling`, `redact: {view: "summary"}`)다. 채널은 본문 대신 요약과 웹 링크를 보이고, 웹은 링크를 연 사람을 다시 판정한다. 같은 채널의 요청·승인은 좁아지지 않는다. Slack 입력과 승인은 허용도 모두 `authz_decisions`에 남고, 거절과 redact도 남는다. 이 기록을 쓰지 못하면 허용과 redact 모두 `error`로 거절한다(안내는 "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요"). 판정 행의 `policy_version`은 `m16`다.
 
 guest 사용 설정은 `workspace.settings.slack_guest_enabled`(기본 `false`)다. owner·admin이 cookie 세션으로 바꾼다.
 

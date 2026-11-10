@@ -1,4 +1,10 @@
+import type { GitHubGrant } from "../../ports/github-gate.ts";
 import type { GitHubApi } from "./github-api.ts";
+
+/** A grant whose `api` is only what the holder calls. */
+export type GrantWith<Api> = Omit<GitHubGrant, "api"> & {
+  readonly api: Api;
+};
 
 // GitHubApi keeps one implementation; a service takes only what it calls.
 // Each name is one thing a caller can ask the forge to do (surface-action-modules.md 6.2).
