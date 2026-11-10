@@ -12,7 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
-import { PUSH_UNAPPROVABLE_REASON_VALUES } from "./present-action.ts";
+import { PUSH_UNAPPROVABLE_REASON_VALUES } from "../surface/present-action.ts";
 import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 // requested → approved | rejected is a human decision; approved → pushing →

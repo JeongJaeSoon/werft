@@ -1,7 +1,6 @@
 import { z } from "zod";
-
+import { GITHUB_MCP_SERVER } from "../action/github-mcp.ts";
 import { MCP_SERVER_ID_PATTERN, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
-import { GITHUB_MCP_SERVER } from "./github-mcp.ts";
 
 export const MCP_TOOL_NAME_MAX = 128;
 

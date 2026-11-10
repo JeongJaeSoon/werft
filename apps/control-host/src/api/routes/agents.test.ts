@@ -159,6 +159,7 @@ function store(overrides: Partial<AgentStore> = {}): AgentStore {
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
     findRelease: async () => storedRelease(),
+    agentStatus: async () => "active",
     releaseSuperseded: async () => false,
     create: async () => ({ outcome: "created", detail }),
     update: async () => ({ outcome: "updated", detail, saved: null }),
@@ -206,6 +207,7 @@ function asPerson(caller: Caller): Caller {
 type Routed = Omit<
   AgentService,
   | "resolveRelease"
+  | "notRunnableReason"
   | "envNames"
   | "rolloutRelease"
   | "migrateModel"
