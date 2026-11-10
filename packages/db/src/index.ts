@@ -90,7 +90,6 @@ export * from "./slack-thread-status.ts";
 export * from "./surface-bindings.ts";
 export * from "./tool-calls.ts";
 export * from "./tool-calls-hist.ts";
-export * from "./tool-unlock.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";
 export * from "./usage-reader.ts";
 export * from "./worker-unit-of-work.ts";

@@ -1,7 +1,8 @@
 import type {
   CatalogMcpServerConfig,
-  CatalogProfileConfig,
+  CatalogProviderConfig,
   CatalogRepositoryConfig,
+  ModelFamilies,
   StoredOwnerKind,
 } from "../sessions/catalog.ts";
 
@@ -17,14 +18,18 @@ export interface InstallationSettings {
   generation: number;
   connections: ReadonlyArray<{
     id: string;
-    provider: CatalogProfileConfig["provider"];
+    provider: CatalogProviderConfig;
     /**
      * The provider as it was while its credential came from the deployment,
      * when the console has since moved it to a stored value.
      */
-    replaces?: CatalogProfileConfig["provider"];
+    replaces?: CatalogProviderConfig;
     /** Absent reads as `unknown`. */
     auto_mode?: "supported" | "unsupported" | "unknown";
+    /** The models an agent may name on it; absent reads as none. */
+    models?: readonly string[];
+    /** Their series, for a retired model's successor. */
+    model_families?: ModelFamilies | undefined;
   }>;
   repositories: ReadonlyArray<{
     id: string;

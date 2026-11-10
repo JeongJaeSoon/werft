@@ -14,7 +14,7 @@ import {
   createProfileRegistry,
   type InstallationProfileStore,
   type InstallationSettingsStore,
-  ProfileFeatureGate,
+  RuntimeFeatureGate,
   profileCatalog,
   type RuntimeVersions,
   resolveSessionCatalog,
@@ -40,7 +40,7 @@ const CONFIG_DIR_SETTING = "PLATFORM_CONFIG_DIR";
 const SECRET_READ_TIMEOUT_MS = 10_000;
 
 /** The runtimes the worker image ships, as the control plane sees them. */
-export const installedRuntimes = new ProfileFeatureGate(installedDescriptors);
+export const installedRuntimes = new RuntimeFeatureGate(installedDescriptors);
 
 export type SecretReader = (secretId: string) => Promise<string | undefined>;
 

@@ -3,6 +3,7 @@ import {
   type AgentRelease,
   canonicalJsonOfJson,
   deriveRuntimeSpec,
+  type PermissionMode,
   type RuntimeConfig,
   type RuntimeSpec,
   runtimeSpecSchema,
@@ -10,23 +11,19 @@ import {
   type SpecSource,
   specSourceSchema,
 } from "@werft-ai/contracts";
-import {
-  type CatalogProfile,
-  pinnedRuntimeVersion,
-  repositoryModeOf,
-} from "../sessions/catalog.ts";
-import { type ReleaseIdentity, releaseIdVersion } from "./release-ids.ts";
+import type { CatalogConnectionView } from "../sessions/catalog.ts";
 
-// What a release runs as without its profile: a `spec_source` made once from
-// the profile the release was cut from, and the `runtime_spec` it means. The
-// pair is stored on the release row; after that nothing needs the profile.
+// What a release runs as: a `spec_source` made once from its connection and
+// the snapshot its id was hashed over, and the `runtime_spec` it means. The
+// pair is stored on the release row and copied onto each session, which runs
+// from it alone.
 
-export type SpecRelease = ReleaseIdentity & Pick<AgentRelease, "id">;
+export type SpecRelease = Pick<
+  AgentRelease,
+  "id" | "connection_id" | "runtime_config_snapshot"
+>;
 
-export type SpecSourceRefusal =
-  | { reason: "profile_changed" }
-  | { reason: "connection_missing" }
-  | { reason: "invalid_source"; message: string };
+export type SpecSourceRefusal = { reason: "invalid_source"; message: string };
 
 function sha256Json(value: unknown): string {
   return `sha256:${createHash("sha256")
@@ -41,56 +38,25 @@ function stringsOf(value: unknown): string[] | null {
 }
 
 /**
- * The source a release's spec is made from. `connectionId` is what
- * `connectionMatcher` found for the profile's provider.
- *
- * The raw inputs come from the profile, so they are only the release's own
- * when the profile still fingerprints to the digest the release pinned; a
- * profile edited since then says nothing about what the release ran. The
- * model, tools, mode and project settings are read from the release's own
- * snapshot, which is what its id was hashed over.
- *
- * The repository mode is the exception: the fingerprint leaves it out, so it
- * is the profile's value as of now. That is also what a session of this
- * release is held to today, so freezing it here keeps what runs at the
- * moment the spec starts to be read. No pairing of the release's repository
- * and the mode is refused: the agent and workspace policy paths run a release
- * whatever the mode says, so a refusal would leave a runnable release
- * without a spec.
+ * The source a release's spec is made from: the model, tools, mode, runtime
+ * and project settings of its snapshot, and the connection it names as the
+ * catalog holds it now (a connection never changes what it points at; another
+ * endpoint or billing is another id).
  */
 export function buildSpecSource(input: {
   release: SpecRelease;
-  profile: CatalogProfile;
-  connectionId: string | null;
-  /** `acceptedRuntimeVersions` of the catalog: engines a release may predate. */
-  acceptedVersions?: readonly string[];
+  connection: Pick<CatalogConnectionView, "provider">;
 }): { ok: true; source: SpecSource } | ({ ok: false } & SpecSourceRefusal) {
-  const { release, profile, connectionId } = input;
-  // The release runs while its digest names the profile under any accepted
-  // runtime version; the version it names is the one it ran on.
-  const runtimeVersion = pinnedRuntimeVersion(
-    profile,
-    release.profile_digest,
-    input.acceptedVersions ?? [],
-  );
-  if (runtimeVersion === undefined) {
-    return { ok: false, reason: "profile_changed" };
-  }
-  if (connectionId === null) return { ok: false, reason: "connection_missing" };
+  const { release, connection } = input;
   const snapshot = release.runtime_config_snapshot;
   const candidate = {
     derivation_version: SPEC_DERIVATION_VERSION,
-    origin: "profile",
-    release_id: release.id,
-    release_id_version: releaseIdVersion(release),
-    profile_id: release.runtime_profile_id,
-    profile_digest: release.profile_digest,
-    runtime: { kind: profile.runtime_kind, version: runtimeVersion },
+    runtime: snapshot.runtime,
     connection: {
-      id: connectionId,
-      kind: profile.provider.kind,
-      endpoint: profile.provider.endpoint,
-      billing: profile.provider.billing ?? "per_token",
+      id: release.connection_id,
+      kind: connection.provider.kind,
+      endpoint: connection.provider.endpoint,
+      billing: connection.provider.billing ?? "per_token",
     },
     model: snapshot.model,
     permission_mode: snapshot.permission_mode,
@@ -98,8 +64,7 @@ export function buildSpecSource(input: {
     ...(snapshot.project_settings === undefined
       ? {}
       : { project_settings: snapshot.project_settings }),
-    ...(snapshot.mcp_deny === undefined ? {} : { mcp_deny: snapshot.mcp_deny }),
-    repository_mode: repositoryModeOf(profile),
+    repository_mode: "optional",
   };
   const parsed = specSourceSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -138,27 +103,21 @@ export type SpecVerdict =
 
 /**
  * Whether a stored pair still means what it says: both parse, the spec is
- * what the source derives, both digests hold, and the source names this
- * release. A reader trusts the spec only when this is ok.
+ * what the source derives, and both digests hold. A reader trusts the spec
+ * only when this is ok.
  */
-export function verifyReleaseSpec(
-  releaseId: string,
-  stored: {
-    spec_source: unknown;
-    runtime_spec: unknown;
-    spec_source_digest: unknown;
-    spec_digest: unknown;
-  },
-): SpecVerdict {
+export function verifyReleaseSpec(stored: {
+  spec_source: unknown;
+  runtime_spec: unknown;
+  spec_source_digest: unknown;
+  spec_digest: unknown;
+}): SpecVerdict {
   const source = specSourceSchema.safeParse(stored.spec_source);
   if (!source.success)
     return { ok: false, reason: "spec_source does not parse" };
   const spec = runtimeSpecSchema.safeParse(stored.runtime_spec);
   if (!spec.success)
     return { ok: false, reason: "runtime_spec does not parse" };
-  if (source.data.release_id !== releaseId) {
-    return { ok: false, reason: "spec_source names another release" };
-  }
   const record = releaseSpecRecord(source.data);
   if (
     canonicalJsonOfJson(record.runtime_spec) !== canonicalJsonOfJson(spec.data)
@@ -177,91 +136,32 @@ export function verifyReleaseSpec(
   return { ok: true, record };
 }
 
-export type SpecBackfillStore = {
-  /** Releases with no spec yet, by id after `after`, at most `limit`. */
-  pending(after: string | null, limit: number): Promise<SpecRelease[]>;
-  /** False when another writer stored a spec first. */
-  save(releaseId: string, record: ReleaseSpecRecord): Promise<boolean>;
-};
-
-export type SpecBackfillReport = {
-  stored: number;
-  raced: number;
-  skipped: { release_id: string; reason: string }[];
-};
-
-/**
- * Gives every release without a spec one, where its profile and connection
- * still say what it ran. Safe to run again and from two places: a release is
- * only written when it has no spec, and one that cannot be derived is listed,
- * not guessed.
- */
-export async function backfillReleaseSpecs(
-  store: SpecBackfillStore,
-  resolve: (release: SpecRelease) =>
-    | {
-        profile: CatalogProfile;
-        connectionId: string | null;
-        acceptedVersions?: readonly string[];
-      }
-    // No profile to read: `profile_blocked` when the operator blocked it (it
-    // runs again once unblocked), else `profile_gone`. Null is the latter.
-    | { skip: "profile_blocked" | "profile_gone" }
-    | null,
-  pageSize = 200,
-): Promise<SpecBackfillReport> {
-  const report: SpecBackfillReport = { stored: 0, raced: 0, skipped: [] };
-  let after: string | null = null;
-  for (;;) {
-    const page = await store.pending(after, pageSize);
-    if (page.length === 0) return report;
-    for (const release of page) {
-      after = release.id;
-      const found = resolve(release);
-      if (found === null || "skip" in found) {
-        report.skipped.push({
-          release_id: release.id,
-          reason: found === null ? "profile_gone" : found.skip,
-        });
-        continue;
-      }
-      const built = buildSpecSource({ release, ...found });
-      if (!built.ok) {
-        report.skipped.push({ release_id: release.id, reason: built.reason });
-        continue;
-      }
-      if (await store.save(release.id, releaseSpecRecord(built.source))) {
-        report.stored += 1;
-      } else {
-        report.raced += 1;
-      }
-    }
-  }
+/** The source with another model: what a session that moved models runs. */
+export function specWithModel(source: SpecSource, model: string): SpecSource {
+  return model === source.model ? source : { ...source, model };
 }
 
 /**
- * The runtime config a spec means, shaped as `runtimeConfigOf` shapes one from
- * a profile. The two execution modes map back to the engine's own: `bypass`
- * is `bypassPermissions`, `auto` is `auto`. The spec's tools are the release's
- * list, already narrowed, so nothing is taken within a profile.
+ * The runtime config a spec source means. The engine's own permission mode is
+ * the source's: `bypassPermissions`, `auto`, or `default` on a connection
+ * whose classifier does not work. The tools are the release's list.
  */
-export function runtimeConfigFromSpec(
-  spec: RuntimeSpec,
+export function runtimeConfigOfSpec(
+  source: SpecSource,
   providerToken: string,
   hasRepository: boolean,
 ): RuntimeConfig {
   return {
-    model: spec.model,
-    tools: [...spec.tools],
-    permission_mode:
-      spec.execution_mode === "bypass" ? "bypassPermissions" : "auto",
+    model: source.model,
+    tools: [...source.tools],
+    permission_mode: source.permission_mode as PermissionMode,
     provider: {
-      kind: spec.connection.kind,
-      endpoint: spec.connection.endpoint,
+      kind: source.connection.kind,
+      endpoint: source.connection.endpoint,
       auth: { kind: "egress_token", token: providerToken },
     },
-    ...(hasRepository && spec.project_settings?.claude_md === true
-      ? { project_settings: spec.project_settings }
+    ...(hasRepository && source.project_settings?.claude_md === true
+      ? { project_settings: source.project_settings }
       : {}),
   };
 }

@@ -5,14 +5,7 @@ import {
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../ports/github-gate.ts";
-import {
-  allowedPair,
-  type CatalogProfileView,
-  type CatalogRepositoryView,
-  type ProfileLookup,
-  repositoryInCeiling,
-  usesWorkspaceCeiling,
-} from "./catalog.ts";
+import { type CatalogRepositoryView, repositoryInCeiling } from "./catalog.ts";
 
 /**
  * What decides whether a session may work on a repository other than its
@@ -23,7 +16,6 @@ import {
  */
 export type AdditionalRepositoryContext = {
   repositoryId: string | null;
-  profileId: string | null;
   /** The session row's list; null leaves the release's list whole. */
   attached: readonly string[] | null;
   policySource: GitHubPolicySource;
@@ -38,7 +30,6 @@ export function additionalContextOf(
 ): AdditionalRepositoryContext {
   return {
     repositoryId: context.repositoryId,
-    profileId: context.profileId,
     attached: context.attachedRepositoryIds,
     policySource: context.policy.source,
     github: context.policy.settings,
@@ -47,45 +38,34 @@ export function additionalContextOf(
   };
 }
 
-export function additionalRepositoryAllowed<
-  P extends CatalogProfileView,
-  R extends CatalogRepositoryView,
->(
-  catalog: ProfileLookup<P> & { repositories: Record<string, R> },
+export function additionalRepositoryAllowed<R extends CatalogRepositoryView>(
+  catalog: { repositories: Readonly<Record<string, R>> },
   context: AdditionalRepositoryContext,
   repositoryId: string,
 ): R | null {
-  const { github, profileId, policySource } = context;
+  const { github } = context;
   if (
     repositoryId === context.repositoryId ||
     !context.githubEnabled ||
     github === null ||
     github === "invalid" ||
-    profileId === null ||
     (context.attached !== null && !context.attached.includes(repositoryId)) ||
     !github.repositories.includes(repositoryId) ||
     !additionalRepositoryIdUsable(repositoryId)
   ) {
     return null;
   }
-  if (
-    usesWorkspaceCeiling(catalog, profileId, policySource) &&
-    !repositoryInCeiling(catalog, context.repositoryCeiling, repositoryId)
-  ) {
+  if (!repositoryInCeiling(catalog, context.repositoryCeiling, repositoryId)) {
     return null;
   }
-  return (
-    allowedPair(catalog, profileId, repositoryId, policySource)?.repository ??
-    null
-  );
+  return Object.hasOwn(catalog.repositories, repositoryId)
+    ? (catalog.repositories[repositoryId] ?? null)
+    : null;
 }
 
 /** Every repository besides its own the session may work on, in list order. */
-export function additionalRepositoriesOf<
-  P extends CatalogProfileView,
-  R extends CatalogRepositoryView,
->(
-  catalog: ProfileLookup<P> & { repositories: Record<string, R> },
+export function additionalRepositoriesOf<R extends CatalogRepositoryView>(
+  catalog: { repositories: Readonly<Record<string, R>> },
   context: AdditionalRepositoryContext,
 ): Array<{ id: string; repository: R }> {
   const github = context.github;
@@ -104,14 +84,12 @@ export function additionalRepositoriesOf<
  * so it is not revoked here.
  */
 export function ownRepositoryRevoked(
-  catalog: ProfileLookup<CatalogProfileView> & {
-    repositories: Record<string, CatalogRepositoryView>;
-  },
+  catalog: { repositories: Readonly<Record<string, CatalogRepositoryView>> },
   context: GitHubSessionContext,
 ): boolean {
   const own = context.repositoryId;
   if (own === null) return false;
-  const { settings, currentRepositories, source } = context.policy;
+  const { settings, currentRepositories } = context.policy;
   if (settings === "invalid") return false;
   if (context.agent !== null && !context.agent.githubEnabled) return true;
   // A release without a pin has no list of its own (`settings` is null), but
@@ -120,8 +98,5 @@ export function ownRepositoryRevoked(
   if (currentRepositories !== null && !currentRepositories.includes(own)) {
     return true;
   }
-  return (
-    usesWorkspaceCeiling(catalog, context.profileId, source) &&
-    !repositoryInCeiling(catalog, context.repositoryCeiling, own)
-  );
+  return !repositoryInCeiling(catalog, context.repositoryCeiling, own);
 }

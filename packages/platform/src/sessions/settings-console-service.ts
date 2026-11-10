@@ -23,13 +23,11 @@ import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogMcpServerConfig,
-  type CatalogProfileConfig,
-  type CatalogProfileView,
+  type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
-  type ProfileLookup,
+  type ModelFamilies,
+  modelFamiliesSchema,
 } from "./catalog.ts";
-import { connectionImpact } from "./connection-impact.ts";
-import type { Connections } from "./profile-registry.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
   type SettingsKind as DocumentSettingsKind,
@@ -39,7 +37,7 @@ import {
   type SettingsImportAdd,
 } from "./settings-document.ts";
 
-type Provider = CatalogProfileConfig["provider"];
+type Provider = CatalogProviderConfig;
 type SettingsKind = Exclude<DocumentSettingsKind, "repository">;
 
 const ACTION: Record<SettingsKind, AuthorizationAction> = {
@@ -94,18 +92,6 @@ export function createSettingsConsoleService(deps: {
   credentialHosts: readonly string[] | null;
   /** Reads the settings again after a write committed; never throws. */
   reread: () => Promise<void>;
-  /**
-   * The registry the impact count reads. `refresh` rejects when the read
-   * fails, so a stale snapshot is never counted as current.
-   */
-  profiles: {
-    refresh: () => Promise<void>;
-    catalog: ProfileLookup<CatalogProfileView>;
-    settings: () => {
-      connections: Connections;
-      connection_aliases: Connections;
-    };
-  };
 }) {
   const { store } = deps;
 
@@ -153,6 +139,8 @@ export function createSettingsConsoleService(deps: {
         created_at: string;
         disabled_at: string | null;
         auto_mode: "supported" | "unsupported" | "unknown";
+        models: readonly string[];
+        model_families: ModelFamilies | null;
       },
     ) => T | null,
   ): Promise<T[]> {
@@ -166,6 +154,8 @@ export function createSettingsConsoleService(deps: {
         created_at: row.createdAt.toISOString(),
         disabled_at: row.disabledAt?.toISOString() ?? null,
         auto_mode: row.autoMode ?? "unknown",
+        models: row.models ?? [],
+        model_families: row.modelFamilies ?? null,
       });
       if (item !== null) items.push({ id: row.id, item });
     }
@@ -296,6 +286,8 @@ export function createSettingsConsoleService(deps: {
             billing: provider.billing === "none" ? "none" : "per_token",
             auth_kind: provider.auth.kind,
             auto_mode: meta.auto_mode,
+            models: [...meta.models],
+            model_families: meta.model_families,
             credential: credentialOf(provider.auth, meta.last4),
             created_at: meta.created_at,
             disabled_at: meta.disabled_at,
@@ -322,26 +314,9 @@ export function createSettingsConsoleService(deps: {
           `No settings row ${id} the console manages`,
         );
       }
-      try {
-        await deps.profiles.refresh();
-      } catch {
-        throw new SessionServiceError(
-          "BACKEND_UNAVAILABLE",
-          "The profiles could not be read to count what this connection serves",
-        );
-      }
-      const impact = connectionImpact(
-        deps.profiles.catalog,
-        deps.profiles.settings(),
-        id,
-      );
-      const use = await store.connectionUse({
-        profileIds: impact.profile_ids,
-        connectionId: id,
-      });
+      const use = await store.connectionUse({ connectionId: id });
       return {
         id,
-        profile_count: impact.current_profile_count,
         agent_count: use.agents,
         session_count: use.sessions,
         judge_used: use.judgeNamed,
@@ -456,6 +431,45 @@ export function createSettingsConsoleService(deps: {
     ) {
       return onRow(caller, "connection", id, (actor) =>
         store.setConnectionAutoMode(id, autoMode, actor),
+      );
+    },
+
+    setConnectionModels(
+      caller: Caller,
+      id: string,
+      request: { models: string[]; model_families?: unknown },
+    ) {
+      const models = [...new Set(request.models)];
+      if (models.length !== request.models.length) {
+        return Promise.reject(
+          new SessionServiceError(
+            "BAD_REQUEST",
+            "models: must not repeat a model",
+            undefined,
+            { reason_code: "invalid_entry" },
+          ),
+        );
+      }
+      const families =
+        request.model_families === undefined || request.model_families === null
+          ? null
+          : modelFamiliesSchema.safeParse(request.model_families);
+      if (families !== null && !families.success) {
+        return Promise.reject(
+          new SessionServiceError(
+            "BAD_REQUEST",
+            `model_families: ${families.error.issues.map((issue) => issue.message).join("; ")}`,
+            undefined,
+            { reason_code: "invalid_entry" },
+          ),
+        );
+      }
+      return onRow(caller, "connection", id, (actor) =>
+        store.setConnectionModels(
+          id,
+          { models, model_families: families === null ? null : families.data },
+          actor,
+        ),
       );
     },
 

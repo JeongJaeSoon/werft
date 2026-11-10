@@ -72,8 +72,7 @@ export function reachOf(
  * told to ask about or refuse. A save is checked against every installed tool
  * catalog (see `validateEngineSettingsAcrossCatalogs`) before anything is
  * locked, because the check depends on the request alone. Saving needs a
- * signed-in console session and the installation's gate open; reading needs
- * neither.
+ * signed-in console session; reading does not.
  */
 export function createEngineSettingsService(deps: {
   authorization: AuthorizationPolicy;
@@ -134,13 +133,6 @@ export function createEngineSettingsService(deps: {
           "REVISION_CONFLICT",
           `The engine settings are at revision ${result.revision ?? "none"}, not ${expected ?? "none"}`,
         );
-      case "writes_closed":
-        throw new SessionServiceError(
-          "FORBIDDEN",
-          "Saving engine settings is closed; the rules already saved still apply",
-          undefined,
-          { reason_code: "engine_settings_writes_closed" },
-        );
       case "actor_inactive":
         throw ACTOR_INACTIVE();
       case "outranked":
@@ -160,14 +152,10 @@ export function createEngineSettingsService(deps: {
         kind: "workspace",
         id: workspaceId,
       });
-      const [saved, writesOpen] = await Promise.all([
-        store.workspace(workspaceId),
-        store.writesOpen(),
-      ]);
+      const saved = await store.workspace(workspaceId);
       return {
         settings: saved.settings,
         settings_revision: saved.revision,
-        writes_open: writesOpen,
       };
     },
 
@@ -205,10 +193,9 @@ export function createEngineSettingsService(deps: {
         id: agentId,
       });
       const workspaceId = caller.ownerId;
-      const [agent, workspace, writesOpen] = await Promise.all([
+      const [agent, workspace] = await Promise.all([
         store.agent(workspaceId, agentId),
         store.workspace(workspaceId),
-        store.writesOpen(),
       ]);
       if (agent === null) throw NOT_FOUND();
       return {
@@ -218,9 +205,7 @@ export function createEngineSettingsService(deps: {
           settings: workspace.settings,
           settings_revision: workspace.revision,
         },
-        inherited: agent.inherited,
         reach: reachOf(workspace.settings, agent.settings),
-        writes_open: writesOpen,
       };
     },
 

@@ -8,7 +8,6 @@ import type {
   CountAgentsResponse,
   ListAgentsQuery,
   ListAgentsResponse,
-  ModelSource,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { OutsideAgentAccess, Principal } from "../musterrolle/policy.ts";
@@ -44,8 +43,9 @@ type Outranked = { outcome: "outranked" };
 type ManagerRoles = {
   managerRoles: readonly WorkspaceRole[];
   /**
-   * Also required of the person, whatever team right they hold: a rollout
-   * acts for a profile's author and needs them to still be an owner or admin.
+   * Also required of the person, whatever team right they hold: a model
+   * migration acts for the person who activated the release and needs them
+   * to still be an owner or admin.
    */
   requireRoles?: readonly WorkspaceRole[];
 };
@@ -97,76 +97,21 @@ export type InsertReleaseResult =
 /** Why a release is made, kept on its receipts. */
 export type ReleaseReason =
   | "card_saved"
-  | "profile_changed"
-  | "profile_rollout"
-  | "profile_migration"
-  | "tool_unlock"
+  | "connection_changed"
   | "model_migration"
   | "direct";
 
 /**
  * Who asks for an activation. A `save` carries the revision of the save it
  * finishes and clears that save's draft. A `direct` activation is a person's
- * new intent: it takes a new `behavior_revision` and leaves the draft. The
- * model source follows 2.4: it stays `profile` only if the release runs the
- * default model of its profile. A rollout changes neither the revision nor
- * the draft; under the agent's lock it is `superseded` unless the agent still
- * follows, still has the `behaviorRevision` it was judged on, and
- * `targetProfileId` is still the newest of its profile (design 2.3).
+ * new intent: it takes a new `behavior_revision` and leaves the draft. A
+ * model migration changes neither the revision nor the draft.
  */
 export type ActivationIntent =
   | {
       kind: "save";
       behaviorRevision: number;
       draftVersionId: string;
-      modelSource: ModelSource;
-    }
-  | {
-      kind: "rollout";
-      behaviorRevision: number;
-      targetProfileId: string;
-    }
-  | {
-      /**
-       * A person's "bring it to the newest": judged as a rollout is, but the
-       * agent need not follow yet; it follows in the same write, the draft is
-       * left as it is and the agent's refused rollout items are closed.
-       */
-      kind: "raise";
-      behaviorRevision: number;
-      targetProfileId: string;
-    }
-  | {
-      kind: "migrate";
-      migrationId: string;
-      /** The receipt of a revert must not be read back as a forward move. */
-      revert?: boolean;
-      expected: {
-        activeReleaseId: string;
-        activationRevision: number;
-        behaviorRevision: number;
-        tracking: "follow" | "pinned";
-        modelSource: ModelSource;
-      };
-      tracking: "follow" | "pinned";
-    }
-  | {
-      /**
-       * The one-time unlock of tools the card used to narrow: the same
-       * profile and card, a release computed without the card's tool fields.
-       * Judged against the revisions the plan read; changes neither
-       * tracking, the model source nor the draft. The rollout item is
-       * written in the same transaction as the swap.
-       */
-      kind: "tool_unlock";
-      /** Null when the profile has no stored row to hang a rollout on. */
-      rolloutId: string | null;
-      expected: {
-        activeReleaseId: string;
-        activationRevision: number;
-        behaviorRevision: number;
-      };
-      tools: { before: string[]; after: string[] };
     }
   | {
       kind: "model_migration";
@@ -178,15 +123,7 @@ export type ActivationIntent =
       from: string;
       to: string;
     }
-  | {
-      kind: "direct";
-      releaseRunsProfileDefault: boolean;
-      /**
-       * The release's profile runs differently from its lineage's newest
-       * (design 2.4): the agent stops following, in the same write.
-       */
-      pinsProfile?: boolean;
-    };
+  | { kind: "direct" };
 
 export type ActivateResult =
   | {
@@ -288,8 +225,7 @@ export interface AgentStore {
        * `behavior_revision` and is judged against the active release.
        */
       behavior?: {
-        runtimeProfileId: string;
-        modelSource: ModelSource;
+        connectionId: string;
         /**
          * The agent as the request's omitted values were read from it:
          * `stale` when it has moved since. Absent when nothing was left out.
@@ -311,21 +247,6 @@ export interface AgentStore {
     draftVersionId: string;
     failure: string;
   }): Promise<boolean>;
-  /**
-   * The agent follows its profile again without a release (it already runs
-   * the newest version). Under the agent's lock, as a save is.
-   */
-  followProfile(
-    input: {
-      principal: Principal;
-      workspaceId: string;
-      agentId: string;
-      /** The activation revision the newest-version judgment was made on. */
-      expectedActivationRevision: number;
-    } & ManagerRoles,
-  ): Promise<
-    { outcome: "updated" | "superseded" | "not_found" } | Inactive | Outranked
-  >;
   /**
    * Inserts the release, a `release_created` event and a receipt in one
    * transaction, or returns the row already stored under that id.
@@ -353,7 +274,7 @@ export interface AgentStore {
     {
       workspaceId: string;
       agentId: string;
-      profileId: string;
+      connectionId: string;
       model: string;
     }[]
   >;

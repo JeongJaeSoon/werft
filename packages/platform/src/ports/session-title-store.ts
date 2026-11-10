@@ -13,8 +13,8 @@ export type TitleRequestIssue =
       // The first turn's message and the text it ended with, if any.
       message: string;
       result: string | null;
-      profileId: string | null;
-      profileFingerprint: string | null;
+      /** The connection the session's spec names; null without a spec. */
+      connectionId: string | null;
       model: string | null;
     }
   // The title is not derived, a request was already made, or the first turn
@@ -26,8 +26,7 @@ export type TitleEgressAuthorization =
       outcome: "ok";
       sessionId: string;
       attemptId: string;
-      profileId: string | null;
-      profileFingerprint: string | null;
+      connectionId: string | null;
       model: string | null;
       costUsd: number;
       providerTokens: number;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeDescriptor } from "@werft-ai/runtime-core";
 
-import { ProfileFeatureGate } from "./feature-gate.ts";
+import { RuntimeFeatureGate } from "./feature-gate.ts";
 
 const full: RuntimeDescriptor = {
   contractVersion: "runtime-contract/v1",
@@ -47,8 +47,8 @@ const mcpServer = {
   access: { kind: "egress_token", token: "t" },
 } as const;
 
-describe("ProfileFeatureGate", () => {
-  const gate = new ProfileFeatureGate([full, partial]);
+describe("RuntimeFeatureGate", () => {
+  const gate = new RuntimeFeatureGate([full, partial]);
 
   test("passes settings the runtime supports", () => {
     expect(

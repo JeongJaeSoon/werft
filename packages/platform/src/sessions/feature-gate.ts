@@ -7,8 +7,6 @@ import {
   unmetFeatures,
 } from "@werft-ai/runtime-core";
 
-import type { CatalogProfileConfig } from "./catalog.ts";
-
 type GatedSettings = Pick<RuntimeConfig, "permission_mode"> &
   Partial<Pick<RuntimeConfig, "mcp_servers">>;
 
@@ -19,7 +17,7 @@ type GatedSettings = Pick<RuntimeConfig, "permission_mode"> &
  * package cannot import an adapter. The worker checks the same against the
  * engine it started, for an image that differs from these descriptors.
  */
-export class ProfileFeatureGate {
+export class RuntimeFeatureGate {
   private readonly descriptors = new Map<RuntimeKind, RuntimeDescriptor>();
 
   constructor(descriptors: readonly RuntimeDescriptor[]) {
@@ -55,23 +53,5 @@ export class ProfileFeatureGate {
     return missing.length === 0
       ? null
       : `Runtime ${kind} does not support ${missing.join(", ")}`;
-  }
-
-  /** Throws naming every profile refused. A profile alone names no MCP server: a release adds it. */
-  assertProfiles(
-    profiles: Readonly<
-      Record<
-        string,
-        Pick<CatalogProfileConfig, "runtime_kind" | "permission_mode">
-      >
-    >,
-  ): void {
-    const refused = Object.entries(profiles).flatMap(([id, profile]) => {
-      const reason = this.refusal(profile.runtime_kind, profile);
-      return reason === null ? [] : [`${id}: ${reason}`];
-    });
-    if (refused.length > 0) {
-      throw new Error(`Catalog profile(s) refused: ${refused.join("; ")}`);
-    }
   }
 }

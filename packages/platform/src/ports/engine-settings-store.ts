@@ -8,21 +8,13 @@ export type SavedEngineSettings = {
   revision: number | null;
 };
 
-export type AgentEngineSettingsRead = SavedEngineSettings & {
-  /** What the agent inherited from its profile: counts only, never the rules. */
-  inherited: { entries: number; rules: number };
-};
+export type AgentEngineSettingsRead = SavedEngineSettings;
 
-/**
- * `writes_closed`: the installation-wide gate is shut; rules already saved
- * still apply. `conflict`: the stored revision is not the one expected.
- */
+/** `conflict`: the stored revision is not the one expected. */
 export type PutEngineSettingsResult =
   | { outcome: "saved"; revision: number; receiptId: string | null }
   | { outcome: "conflict"; revision: number | null }
-  | {
-      outcome: "writes_closed" | "not_found" | "actor_inactive" | "outranked";
-    };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 export type PutEngineSettingsInput = {
   workspaceId: string;
@@ -35,7 +27,6 @@ export type PutEngineSettingsInput = {
 };
 
 export interface EngineSettingsStore {
-  writesOpen(): Promise<boolean>;
   workspace(workspaceId: string): Promise<SavedEngineSettings>;
   /** Null when the workspace has no such agent. */
   agent(
@@ -43,7 +34,7 @@ export interface EngineSettingsStore {
     agentId: string,
   ): Promise<AgentEngineSettingsRead | null>;
   /**
-   * One transaction: the gate row is read under a share lock, then the
+   * One transaction: the
    * workspace's manager and row are locked in the order the other
    * workspace-setting writers take, then the settings row, whose revision must
    * be `expectedRevision` (null: no row yet). A save that stores what the row
@@ -53,7 +44,6 @@ export interface EngineSettingsStore {
   /**
    * The same for an agent, with the agent locked as a session start and the
    * MCP save lock it (account, membership, agent, the right to manage it).
-   * Never touches the agent's inherited restrictions.
    */
   putAgent(
     input: PutEngineSettingsInput & { agentId: string },

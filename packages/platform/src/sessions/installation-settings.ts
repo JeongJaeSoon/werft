@@ -1,19 +1,17 @@
 import type { InstallationSettings } from "../ports/installation-settings-store.ts";
 import {
+  type CatalogConnection,
   type CatalogMcpServer,
-  type CatalogProfileConfig,
   type CatalogRepository,
-  type ConnectionAutoMode,
   type CredentialRef,
   catalogCredentialRefs,
   credentialRefOf,
   describeConfigError,
   GITHUB_API_BASE,
-  resolveCredential,
+  resolveProvider,
   resolveSessionCatalog,
 } from "./catalog.ts";
 
-type Provider = CatalogProfileConfig["provider"];
 
 /**
  * What the registry runs from one read of the installation's settings
@@ -21,20 +19,10 @@ type Provider = CatalogProfileConfig["provider"];
  */
 export type SettingsSnapshot = {
   generation: number;
-  /** The connections whose credential resolves. */
-  connections: Readonly<Record<string, Provider>>;
-  /**
-   * For a connection the console moved from a deployment reference to a
-   * stored value: the provider it was. A ceiling made before the move holds
-   * that provider and still belongs to the connection.
-   */
-  connection_aliases: Readonly<Record<string, Provider>>;
-  /** Whether the classifier works over each connection; beside, never in, the provider. */
-  connection_auto_modes: Readonly<Record<string, ConnectionAutoMode>>;
+  /** The connections whose credential resolves, credential included. */
+  connections: Readonly<Record<string, CatalogConnection>>;
   repositories: Readonly<Record<string, CatalogRepository>>;
   mcp_servers: Readonly<Record<string, CatalogMcpServer>>;
-  /** What a ceiling over one of these connections resolves through. */
-  lookup: (ref: CredentialRef) => string | undefined;
   /** Rows this read leaves out, each with why; never a value. */
   left_out: ReadonlyArray<{ entry: string; reason: string }>;
   /**
@@ -58,7 +46,6 @@ export function settingsCredentialRefs(
 ): CredentialRef[] {
   return catalogCredentialRefs(
     {
-      profiles: {},
       repositories: Object.fromEntries(
         settings.repositories.map(({ id, repository }) => [id, repository]),
       ),
@@ -89,20 +76,15 @@ export function settingsSnapshot(
     reason: "does not parse",
   }));
   const unavailable = invalidRepositoryIds(settings);
-  const connections: Record<string, Provider> = {};
-  const connection_aliases: Record<string, Provider> = {};
-  const connection_auto_modes: Record<string, ConnectionAutoMode> = {};
-  for (const { id, provider, replaces, auto_mode } of settings.connections) {
-    const { kind: _kind, ...fields } = provider.auth;
+  const connections: Record<string, CatalogConnection> = {};
+  for (const { id, provider, auto_mode, models, model_families } of settings.connections) {
     try {
-      resolveCredential(
-        `connections.${id}.auth`,
-        credentialRefOf(fields),
-        lookup,
-      );
-      connections[id] = provider;
-      connection_auto_modes[id] = auto_mode ?? "unknown";
-      if (replaces) connection_aliases[id] = replaces;
+      connections[id] = {
+        provider: resolveProvider(id, provider, lookup),
+        models: models ?? [],
+        ...(model_families === undefined ? {} : { model_families }),
+        auto_mode: auto_mode ?? "unknown",
+      };
     } catch (error) {
       left_out.push({
         entry: `connection:${id}`,
@@ -114,7 +96,7 @@ export function settingsSnapshot(
   for (const { id, repository } of settings.repositories) {
     try {
       const resolved = resolveSessionCatalog(
-        { profiles: {}, repositories: { [id]: repository } },
+        { repositories: { [id]: repository } },
         lookup,
       ).repositories[id];
       if (resolved) repositories[id] = resolved;
@@ -130,7 +112,7 @@ export function settingsSnapshot(
   for (const { id, server } of settings.mcpServers) {
     try {
       const resolved = resolveSessionCatalog(
-        { profiles: {}, repositories: {}, mcp_servers: { [id]: server } },
+        { repositories: {}, mcp_servers: { [id]: server } },
         lookup,
       ).mcp_servers?.[id];
       if (resolved) mcp_servers[id] = resolved;
@@ -141,11 +123,8 @@ export function settingsSnapshot(
   return {
     generation: settings.generation,
     connections,
-    connection_aliases,
-    connection_auto_modes,
     repositories,
     mcp_servers,
-    lookup,
     left_out,
     unavailable_repositories: unavailable,
   };
@@ -181,18 +160,29 @@ export function settingsView(
   return {
     generation: settings.generation,
     connections: Object.fromEntries(
-      settings.connections.map(({ id, provider }) => [id, provider]),
-    ),
-    connection_aliases: Object.fromEntries(
-      settings.connections.flatMap(({ id, replaces }) =>
-        replaces ? [[id, replaces]] : [],
+      settings.connections.map(
+        ({ id, provider, auto_mode, models, model_families }) => {
+          const { kind: authKind, ...fields } = provider.auth;
+          const { billing, ...rest } = provider;
+          return [
+            id,
+            {
+              provider: {
+                ...rest,
+                ...(billing === "none" ? { billing } : {}),
+                auth: {
+                  kind: authKind,
+                  value: credential(),
+                  ref: credentialRefOf(fields),
+                },
+              } as CatalogConnection["provider"],
+              models: models ?? [],
+              ...(model_families === undefined ? {} : { model_families }),
+              auto_mode: auto_mode ?? "unknown",
+            },
+          ];
+        },
       ),
-    ),
-    connection_auto_modes: Object.fromEntries(
-      settings.connections.map(({ id, auto_mode }) => [
-        id,
-        auto_mode ?? "unknown",
-      ]),
     ),
     repositories,
     mcp_servers: Object.fromEntries(
@@ -208,7 +198,6 @@ export function settingsView(
         },
       ]),
     ),
-    lookup: credential,
     left_out: settings.invalid.map((entry) => ({
       entry,
       reason: "does not parse",

@@ -17,7 +17,6 @@ export type SessionLinkRecord = {
   openedByTs: string;
   agentId: string;
   releaseId: string;
-  profileId: string;
   sessionId: string | null;
   createdBy: string | null;
   revokedAt: Date | null;

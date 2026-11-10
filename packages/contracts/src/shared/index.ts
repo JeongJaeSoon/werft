@@ -6,5 +6,6 @@ export {
   workspaceEnforceSchema,
 } from "./execution.ts";
 export * from "./ids.ts";
+export * from "./provider-kind.ts";
 export * from "./runtime-spec.ts";
 export * from "./workspace-limit.ts";

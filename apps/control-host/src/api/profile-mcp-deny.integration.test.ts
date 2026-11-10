@@ -41,7 +41,7 @@ import {
   createWorkspaceProfileService,
   effectiveMcp,
   mcpDenyOf,
-  ProfileFeatureGate,
+  RuntimeFeatureGate,
   profileCatalog,
   resolveReleaseContent,
   resolveSessionCatalog,
@@ -157,7 +157,7 @@ integration("profile deny naming mcp__ tools, on PostgreSQL", () => {
         catalog,
         connections: () => catalog.workspace_profiles.connections,
         allowUnattended: false,
-        runtimes: new ProfileFeatureGate(installedDescriptors),
+        runtimes: new RuntimeFeatureGate(installedDescriptors),
         newId: randomUUID,
       }),
       workspace: createWorkspaceProfileService({

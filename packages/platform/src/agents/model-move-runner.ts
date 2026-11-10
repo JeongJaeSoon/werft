@@ -1,6 +1,6 @@
 import type { AgentStore } from "../ports/agent-store.ts";
 import {
-  catalogProfile,
+  connectionOf,
   modelSuccessor,
   type SessionCatalogView,
 } from "../sessions/catalog.ts";
@@ -54,10 +54,10 @@ export function createModelMoveRunner(deps: {
       const rows = await store.modelMigrationCandidates({ after, limit: page });
       for (const row of rows) {
         if (stopped()) return moved;
-        const profile = catalogProfile(deps.catalog, row.profileId);
+        const connection = connectionOf(deps.catalog, row.connectionId);
         if (
-          profile !== undefined &&
-          modelSuccessor(profile, row.model) === null
+          connection !== undefined &&
+          modelSuccessor(connection, row.model) === null
         )
           continue;
         if ((retryAt.get(row.agentId) ?? 0) > now()) continue;
