@@ -18,6 +18,8 @@ export type E2eEnv = {
   messagesUrl: string;
   /** The agent release every session of the suite runs; see e2eStack. */
   releaseId?: string;
+  /** The release a session without a repository runs; see e2eStack. */
+  noRepositoryReleaseId?: string;
 };
 
 /**
@@ -160,16 +162,21 @@ export async function e2eStack({
   if (connection === undefined || model === undefined) {
     throw new Error("the stack offers no connection with a model");
   }
-  // One agent per connection a suite asks for.
-  const slug =
+  // One agent per connection a suite asks for, and a second one whose
+  // release names no repository: a session's repository is its release's.
+  const baseSlug =
     connectionId === undefined ? E2E_AGENT_SLUG : `e2e-${connectionId}`;
   const agents = await web<{
     items: { id: string; slug: string; active_release_id: string | null }[];
   }>(200, "GET", "/v1/agents?limit=100");
-  let releaseId = agents.items.find(
-    (agent) => agent.slug === slug,
-  )?.active_release_id;
-  if (!releaseId) {
+  const releaseOf = async (
+    slug: string,
+    repository: string | null,
+  ): Promise<string> => {
+    const found = agents.items.find(
+      (agent) => agent.slug === slug,
+    )?.active_release_id;
+    if (found) return found;
     const { team } = await web<{ team: { id: string } }>(
       201,
       "POST",
@@ -181,7 +188,7 @@ export async function e2eStack({
       versions: { id: string }[];
     }>(201, "POST", "/v1/agents", {
       slug,
-      name: `E2E runner (${connection.id})`,
+      name: `E2E runner (${connection.id}${repository === null ? ", no repository" : ""})`,
       managing_team_id: team.id,
       card: {
         role: "e2e runner",
@@ -199,15 +206,17 @@ export async function e2eStack({
       {
         version_id: made.versions[0]?.id,
         connection_id: connection.id,
-        repository_id: repositoryId,
+        ...(repository === null ? {} : { repository_id: repository }),
       },
     );
     await web(200, "POST", `/v1/agents/${made.agent.id}/activate`, {
       release_id: release.id,
       expected_revision: made.agent.activation_revision,
     });
-    releaseId = release.id;
-  }
+    return release.id;
+  };
+  const releaseId = await releaseOf(baseSlug, repositoryId);
+  const noRepositoryReleaseId = await releaseOf(`${baseSlug}-norepo`, null);
   const key = await web<{ secret: string }>(201, "POST", "/v1/api-keys", {
     kind: "personal",
     scopes: [
@@ -227,6 +236,7 @@ export async function e2eStack({
     apiKey: key.secret,
     approveKey: approver.secret,
     releaseId,
+    noRepositoryReleaseId,
   };
 }
 
@@ -395,7 +405,10 @@ export class Api {
       "POST",
       "/v1/sessions",
       {
-        agent_release_id: this.env.releaseId,
+        agent_release_id:
+          repositoryId === null
+            ? (this.env.noRepositoryReleaseId ?? this.env.releaseId)
+            : this.env.releaseId,
         ...(repositoryId === null ? {} : { repository_id: repositoryId }),
         message,
       },

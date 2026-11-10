@@ -207,7 +207,21 @@ beforeAll(async () => {
   expect(released.status).toBe(200);
   releaseId = released.body.release.id;
   expect(released.body.release.effective_tools).toEqual({
-    tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
+    // The runtime's whole built-in catalog and its subagent tool.
+    tools: [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "Bash",
+      "AskUserQuestion",
+      "WebFetch",
+      "WebSearch",
+      "Skill",
+      "Agent",
+    ],
     mcp: ["mcp__fake__whoami"],
   });
   const activate = () =>
