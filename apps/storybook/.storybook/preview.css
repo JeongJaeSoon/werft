@@ -9,6 +9,9 @@
 @source "../../../packages/react/src";
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @source "../src";
+/* The console itself, which the screen stories mount (web-console.tsx). */
+/* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
+@source "../../web/src";
 
 body {
   background: var(--werft-color-surface);
