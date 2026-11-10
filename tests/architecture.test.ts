@@ -1459,7 +1459,7 @@ function typeParameterNames(node: ts.Node): Set<string> {
  */
 function isFunctionType(
   type: ts.TypeNode,
-  aliases: ReadonlyMap<string, ts.TypeNode>,
+  aliases: ReadonlyMap<string, ts.TypeAliasDeclaration>,
   shadowed: ReadonlySet<string> = new Set(),
   followed: ReadonlySet<string> = new Set(),
 ): boolean {
@@ -1475,9 +1475,10 @@ function isFunctionType(
     const target = aliases.get(name);
     if (!target || shadowed.has(name) || followed.has(name)) return false;
     return isFunctionType(
-      target,
+      target.type,
       aliases,
-      new Set(),
+      // The alias's own type parameters hide aliases inside its body.
+      new Set((target.typeParameters ?? []).map((p) => p.name.text)),
       new Set([...followed, name]),
     );
   }
@@ -1494,10 +1495,10 @@ export async function optionalCapabilityMethods(
       join(platformSrc(repo), domain, "ports"),
     )) {
       const source = await parse(file);
-      const aliases = new Map<string, ts.TypeNode>();
+      const aliases = new Map<string, ts.TypeAliasDeclaration>();
       for (const statement of source.statements)
         if (ts.isTypeAliasDeclaration(statement))
-          aliases.set(statement.name.text, statement.type);
+          aliases.set(statement.name.text, statement);
       walk(source, (node) => {
         if (
           (ts.isMethodSignature(node) && node.questionToken) ||
@@ -3244,6 +3245,8 @@ describe("architecture", () => {
             "type Plain = { id: string };",
             "export interface Generic<Send> { data?: Send; run?: Chained }",
             "type Chained = Send;",
+            "type Boxed<Send> = Send;",
+            "export interface Wrapped { box?: Boxed<string> }",
             "export type Api = { close?(): void };",
           ].join("\n"),
           [platformFile("surface/ports/notice.ts")]:
