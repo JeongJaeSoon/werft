@@ -79,9 +79,7 @@ import {
   type Tracer,
 } from "@werft-ai/observability";
 import {
-  agentSlackBotToken,
   CATALOG_REFRESH_MS,
-  composeSlackFinalize,
   createAchievementJudge,
   createAchievementRuleService,
   createAgentAdminService,
@@ -129,22 +127,10 @@ import {
   createSessionTitler,
   createSettingsConsoleService,
   createSettingsDocumentService,
-  createSlackAppService,
-  createSlackBotApi,
-  createSlackChannelKinds,
-  createSlackChannelSearchService,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  createSlackEventsFinalize,
-  createSlackInstallService,
-  createSlackLinkAppService,
-  createSlackSecretService,
-  createSlackTokenRevoked,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
   createWorkerGateway,
-  forgettingChannelsOnBindingPut,
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
@@ -154,17 +140,31 @@ import {
   releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
-  slackBotToken,
-  slackPublicUrlsOf,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  agentSlackBotToken,
+  composeSlackFinalize,
+  createSlackAppService,
+  createSlackBotApi,
   createSlackChannelJoiner,
+  createSlackChannelKinds,
+  createSlackChannelSearchService,
+  createSlackConfigApi,
+  createSlackConfigTokens,
+  createSlackEventsFinalize,
   createSlackEventsService,
+  createSlackInstallService,
   createSlackInteractionService,
+  createSlackLinkAppService,
+  createSlackSecretService,
   createSlackSigningSecrets,
+  createSlackTokenRevoked,
   createSlackWelcome,
+  forgettingChannelsOnBindingPut,
+  slackBotToken,
+  slackPublicUrlsOf,
 } from "../wiring/chat-slack.ts";
 import {
   connectionsOf,
@@ -1085,6 +1085,17 @@ const workers = createWorkerGateway({
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
     }),
+  onToolAudit: ({ dropped, conflicts, unverified, sessionId, attemptId }) => {
+    // Counts only: what the worker sent is never put in a log.
+    const fields = { session_id: sessionId, attempt_id: attemptId };
+    if (dropped > 0) logger.warn("tool_audit.dropped", { ...fields, dropped });
+    if (conflicts > 0) {
+      logger.warn("tool_audit.conflict", { ...fields, conflicts });
+    }
+    if (unverified > 0) {
+      logger.warn("tool_audit.unverified", { ...fields, unverified });
+    }
+  },
   onModelCutError: (error, cut) =>
     logger.error("Model cut note not recorded", {
       session_id: cut.sessionId,

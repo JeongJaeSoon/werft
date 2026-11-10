@@ -9,17 +9,19 @@ import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
+  type SecretKey,
+  SessionServiceError,
+  type SlackAppStore,
+} from "@werft-ai/platform";
+import { drizzle } from "drizzle-orm/node-postgres";
+import {
   createSlackAppService,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
   createSlackLinkAppService,
-  type SecretKey,
-  SessionServiceError,
-  type SlackAppStore,
   slackEventsUrl,
-} from "@werft-ai/platform";
-import { drizzle } from "drizzle-orm/node-postgres";
+} from "../wiring/chat-slack.ts";
 import { loadSecretKey, SECRET_KEY_SETTING } from "./catalog-config.ts";
 import {
   consoleOriginFrom,

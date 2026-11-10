@@ -1,6 +1,6 @@
 # 결정(설계): 관측(OTel) 방향과 도구 호출 감사
 
-- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0266_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
+- 후속(2026-11-11): 실행 프로필은 통째로 지웠다(migration `0267_remove_profiles`, 기존 데이터는 이전하지 않고 지움). 이 문서의 프로필·상한·롤아웃 언급은 그때의 기록이다. 지금은 에이전트 release가 provider 연결과 카드 모델로 실행 spec(런타임·도구·권한 모드)을 고정하고, 묻기·막기 규칙은 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - 상태: **설계.** 세션 관측 방향 결정 티켓의 결정 문서다. 이 문서가 머지되면 T1(tracer·trace_id)과 T2(API span)의 구현 계약이 된다. T번호는 이 결정을 낸 Linear 티켓(제목: 세션 관측(OTel) 방향 결정)의 구현 후보 번호이고, 8절이 각 티켓의 제목과 수용 기준을 옮겨 적는다. 저장소 시험(`tests/docs-links.test.ts`)이 문서에 티켓 키를 쓰지 못하게 하므로 키 대신 T번호와 제목으로 가리킨다. 코드, 마이그레이션, CI는 바꾸지 않는다.
 - 기준 커밋: `origin/main` `3edfe7f78`. `파일:줄`은 모두 이 커밋 기준이다.
 - 이어받는 결정: 티켓 본문에 옮겨 적힌 세션 관측 설계안의 D1(혼합: 이벤트는 DB 정본, 트레이스는 관측 신호), D2(내용 수집 기본 full), D6(1단계 span은 worker가 직접 만든다), D11(플랫폼은 OTLP 내보내기까지). 이 문서는 그 결정을 다시 열지 않고, 구현이 기댈 계약(포트, 이름, 설정 키, 감사 레코드)을 정한다. 설계안과 이 문서가 다르면 이 문서가 이긴다.
@@ -172,7 +172,7 @@ turnTraceId("00000000-0000-4000-8000-000000000001", 1) = "49195af5635b4ac7af24c5
 ### 4.2 전파
 
 1. 클라이언트의 `traceparent`는 **부모로 삼지 않고 link로만 남긴다.** link는 `trace_id`·`span_id`만 싣는다. `tracestate`는 버린다(`SpanContext`가 담지 않고, 벤더 상태를 우리 트레이스에 옮길 이유가 없다). 들어온 sampled 플래그도 따르지 않는다. 클라이언트가 `trace_id`를 골라 다른 세션 트레이스에 섞거나 `-00`으로 API span을 끄는 일을 막기 위해서다.
-2. `POST /v1/sessions/{id}/turns`가 turn을 큐에 넣을 때 그 요청 span의 `traceparent`를 `turns.trace_context`(nullable text)에 같은 트랜잭션으로 쓴다(T2).
+2. turn을 큐에 넣는 두 경로, 곧 `POST /v1/sessions/{id}/turns`와 세션 생성이 함께 만드는 첫 turn이 그 요청 span의 `traceparent`를 `turns.trace_context`(nullable text)에 같은 트랜잭션으로 쓴다(T2). 첫 turn을 빼면 세션의 첫 turn만 트레이스가 끊긴다.
 3. `nextInput` 응답의 `input`에 선택 필드 `trace_context`와 `content_mode`가 실린다. worker는 `trace_context`를 `werft.turn`의 link로 쓰고 `content_mode`는 turn마다 다시 읽는다. 필드가 없는 예전 worker는 그대로 동작한다(`packages/contracts/src/worker-protocol/index.ts:685`의 `nextInputResponseSchema`). T5의 claim telemetry와 같은 필드를 정의하므로 **먼저 머지되는 쪽이 contracts에 정의하고 다른 쪽이 그것을 쓴다.**
 4. worker가 gateway를 부를 때 `traceparent`를 붙인다. API는 그 값의 `trace_id`가 이 attempt의 turn `trace_id`(`turnTraceId(session_id, turn_id)`)일 때만 그 span을 부모로 삼고, 아니면 **span을 만들지 않는다**(5.3절). 새 root를 만들지 않는다.
 

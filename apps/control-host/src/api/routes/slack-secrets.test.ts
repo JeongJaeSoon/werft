@@ -1,6 +1,16 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import {
+  createSlackConfigTokens,
+  createSlackSecretService,
+  slackPublicUrlsOf,
+} from "@werft-ai/chat-slack";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+} from "@werft-ai/chat-slack/testing/slack";
+import {
   apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
@@ -13,18 +23,10 @@ import {
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
-  createSlackConfigTokens,
-  createSlackSecretService,
   type IdentityStore,
   type MembershipRole,
   type ResolvedWebSession,
-  slackPublicUrlsOf,
 } from "@werft-ai/platform";
-import {
-  createFakeSlackConfigApi,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-} from "@werft-ai/platform/testing/slack";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";

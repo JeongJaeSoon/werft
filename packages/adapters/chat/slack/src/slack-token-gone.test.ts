@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentIdentityRecord } from "../ports/agent-identity-store.ts";
-import { createMemorySecretStore } from "../testing/slack-fakes.ts";
+import type { AgentIdentityRecord } from "@werft-ai/platform";
 import { SlackApiError } from "./slack-config-api.ts";
 import {
   createSlackTokenRevoked,
   isTokenGone,
   isTokenRevoked,
 } from "./slack-token-gone.ts";
+import { createMemorySecretStore } from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";

@@ -208,6 +208,7 @@
       "name": "@werft-ai/runtime-codex",
       "version": "0.0.0",
       "dependencies": {
+        "@modelcontextprotocol/sdk": "1.32.1",
         "@openai/codex": "0.167.0",
         "@werft-ai/contracts": "workspace:*",
         "@werft-ai/runtime-codec-kit": "workspace:*",
@@ -278,6 +279,7 @@
       "devDependencies": {
         "@electric-sql/pglite": "0.3.10",
         "@types/pg": "8.15.5",
+        "@werft-ai/chat-slack": "workspace:*",
         "@werft-ai/testkit": "workspace:*",
         "drizzle-kit": "0.31.4",
       },

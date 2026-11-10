@@ -9,6 +9,8 @@ import type {
   PauseBlockedReason,
   PermissionGrant,
   PlatformPrompt,
+  RuntimeSpec,
+  SanitizedToolDecision,
   SessionExtension,
   SpecSource,
   WorkerEvent,
@@ -366,17 +368,31 @@ export type HeartbeatResult =
     }
   | FenceRejection;
 
+export type ToolAuditOutcome = {
+  inserted: number;
+  duplicates: number;
+  conflicts: number;
+  unverified: number;
+};
+
 export type CommitEventsInput = {
   fence: WorkerFence;
   turnId: string | null;
   now: Date;
   events: WorkerEvent[];
+  // An append for no turn has no turn to attribute them to and drops them.
+  toolAudits?: readonly SanitizedToolDecision[];
   // The engine-neutral fields stored beside a new event's data, never in it:
   // a resend is compared against the data as the worker sent it.
   neutral?: (event: WorkerEvent) => Record<string, unknown> | null;
 };
 export type CommitEventsResult =
-  | { outcome: "ok"; acceptedThrough: number; cursor: string }
+  | {
+      outcome: "ok";
+      acceptedThrough: number;
+      cursor: string;
+      toolAudit?: ToolAuditOutcome;
+    }
   | { outcome: "turn_not_found" }
   // A source_sequence this attempt already stored, with different content.
   | { outcome: "event_conflict" }

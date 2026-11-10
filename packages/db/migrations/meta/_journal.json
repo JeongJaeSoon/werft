@@ -1230,8 +1230,15 @@
     {
       "idx": 266,
       "version": "7",
-      "when": 1794343920514,
-      "tag": "0266_remove_profiles",
+      "when": 1794341958186,
+      "tag": "0266_tool_call_audits",
+      "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1794347927359,
+      "tag": "0267_remove_profiles",
       "breakpoints": true
     }
   ]

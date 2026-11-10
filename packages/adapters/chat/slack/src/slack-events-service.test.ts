@@ -3,14 +3,6 @@ import { scopesForRole } from "@werft-ai/contracts";
 import type { SurfaceBindingRecord } from "@werft-ai/platform";
 import { callerFor } from "@werft-ai/platform";
 import {
-  createMemoryAgentIdentityStore,
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-  createMemorySlackInboundEventStore,
-  createMemorySlackInstallStore,
-  fakeSlackValue,
-} from "@werft-ai/platform/testing/slack";
-import {
   signSlackRequest,
   slackEventEnvelope,
 } from "@werft-ai/testkit/fake-slack-api";
@@ -19,6 +11,14 @@ import {
   createSlackSigningSecrets,
   verifySlackSignature,
 } from "./slack-events-service.ts";
+import {
+  createMemoryAgentIdentityStore,
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+  createMemorySlackInboundEventStore,
+  createMemorySlackInstallStore,
+  fakeSlackValue,
+} from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";

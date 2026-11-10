@@ -43,8 +43,6 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createSessionService,
-  createSlackBotApi,
-  drainSlackInbox,
   installationLimitsFromEnv,
   registryCatalog,
   releaseModel,
@@ -54,10 +52,7 @@ import {
   resolveAgentRelease,
   type SecretKey,
   type SlackInboundEventStore,
-  type SlackInboundHandler,
-  type SlackInboxDrain,
   settingsView,
-  slackBotToken,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -75,12 +70,17 @@ import {
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
   createRowDelivery,
+  createSlackBotApi,
   createSlackMemberJoinedHandler,
   createSlackMemberLeftHandler,
   createSlackSessionHandler,
   createSlackWelcome,
+  drainSlackInbox,
   drainSlackOutbox,
+  type SlackInboundHandler,
+  type SlackInboxDrain,
   type SlackNoticeSink,
+  slackBotToken,
 } from "../wiring/chat-slack.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;

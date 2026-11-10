@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
+import { drainSlackInbox, slackConversationKey } from "@werft-ai/chat-slack";
 import { createMemorySlackNoticeSink } from "@werft-ai/chat-slack/testing/slack";
 import {
   agentCardRequestSchema,
@@ -52,12 +53,10 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
-  drainSlackInbox,
   SecretKey,
   type SessionCatalog,
   type SlackInboundClaim,
   type SlackInboundEventStore,
-  slackConversationKey,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {

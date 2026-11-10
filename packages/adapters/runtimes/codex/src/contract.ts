@@ -16,7 +16,8 @@ import {
 } from "@werft-ai/runtime-core";
 
 import { codexExecutable } from "./binary.ts";
-import { codexLaunch, codexProfileDigest } from "./config.ts";
+import { assertStartable, codexLaunch, codexProfileDigest } from "./config.ts";
+import { type McpRelay, startMcpRelay } from "./mcp-relay.ts";
 import { spawnAppServer } from "./process.ts";
 import { CodexRolloutStore } from "./rollout-store.ts";
 import { CodexRun, heldInputsFrom } from "./run.ts";
@@ -38,8 +39,38 @@ export class CodexAgentRuntime implements AgentRuntime {
   ) {}
 
   start(start: RuntimeStart): AgentRun {
-    const launch = codexLaunch(start, this.deps, this.host);
-    mkdirSync(launch.home, { recursive: true, mode: 0o700 });
+    // Refused before the relay listens, so a refused start leaves no port open.
+    assertStartable(start.config, start.bundle);
+    const servers = start.bundle.mcpServers;
+    let run: CodexRun | undefined;
+    const relay: McpRelay | undefined =
+      servers.length === 0
+        ? undefined
+        : startMcpRelay(servers, async (call) =>
+            run === undefined
+              ? { allowed: false, text: "The session has not started." }
+              : run.judgeMcpCall(call),
+          );
+    let launch: ReturnType<typeof codexLaunch>;
+    try {
+      launch = codexLaunch(start, this.deps, this.host, relay);
+      mkdirSync(launch.home, { recursive: true, mode: 0o700 });
+      return this.spawn(start, launch, relay, (made) => {
+        run = made;
+      });
+    } catch (error) {
+      relay?.close();
+      throw error;
+    }
+  }
+
+  private spawn(
+    start: RuntimeStart,
+    launch: ReturnType<typeof codexLaunch>,
+    relay: McpRelay | undefined,
+    publish: (run: CodexRun) => void,
+  ): CodexRun {
+    const servers = start.bundle.mcpServers;
     const process = spawnAppServer({
       command: codexExecutable(),
       args: launch.args,
@@ -47,7 +78,7 @@ export class CodexAgentRuntime implements AgentRuntime {
       env: launch.env,
       observer: this.deps.processObserver,
     });
-    return new CodexRun({
+    const run: CodexRun = new CodexRun({
       transport: process.transport,
       launch,
       cwd: start.config.cwd,
@@ -60,7 +91,26 @@ export class CodexAgentRuntime implements AgentRuntime {
       descendants: process.descendants,
       kill: process.kill,
       startupProblem: process.startupProblem,
+      ...(relay === undefined
+        ? {}
+        : {
+            mcp: {
+              servers: new Set(servers.map((server) => server.name)),
+              trusted: new Set(
+                servers.flatMap((server) =>
+                  server.platform === true
+                    ? (server.trusted ?? []).filter((tool) =>
+                        server.tools.includes(tool),
+                      )
+                    : [],
+                ),
+              ),
+              release: () => relay.close(),
+            },
+          }),
     });
+    publish(run);
+    return run;
   }
 }
 

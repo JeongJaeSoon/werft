@@ -83,6 +83,7 @@ export * from "./slack-outbox.ts";
 export * from "./slack-thread-status.ts";
 export * from "./surface-bindings.ts";
 export * from "./telemetry-ingest-store.ts";
+export { expireToolCallAudits } from "./tool-call-audit.ts";
 export * from "./tool-calls.ts";
 export * from "./tool-calls-hist.ts";
 export { expireOverdueInterrupts } from "./turn-interrupts.ts";

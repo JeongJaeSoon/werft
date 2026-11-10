@@ -29,7 +29,7 @@ export const CODEX_DESCRIPTOR: RuntimeDescriptor = {
     checkpoint: true,
     approvalCheckpoint: false,
     resume: true,
-    mcp: "none",
+    mcp: "native",
     skills: "none",
     permissionModes: {
       default: "native",

@@ -12,18 +12,17 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
-  SlackBotSender,
   SlackCardClaim,
   SlackCardSettleStore,
   SlackOutboxClaim,
   SlackOutboxEntry,
   SlackOutboxStore,
   SlackPromptCard,
-  SlackSendResponse,
   SlackThreadStatusFacts,
   SlackThreadStatusStore,
 } from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
+import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
 import {
   createOutboxSlackNoticeSink,
   drainSlackOutbox,

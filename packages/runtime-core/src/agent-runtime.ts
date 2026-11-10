@@ -8,6 +8,7 @@ import type { AgentRun } from "./agent-run.ts";
 import type { TranscriptMirror } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor } from "./descriptor.ts";
 import type { GitEnvironment } from "./git-environment.ts";
+import type { ToolDecisionObserver } from "./tool-decision.ts";
 import type { UserEnvironment } from "./user-environment.ts";
 
 export type AgentInput = {
@@ -174,6 +175,8 @@ export type RuntimeStart = {
   config: RuntimeStartConfig;
   bindings: RuntimeBindings;
   bundle: RuntimeBundle;
+  /** Told of each judgment on a tool call; absent, none is reported. */
+  toolDecisions?: ToolDecisionObserver;
 };
 
 export interface AgentRuntime {

@@ -8,23 +8,21 @@ import type {
   SlackPublicUrls,
   SlackSecretSummary,
 } from "@werft-ai/contracts";
-import type {
-  PutSecretResult,
-  SecretAudit,
-  SecretStore,
-  SecretSummary,
-} from "../ports/secret-store.ts";
-import type { ConfigTokenSummary } from "../ports/slack-config-token-store.ts";
 import {
-  requirePermitted,
-  SessionServiceError,
-} from "../sessions/session-service.ts";
-import {
+  ACTOR_INACTIVE,
   type AuthorizationPolicy,
   type Caller,
+  type ConfigTokenSummary,
   MANAGEMENT_ROLES,
-} from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
+  NOT_FOUND,
+  OUTRANKED,
+  type PutSecretResult,
+  requirePermitted,
+  type SecretAudit,
+  type SecretStore,
+  type SecretSummary,
+  SessionServiceError,
+} from "@werft-ai/platform";
 import type { SlackConfigTokens } from "./slack-config-token.ts";
 import { slackEventsUrl } from "./slack-events-finalize.ts";
 import { slackLinkRedirectUrl } from "./slack-manifest.ts";

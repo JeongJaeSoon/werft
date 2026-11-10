@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
-import { refusal } from "../testing/refusal.ts";
 import {
-  createFakeSlackConfigApi,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-} from "../testing/slack-fakes.ts";
-import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
+  type Caller,
+  callerFor,
+  createAuthorizationPolicy,
+} from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
 import { SLACK_APP_CREATE_STALE_MS } from "./slack-app-service.ts";
 import { SlackApiError } from "./slack-config-api.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
@@ -16,6 +14,12 @@ import {
   SLACK_LINK_APP_WAIT_MS,
 } from "./slack-link-app-service.ts";
 import { LINK_APP_COPY } from "./slack-manifest.ts";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+} from "./testing/slack-fakes.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000f2";

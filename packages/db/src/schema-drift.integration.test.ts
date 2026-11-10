@@ -78,13 +78,14 @@ const MIGRATIONS_ONLY = [
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
-  // 0259, 0266: a live session of a release needs a spec pin on its model.
+  // 0259, 0267: a live session of a release needs a spec pin on its model.
   "function sessions_pin_required() trigger language plpgsql volatility=v parallel=u body md5 8c7a7d0511d31a3e8cb3167922d9b680",
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
+  "function tool_call_audits_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 7974f1b42d74d104e14687c272e81d7b",
   "function tool_call_outcomes_add() trigger language plpgsql volatility=v parallel=u body md5 658a9e9cf14c49d749ab3d2d896981e9",
   "function tool_call_outcomes_clear() trigger language plpgsql volatility=v parallel=u body md5 4a1a849f5fa78d7ae7af0811e384d367",
   "function tool_call_outcomes_move() trigger language plpgsql volatility=v parallel=u body md5 82bf46a170d219511ff317b80c5fbedc",
@@ -127,6 +128,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER sessions_clear_pause_reason BEFORE UPDATE ON public.sessions FOR EACH ROW WHEN (((new.pause_reason IS NOT NULL) AND (new.admission_state <> ALL (ARRAY['pausing'::admission_state, 'paused'::admission_state])))) EXECUTE FUNCTION sessions_clear_pause_reason() enabled=O",
   "trigger CREATE TRIGGER sessions_pin_required_insert BEFORE INSERT ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
   "trigger CREATE TRIGGER sessions_pin_required_update BEFORE UPDATE OF status, model, agent_release_id, runtime_spec, spec_source, spec_source_digest, spec_digest ON public.sessions FOR EACH ROW WHEN (((new.status <> ALL (ARRAY['failed'::session_status, 'stopped'::session_status])) AND ((new.agent_release_id IS NULL) OR (new.runtime_spec IS NULL) OR ((new.runtime_spec ->> 'model'::text) IS DISTINCT FROM new.model)))) EXECUTE FUNCTION sessions_pin_required() enabled=O",
+  "trigger CREATE TRIGGER tool_call_audits_append_only BEFORE UPDATE ON public.tool_call_audits FOR EACH ROW EXECUTE FUNCTION tool_call_audits_refuse_update() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_delete AFTER DELETE ON public.tool_calls REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_recount() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_truncate AFTER TRUNCATE ON public.tool_calls FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_clear() enabled=O",

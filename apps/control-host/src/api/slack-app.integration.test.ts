@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createSlackConfigApi,
+  createSlackConfigTokens,
+} from "@werft-ai/chat-slack";
 import { BOT_SCOPES, scopesForRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -18,13 +22,7 @@ import {
   releaseSpecColumns,
   TEST_CONNECTION_ID,
 } from "@werft-ai/db/testing/spec-pins";
-import {
-  callerFor,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  MANAGEMENT_ROLES,
-  SecretKey,
-} from "@werft-ai/platform";
+import { callerFor, MANAGEMENT_ROLES, SecretKey } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
   createTempDatabase,

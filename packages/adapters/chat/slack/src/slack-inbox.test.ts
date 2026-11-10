@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createMemorySlackInboundEventStore } from "../testing/slack-fakes.ts";
 import {
   drainSlackInbox,
   type SlackInboxLogger,
   slackConversationKey,
 } from "./slack-inbox.ts";
+import { createMemorySlackInboundEventStore } from "./testing/slack-fakes.ts";
 
 function recorder() {
   const lines: string[] = [];

@@ -5,8 +5,8 @@ import {
   slackConfigTokenSummarySchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
-import type { SlackSecretService } from "@werft-ai/platform";
 import type { Context } from "hono";
+import type { SlackSecretService } from "../../wiring/chat-slack.ts";
 import {
   type ApiEnvironment,
   type ApiRouter,

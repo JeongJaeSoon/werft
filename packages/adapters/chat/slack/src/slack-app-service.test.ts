@@ -4,25 +4,25 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import { refusal } from "../testing/refusal.ts";
-import {
-  createFakeSlackConfigApi,
-  createMemoryConfigTokenStore,
-  createMemorySecretStore,
-  createMemorySlackAppStore,
-} from "../testing/slack-fakes.ts";
 import {
   type AgentAuthority,
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "./policy.ts";
+} from "@werft-ai/platform";
+import { refusal } from "@werft-ai/platform/testing/refusal";
 import {
   createSlackAppService,
   SLACK_APP_CREATE_STALE_MS,
 } from "./slack-app-service.ts";
 import { SLACK_HTTP_TIMEOUT_MS, SlackApiError } from "./slack-config-api.ts";
 import { createSlackConfigTokens } from "./slack-config-token.ts";
+import {
+  createFakeSlackConfigApi,
+  createMemoryConfigTokenStore,
+  createMemorySecretStore,
+  createMemorySlackAppStore,
+} from "./testing/slack-fakes.ts";
 
 test("a creation is uncertain only after the Slack call could have ended", () => {
   expect(SLACK_APP_CREATE_STALE_MS).toBeGreaterThan(SLACK_HTTP_TIMEOUT_MS);

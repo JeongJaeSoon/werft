@@ -6,6 +6,7 @@ import {
   expireOverdueInterrupts,
   expireOverdueTerminations,
   expireParkedGroups,
+  expireToolCallAudits,
   projectToolCalls,
   reconcileExpiredLeases,
   reconcileOrphanedSessions,
@@ -107,6 +108,7 @@ export function reconcileOnce(
     expireParked: (options) => expireParkedGroups(db, options),
     announceInputReturns: (options) => announceLapsedInputWaits(db, options),
     expireDecisions: (options) => expireAuthzDecisions(db, options),
+    expireToolAudits: (options) => expireToolCallAudits(db, options),
     deleteExpiredWebSessions: (options) =>
       deleteExpiredWebSessions(db, options),
     projectToolCalls: () =>

@@ -100,6 +100,11 @@ config:
   # `none` mode /v1 takes any X-Owner-Id as the caller.
   authMode: api-key
   heartbeatTtlSec: 30
+  # Trace export is configured with the OTEL_* and TRACE_* keys in api.extraEnv
+  # (docs/operator/api-server.md). Only the port is here, because the Service
+  # and the NetworkPolicy need it too: set TRACE_INGEST_PORT nowhere else.
+  tracing:
+    ingestPort: 4319
   # Read by the api and the scheduler with one parser.
   limits:
     EXECUTION_SLOT_LIMIT: 10

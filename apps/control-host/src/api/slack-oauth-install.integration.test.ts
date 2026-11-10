@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  composeSlackFinalize,
+  createSlackAppService,
+  createSlackConfigApi,
+  createSlackConfigTokens,
+  createSlackEventsFinalize,
   createSlackEventsService,
+  createSlackInstallService,
   createSlackSigningSecrets,
+  type SlackInstalled,
 } from "@werft-ai/chat-slack";
 import {
   BOT_SCOPES,
@@ -38,17 +45,10 @@ import {
 } from "@werft-ai/db/testing/spec-pins";
 import {
   callerFor,
-  composeSlackFinalize,
   createAuthorizationPolicy,
-  createSlackAppService,
-  createSlackConfigApi,
-  createSlackConfigTokens,
-  createSlackEventsFinalize,
-  createSlackInstallService,
   MANAGEMENT_ROLES,
   SecretKey,
   SessionServiceError,
-  type SlackInstalled,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {

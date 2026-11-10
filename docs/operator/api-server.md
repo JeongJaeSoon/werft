@@ -38,7 +38,7 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 - **빈 설치에는 연결이 없다.** 새 DB에는 연결도 저장소도 없다. 콘솔에서 연결을 더하고(설정 > 에이전트 연결 > **모델 연결**) 그 연결에 에이전트가 고를 모델 목록을 넣은 뒤, 에이전트를 그 연결로 release한다. 예시 스택(`scripts/local.sh up --fake-model`, E2E)은 `tests/fixtures/settings/`의 문서를 migrate 단계에서 가져와 미리 채운다(아래 "예시 설정 문서"). `SETTINGS_DOCUMENT=` 처럼 비워 띄우면 빈 설치를 그대로 볼 수 있다.
 - **release가 실행 설정을 고정한다.** 에이전트 release는 연결 하나와 카드의 모델을 고르고, 그 연결의 종류에 맞는 런타임(이미지가 싣는 버전), 그 런타임의 내장 도구 전부, 권한 모드(분류기가 동작하면 `auto`, 아니면 `default`)를 spec으로 고정한다. 세션은 그 spec을 그대로 복사해 돈다. 묻기·막기는 워크스페이스와 에이전트의 실행 규칙(`workspace_engine_settings`, `agent_engine_settings`)이 정한다.
 - **연결의 모델 목록.** 연결의 `models`가 release와 세션이 고를 수 있는 모델이다. 목록에서 모델을 빼면 그 모델로 도는 세션은 다음 claim에서 멈춘다. 다만 `model_families`로 같은 계열의 다음 판이 목록에 있고 에이전트의 자동 모델 이동이 켜져 있으면 release와 세션이 그 판으로 옮긴다. 연결을 사용 중지하면 그 위의 release와 세션이 모두 멈춘다.
-- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0266_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
+- **프로필은 없다.** 실행 프로필(`installation_profiles`, `workspace_profiles`, 롤아웃)은 migration `0267_remove_profiles`가 지웠다. 그 전에 만든 release와 세션도 함께 지워졌으므로 에이전트는 연결을 골라 다시 release한다. 설정 문서에 `profiles` 항목이 있으면 가져오기가 거절한다.
 
 ### 설정 문서 가져오기·내보내기
 
@@ -386,8 +386,37 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 | `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 값 |
 | `TRACE_TENANT_HEADERS_FILE` | 없음 | `{"<workspace_id>": {"<헤더>": "<값>"}}` JSON. 비밀이므로 mode 600 파일만 받는다. 같은 헤더 이름은 이 파일이 `TRACE_TENANT_HEADER`보다 이긴다 |
 | `TRACE_INGEST_URL` | 없음 | worker가 닿는 ingest listener 주소(`http`·`https`). `otlp`인데 없으면 시작 시 멈춘다. claim의 `telemetry.ingest_url`로 나간다 |
-| `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | 내용 수집 상한(`full`·`metadata`)과 내용 속성 하나의 바이트 상한. 워크스페이스 설정은 상한 안에서 낮추기만 한다 |
+| `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | 내용 수집 상한(`full`·`metadata`)과 내용 속성 하나의 바이트 상한. 지금은 설치 상한만 적용된다 |
 | `TRACE_INGEST_PORT` / `TRACE_INGEST_MAX_REQUEST_BYTES` / `TRACE_INGEST_MAX_BYTES_PER_MIN` / `TRACE_MAX_BYTES_PER_TRACE` / `TRACE_FENCED_GRACE_SEC` | `4319` / 4MiB / 32MiB / 20MiB / `300` | ingest listener의 포트와 상한. 0·음수·숫자가 아닌 값은 키 이름을 밝히고 시작 시 멈춘다 |
+
+**켜는 최소 설정.** 특정 수집기가 필요 없다. OTLP/HTTP(protobuf)로 받는 수집기면 된다. 세 키를 api의 env에 준다. 1단계는 트레이스 신호만 내고 프롬프트·답변·도구 입출력은 span 속성(`gen_ai.*`)에 실리므로 로그 저장소가 필요 없다.
+
+```bash
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com:4318
+TRACE_INGEST_URL=http://api:4319
+EGRESS_PRIVATE_ALLOWLIST=api:3000,host.docker.internal:3000,api:4319
+```
+
+- **compose.** 위 값을 compose를 띄우는 셸이나 `.env`에 두면 `infra/compose.core.yml`이 api 컨테이너에 넘긴다(표의 모든 키가 같은 이름이다). `EGRESS_PRIVATE_ALLOWLIST`는 기본값 `api:3000,host.docker.internal:3000`에 `api:<TRACE_INGEST_PORT>`를 더해 준다. worker가 ingest에 가는 길이 egress proxy를 지나기 때문이다. 이 목록에 수집기 주소를 넣지 않는다.
+- **Kubernetes(Helm).** 키는 `api.extraEnv`에 `이름: 값`으로 준다. 포트는 Service와 NetworkPolicy도 알아야 하므로 `config.tracing.ingestPort`(기본 `4319`)로만 바꾸고 `TRACE_INGEST_PORT`는 따로 주지 않는다. `TRACE_INGEST_URL`은 `http://<api Service 이름>:4319`이다. 기본값(`config.egress.privateAllowlist` 비움)은 `<api Service 이름>:3000`만 허용하므로, 켤 때는 `config.egress.privateAllowlist`를 `<api Service 이름>:3000,<api Service 이름>:4319`로 직접 지정한다.
+- 수집기 주소 호스트를 `EGRESS_PRIVATE_ALLOWLIST`·`EGRESS_ALLOWLIST`에 넣으면 api가 시작할 때 경고를 남긴다. worker는 수집기로 직접 가지 않는다.
+
+**업그레이드.** 이미 `OTEL_TRACES_EXPORTER=otlp`로 쓰던 설치는 `TRACE_INGEST_URL`을 더해야 api가 시작한다. 없으면 키 이름을 밝히고 멈춘다. worker가 span을 보낼 주소이므로 worker에서 api의 `TRACE_INGEST_PORT`(기본 `4319`)에 닿는 주소를 쓴다. 이 포트는 `otlp`일 때만 열린다.
+
+**수집기가 맞춰야 할 조건.**
+
+- 한 트레이스의 크기 상한을 `TRACE_MAX_BYTES_PER_TRACE`(20MiB)보다 크게 둔다. 작으면 수집기가 큰 트레이스를 버린다.
+- 테넌트마다 credential이 다르면 `TRACE_TENANT_HEADERS_FILE`을 쓴다. mode 600인 JSON 파일이고(아니면 시작 시 거절), 같은 헤더 이름이 겹치면 `TRACE_TENANT_HEADER`와 `OTEL_EXPORTER_OTLP_HEADERS`보다 이 파일이 이긴다. 값은 비밀이므로 저장소에 두지 않는다. 형식만 보이면 다음과 같다.
+
+```json
+{ "<workspace_id>": { "<header name>": "<secret value>" } }
+```
+
+- 테넌트 헤더를 설정하지 않은 단일 테넌트 설치에서는 모든 워크스페이스의 트레이스가 한 곳에 모인다. 백엔드 UI 접근을 운영자에게만 준다.
+- 내용(프롬프트·답변·도구 입출력)은 `TRACE_CONTENT_MODE=full`일 때 수집기로 간다. 워크스페이스별 content mode는 아직 없고 설치 상한만 적용된다(나중 단위에서 더한다). 내용을 내보내지 않으려면 `metadata`로 둔다.
+
+데이터 흐름(무엇이 어떤 경로로 어디까지 가는지)을 따로 적은 `docs/observability.md`는 이 저장소에 아직 없다. 생기면 여기서 링크만 건다.
 
 `OTEL_*` 키는 worker와 엔진에 넘어가지 않는다. worker는 bootstrap claim의 `telemetry`(`enabled`, `ingest_url`, `content_mode`, `content_max_bytes`, `sampler`, `sampler_arg`)와 `nextInput`의 `content_mode`로만 설정을 받는다. 수집기 호스트가 `EGRESS_PRIVATE_ALLOWLIST`나 `EGRESS_ALLOWLIST`에 있으면 api가 시작할 때 경고를 한 번 남긴다.
 
