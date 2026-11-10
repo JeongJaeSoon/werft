@@ -390,8 +390,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         }
       }
     }
-    await this.#transcriptsDirectory();
-    const store = await this.#openFreshStore(claim, signal);
+    const engineDirectory = await this.#transcriptsDirectory();
+    const store = await this.#openFreshStore(claim, signal, engineDirectory);
     signal.throwIfAborted();
     const commit = this.#options.instructionsCommit?.() ?? null;
     this.#bound = {
@@ -400,17 +400,22 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       runtime,
       store,
     };
-    return { mode: "new", sessionStore: store };
+    return {
+      mode: "new",
+      ...(store.mirror === undefined ? {} : { sessionStore: store.mirror }),
+    };
   }
 
   /** Opens a fresh transcript generation once the object store answers. */
   async #openFreshStore(
     claim: BootstrapClaimResponse,
     signal: AbortSignal,
+    engineDirectory: string | undefined,
   ): Promise<TranscriptStore> {
     for (let retries = 0; ; retries += 1) {
       const store = this.#options.runtime.openTranscriptStore({
         generation: claim.execution_generation,
+        ...(engineDirectory === undefined ? {} : { engineDirectory }),
         objects: this.#options.objects,
         prefix: this.#transcriptPrefix(),
         ...this.#storeLimits(),
@@ -514,8 +519,13 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       return (version === undefined ? rest : { ...rest, version }) as T;
     };
 
+    const { claudeConfigDir } = this.#options;
     const store = this.#options.runtime.openTranscriptStore({
       generation: claim.execution_generation,
+      // The path only: the restore makes the directory itself, last.
+      ...(claudeConfigDir === undefined
+        ? {}
+        : { engineDirectory: join(claudeConfigDir, "projects") }),
       inherit: {
         sessionId: manifest.resume,
         transcripts: transcriptsWith(manifest.transcripts, pinned),
@@ -644,7 +654,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       return {
         mode: "resume",
         resume: manifest.resume,
-        sessionStore: store,
+        ...(store.mirror === undefined ? {} : { sessionStore: store.mirror }),
         committedInstructions: () => committedInstructionsOf(instructions),
         restoredRevision: restoring.revision,
       };

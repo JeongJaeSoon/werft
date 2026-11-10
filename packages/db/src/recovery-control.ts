@@ -59,6 +59,7 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
+import { pinRefusesLive } from "./session-pin-cutover.ts";
 
 export {
   hasRestorePoint,
@@ -525,6 +526,7 @@ async function startFresh(
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
   }
+  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
   const { lastRanTurn } = await contextCoverage(tx, session);
   const reset: ContextReset = {
     turnSequence: lastRanTurn ?? session.contextResetTurnSequence,
@@ -610,6 +612,7 @@ async function retryRestore(
   if (session.workspaceReclaimId !== null) {
     return { outcome: "workspace_reclaiming" };
   }
+  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
   const queued = await queuedTurnCount(tx, session.id);
   await tx
     .update(sessions)
@@ -900,6 +903,7 @@ export function resumeAtomic(
     if (session.workspaceReclaimId !== null) {
       return { outcome: "workspace_reclaiming" };
     }
+    if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
 
     // As from a pause: a parked turn the stop left waiting goes on once
     // nothing it asked is still open.

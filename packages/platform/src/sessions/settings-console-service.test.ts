@@ -286,7 +286,10 @@ describe("settings console service", () => {
     const { settings } = service();
     expect(
       (await settings.listConnections(caller("owner"))).endpoint_defaults,
-    ).toEqual({ anthropic: "https://api.anthropic.com" });
+    ).toEqual({
+      anthropic: "https://api.anthropic.com",
+      openai_responses: "https://api.openai.com",
+    });
   });
 
   test("an entry the catalog refuses and a closed secret store are refused before the store", async () => {

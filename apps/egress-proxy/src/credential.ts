@@ -151,7 +151,128 @@ export type CredentialRoute = {
   search: string;
 };
 
-const PROVIDER_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
+// `/v1/responses` is parsed here for every session, but only the authorizer
+// knows the session's provider kind: it grants this path to an
+// `openai_responses` session and refuses it to every other, and refuses the
+// Messages paths to that session in turn.
+const RESPONSES_PATH = "/v1/responses";
+
+/**
+ * Why a Responses request cannot be metered, or null. A `background` response
+ * keeps generating after the connection that would meter it has closed; one
+ * that continues a stored response or conversation is billed for context the
+ * request does not carry, so a cut stream's input cannot be bounded by its
+ * bytes. Both are refused outright.
+ */
+function unmeterableResponsesRequest(body: Uint8Array): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const request = parsed as Record<string, unknown>;
+  if (request.background === true) {
+    return "a background response outlives the metered connection";
+  }
+  if (
+    (request.previous_response_id ?? null) !== null ||
+    (request.conversation ?? null) !== null
+  ) {
+    return "a stored response or conversation is not carried by the request";
+  }
+  if (carriesRemoteInput(request.input, 0)) {
+    return "a file or image the request only names is not carried by it";
+  }
+  if ((request.prompt ?? null) !== null) {
+    return "a stored prompt template is fetched by the upstream, not carried";
+  }
+  if (declaresOutsideTool(request.tools, 0)) {
+    return "a tool the upstream runs on a host the catalog never named";
+  }
+  if (declaresOutsideTool(request.input, 0)) {
+    return "a tool or generated image the upstream keeps outside the request";
+  }
+  return null;
+}
+
+// Tools the upstream runs itself: a remote MCP server, a vector store, a web
+// search, a container, image generation. `function`, `custom`, `local_shell`
+// and a `local` shell run on the worker and are not here. Names other than
+// `mcp` and `file_search` are from the API reference, not a live request.
+function isOutsideTool(tool: Record<string, unknown>): boolean {
+  const type = tool.type;
+  if (type === "shell") {
+    const environment = tool.environment;
+    return (
+      typeof environment === "object" &&
+      environment !== null &&
+      (environment as Record<string, unknown>).type !== "local"
+    );
+  }
+  return (
+    type === "mcp" ||
+    type === "file_search" ||
+    type === "code_interpreter" ||
+    type === "image_generation" ||
+    type === "image_generation_call" ||
+    (typeof type === "string" && type.startsWith("web_search"))
+  );
+}
+
+// `tools`, and the `input` items that register tools of their own
+// (`additional_tools`, `tool_search_output`) or reuse a generated image.
+function declaresOutsideTool(value: unknown, depth: number): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (depth > REMOTE_INPUT_DEPTH) return true;
+  if (Array.isArray(value)) {
+    return value.some((item) => declaresOutsideTool(item, depth + 1));
+  }
+  const item = value as Record<string, unknown>;
+  return isOutsideTool(item) || declaresOutsideTool(item.tools, depth + 1);
+}
+
+// Deep enough for `input` items holding `content` parts, no deeper. Past it a
+// part is refused rather than skipped: an unread part may name a remote file.
+const REMOTE_INPUT_DEPTH = 6;
+
+/**
+ * Whether an input part names a file or image the upstream would fetch (by
+ * id or URL) instead of carrying it: its size is not in the request bytes.
+ * Inline `data:` images and `file_data` are carried, and so are fine.
+ */
+function carriesRemoteInput(value: unknown, depth: number): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (depth > REMOTE_INPUT_DEPTH) return true;
+  if (Array.isArray(value)) {
+    return value.some((part) => carriesRemoteInput(part, depth + 1));
+  }
+  const part = value as Record<string, unknown>;
+  if (part.type === "input_file") {
+    return (part.file_id ?? null) !== null || (part.file_url ?? null) !== null;
+  }
+  // An item that only points at one stored upstream.
+  if (part.type === "item_reference") return true;
+  // `computer_screenshot` is a computer-use tool result's image.
+  if (part.type === "input_image" || part.type === "computer_screenshot") {
+    return (
+      (part.file_id ?? null) !== null ||
+      (typeof part.image_url === "string" &&
+        !part.image_url.startsWith("data:"))
+    );
+  }
+  // A message's parts are in `content`; a tool result's, in `output`.
+  return (
+    carriesRemoteInput(part.content, depth + 1) ||
+    carriesRemoteInput(part.output, depth + 1)
+  );
+}
+const PROVIDER_PATHS = new Set([
+  "/v1/messages",
+  "/v1/messages/count_tokens",
+  RESPONSES_PATH,
+]);
 // The achievement judge's one call, made by the API with a judgment token.
 const JUDGMENT_PATH = "/decisions/v1/decisions";
 // Claude Code asks for the beta surface with `?beta=true`; nothing else.
@@ -257,7 +378,9 @@ export function routeOf(
     if (
       method === "POST" &&
       PROVIDER_PATHS.has(path) &&
-      PROVIDER_QUERIES.has(search)
+      PROVIDER_QUERIES.has(search) &&
+      // `?beta=true` is Claude Code's; the Responses API takes no query here.
+      (path !== RESPONSES_PATH || search === "")
     ) {
       return { purpose: "provider", path, search };
     }
@@ -745,6 +868,10 @@ const DROPPED_REQUEST_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
   "x-api-key",
+  // The injected key reaches whatever organization or project the worker
+  // names here, so the connection's own default is the only one.
+  "openai-organization",
+  "openai-project",
 ]);
 
 const DROPPED_RESPONSE_HEADERS = new Set([
@@ -1019,18 +1146,17 @@ export function startCredentialProxy(
     );
   }
 
-  // In the Messages API's error shape, so the engine shows why it was
+  // In the called API's error shape, so the engine shows why it was
   // refused. The turn's reason comes from the session's spend at finalize,
   // not from this text.
-  function budgetExceededReply(): Response {
+  function budgetExceededReply(path: string): Response {
+    const message = `${BUDGET_EXCEEDED}: the session has reached its cost or token limit`;
     return Response.json(
-      {
-        type: "error",
-        error: {
-          type: "permission_error",
-          message: `${BUDGET_EXCEEDED}: the session has reached its cost or token limit`,
-        },
-      },
+      path === RESPONSES_PATH
+        ? {
+            error: { type: "permission_error", code: BUDGET_EXCEEDED, message },
+          }
+        : { type: "error", error: { type: "permission_error", message } },
       { status: 403 },
     );
   }
@@ -1690,15 +1816,18 @@ export function startCredentialProxy(
           }),
         ),
       ) ?? null;
-    // count_tokens is free; only a Messages answer and a judgment are metered.
+    // count_tokens is free; only a Messages or Responses answer and a
+    // judgment are metered.
     if (
       route.purpose !== "judgment" &&
-      (route.purpose !== "provider" || route.path !== "/v1/messages")
+      (route.purpose !== "provider" ||
+        (route.path !== "/v1/messages" && route.path !== RESPONSES_PATH))
     ) {
       return new Response(guarded, { status: response.status, headers });
     }
     const meter = usageMeter(response.headers.get("content-type"), {
       requestModel: route.purpose === "judgment",
+      responses: route.purpose === "provider" && route.path === RESPONSES_PATH,
     });
     const exchangeId = crypto.randomUUID();
     return new Response(
@@ -1860,9 +1989,14 @@ export function startCredentialProxy(
             }
           : route.purpose === "packages"
             ? { registry: route.registry, path: `${route.path}${route.search}` }
-            : route.repository === undefined
-              ? {}
-              : { repository_id: route.repository };
+            : route.purpose === "provider" && route.path === RESPONSES_PATH
+              ? // Sent only for the path that needs a kind check, so a proxy
+                // and an authorizer of different releases still agree on
+                // every Messages call: no `path` means Messages.
+                { path: route.path }
+              : route.repository === undefined
+                ? {}
+                : { repository_id: route.repository };
       // Decided before anything is awaited: Bun takes the body off the
       // socket meanwhile, and only a request answered now is never held.
       const reservation = bodyReservation(request.headers, route.purpose);
@@ -1998,11 +2132,22 @@ export function startCredentialProxy(
           }
           whole = Promise.resolve(batch);
         }
+        if (route.purpose === "provider" && route.path === RESPONSES_PATH) {
+          const read = whole === null ? null : await whole;
+          const unmeterable =
+            read instanceof Uint8Array
+              ? unmeterableResponsesRequest(read)
+              : null;
+          if (unmeterable !== null) {
+            release();
+            return reply(400, unmeterable, route.purpose);
+          }
+        }
         const authorized = await authorize(token, route.purpose, question);
         if (authorized.kind === "refused") {
           release();
           if (authorized.budgetExceeded && route.purpose === "provider") {
-            return budgetExceededReply();
+            return budgetExceededReply(route.path);
           }
           return reply(
             authorized.status,

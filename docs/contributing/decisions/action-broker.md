@@ -31,7 +31,7 @@
 ## 1. 위치와 이름
 
 - 계약 목록의 이름은 **에이전트 행동 도구 카탈로그**다. 그 뒤에서 일하는 control-host 안의 모듈은 **action-broker**다. action-broker가 dispatcher, 정책 게이트, 자격 사용, receipt를 맡는다. 화면 문구에서는 "에이전트 작업"이라 쓴다(예: "에이전트 작업 기록").
-- 코드 모듈은 `packages/platform/src/action-broker/`, 계약(봉투, 코드표)은 `packages/contracts/src/api/action-broker.ts`다. 계약은 있고, 모듈 폴더에는 지금 거절 변환(`refusal.ts`)만 있다. dispatcher, 정책 게이트, 자격 사용, receipt는 아직 `packages/platform/src/sessions/`(예: `github-gate.ts`, `github-mcp-server.ts`)에 있고, 이 폴더로 옮기는 일은 하지 않았다. GitHub 쪽 목표 구조는 별도 설계 메모가 다룬다.
+- 코드 모듈은 `packages/platform/src/action-broker/`, 계약(봉투, 코드표)은 `packages/contracts/src/api/action-broker.ts`다. 계약은 있고, 모듈 폴더에는 지금 거절 변환(`refusal.ts`)만 있다. dispatcher, 정책 게이트, 자격 사용, receipt는 아직 `packages/platform/src/sessions/`(예: `github-gate.ts`, `github-mcp-server.ts`)에 있고, 이 폴더로 옮기는 일은 하지 않았다. 목표 구조는 [surface·action 모듈, 어댑터, 시험 피라미드](surface-action-modules.md) 7절이 정한다: 디렉터리는 `packages/platform/src/action/`, 계약은 `packages/contracts/src/action/`이다.
 - action-broker는 모듈 이름이고 레이어 이름이 아니다. 레이어 이름을 묻던 D9를 폐기한 것([10절](#10-오너-결정-d1d11))과 부딪히지 않는다. 오너가 이름을 Codex와 정하라고 맡겼고(2026-11-04), `worker-gateway`와 헷갈리는 `action-gateway`는 쓰지 않는다.
 - 정책 구현, 토큰 발급, 작업 기록은 control-host의 플랫폼 서비스에 둔다. 판정에 쓰는 사실(checkpoint, push 요청, release, 연결 계정)이 모두 그쪽 DB에 있기 때문이다. 엔진 어댑터는 계약을 엔진에 붙이는 일만 한다([9절](#9-어댑터-적합성-항목)). worker는 작업 공간 안의 일(commit hook, 턴 끝 귀속 복구, checkpoint, T4 스크립트)만 한다.
 - 내장 MCP 서버 이름 `github`와 도구 이름 `mcp__github__<tool>`은 바꾸지 않는다. GitHub와 상관없는 모델 도구(2단계의 `ask_person`, `send_message`)가 생기면 두 번째 내장 서버 `platform`을 같은 경로로 더한다.
@@ -501,7 +501,7 @@ L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 
 카탈로그 5.4·5.8·5.9절의 "고른 경로".
 
 - **commit 도구를 내장 MCP 도구 → worker 주문으로.** 주문은 엔진 밖에서 돌아 턴 끝 capture의 자손 관측에 들지 않고, MCP 호출 시한과 결과 기록, worker capability와 혼합 버전을 새로 설계해야 한다. 고르지 않았다.
-- **commit 도구를 worker 안 stdio MCP 서버로.** runtime-core의 플랫폼 MCP 서버는 remote 서버만 받고, 세션 내내 사는 서버 프로세스가 턴 끝 capture의 자손 관측에 걸린다. 고르지 않았다.
+- **commit 도구를 worker 안 stdio MCP 서버로.** runtime-core의 플랫폼 MCP 서버는 remote 서버만 받고, 세션 내내 사는 서버 프로세스가 턴 끝 capture의 자손 관측에 걸린다. 고르지 않았다. (번들이 선언한 stdio MCP 서버는 턴 안에서만 사는 프로세스로 따로 풀었다: [stdio-mcp-relay.md](stdio-mcp-relay.md). 이 결론은 바뀌지 않는다.)
 - **프록시가 `api.github.com` 요청에 설치 토큰을 주입.** forward proxy는 TLS를 풀지 않으므로 MITM이나 새 TLS 경로가 필요하고, `gh pr create`는 GraphQL mutation이라 판정하려면 GraphQL을 해석해야 한다. PR 꼬리·요청자 줄·receipt는 결국 서비스가 써야 한다. 고르지 않았다. 대신 쓰기 토큰은 control-host가 쓰고, 프록시는 지금처럼 git fetch에만 읽기 토큰을 붙인다.
 - **프록시가 receive-pack에 `push` 토큰을 붙여 GitHub로 그대로 보냄.** 프록시는 pack을 이해하지 않아 fast-forward와 귀속(PR 3)을 볼 수 없다. force push와 귀속이 틀린 commit을 막지 못하면 그 입구에서만 보장이 빠진다. 고르지 않았다.
 - **`gh`를 빼거나 그대로 둠.** 모델의 `gh` 습관이 실패로 끝난다. 고르지 않았다.

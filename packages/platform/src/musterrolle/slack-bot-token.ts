@@ -2,13 +2,13 @@ import { SLACK_BINDING_MESSAGES } from "@werft-ai/contracts";
 import type { SecretStore } from "../ports/secret-store.ts";
 import type { SlackAppStore } from "../ports/slack-app-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
+import type { ChannelKindReadable } from "../surface/ports/channel-kind-readable.ts";
 import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import {
   isTokenGone,
   isTokenRevoked,
   type SlackTokenRevoked,
 } from "./slack-token-gone.ts";
-import type { SlackChannelKinds } from "./surface-binding-service.ts";
 
 /** The bot token an install stored for the app; null when it has none. */
 export function slackBotToken(
@@ -47,7 +47,7 @@ export function createSlackChannelKinds(deps: {
   slack: SlackBotApi;
   /** Revokes the install when Slack says the bot token was revoked. */
   tokenRevoked?: SlackTokenRevoked;
-}): SlackChannelKinds {
+}): ChannelKindReadable {
   const notInstalled = () =>
     new SessionServiceError(
       "SLACK_NOT_INSTALLED",

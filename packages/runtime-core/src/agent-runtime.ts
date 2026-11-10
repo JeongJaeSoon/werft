@@ -79,8 +79,9 @@ export type RuntimeStartConfig = RuntimeMode & {
   engineSettings?: EngineSettings;
   /**
    * The language the agent's release asks the engine to answer in
-   * (`runtime_config.response_language`). An adapter appends one instruction
-   * to its system prompt: the person's own language wins over it. Absent for
+   * (`runtime_config.response_language`). An adapter passes it through the
+   * engine's own language setting, never as prompt text; the Claude adapter
+   * does, the Codex adapter does not use it yet. Absent for
    * `follow-user` and for a release that predates the field. Never part of a
    * checkpoint's fingerprint, so a session resumes on any worker.
    */

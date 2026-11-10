@@ -12,8 +12,6 @@ import {
   type SlackInboundEventStatus,
 } from "@werft-ai/contracts";
 import type {
-  CreatedSlackApp,
-  RotatedConfigToken,
   SlackConfigApi,
   SlackInstallApi,
   SlackInstallGrant,
@@ -31,12 +29,14 @@ import {
   secretOwnerRef,
 } from "../ports/secret-store.ts";
 import type {
+  CreatedSlackApp,
   SlackAppAgent,
   SlackAppRecord,
   SlackAppStore,
 } from "../ports/slack-app-store.ts";
 import type {
   ConfigTokenSummary,
+  RotatedConfigToken,
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
 import type {

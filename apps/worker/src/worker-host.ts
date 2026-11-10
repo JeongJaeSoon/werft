@@ -38,6 +38,7 @@ import {
   isOwnershipLost,
   isRetryable,
   type ParkedApproval,
+  type ParkReadiness,
   type RuntimeEvent,
   runtimeRequirementsOf,
   type TurnEnded,
@@ -286,6 +287,11 @@ type Turn = {
   turnId: string;
   uuid: string;
 };
+
+/** A run without `parkable` cannot be cut where it waits on a person. */
+function parkReadinessOf(run: AgentRun): ParkReadiness {
+  return run.parkable?.() ?? { ok: false, reason: "not_supported" };
+}
 
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
@@ -2192,7 +2198,7 @@ export class WorkerHost {
     ) {
       return { lasting: true, reason: NOTHING_WAITING };
     }
-    const readiness = run.parkable();
+    const readiness = parkReadinessOf(run);
     if (!readiness.ok) {
       return readiness.reason === "checkpoint_unavailable"
         ? { lasting: true, reason: readiness.detail }
@@ -2224,7 +2230,7 @@ export class WorkerHost {
   ): Promise<{ lasting: boolean; reason: string } | undefined> {
     const now = this.parkBlockedNow(run, turn);
     if (now !== undefined) return now;
-    const readiness = run.parkable();
+    const readiness = parkReadinessOf(run);
     if (!readiness.ok) return undefined;
     // A parked finalize needs its checkpoint, which this run would not take.
     const { effective } = await run.ready();
@@ -2756,6 +2762,11 @@ export class WorkerHost {
   private guardAdmissions(run: AgentRun, manifestRef: string): void {
     this.approvalCheckpoints.push(manifestRef);
     if (this.admissionHold !== undefined) return;
+    if (run.holdAdmission === undefined) {
+      throw new Error(
+        "An approval checkpoint was taken from a run that admits tools through no gate a host can hold",
+      );
+    }
     const hold = run.holdAdmission(async () => {
       while (this.approvalCheckpoints.length > 0) {
         const [next] = this.approvalCheckpoints;

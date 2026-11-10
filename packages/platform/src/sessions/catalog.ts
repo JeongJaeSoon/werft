@@ -32,7 +32,7 @@ import {
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { z } from "zod";
-import { type GitCredential, repoRefOf } from "../ports/forge.ts";
+import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { ToolCatalogs } from "./profile-tools.ts";
 
@@ -163,6 +163,14 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
       billing: billingSchema,
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("openai_responses"),
+      endpoint: webUrl,
+      auth: credentialRef(z.literal("api_key")),
+      billing: billingSchema,
+    })
+    .strict(),
 ]);
 
 export const catalogConnectionsSchema = z.record(
@@ -178,7 +186,10 @@ export const catalogConnectionsSchema = z.record(
  */
 export const CONNECTION_ENDPOINT_DEFAULTS: Readonly<
   Partial<Record<z.infer<typeof catalogProviderSchema>["kind"], string>>
-> = { anthropic: "https://api.anthropic.com" };
+> = {
+  anthropic: "https://api.anthropic.com",
+  openai_responses: "https://api.openai.com",
+};
 
 const PRIVATE_NAME_SUFFIXES = [
   ".internal",
@@ -559,6 +570,12 @@ export type CatalogProfile = {
           value: string;
           ref: CredentialRef;
         };
+      }
+    | {
+        kind: "openai_responses";
+        endpoint: string;
+        auth: { kind: "api_key"; value: string; ref: CredentialRef };
+        billing?: "none" | undefined;
       };
 };
 
@@ -748,10 +765,10 @@ export function mcpUpstreamOf(server: CatalogMcpServer): EgressUpstream {
   };
 }
 
-/** The release's MCP tools a session runs: its `allow` pins for the server. */
-export function pinnedMcpTools(
+function pinnedWith(
   serverId: string,
   perTool: Readonly<Record<string, string>>,
+  wanted: string,
 ): string[] {
   const prefix = `${MCP_TOOL_PREFIX}${serverId}__`;
   return Object.entries(perTool)
@@ -759,7 +776,31 @@ export function pinnedMcpTools(
       ([tool, policy]) =>
         tool.startsWith(prefix) &&
         tool.length > prefix.length &&
-        policy === "allow",
+        policy === wanted,
+    )
+    .map(([tool]) => tool)
+    .sort();
+}
+
+/** The release's MCP tools a session runs: its `allow` pins for the server. */
+export function pinnedMcpTools(
+  serverId: string,
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return pinnedWith(serverId, perTool, "allow");
+}
+
+/**
+ * Every `mcp__` tool the release pins as `deny`, whichever server it names.
+ * An explicit block list: the agent's saved settings may follow another
+ * server than the card's, and cannot reopen a name the release denies.
+ */
+export function deniedMcpTools(
+  perTool: Readonly<Record<string, string>>,
+): string[] {
+  return Object.entries(perTool)
+    .filter(
+      ([tool, policy]) => tool.startsWith(MCP_TOOL_PREFIX) && policy === "deny",
     )
     .map(([tool]) => tool)
     .sort();
@@ -1344,14 +1385,33 @@ export function isUnmetered(profile: CatalogProfileView): boolean {
 
 /** Where a provider route goes and how it authenticates there. */
 export function providerUpstreamOf(profile: CatalogProfile): EgressUpstream {
-  const { auth, endpoint } = profile.provider;
+  const { auth, endpoint, kind } = profile.provider;
   return {
     url: endpoint,
+    // OpenAI takes its API key as a bearer token, whatever the connection
+    // calls the credential.
     headers:
-      auth.kind === "bearer"
+      auth.kind === "bearer" || kind === "openai_responses"
         ? [["authorization", `Bearer ${auth.value}`]]
         : [["x-api-key", auth.value]],
   };
+}
+
+/** The one provider path only an `openai_responses` connection serves. */
+export const RESPONSES_PROVIDER_PATH = "/v1/responses";
+
+/**
+ * Whether a session on a connection of this kind may call the provider route
+ * at `path`. The proxy names a path only for `/v1/responses` (none means a
+ * Messages call), so the rule is that the Responses path and an
+ * `openai_responses` connection go together: a Claude or LiteLLM session is
+ * refused the Responses path, and an OpenAI one the Messages paths.
+ */
+export function providerPathAllowed(
+  kind: CatalogProfile["provider"]["kind"],
+  path: string | undefined,
+): boolean {
+  return (kind === "openai_responses") === (path === RESPONSES_PROVIDER_PATH);
 }
 
 /**

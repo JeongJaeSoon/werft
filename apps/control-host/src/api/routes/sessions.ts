@@ -21,6 +21,7 @@ import {
   turnIdParamsSchema,
   updateSessionRequestSchema,
 } from "@werft-ai/contracts";
+import { currentSpanContext, formatTraceparent } from "@werft-ai/observability";
 import type { SessionService } from "@werft-ai/platform";
 import {
   type ApiRouter,
@@ -35,6 +36,13 @@ import {
   requireQuery,
 } from "./errors.ts";
 
+// The request span is active while a route runs; a turn it queues keeps that
+// span's traceparent as text so the worker can link back to the request.
+function requestTraceContext(): { traceContext?: string } {
+  const span = currentSpanContext();
+  return span === undefined ? {} : { traceContext: formatTraceparent(span) };
+}
+
 export function registerSessionRoutes(
   router: ApiRouter,
   service: SessionService,
@@ -46,6 +54,7 @@ export function registerSessionRoutes(
       service.createSession(context.get("caller"), {
         idempotencyKey: key,
         body,
+        ...requestTraceContext(),
       }),
     );
     return jsonWithSchema(context, createSessionResponseSchema, created, 201);
@@ -93,6 +102,7 @@ export function registerSessionRoutes(
       service.appendMessage(context.get("caller"), params.id, {
         idempotencyKey: key,
         body,
+        ...requestTraceContext(),
       }),
     );
     return jsonWithSchema(

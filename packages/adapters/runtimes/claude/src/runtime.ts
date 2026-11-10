@@ -59,6 +59,13 @@ function assertEngineArgumentBudget(
 // the engine's own signature back on.
 const ENGINE_ATTRIBUTION_OFF = { commit: "", pr: "", sessionUrl: false };
 
+// The engine's `language` setting takes a language name, not a code.
+const ENGINE_LANGUAGE_NAMES = {
+  ko: "korean",
+  en: "english",
+  ja: "japanese",
+} as const;
+
 // Not a person's refusal: the platform could not record that the
 // checkpoint this turn waits on no longer holds once the tool runs.
 const ADMISSION_GUARD_REFUSED =
@@ -149,6 +156,9 @@ export function buildSdkOptions(
   const unattended = bypass || config.permissionMode === "auto";
   const settings = {
     attribution: ENGINE_ATTRIBUTION_OFF,
+    ...(config.responseLanguage === undefined
+      ? {}
+      : { language: ENGINE_LANGUAGE_NAMES[config.responseLanguage] }),
     ...withEngineSettings(
       modeSettings({
         cwd: config.cwd,

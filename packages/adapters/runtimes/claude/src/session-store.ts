@@ -22,6 +22,7 @@ import {
   type TranscriptInheritance,
   type TranscriptKey,
   type TranscriptLimits,
+  type TranscriptMirror,
   type TranscriptRevision,
   type TranscriptStore,
   type TranscriptStoreOptions,
@@ -75,7 +76,12 @@ export type ClaudeSessionStoreOptions = TranscriptStoreOptions;
  *   ahead of its own, so restoring it needs nothing the manifest does not
  *   already say.
  */
-export class ClaudeSessionStore implements TranscriptStore {
+export class ClaudeSessionStore implements TranscriptStore, TranscriptMirror {
+  /** The SDK appends to this very store while it runs. */
+  get mirror(): TranscriptMirror {
+    return this;
+  }
+
   /**
    * True only for a store that adopted a checkpoint: until its first append,
    * `load` answers with exactly what that checkpoint pinned, which is the one

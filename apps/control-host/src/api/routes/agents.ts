@@ -26,6 +26,7 @@ export function registerAgentRoutes(
   service: Omit<
     AgentService,
     | "resolveRelease"
+    | "notRunnableReason"
     | "envNames"
     | "rolloutRelease"
     | "migrateModel"

@@ -332,8 +332,9 @@ export const adminDenySchema = z.array(adminDenyEntrySchema);
 /**
  * The entries as they would be stored, or why not. Every rule goes through the
  * same parser as a saved rule; `permissions_deny` takes tool and pattern rules
- * and `mcp_deny` only `mcp__` rules, because the two reach the engine by
- * different routes. The rule budget counts the union of all entries: an
+ * and `mcp_deny` only `mcp__` rules, because they are enforced by different
+ * routes: the first goes to the engine, the second only to the MCP egress,
+ * per call and deny first. The rule budget counts the union of all entries: an
  * entry's deny holds for every release it covers, so entries add up.
  */
 export function validateAdminDeny(

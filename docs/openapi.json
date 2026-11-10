@@ -3095,7 +3095,7 @@
                 "maxLength": 20000
               },
               "language": {
-                "default": "ko",
+                "default": "follow-user",
                 "type": "string",
                 "enum": [
                   "follow-user",
@@ -3298,7 +3298,7 @@
                 "maxLength": 20000
               },
               "language": {
-                "default": "ko",
+                "default": "follow-user",
                 "type": "string",
                 "enum": [
                   "follow-user",
@@ -4236,6 +4236,7 @@
                   "SCOPE_NOT_GRANTABLE",
                   "RELEASE_PROFILE_MISMATCH",
                   "CREDENTIAL_UNBOUND",
+                  "AGENT_NOT_RUNNABLE",
                   "CREDENTIAL_REF_IN_USE",
                   "LOGIN_LINK_REQUIRED",
                   "PROFILE_DIGEST_MISMATCH",
@@ -14815,6 +14816,7 @@
                       "SCOPE_NOT_GRANTABLE",
                       "RELEASE_PROFILE_MISMATCH",
                       "CREDENTIAL_UNBOUND",
+                      "AGENT_NOT_RUNNABLE",
                       "CREDENTIAL_REF_IN_USE",
                       "LOGIN_LINK_REQUIRED",
                       "PROFILE_DIGEST_MISMATCH",
@@ -23553,7 +23555,8 @@
                   "type": "string",
                   "enum": [
                     "anthropic",
-                    "litellm"
+                    "litellm",
+                    "openai_responses"
                   ]
                 },
                 "billing": {
@@ -23868,7 +23871,8 @@
                   "type": "string",
                   "enum": [
                     "anthropic",
-                    "litellm"
+                    "litellm",
+                    "openai_responses"
                   ]
                 },
                 "endpoint": {
@@ -24145,7 +24149,8 @@
             "type": "string",
             "enum": [
               "anthropic",
-              "litellm"
+              "litellm",
+              "openai_responses"
             ]
           },
           "endpoint": {
@@ -24469,7 +24474,7 @@
                       "maxLength": 20000
                     },
                     "language": {
-                      "default": "ko",
+                      "default": "follow-user",
                       "type": "string",
                       "enum": [
                         "follow-user",
@@ -25656,7 +25661,7 @@
                       "maxLength": 20000
                     },
                     "language": {
-                      "default": "ko",
+                      "default": "follow-user",
                       "type": "string",
                       "enum": [
                         "follow-user",
@@ -43299,7 +43304,7 @@
           "Auth"
         ],
         "summary": "Save the signed-in user's language",
-        "description": "Saves `locale` (`ko`, `ja` or `en`) on the signed-in user: what `user.locale` in GET /v1/auth/me returns and the language the user's Slack notices are written in. Slack's ephemeral notices follow the reader's language; a thread's replies and notices follow the language of whoever started the session. A user who never saved one reads Korean.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Saves `locale` (`ko`, `ja` or `en`) on the signed-in user: what `user.locale` in GET /v1/auth/me returns and the language the user's Slack notices are written in. Slack's ephemeral notices follow the reader's language; a thread's replies and notices follow the language of whoever started the session. A user who never saved one reads English.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -43567,7 +43572,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): where the catalog judges the pair, `none` refuses it, `optional` takes either, and `required` needs it. A session on the agent's own GitHub settings (the agent has a settings row) or on a workspace-scoped profile is judged by the workspace ceiling and the agent's list instead, and may start without one whatever the mode. A repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling where the profile uses it, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`);`profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. A profile the operator blocked, or a workspace profile over a blocked one, answers 409 PROFILE_BLOCKED, with a release or without. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Creates a session for a catalog profile and repository and queues `message` as turn `1`. Whether `repository_id` is sent follows the profile's `repository_mode` (`GET /v1/profiles`): where the catalog judges the pair, `none` refuses it, `optional` takes either, and `required` needs it. A session on the agent's own GitHub settings (the agent has a settings row) or on a workspace-scoped profile is judged by the workspace ceiling and the agent's list instead, and may start without one whatever the mode. A repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling where the profile uses it, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the profile offers (its `model` or `models` in the catalog); omitted, the model of the release's card runs when `agent_release_id` is sent, else the profile's default. The session's detail reports it as `model`. The model stays until the session's profile is changed (`POST /v1/sessions/{id}/profile`), which runs the new profile's default. A session waits in `queued` while no execution slot is free; it is never refused for that. `agent_release_id` pins the session to that release of an agent, so a key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`);`profile_id` may then be omitted for the release's runtime profile, and sent it must be that profile (409 RELEASE_PROFILE_MISMATCH). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose profile is no longer in the catalog, or changed since, answers 409 PROFILE_DIGEST_MISMATCH. A profile the operator blocked, or a workspace profile over a blocked one, answers 409 PROFILE_BLOCKED, with a release or without. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`; an older release that was approved still starts while the agent is active, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -43822,7 +43827,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `RELEASE_PROFILE_MISMATCH`: The release was made for another runtime profile than the one named.\n- `PROFILE_DIGEST_MISMATCH`: The runtime profile's settings changed since the release was made; release the agent again.\n- `PROFILE_BLOCKED`: The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `RELEASE_PROFILE_MISMATCH`: The release was made for another runtime profile than the one named.\n- `PROFILE_DIGEST_MISMATCH`: The runtime profile's settings changed since the release was made; release the agent again.\n- `PROFILE_BLOCKED`: The operator blocked the installation profile named, or the one the workspace profile named narrows. `error.details.reason_code` is `blocked` (the profile named) or `base_blocked` (its base), and `error.details.profile_id` is the profile named. Nothing new runs on it until the operator unblocks it.\n- `AGENT_NOT_RUNNABLE`: A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -43848,6 +43853,7 @@
                                 "RELEASE_PROFILE_MISMATCH",
                                 "PROFILE_DIGEST_MISMATCH",
                                 "PROFILE_BLOCKED",
+                                "AGENT_NOT_RUNNABLE",
                                 "CREDENTIAL_UNBOUND"
                               ]
                             }
@@ -48084,6 +48090,41 @@
               }
             }
           },
+          "422": {
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. A failed session that has no runtime spec pinned on its own model, which it needs to run again once specs are authoritative; nothing is queued.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNSUPPORTED_CAPABILITY"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
           "429": {
             "description": "- `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. The session already holds the installation's maximum of queued inputs; `Retry-After` is 5.",
             "headers": {
@@ -51368,7 +51409,7 @@
           "Push requests"
         ],
         "summary": "Open a pull request from a pushed request",
-        "description": "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes for a push request made with the agent action flows on, and refused with `PUSH_NOT_PUSHED` for one made with them off (the legacy flow), and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in Korean. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. This call never approves, merges or asks for reviews. A session's agent merges the pull request of its own push request with the built-in `github` MCP server's `merge_pull_request`, only while the workspace allows it.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch on the pushed commit, it is answered with `created: false` (200). An open one on another commit is not adopted: `PUSH_REQUEST_RESOLVED` with `refusal: head_moved` (`expected_sha`, `actual_sha`), or `BACKEND_UNAVAILABLE` when GitHub only lags behind the push. A pull request this call created on a moved head ends the stage for good: later calls answer the same `head_moved` without asking GitHub. Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).\n\n**Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** ignored.",
+        "description": "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes for a push request made with the agent action flows on, and refused with `PUSH_NOT_PUSHED` for one made with them off (the legacy flow), and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on the repository's pull request template when its default branch has one (`.github/`, the repository root or `docs/`, a `pull_request_template.md` or the one file of a `PULL_REQUEST_TEMPLATE/` directory; read at the default branch's commit as it is when the request is handled, never from the pull request's own branch), under the template's headings or at its `<!-- werft:slot summary -->` lines, keeping the template's own text, comments and checkboxes; otherwise on its default template, a heading per field that has content, in English. A template that is over 16 KiB, not a plain UTF-8 file, ambiguous (several in a directory), unreadable, or written with HTML, tables, reference definitions or comments that share a row with text is passed over for the default template, and the pull request still opens; `body_source.kind` is `repository` with the template's `path`, or `platform` with `skipped` saying why, and the receipt's `template` records the commit, path and blob read. The template's own mentions, closing keywords and references are broken like the fields', a line that looks like a secret is replaced like theirs, and it cannot pass for the platform's tail. On either layout, `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. This call never approves, merges or asks for reviews. A session's agent merges the pull request of its own push request with the built-in `github` MCP server's `merge_pull_request`, only while the workspace allows it.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch on the pushed commit, it is answered with `created: false` (200). An open one on another commit is not adopted: `PUSH_REQUEST_RESOLVED` with `refusal: head_moved` (`expected_sha`, `actual_sha`), or `BACKEND_UNAVAILABLE` when GitHub only lags behind the push. A pull request this call created on a moved head ends the stage for good: later calls answer the same `head_moved` without asking GitHub. Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).\n\n**Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** ignored.",
         "x-scope": "sessions:approve",
         "security": [
           {
@@ -57568,7 +57609,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -57993,7 +58034,7 @@
             }
           },
           "422": {
-            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding.",
+            "description": "- `UNSUPPORTED_CAPABILITY`: This installation or the session's runtime cannot serve the request. The session runs on a legacy pod binding, or has no runtime spec pinned on its own model, which a session needs to run once specs are authoritative.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -82001,7 +82042,7 @@
           "Agents"
         ],
         "summary": "Name a person or a team an agent's admin",
-        "description": "Owners, admins and the agent's own admins. A team's members administer the agent while they are in it, so anyone but an owner or admin adds only a team they lead (403 FORBIDDEN, `details.reason_code` `team_not_allowed`); admin teams added before stay. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners, admins and the agent's own admins name a person. A team's members administer the agent while they are in it, so naming a team needs `team.manage` (owners and admins): anyone else gets 403 FORBIDDEN (`details.reason_code` `role`). A role lost during the request is read again when the team is saved: 403 `team_not_allowed` while the caller still administers the agent, `role` once they no longer do. Taking a team off stays with the agent's admins; admin teams added before stay. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

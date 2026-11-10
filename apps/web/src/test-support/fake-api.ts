@@ -265,7 +265,9 @@ export function me(
       id: USER_ID,
       email: "owner@example.com",
       display_name: "Owner",
-      locale: null,
+      // Saved, like the console's default language in tests: with none saved, a
+      // console opening in ko would send a PATCH that other tests count.
+      locale: "ko",
     },
     workspace: {
       id: WORKSPACE_ID,
@@ -478,5 +480,37 @@ export function memberPage(page: {
         ...item,
       }),
     ),
+  };
+}
+
+const NO_RULES = { permissions: {}, auto_mode: {} };
+
+/** GET /v1/workspaces/{id}/engine-settings: nothing saved, saving open. */
+export function workspaceEngineSettings(over: Record<string, unknown> = {}) {
+  return {
+    settings: NO_RULES,
+    settings_revision: null,
+    writes_open: true,
+    ...over,
+  };
+}
+
+/** GET /v1/agents/{id}/engine-settings: nothing saved anywhere, saving open. */
+export function agentEngineSettings(over: Record<string, unknown> = {}) {
+  return {
+    settings: NO_RULES,
+    settings_revision: null,
+    workspace: { settings: NO_RULES, settings_revision: null },
+    inherited: { entries: 0, rules: 0 },
+    reach: {
+      agent_allow_without_effect: {
+        permissions: [],
+        auto_mode_allow: [],
+        auto_mode_environment: [],
+      },
+      workspace_allow_inactive: false,
+    },
+    writes_open: true,
+    ...over,
   };
 }

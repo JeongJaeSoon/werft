@@ -33,7 +33,7 @@ Images are indexes containing `linux/amd64` and `linux/arm64`; pin installations
 Each `v*` tag produces a GitHub Release with `release-manifest.json` attached. Operators need not search runs or artifacts. No checkout is required; `gh` and `jq` suffice. Set `TAG` below to the Release tag to inspect.
 
 ```bash
-TAG=v0.1.0   # the release tag to read
+TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
 jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime

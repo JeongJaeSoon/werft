@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { MCP_TOOL_PREFIX } from "@werft-ai/contracts";
 import type { McpEgressStore, McpRefusalReason } from "../ports/mcp-egress.ts";
 import {
   type EgressUpstream,
@@ -7,6 +6,7 @@ import {
   mcpUpstreamOf,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import { mcpToolPermitted } from "../sessions/mcp-tool-decision.ts";
 
 /**
  * The remote MCP route's decision, made on every exchange the egress proxy
@@ -160,9 +160,7 @@ export function createMcpEgress(deps: {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
     if (method === "tools/call") {
-      const named =
-        tool === null ? null : `${MCP_TOOL_PREFIX}${state.server}__${tool}`;
-      if (named === null || !state.tools.includes(named)) {
+      if (tool === null || !mcpToolPermitted(state.tools, state.server, tool)) {
         return forbidden("The release does not allow this MCP tool");
       }
     }

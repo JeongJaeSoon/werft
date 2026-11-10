@@ -47,6 +47,8 @@ export type AcceptSessionInput = {
   channel?: SurfaceKind;
   // The Slack message the first input came from, kept on turn 1.
   slackMessage?: SlackMessageRef;
+  // The request span's traceparent for turn 1; see AppendMessageInput.
+  traceContext?: string;
   // As given, or derived from the message; null when neither has text.
   title?: string | null;
   // `user` when the request gave one; left out, it is `derived`.
@@ -85,6 +87,10 @@ export type AcceptSessionInput = {
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.
   credentialsUnbound?: true;
+  // The pinned agent is paused or archived, or the release never approved:
+  // only a replay of an earlier acceptance goes through, and the check runs
+  // before the unbound one.
+  notRunnableReason?: "agent_inactive" | "release_unapproved";
   // The variable names the release's card declares. The accept resolves them
   // against the agent's and the workspace's variables and keeps the values
   // with the session. Left out or empty, the session takes none and nothing
@@ -106,6 +112,7 @@ export type AcceptSessionResult =
   | { outcome: "actor_inactive" }
   /** Outside the agent while axis A is not `use`, judged in the write. */
   | { outcome: "agent_use_refused" }
+  | { outcome: "not_runnable"; reason: "agent_inactive" | "release_unapproved" }
   | { outcome: "credential_unbound"; receiptId: string }
   /** A declared name has no value for this agent; no session was created. */
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
@@ -121,6 +128,9 @@ export type AppendMessageInput = {
   // Where the input came from; left out, the turn records none.
   channel?: SurfaceKind;
   slackMessage?: SlackMessageRef;
+  // The request span's W3C traceparent, stored with the turn as opaque text;
+  // platform never parses it (decision record observability-otel…, 3.1).
+  traceContext?: string;
   // The operator blocked the session's profile: only a replay of an earlier
   // acceptance goes through.
   profileBlocked?: true;
@@ -138,6 +148,9 @@ export type AppendMessageResult =
   | { outcome: "awaiting_takeover" }
   | { outcome: "actor_inactive" }
   | { outcome: "credential_unbound"; agentId: string; receiptId: string }
+  // The input would revive a failed session that has no spec pin on its own
+  // model, which an authoritative pin refuses; nothing is recorded.
+  | { outcome: "pin_required" }
   | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.

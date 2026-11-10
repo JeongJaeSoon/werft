@@ -11,6 +11,7 @@ import type {
   CheckpointRequestResponse,
   ClaimGit,
   ClaimGitAuthor,
+  ClaimTelemetry,
   FinalizeRequest,
   FinalizeResponse,
   GitHubPackagesRegistry,
@@ -39,6 +40,7 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  TraceContentMode,
   WorkerCapabilities,
   WorkerEvent,
   WorkerReadyRequest,
@@ -55,6 +57,7 @@ import {
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
+import { repoRefOf } from "../action/ports/forge.ts";
 import {
   type CheckpointRequestDecision,
   type RestoreFallback,
@@ -78,7 +81,6 @@ import type {
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
 import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
-import { repoRefOf } from "../ports/forge.ts";
 import {
   type GitHubGate,
   GitHubGateError,
@@ -138,6 +140,7 @@ import {
   profileGone,
   profileModels,
   profilePins,
+  providerPathAllowed,
   providerUpstreamOf,
   refreshWorkspaceProfilesFor,
   repositoryBinding,
@@ -270,6 +273,19 @@ type ToolConfigs = {
   // classifier works; a scheme 1 checkpoint hashed whichever one ran then.
   storedMode: RuntimeConfig["permission_mode"];
 };
+
+/**
+ * What the gateway needs to say about tracing, owned here so the gateway
+ * depends on no tracing package. A workspace's content mode can only lower the
+ * installation's ceiling, which is the source's job to enforce.
+ */
+export interface ClaimTelemetrySource {
+  claim(workspaceContentMode?: TraceContentMode): ClaimTelemetry;
+  /** Undefined while tracing is off. */
+  contentMode(
+    workspaceContentMode?: TraceContentMode,
+  ): TraceContentMode | undefined;
+}
 
 export type WorkerGatewayOptions = {
   workspaceEnforce?: "warn" | "fail" | "off";
@@ -674,6 +690,9 @@ export function createWorkerGateway(deps: {
       }) => void;
     };
   };
+  // Absent, a claim carries no `telemetry` and a nextInput no `content_mode`:
+  // the worker reads both as tracing off.
+  telemetry?: ClaimTelemetrySource;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
@@ -1564,6 +1583,7 @@ export function createWorkerGateway(deps: {
   // spares the engine's calls a lookup that claims; the row decides.
   async function authorizedTitleEgress(
     token: string,
+    path: string | undefined,
   ): Promise<EgressGrant | null> {
     if (deps.titles === undefined || !token.startsWith(TITLE_TOKEN_PREFIX)) {
       return null;
@@ -1589,11 +1609,26 @@ export function createWorkerGateway(deps: {
     }
     const profile = titleProfile(catalog, result);
     if (profile === null) moved("session's profile");
+    requireProviderPath(profile.provider.kind, path);
     return {
       session_id: result.sessionId,
       attempt_id: result.attemptId,
       upstream: providerUpstreamOf(profile),
     };
+  }
+
+  // The provider route a session's connection kind does not serve is
+  // refused here: the proxy parses the path, only this side knows the kind.
+  function requireProviderPath(
+    kind: Parameters<typeof providerPathAllowed>[0],
+    path: string | undefined,
+  ): void {
+    if (providerPathAllowed(kind, path)) return;
+    throw new WorkerGatewayError(
+      403,
+      "FORBIDDEN",
+      "This provider route is not served by the session's connection",
+    );
   }
 
   // What an egress token stands for once its attempt still owns the session;
@@ -2016,6 +2051,9 @@ export function createWorkerGateway(deps: {
               : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
             ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
             ...(issued.length === 0 ? {} : { git_issued: issued }),
+            ...(deps.telemetry === undefined
+              ? {}
+              : { telemetry: deps.telemetry.claim() }),
           };
         }
       }
@@ -2228,9 +2266,11 @@ export function createWorkerGateway(deps: {
       purpose: "provider" | "repository";
       /** repository only: another repository than the session's own. */
       repository_id?: string | undefined;
+      /** provider only: `/v1/responses`; absent is a Messages call. */
+      path?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
-        const titled = await authorizedTitleEgress(request.token);
+        const titled = await authorizedTitleEgress(request.token, request.path);
         if (titled !== null) return titled;
       }
       const result = await authorizedEgress(request);
@@ -2305,6 +2345,7 @@ export function createWorkerGateway(deps: {
           }
           moved("session's profile");
         }
+        requireProviderPath(listed.provider.kind, request.path);
         return grant(providerUpstreamOf(listed));
       }
       const other = request.repository_id;
@@ -2499,6 +2540,7 @@ export function createWorkerGateway(deps: {
           const coAuthor = result.input
             ? await turnCoAuthor(fence.sessionId, result.input.actorId)
             : undefined;
+          const contentMode = deps.telemetry?.contentMode();
           return {
             input: result.input
               ? {
@@ -2508,6 +2550,12 @@ export function createWorkerGateway(deps: {
                   delivery_started_at:
                     result.input.deliveryStartedAt.toISOString(),
                   ...(coAuthor === undefined ? {} : { co_author: coAuthor }),
+                  ...(result.input.traceContext === null
+                    ? {}
+                    : { trace_context: result.input.traceContext }),
+                  ...(contentMode === undefined
+                    ? {}
+                    : { content_mode: contentMode }),
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),

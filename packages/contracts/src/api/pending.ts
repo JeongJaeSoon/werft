@@ -6,7 +6,7 @@ import {
   timestampSchema,
   turnIdSchema,
 } from "../shared/index.ts";
-import { TOOL_VERB_VALUES } from "./present-action.ts";
+import { TOOL_VERB_VALUES } from "../surface/present-action.ts";
 
 export const pendingQuestionOptionSchema = z.object({
   option_id: z.string().min(1),

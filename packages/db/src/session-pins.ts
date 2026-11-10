@@ -7,6 +7,7 @@ import {
   isNotNull,
   isNull,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import type { Database } from "./queries.ts";
@@ -15,6 +16,10 @@ import { sessionPinFromRelease } from "./session-spec-pin.ts";
 
 const PAGE = 200;
 const ENDED = ["failed", "stopped"] as const;
+// The reconciliation pins a session of any status, though the gate counts
+// live ones only: a stopped or failed session comes back through a resume, a
+// recovery decision or a new input, and the flip refuses a live session
+// without a pin.
 
 export type PinReconciliation = {
   /** Pins written: missing, on another model than the session, or broken. */
@@ -69,7 +74,13 @@ export async function reconcileSessionPins(
       .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
       .where(
         and(
-          notInArray(sessions.status, [...ENDED]),
+          // An ended session is read only when it lacks a pin or has one on
+          // another model: its pin is not verified on every pass.
+          or(
+            notInArray(sessions.status, [...ENDED]),
+            isNull(sessions.runtimeSpec),
+            sql`${sessions.runtimeSpec} ->> 'model' IS DISTINCT FROM ${sessions.model}`,
+          ),
           after === null ? undefined : gt(sessions.id, after),
         ),
       )

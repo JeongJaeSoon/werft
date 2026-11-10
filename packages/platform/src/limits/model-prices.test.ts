@@ -273,3 +273,143 @@ describe("priceJudgmentUsage", () => {
     expect(priced.costUsd).toBeGreaterThan(2);
   });
 });
+
+// Figures from https://developers.openai.com/api/docs/pricing (standard tier),
+// checked 2026-11-10; the same URL and date sit beside the table in
+// model-prices-openai.ts.
+describe("priceProviderUsage for an OpenAI model", () => {
+  const openAi = { ...nothing, speed: "standard", inferenceGeo: "unknown" };
+
+  test("prices input, cached input and output at the model's rates, whatever the geo", () => {
+    // gpt-5.5: $5 in, $0.50 cached, $30 out per million.
+    expect(
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5",
+        inputTokens: 100_000,
+        cacheReadInputTokens: 100_000,
+        outputTokens: 100_000,
+      }),
+    ).toEqual({ costUsd: 0.5 + 0.05 + 3, pricedBy: "table" });
+  });
+
+  test("a dated snapshot prices as its base, and only a date suffix does", () => {
+    const call = { ...openAi, outputTokens: 1_000_000 };
+    expect(
+      priceProviderUsage({ ...call, model: "gpt-5.5-2026-04-23" }),
+    ).toEqual({ costUsd: 30, pricedBy: "table" });
+    expect(
+      priceProviderUsage({ ...call, model: "gpt-5.5-preview" }),
+    ).toMatchObject({ pricedBy: "fallback" });
+  });
+
+  test("a prompt past 272K input tokens, cache included, pays the long-context card on every part", () => {
+    // gpt-5.5 long: $10 in, $1 cached, $45 out.
+    expect(
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5",
+        inputTokens: 72_000,
+        cacheReadInputTokens: 201_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toEqual({ costUsd: 0.72 + 0.201 + 45, pricedBy: "table" });
+    expect(
+      priceProviderUsage({
+        ...openAi,
+        model: "gpt-5.5",
+        inputTokens: 72_000,
+        cacheReadInputTokens: 200_000,
+        outputTokens: 1_000_000,
+      }).costUsd,
+    ).toBeCloseTo(0.36 + 0.1 + 30, 9);
+  });
+
+  test("a model with no long-context card is priced by the fallback past 272K", () => {
+    const priced = priceProviderUsage({
+      ...openAi,
+      model: "gpt-5.4-mini",
+      inputTokens: 300_000,
+    });
+    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.costUsd).toBeGreaterThan((300_000 * 0.75) / 1_000_000);
+  });
+
+  test("a cache write costs 1.25x the input rate, a 12-hour one 2.5x", () => {
+    const plain = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      inputTokens: 100_000,
+    }).costUsd;
+    const written = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      cacheCreationInputTokens: 100_000,
+    }).costUsd;
+    const twelveHours = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6.1-sol",
+      cacheCreationInputTokens: 100_000,
+      cacheCreation1hInputTokens: 100_000,
+    }).costUsd;
+    expect(written).toBeCloseTo(plain * 1.25, 9);
+    expect(twelveHours).toBeCloseTo(plain * 2.5, 9);
+  });
+
+  test("the fast speed doubles the token cost", () => {
+    const call = { ...openAi, model: "gpt-6.1-sol", outputTokens: 100_000 };
+    expect(priceProviderUsage({ ...call, speed: "fast" }).costUsd).toBeCloseTo(
+      priceProviderUsage(call).costUsd * 2,
+      9,
+    );
+  });
+
+  test("a tier the table does not know is priced like the fast one, not as standard", () => {
+    const call = { ...openAi, model: "gpt-6.1-sol", outputTokens: 100_000 };
+    const standard = priceProviderUsage(call).costUsd;
+    expect(
+      priceProviderUsage({ ...call, speed: "ultrafast" }).costUsd,
+    ).toBeCloseTo(standard * 2, 9);
+    expect(
+      priceProviderUsage({ ...call, speed: "unknown" }).costUsd,
+    ).toBeCloseTo(standard * 2, 9);
+  });
+
+  test("a web search adds its call fee to the tokens", () => {
+    const call = {
+      ...openAi,
+      model: "gpt-5.5",
+      inputTokens: 100,
+      outputTokens: 100,
+    };
+    expect(
+      priceProviderUsage({ ...call, webSearchRequests: 1 }).costUsd -
+        priceProviderUsage(call).costUsd,
+    ).toBeCloseTo(0.01, 9);
+  });
+
+  test("the fallback is never cheaper than a known long-context card", () => {
+    const unknown = priceProviderUsage({
+      ...openAi,
+      model: "gpt-9",
+      inputTokens: 1_000_000,
+    });
+    const longest = priceProviderUsage({
+      ...openAi,
+      model: "gpt-6-astra",
+      inputTokens: 1_000_000,
+    });
+    expect(unknown.pricedBy).toBe("fallback");
+    expect(unknown.costUsd).toBeGreaterThanOrEqual(longest.costUsd);
+  });
+
+  test("an OpenAI model the table does not know is charged the highest rate", () => {
+    const priced = priceProviderUsage({
+      ...openAi,
+      model: "gpt-9",
+      outputTokens: 1_000_000,
+    });
+    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.costUsd).toBeGreaterThanOrEqual(50);
+  });
+});

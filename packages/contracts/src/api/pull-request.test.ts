@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { GITHUB_MCP_TOOL_ARGUMENTS } from "./github-mcp.ts";
+import { GITHUB_MCP_TOOL_ARGUMENTS } from "../action/github-mcp.ts";
 import {
   openPullRequestRequestSchema,
   PULL_REQUEST_FIELD_TEXT_MAX,

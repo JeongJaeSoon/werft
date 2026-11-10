@@ -53,7 +53,7 @@ description: 名前・説明とリポジトリの CLAUDE.md・AGENTS.md の違�
 | `capabilities.forbidden` | | 禁止するツール名。Web コンソールは新しいカードに `[]` を入れ、既存の値は表示して消すことだけができる |
 | `capabilities.tool_policy` | | ツールごとの `allow`・`ask`・`deny` |
 | `capabilities.credential_refs` | | 使う認証情報の名前 (値ではない)。[権限](/agents/permissions) |
-| `language` | | 回答言語: `follow-user` (相手の言語に合わせる)、`ko` (デフォルト)、`en`、`ja`。Web で新しく作るカードの初期値は `follow-user`。`ko`・`en`・`ja` は相手が別の言語で書かない限りその言語で答えさせる。次のリリースから適用され、開始済みのセッションは変わらない |
+| `language` | | 回答言語: `follow-user` (デフォルト、相手の言語に合わせる)、`ko`、`en`、`ja`。省略すると `follow-user`。`ko`・`en`・`ja` は相手が別の言語で書いてもその言語で答えさせる。次のリリースから適用され、開始済みのセッションは変わらない |
 | `rules` | | `{id, text, source}` の一覧。`source` は `user` または `correction` |
 | `role`・`instructions` | | 以前のカードの値。モデルには渡されない。新しいカードには送らない |
 
@@ -82,7 +82,7 @@ worker がモデルのシステムプロンプトに追加する指示は、こ�
 プラットフォームは、これ以外の段落をモデルに追加しない。役割や振る舞いを決める文はプラットフォームが書かず、事実だけを伝える。以前のビルドが追加していたプラットフォーム段落はなくなった。その段落で作ったチェックポイントのフィンガープリントは worker が引き続き認識するので、既存のセッションもそのまま再開される。
 
 <Callout type="warn">
-カードの `role`・`instructions`・`rules`、エージェントの名前と説明、カードの `language` はモデルに渡されない。回答の言語のようにモデルが知るべきことは、リポジトリの `AGENTS.md` か `CLAUDE.md` に書く。
+カードの `role`・`instructions`・`rules` とエージェントの名前・説明はモデルに渡されない。モデルが知るべきことは、リポジトリの `AGENTS.md` か `CLAUDE.md` に書く。カードの `language` は `ko`・`en`・`ja` のときだけ Claude Agent SDK の言語設定 (`settings.language`) として渡され、システムプロンプトには入らない。`follow-user` は何も渡さない。Codex エンジンはまだこの値を使わない。
 </Callout>
 
 ## 修正とバージョン
@@ -102,7 +102,7 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 ```
 
 ```text
-{"version_no":1,"language":"ko"}
+{"version_no":1,"language":"follow-user"}
 {"version_no":2,"language":"en"}
 ```
 

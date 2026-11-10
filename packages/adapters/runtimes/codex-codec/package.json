@@ -1,0 +1,17 @@
+{
+  "name": "@werft-ai/runtime-codex-codec",
+  "description": "Kiel session runtime: Codex transcript and checkpoint codec",
+  "version": "0.0.0",
+  "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/runtime-codec-kit": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*"
+  }
+}

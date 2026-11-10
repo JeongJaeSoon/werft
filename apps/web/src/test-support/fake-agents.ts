@@ -11,6 +11,7 @@ import {
   type TeamView,
 } from "@werft-ai/contracts";
 import {
+  agentEngineSettings,
   apiError,
   json,
   RECEIPT_ID,
@@ -282,6 +283,7 @@ export function agentServer({
     },
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),
+    [`GET ${path}/engine-settings`]: () => json(200, agentEngineSettings()),
     [`GET ${path}/mcp/settings`]: () => {
       const settings = mcpRow?.settings ?? {
         server: null,

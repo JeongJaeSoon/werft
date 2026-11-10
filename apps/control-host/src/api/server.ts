@@ -73,7 +73,14 @@ import {
   slackAppKind,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
-import { createLogger, sanitizeText } from "@werft-ai/observability";
+import {
+  createLogger,
+  createTelemetryPolicy,
+  noopTracer,
+  parseTracingSettings,
+  sanitizeText,
+  type Tracer,
+} from "@werft-ai/observability";
 import {
   agentSlackBotToken,
   composeSlackFinalize,
@@ -164,6 +171,14 @@ import {
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  connectionsOf,
+  createAppBotUsers,
+  createGitHubAppDirectory,
+  createGitHubManifestConverter,
+  createGitPusher,
+  createRegisteredGitHubConnections,
+} from "../wiring/forge-github.ts";
+import {
   API_READINESS_REQUIRED_ENV,
   ApiSettingsError,
   apiReadinessConfigProblems,
@@ -204,14 +219,6 @@ import {
   sessionTitleEgressUrlFromEnv,
 } from "./egress-authorizer.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
-import {
-  connectionsOf,
-  createAppBotUsers,
-  createGitHubAppDirectory,
-  createGitHubManifestConverter,
-  createRegisteredGitHubConnections,
-} from "./forge-github.ts";
-import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
@@ -225,6 +232,7 @@ import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import { RequestTracing } from "./request-tracing.ts";
 import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,
@@ -293,6 +301,7 @@ import {
 import { signInWithSlackOff } from "./slack-link.ts";
 import { startSpecReconciliation } from "./spec-reconciliation.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
+import { warnCollectorOnEgressAllowlist } from "./tracing-startup.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -304,6 +313,18 @@ if (!databaseUrl) {
 }
 
 const logger = createLogger();
+// A bad OTEL_* value throws here and stops the process at startup. The SDK
+// adapter is only loaded when tracing is on.
+const tracingSettings = parseTracingSettings(process.env);
+warnCollectorOnEgressAllowlist(tracingSettings, process.env, logger);
+const telemetry = createTelemetryPolicy(tracingSettings);
+const otelTracer =
+  tracingSettings === undefined
+    ? undefined
+    : (await import("@werft-ai/observability/otel")).createOtelTracer(
+        tracingSettings,
+      );
+const tracer: Tracer = otelTracer ?? noopTracer;
 const limits = (() => {
   try {
     return installationLimitsFromEnv(process.env);
@@ -1131,6 +1152,7 @@ const githubMcpGrantKey =
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
+  telemetry,
   catalog,
   neutralize,
   ...(extensionBundles === undefined ? {} : { extensions: extensionBundles }),
@@ -1302,6 +1324,7 @@ const probePool = createProbePool(databaseUrl, logger);
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
   logger,
+  tracer,
   keyStore: new DatabaseApiKeyStore(db),
   identity,
   authorization,
@@ -1413,7 +1436,8 @@ const app = createApiApp({
       ...settings.sse,
     });
   },
-  registerInternalRoutes: (router) => registerWorkerRoutes(router, workers),
+  registerInternalRoutes: (router) =>
+    registerWorkerRoutes(router, workers, new RequestTracing(tracer)),
   ...(settings.webDistDir === undefined
     ? {}
     : { webDistDir: settings.webDistDir }),
@@ -1475,6 +1499,10 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
         { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
+        // Flushes the spans of the requests that just drained.
+        ...(otelTracer === undefined
+          ? []
+          : [{ name: "tracer", close: () => otelTracer.shutdown() }]),
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },
       ],

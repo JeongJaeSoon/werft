@@ -14,6 +14,7 @@ import {
   type RepositoryCeiling,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
+import { createGitHubAppDirectory } from "@werft-ai/forge-github";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import {
   type CatalogRepositoryRow,
@@ -29,7 +30,6 @@ import {
 } from "@werft-ai/platform";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { generateWebSessionToken, hashWebSessionToken } from "../auth.ts";
-import { createGitHubAppDirectory } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerGitHubRepositoryRoutes } from "./github-repositories.ts";

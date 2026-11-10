@@ -1,0 +1,10 @@
+{
+  "closed": "closed",
+  "idle": "active",
+  "paused": "active",
+  "queued": "processing",
+  "recovery": "active",
+  "running": "processing",
+  "waiting-on-push": "suspended",
+  "waiting-on-request": "suspended"
+}

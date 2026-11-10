@@ -13,7 +13,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createDatabaseIdentityReader } from "./identity-reader.ts";
@@ -513,6 +513,129 @@ integration("linked_accounts on PostgreSQL", () => {
             ),
           );
         expect(live).toEqual([]);
+      }
+    });
+
+    // Unlink re-reads no membership: what keeps an offboarded caller out is
+    // that offboarding revokes every live link of theirs in the workspace in
+    // its own transaction, so unlink's `WHERE live` finds none, or waits on
+    // that row lock and finds none once the offboard commits.
+    const unlinkAs = (ws: string, userId: string, linkedAccountId: string) =>
+      store().unlink({
+        principal: asUser(ws, userId),
+        workspaceId: ws,
+        userId,
+        linkedAccountId,
+      });
+
+    const unlinkReceipts = (linkedAccountId: string) =>
+      db
+        .select({ id: receipts.id })
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.operation, "unlink_account"),
+            sql`${receipts.result}->>'linked_account_id' = ${linkedAccountId}`,
+          ),
+        );
+
+    const revokedReasonOf = async (id: string) => {
+      const [row] = await db
+        .select({ revokedReason: linkedAccounts.revokedReason })
+        .from(linkedAccounts)
+        .where(eq(linkedAccounts.id, id));
+      return row?.revokedReason;
+    };
+
+    async function waitForLockWaiters(count: number) {
+      for (let tries = 0; tries < 200; tries++) {
+        const { rows } = await pool.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        );
+        if ((rows[0]?.n ?? 0) >= count) return;
+        await Bun.sleep(10);
+      }
+      throw new Error(`fewer than ${count} lock waiters`);
+    }
+
+    test("an offboarded caller cannot unlink", async () => {
+      const { ws, team, user } = await setup();
+      const owner = await member(ws, "owner");
+      const { account: row } = await linked(ws, user, slack(team));
+      await offboard(ws, user, owner);
+      expect(await unlinkAs(ws, user, row.id)).toEqual({
+        outcome: "not_found",
+      });
+      expect(await revokedReasonOf(row.id)).toBe("offboarded");
+      expect(await unlinkReceipts(row.id)).toEqual([]);
+    });
+
+    test("an unlink that starts while an offboard is in flight finds nothing once it commits", async () => {
+      const { ws, team, user } = await setup();
+      const owner = await member(ws, "owner");
+      const { account: row } = await linked(ws, user, slack(team));
+      // An uncommitted receipt with the offboard's id parks the offboard on
+      // the primary key at its last write, after it revoked the link.
+      const receiptId = randomUUID();
+      const holder = await pool.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query(
+          "INSERT INTO receipts (id, owner_id, operation, target_ref) VALUES ($1, $2, 'hold', '{}')",
+          [receiptId, ws],
+        );
+        const offboarding = createPostgresMemberStore(db).setAccess({
+          actor: {
+            principal: { ...asUser(ws, owner), requestId: "req-offboard" },
+            workspaceId: ws,
+            userId: owner,
+          },
+          userId: user,
+          scope: "membership",
+          disabled: true,
+          reason: null,
+          receiptId,
+        });
+        await waitForLockWaiters(1);
+        const unlinking = unlinkAs(ws, user, row.id);
+        await waitForLockWaiters(2);
+        await holder.query("ROLLBACK");
+        const [offboarded, unlinked] = await Promise.all([
+          offboarding,
+          unlinking,
+        ]);
+        expect(offboarded.outcome).toBe("changed");
+        expect(unlinked).toEqual({ outcome: "not_found" });
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      expect(await revokedReasonOf(row.id)).toBe("offboarded");
+      expect(await unlinkReceipts(row.id)).toEqual([]);
+    });
+
+    test("an unlink racing an offboard commits only if it came first", async () => {
+      for (let round = 0; round < 10; round++) {
+        const { ws, team, user } = await setup();
+        const owner = await member(ws, "owner");
+        const { account: row } = await linked(ws, user, slack(team));
+        const [unlinked, offboarded] = await Promise.all([
+          unlinkAs(ws, user, row.id),
+          offboard(ws, user, owner),
+        ]);
+        if (offboarded.outcome !== "changed" || !offboarded.effects.disabled) {
+          throw new Error(offboarded.outcome);
+        }
+        if (unlinked.outcome === "unlinked") {
+          // Serialized before the offboard, which then had nothing to revoke.
+          expect(offboarded.effects.revokedLinkedAccounts).toBe(0);
+          expect(await revokedReasonOf(row.id)).toBe("unlinked");
+          expect(await unlinkReceipts(row.id)).toHaveLength(1);
+        } else {
+          expect(offboarded.effects.revokedLinkedAccounts).toBe(1);
+          expect(await revokedReasonOf(row.id)).toBe("offboarded");
+          expect(await unlinkReceipts(row.id)).toEqual([]);
+        }
       }
     });
 

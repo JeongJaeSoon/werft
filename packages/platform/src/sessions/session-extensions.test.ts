@@ -141,10 +141,12 @@ function setup(options: {
     releases: {
       agentGitHubSettings: async () => null,
       repositoryCeiling: async () => null,
+      notRunnableReason: async () => null,
       async resolveRelease(_workspaceId, releaseId) {
         return {
           id: releaseId,
           agent_id: AGENT,
+          approved_at: "2026-01-01T00:00:00.000Z",
           runtime_profile_id: "coding-v1",
           repository_id: null,
           runtime_config_snapshot: {

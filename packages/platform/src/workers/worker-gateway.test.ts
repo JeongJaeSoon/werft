@@ -136,6 +136,8 @@ function withoutAuto(
   return kept?.length ? kept : undefined;
 }
 
+const TRACEPARENT = "00-49195af5635b4ac7af24c52c73de7491-b7ad6b7169203331-01";
+
 describe("WorkerGateway", () => {
   test("nextInput polls until input arrives and caps wait_ms at maxWaitMs", async () => {
     let calls = 0;
@@ -155,6 +157,7 @@ describe("WorkerGateway", () => {
                   message: "go",
                   deliveryStartedAt: input.now,
                   actorId: null,
+                  traceContext: TRACEPARENT,
                 }
               : null,
         };
@@ -165,6 +168,8 @@ describe("WorkerGateway", () => {
       wait_ms: 60_000,
     });
     expect(response.input?.turn_id).toBe("1");
+    // The stored traceparent goes out as is; platform never parses it.
+    expect(response.input?.trace_context).toBe(TRACEPARENT);
     expect(slept).toEqual([100, 100]);
     expect(seen[0]?.fence).toEqual({
       sessionId: scope.session_id,
@@ -213,6 +218,7 @@ describe("WorkerGateway", () => {
                 message: "go",
                 deliveryStartedAt: input.now,
                 actorId,
+                traceContext: null,
               },
             };
           },
@@ -259,6 +265,9 @@ describe("WorkerGateway", () => {
     expect(recorded).toEqual(["octocat", null, null]);
     // A control host without attribution leaves the claim's value in force.
     expect("co_author" in ((await ask("user-a", false)) ?? {})).toBe(false);
+    // A turn queued without a traced request omits the field, so an older
+    // worker sees the response it always saw.
+    expect("trace_context" in ((await ask("user-a")) ?? {})).toBe(false);
   });
 
   test("nextInput does not hand out a co-author the ledger has not recorded", async () => {
@@ -274,6 +283,7 @@ describe("WorkerGateway", () => {
               message: "go",
               deliveryStartedAt: input.now,
               actorId: "user-a",
+              traceContext: null,
             },
           };
         },

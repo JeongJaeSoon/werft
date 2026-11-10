@@ -1,0 +1,1390 @@
+{
+  "permission-bare": {
+    "blocks": [
+      {
+        "text": {
+          "text": "*도구 사용 허용이 필요해요*",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "text": {
+          "emoji": false,
+          "text": "명령 실행: ls",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "child_blocks": [
+          {
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "command: ls",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_preformatted"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "default_collapsed": true,
+        "is_collapsible": true,
+        "title": {
+          "emoji": false,
+          "text": "입력 원본 (Bash)",
+          "type": "plain_text"
+        },
+        "type": "container"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "permission.allow",
+            "style": "primary",
+            "text": {
+              "emoji": false,
+              "text": "허용",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+          },
+          {
+            "action_id": "permission.deny",
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "거부",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+          }
+        ],
+        "type": "actions"
+      },
+      {
+        "block_id": "prompt.meta",
+        "elements": [
+          {
+            "text": "답하지 않으면 <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>에 만료돼요",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "도구 사용 허용이 필요해요\n명령 실행: ls\n웹 콘솔에서 확인해 주세요"
+  },
+  "permission-bash-remember": {
+    "en": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A tool needs your permission*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Run a command: Check the tree",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "command: git status\ndescription: Check the tree",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "Raw input (Bash)",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "permission.allow",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "Allow",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.allow_session",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "Allow for session",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "Cancel",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "Until this session ends, this is allowed without asking: Bash(git:*)",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "Allow for session",
+                  "type": "plain_text"
+                }
+              },
+              "text": {
+                "emoji": false,
+                "text": "Allow for session",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.deny",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "Deny",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "elements": [
+            {
+              "emoji": false,
+              "text": "Allow for session: Until this session ends, this is allowed without asking: Bash(git:*)",
+              "type": "plain_text"
+            }
+          ],
+          "type": "context"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> A tool needs your permission\nRun a command: Check the tree\n<https://console.example/sessions/019a0000|Open on the web>"
+    },
+    "ja": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *ツールの使用許可が必要です*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "コマンド実行: Check the tree",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "command: git status\ndescription: Check the tree",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "入力の原文 (Bash)",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "permission.allow",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "許可",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.allow_session",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "このセッション中は許可",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "キャンセル",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "このセッションが終わるまで、次を確認せずに許可します: Bash(git:*)",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "このセッション中は許可",
+                  "type": "plain_text"
+                }
+              },
+              "text": {
+                "emoji": false,
+                "text": "このセッション中は許可",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.deny",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "拒否",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "elements": [
+            {
+              "emoji": false,
+              "text": "このセッション中は許可: このセッションが終わるまで、次を確認せずに許可します: Bash(git:*)",
+              "type": "plain_text"
+            }
+          ],
+          "type": "context"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "回答がない場合、<!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>に期限切れになります · <https://console.example/sessions/019a0000|Webで開く>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> ツールの使用許可が必要です\nコマンド実行: Check the tree\n<https://console.example/sessions/019a0000|Webで開く>"
+    },
+    "ko": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *도구 사용 허용이 필요해요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "명령 실행: Check the tree",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "command: git status\ndescription: Check the tree",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "입력 원본 (Bash)",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "permission.allow",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "허용",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.allow_session",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "이 세션 동안 허용",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "취소",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "이 세션이 끝날 때까지 다음을 묻지 않고 허용해요: Bash(git:*)",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "이 세션 동안 허용",
+                  "type": "plain_text"
+                }
+              },
+              "text": {
+                "emoji": false,
+                "text": "이 세션 동안 허용",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            },
+            {
+              "action_id": "permission.deny",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "거부",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "elements": [
+            {
+              "emoji": false,
+              "text": "이 세션 동안 허용: 이 세션이 끝날 때까지 다음을 묻지 않고 허용해요: Bash(git:*)",
+              "type": "plain_text"
+            }
+          ],
+          "type": "context"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "답하지 않으면 <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>에 만료돼요 · <https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> 도구 사용 허용이 필요해요\n명령 실행: Check the tree\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    }
+  },
+  "permission-write-excerpt": {
+    "blocks": [
+      {
+        "text": {
+          "text": "<@U0ASKER> *A tool needs your permission*",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "text": {
+          "emoji": false,
+          "text": "Write a file: src/a.ts",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "elements": [
+              {
+                "text": "line 1\nline 2\nline 3\n…",
+                "type": "text"
+              }
+            ],
+            "type": "rich_text_preformatted"
+          }
+        ],
+        "type": "rich_text"
+      },
+      {
+        "child_blocks": [
+          {
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "file_path: src/a.ts\ncontent:\nline 1\nline 2\nline 3\n",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_preformatted"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "default_collapsed": true,
+        "is_collapsible": true,
+        "title": {
+          "emoji": false,
+          "text": "Raw input (Write)",
+          "type": "plain_text"
+        },
+        "type": "container"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "permission.allow",
+            "style": "primary",
+            "text": {
+              "emoji": false,
+              "text": "Allow",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+          },
+          {
+            "action_id": "permission.deny",
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "Deny",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"toolu_1\"}"
+          }
+        ],
+        "type": "actions"
+      },
+      {
+        "block_id": "prompt.meta",
+        "elements": [
+          {
+            "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "<@U0ASKER> A tool needs your permission\nWrite a file: src/a.ts\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "push": {
+    "en": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A push needs your approval*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "fields": [
+            {
+              "emoji": false,
+              "text": "Repository",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "acme/web",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "Branch",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "agent/fix-login",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "Commit",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "abcdef1",
+              "type": "plain_text"
+            }
+          ],
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "Branch: agent/fix-login\nCommit: abcdef1234567890000000000000000000000000",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "Details",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "push.approve",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "Approve",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "Cancel",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "This pushes the commit to the branch\nagent/fix-login ← abcdef123456",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "A push needs your approval",
+                  "type": "plain_text"
+                }
+              },
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "Approve",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            },
+            {
+              "action_id": "push.reject",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "Reject",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "<https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> A push needs your approval\nacme/web · agent/fix-login\n<https://console.example/sessions/019a0000|Open on the web>"
+    },
+    "ja": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *pushの承認が必要です*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "fields": [
+            {
+              "emoji": false,
+              "text": "リポジトリ",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "acme/web",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "ブランチ",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "agent/fix-login",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "コミット",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "abcdef1",
+              "type": "plain_text"
+            }
+          ],
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "ブランチ: agent/fix-login\nコミット: abcdef1234567890000000000000000000000000",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "詳細",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "push.approve",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "承認",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "キャンセル",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "このコミットをブランチにpushします\nagent/fix-login ← abcdef123456",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "pushの承認が必要です",
+                  "type": "plain_text"
+                }
+              },
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "承認",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            },
+            {
+              "action_id": "push.reject",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "却下",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "<https://console.example/sessions/019a0000|Webで開く>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> pushの承認が必要です\nacme/web · agent/fix-login\n<https://console.example/sessions/019a0000|Webで開く>"
+    },
+    "ko": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *push 승인이 필요해요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "fields": [
+            {
+              "emoji": false,
+              "text": "저장소",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "acme/web",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "브랜치",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "agent/fix-login",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "커밋",
+              "type": "plain_text"
+            },
+            {
+              "emoji": false,
+              "text": "abcdef1",
+              "type": "plain_text"
+            }
+          ],
+          "type": "section"
+        },
+        {
+          "child_blocks": [
+            {
+              "elements": [
+                {
+                  "elements": [
+                    {
+                      "text": "브랜치: agent/fix-login\n커밋: abcdef1234567890000000000000000000000000",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "rich_text_preformatted"
+                }
+              ],
+              "type": "rich_text"
+            }
+          ],
+          "default_collapsed": true,
+          "is_collapsible": true,
+          "title": {
+            "emoji": false,
+            "text": "자세히",
+            "type": "plain_text"
+          },
+          "type": "container"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "push.approve",
+              "confirm": {
+                "confirm": {
+                  "emoji": false,
+                  "text": "승인",
+                  "type": "plain_text"
+                },
+                "deny": {
+                  "emoji": false,
+                  "text": "취소",
+                  "type": "plain_text"
+                },
+                "text": {
+                  "emoji": false,
+                  "text": "이 커밋을 브랜치에 push해요\nagent/fix-login ← abcdef123456",
+                  "type": "plain_text"
+                },
+                "title": {
+                  "emoji": false,
+                  "text": "push 승인이 필요해요",
+                  "type": "plain_text"
+                }
+              },
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "승인",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            },
+            {
+              "action_id": "push.reject",
+              "style": "danger",
+              "text": {
+                "emoji": false,
+                "text": "거절",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "<https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> push 승인이 필요해요\nacme/web · agent/fix-login\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    }
+  },
+  "push-unnamed-repository": {
+    "blocks": [
+      {
+        "text": {
+          "text": "*A push needs your approval*",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "fields": [
+          {
+            "emoji": false,
+            "text": "Repository",
+            "type": "plain_text"
+          },
+          {
+            "emoji": false,
+            "text": "repo-1",
+            "type": "plain_text"
+          },
+          {
+            "emoji": false,
+            "text": "Branch",
+            "type": "plain_text"
+          },
+          {
+            "emoji": false,
+            "text": "agent/fix-login",
+            "type": "plain_text"
+          },
+          {
+            "emoji": false,
+            "text": "Commit",
+            "type": "plain_text"
+          },
+          {
+            "emoji": false,
+            "text": "abcdef1",
+            "type": "plain_text"
+          }
+        ],
+        "type": "section"
+      },
+      {
+        "child_blocks": [
+          {
+            "elements": [
+              {
+                "elements": [
+                  {
+                    "text": "Branch: agent/fix-login\nCommit: abcdef1234567890000000000000000000000000",
+                    "type": "text"
+                  }
+                ],
+                "type": "rich_text_preformatted"
+              }
+            ],
+            "type": "rich_text"
+          }
+        ],
+        "default_collapsed": true,
+        "is_collapsible": true,
+        "title": {
+          "emoji": false,
+          "text": "Details",
+          "type": "plain_text"
+        },
+        "type": "container"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "push.approve",
+            "confirm": {
+              "confirm": {
+                "emoji": false,
+                "text": "Approve",
+                "type": "plain_text"
+              },
+              "deny": {
+                "emoji": false,
+                "text": "Cancel",
+                "type": "plain_text"
+              },
+              "text": {
+                "emoji": false,
+                "text": "This pushes the commit to the branch\nagent/fix-login ← abcdef123456",
+                "type": "plain_text"
+              },
+              "title": {
+                "emoji": false,
+                "text": "A push needs your approval",
+                "type": "plain_text"
+              }
+            },
+            "style": "primary",
+            "text": {
+              "emoji": false,
+              "text": "Approve",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+          },
+          {
+            "action_id": "push.reject",
+            "style": "danger",
+            "text": {
+              "emoji": false,
+              "text": "Reject",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"push-1\"}"
+          }
+        ],
+        "type": "actions"
+      }
+    ],
+    "text": "A push needs your approval\nrepo-1 · agent/fix-login\nCheck it in the web console"
+  },
+  "question-over-limit-opens-web": {
+    "eleven-questions": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *답이 필요한 질문이 있어요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "이 요청은 웹에서 답해 주세요",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "prompt.open_web",
+              "text": {
+                "emoji": false,
+                "text": "웹에서 열기",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "url": "https://console.example/sessions/019a0000"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "답하지 않으면 <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>에 만료돼요 · <https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> 답이 필요한 질문이 있어요\nAnything else I should know?\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    },
+    "hundred-and-one-options": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A question needs your answer*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Please answer this request on the web",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "prompt.open_web",
+              "text": {
+                "emoji": false,
+                "text": "Open on the web",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "url": "https://console.example/sessions/019a0000"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> A question needs your answer\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Open on the web>"
+    }
+  },
+  "question-single-buttons": {
+    "blocks": [
+      {
+        "text": {
+          "text": "<@U0ASKER> *A question needs your answer*",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "text": {
+          "emoji": false,
+          "text": "Which branch should I rebase onto?",
+          "type": "plain_text"
+        },
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "question.option:0",
+            "text": {
+              "emoji": false,
+              "text": "main",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_2\",\"o\":\"0\"}"
+          },
+          {
+            "action_id": "question.option:1",
+            "text": {
+              "emoji": false,
+              "text": "release/2026-11",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_2\",\"o\":\"1\"}"
+          }
+        ],
+        "type": "actions"
+      },
+      {
+        "block_id": "prompt.meta",
+        "elements": [
+          {
+            "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      }
+    ],
+    "text": "<@U0ASKER> A question needs your answer\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Open on the web>"
+  },
+  "question-two-choices-and-free": {
+    "en": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *A question needs your answer*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Which branch should I rebase onto?\n• main\n• release/2026-11",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Anything else I should know?",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "question.open",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "Answer",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "Expires at <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z> if no one answers · <https://console.example/sessions/019a0000|Open on the web>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> A question needs your answer\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Open on the web>"
+    },
+    "ja": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *回答が必要な質問があります*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Which branch should I rebase onto?\n• main\n• release/2026-11",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Anything else I should know?",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "question.open",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "回答する",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "回答がない場合、<!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>に期限切れになります · <https://console.example/sessions/019a0000|Webで開く>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> 回答が必要な質問があります\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|Webで開く>"
+    },
+    "ko": {
+      "blocks": [
+        {
+          "text": {
+            "text": "<@U0ASKER> *답이 필요한 질문이 있어요*",
+            "type": "mrkdwn"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Which branch should I rebase onto?\n• main\n• release/2026-11",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "text": {
+            "emoji": false,
+            "text": "Anything else I should know?",
+            "type": "plain_text"
+          },
+          "type": "section"
+        },
+        {
+          "elements": [
+            {
+              "action_id": "question.open",
+              "style": "primary",
+              "text": {
+                "emoji": false,
+                "text": "답하기",
+                "type": "plain_text"
+              },
+              "type": "button",
+              "value": "{\"s\":\"019a0000-0000-7000-8000-0000000000a5\",\"r\":\"q_1\"}"
+            }
+          ],
+          "type": "actions"
+        },
+        {
+          "block_id": "prompt.meta",
+          "elements": [
+            {
+              "text": "답하지 않으면 <!date^1793664000^{date_short_pretty} {time}|2026-11-03T00:00:00Z>에 만료돼요 · <https://console.example/sessions/019a0000|웹에서 열기>",
+              "type": "mrkdwn"
+            }
+          ],
+          "type": "context"
+        }
+      ],
+      "text": "<@U0ASKER> 답이 필요한 질문이 있어요\nWhich branch should I rebase onto?\n<https://console.example/sessions/019a0000|웹에서 열기>"
+    }
+  }
+}

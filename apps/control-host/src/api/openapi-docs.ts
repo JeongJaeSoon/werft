@@ -235,6 +235,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The release was made for another runtime profile than the one named.",
   CREDENTIAL_UNBOUND:
     "The release names a credential its agent has no live binding for; an agent admin must bind it first.",
+  AGENT_NOT_RUNNABLE:
+    "A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active.",
   PROFILE_DIGEST_MISMATCH:
     "The runtime profile's settings changed since the release was made; release the agent again.",
   PROFILE_BLOCKED:

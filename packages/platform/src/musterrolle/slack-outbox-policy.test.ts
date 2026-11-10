@@ -4,6 +4,7 @@ import type {
   SlackOutboxSettle,
   SlackOutboxStore,
 } from "../ports/slack-outbox-store.ts";
+import { createRowDelivery } from "./outbox-delivery.ts";
 import {
   createSlackBotApi,
   type SlackBotSender,
@@ -233,7 +234,7 @@ describe("slackOutboxPresentation", () => {
     });
     expect(text.length).toBeLessThanOrEqual(40_000);
     expect(text).toEndWith(
-      "…\n\n<https://console.example/sessions/s1|웹에서 열기>",
+      "…\n\n<https://console.example/sessions/s1|Open on the web>",
     );
     expect(SLACK_TEXT_MAX).toBe(40_000);
   });
@@ -286,28 +287,32 @@ async function drainFixture(
       return true;
     },
   };
+  const slack: Parameters<typeof drainSlackOutbox>[0]["slack"] = {
+    setStatus: async () => {},
+    userImage: async (_token, userId) => {
+      effects.push(["userImage", userId]);
+      return "https://images.example/owner.png";
+    },
+    postMessage: async (_token, input) => {
+      effects.push(["postMessage", input]);
+      messages.push(input);
+      const answer = answers.shift();
+      if (answer === undefined) throw new Error("no scripted response");
+      return answer;
+    },
+    postEphemeral: async () => {
+      throw new Error("unexpected ephemeral");
+    },
+  };
+  const botToken = async () => "test-credential";
+  const consoleOrigin = "https://console.example";
   const pass = await drainSlackOutbox({
     outbox,
-    slack: {
-      setStatus: async () => {},
-      userImage: async (_token, userId) => {
-        effects.push(["userImage", userId]);
-        return "https://images.example/owner.png";
-      },
-      postMessage: async (_token, input) => {
-        effects.push(["postMessage", input]);
-        messages.push(input);
-        const answer = answers.shift();
-        if (answer === undefined) throw new Error("no scripted response");
-        return answer;
-      },
-      postEphemeral: async () => {
-        throw new Error("unexpected ephemeral");
-      },
-    },
-    botToken: async () => "test-credential",
+    slack,
+    botToken,
+    delivery: createRowDelivery({ slack, botToken, consoleOrigin }),
     logger: { info: () => {}, warn: () => {} },
-    consoleOrigin: "https://console.example",
+    consoleOrigin,
     batchSize: 10,
     leaseMs: 30_000,
     deadline: 1_000,

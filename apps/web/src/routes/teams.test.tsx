@@ -281,7 +281,7 @@ describe("팀 화면", () => {
       ).toBe(true),
     );
     await user.keyboard("지원팀{Enter}");
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
     // A confirmation is polite: a screen reader waits for a pause to read it.
     expect(toastRegion()?.tagName).toBe("OUTPUT");
     expect(toastRegion()?.getAttribute("aria-live")).toBe("polite");
@@ -462,7 +462,7 @@ describe("팀 화면", () => {
       ).toBeGreaterThan(lists),
     );
     // The team exists whichever tab asked: the toast says so.
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
   });
 
   test("팀 상세의 주 버튼은 구성원 구역 제목 줄의 구성원 추가 하나이고 팀 만들기·초대는 없다", async () => {
@@ -582,7 +582,7 @@ describe("팀 화면", () => {
         receipt_id: RECEIPT_ID,
       }),
     );
-    expect(await toastSaid()).toBe("지원팀 팀을 만들었습니다.");
+    expect(await toastSaid()).toBe("팀을 만들었습니다: 지원팀");
     expect(api.calls.filter((c) => c.method === "POST")).toHaveLength(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -1092,7 +1092,7 @@ describe("팀 화면", () => {
     await user.click(removeMate);
     const removeDialog = await screen.findByRole("dialog");
     expect(removeDialog.textContent).toContain(
-      "Mate님을 결제팀 팀에서 제외할까요?",
+      "Mate님을 다음 팀에서 제외할까요? 결제팀",
     );
     await user.click(
       within(removeDialog).getByRole("button", { name: "제외" }),
@@ -1135,7 +1135,7 @@ describe("팀 화면", () => {
     expect(server.team).toBeNull();
     expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
     // The page that raised it is gone; the toast stays with the tabs.
-    expect(await toastSaid()).toBe("청구팀 팀을 삭제했습니다.");
+    expect(await toastSaid()).toBe("팀을 삭제했습니다: 청구팀");
   });
 
   const mateMember: TeamDetail["members"][number] = {
@@ -1544,6 +1544,50 @@ describe("에이전트 관리자", () => {
     expect(agentAdminsViewSchema.safeParse(admins()).success).toBe(true);
   });
 
+  test("member인 에이전트 관리자는 팀을 붙이는 길이 없고 이유를 듣는다. 이미 붙은 팀은 뗄 수 있다 (94S-837)", async () => {
+    const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
+      ...agentServer().routes,
+      ...teamServer().routes,
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          admins({
+            users: [
+              {
+                user_id: USER_ID,
+                email: "owner@example.com",
+                display_name: "Owner",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+            teams: [
+              {
+                team_id: TEAM_ID,
+                name: "결제팀",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
+    });
+    const picker = (await screen.findByRole("combobox", {
+      name: "관리자로 추가할 사람이나 팀",
+    })) as HTMLInputElement;
+    // No team list is read for someone who cannot name a team, and the
+    // picker says why instead of offering one.
+    expect(picker.getAttribute("aria-describedby")).not.toBeNull();
+    expect(api.calls.some((c) => c.path === "/v1/teams")).toBe(false);
+    expect(picker.disabled).toBe(true);
+    expect(
+      await screen.findByRole("button", {
+        name: "결제팀을(를) 관리자에서 빼기",
+      }),
+    ).toBeDefined();
+  });
+
   test("사람 고르기 칸에 키보드로 오면 그때 구성원을 읽는다", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
@@ -1844,7 +1888,12 @@ describe("에이전트 관리자", () => {
     expect(await screen.findByText(refusal)).toBeDefined();
     await waitFor(() => expect(picker.disabled).toBe(false));
     // Nothing was added, nothing is announced as done.
-    expect(screen.queryByText("결제팀")).toBeNull();
+    // 결제팀 also names the team page, so look for its admin row. `=== null`,
+    // not toBeNull: bun's toBeNull on a present element passes after ~50s.
+    expect(
+      screen.queryByRole("button", { name: "결제팀을(를) 관리자에서 빼기" }) ===
+        null,
+    ).toBe(true);
     expect(screen.getByText("Mate")).toBeDefined();
     // A toast region mounts as soon as one is raised and is filled later, so
     // its absence is the check; reading its text would pass before the fill.

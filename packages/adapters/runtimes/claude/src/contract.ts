@@ -142,6 +142,9 @@ function engineProfile(
   const { auth, endpoint, kind } = bindings.provider;
   const principal = bindings.principal;
   if (kind === "litellm") return { kind, endpoint, auth, principal };
+  if (kind === "openai_responses") {
+    throw new Error("The Claude engine does not speak the Responses API");
+  }
   if (auth.kind === "bearer") {
     throw new Error(
       "An anthropic provider takes an API key or an egress token",
@@ -188,45 +191,21 @@ function trustedToolsOf(
   return trusted.length === 0 ? {} : { trustedTools: trusted };
 }
 
-const RESPONSE_LANGUAGE_NAMES = {
-  ko: "Korean",
-  en: "English",
-  ja: "Japanese",
-} as const;
-
-/**
- * The profile config plus the answer-language instruction. Kept out of
- * claudeProfileConfig: the fingerprint must not move when a release asks for
- * a language, or a session built on a worker that lacked the field could not
- * resume on one that has it.
- */
-function withResponseLanguage(
-  profileConfig: ClaudeProfileConfig,
-  language: RuntimeStart["config"]["responseLanguage"],
-): ClaudeProfileConfig {
-  if (language === undefined) return profileConfig;
-  const instruction = `Answer in ${RESPONSE_LANGUAGE_NAMES[language]} unless the person writes in another language.`;
-  return {
-    ...profileConfig,
-    appendSystemPrompt:
-      profileConfig.appendSystemPrompt === undefined
-        ? instruction
-        : `${profileConfig.appendSystemPrompt}\n\n${instruction}`,
-  };
-}
-
 export function claudeStartConfig(
   start: RuntimeStart,
   deps: RuntimeHostDeps,
 ): ClaudeRuntimeConfig {
   const { bindings, config } = start;
   const base = {
-    ...withResponseLanguage(
-      claudeProfileConfig(start),
-      config.responseLanguage,
-    ),
+    ...claudeProfileConfig(start),
     claudeConfigDir: deps.stateDir,
     correlationId: config.correlationId,
+    // Not in claudeProfileConfig: the fingerprint must not move when a
+    // release asks for a language, or a session built on a worker that lacked
+    // the field could not resume on one that has it.
+    ...(config.responseLanguage === undefined
+      ? {}
+      : { responseLanguage: config.responseLanguage }),
     // Not in claudeProfileConfig: the fingerprint must not move when a
     // claim names another commit author.
     ...(config.gitEnvironment === undefined

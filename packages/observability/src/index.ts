@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { type LogFields, sanitizeFields, sanitizeText } from "./redaction.ts";
+import { currentSpanContext } from "./tracing/tracer.ts";
 
 export {
   type LogFields,
@@ -8,6 +9,46 @@ export {
   sanitizeFields,
   sanitizeText,
 } from "./redaction.ts";
+export {
+  type ContentMode,
+  parseTracingSettings,
+  type SamplerKind,
+  type TracingSettings,
+} from "./tracing/config.ts";
+export {
+  type ClaimTelemetry,
+  createTelemetryPolicy,
+  effectiveContentMode,
+  endpointOnEgressAllowlist,
+  type TelemetryPolicy,
+} from "./tracing/telemetry-policy.ts";
+export { turnTraceId } from "./tracing/trace-id.ts";
+export {
+  currentSpanContext,
+  formatTraceparent,
+  noopTracer,
+  parseTraceparent,
+  type Span,
+  type SpanAttributeValue,
+  type SpanContext,
+  type StartSpanOptions,
+  sampleByTraceId,
+  type Tracer,
+} from "./tracing/tracer.ts";
+
+/** The two keys belong to the active span, so a hand-set context value never survives. */
+function contextWithoutSpanKeys(
+  context: ObservabilityContext,
+): ObservabilityContext {
+  const { trace_id: _trace, span_id: _span, ...rest } = context;
+  return rest;
+}
+
+/** `trace_id`/`span_id` of the active span; no keys at all outside a span. */
+function spanLogFields(): { trace_id?: string; span_id?: string } {
+  const span = currentSpanContext();
+  return span ? { trace_id: span.traceId, span_id: span.spanId } : {};
+}
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 
@@ -19,6 +60,7 @@ export interface ObservabilityContext {
   readonly pod_id?: string;
   readonly request_id?: string;
   readonly trace_id?: string;
+  readonly span_id?: string;
 }
 
 export interface LogRecord extends ObservabilityContext {
@@ -155,7 +197,9 @@ export class StructuredLogger {
         level,
         ...(event === undefined ? {} : { event }),
         message: sanitizeText(message),
-        ...this.getContext(),
+        ...contextWithoutSpanKeys(this.getContext()),
+        // Read when the line is written: the active span changes inside one request.
+        ...spanLogFields(),
         ...(recordFields && Object.keys(recordFields).length > 0
           ? { fields: recordFields }
           : {}),

@@ -1,11 +1,12 @@
 import type { SecretAudit } from "../ports/secret-store.ts";
 import type {
   ConfigTokenSummary,
+  RotatedConfigToken,
   SlackConfigTokenStore,
 } from "../ports/slack-config-token-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import {
-  type RotatedConfigToken,
+  SLACK_APP_GONE_CODES,
   SlackApiError,
   type SlackConfigApi,
 } from "./slack-config-api.ts";
@@ -53,6 +54,34 @@ const isDeadToken = (error: unknown) =>
   DEAD_TOKEN_CODES.has(error.code);
 
 export type SlackConfigTokens = ReturnType<typeof createSlackConfigTokens>;
+
+/**
+ * True only when Slack itself says the app is gone: export answers a gone
+ * code to the app maker's own token. Another user's token may be told an app
+ * it cannot manage is not there, and a probe that fails any other way proves
+ * nothing, so both leave the caller to decide.
+ */
+export async function slackLacksApp(
+  api: Pick<SlackConfigApi, "exportApp">,
+  tokens: SlackConfigTokens,
+  workspaceId: string,
+  app: { appId: string; maker: string },
+): Promise<boolean> {
+  try {
+    // The token in hand, not the one described before, must be the maker's.
+    return await tokens.withToken(workspaceId, async (token, issuer) => {
+      if (issuer !== app.maker) return false;
+      await api.exportApp(token, app.appId);
+      return false;
+    });
+  } catch (error) {
+    return (
+      error instanceof SlackApiError &&
+      error.answered &&
+      SLACK_APP_GONE_CODES.has(error.code)
+    );
+  }
+}
 
 /**
  * Hands out a valid access token for a workspace, rotating it through
