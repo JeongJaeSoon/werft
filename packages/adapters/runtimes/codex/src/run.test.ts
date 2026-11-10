@@ -226,6 +226,35 @@ describe("approvals", () => {
     }
   });
 
+  test("the same path with another diff is another approval", async () => {
+    const t = setup();
+    await started(t);
+    const hashes: string[] = [];
+    for (const [id, diff] of [
+      ["patch-a", "+one"],
+      ["patch-b", "+two"],
+    ] as const) {
+      announcePatch(t, id, [{ path: "a.txt", kind: "update", diff }]);
+      void t.server.ask("item/fileChange/requestApproval", {
+        threadId: "thread-1",
+        itemId: id,
+        grantRoot: "/work",
+      });
+      await t.until(() =>
+        t.seen.filter((e) => e.type === "approval.requested").length ===
+        hashes.length + 1
+          ? ({ type: "x" } as never)
+          : undefined,
+      );
+      const asked = t.seen
+        .filter((e) => e.type === "approval.requested")
+        .at(-1);
+      if (asked?.type !== "approval.requested") throw new Error("unreachable");
+      hashes.push(asked.request.inputHash);
+    }
+    expect(hashes[0]).not.toBe(hashes[1]);
+  });
+
   test("an approval is bound to the changes, not to the directory they are under", async () => {
     const t = setup();
     await started(t);

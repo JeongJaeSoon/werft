@@ -84,6 +84,8 @@ export function startOf(options: {
   mode?: "new" | "resume";
   resume?: string;
   permissionMode?: string;
+  /** Text the bundle adds to the engine's developer instructions. */
+  instructions?: string;
 }): RuntimeStart {
   return {
     bindings: {
@@ -98,7 +100,14 @@ export function startOf(options: {
       },
       principal: { ownerScope: "owner-1" },
     },
-    bundle: { instructions: [], repoInstructions: null, mcpServers: [] },
+    bundle: {
+      instructions:
+        options.instructions === undefined
+          ? []
+          : [{ text: options.instructions }],
+      repoInstructions: null,
+      mcpServers: [],
+    },
     config: {
       mode: options.mode ?? "new",
       ...(options.resume === undefined ? {} : { resume: options.resume }),

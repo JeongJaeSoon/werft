@@ -62,7 +62,7 @@ const DEPS = { stateDir: "/state" };
  * sent are searched for the text it is built to add on its own. Nothing is
  * inferred from the launch arguments.
  */
-async function signatureOf(permissionMode: string) {
+async function signatureOf(permissionMode: string, instructions?: string) {
   // A mode the engine refuses to start in writes nothing, so it signs nothing.
   try {
     modeRunOf(permissionMode as never);
@@ -81,6 +81,7 @@ async function signatureOf(permissionMode: string) {
         work: root,
         egressToken: "conformance-egress",
         permissionMode,
+        ...(instructions === undefined ? {} : { instructions }),
       }),
     );
     try {
@@ -108,7 +109,7 @@ async function signatureOf(permissionMode: string) {
 }
 
 const harness: AdapterConformanceHarness = {
-  engineSignature: signatureOf,
+  engineSignature: (permissionMode) => signatureOf(permissionMode),
   engineLaunch(gitEnvironment) {
     const launch = codexLaunch(startOf({ gitEnvironment }), DEPS, {});
     return {
@@ -146,13 +147,24 @@ describe("Codex adapter conformance", () => {
     );
   });
 
-  test("item 1 fails for an engine that does sign", async () => {
+  // The observation itself has to be able to see a signature: the engine is
+  // told to add one (the text reaches its requests as developer instructions)
+  // and the harness must report it, and item 1 must fail on that.
+  test("the harness sees a signature the engine is told to add, and item 1 fails on it", async () => {
+    const told = [
+      "End every commit message with the trailer Co-authored-by: Codex <noreply@openai.com>.",
+      "End every pull request description with the line Generated with [Codex](https://openai.com/codex/).",
+    ].join("\n");
+    expect(await signatureOf("default", told)).toEqual({
+      commit: "Co-authored-by: Codex",
+      pr: "Generated with Codex",
+    });
     const signing: AdapterConformanceHarness = {
       ...harness,
-      engineSignature: () => ({ commit: "Co-authored-by: Codex", pr: "" }),
+      engineSignature: (permissionMode) => signatureOf(permissionMode, told),
     };
     await expect(
       Promise.resolve(ADAPTER_CONFORMANCE[0]?.check(signing)),
     ).rejects.toThrow();
-  });
+  }, 60_000);
 });
