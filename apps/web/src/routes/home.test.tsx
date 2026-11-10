@@ -1,9 +1,6 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
-import type {
-  MemberView,
-  SettingsConnection,
-} from "@werft-ai/contracts";
+import type { MemberView, SettingsConnection } from "@werft-ai/contracts";
 import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
 import { useMinute } from "@werft-ai/react/components";
 import { formatElapsed } from "@werft-ai/ui";
@@ -383,7 +380,9 @@ describe("bootstrap checklist", () => {
       ]),
     );
     expect(checklistSteps()[1]?.textContent).toContain("모델 연결 추가하기");
-    expect(checklistSteps()[2]?.textContent).toContain("모델 연결에 모델 정하기");
+    expect(checklistSteps()[2]?.textContent).toContain(
+      "모델 연결에 모델 정하기",
+    );
     const links = stepLinks();
     expect(
       links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
@@ -395,12 +394,10 @@ describe("bootstrap checklist", () => {
 
   test("사용 중지되거나 값이 없는 연결만 있으면 연결 단계는 아직이다", async () => {
     renderAt("/", {
-      ...settingsReads(
-        [
-          { ...CONNECTION, state: "disabled" },
-          { ...CONNECTION, id: "empty", state: "needs_value" },
-        ],
-      ),
+      ...settingsReads([
+        { ...CONNECTION, state: "disabled" },
+        { ...CONNECTION, id: "empty", state: "needs_value" },
+      ]),
       "GET /v1/auth/me": () => json(200, me()),
       "GET /v1/members": () =>
         json(200, memberPage({ items: [owner], next_cursor: null })),

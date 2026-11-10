@@ -9,7 +9,10 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useRole } from "../../auth/guard.tsx";
-import { runsModel, successorOf } from "../../components/connection-options.tsx";
+import {
+  runsModel,
+  successorOf,
+} from "../../components/connection-options.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 

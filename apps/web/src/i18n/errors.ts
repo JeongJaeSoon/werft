@@ -27,7 +27,8 @@ export const errorsKo = {
     "계정이 정지된 사람입니다 — 계정 정지를 먼저 풀어야 역할을 바꾸거나 다시 활성화할 수 있습니다.",
   "error.OWNER_PROTECTED":
     "소유자 역할을 주거나 소유자의 역할·접근(비활성화·정지·다시 활성화)을 바꾸는 일은 소유자만 할 수 있습니다 — 소유자에게 요청하세요.",
-  "error.UNSUPPORTED_CAPABILITY": "카드 모델을 이 연결이 제공하지 않거나, 연결이 켜져 있지 않거나, 이 연결을 돌릴 런타임이 없습니다.",
+  "error.UNSUPPORTED_CAPABILITY":
+    "카드 모델을 이 연결이 제공하지 않거나, 연결이 켜져 있지 않거나, 이 연결을 돌릴 런타임이 없습니다.",
   "error.REVISION_CONFLICT":
     "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
   "error.ALREADY_EXISTS": "같은 식별자(slug)가 이미 있습니다.",
@@ -43,7 +44,8 @@ export const errorsKo = {
     "이 설치가 GitHub에서 중지됐습니다 — 그 계정의 GitHub 설치 설정에서 다시 켜세요.",
   // Only the read-only demo build answers this (src/demo/fetch.ts).
   "error.DEMO_READ_ONLY": "데모에서는 저장되지 않습니다.",
-  "error.RELEASE_SPEC_UNAVAILABLE": "릴리스의 모델 연결이 꺼졌거나 그 모델이 연결에서 빠졌습니다. 쓸 수 있는 연결과 모델로 다시 릴리스하세요.",
+  "error.RELEASE_SPEC_UNAVAILABLE":
+    "릴리스의 모델 연결이 꺼졌거나 그 모델이 연결에서 빠졌습니다. 쓸 수 있는 연결과 모델로 다시 릴리스하세요.",
 };
 
 export const errorsEn: Record<keyof typeof errorsKo, string> = {
@@ -73,7 +75,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
     "This person's account is suspended — lift the suspension before changing their role or enabling them.",
   "error.OWNER_PROTECTED":
     "Only an owner can grant the owner role or change an owner's role or access (disable, suspend, re-enable) — ask an owner.",
-  "error.UNSUPPORTED_CAPABILITY": "The connection does not offer the card's model, the connection is not enabled, or no runtime serves it.",
+  "error.UNSUPPORTED_CAPABILITY":
+    "The connection does not offer the card's model, the connection is not enabled, or no runtime serves it.",
   "error.REVISION_CONFLICT":
     "Someone changed this first — reload and try again.",
   "error.ALREADY_EXISTS": "That identifier (slug) is already taken.",
@@ -88,7 +91,8 @@ export const errorsEn: Record<keyof typeof errorsKo, string> = {
   "error.INSTALLATION_SUSPENDED":
     "This installation is suspended on GitHub — resume it in that account's GitHub installation settings.",
   "error.DEMO_READ_ONLY": "Changes are not saved in this demo.",
-  "error.RELEASE_SPEC_UNAVAILABLE": "The release's model connection was disabled or its model left the connection. Release again on a usable connection and model.",
+  "error.RELEASE_SPEC_UNAVAILABLE":
+    "The release's model connection was disabled or its model left the connection. Release again on a usable connection and model.",
 };
 
 export const errorsJa: Record<keyof typeof errorsKo, string> = {
@@ -124,7 +128,8 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
     "このユーザーのアカウントは停止中です。ロールの変更や再有効化の前に、アカウントの停止を解除してください。",
   "error.OWNER_PROTECTED":
     "オーナーのロールの付与や、オーナーのロール・アクセス（無効化・停止・再有効化）の変更ができるのはオーナーのみです。オーナーに依頼してください。",
-  "error.UNSUPPORTED_CAPABILITY": "カードのモデルをこの接続が提供していないか、接続が有効でないか、この接続を動かすランタイムがありません。",
+  "error.UNSUPPORTED_CAPABILITY":
+    "カードのモデルをこの接続が提供していないか、接続が有効でないか、この接続を動かすランタイムがありません。",
   "error.REVISION_CONFLICT":
     "ほかの人が先に変更しました。再読み込みしてから、もう一度お試しください。",
   "error.ALREADY_EXISTS": "この識別子（slug）はすでに使われています。",
@@ -139,5 +144,6 @@ export const errorsJa: Record<keyof typeof errorsKo, string> = {
   "error.INSTALLATION_SUSPENDED":
     "このインストールは GitHub で停止されています。そのアカウントの GitHub インストール設定で再開してください。",
   "error.DEMO_READ_ONLY": "このデモでは変更は保存されません。",
-  "error.RELEASE_SPEC_UNAVAILABLE": "リリースのモデル接続が無効になったか、そのモデルが接続から外れました。使える接続とモデルでリリースし直してください。",
+  "error.RELEASE_SPEC_UNAVAILABLE":
+    "リリースのモデル接続が無効になったか、そのモデルが接続から外れました。使える接続とモデルでリリースし直してください。",
 };

@@ -10,7 +10,7 @@
 
 자신의 격리된 스택을 `scripts/local.sh up --fake-model`로 띄운다. 다른 사람의 스택·포트를 재사용하지 않는다. 실제 모델 key는 필요 없다. 예제 메시지의 `GATE-SPEC`은 FAKE 모델용 대본이므로 실제 모델로 실행하지 않는다.
 
-웹 콘솔에서 에이전트를 만들고 `claude-coding-local` 프로필과 `sample-app` 저장소로 버전을 배포한다. 에이전트 key는 그 에이전트의 `sessions:read`, `sessions:write`, `sessions:control` scope로 발급한다. 같은 workspace에서 세션에 접근 가능한 사용자 key(또는 같은 에이전트의 다른 key)를 `sessions:read`, `sessions:approve` scope로 별도 발급한다. 세션을 시작한 key는 `sessions:approve`를 가져도 그 세션의 요청을 승인하지 못한다.
+웹 콘솔에서 에이전트를 만들고 모델 연결과 모델을 골라 저장해 첫 릴리스를 만들고, GitHub 설정에 `sample-app` 저장소를 둔다. 에이전트 key는 그 에이전트의 `sessions:read`, `sessions:write`, `sessions:control` scope로 발급한다. 같은 workspace에서 세션에 접근 가능한 사용자 key(또는 같은 에이전트의 다른 key)를 `sessions:read`, `sessions:approve` scope로 별도 발급한다. 세션을 시작한 key는 `sessions:approve`를 가져도 그 세션의 요청을 승인하지 못한다.
 
 다음 값을 실행 환경에 설정한다. key를 소스·README·출력에 붙여 넣지 않는다.
 

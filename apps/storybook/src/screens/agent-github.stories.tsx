@@ -570,8 +570,8 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           <Alert>
             <AlertDescription>
               이 에이전트에는 저장한 GitHub 설정이 아직 없습니다. 지금은 활성
-              릴리스의 설정(없으면 프로필이 허용하는 저장소 전체)으로 동작하고,
-              저장하면 이후 세션부터 아래 설정을 씁니다.
+              릴리스의 설정(없으면 워크스페이스가 허용하는 저장소 전체)으로
+              동작하고, 저장하면 이후 세션부터 아래 설정을 씁니다.
             </AlertDescription>
           </Alert>
         ) : null}

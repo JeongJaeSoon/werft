@@ -140,9 +140,7 @@ describe("i18n", () => {
     for (const locale of LOCALES) {
       const catalog = catalogs[locale];
       expect(catalog["shell.group.agentConnections"]).toBe(group[locale]);
-      expect(catalog["agentCard.connectionNone"]).toContain(
-        guidance[locale],
-      );
+      expect(catalog["agentCard.connectionNone"]).toContain(guidance[locale]);
     }
   });
 

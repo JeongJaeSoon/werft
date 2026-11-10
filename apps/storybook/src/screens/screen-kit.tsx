@@ -32,7 +32,6 @@ import {
   LogOut,
   Monitor,
   Settings,
-  SlidersHorizontal,
   Trophy,
   Users,
 } from "lucide-react";
@@ -51,7 +50,6 @@ export type NavKey =
   | "home"
   | "sessions"
   | "agents"
-  | "profiles"
   | "operations"
   | "achievements"
   | "members"
@@ -72,12 +70,6 @@ const WORK_NAV: readonly NavEntry[] = [
   { key: "agents", label: "에이전트", icon: Bot, hue: "orange" },
 ];
 const WORKSPACE_NAV: readonly NavEntry[] = [
-  {
-    key: "profiles",
-    label: "프로필",
-    icon: SlidersHorizontal,
-    hue: "teal",
-  },
   { key: "operations", label: "사용량·한도", icon: Gauge, hue: "pink" },
   { key: "achievements", label: "성과", icon: Trophy, hue: "sky" },
   { key: "members", label: "구성원", icon: Users, hue: "green" },

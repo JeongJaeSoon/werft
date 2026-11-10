@@ -290,7 +290,8 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.scopeHint.write": "セッションを開始し、メッセージを送信します。",
   "apiKeys.scopeHint.approve":
     "セッションが待っている権限リクエストと質問に回答します。",
-  "apiKeys.scopeHint.control": "セッションの一時停止・再開・中断・終了を行います。",
+  "apiKeys.scopeHint.control":
+    "セッションの一時停止・再開・中断・終了を行います。",
   "apiKeys.scopeHint.recover":
     "復旧が必要なセッションの続け方を決めます。ターンの破棄、完了の確認、クローズ、新規開始、復元の再試行ができます。",
   "apiKeys.expires": "有効期限（任意）",

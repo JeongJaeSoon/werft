@@ -79,7 +79,7 @@ const TITLE = "font-semibold text-foreground text-title leading-7";
 /** The release fields the screen reads; the rest are runtime snapshots. */
 export type ReleaseFixture = Pick<
   AgentRelease,
-  "id" | "version_id" | "label" | "runtime_profile_id" | "repository_id"
+  "id" | "version_id" | "label" | "connection_id" | "repository_id"
 >;
 export type DetailFixture = Pick<AgentDetail, "agent" | "versions"> & {
   readonly releases: readonly ReleaseFixture[];
@@ -134,7 +134,7 @@ export const RELEASE: ReleaseFixture = {
   id: "sha256:9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c0b2d4f6e8a1c3e5f7b9d0a2c4e6f8b1d",
   version_id: "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e52",
   label: "2026-10-22_14:00:00",
-  runtime_profile_id: "claude-coding",
+  connection_id: "anthropic-main",
   repository_id: "werft-sandbox",
 };
 
@@ -502,7 +502,7 @@ export function AgentReadiness({
       state: released ? "done" : "todo",
       desc: released
         ? `릴리스 ${detail.releases.length}개가 있습니다.`
-        : "릴리스 탭에서 버전과 프로필로 릴리스를 만듭니다.",
+        : "카드 탭에서 모델 연결과 모델을 골라 저장하면 첫 릴리스가 만들어집니다.",
     },
     {
       key: "activate",

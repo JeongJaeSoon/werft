@@ -30,10 +30,7 @@ import {
 } from "./github-activity.ts";
 import { previousRelease, releaseChanges } from "./release-changes.ts";
 import { ReleaseChangesSummary } from "./release-changes-view.tsx";
-import {
-  type RollbackPreview,
-  rollbackPreview,
-} from "./rollback-preview.ts";
+import { type RollbackPreview, rollbackPreview } from "./rollback-preview.ts";
 
 const COLUMNS = [
   "minmax(10rem,1.6fr) 96px minmax(0,1.2fr) minmax(0,1fr) 120px",
@@ -41,9 +38,7 @@ const COLUMNS = [
 ] as const;
 
 /** The connection the agent runs on now: its active release's, else its newest. */
-export function releasedConnection(
-  detail: AgentDetail,
-): string | undefined {
+export function releasedConnection(detail: AgentDetail): string | undefined {
   const active = detail.releases.find(
     (release) => release.id === detail.agent.active_release_id,
   );

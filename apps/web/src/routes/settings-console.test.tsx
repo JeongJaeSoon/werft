@@ -402,7 +402,10 @@ describe("모델 연결", () => {
     const field = named(dialog, "models") as HTMLTextAreaElement;
     expect(field.value).toBe("claude-sonnet-5");
     await user.clear(field);
-    await user.type(field, "claude-sonnet-5{Enter}claude-haiku-5, claude-opus-5");
+    await user.type(
+      field,
+      "claude-sonnet-5{Enter}claude-haiku-5, claude-opus-5",
+    );
     await user.click(within(dialog).getByRole("button", { name: "모델 저장" }));
     await screen.findByText("console-key의 모델 3개를 저장했습니다.");
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
@@ -453,10 +456,7 @@ describe("모델 연결", () => {
 
     test("a count above zero warns with each number, and disabling still goes through", async () => {
       const { api, user, confirm } = await openDisable(() =>
-        json(
-          200,
-          counts({ agent_count: 3, session_count: 1 }),
-        ),
+        json(200, counts({ agent_count: 3, session_count: 1 })),
       );
       const warning = await within(confirm).findByRole("alert");
       expect(warning.textContent).toContain("거절되거나 끊길 수 있습니다");
@@ -1095,11 +1095,7 @@ describe("설정의 모델 연결", () => {
       expect(screen.queryByRole("button", { name: "연결 추가" }) === null).toBe(
         true,
       );
-      expect(
-        api.calls.some(
-          (call) => call.path === CONNECTIONS,
-        ),
-      ).toBe(false);
+      expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
     });
   }
 });

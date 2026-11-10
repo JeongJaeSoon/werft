@@ -1,6 +1,6 @@
 # push 승인과 PR
 
-`src/push.ts`는 에이전트가 만든 commit을 저장소로 내보내는 흐름을 돈다. 에이전트 key의 세션이 파일 하나를 commit하고(두 Bash 명령은 세션 작업 공간 안의 파일 쓰기와 로컬 git이라 기본 프로필에서 사전 허용되고, 승인 요청이 오면 승인자가 정확히 일치할 때만 허락한다), 에이전트 key가 push를 요청한다. 승인자는 첫 요청을 거부하고(다시 승인하면 409 `PUSH_REQUEST_RESOLVED`), 새 요청의 고정된 commit을 승인한다. push는 worker가 아니라 플랫폼이 승인 몇 초 뒤에 한다. 샘플은 `waitForPushRequest`로 결과를 기다려 push receipt를 읽고, push된 브랜치로 PR을 열고 코멘트를 단다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
+`src/push.ts`는 에이전트가 만든 commit을 저장소로 내보내는 흐름을 돈다. 에이전트 key의 세션이 파일 하나를 commit하고(두 Bash 명령은 세션 작업 공간 안의 파일 쓰기와 로컬 git이라 기본 실행 규칙에서 사전 허용되고, 승인 요청이 오면 승인자가 정확히 일치할 때만 허락한다), 에이전트 key가 push를 요청한다. 승인자는 첫 요청을 거부하고(다시 승인하면 409 `PUSH_REQUEST_RESOLVED`), 새 요청의 고정된 commit을 승인한다. push는 worker가 아니라 플랫폼이 승인 몇 초 뒤에 한다. 샘플은 `waitForPushRequest`로 결과를 기다려 push receipt를 읽고, push된 브랜치로 PR을 열고 코멘트를 단다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 ## key와 실행
 

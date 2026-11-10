@@ -62,7 +62,7 @@ const NOTE: Readonly<Record<string, string>> = {
   conflict:
     "다른 곳에서 먼저 저장했습니다. 다시 읽은 값에서 고쳐 저장해 주세요.",
   refused:
-    "저장하지 못했습니다. 활성 릴리스의 프로필이 막은 도구는 새로 허용할 수 없습니다.",
+    "저장하지 못했습니다. 워크스페이스나 에이전트의 실행 규칙이 막은 도구는 새로 허용할 수 없습니다.",
 };
 
 type ChangeReceipt = Pick<
@@ -403,12 +403,12 @@ export const Conflict: Story = {
   },
 };
 export const Refused: Story = {
-  name: "Access tab (tool blocked by the profile)",
+  name: "Access tab (tool blocked by the run rules)",
   args: { view: "refused" },
   play: async ({ canvas }) => {
     await expect(
       canvas.getByText(
-        /활성 릴리스의 프로필이 막은 도구는 새로 허용할 수 없습니다/,
+        /워크스페이스나 에이전트의 실행 규칙이 막은 도구는 새로 허용할 수 없습니다/,
       ),
     ).toBeVisible();
   },

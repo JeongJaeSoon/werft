@@ -415,10 +415,7 @@ function ModelsDialog({
   const [error, setError] = useState<string | null>(null);
   const save = useSettingsWrite(
     "connection",
-    (
-      client,
-      variables: { readonly id: string; readonly models: string[] },
-    ) =>
+    (client, variables: { readonly id: string; readonly models: string[] }) =>
       unwrap(
         client.POST("/v1/installation/settings/connections/{id}/models", {
           params: { path: { id: variables.id } },

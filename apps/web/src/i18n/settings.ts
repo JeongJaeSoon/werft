@@ -35,7 +35,8 @@ export const settingsKo = {
   "settings.convert": "화면에서 키 넣기",
   "settings.convertFor": "{id} 화면에서 키 넣기",
   "settings.convertTitle": "{id}의 키를 화면에서 넣기",
-  "settings.convertDescription": "이 연결은 서버의 환경 변수나 Secrets Manager에 있는 키를 씁니다. 키를 여기에 붙여 넣으면 DB에 봉인해 저장하고, 이 연결은 저장한 키로 돕니다. 서버가 기존 값을 읽어 옮기지는 않습니다. 도는 세션은 멈추지 않습니다.",
+  "settings.convertDescription":
+    "이 연결은 서버의 환경 변수나 Secrets Manager에 있는 키를 씁니다. 키를 여기에 붙여 넣으면 DB에 봉인해 저장하고, 이 연결은 저장한 키로 돕니다. 서버가 기존 값을 읽어 옮기지는 않습니다. 도는 세션은 멈추지 않습니다.",
   "settings.done.converted": "{id}의 키를 저장했습니다.",
   "settings.error.not_external":
     "이미 화면에서 넣은 키를 쓰는 항목입니다. 값 바꾸기를 쓰세요.",
@@ -49,14 +50,17 @@ export const settingsKo = {
   "settings.disable": "사용 중지",
   "settings.disableFor": "{id} 사용 중지",
   "settings.disableTitle": "{id}를 사용 중지할까요?",
-  "settings.disableConsequence": "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 에이전트는 더 이상 실행되지 않습니다.",
-  "settings.connections.disableConsequence": "이 id는 다른 연결에 쓸 수 없습니다. 이 연결로 모델을 부르는 에이전트와 세션은 다시 켤 때까지 실행되지 않습니다.",
+  "settings.disableConsequence":
+    "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 에이전트는 더 이상 실행되지 않습니다.",
+  "settings.connections.disableConsequence":
+    "이 id는 다른 연결에 쓸 수 없습니다. 이 연결로 모델을 부르는 에이전트와 세션은 다시 켤 때까지 실행되지 않습니다.",
   "settings.connections.disableReenable":
     "나중에 같은 화면에서 다시 켤 수 있습니다.",
   "settings.enable": "다시 켜기",
   "settings.enableFor": "{id} 다시 켜기",
   "settings.enableTitle": "{id}를 다시 켤까요?",
-  "settings.connections.enableConsequence": "이 연결을 다시 쓸 수 있게 됩니다. 설정을 다시 읽은 뒤, 이 연결로 만든 릴리스가 다시 실행됩니다. 키를 읽지 못하면 목록에 그 상태로 표시됩니다.",
+  "settings.connections.enableConsequence":
+    "이 연결을 다시 쓸 수 있게 됩니다. 설정을 다시 읽은 뒤, 이 연결로 만든 릴리스가 다시 실행됩니다. 키를 읽지 못하면 목록에 그 상태로 표시됩니다.",
   "settings.done.enabled": "{id}를 다시 켰습니다.",
   "settings.error.not_disabled": "이미 사용 중인 연결입니다.",
   "settings.error.definition_active":
@@ -68,7 +72,8 @@ export const settingsKo = {
     "영향 수를 확인하지 못했습니다. 그래도 사용 중지할 수 있습니다.",
   "settings.connections.impact.warning":
     "이 연결을 사용 중지하면 아래 대상은 이후 모델 호출이 거절되거나 끊길 수 있습니다.",
-  "settings.connections.impact.agents": "이 연결로 도는 활성 릴리스의 에이전트: {count}개",
+  "settings.connections.impact.agents":
+    "이 연결로 도는 활성 릴리스의 에이전트: {count}개",
   "settings.connections.impact.sessions": "끝나지 않은 세션: {count}개",
   "settings.connections.impact.judge":
     "성과 판정 설정이 이 연결을 가리키고 있습니다.",
@@ -84,9 +89,11 @@ export const settingsKo = {
   "settings.error.invalid_entry": "입력이 올바르지 않습니다: {detail}",
 
   "settings.connections.title": "모델 연결",
-  "settings.connections.description": "이 설치의 모든 워크스페이스가 쓰는, 에이전트가 모델을 부르는 주소와 키, 그리고 에이전트가 고를 수 있는 모델입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
+  "settings.connections.description":
+    "이 설치의 모든 워크스페이스가 쓰는, 에이전트가 모델을 부르는 주소와 키, 그리고 에이전트가 고를 수 있는 모델입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
   "settings.connections.add": "연결 추가",
-  "settings.connections.empty": "모델 연결이 없습니다. 연결을 추가하고 모델 목록을 정하면 에이전트가 고를 수 있습니다.",
+  "settings.connections.empty":
+    "모델 연결이 없습니다. 연결을 추가하고 모델 목록을 정하면 에이전트가 고를 수 있습니다.",
   "settings.connections.kind": "종류",
   "settings.connections.endpoint": "엔드포인트",
   "settings.connections.endpointDefault":
@@ -144,9 +151,11 @@ export const settingsKo = {
   "settings.models.set": "모델",
   "settings.models.setFor": "{id}의 모델 목록",
   "settings.models.title": "에이전트가 고를 수 있는 모델",
-  "settings.models.description": "이 연결에서 에이전트 카드가 고를 수 있는 모델입니다. 목록에서 뺀 모델로 도는 세션은 다음 모델 호출에서 멈춥니다.",
+  "settings.models.description":
+    "이 연결에서 에이전트 카드가 고를 수 있는 모델입니다. 목록에서 뺀 모델로 도는 세션은 다음 모델 호출에서 멈춥니다.",
   "settings.models.label": "모델 (한 줄에 하나)",
-  "settings.models.hint": "공급자가 쓰는 모델 이름 그대로 적습니다. 쉼표로 나눠도 됩니다.",
+  "settings.models.hint":
+    "공급자가 쓰는 모델 이름 그대로 적습니다. 쉼표로 나눠도 됩니다.",
   "settings.models.save": "모델 저장",
   "settings.models.saving": "저장 중…",
   "settings.done.models": "{id}의 모델 {count}개를 저장했습니다.",
@@ -187,7 +196,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.convert": "Enter key on screen",
   "settings.convertFor": "Enter the key of {id} on screen",
   "settings.convertTitle": "Enter the key of {id} on screen",
-  "settings.convertDescription": "This connection uses a key from the server's environment or Secrets Manager. Paste the key here and it is sealed in the database; the connection then runs on the stored key. The server does not read the old value and copy it. Running sessions keep running.",
+  "settings.convertDescription":
+    "This connection uses a key from the server's environment or Secrets Manager. Paste the key here and it is sealed in the database; the connection then runs on the stored key. The server does not read the old value and copy it. Running sessions keep running.",
   "settings.done.converted": "The key of {id} was stored.",
   "settings.error.not_external":
     "This entry already keeps a key entered on screen. Use Replace value.",
@@ -201,14 +211,17 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.disable": "Disable",
   "settings.disableFor": "Disable {id}",
   "settings.disableTitle": "Disable {id}?",
-  "settings.disableConsequence": "This cannot be undone. The id is never used again, and the agents that use this entry stop running.",
-  "settings.connections.disableConsequence": "The id stays taken and cannot go to another connection. Agents and sessions that call their model through this connection do not run until it is turned back on.",
+  "settings.disableConsequence":
+    "This cannot be undone. The id is never used again, and the agents that use this entry stop running.",
+  "settings.connections.disableConsequence":
+    "The id stays taken and cannot go to another connection. Agents and sessions that call their model through this connection do not run until it is turned back on.",
   "settings.connections.disableReenable":
     "You can turn it back on later from this screen.",
   "settings.enable": "Enable again",
   "settings.enableFor": "Enable {id} again",
   "settings.enableTitle": "Enable {id} again?",
-  "settings.connections.enableConsequence": "This connection can be used again. Once the settings are read again, releases made on it run again. If its key cannot be read, the list shows it in that state.",
+  "settings.connections.enableConsequence":
+    "This connection can be used again. Once the settings are read again, releases made on it run again. If its key cannot be read, the list shows it in that state.",
   "settings.done.enabled": "{id} is enabled again.",
   "settings.error.not_disabled": "This connection is already in use.",
   "settings.error.definition_active":
@@ -220,7 +233,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
     "Could not check what this affects. You can still disable it.",
   "settings.connections.impact.warning":
     "If you disable this connection, model calls from the following can be refused or cut off from then on.",
-  "settings.connections.impact.agents": "Agents whose active release runs on this connection: {count}",
+  "settings.connections.impact.agents":
+    "Agents whose active release runs on this connection: {count}",
   "settings.connections.impact.sessions": "Sessions not yet ended: {count}",
   "settings.connections.impact.judge":
     "A workspace's achievement judge setting points at this connection.",
@@ -236,9 +250,11 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.error.invalid_entry": "The entry is invalid: {detail}",
 
   "settings.connections.title": "Model connections",
-  "settings.connections.description": "Where agents reach a model, and with which key, for every workspace on this installation, and the models agents may pick on each. A key entered here is stored encrypted; only its last four characters show.",
+  "settings.connections.description":
+    "Where agents reach a model, and with which key, for every workspace on this installation, and the models agents may pick on each. A key entered here is stored encrypted; only its last four characters show.",
   "settings.connections.add": "Add connection",
-  "settings.connections.empty": "No model connections. Add one and list its models, and agents can pick it.",
+  "settings.connections.empty":
+    "No model connections. Add one and list its models, and agents can pick it.",
   "settings.connections.kind": "Kind",
   "settings.connections.endpoint": "Endpoint",
   "settings.connections.endpointDefault":
@@ -297,14 +313,17 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.models.set": "Models",
   "settings.models.setFor": "Models of {id}",
   "settings.models.title": "Models agents may pick",
-  "settings.models.description": "The models an agent's card may name on this connection. A session on a model taken off the list stops at its next model call.",
+  "settings.models.description":
+    "The models an agent's card may name on this connection. A session on a model taken off the list stops at its next model call.",
   "settings.models.label": "Models (one per line)",
-  "settings.models.hint": "Write each model the way the provider names it. Commas work too.",
+  "settings.models.hint":
+    "Write each model the way the provider names it. Commas work too.",
   "settings.models.save": "Save models",
   "settings.models.saving": "Saving…",
   "settings.done.models": "Saved {count} models for {id}.",
   "home.setup.models": "List models on a connection",
-  "home.setup.modelsHint": "For each connection, list the models agents may pick.",
+  "home.setup.modelsHint":
+    "For each connection, list the models agents may pick.",
 };
 
 export const settingsJa: Record<keyof typeof settingsKo, string> = {
@@ -340,7 +359,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.convert": "画面でキーを入れる",
   "settings.convertFor": "{id} のキーを画面で入れる",
   "settings.convertTitle": "{id} のキーを画面で入れる",
-  "settings.convertDescription": "この接続は、サーバーの環境変数または Secrets Manager にあるキーを使っています。ここにキーを貼り付けると DB に封印して保存し、この接続は保存したキーで動きます。サーバーが古い値を読んで移すことはありません。実行中のセッションは止まりません。",
+  "settings.convertDescription":
+    "この接続は、サーバーの環境変数または Secrets Manager にあるキーを使っています。ここにキーを貼り付けると DB に封印して保存し、この接続は保存したキーで動きます。サーバーが古い値を読んで移すことはありません。実行中のセッションは止まりません。",
   "settings.done.converted": "{id} のキーを保存しました。",
   "settings.error.not_external":
     "すでに画面で入れたキーを使う項目です。値を変えるを使ってください。",
@@ -354,14 +374,17 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.disable": "使用停止",
   "settings.disableFor": "{id} を使用停止",
   "settings.disableTitle": "{id} を使用停止しますか？",
-  "settings.disableConsequence": "元に戻せません。この id は再利用できず、この項目を使うエージェントは動かなくなります。",
-  "settings.connections.disableConsequence": "この id は別の接続には使えません。この接続でモデルを呼ぶエージェントとセッションは、再び有効にするまで動きません。",
+  "settings.disableConsequence":
+    "元に戻せません。この id は再利用できず、この項目を使うエージェントは動かなくなります。",
+  "settings.connections.disableConsequence":
+    "この id は別の接続には使えません。この接続でモデルを呼ぶエージェントとセッションは、再び有効にするまで動きません。",
   "settings.connections.disableReenable":
     "あとからこの画面で再び有効にできます。",
   "settings.enable": "再び有効にする",
   "settings.enableFor": "{id} を再び有効にする",
   "settings.enableTitle": "{id} を再び有効にしますか？",
-  "settings.connections.enableConsequence": "この接続を再び使えるようになります。設定を読み直したあと、この接続で作ったリリースが再び動きます。キーを読めない場合は、一覧にその状態で表示されます。",
+  "settings.connections.enableConsequence":
+    "この接続を再び使えるようになります。設定を読み直したあと、この接続で作ったリリースが再び動きます。キーを読めない場合は、一覧にその状態で表示されます。",
   "settings.done.enabled": "{id} を再び有効にしました。",
   "settings.error.not_disabled": "すでに使用中の接続です。",
   "settings.error.definition_active":
@@ -373,7 +396,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
     "影響の数を確認できませんでした。それでも使用停止できます。",
   "settings.connections.impact.warning":
     "この接続を使用停止すると、以下の対象は以後のモデル呼び出しが拒否されたり切断されたりすることがあります。",
-  "settings.connections.impact.agents": "この接続で動く有効なリリースのエージェント: {count}件",
+  "settings.connections.impact.agents":
+    "この接続で動く有効なリリースのエージェント: {count}件",
   "settings.connections.impact.sessions": "終了していないセッション: {count}件",
   "settings.connections.impact.judge":
     "成果判定の設定がこの接続を指しています。",
@@ -389,9 +413,11 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.error.invalid_entry": "入力が正しくありません: {detail}",
 
   "settings.connections.title": "モデル接続",
-  "settings.connections.description": "このインストールのすべてのワークスペースが使う、エージェントがモデルを呼ぶアドレスとキー、そしてエージェントが選べるモデルです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
+  "settings.connections.description":
+    "このインストールのすべてのワークスペースが使う、エージェントがモデルを呼ぶアドレスとキー、そしてエージェントが選べるモデルです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
   "settings.connections.add": "接続を追加",
-  "settings.connections.empty": "モデル接続がありません。接続を追加してモデル一覧を決めると、エージェントが選べます。",
+  "settings.connections.empty":
+    "モデル接続がありません。接続を追加してモデル一覧を決めると、エージェントが選べます。",
   "settings.connections.kind": "種類",
   "settings.connections.endpoint": "エンドポイント",
   "settings.connections.endpointDefault":
@@ -449,9 +475,11 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.models.set": "モデル",
   "settings.models.setFor": "{id} のモデル一覧",
   "settings.models.title": "エージェントが選べるモデル",
-  "settings.models.description": "この接続でエージェントのカードが選べるモデルです。一覧から外したモデルで動くセッションは、次のモデル呼び出しで止まります。",
+  "settings.models.description":
+    "この接続でエージェントのカードが選べるモデルです。一覧から外したモデルで動くセッションは、次のモデル呼び出しで止まります。",
   "settings.models.label": "モデル（1 行に 1 つ）",
-  "settings.models.hint": "プロバイダーが使うモデル名のまま書きます。カンマ区切りでもかまいません。",
+  "settings.models.hint":
+    "プロバイダーが使うモデル名のまま書きます。カンマ区切りでもかまいません。",
   "settings.models.save": "モデルを保存",
   "settings.models.saving": "保存中…",
   "settings.done.models": "{id} のモデル {count} 件を保存しました。",

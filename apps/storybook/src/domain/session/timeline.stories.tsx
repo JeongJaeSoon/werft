@@ -180,7 +180,7 @@ const MODEL_CUT_EVENTS = [
   ],
 ] as const;
 
-/** The proxy blocked the model after it left the profile's allow-list. */
+/** The proxy blocked the model after it left its connection's model list. */
 export const ModelNotAllowed: Story = {
   args: { entries: pairedTimelineEntries(MODEL_CUT_EVENTS) },
 };

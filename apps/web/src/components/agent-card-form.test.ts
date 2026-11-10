@@ -13,10 +13,7 @@ import {
   modelOptions,
 } from "./agent-card-form.tsx";
 
-const connection = (
-  id: string,
-  models: string[],
-): ConnectionOption => ({
+const connection = (id: string, models: string[]): ConnectionOption => ({
   id,
   kind: "anthropic",
   billing: "metered",

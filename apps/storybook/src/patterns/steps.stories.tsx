@@ -20,7 +20,7 @@ const COPY = {
       ],
       [
         "첫 세션 시작",
-        "에이전트를 고르고 할 일을 적습니다. 프로필은 에이전트가 정한 값을 씁니다.",
+        "에이전트를 고르고 할 일을 적습니다. 모델 연결은 에이전트가 정한 값을 씁니다.",
         "새 세션",
       ],
       [
@@ -74,7 +74,7 @@ const COPY = {
       ],
       [
         "Start a first session",
-        "Pick an agent and write what to do. The profile comes from the agent.",
+        "Pick an agent and write what to do. The model connection comes from the agent.",
         "New session",
       ],
       [

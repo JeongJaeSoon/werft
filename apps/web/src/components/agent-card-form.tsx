@@ -192,7 +192,9 @@ export function AgentCardFields({
             </NativeSelect>
             <FieldDescription>{t("agentCard.connectionHint")}</FieldDescription>
             {catalog.data.items.length === 0 ? (
-              <FieldDescription>{t("agentCard.connectionNone")}</FieldDescription>
+              <FieldDescription>
+                {t("agentCard.connectionNone")}
+              </FieldDescription>
             ) : null}
           </Field>
           <ModelSelect

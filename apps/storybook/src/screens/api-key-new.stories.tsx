@@ -75,8 +75,7 @@ const SCOPE_HINT: Record<SessionScope, string> = {
     "세션과 그 턴·이벤트·영수증·사용량·공유 설정, 답을 기다리는 요청을 읽습니다.",
   "sessions:write": "새 세션을 시작하고 세션에 메시지를 보냅니다.",
   "sessions:approve": "세션이 기다리는 권한 요청과 질문에 답합니다.",
-  "sessions:control":
-    "세션을 멈추고, 다시 잇고, 중단하고, 끝내고, 프로필을 바꿉니다.",
+  "sessions:control": "세션을 멈추고, 다시 잇고, 중단하고, 끝냅니다.",
   "sessions:recover":
     "복구가 필요한 세션을 어떻게 이을지 정합니다: 턴 버리기·완료 확정·닫기·새로 시작·복원 재시도.",
 };

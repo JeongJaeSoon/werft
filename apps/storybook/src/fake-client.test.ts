@@ -7,9 +7,9 @@ afterEach(() => network.mockClear());
 
 test("answers a named request from the story's routes", async () => {
   const client = fakeClient({
-    "GET /v1/profiles": () => json(200, { items: [] }),
+    "GET /v1/connections": () => json(200, { items: [] }),
   });
-  expect(await unwrap(client.GET("/v1/profiles"))).toEqual({ items: [] });
+  expect(await unwrap(client.GET("/v1/connections"))).toEqual({ items: [] });
   expect(network).not.toHaveBeenCalled();
 });
 

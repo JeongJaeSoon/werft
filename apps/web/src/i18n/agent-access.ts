@@ -67,7 +67,8 @@ export const agentAccessKo = {
     "고른 서버의 도구가 아닌 이름이 있습니다.",
   "agentAccess.refused.server_credential_missing":
     "이 서버가 쓰는 자격 증명 이름이 필요한 자격 증명 이름에 없습니다.",
-  "agentAccess.refused.mcp_tool_denied": "워크스페이스나 에이전트의 실행 규칙이 막은 도구는 새로 허용할 수 없습니다.",
+  "agentAccess.refused.mcp_tool_denied":
+    "워크스페이스나 에이전트의 실행 규칙이 막은 도구는 새로 허용할 수 없습니다.",
   "agentAccess.refused.duplicate": "같은 이름이 두 번 들어 있습니다.",
   "agentAccess.refused.other": "요청이 거절되었습니다.",
   "agentAccess.readOnly": "에이전트 관리자만 고칠 수 있습니다.",
@@ -148,7 +149,8 @@ export const agentAccessEn: Record<keyof typeof agentAccessKo, string> = {
     "A name is not a tool of the chosen server.",
   "agentAccess.refused.server_credential_missing":
     "The credential name this server uses is not among the credential names needed.",
-  "agentAccess.refused.mcp_tool_denied": "A tool the workspace's or the agent's run rules block cannot be newly allowed.",
+  "agentAccess.refused.mcp_tool_denied":
+    "A tool the workspace's or the agent's run rules block cannot be newly allowed.",
   "agentAccess.refused.duplicate": "A name is listed twice.",
   "agentAccess.refused.other": "The request was refused.",
   "agentAccess.readOnly": "Only agent admins can edit these.",
@@ -230,7 +232,8 @@ export const agentAccessJa: Record<keyof typeof agentAccessKo, string> = {
     "選んだサーバーのツールではない名前があります。",
   "agentAccess.refused.server_credential_missing":
     "このサーバーが使う認証情報の名前が、必要な認証情報の名前にありません。",
-  "agentAccess.refused.mcp_tool_denied": "ワークスペースまたはエージェントの実行ルールがブロックしているツールは、新たに許可できません。",
+  "agentAccess.refused.mcp_tool_denied":
+    "ワークスペースまたはエージェントの実行ルールがブロックしているツールは、新たに許可できません。",
   "agentAccess.refused.duplicate": "同じ名前が2回入っています。",
   "agentAccess.refused.other": "リクエストが拒否されました。",
   "agentAccess.readOnly": "編集できるのはエージェント管理者だけです。",

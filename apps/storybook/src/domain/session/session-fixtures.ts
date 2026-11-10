@@ -33,9 +33,9 @@ const COPY: Record<TurnEventMessageKey, string> = {
   "session.event.kind.result": "Turn end",
   "session.event.kind.error": "Error",
   "session.event.error.modelNotAllowed":
-    "Model requests for this session were blocked because {model} is no longer allowed by its profile",
-  "session.event.error.modelProfileRemoved":
-    "Model requests for this session were blocked because the profile that served {model} is gone",
+    "Model requests for this session were blocked because {model} is no longer on its connection's model list",
+  "session.event.error.modelConnectionRemoved":
+    "Model requests for this session were blocked because the connection that served {model} is gone",
   "session.event.modelMigrated":
     "{from} left the allowed list, so the session moved to {to}",
   "session.event.init": "Session started",
@@ -284,9 +284,9 @@ export const SESSION: SessionSummary = {
   admission_state: "active",
   status: "running",
   runtime: {
-    profile_id: "claude-default",
     kind: "claude_agent_sdk",
     version: "0.2.1",
+    connection_id: "anthropic-main",
     model: "claude-sonnet-4-5",
     permission_mode: "default",
   },

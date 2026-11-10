@@ -92,7 +92,7 @@ const SETTINGS: Pick<
   WorkspaceSettingsValues,
   "audit_retention_days" | "slack_guest_enabled"
 > = { audit_retention_days: 90, slack_guest_enabled: false };
-// The distinct `model` of GET /v1/profiles items.
+// The distinct models of GET /v1/connections items.
 const MODELS = ["claude-haiku-5", "claude-sonnet-5"];
 
 // The signed-in owner registered the token.
@@ -354,7 +354,7 @@ function AllowedModels({ models }: { readonly models: Models }) {
   return (
     <SettingsSection
       title="모델 허용 목록"
-      description="세션에서 고를 수 있는 모델의 상한입니다. 에이전트 제한과 프로필이 여기서 더 좁힙니다."
+      description="에이전트 카드가 고를 수 있는 모델입니다. 설치 owner가 모델 연결마다 정합니다."
       foot={
         <>
           <Text as="div" variant="meta">

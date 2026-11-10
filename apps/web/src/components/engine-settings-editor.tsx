@@ -210,9 +210,7 @@ export function EngineSettingsEditor({
               className={buttonVariants({ size: "sm" })}
               reason={withheld}
               // aria-disabled, not disabled: a disabled button drops its focus.
-              aria-disabled={
-                mutation.isPending || !dirty || undefined
-              }
+              aria-disabled={mutation.isPending || !dirty || undefined}
             >
               {t(mutation.isPending ? "engine.saving" : "engine.save")}
             </ReasonButton>

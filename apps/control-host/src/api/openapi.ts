@@ -126,7 +126,6 @@ import {
   listAchievementRulesResponseSchema,
   listAchievementTypesResponseSchema,
   listAdministeredAgentsResponseSchema,
-  listConnectionOptionsResponseSchema,
   listAdminSessionsResponseSchema,
   listAgentGitHubRepositoriesResponseSchema,
   listAgentIdentitiesResponseSchema,
@@ -134,6 +133,7 @@ import {
   listAgentsResponseSchema,
   listApiKeysQuerySchema,
   listApiKeysResponseSchema,
+  listConnectionOptionsResponseSchema,
   listCredentialBindingsResponseSchema,
   listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
@@ -1029,7 +1029,6 @@ const EXAMPLE_AGENT_ADMINS = {
 };
 const TEAM_PAGES =
   "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
-
 
 const ACHIEVEMENT_CATEGORY_EXAMPLE = {
   id: "5b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
@@ -6336,7 +6335,8 @@ export const API_ROUTE_DECLARATIONS = [
     auth: "session",
     success: { status: 200, schema: "ListAdministeredAgentsResponse" },
     errors: [401, 403, 503],
-  },  {
+  },
+  {
     method: "get",
     path: "/v1/connections",
     operationId: "listConnectionOptions",
@@ -6363,9 +6363,6 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [401, 403, 503],
   },
-
-
-
 
   {
     method: "get",
@@ -6702,11 +6699,6 @@ export const API_ROUTE_DECLARATIONS = [
     idempotent: false,
   },
 
-
-
-
-
-
   {
     method: "get",
     path: "/v1/installation/settings/export",
@@ -6886,7 +6878,8 @@ export const API_ROUTE_DECLARATIONS = [
     errors: [400, 401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
-  },  {
+  },
+  {
     method: "post",
     path: "/v1/installation/settings/connections/{id}/models",
     operationId: "setSettingsConnectionModels",

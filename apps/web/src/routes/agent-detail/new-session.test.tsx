@@ -490,7 +490,9 @@ describe("이 에이전트로 새 세션", () => {
         ...server.routes,
         ...connectionsRoute(
           server,
-          withModels(["claude-haiku-5"], { "claude-sonnet-5": "claude-haiku-5" }),
+          withModels(["claude-haiku-5"], {
+            "claude-sonnet-5": "claude-haiku-5",
+          }),
         ),
       },
       "ko",

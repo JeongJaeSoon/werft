@@ -92,7 +92,6 @@ const pushRequest = (n: number) => ({
 
 const FILLED: FakeRoutes = {
   "GET /v1/auth/me": () => json(200, me()),
-  "GET /v1/profiles": () => json(200, { items: [] }),
   "GET /v1/administered-agents": () => json(200, { items: [] }),
   [`${base}/outputs`]: () =>
     json(200, {

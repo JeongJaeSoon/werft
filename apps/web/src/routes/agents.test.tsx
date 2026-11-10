@@ -2618,9 +2618,11 @@ describe("편집 중 다른 곳의 저장", () => {
         expect(api.calls.some((c) => c.method === "PATCH")).toBe(true),
       );
       expect(
-        (api.calls.find((c) => c.method === "PATCH")?.body as {
-          connection_id?: string;
-        }).connection_id,
+        (
+          api.calls.find((c) => c.method === "PATCH")?.body as {
+            connection_id?: string;
+          }
+        ).connection_id,
       ).toBe(CONNECTION);
     });
 

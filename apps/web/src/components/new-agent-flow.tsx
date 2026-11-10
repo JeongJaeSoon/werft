@@ -665,8 +665,7 @@ function JobStep({
     connectionId !== "" ? connectionId : (catalog.data?.items[0]?.id ?? "");
   const connection = catalog.data?.items.find((item) => item.id === chosen);
   // The card's model has to be one the chosen connection offers.
-  const runs =
-    connection !== undefined && connection.models.includes(draft.model);
+  const runs = connection?.models.includes(draft.model) === true;
   const change = (next: CardDraft) => {
     for (const key of CARD_FIELDS)
       if (next[key] !== draft[key])
@@ -709,9 +708,7 @@ function JobStep({
         <Button
           type="submit"
           disabled={
-            isSubmitting ||
-            !catalog.isSuccess ||
-            (draft.model !== "" && !runs)
+            isSubmitting || !catalog.isSuccess || (draft.model !== "" && !runs)
           }
         >
           {isSubmitting ? t("agents.flow.saving") : t("agents.flow.saveNext")}
