@@ -45,6 +45,8 @@ const profile: CatalogProfile = {
 const card: AgentCard = agentCardSchema.parse({
   role: "재무 분석가",
   instructions: "분기 보고서를 읽고 이상치를 요약한다.",
+  // Spelled out: the pinned digests below were taken with `ko`, not the default.
+  language: "ko",
   model: "claude-sonnet-5",
   capabilities: { mcp: null, forbidden: [] },
 });

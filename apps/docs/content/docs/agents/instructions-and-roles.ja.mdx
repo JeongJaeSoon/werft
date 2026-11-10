@@ -53,7 +53,7 @@ description: 名前・説明とリポジトリの CLAUDE.md・AGENTS.md の違�
 | `capabilities.forbidden` | | 禁止するツール名。Web コンソールは新しいカードに `[]` を入れ、既存の値は表示して消すことだけができる |
 | `capabilities.tool_policy` | | ツールごとの `allow`・`ask`・`deny` |
 | `capabilities.credential_refs` | | 使う認証情報の名前 (値ではない)。[権限](/agents/permissions) |
-| `language` | | 回答言語: `follow-user` (相手の言語に合わせる)、`ko` (デフォルト)、`en`、`ja`。Web で新しく作るカードの初期値は `follow-user`。`ko`・`en`・`ja` は相手が別の言語で書かない限りその言語で答えさせる。次のリリースから適用され、開始済みのセッションは変わらない |
+| `language` | | 回答言語: `follow-user` (デフォルト、相手の言語に合わせる)、`ko`、`en`、`ja`。省略すると `follow-user`。`ko`・`en`・`ja` は相手が別の言語で書いてもその言語で答えさせる。次のリリースから適用され、開始済みのセッションは変わらない |
 | `rules` | | `{id, text, source}` の一覧。`source` は `user` または `correction` |
 | `role`・`instructions` | | 以前のカードの値。モデルには渡されない。新しいカードには送らない |
 

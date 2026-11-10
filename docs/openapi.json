@@ -3095,7 +3095,7 @@
                 "maxLength": 20000
               },
               "language": {
-                "default": "ko",
+                "default": "follow-user",
                 "type": "string",
                 "enum": [
                   "follow-user",
@@ -3298,7 +3298,7 @@
                 "maxLength": 20000
               },
               "language": {
-                "default": "ko",
+                "default": "follow-user",
                 "type": "string",
                 "enum": [
                   "follow-user",
@@ -24469,7 +24469,7 @@
                       "maxLength": 20000
                     },
                     "language": {
-                      "default": "ko",
+                      "default": "follow-user",
                       "type": "string",
                       "enum": [
                         "follow-user",
@@ -25656,7 +25656,7 @@
                       "maxLength": 20000
                     },
                     "language": {
-                      "default": "ko",
+                      "default": "follow-user",
                       "type": "string",
                       "enum": [
                         "follow-user",
