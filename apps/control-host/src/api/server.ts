@@ -128,20 +128,15 @@ import {
   createSettingsDocumentService,
   createSlackAppService,
   createSlackBotApi,
-  createSlackChannelJoiner,
   createSlackChannelKinds,
   createSlackChannelSearchService,
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
-  createSlackEventsService,
   createSlackInstallService,
-  createSlackInteractionService,
   createSlackLinkAppService,
   createSlackSecretService,
-  createSlackSigningSecrets,
   createSlackTokenRevoked,
-  createSlackWelcome,
   createSurfaceBindingService,
   createTeamService,
   createUsageService,
@@ -162,6 +157,13 @@ import {
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import {
+  createSlackChannelJoiner,
+  createSlackEventsService,
+  createSlackInteractionService,
+  createSlackSigningSecrets,
+  createSlackWelcome,
+} from "../wiring/chat-slack.ts";
 import {
   connectionsOf,
   createAppBotUsers,

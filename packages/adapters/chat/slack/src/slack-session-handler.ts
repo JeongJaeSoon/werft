@@ -6,36 +6,34 @@ import {
   type SurfaceChannelKind,
   slackNoticeFor,
 } from "@werft-ai/contracts";
-import { z } from "zod";
-import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
-import type { AgentStore } from "../ports/agent-store.ts";
-import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
 import type {
+  AgentIdentityStore,
+  AgentStore,
+  LinkedAccountStore,
   SessionLinkRecord,
   SessionLinkStore,
-} from "../ports/session-link-store.ts";
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
-import type { SlackInboundEventStore } from "../ports/slack-inbound-event-store.ts";
-import type { SlackNoticeSink } from "../ports/slack-notice-sink.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
+  SlackAppStore,
+  SlackInboundEventStore,
+  SurfaceBindingStore,
+} from "@werft-ai/platform";
 import {
+  type AuthorizationPolicy,
+  agentForSlackEvent,
+  authorizeSlackInput,
+  type Caller,
+  judgeThreadReply,
   type SessionService,
   SessionServiceError,
-} from "../sessions/session-service.ts";
-import { agentForSlackEvent } from "./agent-identity-service.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
-import {
-  authorizeSlackInput,
-  type SlackInput,
-  slackCallerOf,
-} from "./slack-decision.ts";
-import {
+  SlackApiError,
+  type SlackBotApi,
   SlackInboundDropped,
   type SlackInboundHandler,
   type SlackInboxLogger,
-} from "./slack-inbox.ts";
-import { judgeThreadReply } from "./slack-thread-shadow.ts";
+  type SlackInput,
+  slackCallerOf,
+} from "@werft-ai/platform";
+import { z } from "zod";
+import type { SlackNoticeSink } from "./slack-notice-sink.ts";
 
 const slackMessageSchema = z.object({
   type: z.enum(["app_mention", "message"]),

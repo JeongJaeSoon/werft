@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { slackInteractionResponseSchema } from "@werft-ai/contracts";
 import type {
   SlackInteractionOutcome,
   SlackInteractionService,
-} from "@werft-ai/platform";
+} from "@werft-ai/chat-slack";
+import { slackInteractionResponseSchema } from "@werft-ai/contracts";
 import { createSlackEventsLimiter } from "../rate-limit.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSlackInteractionRoutes } from "./slack-interactions.ts";

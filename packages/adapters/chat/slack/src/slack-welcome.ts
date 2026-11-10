@@ -2,17 +2,17 @@ import {
   SLACK_BINDING_LIST_LIMIT,
   type SlackFinalizeWarning,
 } from "@werft-ai/contracts";
-import type { AgentStore } from "../ports/agent-store.ts";
-import type { SlackAppStore } from "../ports/slack-app-store.ts";
 import type {
+  AgentStore,
+  ChannelJoinable,
+  SlackAppStore,
+  SlackInboxLogger,
+  SlackInstallFinalize,
   SlackOutboxEntry,
   SlackOutboxStore,
-} from "../ports/slack-outbox-store.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
-import type { WelcomeOutcome } from "../surface/ports/agent-welcomable.ts";
-import type { ChannelJoinable } from "../surface/ports/channel-joinable.ts";
-import type { SlackInboxLogger } from "./slack-inbox.ts";
-import type { SlackInstallFinalize } from "./slack-install-service.ts";
+  SurfaceBindingStore,
+  WelcomeOutcome,
+} from "@werft-ai/platform";
 
 /** The welcome's words; the outbox escapes them, so a name mentions no one. */
 export function slackWelcomeText(agentName: string): string {

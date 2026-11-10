@@ -20,6 +20,7 @@
     "mcp-settings-migration": "bun run src/api/mcp-settings-migration.ts"
   },
   "dependencies": {
+    "@werft-ai/chat-slack": "workspace:*",
     "@werft-ai/contracts": "workspace:*",
     "@werft-ai/db": "workspace:*",
     "@werft-ai/execution-kubernetes": "workspace:*",

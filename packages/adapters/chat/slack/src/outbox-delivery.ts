@@ -1,13 +1,17 @@
-import type { SlackOutboxSettle } from "../ports/slack-outbox-store.ts";
-import type { Approvable } from "../surface/ports/approvable.ts";
 import type {
+  Approvable,
   ClaimedOutboxRow,
   DeliveryInput,
   DeliveryOutcome,
-} from "../surface/ports/delivery.ts";
-import type { Notifiable } from "../surface/ports/notifiable.ts";
-import { SlackApiError, type SlackBotSender } from "./slack-config-api.ts";
-import { slackInboundBackoffMs } from "./slack-inbox.ts";
+  SlackOutboxSettle,
+} from "@werft-ai/platform";
+import {
+  type Notifiable,
+  SLACK_SEND_MAX_ATTEMPTS,
+  SlackApiError,
+  type SlackBotSender,
+  slackInboundBackoffMs,
+} from "@werft-ai/platform";
 import {
   sessionUrl,
   slackInstructionFallbackText,
@@ -15,7 +19,6 @@ import {
   slackOutboxSettleFor,
   slackOutboxText,
 } from "./slack-outbox.ts";
-import { SLACK_SEND_MAX_ATTEMPTS } from "./slack-send-result.ts";
 
 /**
  * The outbox sender's way out to the channel. `notifiable` and `approvable`

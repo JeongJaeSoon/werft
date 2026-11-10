@@ -59,4 +59,8 @@ ALTER TABLE "checkpoints" DROP COLUMN "profile_id";--> statement-breakpoint
 ALTER TABLE "checkpoints" DROP COLUMN "profile_fingerprint";--> statement-breakpoint
 ALTER TABLE "session_links" DROP COLUMN "profile_id";--> statement-breakpoint
 ALTER TABLE "sessions" DROP COLUMN "profile_id";--> statement-breakpoint
-ALTER TABLE "sessions" DROP COLUMN "profile_fingerprint";
+ALTER TABLE "sessions" DROP COLUMN "profile_fingerprint";--> statement-breakpoint
+-- Every session runs its spec's tool list; 0264's choice between the
+-- profile's list and the release's no longer has a profile side.
+ALTER TABLE "sessions" DROP CONSTRAINT "sessions_runtime_tools_source_check";--> statement-breakpoint
+ALTER TABLE "sessions" DROP COLUMN "runtime_tools_source";

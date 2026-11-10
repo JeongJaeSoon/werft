@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createSlackEventsService,
+  createSlackSigningSecrets,
+} from "@werft-ai/chat-slack";
+import {
   BOT_SCOPES,
   SLACK_AGENT_BOT_EVENTS,
   scopesForRole,
@@ -36,9 +40,7 @@ import {
   createSlackConfigApi,
   createSlackConfigTokens,
   createSlackEventsFinalize,
-  createSlackEventsService,
   createSlackInstallService,
-  createSlackSigningSecrets,
   MANAGEMENT_ROLES,
   SecretKey,
   SessionServiceError,

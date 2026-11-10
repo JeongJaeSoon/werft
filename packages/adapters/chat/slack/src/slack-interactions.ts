@@ -20,46 +20,44 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type {
+  AgentIdentityStore,
+  LinkedAccountStore,
+  PendingRequestService,
   PushActor,
+  PushFollowUpStore,
   PushRequestService,
-} from "../action/change-request/push-request-service.ts";
-import type { PendingRequestService } from "../decision/pending-service.ts";
-import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
-import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
-import type { PushFollowUpStore } from "../ports/push-follow-ups.ts";
-import type { SlackOutboxStore } from "../ports/slack-outbox-store.ts";
-import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
+  SlackInboxLogger,
+  SlackOutboxStore,
+  SurfaceBindingStore,
+} from "@werft-ai/platform";
 import {
+  type AuthorizationPolicy,
+  agentForSlackEvent,
+  authorizeSlackInput,
+  type Caller,
   type SessionService,
   SessionServiceError,
-} from "../sessions/session-service.ts";
-import { agentForSlackEvent } from "./agent-identity-service.ts";
-import type { AuthorizationPolicy, Caller } from "./policy.ts";
-import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
-import {
-  authorizeSlackInput,
-  type SlackDecision,
-  slackCallerOf,
-} from "./slack-decision.ts";
-import {
-  type SlackSigningSecrets,
-  verifySlackSignature,
-} from "./slack-events-service.ts";
-import type { SlackInboxLogger } from "./slack-inbox.ts";
-import {
-  SLACK_CARD_SETTLE_TIMING,
-  settleSlackCards,
-  slackOutboxText,
-} from "./slack-outbox.ts";
-import {
   SLACK_PROMPT_MESSAGES,
+  type SlackBotApi,
+  type SlackBotSender,
+  type SlackDecision,
   type SlackPromptResult,
+  slackCallerOf,
   slackNoticeView,
   slackOptionAnswer,
   slackQuestionAnswers,
   slackQuestionView,
   slackSettledCard,
-} from "./slack-prompts.ts";
+} from "@werft-ai/platform";
+import {
+  type SlackSigningSecrets,
+  verifySlackSignature,
+} from "./slack-events-service.ts";
+import {
+  SLACK_CARD_SETTLE_TIMING,
+  settleSlackCards,
+  slackOutboxText,
+} from "./slack-outbox.ts";
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
 type SettleCard = () => Promise<void>;

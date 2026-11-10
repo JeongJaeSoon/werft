@@ -3,7 +3,7 @@ import {
   slackInteractionResponseSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
-import type { SlackInteractionService } from "@werft-ai/platform";
+import type { SlackInteractionService } from "../../wiring/chat-slack.ts";
 import {
   ApiHttpError,
   type ApiRouter,

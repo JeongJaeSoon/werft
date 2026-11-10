@@ -49,6 +49,8 @@
   --color-sidebar: var(--werft-color-sidebar);
   --color-sidebar-hover: var(--werft-color-sidebar-hover);
   --color-sidebar-accent: var(--werft-color-sidebar-accent);
+  --color-sidebar-selected: var(--werft-color-sidebar-selected);
+  --color-sidebar-selected-text: var(--werft-color-sidebar-selected-text);
   --color-hover: var(--werft-color-hover);
   --color-active: var(--werft-color-active);
   --color-skeleton: var(--werft-color-skeleton);
