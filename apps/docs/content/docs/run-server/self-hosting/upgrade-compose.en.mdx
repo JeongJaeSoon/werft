@@ -100,10 +100,10 @@ Test new control-host with the previous worker before deployment: complete sessi
 <a id="v010-이후-변경을-처음-적용할-때" />
 ### First applying changes after v0.1.0
 
-- Apply every migration from `v0.1.0` through the target version (currently through `0252`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
-- Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. Sources from `a486f20d2` onward accept it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
+- Apply every migration from `v0.1.0` through the target version (through `0262` for `v0.1.2`) with migrate. Old images ignore new `0239_connection_replaces_auth` columns, but this alone does not make other checkpoint/protocol rollback safe.
+- Compose at the `v0.1.0` tag refuses to render when `ANTHROPIC_API_KEY` is empty. When upgrading from `v0.1.0`, a key left in the env file can stay. The `v0.1.2` tag accepts it set or unset. Only re-applying `v0.1.0` sources requires a non-empty key.
 - Replace control-host before worker. Even with `platform_tool_trust` fallback, the transition uses old permission paths; keep the order.
-- Update API, Compose maintenance, and Kubernetes checkpointGc/sessionArchive CronJobs first, **confirm Jobs started from old images have finished**, then update workers. Old GC can delete pinned revisions, and old APIs and verifiers reject the local branches workers now always carry. `AGENT_ACTION_FLOWS` and `SESSION_PROMPT_REVISION` no longer exist and their values are ignored. A `v0.1.1` changelog heading does not prove publication.
+- Update API, Compose maintenance, and Kubernetes checkpointGc/sessionArchive CronJobs first, **confirm Jobs started from old images have finished**, then update workers. Old GC can delete pinned revisions, and old APIs and verifiers reject the local branches workers now always carry. `AGENT_ACTION_FLOWS` and `SESSION_PROMPT_REVISION` no longer exist and their values are ignored. The `v0.1.1` tag has no published artifacts, so do not use it; the release after `v0.1.0` is `v0.1.2`.
 
 Apply the conditions below after checking whether your installation already includes them. Before rollback, count affected sessions through read-only SQL. Prefer roll-forward without approving data loss where possible.
 

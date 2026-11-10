@@ -31,6 +31,7 @@ import {
   attempts,
   executions,
   receipts,
+  sessionPinCutover,
   sessions,
   turns,
   unassignedSessions,
@@ -388,6 +389,28 @@ integration(
       expect(row.checkpointRevision).toBe(0);
       return { session, first: worker, pause };
     }
+
+    test("a paused session that carries an ended status and has no pin is not resumed once the pin is authoritative", async () => {
+      const { session } = await pausedSession("pin-required");
+      await db
+        .update(sessions)
+        .set({ status: "stopped" })
+        .where(eq(sessions.id, session.sessionId));
+      const before = await sessionRow(session.sessionId);
+      await db
+        .update(sessionPinCutover)
+        .set({ authoritative: true, flippedAt: new Date() });
+      try {
+        expect(await control("resume", session, before.revision)).toEqual({
+          outcome: "pin_required",
+        });
+        expect(await sessionRow(session.sessionId)).toEqual(before);
+      } finally {
+        await db
+          .update(sessionPinCutover)
+          .set({ authoritative: false, flippedAt: null });
+      }
+    });
 
     test("paused → resume 202 resuming → reserved claim → no input before ready → ready: active, receipt succeeded, queue resumes in order", async () => {
       const { session } = await pausedSession("happy");

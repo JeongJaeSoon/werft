@@ -143,6 +143,9 @@ export type AppendMessageResult =
   | { outcome: "awaiting_takeover" }
   | { outcome: "actor_inactive" }
   | { outcome: "credential_unbound"; agentId: string; receiptId: string }
+  // The input would revive a failed session that has no spec pin on its own
+  // model, which an authoritative pin refuses; nothing is recorded.
+  | { outcome: "pin_required" }
   | InputLimitRefusal;
 
 // Storage rows carry profile_id; the service resolves runtime from the catalog.

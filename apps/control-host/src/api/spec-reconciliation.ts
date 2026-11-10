@@ -1,6 +1,7 @@
 import {
   type Database,
   listStrandedSessions,
+  listUnspeccedLiveSessions,
   reconcileSessionPins,
   releaseSpecStore,
   sessionPinGate,
@@ -46,7 +47,17 @@ export async function reconcileSpecs(deps: {
     releaseSpecStore(deps.db),
     (release) => {
       const profile = catalogProfile(deps.catalog, release.runtime_profile_id);
-      if (profile === undefined) return null;
+      if (profile === undefined) {
+        // An operator block is held, not lost: the profile runs again once
+        // unblocked, and the owner decides about the sessions meanwhile.
+        const id = release.runtime_profile_id;
+        const base =
+          deps.catalog.workspace_profiles?.records.get(id)?.base_profile_id ??
+          id;
+        return deps.catalog.installation?.get(base)?.state === "blocked"
+          ? { skip: "profile_blocked" as const }
+          : { skip: "profile_gone" as const };
+      }
       // A workspace version has no provider of its own: it follows its base.
       const installationId =
         deps.catalog.workspace_profiles?.records.get(release.runtime_profile_id)
@@ -70,7 +81,16 @@ export async function reconcileSpecs(deps: {
   // They hold the gate closed until they end; the owner decides which to stop.
   const stranded =
     gate.releaseLess === 0 ? [] : await listStrandedSessions(deps.db, 50);
-  return { releases, pins, gate, stranded };
+  // Live sessions whose release has no spec yet: the ones that keep the gate
+  // closed after the pins are written, with why each release is skipped.
+  const reasonOf = new Map(
+    releases.skipped.map((skip) => [skip.release_id, skip.reason]),
+  );
+  const held = (await listUnspeccedLiveSessions(deps.db, 50)).map((row) => ({
+    ...row,
+    reason: reasonOf.get(row.releaseId) ?? "not_attempted",
+  }));
+  return { releases, pins, gate, stranded, held };
 }
 
 export function startSpecReconciliation(
@@ -79,12 +99,20 @@ export function startSpecReconciliation(
 ): void {
   const pass = (): void => {
     reconcileSpecs(deps).then(
-      ({ releases, pins, gate, stranded }) => {
+      ({ releases, pins, gate, stranded, held }) => {
         logger.info("Release specs and session pins reconciled", {
           releases_stored: releases.stored,
           releases_raced: releases.raced,
           releases_skipped: releases.skipped.length,
           skipped_reasons: [...new Set(releases.skipped.map((s) => s.reason))],
+          skipped_by_reason: Object.fromEntries(
+            [...new Set(releases.skipped.map((s) => s.reason))].map(
+              (reason) => [
+                reason,
+                releases.skipped.filter((s) => s.reason === reason).length,
+              ],
+            ),
+          ),
           pins_repaired: pins.repaired,
           pins_raced: pins.raced,
           pins_unresolved: pins.unresolved,
@@ -95,6 +123,8 @@ export function startSpecReconciliation(
           gate_unverifiable: gate.unverifiable,
           gate_model_unknown: gate.modelUnknown,
           gate_release_less: gate.releaseLess,
+          // First 50 by id: live sessions on a release with no spec.
+          held_sessions: held,
           // First 50 by id: what the owner lists and decides on.
           stranded_sessions: stranded.map((s) => ({
             id: s.id,

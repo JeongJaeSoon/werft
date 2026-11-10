@@ -427,6 +427,21 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'X-Owner-Id: local-owner' http://127.0.0.1:3000/v1
 ```
 
+## 트레이스 내보내기 (OTLP)
+
+API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 주지 않으면 span을 만들지도, 요청을 보내지도 않는다. 로그의 `trace_id`·`span_id`는 활성 span 안에서만 찍힌다([로그 레코드 계약](../contributing/decisions/logging-contract.md)). 설계는 [관측(OTel) 방향과 도구 호출 감사](../contributing/decisions/observability-otel-and-tool-call-audit.md) 6절이다.
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `OTEL_TRACES_EXPORTER` | `none` | `none` 또는 `otlp` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | 없음 | 수집기 주소. 앞의 것은 뒤에 `/v1/traces`를 붙이고, 뒤의 것은 그대로 쓴다. `otlp`인데 둘 다 없으면 시작 시 멈춘다 |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | 이 값만 받는다 |
+| `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | 없음 | `키=값,키=값`(값은 퍼센트 인코딩, 출력 가능한 ASCII만). 뒤의 것이 같은 이름에서 이긴다. 시작 때 모양을 검사해 틀리면 멈춘다. 비밀이므로 env 파일로만 준다. 로그와 오류 메시지에 값을 쓰지 않는다 |
+| `OTEL_SERVICE_NAME` | `werft-api` | |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | `always_on` / `1.0` | `always_on`, `always_off`, `traceidratio`(비율 0~1) |
+| `TRACE_TENANT_HEADER` | 없음 | `<헤더 이름>: <값 틀>`. 값 틀의 `{workspace_id}`를 워크스페이스 id로 바꿔 batch마다 붙인다 |
+| `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 값 |
+
 ## checkpoint object store
 
 API는 checkpoint object store 설정을 기동 시 요구한다 — `S3_BUCKET`·`AWS_REGION`(+ 선택 `AWS_ENDPOINT_URL`)이 없으면 기동하지 않는다. `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`는 둘 다 주거나 둘 다 뺀다. 하나만 있으면 기동하지 않는다. 둘 다 빼면 AWS SDK 기본 credential chain이 서명한다. EKS에서는 api ServiceAccount의 IRSA role이 그 자리에 오고, chart는 `secrets.objectStoreKeys: false`로 이 경로를 쓴다. chain이 아무 credential도 찾지 못하면 요청은 서명 없이 나가지 않고 실패한다. 이 credential은 워커의 object store route 요청을 서명하는 데도 쓰인다. object store 없이 띄우려면 `CHECKPOINT_OBJECT_STORE=disabled`를 명시한다: 모든 checkpoint가 거절되고 워커 checkpoint 프로토콜은 409 `CHECKPOINT_UNAVAILABLE`로 답하며 기동 로그에 경고가 남는다. 빠진 bucket이 checkpoint 없는 finalize 뒤에 숨지 않도록 침묵 기본값을 두지 않았다. compose `apps` profile은 localstack 값을 기본으로 넣는다.

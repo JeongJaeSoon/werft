@@ -32,6 +32,7 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { recordStatus } from "./session-events.ts";
+import { pinRefusesLive } from "./session-pin-cutover.ts";
 
 export const RESUME = "resume";
 
@@ -267,6 +268,9 @@ async function resumePaused(
   const unknown = await earliestUnknownTurn(tx, session.id);
   const refusal = pausedResumeRefusal(session, unknown);
   if (refusal !== null) return refusal;
+  // A paused session can carry the status of an ended one; the resume that
+  // completes later makes it live, which an authoritative pin refuses.
+  if (await pinRefusesLive(tx, session)) return { outcome: "pin_required" };
   // A parked turn is carried on by this resume, once nothing it asked is
   // still open: an answer or an expiry stands for each.
   const parked = await closeParkedGroup(tx, session, {

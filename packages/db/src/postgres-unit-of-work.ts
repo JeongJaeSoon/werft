@@ -147,6 +147,7 @@ import {
   sameChunks,
 } from "./session-event-archives.ts";
 import { recordStatus } from "./session-events.ts";
+import { pinRefusesLive } from "./session-pin-cutover.ts";
 import { sessionRelationIs, sessionVisibleTo } from "./session-shares.ts";
 import { newSessionPin } from "./session-spec-pin.ts";
 import { readArchivedWorkspaceLimit } from "./workspace-limit.ts";
@@ -530,6 +531,8 @@ export function createPostgresSessionUnitOfWork(
             status: sessions.status,
             takeoverRequiredAt: sessions.takeoverRequiredAt,
             agentReleaseId: sessions.agentReleaseId,
+            runtimeSpec: sessions.runtimeSpec,
+            model: sessions.model,
           })
           .from(sessions)
           .where(
@@ -587,6 +590,14 @@ export function createPostgresSessionUnitOfWork(
             sessionId,
           });
           return { outcome: "credential_unbound", ...refusal };
+        }
+        // This input revives a failed session, which an authoritative spec
+        // pin refuses unless the session has one on its own model.
+        if (
+          session.status === "failed" &&
+          (await pinRefusesLive(tx, session))
+        ) {
+          return { outcome: "pin_required" };
         }
         const refused = await admitInput(tx, {
           sessionId,
