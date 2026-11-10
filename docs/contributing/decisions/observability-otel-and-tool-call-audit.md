@@ -283,7 +283,7 @@ owner_id          text NOT NULL
 session_id        uuid NOT NULL
 turn_id           bigint NOT NULL
 attempt_id        text NOT NULL
-call_key          text NOT NULL   -- worker가 붙이는 호출 키: 유효한 tool_use_id면 그 값, 아니면 "n<turn 안의 순번>"
+call_key          text NOT NULL   -- worker가 붙이는 호출 키: 유효한 tool_use_id면 "t:<id>", 아니면 "n:<turn 안의 순번>" (이름 공간이 달라 서로 충돌하지 않는다)
 phase             text NOT NULL   -- asked | decided   (CHECK). 호출 하나의 판정 단계
 tool_use_id       text        -- 엔진이 준 id. 7.4절의 문자 규칙에 안 맞으면 null
 parent_tool_use_id text       -- 서브에이전트 안의 호출이면 바깥 tool_use의 id (같은 규칙)
@@ -307,19 +307,17 @@ source            text NOT NULL   -- platform | worker_report
 record_version    integer NOT NULL  -- 이 레코드 모양의 버전(1). authz_decisions의 policy_version과 별개다
 ```
 
-유일 키는 `(session_id, attempt_id, call_key, phase)`이고 삽입은 `ON CONFLICT DO NOTHING`이다(재전송 멱등성, 7.7절). 인덱스는 `(session_id, at)`, `(workspace_id, at)`, `(at)`(보존 정리용)이다. 외래 키는 두지 않는다. `authz_decisions`처럼 세션·키·사용자가 사라져도 행이 보존 기간 동안 남아야 한다.
+유일 키는 `(session_id, attempt_id, turn_id, call_key, phase)`이고 (turn마다 순번이 다시 시작하므로 `turn_id`가 들어간다) 삽입은 `ON CONFLICT DO NOTHING`이다(재전송 멱등성, 7.7절). 인덱스는 `(session_id, at)`, `(workspace_id, at)`, `(at)`(보존 정리용)이다. 외래 키는 두지 않는다. `authz_decisions`처럼 세션·키·사용자가 사라져도 행이 보존 기간 동안 남아야 한다.
 
 #### 7.3.1 주체
 
 - 워크스페이스·에이전트·릴리스·요청한 사람(`actor_user_id`)·세션을 만든 주체·표면은 **API가 DB에서 채운다.** worker가 보고하는 값이 아니다. 표면은 turn의 `channel`, 없으면 세션의 `channel`에서 `SurfaceKind`로 옮기고(두 열 모두 nullable, `schema.ts:1297`·`:1548`), 옮길 수 없으면 null이다. worker 보고에서 오는 것은 `call_key`, 도구 이름, `tool_use_id`, 입력 해시·바이트 수, 판정과 근거, 승인 관련 두 값(`pending_request_id`, `approval_input_hash`)이다.
 - 사람이 답한 호출의 `answered_by`·`answer_surface`·`answer_decision_id`는 **`pending_requests`에서 복사한다.** worker가 보낸 값을 쓰지 않는다.
-- **승인 근거는 API가 검증한다.** 근거가 `approval`·`approval_denied`·`approval_expired`·`approval_cancelled`인 보고는 다음이 모두 맞아야 그 근거로 기록한다. ① `pending_request_id`의 행이 같은 세션의 permission 요청이다. ② 행의 `tool`이 보고한 도구와 같다. ③ 행의 `input_hash`가 보고한 `approval_input_hash`와 같다. 이 값은 실행하는 쪽이 이미 쓰는 마스킹 **전** 인자의 해시(`packages/runtime-core/src/approval.ts:112`의 `approvalInputHash`)이고, 승인과 실행이 같은 인자였는지를 이것으로만 확인한다. 비교한 뒤 버리고 저장하지 않는다. ④ 답과 근거가 맞는다(승인 답 ↔ `approval`, 거절 답 ↔ `approval_denied`, 기한 만료·취소로 닫힘 ↔ 각 근거). 하나라도 틀리면 `decision=unknown`, `basis=approval_unverified`로 쓴다.
-- **재개 경로.** 사람이 답한 뒤 turn이 멈췄다 다시 열리면(`packages/db/src/parked-group.ts:310`이 새 turn을 만들고 `:340`이 기존 요청의 승인을 새 turn의 grant로 잇는다) 질문한 attempt와 실행하는 attempt·`tool_use_id`가 다를 수 있다. 그래서 `asked` 행과 `decided` 행은 `call_key`로 묶지 않고 **`pending_request_id`로 잇는다.** 검증 ①~④는 "같은 세션"만 요구하고 attempt·turn 일치는 요구하지 않는다. grant를 쓰지 않은 요청은 `decided` 행이 없고, 그 상태는 `pending_requests`가 설명한다. 그래서 물은 호출이 항상 두 행이 되는 것은 아니다.
+- **승인 근거는 API가 검증한다.** 근거가 `approval`·`approval_denied`·`approval_expired`·`approval_cancelled`인 보고는 다음이 모두 맞아야 그 근거로 기록한다. ① `pending_request_id`의 행이 같은 세션의 permission 요청이다. ② 행의 `tool`이 보고한 도구와 같다. ③ 행의 `input_hash`가 보고한 `approval_input_hash`와 같다. 이 값은 실행하는 쪽이 이미 쓰는 마스킹 **전** 인자의 해시(`packages/runtime-core/src/approval.ts:112`의 `approvalInputHash`)이고, 승인과 실행이 같은 인자였는지를 이것으로만 확인한다. 비교한 뒤 버리고 저장하지 않는다. ④ 답과 근거가 맞는다(승인 답 ↔ `approval`, 거절 답 ↔ `approval_denied`, 기한 만료·취소로 닫힘 ↔ 각 근거). ⑤ **그 승인이 이 호출에 유효했다.** 길이 둘이다. 같은 attempt 안에서 답이 바로 전달된 호출이면 요청 행의 `tool_use_id`와 attempt가 보고한 호출의 것과 같아야 한다. 재개 경로(아래)면 `permission_grants`에 그 `request_id`의 행이 있고 그 행의 `turn_id`·`attempt_id`가 보고한 turn·attempt와 같아야 한다(`packages/db/src/schema.ts`의 `permissionGrants`). ⑥ **한 요청의 승인은 한 번만 근거가 된다.** 같은 `pending_request_id`로 `decided`·`approval` 행이 이미 있으면 새 보고는 근거로 인정하지 않는다(유일 부분 인덱스 `(pending_request_id) WHERE phase='decided' AND basis='approval'`). 같은 인자를 다시 부르면 worker가 다시 묻는다(grant는 한 번만 소비된다, `apps/worker/src/worker-host.ts`의 `takeGrant`). 하나라도 틀리면 `decision=unknown`, `basis=approval_unverified`로 쓴다. 이 검증은 worker가 보낸 `call_key`·turn·attempt를 DB 사실과 맞춰 볼 뿐이므로, 같은 세션의 도구 코드가 보고를 꾸미는 것까지는 막지 못한다(7.9절).
+- **재개 경로.** 사람이 답한 뒤 turn이 멈췄다 다시 열리면(`packages/db/src/parked-group.ts:310`이 새 turn을 만들고 `:340`이 기존 요청의 승인을 새 turn의 grant로 잇는다) 질문한 attempt와 실행하는 attempt·`tool_use_id`가 다를 수 있다. 그래서 `asked` 행과 `decided` 행은 `call_key`로 묶지 않고 **`pending_request_id`로 잇는다.** 검증 ①~④는 질문한 attempt·turn과 실행한 것의 일치를 요구하지 않고, 대신 ⑤가 grant의 대상 turn·attempt를 확인한다. grant를 쓰지 않은 요청은 `decided` 행이 없고, 그 상태는 `pending_requests`가 설명한다. 그래서 물은 호출이 항상 두 행이 되는 것은 아니다.
 
 #### 7.3.2 판정과 근거
 
-| `decision` | `basis` | 뜻 |
-|---|---|---|
 | `phase` | `decision` | `basis` | 뜻 |
 |---|---|---|---|
 | `decided` | `allow` | `trusted_tool` | 신뢰된 도구 목록(`trustedTools`)에 있다 |
@@ -356,7 +354,7 @@ record_version    integer NOT NULL  -- 이 레코드 모양의 버전(1). authz_
 | MCP 서버의 **URL**과 `credential_ref` | 서버는 이름(`mcp_server`)으로만 남긴다 |
 | 사유 같은 자유 서술(`authz_decisions.justification` 같은 칸) | 이 표에는 자유 서술 칸이 없다. 모든 문자열 필드는 닫힌 목록이거나 id다 |
 
-**외부에서 온 문자열은 걸러서 쓴다.** 원격 MCP 서버가 준 도구 이름은 외부 문자열이고, `tool_use_id`·요청 id도 기존 contracts에서는 자유 문자열이다(`packages/contracts/src/worker-protocol/index.ts:825`, `shared/ids.ts:8`). `tool_name`·`tool_use_id`·`parent_tool_use_id`·`call_key`·`pending_request_id`는 `[A-Za-z0-9_.:-]{1,128}`만 받는다. 맞지 않으면 `tool_name`은 `invalid_tool_name`으로, 나머지 id는 null(`call_key`는 `n<순번>`)로 쓰고 원래 값은 버린다. 이름을 따로 담을 칸이 없다.
+**외부에서 온 문자열은 걸러서 쓴다.** 원격 MCP 서버가 준 도구 이름은 외부 문자열이고, `tool_use_id`·요청 id도 기존 contracts에서는 자유 문자열이다(`packages/contracts/src/worker-protocol/index.ts:825`, `shared/ids.ts:8`). `tool_name`·`tool_use_id`·`parent_tool_use_id`·`call_key`·`pending_request_id`는 `[A-Za-z0-9_.:-]{1,128}`만 받는다. 맞지 않으면 `tool_name`은 `invalid_tool_name`으로, 나머지 id는 null(`call_key`는 `n:<순번>`)로 쓰고 원래 값은 버린다. 이름을 따로 담을 칸이 없다. **이 규칙은 모양만 거른다.** 토큰이나 hex 비밀값도 이 문자 집합에 들어맞으므로 "자격 증명을 쓰지 않는다"는 보장은 **claim이 알려 준 비밀값(`claimSecrets`)과 마스킹 규칙이 잡는 패턴의 범위**까지다. worker는 외부 id를 보고하기 전에 `SecretScrubber`와 `sanitizeText`를 거친다. 둘이 값을 바꿨으면(`<redacted>`·`[REDACTED]`가 들어갔으면) 그 id는 null로 쓴다.
 
 **개인정보.** 남는 개인 관련 값은 id뿐이다(`actor_user_id`, `principal_id`, `answered_by`). 이 id는 보존 기간이 지나면 정리 job이 지운다(7.7절). 사용자 한 명의 기록을 기간 전에 지우는 요청 경로는 만들지 않는다. 이것은 세션·이벤트에 삭제 API가 없는 지금의 정책([data-retention.md](../../operator/data-retention.md))과 같은 수준이고, 개인정보 삭제 요구가 생기면 보존 기간을 줄이는 쪽(최소 30일)으로 먼저 다룬다.
 
@@ -420,9 +418,9 @@ claude adapter  packages/adapters/runtimes/claude: canUseTool·PreToolUse 자리
 ### 7.7 쓰는 시점, 실패, 보존
 
 - **쓰는 시점.** worker는 판정을 `append-events` 요청의 선택 필드 `tool_decisions[]`로 보낸다(요청 스키마가 `.strict()`라 예전 API는 모르는 필드를 거절한다. 그래서 새 API를 먼저 배포하고, 새 API는 필드가 없는 예전 worker 요청을 받는다). API는 `commitEventsAtomic`과 **같은 트랜잭션**에서 이벤트와 함께 행을 넣는다. 사람에게 묻는 `asked` 행은 API가 `registerPendingRequest`를 처리하는 같은 트랜잭션에서 쓴다.
-- **보장하는 것은 "같은 append 안의 원자성"이다.** 한 append에 실린 이벤트와 감사 보고는 함께 저장되거나 함께 저장되지 않는다. 이 문서는 **감사가 도구 실행의 게이트라고 주장하지 않는다.** worker는 이벤트를 비동기로 보내고(`apps/worker/src/event-publisher.ts:90`) 도구 이벤트가 저장된 **뒤에** pending 요청을 등록하며(`apps/worker/src/pending-requests.ts:534`), 즉시 허용 경로는 감사 저장을 기다리지 않는다(`runtime.ts:192`). 그래서 도구가 판정 행이 내구 저장되기 전에 실행될 수 있고, worker가 그 사이에 죽으면 행이 없다. 실행 전 내구성이 필요한 도구(git·외부 호출 등급)는 별도의 실행 게이트가 필요하고 그것은 방향 결정 티켓의 D10(T12)이 따로 정한다.
+- **보장하는 것은 "같은 append 안의 원자성"이다.** 검증을 통과해 삽입 대상으로 채택된 감사 행과 그 append의 이벤트는 함께 저장되거나 함께 저장되지 않는다. 스키마가 틀려 버려진 항목(아래)은 이 보장 밖이고, 그 항목의 감사 행은 없다. 이 문서는 **감사가 도구 실행의 게이트라고 주장하지 않는다.** worker는 이벤트를 비동기로 보내고(`apps/worker/src/event-publisher.ts:90`) 도구 이벤트가 저장된 **뒤에** pending 요청을 등록하며(`apps/worker/src/pending-requests.ts:534`), 즉시 허용 경로는 감사 저장을 기다리지 않는다(`runtime.ts:192`). 그래서 도구가 판정 행이 내구 저장되기 전에 실행될 수 있고, worker가 그 사이에 죽으면 행이 없다. 실행 전 내구성이 필요한 도구(git·외부 호출 등급)는 별도의 실행 게이트가 필요하고 그것은 방향 결정 티켓의 D10(T12)이 따로 정한다.
 - **DB 오류는 append를 실패시킨다.** 행을 넣지 못한 DB 오류는 트랜잭션을 되돌리고 worker가 같은 배치를 재시도한다. 그러나 **보고 항목 하나가 스키마나 검증에서 틀렸다고 append 전체를 거절하지 않는다.** 그러면 잘못된 보고 하나가 이벤트를 영원히 막는다. 스키마가 맞지 않는 항목은 버리고 경고 로그와 세는 값(`tool_audit.dropped`)을 남기고, 승인 검증에 실패한 항목은 `unknown/approval_unverified`로 쓴다.
-- **재전송은 멱등이다.** 이벤트 publisher는 응답이 유실되면 같은 배치를 다시 보내고 이벤트는 `source_sequence`와 내용 비교로 이를 처리한다(`packages/db/src/worker-unit-of-work.ts`). 감사 행은 유일 키 `(session_id, attempt_id, call_key, phase)`와 `ON CONFLICT DO NOTHING`으로 같은 처리를 한다. 같은 키로 **내용이 다른** 보고가 오면 처음 것을 두고 `tool_audit.conflict` 경고를 남긴다. 재전송이나 뒤늦은 보고가 현재 판정을 되돌리지 못한다.
+- **재전송은 멱등이다.** 이벤트 publisher는 응답이 유실되면 같은 배치를 다시 보내고 이벤트는 `source_sequence`와 내용 비교로 이를 처리한다(`packages/db/src/worker-unit-of-work.ts`). 감사 행은 유일 키 `(session_id, attempt_id, turn_id, call_key, phase)`와 `ON CONFLICT DO NOTHING`으로 같은 처리를 한다. 같은 키로 **내용이 다른** 보고가 오면 처음 것을 두고 `tool_audit.conflict` 경고를 남긴다. 재전송이나 뒤늦은 보고가 현재 판정을 되돌리지 못한다.
 - **보존.** `settings.audit_retention_days`(기본 90일, 최소 30·최대 3650)를 `authz_decisions`와 **같이** 쓴다. 정리는 같은 reconciler pass의 `expireAuthzDecisions`(`packages/db/src/authz-decisions.ts:82`)와 같은 방식(워크스페이스별 기간, 오래된 것부터 `RECONCILER_BATCH_SIZE`개씩, `RECONCILER_DRY_RUN` 존중)으로 한다. 감사 기간을 정하는 설정이 둘이면 어느 쪽이 맞는지 운영자가 묻게 되므로 새 키를 만들지 않는다. 기간을 바꾸는 권한은 지금과 같이 owner(`audit_retention.manage`, `packages/platform/src/musterrolle/policy.ts:304`)다.
 - **삭제 경로는 보존 정리 하나뿐이다.** 행 단위 삭제·수정 API는 없다. trigger가 UPDATE를 거절하고, DELETE는 정리 job만 한다.
 - **기간 뒤에 남는 것.** 90일 뒤 이 표의 행은 사라진다. 사람이 승인·거절한 호출의 `answered_by`는 `pending_requests`에 남으므로 "누가 답했나"는 계속 답할 수 있다. 묻지 않고 허용·거절된 호출의 근거는 기간이 지나면 남지 않는다.
