@@ -75,6 +75,7 @@ import {
 } from "@werft-ai/db";
 import {
   createLogger,
+  createTelemetryPolicy,
   noopTracer,
   parseTracingSettings,
   sanitizeText,
@@ -300,6 +301,7 @@ import {
 import { signInWithSlackOff } from "./slack-link.ts";
 import { startSpecReconciliation } from "./spec-reconciliation.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
+import { warnCollectorOnEgressAllowlist } from "./tracing-startup.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -314,6 +316,8 @@ const logger = createLogger();
 // A bad OTEL_* value throws here and stops the process at startup. The SDK
 // adapter is only loaded when tracing is on.
 const tracingSettings = parseTracingSettings(process.env);
+warnCollectorOnEgressAllowlist(tracingSettings, process.env, logger);
+const telemetry = createTelemetryPolicy(tracingSettings);
 const otelTracer =
   tracingSettings === undefined
     ? undefined
@@ -1148,6 +1152,7 @@ const githubMcpGrantKey =
 const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
+  telemetry,
   catalog,
   neutralize,
   ...(extensionBundles === undefined ? {} : { extensions: extensionBundles }),

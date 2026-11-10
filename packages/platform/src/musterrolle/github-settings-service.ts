@@ -13,6 +13,7 @@ import {
   type PutGitHubUserLinkAppRequest,
   type PutGitHubUserLinkAppResponse,
 } from "@werft-ai/contracts";
+import { prepareTemplateText } from "../action/change-request/pull-request-template.ts";
 import {
   type GitHubAppCredential,
   type GitHubAppDirectory,
@@ -29,7 +30,6 @@ import type {
   GitHubSettingsStore,
 } from "../ports/github-settings.ts";
 import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
-import { prepareTemplateText } from "../sessions/pull-request-template.ts";
 import {
   requirePermitted,
   SessionServiceError,

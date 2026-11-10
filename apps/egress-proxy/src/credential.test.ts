@@ -72,6 +72,27 @@ describe("routeOf", () => {
     }
   });
 
+  test("routes /v1/responses as a provider call with no query, and no sibling of it", () => {
+    expect(routeOf("POST", "/provider/v1/responses", "")).toEqual({
+      purpose: "provider",
+      path: "/v1/responses",
+      search: "",
+    });
+    for (const [method, path, search] of [
+      ["GET", "/provider/v1/responses", ""],
+      ["POST", "/provider/v1/responses", "?beta=true"],
+      ["POST", "/provider/v1/responses", "?x=1"],
+      ["POST", "/provider/v1/responses/", ""],
+      ["POST", "/provider/v1/responses/resp_1", ""],
+      ["POST", "/provider/v1/responses/compact", ""],
+      ["POST", "/provider/v1/chat/completions", ""],
+      ["POST", "/provider/v1/../v1/responses", ""],
+      ["POST", "/v1/responses", ""],
+    ] as const) {
+      expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+
   test("routes the judge's one operation, nothing beside it", () => {
     expect(routeOf("POST", "/decisions/v1/decisions", "")).toEqual({
       purpose: "judgment",
@@ -538,10 +559,10 @@ describe("startCredentialProxy", () => {
     usageAnswer: () => Response = () => Response.json({}),
   ): {
     url: string;
-    asked: Array<{ token: string; purpose: string }>;
+    asked: Array<{ token: string; purpose: string; path?: string }>;
     reported: UsageReport[];
   } {
-    const asked: Array<{ token: string; purpose: string }> = [];
+    const asked: Array<{ token: string; purpose: string; path?: string }> = [];
     const reported: UsageReport[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
@@ -685,6 +706,433 @@ describe("startCredentialProxy", () => {
       rest += new TextDecoder().decode(next.value);
     }
     expect(rest).toBe("event: two\n\n");
+  });
+
+  describe("the Responses route", () => {
+    const OPENAI_KEY = "sk-openai-key-kept-from-the-worker";
+    const bearerKey = (up: { port: number }) =>
+      granting(`http://upstream.test:${up.port}`, [
+        ["authorization", `Bearer ${OPENAI_KEY}`],
+      ]);
+    const responses = (
+      port: number,
+      init: { headers?: Record<string, string>; body?: string } = {},
+    ) =>
+      fetch(`http://127.0.0.1:${port}/provider/v1/responses`, {
+        method: "POST",
+        headers: init.headers ?? { authorization: `Bearer ${WORKER_TOKEN}` },
+        body: init.body ?? '{"model":"gpt-5.5","stream":false}',
+      });
+
+    test("injects the key as a bearer in place of the worker's credentials, and names the path to the authorizer", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const response = await responses(server.port, {
+        headers: {
+          authorization: `Bearer ${WORKER_TOKEN}`,
+          "openai-organization": "org-of-another-tenant",
+          "openai-project": "proj-of-another-tenant",
+          "openai-beta": "responses=v1",
+        },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: "resp_1" });
+      expect(auth.asked).toEqual([
+        { token: WORKER_TOKEN, purpose: "provider", path: "/v1/responses" },
+      ]);
+      const [seen] = up.seen;
+      expect(new URL(seen?.url ?? "").pathname).toBe("/v1/responses");
+      expect(seen?.headers.authorization).toBe(`Bearer ${OPENAI_KEY}`);
+      expect(seen?.headers["openai-organization"]).toBeUndefined();
+      expect(seen?.headers["openai-project"]).toBeUndefined();
+      expect(seen?.headers["openai-beta"]).toBe("responses=v1");
+      expect(JSON.stringify(seen)).not.toContain(WORKER_TOKEN);
+    });
+
+    test("a background response is refused before the authorizer or the upstream is asked", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const refused = await responses(server.port, {
+        body: '{"model":"gpt-5.5","background":true,"store":true}',
+      });
+      expect(refused.status).toBe(400);
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      // Only `true` is background: an explicit false is an ordinary call.
+      const plain = await responses(server.port, {
+        body: '{"model":"gpt-5.5","background":false}',
+      });
+      expect(plain.status).toBe(200);
+    });
+
+    test("a file or image the request only names is refused, one it carries is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const message = (...content: unknown[]) =>
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ role: "user", content }],
+        });
+      for (const body of [
+        message({ type: "input_file", file_url: "https://x.test/a.pdf" }),
+        message({ type: "input_file", file_id: "file_1" }),
+        message({ type: "input_image", image_url: "https://x.test/a.png" }),
+        message({ type: "input_image", file_id: "file_2" }),
+        // A tool result carries its parts in `output`, not `content`.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "function_call_output",
+              call_id: "call_1",
+              output: [
+                { type: "input_image", image_url: "https://x.test/b.png" },
+              ],
+            },
+          ],
+        }),
+      ]) {
+        expect((await responses(server.port, { body })).status).toBe(400);
+      }
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const carried = await responses(server.port, {
+        body: message(
+          { type: "input_text", text: "hi" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+          { type: "input_file", filename: "a.txt", file_data: "AAAA" },
+        ),
+      });
+      expect(carried.status).toBe(200);
+    });
+
+    test("a request that continues a stored response or conversation is refused, a null one is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      for (const body of [
+        '{"model":"gpt-5.5","previous_response_id":"resp_0"}',
+        '{"model":"gpt-5.5","conversation":"conv_1"}',
+        '{"model":"gpt-5.5","conversation":{"id":"conv_1"}}',
+      ]) {
+        const refused = await responses(server.port, { body });
+        expect(refused.status).toBe(400);
+      }
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const plain = await responses(server.port, {
+        body: '{"model":"gpt-5.5","previous_response_id":null,"conversation":null}',
+      });
+      expect(plain.status).toBe(200);
+    });
+
+    test("a remote part inside a tool result is refused, wherever the result nests it", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const statuses: number[] = [];
+      const result = (type: string, output: unknown) =>
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type, call_id: "call_1", output }],
+        });
+      for (const body of [
+        result("function_call_output", [
+          { type: "input_file", file_id: "file_1" },
+        ]),
+        result("function_call_output", [
+          { type: "input_file", file_url: "https://x.test/a.pdf" },
+        ]),
+        result("custom_tool_call_output", [
+          { type: "input_file", file_url: "https://x.test/a.pdf" },
+        ]),
+        // A computer-use screenshot is an object, typed neither input_file
+        // nor input_image.
+        result("computer_call_output", {
+          type: "computer_screenshot",
+          image_url: "https://x.test/shot.png",
+        }),
+        result("computer_call_output", {
+          type: "computer_screenshot",
+          file_id: "file_3",
+        }),
+        // Deeper than any honest client nests parts.
+        result("function_call_output", [
+          [[[[[[{ type: "input_file", file_id: "file_4" }]]]]]],
+        ]),
+        // A stored item the request only points at.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type: "item_reference", id: "msg_1" }],
+        }),
+      ]) {
+        statuses.push((await responses(server.port, { body })).status);
+      }
+      expect(statuses).toEqual(statuses.map(() => 400));
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const carried = await responses(server.port, {
+        body: result("function_call_output", "plain text output"),
+      });
+      expect(carried.status).toBe(200);
+    });
+
+    test("a stored prompt template and a tool that makes the upstream fetch are refused, a local tool is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const statuses: number[] = [];
+      const withTools = (...tools: unknown[]) =>
+        JSON.stringify({ model: "gpt-5.5", tools });
+      for (const body of [
+        '{"model":"gpt-5.5","prompt":{"id":"pmpt_1"}}',
+        withTools({
+          type: "mcp",
+          server_label: "x",
+          server_url: "https://evil.test/mcp",
+        }),
+        withTools({ type: "mcp", server_label: "x", connector_id: "c_1" }),
+        withTools({ type: "file_search", vector_store_ids: ["vs_1"] }),
+        withTools({ type: "web_search" }),
+        withTools({ type: "web_search_preview" }),
+        withTools({ type: "code_interpreter", container: "cntr_1" }),
+        withTools({ type: "image_generation" }),
+        withTools({ type: "shell", environment: { type: "container_auto" } }),
+        // Tools registered by an input item are declared all the same.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "tool_search_output",
+              tools: [{ type: "mcp", server_url: "https://evil.test/mcp" }],
+            },
+          ],
+        }),
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "additional_tools",
+              tools: [{ type: "file_search", vector_store_ids: ["vs_1"] }],
+            },
+          ],
+        }),
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type: "image_generation_call", id: "ig_1" }],
+        }),
+      ]) {
+        statuses.push((await responses(server.port, { body })).status);
+      }
+      expect(statuses).toEqual(statuses.map(() => 400));
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      // The tools a codex turn declares run on the worker, not upstream.
+      const local = await responses(server.port, {
+        body: JSON.stringify({
+          model: "gpt-5.5",
+          prompt: null,
+          tool_choice: "auto",
+          tools: [
+            { type: "function", name: "shell", parameters: {} },
+            { type: "local_shell" },
+            { type: "shell", environment: { type: "local" } },
+            { type: "custom", name: "apply_patch", format: { type: "text" } },
+          ],
+        }),
+      });
+      expect(local.status).toBe(200);
+    });
+
+    test("a Messages call still asks without a path, so an authorizer of the earlier release answers it", async () => {
+      const up = upstream(() => Response.json({ id: "msg_1" }));
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const server = proxy(auth.url, up.port);
+      expect((await messages(server.port)).status).toBe(200);
+      expect(auth.asked).toEqual([
+        { token: WORKER_TOKEN, purpose: "provider" },
+      ]);
+    });
+
+    test("two credentials, a query and any other method are refused before the authorizer", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      expect(
+        (
+          await responses(server.port, {
+            headers: {
+              authorization: `Bearer ${WORKER_TOKEN}`,
+              "x-api-key": WORKER_TOKEN,
+            },
+          })
+        ).status,
+      ).toBe(401);
+      expect(
+        (
+          await fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/responses?beta=true`,
+            {
+              method: "POST",
+              headers: { authorization: `Bearer ${WORKER_TOKEN}` },
+              body: "{}",
+            },
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await fetch(`http://127.0.0.1:${server.port}/provider/v1/responses`, {
+            method: "GET",
+            headers: { authorization: `Bearer ${WORKER_TOKEN}` },
+          })
+        ).status,
+      ).toBe(404);
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("the authorizer's refusal for another kind of session passes through, and nothing is forwarded", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(
+        () =>
+          new Response("not served", {
+            status: 403,
+          }),
+      );
+      const server = proxy(auth.url, up.port);
+      expect((await responses(server.port)).status).toBe(403);
+      expect(up.seen).toEqual([]);
+    });
+
+    test("a spent budget is named in the Responses error shape", async () => {
+      const up = upstream(() => new Response("ok"));
+      const server = proxy(
+        authorizer(() =>
+          Response.json(
+            { code: "BUDGET_EXCEEDED", message: "limit reached" },
+            { status: 403 },
+          ),
+        ).url,
+        up.port,
+      );
+      const refused = await responses(server.port);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({
+        error: {
+          type: "permission_error",
+          code: "BUDGET_EXCEEDED",
+          message:
+            "BUDGET_EXCEEDED: the session has reached its cost or token limit",
+        },
+      });
+      expect(up.seen).toEqual([]);
+    });
+
+    test("meters a JSON answer, cached input split out, under the grant's ids", async () => {
+      const up = upstream(() =>
+        Response.json({
+          id: "resp_1",
+          model: "gpt-5.5-2026-04-23",
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 80,
+            input_tokens_details: { cached_tokens: 600 },
+          },
+        }),
+      );
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      await (await responses(server.port)).json();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]).toMatchObject({
+        session_id: "sess-1",
+        attempt_id: "att-1",
+        usage: {
+          model: "gpt-5.5-2026-04-23",
+          input_tokens: 400,
+          output_tokens: 80,
+          cache_read_input_tokens: 600,
+          estimated: false,
+        },
+      });
+    });
+
+    test("meters a streamed answer from response.completed, and marks a cut stream estimated", async () => {
+      const full = upstream(
+        () =>
+          new Response(
+            sseBody([
+              { type: "response.created", response: { model: "gpt-5.5" } },
+              { type: "response.output_text.delta", delta: "hello" },
+              {
+                type: "response.completed",
+                response: {
+                  model: "gpt-5.5",
+                  usage: { input_tokens: 70, output_tokens: 9 },
+                },
+              },
+            ]),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const fullAuth = authorizer(bearerKey(full));
+      await (await responses(proxy(fullAuth.url, full.port).port)).text();
+      await until(() => fullAuth.reported.length === 1);
+      expect(fullAuth.reported[0]?.usage).toMatchObject({
+        model: "gpt-5.5",
+        input_tokens: 70,
+        output_tokens: 9,
+        estimated: false,
+      });
+
+      const cut = upstream(
+        () =>
+          new Response(
+            sseBody([
+              { type: "response.created", response: { model: "gpt-5.5" } },
+              { type: "response.output_text.delta", delta: "x".repeat(200) },
+            ]),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const cutAuth = authorizer(bearerKey(cut));
+      await (await responses(proxy(cutAuth.url, cut.port).port)).text();
+      await until(() => cutAuth.reported.length === 1);
+      // The request set no output cap, so the cut is charged the allowance
+      // rather than the 200 characters it delivered.
+      expect(cutAuth.reported[0]?.usage).toMatchObject({
+        output_tokens: 32_768,
+        estimated: true,
+      });
+    });
+
+    test("a call made with the engine's token by a tool is metered like the engine's own", async () => {
+      // The route cannot tell who holds the token: every answer is read, so a
+      // tool calling /v1/responses directly spends the session's budget too.
+      const up = upstream(() =>
+        Response.json({
+          model: "gpt-5.5",
+          usage: { input_tokens: 5, output_tokens: 6 },
+        }),
+      );
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      for (let call = 0; call < 2; call++) {
+        await (await responses(server.port)).json();
+      }
+      await until(() => auth.reported.length === 2);
+      expect(
+        new Set(auth.reported.map((report) => report.exchange_id)).size,
+      ).toBe(2);
+    });
   });
 
   describe("usage metering", () => {

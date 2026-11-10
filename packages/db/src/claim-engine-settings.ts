@@ -25,7 +25,7 @@ export type ClaimRulesAudit = {
   startRevision: number | null;
   workspaceRevision: number | null;
   agentRevision: number | null;
-  /** Rules sent to the engine, by route. */
+  /** Rules by enforcement route: `mcpDeny` is enforced by the MCP egress, not sent to the engine. */
   counts: { engine: number; disallowedTools: number; mcpDeny: number };
   /** True when no source row exists at all: the claim is what it was before. */
   untouched: boolean;

@@ -115,8 +115,13 @@ const authorizeRequestSchema = z.union([
         .string()
         .regex(ADDITIONAL_REPOSITORY_ID_PATTERN)
         .optional(),
+      // provider only: named for a Responses call. Absent is a Messages
+      // call, which is all a proxy sent before that route existed. Whether
+      // the session's connection serves the path is the gateway's to judge.
+      path: z.literal("/v1/responses").optional(),
     })
-    .strict(),
+    .strict()
+    .refine((body) => body.path === undefined || body.purpose === "provider"),
   // The judge's own calls: a judgment token, never a session's.
   z
     .object({ token: tokenSchema, purpose: z.literal("judgment") })
