@@ -22,6 +22,10 @@
 //
 // Every page command takes W (default 1280), H (900) and THEME (light|dark)
 // from the environment, e.g. W=390 THEME=dark browser.mjs <run> shot home-390-dark.
+// Every page command also ends with a "! failed request:" line on stderr per
+// 4xx/5xx response (method, path, status, masked body up to 2000 chars);
+// CAPTURE_URL='*/v1/x*' adds the responses of matching URLs. A command that
+// throws skips the lines; `accept` refusing still prints them.
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -35,6 +39,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  createCollector,
+  globToRegExp,
+  NETWORK_ENABLE,
+} from "./response-capture.mjs";
 
 const CHROME =
   process.env.CHROME ??
@@ -306,8 +315,25 @@ const focused = () =>
     return { tag: a.tagName, name: (a.getAttribute('aria-label') || a.innerText || a.getAttribute('name') || '').slice(0, 50).replace(/\\s+/g, ' '),
       outline: s.outlineStyle + ' ' + s.outlineWidth }; })()`);
 
+// Failed requests (4xx/5xx, plus CAPTURE_URL='*glob*') are listed with their
+// response body, masked and cut, after the command's own output. Without this
+// a failed call showed its status only and the cause needed a second repro.
+const capturePattern = process.env.CAPTURE_URL
+  ? globToRegExp(process.env.CAPTURE_URL)
+  : undefined;
+const collector = createCollector({ send, pattern: capturePattern });
+ws.addEventListener("message", (e) =>
+  collector.onEvent(JSON.parse(String(e.data))),
+);
+// On stderr, so a caller that parses a command's stdout (eval prints JSON)
+// sees the same stdout as before.
+async function reportCaptures() {
+  for (const line of await collector.report()) console.error(line);
+}
+
 await send("Page.enable");
 await send("Runtime.enable");
+await send("Network.enable", NETWORK_ENABLE);
 await send("Emulation.setDeviceMetricsOverride", {
   width: W,
   height: H,
@@ -350,6 +376,7 @@ switch (cmd) {
           "(document.querySelector('main [data-status] h2') ?? document.querySelector('main [role=alert]') ?? document.querySelector('main'))?.innerText.replace(/\\s+/g, ' ').slice(0, 80)",
         )}`,
       );
+      await reportCaptures();
       process.exit(1);
     };
     await navigate(`/invite/${token}`);
@@ -618,7 +645,7 @@ switch (cmd) {
   }
   case "blockshot": {
     const [target, pattern, name] = args;
-    await send("Network.enable");
+    await send("Network.enable", NETWORK_ENABLE);
     await send("Network.setBlockedURLs", { urls: [pattern] });
     await navigate(target);
     await sleep(3000);
@@ -634,7 +661,7 @@ switch (cmd) {
   }
   case "slowshot": {
     const [target, name, ms] = args;
-    await send("Network.enable");
+    await send("Network.enable", NETWORK_ENABLE);
     await send("Network.setCacheDisabled", { cacheDisabled: true });
     await send("Network.emulateNetworkConditions", {
       offline: false,
@@ -731,5 +758,6 @@ switch (cmd) {
     console.error(`browser.mjs: unknown command '${cmd}'`);
     process.exit(2);
 }
+await reportCaptures();
 ws.close();
 process.exit(0);

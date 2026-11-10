@@ -35,6 +35,7 @@ import {
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   REPOSITORY_SCOPE_VALUES,
+  RUNTIME_TOOLS_SOURCE_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
@@ -1374,6 +1375,13 @@ export const sessions = pgTable(
     githubPolicySource: text("github_policy_source")
       .notNull()
       .default("release"),
+    // Where the claim's built-in tool list comes from, fixed at create:
+    // `release` the pinned release's effective_tools, `profile` the
+    // profile's (narrowed by the release snapshot). Rows from before the
+    // column read `profile`, so their claims and checkpoint digests hold.
+    runtimeToolsSource: text("runtime_tools_source")
+      .notNull()
+      .default("profile"),
     // An `agent` session's GitHub settings as they were when it started
     // (`githubPolicyStartSchema`); later changes can only narrow them for it.
     // Null on a session without one, which reads the row alone.
@@ -1411,6 +1419,10 @@ export const sessions = pgTable(
     check(
       "sessions_github_policy_source_check",
       sql`${table.githubPolicySource} IN (${sql.raw(sqlList(GITHUB_POLICY_SOURCE_VALUES))})`,
+    ),
+    check(
+      "sessions_runtime_tools_source_check",
+      sql`${table.runtimeToolsSource} IN (${sql.raw(sqlList(RUNTIME_TOOLS_SOURCE_VALUES))})`,
     ),
     check(
       "sessions_pause_reason_check",

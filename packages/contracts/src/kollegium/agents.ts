@@ -613,6 +613,22 @@ export function githubPolicySourceOf(stored: unknown): GitHubPolicySource {
   return stored === "release" ? "release" : "agent";
 }
 
+/**
+ * Where a session's claim takes its built-in tool list from, fixed when the
+ * session is created. `profile` is what every session before the column ran
+ * (the profile's tools, narrowed by the release snapshot where it is
+ * narrower); `release` is the pinned release's `effective_tools.tools` as
+ * stored. The list is an input of the checkpoint fingerprint, so a session
+ * never changes source.
+ */
+export const RUNTIME_TOOLS_SOURCE_VALUES = ["profile", "release"] as const;
+export type RuntimeToolsSource = (typeof RUNTIME_TOOLS_SOURCE_VALUES)[number];
+
+/** A stored source. One this image does not know reads as `profile`. */
+export function runtimeToolsSourceOf(stored: unknown): RuntimeToolsSource {
+  return stored === "release" ? "release" : "profile";
+}
+
 /** Which ceiling judges a profile's repositories. */
 export const REPOSITORY_SCOPE_VALUES = ["profile", "workspace"] as const;
 export type RepositoryScope = (typeof REPOSITORY_SCOPE_VALUES)[number];

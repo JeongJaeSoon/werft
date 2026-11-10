@@ -5,6 +5,7 @@ import {
   allowedRun,
   type CatalogProfile,
   catalogCredentialRefs,
+  claimToolLists,
   describeConfigError,
   environmentCredentials,
   fingerprintModel,
@@ -879,6 +880,40 @@ describe("runtimeConfigOf", () => {
     expect(runtimeConfigOf(profile, "t", false)).not.toHaveProperty(
       "project_settings",
     );
+  });
+});
+
+describe("claimToolLists", () => {
+  const profile = { tools: ["Read", "Grep", "Bash"] };
+
+  test("without effective tools the release list is the snapshot taken within the profile, as before", () => {
+    expect(claimToolLists(profile, ["Bash", "Read", "Other"])).toEqual({
+      profile: profile.tools,
+      release: ["Read", "Bash"],
+      runs: "release",
+    });
+    expect(claimToolLists(profile, ["Read", "Grep", "Bash"])).toEqual({
+      profile: profile.tools,
+      release: null,
+      runs: "profile",
+    });
+    expect(claimToolLists(profile, null, true, null).runs).toBe("profile");
+  });
+
+  test("effective tools are the release list as stored: no intersection with the profile, narrower or not", () => {
+    expect(claimToolLists(profile, ["Read"], true, ["Glob", "Read"])).toEqual({
+      profile: profile.tools,
+      release: ["Glob", "Read"],
+      runs: "release",
+    });
+    // The profile's own list runs once and is not its own restore candidate.
+    expect(claimToolLists(profile, null, true, [...profile.tools])).toEqual({
+      profile: profile.tools,
+      release: null,
+      runs: "profile",
+    });
+    expect(claimToolLists(profile, null, true, []).release).toEqual([]);
+    expect(claimToolLists(profile, null, false, ["Read"]).runs).toBe("profile");
   });
 });
 

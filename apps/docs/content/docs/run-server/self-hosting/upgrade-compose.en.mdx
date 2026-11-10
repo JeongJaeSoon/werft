@@ -78,7 +78,7 @@ Applying a previous release still follows upgrade checks and [gate](#실행-전-
 <a id="실행-전-게이트" />
 ## Pre-upgrade gates
 
-The first official release including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. Release installations must not revert to earlier images. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
+The first tag including both incremental checkpoints and release-tool restoration candidates is `v0.1.0`. That tag is the rollback floor, and the latest published release is `v0.1.2`. Release installations must not revert to images earlier than `v0.1.0`. Pre-release `main-<12>` installations must check this floor separately. Verify the commit and all three digests in the [release manifest](/run-server/self-hosting/reference/packages#릴리스-manifest-읽기) together.
 
 Compare target changelog actions with your deployed version. Meet every applicable condition before enabling features or changing workers.
 
@@ -132,7 +132,7 @@ Workers included in `v0.1.0` upload incremental bundles containing only new obje
 <a id="control-host-롤백-하한-release-도구로-실행" />
 ### Control-host rollback floor: release tools
 
-Control-host in `v0.1.0` runs release-created sessions with release-pinned tools (`agent_releases.runtime_config_snapshot.tools`, within profile tools), rather than every profile tool. Claims deliver tools at worker startup; workers retain them until exit. Agents selecting `tools` or declaring `forbidden` therefore narrow even existing sessions on the next claim. Pre-deployment workers retain profile tools until `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds) after their last turn without input, or until pause/restart. Sessions without releases or whose releases retain all profile tools are unchanged. Worker images/protocol are unchanged.
+Control-host in `v0.1.0` runs release-created sessions with release-pinned tools (`agent_releases.runtime_config_snapshot.tools`, within profile tools), rather than every profile tool. Claims deliver tools at worker startup; workers retain them until exit. Agents selecting `tools` or declaring `forbidden` therefore narrow even existing sessions on the next claim. Pre-deployment workers retain profile tools until `WORKER_IDLE_TIMEOUT_SEC` (default 1800 seconds) after their last turn without input, or until pause/restart. Sessions without releases or whose releases retain all profile tools are unchanged. A session created on a release after this deployment records `sessions.runtime_tools_source = 'release'`, and its claim carries the release's `effective_tools.tools` as stored, with no intersection with profile tools. Earlier sessions read as `profile`, so their tools and checkpoint fingerprints are unchanged. Worker images/protocol are unchanged.
 
 - **Official release rollback floor: `v0.1.0`.** Tool lists enter checkpoint profile digests. This release includes both profile and release tool lists as restoration candidates. Earlier pre-release builds cannot restore release-tool checkpoints and stop as `recovery_required` (`incompatible_checkpoint`). Roll forward and `retry_restore` the same checkpoint. Pre-release main installations should first deploy a release verified to support these candidates as a rollback target.
 - **Count narrowing releases** before deployment using this read-only query. It also counts agents retaining every profile tool, so it is an upper bound.

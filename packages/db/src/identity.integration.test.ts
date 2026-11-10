@@ -98,6 +98,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "env_start",
     // 0262
     "engine_settings_start",
+    // 0264; arrives as 'profile'
+    "runtime_tools_source",
     // 0251
     "extensions",
     // 0255
