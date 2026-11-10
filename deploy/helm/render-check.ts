@@ -1306,12 +1306,20 @@ const packaged = (() => {
   const defaults = Bun.YAML.parse(
     readFileSync(join(chart, "values.yaml"), "utf8"),
   ) as {
-    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
+    images: Record<
+      "controlHost" | "egressProxy" | "worker" | "workerCodex",
+      ImageDefault
+    >;
   };
   const digests = Bun.YAML.parse(readFileSync(ciDigests, "utf8")) as {
-    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
+    images: Record<
+      "controlHost" | "egressProxy" | "worker" | "workerCodex",
+      ImageDefault
+    >;
   };
-  const image = (key: "controlHost" | "egressProxy" | "worker") => ({
+  const image = (
+    key: "controlHost" | "egressProxy" | "worker" | "workerCodex",
+  ) => ({
     repository: defaults.images[key].repository,
     digest: digests.images[key].digest,
   });
@@ -1325,6 +1333,10 @@ const packaged = (() => {
       controlHost: image("controlHost"),
       egressProxy: image("egressProxy"),
       worker: { ...image("worker"), runtime: CURRENT_RUNTIME },
+      workerCodex: {
+        ...image("workerCodex"),
+        runtime: { ...CURRENT_RUNTIME, engine: "codex" },
+      },
     },
   });
   return tgz;

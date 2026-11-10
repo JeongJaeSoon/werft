@@ -32,7 +32,7 @@ FILES=(
 )
 
 tar --version 2>/dev/null | grep -q 'GNU tar' || { echo "::error::GNU tar is required" >&2; exit 1; }
-jq -e '.tag and .commit and .images["control-host"].digest and .images.worker.digest and .images["egress-proxy"].digest' "$manifest" >/dev/null \
+jq -e '.tag and .commit and .images["control-host"].digest and .images.worker.digest and .images["worker-codex"].digest and .images["egress-proxy"].digest' "$manifest" >/dev/null \
   || { echo "::error::$manifest is not a release manifest" >&2; exit 1; }
 test "$(jq -r .tag "$manifest")" = "$tag" || { echo "::error::$manifest is the manifest of $(jq -r .tag "$manifest"), not $tag" >&2; exit 1; }
 

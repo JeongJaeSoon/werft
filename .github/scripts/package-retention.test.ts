@@ -168,6 +168,21 @@ describe("package retention dry run", () => {
     (wrong.images.worker as { image: string }).image =
       "ghcr.io/other/werft-worker";
     expect(() => protectRelease(wrong, "example")).toThrow();
+    // The manifest above is of a release before the Codex image; a release
+    // with one protects its digests too, and a malformed entry is refused.
+    const withCodex = structuredClone(manifest) as unknown as {
+      images: Record<string, unknown>;
+    };
+    withCodex.images["worker-codex"] = {
+      image: "ghcr.io/example/werft-worker-codex",
+      digest: digest(5),
+      platforms: { amd64: digest(6), arm64: digest(7) },
+    };
+    const codexProtection = protectRelease(withCodex, "example");
+    for (const id of [5, 6, 7])
+      expect(codexProtection.digests.has(digest(id))).toBe(true);
+    withCodex.images["worker-codex"] = { image: "ghcr.io/example/x" };
+    expect(() => protectRelease(withCodex, "example")).toThrow();
   });
   test("kept index dependencies transitively protect old staging children", async () => {
     const rows = planRetention(
@@ -248,11 +263,39 @@ describe("package retention dry run", () => {
     };
     const rows = await audit("example/werft", api, async () => [], now);
     expect(summarize(rows)).toEqual({
-      would_delete: 20,
-      keep: 80,
+      would_delete: 25,
+      keep: 100,
       exceptions: 0,
     });
     expect(new Set(rows.map((r) => r.package))).toEqual(
+      new Set([
+        "werft-control-host",
+        "werft-worker",
+        "werft-worker-codex",
+        "werft-egress-proxy",
+        "werft",
+      ]),
+    );
+    expect(
+      paths.filter((p) => p.endsWith("/versions?per_page=100")),
+    ).toHaveLength(5);
+    // The Codex image's package does not exist before its first release; any
+    // other package missing, or another failure, stays an error.
+    const absent = (name: string, note = " (HTTP 404)") => ({
+      ...api,
+      json: (path: string) => {
+        if (path.endsWith(`/${name}`))
+          throw new Error(`GitHub read failed (1): ${path}${note}`);
+        return api.json(path);
+      },
+    });
+    const early = await audit(
+      "example/werft",
+      absent("werft-worker-codex"),
+      async () => [],
+      now,
+    );
+    expect(new Set(early.map((r) => r.package))).toEqual(
       new Set([
         "werft-control-host",
         "werft-worker",
@@ -260,9 +303,17 @@ describe("package retention dry run", () => {
         "werft",
       ]),
     );
-    expect(
-      paths.filter((p) => p.endsWith("/versions?per_page=100")),
-    ).toHaveLength(4);
+    await expect(
+      audit("example/werft", absent("werft-worker"), async () => [], now),
+    ).rejects.toThrow("GitHub read failed");
+    await expect(
+      audit(
+        "example/werft",
+        absent("werft-worker-codex", ""),
+        async () => [],
+        now,
+      ),
+    ).rejects.toThrow("GitHub read failed");
     const wrong = {
       ...api,
       json: () => ({

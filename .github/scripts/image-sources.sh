@@ -27,7 +27,7 @@ case "$mode" in
     ;;
 esac
 
-apps=(control-host worker egress-proxy)
+apps=(control-host worker worker-codex egress-proxy)
 files=()
 for app in "${apps[@]}"; do
   for arch in amd64 arm64; do

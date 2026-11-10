@@ -19,6 +19,14 @@
         "arm64": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
       }
     },
+    "worker-codex": {
+      "image": "ghcr.io/example/werft-worker-codex",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "platforms": {
+        "amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "arm64": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
     "egress-proxy": {
       "image": "ghcr.io/example/werft-egress-proxy",
       "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -29,6 +37,7 @@
     }
   },
   "workerRuntime": {},
+  "workerCodexRuntime": {},
   "chart": {
     "name": "werft",
     "version": "0.0.0",

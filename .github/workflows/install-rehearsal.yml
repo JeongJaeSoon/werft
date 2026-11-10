@@ -1,5 +1,5 @@
 # Installs the newest published release the way an outside operator does:
-# no registry login, no token, only what the release publishes (the three
+# no registry login, no token, only what the release publishes (the
 # images by digest, the chart as an OCI package). /readyz answering 200 is
 # the pass. A package that cannot be pulled fails the job at the pull step.
 #
@@ -125,7 +125,13 @@ jobs:
         run: |
           export DOCKER_CONFIG="$RUNNER_TEMP/no-login"
           mkdir -p "$DOCKER_CONFIG"
-          for app in control-host worker egress-proxy; do
+          for app in control-host worker worker-codex egress-proxy; do
+            # Releases before the Codex image have no key for it; any other
+            # missing image gives a null reference and fails the pull.
+            if [ "$app" = worker-codex ] && jq -e '.images | has("worker-codex") | not' "$MANIFEST" >/dev/null; then
+              echo "skip ${app}: not in this release"
+              continue
+            fi
             ref="$(jq -r --arg a "$app" '.images[$a] | "\(.image)@\(.digest)"' "$MANIFEST")"
             echo "pull ${ref}"
             docker pull "$ref"

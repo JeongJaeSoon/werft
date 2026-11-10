@@ -986,7 +986,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       });
 
     test("builds every app without package write", () => {
-      expect(text).toContain("app: [control-host, worker, egress-proxy]");
+      expect(text).toContain(
+        "app: [control-host, worker, worker-codex, egress-proxy]",
+      );
       expect(on.push.tags).toEqual(["v*"]);
       expect(permissions).toEqual({ contents: "read" });
       expect(writers.sort()).toEqual([
@@ -1011,21 +1013,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
       for (const name of ["build", "publish", "publish-main"]) {
         const job = jobs[name];
-        // `build` verifies the Codex worker image too; the jobs that publish
-        // list only the images a release ships.
-        expect(job?.strategy?.matrix).toEqual(
-          name === "build"
-            ? {
-                app: ["control-host", "worker", "worker-codex", "egress-proxy"],
-                arch: expression(
+        // The Codex worker image is one of the four images every job handles.
+        expect(job?.strategy?.matrix).toEqual({
+          app: ["control-host", "worker", "worker-codex", "egress-proxy"],
+          arch:
+            name === "build"
+              ? expression(
                   `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
-                ),
-              }
-            : {
-                app: ["control-host", "worker", "egress-proxy"],
-                arch: ["amd64", "arm64"],
-              },
-        );
+                )
+              : ["amd64", "arm64"],
+        });
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
@@ -1330,6 +1327,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       cliVersion: "2.1.280",
       profileDigestScheme: 1,
     };
+    const codexRuntime = {
+      engine: "codex",
+      sdkVersion: "0.167.0",
+      cliVersion: "0.167.0",
+      profileDigestScheme: 1,
+    };
     const records = () => [
       {
         app: "control-host",
@@ -1354,6 +1357,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         promoted: true,
         commit: sha,
         runtime,
+      },
+      {
+        app: "worker-codex",
+        image: repo("worker-codex"),
+        digest: hex("d"),
+        promoted: true,
+        commit: sha,
+        runtime: codexRuntime,
       },
     ];
     const version = (ref: string, chartYamlVersion = "0.1.0") =>
@@ -1402,7 +1413,15 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         digest: hex("c"),
         runtime,
       });
+      expect(publishedImages(records(), sha).workerCodex).toEqual({
+        repository: repo("worker-codex"),
+        digest: hex("d"),
+        runtime: codexRuntime,
+      });
     });
+
+    const patch = (r: Row[], i: number, change: Partial<Row>) =>
+      r.map((row, j) => (j === i ? { ...row, ...change } : row));
 
     test.each([
       ["a missing app", (r: Row[]) => r.slice(1), /no image record/],
@@ -1410,27 +1429,42 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ["an unknown app", (r: Row[]) => [{ ...r[0], app: "x" }], /unexpected/],
       [
         "an image never promoted",
-        (r: Row[]) => [{ ...r[0], promoted: false }, r[1], r[2]],
+        (r: Row[]) => patch(r, 0, { promoted: false }),
         /not promoted/,
       ],
       [
         "another commit",
-        (r: Row[]) => [{ ...r[0], commit: "f".repeat(40) }, r[1], r[2]],
+        (r: Row[]) => patch(r, 0, { commit: "f".repeat(40) }),
         /is of/,
       ],
       [
         "a tag for a digest",
-        (r: Row[]) => [{ ...r[0], digest: "main-1" }, r[1], r[2]],
+        (r: Row[]) => patch(r, 0, { digest: "main-1" }),
         /has digest/,
       ],
       [
         "a worker without a runtime",
-        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: null }],
+        (r: Row[]) => patch(r, 2, { runtime: null }),
         /./,
       ],
       [
         "a runtime the readers refuse",
-        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: { engine: "e" } }],
+        (r: Row[]) => patch(r, 2, { runtime: { engine: "e" } }),
+        /./,
+      ],
+      [
+        "a Codex worker image without a runtime",
+        (r: Row[]) => patch(r, 3, { runtime: null }),
+        /./,
+      ],
+      [
+        "a Codex worker image that carries the Claude engine",
+        (r: Row[]) => patch(r, 3, { runtime }),
+        /./,
+      ],
+      [
+        "a Claude worker image that carries the Codex engine",
+        (r: Row[]) => patch(r, 2, { runtime: codexRuntime }),
         /./,
       ],
     ])("refuses %s", (_label, change, message) => {
@@ -1451,6 +1485,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(parsed.images.egressProxy?.digest).toBe(hex("b"));
       expect(parsed.images.worker?.digest).toBe(hex("c"));
       expect(parsed.images.worker?.runtime).toEqual(runtime);
+      expect(parsed.images.workerCodex?.digest).toBe(hex("d"));
+      expect(parsed.images.workerCodex?.runtime).toEqual(codexRuntime);
       expect(parsed.images.workerPrevious?.digest).toBe("");
       expect(parsed.images.workerPrevious?.runtime).toEqual({});
 
@@ -1458,7 +1494,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       const lines = baked.split("\n");
       expect(lines).toHaveLength(original.length);
       const changed = lines.filter((line, i) => line !== original[i]);
-      expect(changed).toHaveLength(4);
+      expect(changed).toHaveLength(6);
       for (const line of changed)
         expect(line).toMatch(/^ {4}(digest|runtime):/);
     });
@@ -1811,9 +1847,12 @@ echo "$*" >"$FAKE/check"
 printf '%b' "$FAKE_STDERR" >&2
 exit "$FAKE_EXIT"
 `;
-    const lists = ["control-host", "worker", "egress-proxy"].flatMap((app) =>
-      ["amd64", "arm64"].map((arch) => ({ app, arch })),
-    );
+    const lists = [
+      "control-host",
+      "worker",
+      "worker-codex",
+      "egress-proxy",
+    ].flatMap((app) => ["amd64", "arm64"].map((arch) => ({ app, arch })));
     const run = (
       mode: string,
       exit: number,
@@ -1878,7 +1917,7 @@ exit "$FAKE_EXIT"
       expect(check).toEndWith("lists/egress-proxy-arm64.md\n");
       expect(check?.split(" ").filter((word) => word.endsWith(".md")).length)
         // The last word ends in a newline.
-        .toBe(5);
+        .toBe(7);
     });
 
     test("a main build goes out without answers, each image with its own", () => {
@@ -2018,7 +2057,7 @@ exit 3
   });
 
   describe("image-index.sh", () => {
-    const apps3 = ["control-host", "worker", "egress-proxy"];
+    const apps3 = ["control-host", "worker", "worker-codex", "egress-proxy"];
     const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
     const child = (app: string, arch: string) => `sha256:${arch}-${app}`;
     const indexOf = (app: string) => `sha256:index-${app}`;
@@ -2195,7 +2234,8 @@ esac
   });
 
   describe("image-promote.sh", () => {
-    const apps3 = ["control-host", "egress-proxy", "worker"];
+    // In the order the registry's file names sort: "-" comes before "_" and ".".
+    const apps3 = ["control-host", "egress-proxy", "worker-codex", "worker"];
     const sha = "0123456789abcdef0123456789abcdef01234567";
     const digest = (app: string, build = "a") => `sha256:${build}-${app}`;
     const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
@@ -2366,8 +2406,8 @@ esac
       expect(store.tagged()).toEqual([`ghcr.io_o_werft-control-host_${main}`]);
       expect(store.published()).toEqual([]);
       expect(store.promote().code).toBe(0);
-      expect(store.tagged().length).toBe(3);
-      expect(store.published().length).toBe(3);
+      expect(store.tagged().length).toBe(4);
+      expect(store.published().length).toBe(4);
     });
 
     test("a tag that reads back wrong is not published", () => {

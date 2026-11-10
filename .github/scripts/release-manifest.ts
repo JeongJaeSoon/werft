@@ -4,8 +4,8 @@
  * with GITHUB_REF, GITHUB_SHA and GITHUB_REPOSITORY_OWNER set.
  *
  * <published dir> is `image-digests-published`, <chart dir> the `chart`
- * artifact. One JSON file holds the three image digests, the worker runtime
- * and the chart version, so an operator reads a release without a run artifact.
+ * artifact. One JSON file holds the four image digests, the runtime of each
+ * worker image and the chart version, so an operator reads a release without a run artifact.
  */
 
 import { spawnSync } from "node:child_process";
@@ -21,7 +21,12 @@ import {
 export const MANIFEST_SCHEMA = 1;
 export const MANIFEST_ASSET = "release-manifest.json";
 
-const APPS = ["control-host", "worker", "egress-proxy"] as const;
+const APPS = [
+  "control-host",
+  "worker",
+  "worker-codex",
+  "egress-proxy",
+] as const;
 const ARCHES = ["amd64", "arm64"] as const;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const CHART_NAME = "werft";
@@ -40,6 +45,8 @@ export type ReleaseManifest = {
     }
   >;
   workerRuntime: Record<string, unknown>;
+  /** The Codex worker image's runtime; `images["worker-codex"]` is that image. */
+  workerCodexRuntime: Record<string, unknown>;
   chart: {
     name: string;
     version: string;
@@ -107,7 +114,9 @@ export function buildManifest(input: {
         ? "controlHost"
         : app === "worker"
           ? "worker"
-          : "egressProxy";
+          : app === "worker-codex"
+            ? "workerCodex"
+            : "egressProxy";
     const { repository, digest } = baked[key];
     const platforms = {} as Record<(typeof ARCHES)[number], string>;
     if (
@@ -136,6 +145,7 @@ export function buildManifest(input: {
     commit: sha,
     images,
     workerRuntime: baked.worker.runtime,
+    workerCodexRuntime: baked.workerCodex.runtime,
     chart: {
       name: CHART_NAME,
       version: expected.version,

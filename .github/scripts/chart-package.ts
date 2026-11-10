@@ -30,12 +30,23 @@ export type ChartImages = {
     digest: string;
     runtime: Record<string, unknown>;
   };
+  /**
+   * The Codex worker image: a catalog entry the chart does not deploy. One
+   * worker image holds one engine, so a deployment that runs Codex copies this
+   * repository, digest and runtime into `worker`.
+   */
+  workerCodex: {
+    repository: string;
+    digest: string;
+    runtime: Record<string, unknown>;
+  };
 };
 
 const APPS = {
   "control-host": "controlHost",
   "egress-proxy": "egressProxy",
   worker: "worker",
+  "worker-codex": "workerCodex",
 } as const;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const NUMBER = "(?:0|[1-9]\\d*)";
@@ -129,14 +140,26 @@ export function publishedImages(
     controlHost: image("control-host"),
     egressProxy: image("egress-proxy"),
     worker: image("worker"),
+    workerCodex: image("worker-codex"),
   };
-  const { runtime } = seen.get("worker") as { runtime?: unknown };
-  parseImageRuntime(JSON.stringify(runtime ?? null));
+  const runtimeOf = (app: "worker" | "worker-codex", engine: string) => {
+    const { runtime } = seen.get(app) as { runtime?: unknown };
+    parseImageRuntime(JSON.stringify(runtime ?? null));
+    // An image built with the wrong engine would otherwise be released under
+    // the other one's name.
+    if ((runtime as { engine?: unknown }).engine !== engine) {
+      throw new Error(
+        `${app} runs the engine ${(runtime as { engine?: unknown }).engine}, not ${engine}`,
+      );
+    }
+    return runtime as Record<string, unknown>;
+  };
   return {
     ...images,
-    worker: {
-      ...images.worker,
-      runtime: runtime as Record<string, unknown>,
+    worker: { ...images.worker, runtime: runtimeOf("worker", "claude") },
+    workerCodex: {
+      ...images.workerCodex,
+      runtime: runtimeOf("worker-codex", "codex"),
     },
   };
 }
@@ -177,12 +200,14 @@ export function bakeValues(text: string, images: ChartImages): string {
   };
   edit("controlHost", "", () => "");
   edit("egressProxy", "", () => "");
-  edit(
-    "worker",
-    "((?:    #.*\\n)*)    runtime: \\{\\}\\n",
-    (comments) =>
-      `${comments}    runtime: ${JSON.stringify(images.worker.runtime)}\n`,
-  );
+  for (const key of ["worker", "workerCodex"] as const) {
+    edit(
+      key,
+      "((?:    #.*\\n)*)    runtime: \\{\\}\\n",
+      (comments) =>
+        `${comments}    runtime: ${JSON.stringify(images[key].runtime)}\n`,
+    );
+  }
   return text.slice(0, start) + block + text.slice(end);
 }
 

@@ -43,6 +43,15 @@ images:
     # an upgrade can then keep this image but not replace it
     # (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
     runtime: {}
+  # The Codex worker image of the same release (apps/worker built with
+  # WORKER_RUNTIME=codex_app_server). The chart does not deploy it and reads
+  # nothing from this entry: a deployment that runs Codex copies this
+  # repository, digest and runtime into images.worker. A packaged release
+  # fills the digest and runtime.
+  workerCodex:
+    repository: ghcr.io/jeongjaesoon/werft-worker-codex
+    digest: ""
+    runtime: {}
   # The release before, so a session whose checkpoint the current image
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
   # runtime go together, and need images.worker.runtime set.

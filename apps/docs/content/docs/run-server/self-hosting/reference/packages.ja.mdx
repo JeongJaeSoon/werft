@@ -14,7 +14,7 @@ outcome: "イメージ、chart、manifest のフィールドの意味を確認�
 
 | パッケージ | アドレス | `main` マージ | `v*` タグ |
 | --- | --- | --- | --- |
-| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-egress-proxy` | タグ `main-<12>` | タグ `v<version>` |
+| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-worker-codex`、`werft-egress-proxy` | タグ `main-<12>` | タグ `v<version>` |
 | Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `<Chart.yaml version>-main-<12>` | バージョン `<version>`（`v` なし） |
 | SDK | npm `@werft-ai/sdk` | main イメージの公開とは別です。[SDK のインストール](/getting-started/install)で配布バージョンを確認します | SDK の配布バージョンを別途確認します |
 
@@ -35,7 +35,7 @@ outcome: "イメージ、chart、manifest のフィールドの意味を確認�
 ```bash
 TAG=v0.1.2   # the release tag to read
 gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests used for deployment
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # image digests (deployment uses control-host, worker and egress-proxy)
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
 jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
@@ -47,10 +47,11 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 |---|---|
 | `schema` | manifest 形式のバージョン。現在は `1` |
 | `tag`、`commit` | リリースタグとその commit（40 文字の hex） |
-| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`。`<app>` は `control-host`、`worker`、`egress-proxy` |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`。`<app>` は `control-host`、`worker`、`worker-codex`、`egress-proxy`。`worker-codex` は Codex エンジンの worker イメージで、chart のデプロイ対象には含まれません |
 | `images.<app>.digest` | 両アーキテクチャを含む index の digest。デプロイはこの値で固定します |
 | `images.<app>.platforms.amd64`、`.arm64` | そのアーキテクチャの manifest digest |
 | `workerRuntime` | worker イメージに含まれる Claude 実行環境（`engine`、`sdkVersion`、`cliVersion`、`profileDigestScheme`） |
+| `workerCodexRuntime` | `worker-codex` イメージに含まれる Codex 実行環境（`workerRuntime` と同じフィールド、`engine` は `codex`） |
 | `chart.name`、`chart.version`、`chart.appVersion`、`chart.ref` | 同じ run が公開した chart。`chart.ref` は `oci://` の場所 |
 
 値は `promote` が registry から再取得して確認した digest と、`chart-publish` がログインなしで取得・確認した chart に由来します。manifest 作成時には chart パッケージの `Chart.yaml`・`values.yaml` にも同じ digest とバージョンが含まれることを照合します。一度添付した manifest は変更しません。同じタグを再実行して異なる内容になれば job が失敗します。
