@@ -101,6 +101,10 @@ finish() {
       echo "-- logs ${app}" >&2
       k logs "deploy/${fullname}-${app}" --tail=100 --all-containers >&2 || true
     done
+    echo "-- logs postgres" >&2
+    k logs deploy/postgres --tail=60 >&2 || true
+    echo "-- logs migrate" >&2
+    k logs "job/${fullname}-migrate" --tail=60 >&2 || true
   fi
   if [ -f "$KUBECONFIG" ]; then
     k delete pod replicas-probe --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -215,16 +219,20 @@ sse_stamped() {
 attempts_of() {
   sed -n 's/^data: //p' "$1" | jq -r --arg t "$2" 'select(.turn_id == $t) | .attempt_id // empty' | sort -u
 }
-# assert_one_attempt <port> <sid> <turn> <sse file>: the turn has exactly one
-# attempt, and it is the one its event frames name. A turn claimed and run
-# twice would list a second attempt.
-assert_one_attempt() {
-  local ids attempts
+# assert_once <port> <sid> <turn> <sse file>: the turn has exactly one
+# attempt, the one its event frames name, and exactly one `result` frame. An
+# attempt is a worker's, not a turn's (turn 2 runs under turn 1's), so the
+# result count is what shows the same worker running one turn twice.
+assert_once() {
+  local ids attempts results
   ids="$(attempts_of "$4" "$3")"
   attempts="$(get "$1" "/v1/sessions/$2/turns/$3" | jq -r '.attempts[].attempt_id')"
   [ "$(printf '%s\n' "$attempts" | grep -c .)" = 1 ] && [ "$ids" = "$attempts" ] ||
     fail "turn $3 of $2: the turn lists attempts [$(echo $attempts)], its frames name [$(echo $ids)]"
-  echo "turn $3: one attempt ${attempts}"
+  results="$(awk '/^event: result$/ { r = 1; next } r && /^data: / { sub(/^data: /, ""); print; r = 0 }' "$4" |
+    jq -r --arg t "$3" 'select(.turn_id == $t) | .turn_id' | grep -c . || true)"
+  [ "$results" = 1 ] || fail "turn $3 of $2 has ${results} result frames, not one"
+  echo "turn $3: one attempt ${attempts}, one result frame"
 }
 
 # Four turns' worth of permission questions: each Bash step asks, the session
@@ -306,8 +314,8 @@ echo "events: A=$(wc -l <"$work/ids-a" | tr -d ' ') B=$(wc -l <"$work/ids-b" | t
 cmp -s "$work/ids-a" "$work/ids-b" || fail "A and B list different events for the same session"
 [ -z "$(sort "$work/ids-a" | uniq -d)" ] || fail "an event id appears twice"
 # Four approvals and a second turn, and still one attempt per turn.
-assert_one_attempt "$PORT_B" "$sid" 1 "$work/full-a.sse"
-assert_one_attempt "$PORT_A" "$sid" 2 "$work/full-b.sse"
+assert_once "$PORT_B" "$sid" 1 "$work/full-a.sse"
+assert_once "$PORT_A" "$sid" 2 "$work/full-b.sse"
 cursor="$(sed -n 2p "$work/ids-a")"
 sse "$PORT_B" "$sid" "$work/resumed-b.sse" 8 "$cursor"
 event_ids "$work/resumed-b.sse" >"$work/ids-resumed"
@@ -344,7 +352,7 @@ for pair in $(seq 1 $((SPREAD_SESSIONS / 2))); do
     printf 'pair %s: created on :%s, completed read on :%s  %s  reported turns %s\n' "$pair" "$port" "$other" "$s" "$reported"
     [ "$reported" = 1 ] || fail "session ${s} reported ${reported} turns"
     sse "$other" "$s" "$work/spread-${s}.sse" 3
-    assert_one_attempt "$port" "$s" 1 "$work/spread-${s}.sse"
+    assert_once "$port" "$s" 1 "$work/spread-${s}.sse"
     terminate "$other" "$s"
   done
 done
