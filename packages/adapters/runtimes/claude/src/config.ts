@@ -94,6 +94,12 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    * fingerprint.
    */
   engineSettings?: EngineSettings;
+  /**
+   * The fixed answer language, given to the engine as its `language` setting
+   * (the engine adds it to the message stream, not the system prompt). Not
+   * part of the checkpoint fingerprint: a resumed session gets it fresh.
+   */
+  responseLanguage?: "ko" | "en" | "ja";
   /** Put into the engine's environment as it is; never into its arguments. */
   gitEnvironment?: GitEnvironment;
   /**
