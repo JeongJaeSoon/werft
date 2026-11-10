@@ -205,7 +205,7 @@ function withResponseLanguage(
   language: RuntimeStart["config"]["responseLanguage"],
 ): ClaudeProfileConfig {
   if (language === undefined) return profileConfig;
-  const instruction = `Answer in ${RESPONSE_LANGUAGE_NAMES[language]} unless the person writes in another language.`;
+  const instruction = `Always answer in ${RESPONSE_LANGUAGE_NAMES[language]}, whatever language the person writes in.`;
   return {
     ...profileConfig,
     appendSystemPrompt:

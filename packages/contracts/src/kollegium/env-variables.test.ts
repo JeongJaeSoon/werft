@@ -142,7 +142,8 @@ describe("a card's env declaration", () => {
     });
 
   test("a card without it keeps the hash it had before it existed", () => {
-    const parsed = agentCardSchema.parse(card);
+    // `language` is spelled out: its default is not the one this hash was taken with.
+    const parsed = agentCardSchema.parse({ ...card, language: "ko" });
     expect("env" in parsed.capabilities).toBe(false);
     // This card's hash on origin/main 7868c9e78, before `env` existed.
     expect(cardHash(parsed)).toBe(

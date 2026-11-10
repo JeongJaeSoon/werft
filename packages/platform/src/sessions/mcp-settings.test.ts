@@ -172,6 +172,15 @@ describe("effectiveMcp, the release's deny", () => {
       }).tools,
     ).toEqual(["mcp__docs__read"]);
   });
+  test("a deny pin beats the agent's saved allow in both session kinds", () => {
+    const withDeny = { ...release, deny: ["mcp__docs__read"] };
+    expect(
+      effectiveMcp({ start: start(), row: row(), release: withDeny }).tools,
+    ).toEqual(["mcp__docs__search"]);
+    expect(
+      effectiveMcp({ start: null, row: row(), release: withDeny }).tools,
+    ).toEqual(["mcp__docs__search"]);
+  });
   test("names of another server are never allowed", () => {
     expect(
       effectiveMcp({

@@ -90,7 +90,11 @@ integration("agent MCP settings on PostgreSQL", () => {
   // one under test.
   async function agentOnRelease(
     workspaceId: string,
-    options: { snapshot?: Record<string, unknown>; refs?: string[] } = {},
+    options: {
+      snapshot?: Record<string, unknown>;
+      refs?: string[];
+      perTool?: Record<string, string>;
+    } = {},
   ) {
     const agentId = randomUUID();
     await db.insert(agents).values({
@@ -131,7 +135,11 @@ integration("agent MCP settings on PostgreSQL", () => {
       policyPins: {
         tools: {
           default: { builtin: "allow", mcp: "ask" },
-          per_tool: { [READ]: "allow", [SEARCH]: "allow", mcp__docs__x: "ask" },
+          per_tool: options.perTool ?? {
+            [READ]: "allow",
+            [SEARCH]: "allow",
+            mcp__docs__x: "ask",
+          },
         },
       },
     });
@@ -349,6 +357,43 @@ integration("agent MCP settings on PostgreSQL", () => {
     expect(
       await sessionMcpOf(db, { agentReleaseId: releaseId, mcpStart: started }),
     ).toMatchObject({ tools: [READ] });
+  });
+
+  test("a release deny pin beats the agent's saved allow in both kinds of session", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId, {
+      perTool: { [READ]: "allow", [SEARCH]: "deny" },
+    });
+    // The agent's own settings allow the denied name too.
+    await saveSettings(workspaceId, agentId, { updatedBy: await person() });
+    expect(
+      (await stateOf(await sessionOn(workspaceId, releaseId)))?.tools,
+    ).toEqual([READ]);
+    const started = await db.transaction((tx) =>
+      captureMcpStart(tx, releaseId),
+    );
+    const snapshot = await sessionOn(workspaceId, releaseId, started);
+    expect((await stateOf(snapshot))?.tools).toEqual([READ]);
+    expect(
+      await sessionMcpOf(db, { agentReleaseId: releaseId, mcpStart: started }),
+    ).toMatchObject({ tools: [READ] });
+  });
+
+  test("a release deny pin on another server still closes the name when the agent's settings follow that server", async () => {
+    const workspaceId = await workspace();
+    const { agentId, releaseId } = await agentOnRelease(workspaceId, {
+      perTool: { [READ]: "allow", mcp__wiki__wipe: "deny" },
+    });
+    await saveSettings(workspaceId, agentId, {
+      server: "wiki",
+      allowedTools: ["mcp__wiki__wipe", "mcp__wiki__read"],
+      updatedBy: await person(),
+    });
+    const started = await db.transaction((tx) =>
+      captureMcpStart(tx, releaseId),
+    );
+    const sessionId = await sessionOn(workspaceId, releaseId, started);
+    expect((await stateOf(sessionId))?.tools).toEqual(["mcp__wiki__read"]);
   });
 
   // The chain a stored profile takes to a refused call: its deny column, the

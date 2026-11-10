@@ -5115,7 +5115,7 @@ export interface components {
                 role?: string;
                 instructions?: string;
                 /**
-                 * @default ko
+                 * @default follow-user
                  * @enum {string}
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
@@ -5156,7 +5156,7 @@ export interface components {
                 role?: string;
                 instructions?: string;
                 /**
-                 * @default ko
+                 * @default follow-user
                  * @enum {string}
                  */
                 language: "follow-user" | "ko" | "en" | "ja";
@@ -9282,7 +9282,7 @@ export interface components {
                     role?: string;
                     instructions?: string;
                     /**
-                     * @default ko
+                     * @default follow-user
                      * @enum {string}
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
@@ -9495,7 +9495,7 @@ export interface components {
                     role?: string;
                     instructions?: string;
                     /**
-                     * @default ko
+                     * @default follow-user
                      * @enum {string}
                      */
                     language: "follow-user" | "ko" | "en" | "ja";
