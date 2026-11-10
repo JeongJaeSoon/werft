@@ -9,10 +9,13 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { DecisionLog } from "../ports/decision-log.ts";
-import type { LinkedSubject } from "../ports/linked-account-store.ts";
-import type { SurfaceBindingRecord } from "../ports/surface-binding-store.ts";
-import { createAuthorizationPolicy, type IdentityReader } from "./policy.ts";
+import {
+  createAuthorizationPolicy,
+  type DecisionLog,
+  type IdentityReader,
+  type LinkedSubject,
+  type SurfaceBindingRecord,
+} from "@werft-ai/platform";
 import { authorizeSlackInput, type SlackInput } from "./slack-decision.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";

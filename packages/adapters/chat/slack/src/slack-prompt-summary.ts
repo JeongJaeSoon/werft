@@ -3,7 +3,7 @@ import {
   type ToolVerb,
   type UserLocale,
 } from "@werft-ai/contracts";
-import type { ToolSummaryContext } from "../ports/pending-requests.ts";
+import type { ToolSummaryContext } from "@werft-ai/platform";
 
 // Product copy: plain words, no internal module names. One entry per ToolVerb;
 // `useTool` takes `{tool}`, `useMcpTool` takes `{server}` and `{tool}`.

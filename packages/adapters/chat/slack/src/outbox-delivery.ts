@@ -7,7 +7,6 @@ import type {
 } from "@werft-ai/platform";
 import {
   type Notifiable,
-  SLACK_SEND_MAX_ATTEMPTS,
   SlackApiError,
   type SlackBotSender,
   slackInboundBackoffMs,
@@ -19,6 +18,7 @@ import {
   slackOutboxSettleFor,
   slackOutboxText,
 } from "./slack-outbox.ts";
+import { SLACK_SEND_MAX_ATTEMPTS } from "./slack-send-result.ts";
 
 /**
  * The outbox sender's way out to the channel. `notifiable` and `approvable`

@@ -21,10 +21,6 @@ import type {
   SlackUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
-  classifySlackSendResult,
-  escapeSlackControls,
-  markdownToSlackMrkdwn,
-  markdownToSlackParts,
   type PushSource,
   pushApprovability,
   SlackApiError,
@@ -33,15 +29,20 @@ import {
   type SlackInboxLogger,
   SlackRateLimitedError,
   type SlackSendResponse,
-  slackDoneCard,
   slackInboundBackoffMs,
+} from "@werft-ai/platform";
+import type { RowDelivery } from "./outbox-delivery.ts";
+import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
+import type { SlackNoticeSink } from "./slack-notice-sink.ts";
+import { escapeSlackControls } from "./slack-presentation.ts";
+import {
+  slackDoneCard,
   slackPromptMessage,
   slackRejectOnlyCard,
   slackSettledCard,
   slackSettledResult,
-} from "@werft-ai/platform";
-import type { RowDelivery } from "./outbox-delivery.ts";
-import type { SlackNoticeSink } from "./slack-notice-sink.ts";
+} from "./slack-prompts.ts";
+import { classifySlackSendResult } from "./slack-send-result.ts";
 import {
   reconcileSlackThreadStatuses,
   writeSlackThreadStatuses,
