@@ -122,9 +122,9 @@ describe("AgentCard", () => {
   });
 
   test("an omitted default hashes like the value spelled out", () => {
-    expect(cardHash(agentCardSchema.parse({ ...card, language: "ko" }))).toBe(
-      cardHash(agentCardSchema.parse(card)),
-    );
+    expect(
+      cardHash(agentCardSchema.parse({ ...card, language: "follow-user" })),
+    ).toBe(cardHash(agentCardSchema.parse(card)));
     expect(
       cardHash(agentCardSchema.parse({ ...card, language: "en" })),
     ).not.toBe(cardHash(agentCardSchema.parse(card)));
@@ -135,7 +135,7 @@ describe("AgentCard", () => {
     // would fail the hash outright instead of quietly re-hashing every card.
     const parsed = agentCardSchema.parse(card);
     expect(Object.hasOwn(parsed.capabilities, "tool_policy")).toBe(false);
-    expect(parsed.language).toBe("ko");
+    expect(parsed.language).toBe("follow-user");
     expect(parsed.rules).toEqual([]);
   });
 
