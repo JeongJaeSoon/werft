@@ -11,6 +11,7 @@ import type {
   CheckpointRequestResponse,
   ClaimGit,
   ClaimGitAuthor,
+  ClaimTelemetry,
   FinalizeRequest,
   FinalizeResponse,
   GitHubPackagesRegistry,
@@ -39,6 +40,7 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  TraceContentMode,
   WorkerCapabilities,
   WorkerEvent,
   WorkerReadyRequest,
@@ -271,6 +273,19 @@ type ToolConfigs = {
   // classifier works; a scheme 1 checkpoint hashed whichever one ran then.
   storedMode: RuntimeConfig["permission_mode"];
 };
+
+/**
+ * What the gateway needs to say about tracing, owned here so the gateway
+ * depends on no tracing package. A workspace's content mode can only lower the
+ * installation's ceiling, which is the source's job to enforce.
+ */
+export interface ClaimTelemetrySource {
+  claim(workspaceContentMode?: TraceContentMode): ClaimTelemetry;
+  /** Undefined while tracing is off. */
+  contentMode(
+    workspaceContentMode?: TraceContentMode,
+  ): TraceContentMode | undefined;
+}
 
 export type WorkerGatewayOptions = {
   workspaceEnforce?: "warn" | "fail" | "off";
@@ -675,6 +690,9 @@ export function createWorkerGateway(deps: {
       }) => void;
     };
   };
+  // Absent, a claim carries no `telemetry` and a nextInput no `content_mode`:
+  // the worker reads both as tracing off.
+  telemetry?: ClaimTelemetrySource;
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
@@ -2033,6 +2051,9 @@ export function createWorkerGateway(deps: {
               : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
             ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
             ...(issued.length === 0 ? {} : { git_issued: issued }),
+            ...(deps.telemetry === undefined
+              ? {}
+              : { telemetry: deps.telemetry.claim() }),
           };
         }
       }
@@ -2519,6 +2540,7 @@ export function createWorkerGateway(deps: {
           const coAuthor = result.input
             ? await turnCoAuthor(fence.sessionId, result.input.actorId)
             : undefined;
+          const contentMode = deps.telemetry?.contentMode();
           return {
             input: result.input
               ? {
@@ -2531,6 +2553,9 @@ export function createWorkerGateway(deps: {
                   ...(result.input.traceContext === null
                     ? {}
                     : { trace_context: result.input.traceContext }),
+                  ...(contentMode === undefined
+                    ? {}
+                    : { content_mode: contentMode }),
                 }
               : null,
             lease_expires_at: result.leaseExpiresAt.toISOString(),

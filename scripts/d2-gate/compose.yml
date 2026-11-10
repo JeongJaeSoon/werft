@@ -43,6 +43,10 @@ services:
     environment:
       GATE_PROVIDER_KEY: gate-placeholder-not-a-credential
       AWS_ENDPOINT_URL: http://gate-s3:4566
+      # The proxy's forward lists above; the API reads them only to warn when
+      # the trace collector's host is on one.
+      EGRESS_ALLOWLIST: ""
+      EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000"
     depends_on:
       gate-chaos:
         condition: service_healthy

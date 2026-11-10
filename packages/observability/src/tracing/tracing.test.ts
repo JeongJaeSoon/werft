@@ -104,11 +104,13 @@ describe("parseTracingSettings", () => {
     ).toThrow("OTEL_EXPORTER_OTLP_ENDPOINT");
     const base = parseTracingSettings({
       OTEL_TRACES_EXPORTER: "otlp",
+      TRACE_INGEST_URL: "http://api:4319",
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318/",
     });
     expect(base?.endpoint).toBe("http://collector:4318/v1/traces");
     const both = parseTracingSettings({
       OTEL_TRACES_EXPORTER: "otlp",
+      TRACE_INGEST_URL: "http://api:4319",
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://other/custom",
     });
@@ -185,6 +187,7 @@ describe("parseTracingSettings", () => {
     const settings = parseTracingSettings({
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://c",
+      TRACE_INGEST_URL: "http://api:4319",
       TRACE_TENANT_HEADER: "X-Scope-OrgID: {workspace_id}",
       TRACE_INSTALL_TENANT: "install",
     });
@@ -251,6 +254,7 @@ describe("otel tracer", () => {
     const settings = parseTracingSettings({
       OTEL_TRACES_EXPORTER: "otlp",
       OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+      TRACE_INGEST_URL: "http://api.internal:4319",
       ...env,
     });
     if (!settings) throw new Error("tracing should be on");

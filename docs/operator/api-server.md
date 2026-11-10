@@ -441,6 +441,12 @@ API 서비스만 읽는 설정이다. 기본은 꺼짐이라 키를 하나도 �
 | `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | `always_on` / `1.0` | `always_on`, `always_off`, `traceidratio`(비율 0~1) |
 | `TRACE_TENANT_HEADER` | 없음 | `<헤더 이름>: <값 틀>`. 값 틀의 `{workspace_id}`를 워크스페이스 id로 바꿔 batch마다 붙인다 |
 | `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 값 |
+| `TRACE_TENANT_HEADERS_FILE` | 없음 | `{"<workspace_id>": {"<헤더>": "<값>"}}` JSON. 비밀이므로 mode 600 파일만 받는다. 같은 헤더 이름은 이 파일이 `TRACE_TENANT_HEADER`보다 이긴다 |
+| `TRACE_INGEST_URL` | 없음 | worker가 닿는 ingest listener 주소(`http`·`https`). `otlp`인데 없으면 시작 시 멈춘다. claim의 `telemetry.ingest_url`로 나간다 |
+| `TRACE_CONTENT_MODE` / `TRACE_CONTENT_MAX_BYTES` | `full` / `32768` | 내용 수집 상한(`full`·`metadata`)과 내용 속성 하나의 바이트 상한. 워크스페이스 설정은 상한 안에서 낮추기만 한다 |
+| `TRACE_INGEST_PORT` / `TRACE_INGEST_MAX_REQUEST_BYTES` / `TRACE_INGEST_MAX_BYTES_PER_MIN` / `TRACE_MAX_BYTES_PER_TRACE` / `TRACE_FENCED_GRACE_SEC` | `4319` / 4MiB / 32MiB / 20MiB / `300` | ingest listener의 포트와 상한. 0·음수·숫자가 아닌 값은 키 이름을 밝히고 시작 시 멈춘다 |
+
+`OTEL_*` 키는 worker와 엔진에 넘어가지 않는다. worker는 bootstrap claim의 `telemetry`(`enabled`, `ingest_url`, `content_mode`, `content_max_bytes`, `sampler`, `sampler_arg`)와 `nextInput`의 `content_mode`로만 설정을 받는다. 수집기 호스트가 `EGRESS_PRIVATE_ALLOWLIST`나 `EGRESS_ALLOWLIST`에 있으면 api가 시작할 때 경고를 한 번 남긴다.
 
 켜면 `/v1/**` 요청마다 `{METHOD} {route_template}` span(예: `POST /v1/sessions/:id/turns`)이 새 root로 생긴다. 클라이언트가 보낸 `traceparent`는 부모가 아니라 link로만 남고, 그 sampled 플래그는 따르지 않는다. 헬스·메트릭 경로와 worker gateway(`/internal/**`)는 span이 없고, gateway는 worker가 그 turn의 trace id로 `traceparent`를 보낸 호출만 그 trace의 자식 span을 만든다.
 

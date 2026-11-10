@@ -237,6 +237,7 @@ api 서비스만 읽는다. **worker와 엔진의 환경에는 표준 `OTEL_*` �
 | `TRACE_TENANT_HEADER` | 없음 | 예: `X-Scope-OrgID: <workspace id>` |
 | `TRACE_TENANT_HEADERS_FILE` | 없음 | 워크스페이스별 헤더 맵. 비밀을 담으므로 mode 600 파일만 받는다 |
 | `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 |
+| `TRACE_INGEST_URL` | 없음 | worker가 ingest listener에 닿는 주소(`http`·`https`). claim의 `telemetry.ingest_url`이 된다. 운영자 설정만 쓰고 요청에서 유도하지 않는다. `OTEL_TRACES_EXPORTER=otlp`인데 없으면 시작 시 이름을 밝힌 오류로 멈춘다(리드 결정, 2026-11-10: 호스트를 Host 헤더에서 따면 클라이언트가 worker의 텔레메트리 목적지를 정하게 되고, claim에서 빼면 T3·T4가 쓸 계약이 빈다) |
 | `TRACE_INGEST_PORT` | `4319` | worker용 ingest listener 포트 |
 | `TRACE_INGEST_MAX_REQUEST_BYTES` | `4194304` (4MiB) | ingest 요청 본문 상한. 공개 API의 상한(`REQUEST_BODY_MAX_BYTES * 2`, `apps/control-host/src/api/server.ts:1443`)은 바뀌지 않는다 |
 | `TRACE_INGEST_MAX_BYTES_PER_MIN` | `33554432` (32MiB) | attempt당 분당 상한 |
