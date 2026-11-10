@@ -9,9 +9,9 @@ import {
   type SessionScope,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
+import { createPendingRequestService } from "../decision/pending-service.ts";
 import type { DecisionLog } from "../ports/decision-log.ts";
 import { createInterruptService } from "../sessions/interrupt-service.ts";
-import { createPendingRequestService } from "../sessions/pending-service.ts";
 import {
   createSessionService,
   SessionServiceError,

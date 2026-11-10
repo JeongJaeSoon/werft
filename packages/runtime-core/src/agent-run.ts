@@ -55,14 +55,22 @@ export interface AgentRun {
   /** Settles an `approval.requested` at most once. */
   answer(answer: ApprovalAnswer): Promise<AnswerResult>;
   interrupt(): Promise<{ stillQueued: string[] }>;
-  parkable(): ParkReadiness;
   /**
-   * From now until released, the engine admits no new tool call before
-   * `guard` has resolved for it; a rejection refuses that call. An approved
-   * call the engine runs on its answer is not admitted again, so it never
-   * reaches the guard. Holding a second one replaces the first.
+   * Present on a run whose descriptor offers `approval_park`. A run without
+   * it cannot be cut where it waits on a person; the host reads that as
+   * `{ ok: false, reason: "not_supported" }`.
    */
-  holdAdmission(guard: (toolCallId: string) => Promise<void>): AdmissionHold;
+  parkable?(): ParkReadiness;
+  /**
+   * Present on a run whose descriptor says `approvalCheckpoint`: the engine
+   * has a point before each tool call where the host can stop it. From now
+   * until released, the engine admits no new tool call before `guard` has
+   * resolved for it; a rejection refuses that call. An approved call the
+   * engine runs on its answer is not admitted again, so it never reaches the
+   * guard. Holding a second one replaces the first. A host that took an
+   * approval checkpoint from a run without it fails the turn.
+   */
+  holdAdmission?(guard: (toolCallId: string) => Promise<void>): AdmissionHold;
   /** Read-only: the verdict leaseCheckpoint would reach now. */
   prepareCheckpoint(point: CheckpointPoint): Promise<CheckpointPreparation>;
   /**

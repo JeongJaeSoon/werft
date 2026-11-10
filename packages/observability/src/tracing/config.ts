@@ -1,11 +1,28 @@
 // Reads the tracing keys of the API service (the only process that reads them).
 // Pure parsing: no OpenTelemetry import, so it can run before the adapter loads.
 
+import { readFileSync, statSync } from "node:fs";
+
 export type SamplerKind = "always_on" | "always_off" | "traceidratio";
+
+/** What span attributes may carry: `metadata` keeps prompts and tool I/O out. */
+export type ContentMode = "full" | "metadata";
 
 export interface TracingSettings {
   readonly serviceName: string;
   readonly sampler: { readonly kind: SamplerKind; readonly ratio: number };
+  /** The installation's ceiling; a workspace may only lower it. */
+  readonly content: { readonly mode: ContentMode; readonly maxBytes: number };
+  /** Where workers send spans, and the limits the listener enforces. */
+  readonly ingest: {
+    /** The address a worker reaches the listener at. Operator-set only. */
+    readonly url: string;
+    readonly port: number;
+    readonly maxRequestBytes: number;
+    readonly maxBytesPerMinute: number;
+    readonly maxBytesPerTrace: number;
+    readonly fencedGraceSec: number;
+  };
   /** The full traces URL the exporter posts to. */
   readonly endpoint: string;
   /** Sent with every batch. Secret: never log the values. */
@@ -138,14 +155,113 @@ function parseTenantHeader(raw: string | undefined) {
   return { name: name.toLowerCase(), template };
 }
 
+type Env = Readonly<Record<string, string | undefined>>;
+
+function parseContentMode(env: Env): ContentMode {
+  const raw = blankToUndefined(env.TRACE_CONTENT_MODE) ?? "full";
+  if (raw !== "full" && raw !== "metadata") {
+    throw new Error(
+      `TRACE_CONTENT_MODE must be full or metadata, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return raw;
+}
+
+/** Digits only: `1e3`, `-5`, `0x10` and `12.5` all stop the process by name. */
+function parseLimit(env: Env, key: string, fallback: number, max?: number) {
+  const raw = blankToUndefined(env[key]);
+  if (raw === undefined) return fallback;
+  const value = /^[0-9]+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value < 1 || value > (max ?? Infinity)) {
+    throw new Error(
+      `${key} must be a positive integer${max === undefined ? "" : ` up to ${max}`}, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return value;
+}
+
+function parseIngestUrl(env: Env): string {
+  const raw = blankToUndefined(env.TRACE_INGEST_URL);
+  if (raw === undefined) {
+    throw new Error(
+      "TRACE_INGEST_URL is required when OTEL_TRACES_EXPORTER=otlp: the address workers send spans to",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("TRACE_INGEST_URL is not a valid URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("TRACE_INGEST_URL must use http or https");
+  }
+  return raw;
+}
+
+type HeaderMap = Readonly<Record<string, string>>;
+
+/**
+ * `{"<workspace_id>": {"<header>": "<value>"}}`. The file holds secrets, so
+ * only an owner-only regular file is read, and no error repeats its content.
+ */
+function readTenantHeadersFile(path: string): Map<string, HeaderMap> {
+  const key = "TRACE_TENANT_HEADERS_FILE";
+  let text: string;
+  try {
+    const stat = statSync(path);
+    if (!stat.isFile()) throw new Error("not a file");
+    // 0o600 exactly: a group or world bit on a secret file is refused.
+    if ((stat.mode & 0o777) !== 0o600) {
+      throw new Error(`${key} must have mode 600`);
+    }
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("mode 600")) {
+      throw error;
+    }
+    throw new Error(`${key} cannot be read`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${key} is not valid JSON`);
+  }
+  const shape = `${key} must be an object of workspace id to header map`;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(shape);
+  }
+  const byWorkspace = new Map<string, HeaderMap>();
+  for (const [workspaceId, headers] of Object.entries(parsed)) {
+    if (
+      typeof headers !== "object" ||
+      headers === null ||
+      Array.isArray(headers)
+    ) {
+      throw new Error(shape);
+    }
+    const checked: Record<string, string> = {};
+    for (const [name, value] of Object.entries(headers)) {
+      if (!HEADER_NAME.test(name)) {
+        throw new Error(`${key} has an invalid header name`);
+      }
+      if (typeof value !== "string" || !validHeaderValue(value)) {
+        throw new Error(`${key} has an invalid value for ${name}`);
+      }
+      checked[name.toLowerCase()] = value;
+    }
+    byWorkspace.set(workspaceId, checked);
+  }
+  return byWorkspace;
+}
+
 /**
  * Returns undefined when tracing is off (OTEL_TRACES_EXPORTER unset or `none`),
  * so the caller keeps `noopTracer` and no exporter is ever built. A bad value
  * throws with the key's name, so the process stops at startup.
  */
-export function parseTracingSettings(
-  env: Readonly<Record<string, string | undefined>>,
-): TracingSettings | undefined {
+export function parseTracingSettings(env: Env): TracingSettings | undefined {
   const exporter = blankToUndefined(env.OTEL_TRACES_EXPORTER) ?? "none";
   if (exporter === "none") return undefined;
   if (exporter !== "otlp") {
@@ -177,19 +293,53 @@ export function parseTracingSettings(
     blankToUndefined(env.TRACE_TENANT_HEADER),
   );
   const installTenant = blankToUndefined(env.TRACE_INSTALL_TENANT);
+  const tenantFile = blankToUndefined(env.TRACE_TENANT_HEADERS_FILE);
+  const fileHeaders =
+    tenantFile === undefined ? undefined : readTenantHeadersFile(tenantFile);
 
   return {
     serviceName: blankToUndefined(env.OTEL_SERVICE_NAME) ?? "werft-api",
     sampler,
+    content: {
+      mode: parseContentMode(env),
+      maxBytes: parseLimit(env, "TRACE_CONTENT_MAX_BYTES", 32_768),
+    },
+    ingest: {
+      url: parseIngestUrl(env),
+      port: parseLimit(env, "TRACE_INGEST_PORT", 4319, 65_535),
+      maxRequestBytes: parseLimit(
+        env,
+        "TRACE_INGEST_MAX_REQUEST_BYTES",
+        4 * 1024 * 1024,
+      ),
+      maxBytesPerMinute: parseLimit(
+        env,
+        "TRACE_INGEST_MAX_BYTES_PER_MIN",
+        32 * 1024 * 1024,
+      ),
+      maxBytesPerTrace: parseLimit(
+        env,
+        "TRACE_MAX_BYTES_PER_TRACE",
+        20 * 1024 * 1024,
+      ),
+      fencedGraceSec: parseLimit(env, "TRACE_FENCED_GRACE_SEC", 300),
+    },
     endpoint,
     headers,
     tenantHeaders(workspaceId) {
       const tenant = workspaceId ?? installTenant;
-      if (tenantHeader === undefined || tenant === undefined) return {};
-      const value = tenantHeader.template.replaceAll("{workspace_id}", tenant);
-      // The workspace id comes from a span attribute; never let it break the request.
-      if (!validHeaderValue(value)) return {};
-      return { [tenantHeader.name]: value };
+      if (tenant === undefined) return {};
+      const fromTemplate: Record<string, string> = {};
+      if (tenantHeader !== undefined) {
+        const value = tenantHeader.template.replaceAll(
+          "{workspace_id}",
+          tenant,
+        );
+        // The workspace id comes from a span attribute; never let it break the request.
+        if (validHeaderValue(value)) fromTemplate[tenantHeader.name] = value;
+      }
+      // The file is the more specific source, so it wins a shared name.
+      return { ...fromTemplate, ...fileHeaders?.get(tenant) };
     },
   };
 }

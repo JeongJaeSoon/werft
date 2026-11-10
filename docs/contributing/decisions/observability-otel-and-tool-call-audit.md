@@ -42,7 +42,7 @@
 
 ### 1.3 원격 MCP
 
-`mcp_servers`(DB 행)와 MCP egress가 있다([api-server.md](../../operator/api-server.md#원격-mcp-서버)). 서버는 streamable HTTP 하나이고, worker는 서버 URL도 자격 증명도 받지 않고 proxy의 `/mcp/<name>` route로 부른다. 도구 단위 차단은 없다. 엔진은 이 도구를 `mcp__<server>__<tool>` 이름으로 부르고(`packages/adapters/runtimes/claude/src/config.ts:114`), 그 호출은 다른 도구와 똑같이 `tool_use` 이벤트로 남는다. 그래서 감사 레코드는 MCP 호출을 따로 다루지 않고 이름으로 구분한다(7.4절).
+`mcp_servers`(DB 행)와 MCP egress가 있다([api-server.md](../../operator/api-server.md#원격-mcp-서버)). 서버는 streamable HTTP 하나이고, worker는 서버 URL도 자격 증명도 받지 않고 proxy의 `/mcp/<name>` route로 부른다. 도구 단위 차단은 있다. 워크스페이스·에이전트 엔진 설정의 deny 목록에 쓴 `mcp__` 규칙은 엔진의 `disallowedTools`로 가지 않고 MCP egress가 호출마다 deny 우선으로 집행한다(`packages/platform/src/sessions/mcp-tool-decision.ts`). 엔진은 이 도구를 `mcp__<server>__<tool>` 이름으로 부르고(`packages/adapters/runtimes/claude/src/config.ts:114`), 그 호출은 다른 도구와 똑같이 `tool_use` 이벤트로 남는다. 그래서 감사 레코드는 MCP 호출을 따로 다루지 않고 이름으로 구분한다(7.4절).
 
 ## 2. OTel 채택 범위
 
@@ -237,6 +237,7 @@ api 서비스만 읽는다. **worker와 엔진의 환경에는 표준 `OTEL_*` �
 | `TRACE_TENANT_HEADER` | 없음 | 예: `X-Scope-OrgID: <workspace id>` |
 | `TRACE_TENANT_HEADERS_FILE` | 없음 | 워크스페이스별 헤더 맵. 비밀을 담으므로 mode 600 파일만 받는다 |
 | `TRACE_INSTALL_TENANT` | 없음 | 워크스페이스가 없는 span의 테넌트 |
+| `TRACE_INGEST_URL` | 없음 | worker가 ingest listener에 닿는 주소(`http`·`https`). claim의 `telemetry.ingest_url`이 된다. 운영자 설정만 쓰고 요청에서 유도하지 않는다. `OTEL_TRACES_EXPORTER=otlp`인데 없으면 시작 시 이름을 밝힌 오류로 멈춘다(리드 결정, 2026-11-10: 호스트를 Host 헤더에서 따면 클라이언트가 worker의 텔레메트리 목적지를 정하게 되고, claim에서 빼면 T3·T4가 쓸 계약이 빈다) |
 | `TRACE_INGEST_PORT` | `4319` | worker용 ingest listener 포트 |
 | `TRACE_INGEST_MAX_REQUEST_BYTES` | `4194304` (4MiB) | ingest 요청 본문 상한. 공개 API의 상한(`REQUEST_BODY_MAX_BYTES * 2`, `apps/control-host/src/api/server.ts:1443`)은 바뀌지 않는다 |
 | `TRACE_INGEST_MAX_BYTES_PER_MIN` | `33554432` (32MiB) | attempt당 분당 상한 |
@@ -435,7 +436,7 @@ claude adapter  packages/adapters/runtimes/claude: canUseTool·PreToolUse 자리
 - **엔진이 스스로 내린 판정은 보이지 않는다.** `disallowedTools`로 엔진이 거절한 호출은 행이 없고, 세션 규칙이 통과시킨 호출은 `unknown/engine_internal`이다(7.3.2절). 완전한 판정 기록은 엔진이 판정을 모두 adapter 콜백으로 넘길 때만 가능하다.
 - **감사는 실행 게이트가 아니다.** 7.7절. 도구가 실행되기 전에 판정 행이 내구 저장되는 것은 보장하지 않는다.
 - **해시가 후보 대입에 열려 있다.** 7.5절. 이 표를 읽는 주체가 `events`를 읽는 주체보다 넓어지는 변경(읽기 API, 화면)이 생기면 워크스페이스별 HMAC으로 바꾸는 결정을 그 변경의 전제로 둔다.
-- **도구 단위 차단은 이 문서의 일이 아니다.** 원격 MCP 도구를 서버가 아니라 도구 단위로 막는 일은 별도 설계다. 이 감사는 막은 결과(`not_permitted`·`hook_deny`)를 기록할 뿐 막는 규칙을 만들지 않는다.
+- **도구 단위 차단은 이 문서의 일이 아니다.** 원격 MCP 도구를 도구 단위로 막는 규칙은 이미 있다. `mcp__` deny는 워크스페이스·에이전트 엔진 설정의 deny 목록에 쓰고 MCP egress가 호출마다 deny 우선으로 집행한다(`packages/platform/src/sessions/mcp-tool-decision.ts`, `packages/platform/src/workers/mcp-egress.ts`). 이 감사는 막은 결과(`not_permitted`·`hook_deny`)를 기록할 뿐 막는 규칙을 만들지 않는다.
 - **변조 방지(해시 체인, 서명)는 하지 않는다.** append-only trigger가 전부다. 규제 요구가 생기면 다시 본다.
 - **읽는 API와 화면은 없다.** SQL로 읽는다. 읽는 길이 생기면 그 세션을 볼 수 있는 주체 범위를 넘지 않는다.
 

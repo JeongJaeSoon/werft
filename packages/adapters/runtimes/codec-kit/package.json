@@ -1,0 +1,17 @@
+{
+  "name": "@werft-ai/runtime-codec-kit",
+  "description": "Kiel session runtime: the checkpoint manifest and v1 event codecs every engine adapter builds on",
+  "version": "0.0.0",
+  "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

@@ -185,10 +185,56 @@ function unmeterableResponsesRequest(body: Uint8Array): string | null {
   if (carriesRemoteInput(request.input, 0)) {
     return "a file or image the request only names is not carried by it";
   }
+  if ((request.prompt ?? null) !== null) {
+    return "a stored prompt template is fetched by the upstream, not carried";
+  }
+  if (declaresOutsideTool(request.tools, 0)) {
+    return "a tool the upstream runs on a host the catalog never named";
+  }
+  if (declaresOutsideTool(request.input, 0)) {
+    return "a tool or generated image the upstream keeps outside the request";
+  }
   return null;
 }
 
-// Deep enough for `input` items holding `content` parts, no deeper.
+// Tools the upstream runs itself: a remote MCP server, a vector store, a web
+// search, a container, image generation. `function`, `custom`, `local_shell`
+// and a `local` shell run on the worker and are not here. Names other than
+// `mcp` and `file_search` are from the API reference, not a live request.
+function isOutsideTool(tool: Record<string, unknown>): boolean {
+  const type = tool.type;
+  if (type === "shell") {
+    const environment = tool.environment;
+    return (
+      typeof environment === "object" &&
+      environment !== null &&
+      (environment as Record<string, unknown>).type !== "local"
+    );
+  }
+  return (
+    type === "mcp" ||
+    type === "file_search" ||
+    type === "code_interpreter" ||
+    type === "image_generation" ||
+    type === "image_generation_call" ||
+    (typeof type === "string" && type.startsWith("web_search"))
+  );
+}
+
+// `tools`, and the `input` items that register tools of their own
+// (`additional_tools`, `tool_search_output`) or reuse a generated image.
+function declaresOutsideTool(value: unknown, depth: number): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (depth > REMOTE_INPUT_DEPTH) return true;
+  if (Array.isArray(value)) {
+    return value.some((item) => declaresOutsideTool(item, depth + 1));
+  }
+  const item = value as Record<string, unknown>;
+  return isOutsideTool(item) || declaresOutsideTool(item.tools, depth + 1);
+}
+
+// Deep enough for `input` items holding `content` parts, no deeper. Past it a
+// part is refused rather than skipped: an unread part may name a remote file.
 const REMOTE_INPUT_DEPTH = 6;
 
 /**
@@ -197,13 +243,8 @@ const REMOTE_INPUT_DEPTH = 6;
  * Inline `data:` images and `file_data` are carried, and so are fine.
  */
 function carriesRemoteInput(value: unknown, depth: number): boolean {
-  if (
-    depth > REMOTE_INPUT_DEPTH ||
-    typeof value !== "object" ||
-    value === null
-  ) {
-    return false;
-  }
+  if (typeof value !== "object" || value === null) return false;
+  if (depth > REMOTE_INPUT_DEPTH) return true;
   if (Array.isArray(value)) {
     return value.some((part) => carriesRemoteInput(part, depth + 1));
   }
@@ -211,7 +252,10 @@ function carriesRemoteInput(value: unknown, depth: number): boolean {
   if (part.type === "input_file") {
     return (part.file_id ?? null) !== null || (part.file_url ?? null) !== null;
   }
-  if (part.type === "input_image") {
+  // An item that only points at one stored upstream.
+  if (part.type === "item_reference") return true;
+  // `computer_screenshot` is a computer-use tool result's image.
+  if (part.type === "input_image" || part.type === "computer_screenshot") {
     return (
       (part.file_id ?? null) !== null ||
       (typeof part.image_url === "string" &&

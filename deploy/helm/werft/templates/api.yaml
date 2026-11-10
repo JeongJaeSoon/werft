@@ -44,6 +44,12 @@ spec:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
+            # The same lists the proxy enforces. The API only reads them to warn
+            # when the trace collector's host is on one (workers must not reach it).
+            - name: EGRESS_ALLOWLIST
+              value: {{ .Values.config.egress.allowlist | quote }}
+            - name: EGRESS_PRIVATE_ALLOWLIST
+              value: {{ .Values.config.egress.privateAllowlist | default (printf "%s:3000" (include "ap.apiHost" .)) | quote }}
             - name: EGRESS_CREDENTIAL_ALLOWLIST
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
