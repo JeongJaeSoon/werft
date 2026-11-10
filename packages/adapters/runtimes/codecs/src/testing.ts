@@ -1,10 +1,15 @@
 import { digestParts } from "@werft-ai/runtime-claude-codec";
 import type { ObjectRef } from "@werft-ai/runtime-core";
 
+// Both engines digest a revision's parts with the same shared codec kit, so
+// the two entries are one function; each engine still names its own.
 const transcriptDigests = new Map<
   string,
   (parts: readonly ObjectRef[]) => string
->([["claude", digestParts]]);
+>([
+  ["claude", digestParts],
+  ["codex", digestParts],
+]);
 
 /** How the codec of `engine` digests a transcript revision's parts, for fixtures that build one. */
 export function transcriptDigestFor(

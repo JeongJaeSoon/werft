@@ -337,9 +337,9 @@ describe("installed runtimes", () => {
   });
 
   test("a profile of a kind the image does not ship is refused by name", () => {
-    const seed = seedWith(profile("other", "default", "codex_app_server"));
+    const seed = seedWith(profile("other", "default", "pi_coding_agent"));
     expect(() => installedRuntimes.assertProfiles(seed.profiles ?? {})).toThrow(
-      "Catalog profile(s) refused: other: Runtime codex_app_server is not installed (installed: claude_agent_sdk)",
+      "Catalog profile(s) refused: other: Runtime pi_coding_agent is not installed (installed: claude_agent_sdk, codex_app_server)",
     );
   });
 });
