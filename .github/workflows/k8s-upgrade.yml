@@ -1,0 +1,71 @@
+# helm upgrade and helm rollback with sessions alive, on kind:
+# deploy/kind/upgrade.sh leaves one session waiting for an approval and one
+# paused with a checkpoint, upgrades the chart, rolls it back, and checks the
+# hook order, that both sessions come through unchanged and that they run on.
+# It builds the three images, so it is heavier than the `k8s-smoke` job in
+# ci.yml and stays off that path.
+#
+# Not a required check. The pull request trigger covers only what decides the
+# order and content of an upgrade: the hook Jobs, the Deployments they gate,
+# the scripts and this file.
+name: K8s upgrade
+
+on:
+  pull_request:
+    paths:
+      - deploy/helm/werft/**
+      - apps/control-host/src/api/upgrade-check.ts
+      - deploy/kind/upgrade.sh
+      - deploy/kind/up.sh
+      - .github/workflows/k8s-upgrade.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k8s-upgrade-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      HELM_VERSION: v4.3.0
+      HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      KIND_VERSION: v0.33.0
+      KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+      KUBECTL_VERSION: v1.37.0
+      KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - name: kind, kubectl and helm
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  bin/kind" | sha256sum -c -
+          curl -fsSLo bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  bin/kubectl" | sha256sum -c -
+          chmod +x bin/kind bin/kubectl
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - name: deploy/kind/upgrade.sh
+        env:
+          CLUSTER_NAME: k8s-upgrade
+          STATE_DIR: ${{ runner.temp }}/kind
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+          BUILDKIT_SYNTAX: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+        # The stand-ins come from the same mirror as the bun base.
+        run: KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/upgrade.sh
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
