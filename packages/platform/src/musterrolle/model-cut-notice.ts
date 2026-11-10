@@ -42,7 +42,7 @@ const COPY: Record<
 };
 
 /**
- * The notice's words in the reader's language (Korean when unknown). `model`
+ * The notice's words in the reader's language (English when unknown). `model`
  * is an id from the profile's list; the outbox escapes Slack controls anyway.
  * The session link goes in the row's `link_url`.
  */

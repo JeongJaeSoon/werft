@@ -227,7 +227,7 @@ export const users = pgTable(
     // Account suspension. Losing one workspace is memberships.disabled_at, a
     // different thing.
     disabledAt: timestamp("disabled_at", { withTimezone: true }),
-    // Null until the console saves one; Slack then tells them in Korean.
+    // Null until the console saves one; Slack then tells them in English.
     locale: text().$type<UserLocale>(),
   },
   (table) => [
