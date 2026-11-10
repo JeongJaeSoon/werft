@@ -1011,12 +1011,21 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
       for (const name of ["build", "publish", "publish-main"]) {
         const job = jobs[name];
-        expect(job?.strategy?.matrix).toEqual({
-          app: ["control-host", "worker", "egress-proxy"],
-          arch: expression(
-            `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
-          ),
-        });
+        // `build` verifies the Codex worker image too; the jobs that publish
+        // list only the images a release ships.
+        expect(job?.strategy?.matrix).toEqual(
+          name === "build"
+            ? {
+                app: ["control-host", "worker", "worker-codex", "egress-proxy"],
+                arch: expression(
+                  `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
+                ),
+              }
+            : {
+                app: ["control-host", "worker", "egress-proxy"],
+                arch: ["amd64", "arm64"],
+              },
+        );
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),

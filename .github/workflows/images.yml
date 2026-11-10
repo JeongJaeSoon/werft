@@ -89,7 +89,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: &image-matrix
-        app: [control-host, worker, egress-proxy]
+        # worker-codex is apps/worker built with WORKER_RUNTIME=codex_app_server:
+        # one worker image holds one engine, so each engine is its own image
+        # (werft-worker-codex) with its own tag, cache scope and artifacts.
+        app: [control-host, worker, worker-codex, egress-proxy]
         arch: ${{ github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,7 +120,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: apps/${{ matrix.app }}/Dockerfile
+          file: apps/${{ matrix.app == 'worker-codex' && 'worker' || matrix.app }}/Dockerfile
           target: release
           platforms: linux/${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -135,6 +138,7 @@ jobs:
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
             APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
+            ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
 
       - name: Smoke
         env:
@@ -181,9 +185,9 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
           IMAGE_ID: ${{ steps.build.outputs.imageid }}
         run: |
-          base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP}/Dockerfile")"
+          base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP%-codex}/Dockerfile")"
           runtime=null
-          if [ "$APP" = worker ]; then
+          if [ "$APP" = worker ] || [ "$APP" = worker-codex ]; then
             runtime="$(docker run --rm -i --network none --entrypoint bun \
               "${NAME}:sha-${GITHUB_SHA::12}" run apps/worker/src/image-runtime.ts \
               <<<'{}' | jq -c 'del(.profiles)')"
@@ -285,7 +289,12 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: *image-matrix
+      matrix: &publish-matrix
+        # The Codex worker image is built, scanned and recorded by `build` on
+        # every run; publishing and releasing it is not wired yet (94S-663
+        # leaves it as a follow-up), so these jobs list the three they ship.
+        app: [control-host, worker, egress-proxy]
+        arch: [amd64, arm64]
     steps: &publish-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -327,7 +336,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: apps/${{ matrix.app }}/Dockerfile
+          file: apps/${{ matrix.app == 'worker-codex' && 'worker' || matrix.app }}/Dockerfile
           target: release
           platforms: linux/${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.staging }}
@@ -338,6 +347,7 @@ jobs:
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
             APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
+            ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
@@ -374,9 +384,9 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
           IMAGE_ID: ${{ steps.push.outputs.imageid }}
         run: |
-          base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP}/Dockerfile")"
+          base="$(sed -n 's/^ARG BUN_IMAGE=//p' "apps/${APP%-codex}/Dockerfile")"
           runtime=null
-          if [ "$APP" = worker ]; then
+          if [ "$APP" = worker ] || [ "$APP" = worker-codex ]; then
             runtime="$(docker run --rm -i --network none --entrypoint bun \
               "${NAME}@${DIGEST}" run apps/worker/src/image-runtime.ts \
               <<<'{}' | jq -c 'del(.profiles)')"
@@ -527,7 +537,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: *image-matrix
+      matrix: *publish-matrix
     steps: *publish-steps
 
   sources-main:
@@ -977,7 +987,7 @@ jobs:
             echo
             echo "| scan | result |"
             echo "| --- | --- |"
-            for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do
+            for scan in {control-host,worker,worker-codex,egress-proxy}-{amd64,arm64} npm; do
               echo "| ${scan} | $(cat "vulnerabilities/${scan}.txt" 2>/dev/null || echo "no result") |"
             done
             echo
