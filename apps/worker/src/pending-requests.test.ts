@@ -328,6 +328,34 @@ describe("PendingRequestRegistry", () => {
     });
   });
 
+  test("reports each decision to the observer, and an observer that throws does not hold the engine", async () => {
+    const decided: { decision: string; answerSurface?: string }[] = [];
+    const harness = registry({
+      onDecided: (d) => {
+        decided.push({
+          decision: d.decision,
+          ...(d.answerSurface === undefined
+            ? {}
+            : { answerSurface: d.answerSurface }),
+        });
+        throw new Error("observer failed");
+      },
+    });
+    const decision = harness.ask(permission("req-observed"));
+    await harness.answer({
+      request_id: "req-observed",
+      kind: "permission",
+      decision: "allow",
+    });
+
+    expect(await decision).toEqual({
+      kind: "selected",
+      optionKind: "allow_once",
+    });
+    expect(decided).toEqual([{ decision: "allow" }]);
+    expect(harness.registry.outstanding).toBe(0);
+  });
+
   describe("allowing for the session", () => {
     const offer = [{ toolName: "Bash", ruleContent: "git status:*" }];
     const offered = (requestId: string): ApprovalRequested => {
@@ -398,6 +426,7 @@ describe("PendingRequestRegistry", () => {
           engine_settings: true,
           user_env: true,
           response_language: true,
+          answer_surface: true,
         });
       }
     });

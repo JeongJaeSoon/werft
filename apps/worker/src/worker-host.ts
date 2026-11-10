@@ -91,11 +91,6 @@ export type ObjectStoreAccess = { useToken(token: string): void };
 export interface WorkerGatewaySession extends WorkerGatewayClient {
   /** Swaps the launch nonce for the credential bootstrapClaim issued. */
   useCredential(credential: string): void;
-  /**
-   * Gives every request this client sends the traceparent `current` returns
-   * at that moment, when it returns one. Absent on a client that does not
-   * propagate trace context.
-   */
   useTraceparent?(current: () => string | undefined): void;
 }
 
@@ -187,10 +182,6 @@ export type WorkerHostOptions = {
   secrets?: readonly string[];
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
   approvalCheckpointMs?: number;
-  /**
-   * Builds the attempt's tracing once a claim turns it on. Absent, or a claim
-   * with `telemetry` off or missing: no span is ever made.
-   */
   telemetry?: TelemetryFactory;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
@@ -306,7 +297,6 @@ type Turn = {
   timers: ReturnType<typeof setTimeout>[];
   turnId: string;
   uuid: string;
-  /** Spans of this turn; the no-op one while telemetry is off. */
   spans: TurnSpans;
 };
 
@@ -315,7 +305,6 @@ function parkReadinessOf(run: AgentRun): ParkReadiness {
   return run.parkable?.() ?? { ok: false, reason: "not_supported" };
 }
 
-/** The most the process waits, once released, for queued spans to leave. */
 const TELEMETRY_SHUTDOWN_MS = 1_500;
 const CLAIM_RETRY_MS = 1_000;
 const GATEWAY_RETRY_MS = 500;
@@ -391,10 +380,8 @@ export class WorkerHost {
   private scopeValue: WorkerScope | undefined;
   private claimValue: BootstrapClaimResponse | undefined;
   private turnCoAuthorWritten = false;
-  /** The checkpoint pointer as this attempt last knew it, for each turn's root span. */
   private checkpointRevision: number | null = null;
   private scrubber: SecretScrubber;
-  /** Set from the claim, only when it turns tracing on. */
   private tracing: TelemetrySession | undefined;
   private stopping: Stop | undefined;
   /** Resolves when the current turn has to be given up unfinished. */
@@ -523,7 +510,6 @@ export class WorkerHost {
       ...claimSecrets(claim, this.options.execution.bootstrapNonce),
       ...(this.options.secrets ?? []),
     ]);
-    // Off unless the claim says on: no tracer, no span, no request.
     if (claim.telemetry?.enabled === true && this.options.telemetry) {
       this.tracing = this.options.telemetry({
         telemetry: claim.telemetry,
@@ -532,7 +518,6 @@ export class WorkerHost {
           id: this.options.execution.id,
           generation: this.options.execution.generation,
         },
-        // Read per call: the claim's secrets arrive in the scrubber above.
         masker: { mask: (text) => this.scrubber.scrub(text) },
       });
       this.options.gateway.useTraceparent?.(() =>
@@ -1472,7 +1457,6 @@ export class WorkerHost {
           checkpointRevision: this.checkpointRevision,
         },
         {
-          // Read from this turn's input every time, never kept from the last.
           mode: input.content_mode ?? telemetry.content_mode,
           maxBytes: telemetry.content_max_bytes,
         },
@@ -1725,7 +1709,6 @@ export class WorkerHost {
     const finalSourceSequence = this.publisher?.hold() ?? 0;
     const interrupted = settlement.status === "interrupted";
     let captured: Captured | undefined;
-    // From the start of the capture to the finalize's answer.
     let checkpointSpan: CheckpointSpan | undefined;
     // What may still commit this turn's checkpoint. The lease is released
     // only once it has answered: untilAbandoned stops waiting for a request,
@@ -2514,8 +2497,6 @@ export class WorkerHost {
     return (async () => {
       try {
         for await (const event of run.events()) {
-          // Spans see the engine-neutral stream the host already reads, so the
-          // tree is the same whichever adapter produced it.
           if (this.turn?.closed === false) this.turn.spans.onEvent(event);
           if (event.type === "public") {
             this.publisher?.publish(

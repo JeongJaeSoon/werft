@@ -54,7 +54,6 @@ type Finished = {
   resource: Record<string, unknown>;
 };
 
-/** A factory that keeps every finished span in memory instead of sending it. */
 function recording() {
   const finished: Finished[] = [];
   const built: TelemetrySession[] = [];
@@ -114,7 +113,6 @@ function build(
   const worker = new WorkerHost({
     checkpoints: {
       restorePlan: async () => ({ mode: "new" }),
-      // A scripted run takes no checkpoint; the span still brackets the attempt.
       capture: async () => null,
     },
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
@@ -161,7 +159,6 @@ const ended = (sent: AgentInput): RuntimeEvent => ({
   },
 });
 
-/** Answers each turn with one text block and ends it. */
 function answerEvery(run: ScriptedRun, text = "hello") {
   run.onSend = (sent) => {
     run.push(
@@ -376,13 +373,10 @@ describe("WorkerHost spans", () => {
     const sent: string[] = [];
     const factory = createIngestTelemetry({
       requestTimeoutMs: 60_000,
-      // One turn is three or four spans: the stuck first request is out of
-      // the queue, and the later turns cannot all fit in what is left.
       queue: { maxSpans: 5 },
       onSession: (built) => {
         session = built;
       },
-      // Never answers: the ingest has stopped.
       fetch: (url) => {
         sent.push(url);
         return new Promise<Response>(() => {});
@@ -400,9 +394,7 @@ describe("WorkerHost spans", () => {
       `4 finalized after ${Math.round(finalizedAfter)}ms, ingest stalled`,
     );
     expect(summary.turns).toHaveLength(4);
-    // Four scripted turns take a few tens of ms; a wait on ingest would show.
     expect(finalizedAfter).toBeLessThan(500);
-    // Serialization finishes on the event loop after the last turn.
     await Bun.sleep(100);
     expect(sent.length).toBeGreaterThan(0);
     expect(sent[0]).toBe("http://ingest.test/v1/traces");

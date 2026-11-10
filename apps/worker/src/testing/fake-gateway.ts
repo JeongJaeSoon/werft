@@ -81,7 +81,6 @@ export type FakeWorkerGatewayOptions = {
   sessionId?: string;
   /** The repository the claim names; a placeholder nothing clones by default. */
   workspace?: WorkspaceDescriptor;
-  /** The claim's `telemetry`; absent is a claim from an API that has none. */
   telemetry?: ClaimTelemetry;
 };
 
@@ -184,7 +183,6 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   > &
     Pick<FakeWorkerGatewayOptions, "restore" | "workspace" | "telemetry">;
   private currentTraceparent: (() => string | undefined) | undefined;
-  /** The traceparent the worker would have sent with each call, in order. */
   readonly traceparents: Array<{ call: string; traceparent?: string }> = [];
   private readonly queue: Queued[] = [];
   private acceptedThrough = 0;
@@ -233,7 +231,6 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     this.currentTraceparent = current;
   }
 
-  /** Notes what the real client would put in the header of this call. */
   private traced(call: string): void {
     const traceparent = this.currentTraceparent?.();
     this.traceparents.push({

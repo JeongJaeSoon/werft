@@ -181,7 +181,6 @@ export function createWorkerHost(
     logger,
     objectStoreAccess: objectToken,
     runtimes: overrides.runtimes ?? workerRuntimeRegistry(config, engines),
-    // Used only when a claim turns tracing on.
     telemetry:
       overrides.telemetry ??
       createIngestTelemetry({

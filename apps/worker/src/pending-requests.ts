@@ -61,22 +61,17 @@ export type PendingRequestsOptions = {
   onAttachments?: (orders: RepositoryAttachOrder[]) => void;
   /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
   onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
-  /**
-   * A request got its decision (an answer, an expiry, a cancel), before the
-   * engine is told. Observation only: the registry never waits on it.
-   */
+  // Observation only: the registry never waits on it.
   onDecided?: (decided: PendingDecided) => void;
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
 };
 
 export type PendingDecided = {
-  /** The id the gateway knows the request by. */
   requestId: string;
   localId: string;
   toolCallId: string;
   kind: "permission" | "question";
-  /** `allow` or `deny` for a permission, `answered` for a question, else why it was cancelled. */
   decision: string;
   answerSurface?: SurfaceKind;
 };
@@ -424,14 +419,18 @@ export class PendingRequestRegistry {
   ): void {
     const waiting = this.pending.get(requestId);
     if (waiting !== undefined) {
-      this.options.onDecided?.({
-        requestId,
-        localId: waiting.localId,
-        toolCallId: waiting.toolCallId,
-        kind: waiting.kind,
-        decision: decisionLabel(decision),
-        ...(answerSurface === undefined ? {} : { answerSurface }),
-      });
+      try {
+        this.options.onDecided?.({
+          requestId,
+          localId: waiting.localId,
+          toolCallId: waiting.toolCallId,
+          kind: waiting.kind,
+          decision: decisionLabel(decision),
+          ...(answerSurface === undefined ? {} : { answerSurface }),
+        });
+      } catch {
+        // Telemetry must not hold back the answer the engine is waiting for.
+      }
     }
     if (decision.kind === "cancelled") {
       void this.drop(

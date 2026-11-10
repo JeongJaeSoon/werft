@@ -18,7 +18,5 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // composition.ts hands `runtime_config.response_language` to the runtime,
   // and the Claude adapter appends its instruction.
   response_language: true,
-  // The pending-control registry reads `answer_surface` for the
-  // permission-wait span.
   answer_surface: true,
 };

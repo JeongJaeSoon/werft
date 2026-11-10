@@ -81,7 +81,6 @@ const approvalRequested = (localId: string, toolCallId: string) =>
     },
   }) as unknown as RuntimeEvent;
 
-/** One turn: a tool call that needs a permission, answered by a person. */
 function playTurn(turn: TurnSpans, output = "done"): void {
   turn.onEvent(
     publicEvent("assistant", {

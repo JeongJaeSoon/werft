@@ -12,7 +12,6 @@ const settings = {
   tenantHeaders: () => ({}),
 } as const;
 
-/** Real finished spans, made by the real tracer into a collecting exporter. */
 async function finishedSpans(
   count: number,
   note = "x",
@@ -88,12 +87,10 @@ describe("bounded span exporter", () => {
         sent.push(parsed.resourceSpans[0].scopeSpans[0].spans.length);
       },
     });
-    // Eight spans arrive while the sender is stuck.
     export_(exporter, await finishedSpans(8));
     await new Promise((resolve) => setTimeout(resolve, 20));
     release();
     await exporter.drained();
-    // Five fit; the three oldest were dropped and counted, not the newest.
     expect(exporter.dropped()).toBe(3);
     expect(sent.reduce((a, b) => a + b, 0)).toBe(5);
   });

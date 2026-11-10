@@ -326,7 +326,6 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     decoder: Decoder<T>,
   ): Promise<T> {
     let response: Response;
-    // Read per request: the current span changes under a long-lived client.
     const traceparent = this.currentTraceparent?.();
     try {
       response = await this.call(`${this.baseUrl}/internal/worker${path}`, {

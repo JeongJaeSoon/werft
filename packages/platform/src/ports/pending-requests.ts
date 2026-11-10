@@ -176,7 +176,6 @@ export type DeliveredAnswer = {
   sequence: number;
   answer: PostSessionAnswerRequest;
   inputHash: string;
-  /** Where the answer was given; null when none was recorded. */
   answerSurface?: SurfaceKind | null;
 };
 

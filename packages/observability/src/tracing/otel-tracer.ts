@@ -44,14 +44,12 @@ export interface OtelTracerConfig
     "serviceName" | "sampler" | "headers" | "tenantHeaders"
   > {
   readonly endpoint?: string;
-  /** Stamped on every span's resource beside `service.*`. */
   readonly resourceAttributes?: Readonly<Record<string, string | number>>;
   /** Replaces the OTLP exporter; endpoint and headers are then unused. */
   readonly exporter?: SpanExporterLike;
 }
 
 export type OtelTracer = Tracer & {
-  /** Hands finished spans to the exporter now instead of at the next batch tick. */
   forceFlush(): Promise<void>;
   shutdown(): Promise<void>;
 };

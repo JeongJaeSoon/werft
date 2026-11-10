@@ -14,26 +14,20 @@ import { SpanEmitter } from "./turn-spans.ts";
 
 export type EnabledTelemetry = Extract<ClaimTelemetry, { enabled: true }>;
 
-/** What the host holds for an attempt that traces: where spans are made, and how they leave. */
 export interface TelemetrySession {
   readonly emitter: SpanEmitter;
-  /** Starts sending what has finished; never waits for the network. */
   flush(): void;
-  /** One bounded chance to send the tail, then give up. */
   shutdown(timeoutMs: number): Promise<void>;
-  /** Spans lost to a full queue or a refusing ingest, since the attempt began. */
   dropped(): number;
 }
 
 export interface TelemetryInput {
   readonly telemetry: EnabledTelemetry;
   readonly claim: BootstrapClaimResponse;
-  /** The execution this worker was launched as; the claim does not repeat it. */
   readonly execution: { readonly id: string; readonly generation: number };
   readonly masker: ContentMasker;
 }
 
-/** Builds the attempt's telemetry once its claim says tracing is on. */
 export type TelemetryFactory = (input: TelemetryInput) => TelemetrySession;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -41,17 +35,10 @@ export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 export interface IngestOptions {
   readonly fetch?: FetchLike;
   readonly requestTimeoutMs: number;
-  /** Queue limits; the exporter's defaults (2048 spans, 16 MiB) when absent. */
   readonly queue?: { readonly maxSpans?: number; readonly maxBytes?: number };
-  /** Receives each session built, for a caller that wants its drop count. */
   readonly onSession?: (session: TelemetrySession) => void;
 }
 
-/**
- * One POST of an OTLP JSON body to the API's ingest listener, authorized by
- * the session credential and nothing else. A non-2xx answer or a timeout is a
- * rejection; the exporter counts it as dropped and never retries.
- */
 export function ingestSender(
   ingestUrl: string,
   credential: () => string,
@@ -67,7 +54,6 @@ export function ingestSender(
         "content-type": "application/json",
         authorization: `Bearer ${credential()}`,
       },
-      // OTLP JSON is UTF-8 text.
       body: new TextDecoder().decode(body),
       signal: AbortSignal.timeout(options.requestTimeoutMs),
     });
@@ -77,10 +63,6 @@ export function ingestSender(
   };
 }
 
-/**
- * The production factory. Its own fetch and its own bounded queue: nothing
- * here shares a connection, a retry or a limit with `/append-events`.
- */
 export function createIngestTelemetry(
   options: IngestOptions,
 ): TelemetryFactory {

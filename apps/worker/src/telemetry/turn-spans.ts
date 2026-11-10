@@ -16,35 +16,22 @@ import {
   setContentAttribute,
 } from "./content.ts";
 
-/**
- * What the worker host needs from tracing a turn. The host feeds it the
- * engine-neutral events it already pumps, so the span tree is the same for
- * any engine adapter; nothing here reaches into one.
- */
 export interface TurnSpans {
-  /** The W3C traceparent of the turn's root, for calls made on its behalf. */
   traceparent(): string | undefined;
   onEvent(event: RuntimeEvent): void;
-  /** A pending request got its decision. */
   decided(decided: PendingDecided): void;
-  /** An approval answered at once from a grant the claim carried. */
   granted(localId: string): void;
-  /** Opens `werft.checkpoint`: capture starts, and the finalize answer closes it. */
   beginCheckpoint(): CheckpointSpan;
-  /** Ends every span still open and the turn itself. */
   end(outcome: { status: string; reason: string | null; usage: unknown }): void;
 }
 
 export interface CheckpointSpan {
-  /** Marks the checkpoint failed or refused; `reason` is masked here. */
   fail(reason: string): void;
-  /** Idempotent. */
   end(): void;
 }
 
 const NO_CHECKPOINT: CheckpointSpan = { fail() {}, end() {} };
 
-/** The turn of a worker with telemetry off: no span exists and no work is done. */
 export const NO_TURN_SPANS: TurnSpans = {
   traceparent: () => undefined,
   onEvent() {},
@@ -60,12 +47,9 @@ export interface AttemptScope {
 }
 
 export interface TurnStart {
-  /** The public turn id: a number in a string. */
   readonly turnId: string;
   readonly message: string;
-  /** The traceparent of the API request that queued the turn. */
   readonly traceContext?: string | undefined;
-  /** The checkpoint pointer when the turn began. */
   readonly checkpointRevision?: number | null | undefined;
 }
 
@@ -73,31 +57,20 @@ export interface SpanEmitterOptions {
   readonly tracer: Tracer;
   readonly masker: ContentMasker;
   readonly scope: AttemptScope;
-  /** Epoch milliseconds; tests drive it. */
   readonly now?: () => number;
-  /** Spans lost before reaching ingest so far; reported on each turn's root. */
   readonly dropped?: () => number;
 }
 
-/**
- * Makes one `TurnSpans` per turn of an attempt, and carries what spans share
- * across turns: the previous turn to link to, the engine start to report once.
- */
 export class SpanEmitter {
   private previousTurn: SpanContext | undefined;
   private engineStart: { start: number; end: number } | undefined;
 
   constructor(private readonly options: SpanEmitterOptions) {}
 
-  /** The first turn reports the start of an engine this attempt launched. */
   noteEngineStart(start: number, end: number): void {
     this.engineStart = { start, end };
   }
 
-  /**
-   * `policy` is read for this turn only: the mode is the one `nextInput` carries
-   * every time, because the workspace may have changed it.
-   */
   beginTurn(start: TurnStart, policy: ContentPolicy): TurnSpans {
     const turnNumber = Number(start.turnId);
     if (!Number.isInteger(turnNumber) || turnNumber < 1) return NO_TURN_SPANS;
@@ -205,7 +178,6 @@ class ActiveTurn implements TurnSpans {
         return;
       }
       case "approval.resolved": {
-        // The engine withdrew the request itself: its call was aborted.
         const wait = this.waits.get(event.localId);
         if (wait === undefined) return;
         this.waits.delete(event.localId);
@@ -269,7 +241,6 @@ class ActiveTurn implements TurnSpans {
     if (this.ended) return;
     this.closeLlm();
     const at = this.now();
-    // Anything still open belongs to a turn that is over.
     for (const wait of this.waits.values()) wait.span.end(at);
     this.waits.clear();
     for (const tool of this.tools.values()) tool.end(at);
@@ -351,7 +322,6 @@ class ActiveTurn implements TurnSpans {
   }
 
   private startTool(toolCallId: string, tool: string): void {
-    // A call inside a subagent hangs under the tool call that started it.
     const parent = this.tools.get(this.toolParents.get(toolCallId) ?? "");
     const span = this.child("werft.tool", parent ?? this.root);
     span.setAttribute("gen_ai.tool.name", tool);
@@ -385,7 +355,7 @@ class ActiveTurn implements TurnSpans {
     setContentAttribute(span, key, value, this.policy, this.options.masker);
   }
 
-  /** Anthropic-shaped usage; `input_tokens` counts the cached tokens too. */
+  // Anthropic usage: `input_tokens` counts the cached tokens too.
   private usage(span: Span, usage: unknown): void {
     const record = asRecord(usage);
     if (record === undefined) return;
