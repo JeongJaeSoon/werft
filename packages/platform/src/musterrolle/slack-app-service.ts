@@ -494,9 +494,17 @@ export function createSlackAppService(deps: {
       } catch (error) {
         if (!(error instanceof SlackApiError)) throw error;
         if (!(error.answered && SLACK_APP_GONE_CODES.has(error.code))) {
-          throw error.answered
-            ? refuse(error)
-            : answerLost("apps.manifest.delete");
+          if (
+            !(
+              error.answered &&
+              error.code === "no_permission" &&
+              (await exportSaysGone(workspaceId, begun.app))
+            )
+          ) {
+            throw error.answered
+              ? refuse(error)
+              : answerLost("apps.manifest.delete");
+          }
         }
       }
       const deleted = await apps.finishDelete(workspaceId, slackAppId);
@@ -535,6 +543,32 @@ export function createSlackAppService(deps: {
     },
   };
   return service;
+
+  // Slack answers apps.manifest.delete for an app deleted in its own UI with
+  // no_permission, not app_not_found. no_permission also means the token is
+  // not the app's maker, so only the maker's token may call the app gone, and
+  // only when export, which still answers app_not_found, says so.
+  async function exportSaysGone(
+    workspaceId: string,
+    app: { appId: string | null; createdByTokenUser: string | null },
+  ): Promise<boolean> {
+    const { appId, createdByTokenUser } = app;
+    if (appId === null || createdByTokenUser === null) return false;
+    const { tokens } = ready();
+    try {
+      return await tokens.withToken(workspaceId, async (token, issuer) => {
+        if (issuer !== createdByTokenUser) return false;
+        await api.exportApp(token, appId);
+        return false;
+      });
+    } catch (error) {
+      return (
+        error instanceof SlackApiError &&
+        error.answered &&
+        SLACK_APP_GONE_CODES.has(error.code)
+      );
+    }
+  }
 
   async function updateAgentAppManifest(
     workspaceId: string,
