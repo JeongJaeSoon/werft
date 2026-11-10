@@ -70,6 +70,19 @@ export function TabsList({
   );
 }
 
+/**
+ * The one definition of the tab look, underline included. It reads the
+ * `group/tabs` (orientation) and `group/tabs-list` (variant) data attributes
+ * of its ancestors, so LinkTabs reuses it by carrying the same attributes.
+ */
+export const tabTriggerClassName = cn(
+  "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-transparent px-2 py-1 font-medium text-control text-muted-foreground transition-all hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent",
+  "group-data-[variant=line]/tabs-list:h-9 group-data-[variant=line]/tabs-list:flex-none group-data-[variant=line]/tabs-list:border-0 group-data-[variant=line]/tabs-list:px-2 group-data-[variant=line]/tabs-list:py-0",
+  "data-[state=active]:bg-card data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:border-input",
+  "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity motion-reduce:after:transition-none group-data-[orientation=horizontal]/tabs:after:inset-x-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=horizontal]/tabs:after:rounded-[1px] group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
+);
+
 export type TabsTriggerProps = ComponentProps<typeof TabsPrimitive.Trigger> & {
   /** Drawn after the label, 0 included; omit for no count. */
   readonly count?: number | undefined;
@@ -114,14 +127,7 @@ export function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
-      className={cn(
-        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-control border border-transparent px-2 py-1 font-medium text-control text-muted-foreground transition-all hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent",
-        "group-data-[variant=line]/tabs-list:h-9 group-data-[variant=line]/tabs-list:flex-none group-data-[variant=line]/tabs-list:border-0 group-data-[variant=line]/tabs-list:px-2 group-data-[variant=line]/tabs-list:py-0",
-        "data-[state=active]:bg-card data-[state=active]:text-foreground group-data-[variant=default]/tabs-list:data-[state=active]:border-input",
-        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity motion-reduce:after:transition-none group-data-[orientation=horizontal]/tabs:after:inset-x-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=horizontal]/tabs:after:rounded-[1px] group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
-        className,
-      )}
+      className={cn(tabTriggerClassName, className)}
       {...props}
     >
       {content}

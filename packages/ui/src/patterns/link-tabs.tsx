@@ -9,6 +9,7 @@ import {
 import { cn } from "../foundations/cn.ts";
 import { Link } from "../primitives/link.tsx";
 import { ItemCount } from "../primitives/segmented-control.tsx";
+import { tabTriggerClassName } from "../primitives/tabs.tsx";
 
 /*
  * Route tabs: each tab is an address, so they are links in a `nav`, the one
@@ -37,10 +38,17 @@ export function LinkTabs({
   return (
     <nav
       data-slot="link-tabs"
-      className={cn("-my-1 -ml-1 overflow-x-auto py-1 pl-1", className)}
+      data-orientation="horizontal"
+      className={cn(
+        "group/tabs -my-1 -ml-1 overflow-x-auto py-1 pl-1",
+        className,
+      )}
       {...props}
     >
-      <ul className="m-0 flex w-max min-w-full list-none gap-1 border-border border-b py-0 pr-1 pl-0">
+      <ul
+        data-variant="line"
+        className="group/tabs-list m-0 flex w-max min-w-full list-none gap-1 border-border border-b py-0 pr-1 pl-0"
+      >
         {children}
       </ul>
     </nav>
@@ -109,10 +117,8 @@ export function LinkTab({
         aria-current={current ? "page" : undefined}
         asChild={child !== null}
         className={cn(
-          "relative flex h-9 items-center gap-2 whitespace-nowrap px-2 font-medium text-control text-muted-foreground no-underline!",
-          "hover:text-foreground",
-          "aria-[current=page]:text-foreground",
-          "after:absolute after:inset-x-2 after:bottom-[-1px] after:h-0.5 after:rounded-[1px] after:bg-foreground after:opacity-0 aria-[current=page]:after:opacity-100",
+          tabTriggerClassName,
+          "no-underline! aria-[current=page]:text-foreground aria-[current=page]:after:opacity-100",
           className,
         )}
         {...props}
