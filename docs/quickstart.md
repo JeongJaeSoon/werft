@@ -58,6 +58,8 @@ scripts/local.sh up --fake-model
 KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
 export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
+# 답은 세션을 연 key가 아닌 다른 key로 한다(자기 승인 금지).
+APPROVER_KEY=$(scripts/local.sh demo-key --scopes sessions:read,sessions:approve)
 echo "${KEY:0:12}…"
 scripts/local.sh status
 ```
@@ -107,12 +109,16 @@ fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 
 ```bash
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+APPROVE=(-H "Authorization: Bearer $APPROVER_KEY" -H 'Content-Type: application/json')
 
 # 세션 생성·메시지 본문. message는 스크립트된 프롬프트다(아래 절).
 body() { jq -nc --arg m "$1" '{agent_release_id:env.WERFT_AGENT_RELEASE_ID, repository_id:"sample-app", message:$m}'; }
 say() { jq -nc --arg m "$1" '{message:$m}'; }
 post() { curl -sS "$API$1" "${AUTH[@]}" -H "Idempotency-Key: $(uuidgen)" -d "$2"; }
 get() { curl -sS "$API$1" "${AUTH[@]}"; }
+# 승인 요청의 답과 그 receipt는 APPROVER_KEY로 보내고 읽는다.
+answer_as() { curl -sS "$API$1" "${APPROVE[@]}" -H "Idempotency-Key: $(uuidgen)" -d "$2"; }
+get_as() { curl -sS "$API$1" "${APPROVE[@]}"; }
 # 응답 JSON에서 jq 식 $2의 값이 $3이 될 때까지 GET $1을 되풀이한다.
 wait_for() {
   for _ in $(seq 1 180); do
@@ -182,14 +188,14 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ### ④ 응답
 
 ```bash
-answer=$(post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')")
+answer=$(answer_as "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')")
 echo "$answer" | jq .
 wait_for "/v1/sessions/$SID/turns/1" .status completed
 get "/v1/sessions/$SID/turns/1" | jq -e '.status == "completed"'
-get "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
+get_as "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
 ```
 
-거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
+답은 세션을 연 key(`KEY`)가 아닌 다른 key(`APPROVER_KEY`)로 보낸다. workspace key는 자기가 연 세션의 요청에 답하지 못한다(403 `self_approval`). 거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
 
 ### ⑤ 후속 메시지
 

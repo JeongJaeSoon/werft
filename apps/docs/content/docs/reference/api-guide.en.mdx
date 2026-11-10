@@ -18,15 +18,18 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **Goal.** Get a Bearer API key and confirm in one call the minimum scopes the later use cases need. Reading, session input, approval, control and recovery are split into `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control` and `sessions:recover`.
 
-**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. `demo-key` issues the demo owner's personal key and `demo-release` prints the active release id of the demo agent `release-notes`. In production, skip the `scripts/local.sh` lines, put your key into `KEY` and the active release id of the agent you use (the agent's Release tab) into `WERFT_AGENT_RELEASE_ID`.
+**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. `demo-key` issues the demo owner's personal key and `demo-release` prints the active release id of the demo agent `release-notes`. Answers to pending requests go with a second key (`APPROVER_KEY`): a workspace key cannot answer a request of a session it started (403 `self_approval`). In production, skip the `scripts/local.sh` lines, put your key into `KEY` and the active release id of the agent you use (the agent's Release tab) into `WERFT_AGENT_RELEASE_ID`.
 
 ```bash
 scripts/local.sh up --fake-model
 KEY=$(scripts/local.sh demo-key \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
 export WERFT_AGENT_RELEASE_ID=$(scripts/local.sh demo-release release-notes)
+# 답은 세션을 연 key가 아닌 다른 key로 한다(자기 승인 금지).
+APPROVER_KEY=$(scripts/local.sh demo-key --scopes sessions:read,sessions:approve)
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+APPROVE=(-H "Authorization: Bearer $APPROVER_KEY" -H 'Content-Type: application/json')
 
 DOCS_STATUS=$(curl -sS -o /tmp/werft-api-docs.html -w '%{http_code}' "$API/docs")
 SCALAR_STATUS=$(curl -sS -o /tmp/werft-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
@@ -37,12 +40,14 @@ grep -q 'src="/docs/scalar.js"' /tmp/werft-api-docs.html
 test -s /tmp/werft-scalar.js
 
 wait_for() {
+  local -a as=("${AUTH[@]}")
+  [ "${4:-}" = approver ] && as=("${APPROVE[@]}")
   for _ in $(seq 1 180); do
-    [ "$(curl -sS "$API$1" "${AUTH[@]}" | jq -r "$2")" = "$3" ] && return 0
+    [ "$(curl -sS "$API$1" "${as[@]}" | jq -r "$2")" = "$3" ] && return 0
     sleep 1
   done
   echo "timed out: $1 $2 != $3" >&2
-  curl -sS "$API$1" "${AUTH[@]}" >&2
+  curl -sS "$API$1" "${as[@]}" >&2
   return 1
 }
 wait_for_pending() {
@@ -120,16 +125,16 @@ wait_for_pending permission
 echo "$pending" | jq -e '.items[0].kind == "permission"'
 PERMISSION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 
-permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg request_id "$PERMISSION_REQUEST_ID" \
     '{request_id:$request_id, kind:"permission", action:"allow"}')")
 echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
 echo "$permission_answer" | jq -e '.approval.surface == "api" and (.approval.decision_id | length) == 36'
 wait_for "/v1/sessions/$SID/turns/1" .status completed
-wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded approver
 curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
-  "${AUTH[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
+  "${APPROVE[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
 
 question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' \
   '{message:$message}')
@@ -141,13 +146,13 @@ QUESTION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
 QUESTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].question_id')
 OPTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].options[0].option_id')
 
-question_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+question_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${APPROVE[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg request_id "$QUESTION_REQUEST_ID" --arg question_id "$QUESTION_ID" --arg option_id "$OPTION_ID" \
     '{request_id:$request_id, kind:"question", answers:[{question_id:$question_id, selected_option_ids:[$option_id]}]}')")
 echo "$question_answer" | jq -e '.receipt_status == "accepted"'
 wait_for "/v1/sessions/$SID/turns/2" .status completed
-wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded approver
 ```
 
 **Expected response.** The `items` of the list carry `kind: "permission"` or `kind: "question"` and an expiry time. The `approval` of an answer response has who answered (`answered_by`: the principal and the person behind it), the surface (`surface`: `web`, `api` or `slack`), and the `decision_id` of the `session.approve` decision that allowed the answer. The same values stay on the approval row (`pending_requests`), and sending again with the same Idempotency-Key returns the same `approval`. The `reason` of a denial (`action: "deny"`) is optional; if empty, the worker tells the model about a denial without a reason. The answer is accepted with `receipt_status: "accepted"`, and when the worker consumes it the receipt becomes `succeeded` and the turn `completed`. The worker reports consuming the answer on its next poll, so the turn can become `completed` first. Do not read the receipt once; wait for `succeeded`.
