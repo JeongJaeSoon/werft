@@ -125,7 +125,7 @@ jobs:
         run: |
           export DOCKER_CONFIG="$RUNNER_TEMP/no-login"
           mkdir -p "$DOCKER_CONFIG"
-          for app in control-host worker egress-proxy; do
+          for app in control-host worker worker-codex egress-proxy; do
             ref="$(jq -r --arg a "$app" '.images[$a] | "\(.image)@\(.digest)"' "$MANIFEST")"
             echo "pull ${ref}"
             docker pull "$ref"

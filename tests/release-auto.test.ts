@@ -676,7 +676,7 @@ esac
 });
 
 describe("release-stage.sh", () => {
-  const apps = ["control-host", "egress-proxy", "worker"];
+  const apps = ["control-host", "egress-proxy", "worker", "worker-codex"];
   const stage = (
     mutate: (dir: string) => void = () => {},
     env: Record<string, string> = { RELEASE_REF: "refs/tags/v1.2.3" },

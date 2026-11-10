@@ -28,8 +28,28 @@ const runtime = {
   cliVersion: "2.1.280",
   profileDigestScheme: 1,
 };
-const APPS = ["control-host", "worker", "egress-proxy"] as const;
-const DIGEST_CHAR = { "control-host": "a", worker: "b", "egress-proxy": "c" };
+const codexRuntime = {
+  engine: "codex",
+  sdkVersion: "0.167.0",
+  cliVersion: "0.167.0",
+  profileDigestScheme: 1,
+};
+const APPS = [
+  "control-host",
+  "worker",
+  "worker-codex",
+  "egress-proxy",
+] as const;
+const DIGEST_CHAR = {
+  "control-host": "a",
+  worker: "b",
+  "worker-codex": "e",
+  "egress-proxy": "c",
+};
+const RUNTIME = { worker: runtime, "worker-codex": codexRuntime } as Record<
+  string,
+  object
+>;
 
 const records = (): Record<string, unknown>[] =>
   APPS.map((app) => ({
@@ -39,7 +59,7 @@ const records = (): Record<string, unknown>[] =>
     promoted: true,
     commit: sha,
     ref,
-    runtime: app === "worker" ? runtime : null,
+    runtime: RUNTIME[app] ?? null,
     platforms: {
       amd64: { digest: hex("1"), imageId: hex("2") },
       arm64: { digest: hex("3"), imageId: hex("4") },
@@ -67,7 +87,7 @@ const build = (
   });
 
 describe("buildManifest", () => {
-  test("holds the three digests, the worker runtime and the chart version", () => {
+  test("holds the four digests, both worker runtimes and the chart version", () => {
     expect(build()).toEqual({
       schema: 1,
       tag,
@@ -83,6 +103,11 @@ describe("buildManifest", () => {
           digest: hex("b"),
           platforms: { amd64: hex("1"), arm64: hex("3") },
         },
+        "worker-codex": {
+          image: "ghcr.io/octo/werft-worker-codex",
+          digest: hex("e"),
+          platforms: { amd64: hex("1"), arm64: hex("3") },
+        },
         "egress-proxy": {
           image: "ghcr.io/octo/werft-egress-proxy",
           digest: hex("c"),
@@ -90,6 +115,7 @@ describe("buildManifest", () => {
         },
       },
       workerRuntime: runtime,
+      workerCodexRuntime: codexRuntime,
       chart: {
         name: "werft",
         version: "0.1.0",

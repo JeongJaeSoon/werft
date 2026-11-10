@@ -133,12 +133,11 @@ describe("images.yml", () => {
       `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
       `BUILDKIT_SYNTAX=${expression("env.DOCKERFILE_FRONTEND_IMAGE")}\n` +
       `APT_UPGRADE_KEY=${expression("steps.meta.outputs.apt-upgrade-key")}\n`;
-    // Only the build job's matrix has the Codex worker image; its leg picks
-    // the engine with the extra argument, which is empty on every other leg.
+    // Every job's matrix has the Codex worker image; its leg picks the engine
+    // with the extra argument, which is empty on every other leg.
     const codex = `${expression("matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || ''")}\n`;
     const args = builds.map((build) => build.with?.["build-args"]);
-    expect(args.filter((value) => value === common + codex).length).toBe(1);
-    expect(args.filter((value) => value === common).length).toBe(2);
+    expect(args.filter((value) => value === common + codex).length).toBe(3);
   });
 
   test("runs BuildKit from the mirror wherever buildx is set up", () => {

@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 
-const APPS = ["control-host", "worker", "egress-proxy"] as const;
+const APPS = [
+  "control-host",
+  "worker",
+  "worker-codex",
+  "egress-proxy",
+] as const;
 const PACKAGES = [...APPS.map((app) => `werft-${app}`), "werft"];
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const AGE_MS = 7 * 24 * 60 * 60 * 1000;

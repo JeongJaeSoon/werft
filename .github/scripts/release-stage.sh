@@ -21,9 +21,9 @@ case "$release_ref" in refs/tags/v*) ;; *)
   ;;
 esac
 
-test "$(ls "$staged"/*.json | wc -l)" -eq 3
+test "$(ls "$staged"/*.json | wc -l)" -eq 4
 mkdir -p "$out"
-for app in control-host worker egress-proxy; do
+for app in control-host worker worker-codex egress-proxy; do
   for file in "${staged}/${app}.json" "${unverified}/${app}.json"; do
     if [ ! -s "$file" ]; then
       echo "::error::${file} is missing" >&2

@@ -290,10 +290,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: &publish-matrix
-        # The Codex worker image is built, scanned and recorded by `build` on
-        # every run; publishing and releasing it is not wired yet (94S-663
-        # leaves it as a follow-up), so these jobs list the three they ship.
-        app: [control-host, worker, egress-proxy]
+        # The same four images `build` makes; worker-codex is apps/worker built
+        # with WORKER_RUNTIME=codex_app_server and ships as its own image.
+        app: [control-host, worker, worker-codex, egress-proxy]
         arch: [amd64, arm64]
     steps: &publish-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -347,6 +346,7 @@ jobs:
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
             APT_UPGRADE_KEY=${{ steps.meta.outputs.apt-upgrade-key }}
+            ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
       - name: Smoke the pushed digest
         env:
           APP: ${{ matrix.app }}
