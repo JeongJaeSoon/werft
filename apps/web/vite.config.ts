@@ -67,7 +67,6 @@ export default defineConfig(({ mode }) => ({
   ],
   // packages/ui resolves through a workspace symlink; without this a second
   // React or query-core copy breaks hooks and the query cache at runtime.
-  // apps/storybook/.storybook/main.ts keeps the same list.
   resolve: {
     dedupe: [
       "react",
