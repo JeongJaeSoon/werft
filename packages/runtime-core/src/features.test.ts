@@ -69,8 +69,11 @@ describe("featureSupport", () => {
 
   test("derives resume and park from the boolean capabilities", () => {
     expect(featureSupport(table, {}, "session_resume")).toBe("native");
-    expect(featureSupport(table, {}, "approval_park")).toBe("native");
-    const noResume = { ...table, resume: false };
+    // Parking needs a checkpoint taken at the approval, not only a turn-end one.
+    expect(featureSupport(table, {}, "approval_park")).toBe("none");
+    const parking = { ...table, approvalCheckpoint: true };
+    expect(featureSupport(parking, {}, "approval_park")).toBe("native");
+    const noResume = { ...parking, resume: false };
     expect(featureSupport(noResume, {}, "session_resume")).toBe("none");
     expect(featureSupport(noResume, {}, "approval_park")).toBe("none");
   });

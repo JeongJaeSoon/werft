@@ -829,6 +829,124 @@ describe("startCredentialProxy", () => {
       expect(plain.status).toBe(200);
     });
 
+    test("a remote part inside a tool result is refused, wherever the result nests it", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const statuses: number[] = [];
+      const result = (type: string, output: unknown) =>
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type, call_id: "call_1", output }],
+        });
+      for (const body of [
+        result("function_call_output", [
+          { type: "input_file", file_id: "file_1" },
+        ]),
+        result("function_call_output", [
+          { type: "input_file", file_url: "https://x.test/a.pdf" },
+        ]),
+        result("custom_tool_call_output", [
+          { type: "input_file", file_url: "https://x.test/a.pdf" },
+        ]),
+        // A computer-use screenshot is an object, typed neither input_file
+        // nor input_image.
+        result("computer_call_output", {
+          type: "computer_screenshot",
+          image_url: "https://x.test/shot.png",
+        }),
+        result("computer_call_output", {
+          type: "computer_screenshot",
+          file_id: "file_3",
+        }),
+        // Deeper than any honest client nests parts.
+        result("function_call_output", [
+          [[[[[[{ type: "input_file", file_id: "file_4" }]]]]]],
+        ]),
+        // A stored item the request only points at.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type: "item_reference", id: "msg_1" }],
+        }),
+      ]) {
+        statuses.push((await responses(server.port, { body })).status);
+      }
+      expect(statuses).toEqual(statuses.map(() => 400));
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      const carried = await responses(server.port, {
+        body: result("function_call_output", "plain text output"),
+      });
+      expect(carried.status).toBe(200);
+    });
+
+    test("a stored prompt template and a tool that makes the upstream fetch are refused, a local tool is not", async () => {
+      const up = upstream(() => Response.json({ id: "resp_1" }));
+      const auth = authorizer(bearerKey(up));
+      const server = proxy(auth.url, up.port);
+      const statuses: number[] = [];
+      const withTools = (...tools: unknown[]) =>
+        JSON.stringify({ model: "gpt-5.5", tools });
+      for (const body of [
+        '{"model":"gpt-5.5","prompt":{"id":"pmpt_1"}}',
+        withTools({
+          type: "mcp",
+          server_label: "x",
+          server_url: "https://evil.test/mcp",
+        }),
+        withTools({ type: "mcp", server_label: "x", connector_id: "c_1" }),
+        withTools({ type: "file_search", vector_store_ids: ["vs_1"] }),
+        withTools({ type: "web_search" }),
+        withTools({ type: "web_search_preview" }),
+        withTools({ type: "code_interpreter", container: "cntr_1" }),
+        withTools({ type: "image_generation" }),
+        withTools({ type: "shell", environment: { type: "container_auto" } }),
+        // Tools registered by an input item are declared all the same.
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "tool_search_output",
+              tools: [{ type: "mcp", server_url: "https://evil.test/mcp" }],
+            },
+          ],
+        }),
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [
+            {
+              type: "additional_tools",
+              tools: [{ type: "file_search", vector_store_ids: ["vs_1"] }],
+            },
+          ],
+        }),
+        JSON.stringify({
+          model: "gpt-5.5",
+          input: [{ type: "image_generation_call", id: "ig_1" }],
+        }),
+      ]) {
+        statuses.push((await responses(server.port, { body })).status);
+      }
+      expect(statuses).toEqual(statuses.map(() => 400));
+      expect(auth.asked).toEqual([]);
+      expect(up.seen).toEqual([]);
+      // The tools a codex turn declares run on the worker, not upstream.
+      const local = await responses(server.port, {
+        body: JSON.stringify({
+          model: "gpt-5.5",
+          prompt: null,
+          tool_choice: "auto",
+          tools: [
+            { type: "function", name: "shell", parameters: {} },
+            { type: "local_shell" },
+            { type: "shell", environment: { type: "local" } },
+            { type: "custom", name: "apply_patch", format: { type: "text" } },
+          ],
+        }),
+      });
+      expect(local.status).toBe(200);
+    });
+
     test("a Messages call still asks without a path, so an authorizer of the earlier release answers it", async () => {
       const up = upstream(() => Response.json({ id: "msg_1" }));
       const auth = authorizer(

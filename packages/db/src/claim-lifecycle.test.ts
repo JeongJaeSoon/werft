@@ -158,6 +158,7 @@ async function releaseWith(
   snapshot: unknown,
   card: Record<string, unknown> = {},
   specOf?: (releaseId: string) => ReleaseSpecRecord,
+  effectiveTools: unknown = [],
 ): Promise<string> {
   const workspaceId = crypto.randomUUID();
   const agentId = crypto.randomUUID();
@@ -192,7 +193,7 @@ async function releaseWith(
     runtimeProfileId: PROFILE,
     profileDigest: "digest",
     runtimeConfigSnapshot: snapshot,
-    effectiveTools: [],
+    effectiveTools,
     ...(specOf === undefined
       ? {}
       : (() => {
@@ -212,11 +213,13 @@ async function releaseWith(
 async function queuedSession(
   partition = "default",
   agentReleaseId: string | null = null,
+  runtimeToolsSource?: "profile" | "release",
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(sessions).values({
     admissionState: "active",
     agentReleaseId,
+    ...(runtimeToolsSource === undefined ? {} : { runtimeToolsSource }),
     branch: RUNNABLE.branch,
     id,
     ownerId: "owner-a",
@@ -313,6 +316,64 @@ describe("claim lifecycle", () => {
     expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
     expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
     expect(await toolsBound(await releaseWith({}))).toEqual([]);
+  });
+
+  test("the binding carries the tools source and, for a release session only, the release's effective_tools.tools", async () => {
+    const bind = async (
+      source: "profile" | "release" | undefined,
+      effectiveTools: unknown,
+      withRelease = true,
+    ) => {
+      const releaseId = await releaseWith(
+        { model: "m", tools: ["Read"] },
+        {},
+        undefined,
+        effectiveTools,
+      );
+      const backend = new NonceHoldingBackend();
+      await queuedSession("default", withRelease ? releaseId : null, source);
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding;
+    };
+    const effective = { tools: ["Grep", "Read"], mcp: [] };
+    // A row from before the column reads the legacy source and no effective list.
+    expect(await bind(undefined, effective)).toMatchObject({
+      runtimeToolsSource: "profile",
+      releaseTools: ["Read"],
+      releaseEffectiveTools: null,
+    });
+    expect(await bind("release", effective)).toMatchObject({
+      runtimeToolsSource: "release",
+      releaseEffectiveTools: ["Grep", "Read"],
+    });
+    // A value this image cannot read allows no tool.
+    expect(
+      (await bind("release", { tools: "Read" })).releaseEffectiveTools,
+    ).toEqual([]);
+    expect(await bind(undefined, effective, false)).toMatchObject({
+      runtimeToolsSource: "profile",
+      releaseEffectiveTools: null,
+    });
+  });
+
+  test("a new column default: sessions inserted without a source read `profile`, and the check refuses any other value", async () => {
+    const id = await queuedSession();
+    const [row] = await db
+      .select({ source: sessions.runtimeToolsSource })
+      .from(sessions)
+      .where(eq(sessions.id, id));
+    expect(row?.source).toBe("profile");
+    await expect(
+      (async () => {
+        await db
+          .update(sessions)
+          .set({ runtimeToolsSource: "other" })
+          .where(eq(sessions.id, id));
+      })(),
+    ).rejects.toThrow();
   });
 
   test("the binding carries the release's answer language: only ko, en or ja; follow-user, a release before the field, an unknown value and no release all bind none", async () => {

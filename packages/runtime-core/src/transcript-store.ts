@@ -26,10 +26,21 @@ export type TranscriptStoreOptions = {
   readonly inherit?: TranscriptInheritance;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   readonly transcriptLimits?: TranscriptLimits;
+  /**
+   * The directory the host keeps the engine's transcripts in, on the volume
+   * a checkpoint restores to (what `materialize` is later given). A store
+   * whose engine writes its transcript to disk itself reads it from here.
+   */
+  readonly engineDirectory?: string;
 };
 
-/** The engine's transcript mirror, as a checkpoint captures and restores it. */
-export interface TranscriptStore extends TranscriptMirror {
+/**
+ * What a checkpoint needs of an engine's transcripts: pin them as exact
+ * revisions, check what a restore adopts, and write it back where the engine
+ * resumes from. How the engine's transcript gets to the store is the engine's
+ * own business (`TranscriptStore.mirror`).
+ */
+export interface TranscriptCapture {
   /** When an append last landed; null before the first. */
   readonly persistedAt: Date | null;
   /** True while a transcript's latest append failed and nothing has landed for it since. */
@@ -49,6 +60,16 @@ export interface TranscriptStore extends TranscriptMirror {
   transcriptSizes(
     sessionId: string,
   ): Promise<Array<{ bytes: number; key: string }> | null>;
+}
+
+/**
+ * An engine's transcript store. `mirror` is present for an engine that hands
+ * its transcript over entry by entry while it runs (Claude's session store);
+ * an engine that keeps its transcript on disk and is read at the checkpoint
+ * has none.
+ */
+export interface TranscriptStore extends TranscriptCapture {
+  readonly mirror?: TranscriptMirror;
 }
 
 /**

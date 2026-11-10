@@ -1,0 +1,26 @@
+{
+  "name": "@werft-ai/runtime-codex",
+  "description": "Kiel session runtime: Codex app-server runtime adapter",
+  "version": "0.0.0",
+  "private": true,
+  "license": "PolyForm-Small-Business-1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test:unit": "bun test src --path-ignore-patterns='**/*.integration.test.ts'",
+    "image:verify": "bun run src/image-verify.ts"
+  },
+  "dependencies": {
+    "@openai/codex": "0.167.0",
+    "@werft-ai/contracts": "workspace:*",
+    "@werft-ai/runtime-codec-kit": "workspace:*",
+    "@werft-ai/runtime-codex-codec": "workspace:*",
+    "@werft-ai/runtime-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@werft-ai/testkit": "workspace:*"
+  }
+}
