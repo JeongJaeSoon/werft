@@ -7,7 +7,9 @@ import packageJson from "../package.json" with { type: "json" };
 // contracts are not marked side-effect free, so a bundler keeps all of them.
 const BUDGET_BYTES: Record<string, number> = {
   ".": 4 * 1024,
-  "./schemas": 139 * 1024,
+  // 140 KiB: the agent engine settings storage schemas and their validator
+  // (4c) put ./schemas 141 bytes over 139. ./forms stays at 139.
+  "./schemas": 140 * 1024,
   "./forms": 139 * 1024,
 };
 
