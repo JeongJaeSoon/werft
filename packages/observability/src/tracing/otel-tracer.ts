@@ -159,6 +159,29 @@ function toOtelContext(parent: SpanContext | undefined): Context {
   });
 }
 
+const SDK_HEADER_ENV = [
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+] as const;
+
+/**
+ * The OTLP exporter reads these two variables itself while it is built and
+ * merges them case-sensitively with the headers it is given, which can send a
+ * stale duplicate or override a tenant header. `parseTracingSettings` already
+ * applied them, so the SDK must not see them.
+ */
+function buildWithoutSdkHeaderEnv<T>(build: () => T): T {
+  const saved = SDK_HEADER_ENV.map((key) => [key, process.env[key]] as const);
+  for (const key of SDK_HEADER_ENV) delete process.env[key];
+  try {
+    return build();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value !== undefined) process.env[key] = value;
+    }
+  }
+}
+
 export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
   // Without a URL the SDK would quietly post to localhost:4318.
   if (config.exporter === undefined && config.endpoint === undefined) {
@@ -169,10 +192,15 @@ export function createOtelTracer(config: OtelTracerConfig): OtelTracer {
     config.exporter ??
     new WorkspaceBatchExporter(
       (headers) =>
-        new OTLPTraceExporter({
-          ...(config.endpoint === undefined ? {} : { url: config.endpoint }),
-          headers: { ...headers },
-        }),
+        buildWithoutSdkHeaderEnv(
+          () =>
+            new OTLPTraceExporter({
+              ...(config.endpoint === undefined
+                ? {}
+                : { url: config.endpoint }),
+              headers: { ...headers },
+            }),
+        ),
       config.headers,
       config.tenantHeaders,
     );

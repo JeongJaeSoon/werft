@@ -314,6 +314,44 @@ describe("otel tracer", () => {
     expect(collector.received.map((r) => r.tenant)).toEqual(["ws-a"]);
   });
 
+  test("the SDK's own reading of the headers variables cannot override or duplicate a header", async () => {
+    const env = {
+      OTEL_EXPORTER_OTLP_HEADERS: "x-scope-orgid=base,authorization=stale",
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS:
+        "X-Scope-OrgID=shared,Authorization=trace",
+    };
+    const saved = Object.fromEntries(
+      Object.keys(env).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, env);
+    try {
+      const { collector, tracer } = setup({
+        ...env,
+        TRACE_TENANT_HEADER: "X-Scope-OrgID: {workspace_id}",
+      });
+      await tracer.withSpan(
+        "s",
+        { attributes: { "werft.workspace_id": "ws-a" } },
+        async () => undefined,
+      );
+      await tracer.shutdown();
+      expect(collector.received).toHaveLength(1);
+      expect(collector.received[0]).toMatchObject({
+        tenant: "ws-a",
+        auth: "trace",
+      });
+      // The variables are put back for the rest of the process.
+      expect(process.env.OTEL_EXPORTER_OTLP_HEADERS).toBe(
+        env.OTEL_EXPORTER_OTLP_HEADERS,
+      );
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   test("a disabled configuration builds nothing and sends nothing", async () => {
     const collector = startFakeCollector();
     collectors.push(collector);
