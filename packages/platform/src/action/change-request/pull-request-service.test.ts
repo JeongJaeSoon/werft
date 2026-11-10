@@ -9,42 +9,42 @@ import {
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
-  ForgeCredentialError,
-  type ForgePullRequest,
-} from "../action/ports/forge.ts";
-import type { GitHubApi } from "../action/ports/github-api.ts";
-import {
   type AuthorizationPolicy,
   callerFor,
   createAuthorizationPolicy,
   type SessionAccess,
-} from "../musterrolle/policy.ts";
+} from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,
-} from "../ports/github-gate.ts";
+} from "../../ports/github-gate.ts";
 import type {
   PullRequestReceipt,
   PullRequestSource,
   PullRequestStore,
-} from "../ports/pull-requests.ts";
+} from "../../ports/pull-requests.ts";
 import type {
   SessionAttributionRecord,
   TurnRequester,
-} from "../ports/session-attribution.ts";
-import { fakeRepositoryReads } from "../testing/repository-tree-fake.ts";
-import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+} from "../../ports/session-attribution.ts";
+import {
+  repositoryBinding,
+  type SessionCatalog,
+} from "../../sessions/catalog.ts";
 import {
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
-} from "./git-attribution.ts";
+} from "../../sessions/git-attribution.ts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
+import { fakeRepositoryReads } from "../../testing/repository-tree-fake.ts";
+import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
+import type { GitHubApi } from "../ports/github-api.ts";
 import {
   commentMarker,
   createPullRequestService,
 } from "./pull-request-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const PUSH = "22222222-2222-4222-8222-222222222222";

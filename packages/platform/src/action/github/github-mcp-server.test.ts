@@ -10,30 +10,33 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
-import type { GitHubApi } from "../action/ports/github-api.ts";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../../musterrolle/policy.ts";
 import {
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,
-} from "../ports/github-gate.ts";
+} from "../../ports/github-gate.ts";
 import {
   type GitHubMcpSessionState,
   SavedRulesUnavailable,
-} from "../ports/github-mcp.ts";
+} from "../../ports/github-mcp.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type ScheduleRef,
-} from "../ports/pull-requests.ts";
-import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
+} from "../../ports/pull-requests.ts";
+import { PUSH_REFUSAL_ERRORS } from "../../ports/push-requests.ts";
+import { createRepositoryAttachmentService } from "../../sessions/repository-attachment-service.ts";
+import { SessionServiceError } from "../../sessions/session-service.ts";
 import {
   attachCatalog,
   attachmentContext,
   memoryAttachmentStore,
-} from "../testing/repository-attachment-fakes.ts";
+} from "../../testing/repository-attachment-fakes.ts";
+import type { PushActor } from "../change-request/push-request-service.ts";
+import type { GitHubApi } from "../ports/github-api.ts";
 import {
   createGitHubMcpServer,
   type GitHubMcpServices,
@@ -45,9 +48,6 @@ import {
   createGitHubWorkService,
   type GitHubWorkStore,
 } from "./github-work-service.ts";
-import type { PushActor } from "./push-request-service.ts";
-import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
-import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";

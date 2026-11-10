@@ -1,6 +1,6 @@
 import type { RelatedIssue, UserLocale } from "@werft-ai/contracts";
-import { repoRefOf } from "../action/ports/forge.ts";
-import { closeOpenBlocks, withPullRequestTail } from "./git-attribution.ts";
+import { closeOpenBlocks, withPullRequestTail } from "../../sessions/index.ts";
+import { repoRefOf } from "../ports/forge.ts";
 import {
   fillTemplate,
   type PreparedTemplate,

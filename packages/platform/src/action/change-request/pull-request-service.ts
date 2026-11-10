@@ -19,34 +19,22 @@ import {
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
-import type {
-  Commentable,
-  PullRequestMergeable,
-  PullRequestReadable,
-  PullRequestWritable,
-  RepositoryReadable,
-} from "../action/ports/capabilities.ts";
-import {
-  ForgeCredentialError,
-  type ForgePullRequest,
-  type ForgePullRequestDetail,
-} from "../action/ports/forge.ts";
-import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
   type GitHubGrant,
   GitHubUnavailableError,
-} from "../ports/github-gate.ts";
+} from "../../ports/github-gate.ts";
 import {
   PULL_REQUEST_MAX_ATTEMPTS,
   type PullRequestDrainOutcome,
   type PullRequestJob,
   type PullRequestStageError,
   pullRequestBackoffMs,
-} from "../ports/pull-request-drain.ts";
-import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
+} from "../../ports/pull-request-drain.ts";
+import type { PullRequestSettingsStore } from "../../ports/pull-request-settings.ts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestOperation,
@@ -54,17 +42,32 @@ import {
   type PullRequestSource,
   type PullRequestStore,
   type ScheduleRef,
-} from "../ports/pull-requests.ts";
-import type { SessionAttributionStore } from "../ports/session-attribution.ts";
-import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
+} from "../../ports/pull-requests.ts";
+import type { SessionAttributionStore } from "../../ports/session-attribution.ts";
 import {
   pullRequestTail,
   pushRequestMarkerOf,
+  repositoryBinding,
+  requirePermitted,
+  type SessionCatalog,
+  SessionServiceError,
   sessionUrlOf,
   surfaceOfChannel,
   type TailRequester,
   withPullRequestTail,
-} from "./git-attribution.ts";
+} from "../../sessions/index.ts";
+import type {
+  Commentable,
+  PullRequestMergeable,
+  PullRequestReadable,
+  PullRequestWritable,
+  RepositoryReadable,
+} from "../ports/capabilities.ts";
+import {
+  ForgeCredentialError,
+  type ForgePullRequest,
+  type ForgePullRequestDetail,
+} from "../ports/forge.ts";
 import { renderPullRequestBody } from "./pull-request-body.ts";
 import {
   type ResolvedPullRequestSettings,
@@ -88,7 +91,6 @@ import {
   pushReceiptActor,
   requireVerified,
 } from "./push-request-service.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /** `mergeable_state` values GitHub merges from; anything else is not sent. */
 const MERGEABLE_STATES: ReadonlySet<string> = new Set([

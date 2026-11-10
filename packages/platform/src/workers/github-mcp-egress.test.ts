@@ -4,8 +4,8 @@ import {
   GITHUB_MCP_FIXED_TOOLS,
   githubMcpTools,
 } from "@werft-ai/contracts";
+import { verifyGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
-import { verifyGitHubMcpGrant } from "../sessions/github-mcp-server.ts";
 import {
   createGitHubMcpEgress,
   GITHUB_MCP_UPSTREAM_PATH,

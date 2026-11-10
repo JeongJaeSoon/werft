@@ -9,8 +9,7 @@ import type {
   SubmitPullRequestReviewRequest,
   SubmitPullRequestReviewResponse,
 } from "@werft-ai/contracts";
-import { ForgeCredentialError } from "../action/ports/forge.ts";
-import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -20,14 +19,15 @@ import {
   GitHubUnavailableError,
   type GitHubWork,
   type GitHubWorkContext,
-} from "../ports/github-gate.ts";
-import { cleanBody } from "./pull-request-text.ts";
+} from "../../ports/github-gate.ts";
+import { requirePermitted, SessionServiceError } from "../../sessions/index.ts";
+import { cleanBody } from "../change-request/pull-request-text.ts";
 import {
   type PushActor,
   pushReceiptActor,
   requireVerified,
-} from "./push-request-service.ts";
-import { requirePermitted, SessionServiceError } from "./session-service.ts";
+} from "../change-request/push-request-service.ts";
+import { ForgeCredentialError } from "../ports/forge.ts";
 
 export interface GitHubWorkStore
   extends Pick<GitHubGateStore, "recordReceipt"> {

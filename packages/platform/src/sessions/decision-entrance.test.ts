@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 import type {
+  PushActor,
+  PushRequestService,
+} from "../action/change-request/push-request-service.ts";
+import type {
   PendingAnswerEntrance,
   PushDecisionEntrance,
 } from "../decision/index.ts";
+import type { PendingRequestService } from "../decision/pending-service.ts";
 import type { Caller } from "../musterrolle/policy.ts";
-import type { PendingRequestService } from "./pending-service.ts";
-import type { PushActor, PushRequestService } from "./push-request-service.ts";
 
 // Compile-time proof: the services the channels call are the entrances
 // decision/index.ts names. Drifting either signature breaks the typecheck.

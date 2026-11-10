@@ -19,7 +19,7 @@ import {
   requirePermitted,
   SessionServiceError,
   selfApproval,
-} from "./session-service.ts";
+} from "../sessions/index.ts";
 
 // api.md § 승인·중단·강제 종료. Kept apart from the session service so the
 // answer path owns its own error vocabulary: REQUEST_EXPIRED and
