@@ -153,6 +153,7 @@ describe("database schema", () => {
       "checkpoints",
       "control_intents",
       "credential_bindings",
+      "engine_settings_gate",
       "env_variable_grants",
       "env_variables",
       "events",
@@ -235,6 +236,7 @@ describe("database schema", () => {
       "worker_image_refusals",
       "worker_launches",
       "workers",
+      "workspace_engine_settings",
       "workspace_profiles",
       "workspaces",
     ]);

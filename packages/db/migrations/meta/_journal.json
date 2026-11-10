@@ -1191,6 +1191,13 @@
       "when": 1794278748969,
       "tag": "0260_agent_engine_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 261,
+      "version": "7",
+      "when": 1794284425828,
+      "tag": "0261_engine_settings_workspace_gate",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,40 @@ import type { ToolCatalogView } from "../api/profile-tools.ts";
 export const ENGINE_AUTO_MODE_RULES_MAX = 64;
 export const ENGINE_AUTO_MODE_RULE_MAX_LENGTH = 1024;
 
+/**
+ * What one source may save, so that the largest settings a claim can merge
+ * still fit the worker's contract (128 permission rules and 64 sentences a
+ * list, and the engine's 100,000 byte limit on the settings it starts with).
+ *
+ * A claim merges the workspace's, the inherited `admin_deny`, and the agent's
+ * twice (the settings it started with and the current ones):
+ * 48 + 32 + 24 + 24 = 128 rules in a permission list; 16 + 16 + 16 = 48
+ * sentences in an auto mode list. Bytes are the JSON text of the whole
+ * `permissions` or `auto_mode` object, escapes included. The byte figures are
+ * measured against the engine's baseline when the merge ships.
+ */
+export const ENGINE_SETTINGS_LIMITS = {
+  workspace: {
+    permissionRules: 48,
+    permissionBytes: 12 * 1024,
+    autoModeRules: 16,
+    autoModeBytes: 6 * 1024,
+  },
+  agent: {
+    permissionRules: 24,
+    permissionBytes: 6 * 1024,
+    autoModeRules: 16,
+    autoModeBytes: 4 * 1024,
+  },
+} as const;
+export type EngineSettingsSource = keyof typeof ENGINE_SETTINGS_LIMITS;
+
+/** Inherited restrictions in `agent_engine_settings.admin_deny`, all entries together. */
+export const ADMIN_DENY_RULES_MAX = 32;
+export const ADMIN_DENY_RULES_BYTES_MAX = 8 * 1024;
+/** The releases that existed when an entry was made; stored data the engine never gets. */
+export const ADMIN_DENY_EXEMPT_BYTES_MAX = 256 * 1024;
+
 export const STORED_PERMISSION_KEYS = ["allow", "ask", "deny"] as const;
 export const STORED_AUTO_MODE_KEYS = [
   "allow",
@@ -96,9 +130,24 @@ export type EngineSettingsRefusal =
     }
   | {
       readonly reason_code: "settings_shape";
+      /** Empty, or the rule that sits in the wrong list of `admin_deny`. */
+      readonly rule: string;
+      readonly message: string;
+    }
+  | {
+      /** An `mcp__` rule is enforced by the platform per call, which only knows how to deny. */
+      readonly reason_code: "mcp_rule_verdict";
+      readonly rule: string;
+      readonly message: string;
+    }
+  | {
+      readonly reason_code: "settings_too_large";
       readonly rule: "";
       readonly message: string;
     };
+
+const jsonBytes = (value: unknown) =>
+  new TextEncoder().encode(JSON.stringify(value)).length;
 
 /**
  * The settings a person sends, as they would be stored, or why not. The
@@ -111,9 +160,11 @@ export type EngineSettingsRefusal =
 export function validateEngineSettings(
   catalog: ToolCatalogView,
   input: unknown,
+  source: EngineSettingsSource,
 ):
   | { readonly settings: StoredEngineSettings }
   | { readonly refusal: EngineSettingsRefusal } {
+  const limits = ENGINE_SETTINGS_LIMITS[source];
   const shape = z
     .object({
       permissions: z
@@ -150,7 +201,37 @@ export function validateEngineSettings(
     if (raws === undefined || raws.length === 0) continue;
     const parsed = parsePermissionRules(catalog, raws);
     if ("refusal" in parsed) return parsed;
+    if (key !== "deny") {
+      const mcp = parsed.rules.find((rule) => rule.kind === "mcp");
+      if (mcp !== undefined) {
+        return {
+          refusal: {
+            reason_code: "mcp_rule_verdict",
+            rule: mcp.rule,
+            message: `${mcp.rule} can only be denied: the platform checks an mcp__ tool per call and has no ask or allow for it`,
+          },
+        };
+      }
+    }
+    if (parsed.rules.length > limits.permissionRules) {
+      return {
+        refusal: {
+          reason_code: "too_many_rules",
+          rule: "",
+          message: `A ${source} list holds at most ${limits.permissionRules} rules`,
+        },
+      };
+    }
     permissions[key] = parsed.rules.map((rule) => rule.rule);
+  }
+  if (jsonBytes(permissions) > limits.permissionBytes) {
+    return {
+      refusal: {
+        reason_code: "settings_too_large",
+        rule: "",
+        message: `The permission rules of a ${source} are at most ${limits.permissionBytes} bytes`,
+      },
+    };
   }
 
   const autoMode: Record<string, string[]> = {};
@@ -171,16 +252,25 @@ export function validateEngineSettings(
       }
       if (!unique.includes(text)) unique.push(text);
     }
-    if (unique.length > ENGINE_AUTO_MODE_RULES_MAX) {
+    if (unique.length > limits.autoModeRules) {
       return {
         refusal: {
           reason_code: "auto_mode_rule_syntax",
           rule: "",
-          message: `A list holds at most ${ENGINE_AUTO_MODE_RULES_MAX} sentences`,
+          message: `A ${source} list holds at most ${limits.autoModeRules} sentences`,
         },
       };
     }
     autoMode[key] = unique;
+  }
+  if (jsonBytes(autoMode) > limits.autoModeBytes) {
+    return {
+      refusal: {
+        reason_code: "settings_too_large",
+        rule: "",
+        message: `The auto mode sentences of a ${source} are at most ${limits.autoModeBytes} bytes`,
+      },
+    };
   }
 
   return {
@@ -189,4 +279,114 @@ export function validateEngineSettings(
       auto_mode: autoMode,
     }),
   };
+}
+
+/**
+ * One entry of `agent_engine_settings.admin_deny`: a restriction an agent
+ * inherits from what its profile and the installation blocked, written by an
+ * operator and never by the web API. It applies to a session only when the
+ * session's release is not one of `exempt_release_ids`, the releases the agent
+ * already had when the entry was made. A release that existed keeps what it
+ * was pinned with, including after a rollback to it.
+ */
+export const adminDenyEntrySchema = z
+  .object({
+    exempt_release_ids: z.array(z.string().min(1).max(128)),
+    permissions_deny: z.array(z.string().min(1)),
+    mcp_deny: z.array(z.string().min(1)),
+  })
+  .strict();
+export type AdminDenyEntry = z.infer<typeof adminDenyEntrySchema>;
+export const adminDenySchema = z.array(adminDenyEntrySchema);
+
+/**
+ * The entries as they would be stored, or why not. Every rule goes through the
+ * same parser as a saved rule; `permissions_deny` takes tool and pattern rules
+ * and `mcp_deny` only `mcp__` rules, because the two reach the engine by
+ * different routes. The rule budget counts the union of all entries: an
+ * entry's deny holds for every release it covers, so entries add up.
+ */
+export function validateAdminDeny(
+  catalog: ToolCatalogView,
+  input: unknown,
+):
+  | { readonly entries: AdminDenyEntry[] }
+  | { readonly refusal: EngineSettingsRefusal } {
+  const shape = adminDenySchema.safeParse(input);
+  if (!shape.success) {
+    return {
+      refusal: {
+        reason_code: "settings_shape",
+        rule: "",
+        message:
+          "admin_deny is a list of exempt_release_ids, permissions_deny and mcp_deny",
+      },
+    };
+  }
+  const entries: AdminDenyEntry[] = [];
+  const union = new Set<string>();
+  for (const entry of shape.data) {
+    const out: AdminDenyEntry = {
+      exempt_release_ids: [...new Set(entry.exempt_release_ids)],
+      permissions_deny: [],
+      mcp_deny: [],
+    };
+    for (const key of ["permissions_deny", "mcp_deny"] as const) {
+      if (entry[key].length === 0) continue;
+      const parsed = parsePermissionRules(catalog, entry[key]);
+      if ("refusal" in parsed) return parsed;
+      for (const rule of parsed.rules) {
+        if ((rule.kind === "mcp") !== (key === "mcp_deny")) {
+          return {
+            refusal: {
+              reason_code: "settings_shape",
+              rule: rule.rule,
+              message:
+                key === "mcp_deny"
+                  ? `${rule.rule} is not an mcp__ rule`
+                  : `${rule.rule} is an mcp__ rule: it goes in mcp_deny`,
+            },
+          };
+        }
+        union.add(rule.rule);
+        if (!out[key].includes(rule.rule)) out[key].push(rule.rule);
+      }
+    }
+    entries.push(out);
+  }
+  const bodies = entries.map(({ permissions_deny, mcp_deny }) => ({
+    permissions_deny,
+    mcp_deny,
+  }));
+  if (union.size > ADMIN_DENY_RULES_MAX) {
+    return {
+      refusal: {
+        reason_code: "too_many_rules",
+        rule: "",
+        message: `The inherited restrictions of an agent are at most ${ADMIN_DENY_RULES_MAX} rules`,
+      },
+    };
+  }
+  if (jsonBytes(bodies) > ADMIN_DENY_RULES_BYTES_MAX) {
+    return {
+      refusal: {
+        reason_code: "settings_too_large",
+        rule: "",
+        message: `The inherited restrictions of an agent are at most ${ADMIN_DENY_RULES_BYTES_MAX} bytes`,
+      },
+    };
+  }
+  if (
+    jsonBytes(entries.map((entry) => entry.exempt_release_ids)) >
+    ADMIN_DENY_EXEMPT_BYTES_MAX
+  ) {
+    return {
+      refusal: {
+        reason_code: "settings_too_large",
+        rule: "",
+        message: `The release lists of the inherited restrictions are at most ${ADMIN_DENY_EXEMPT_BYTES_MAX} bytes`,
+      },
+    };
+  }
+  return { entries };
 }
