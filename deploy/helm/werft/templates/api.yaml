@@ -30,7 +30,12 @@ spec:
               containerPort: 3000
             - name: authorizer
               containerPort: 3100
+            # Opens only when OTEL_TRACES_EXPORTER=otlp (api.extraEnv).
+            - name: trace-ingest
+              containerPort: {{ .Values.config.tracing.ingestPort }}
           env:
+            - name: TRACE_INGEST_PORT
+              value: {{ .Values.config.tracing.ingestPort | quote }}
             - name: WORKSPACE_ENFORCE
               value: {{ .Values.api.workspaceEnforce | quote }}
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
@@ -134,6 +139,11 @@ spec:
     - name: http
       port: 3000
       targetPort: http
+    # Workers' span ingest, through the egress proxy; nothing listens until
+    # trace export is on.
+    - name: trace-ingest
+      port: {{ .Values.config.tracing.ingestPort }}
+      targetPort: trace-ingest
 ---
 # The egress proxy's authorizer, apart from the public Service so no Ingress
 # can name it. ClusterIP only, and the NetworkPolicy admits the proxy alone.

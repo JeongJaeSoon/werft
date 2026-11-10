@@ -47,7 +47,7 @@ chart のリソースは `<fullname>-metrics` です。release 名に werft が�
 | Datadog Agent（Helm） | Autodiscovery の `openmetrics` チェックを使います。`metrics.podAnnotations` に `ad.datadoghq.com/metrics.checks` を入れます。Datadog に保存する名前（ドット表記など）はコレクター側の設定です |
 | OpenTelemetry Collector | `prometheus` receiver で同じ endpoint を scrape し、OTLP で送信します |
 
-プラットフォームから OTLP でメトリクスを送信することはありません。pull endpoint を一つ設けることで、コレクターの種類によらず同じ定義を読み取れ、アプリにコレクターのアドレスや SDK の設定も不要です。セッショントレースはまだ export しません。[可観測性（OTel）](/observability)を参照してください。
+プラットフォームから OTLP でメトリクスを送信することはありません。pull endpoint を一つ設けることで、コレクターの種類によらず同じ定義を読み取れ、アプリにコレクターのアドレスや SDK の設定も不要です。セッショントレースは設定すると OTLP で export します(デフォルトはオフ)。[可観測性（OTel）](/observability)を参照してください。
 
 <a id="3-endpoint-확인" />
 ### 3. endpoint の確認

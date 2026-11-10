@@ -655,9 +655,7 @@ jobs:
           path: apps/docs/out
           retention-days: 1
 
-  # The read-only console demo, built on the placeholder fixture. The real
-  # recording and its Pages deploy live in JeongJaeSoon/agent-platform-demo,
-  # which runs the same scan and build against this repository.
+  # The read-only console demo mode, built on the placeholder fixture.
   demo:
     needs: changes
     if: >-
@@ -669,8 +667,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
-      - name: No credential, outside address or machine name in the fixtures
-        run: bun apps/web/scripts/demo-scan.ts
       - name: Static build
         run: bun run --cwd apps/web build:demo
 

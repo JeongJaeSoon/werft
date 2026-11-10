@@ -90,7 +90,7 @@ describe("codex descriptor", () => {
   test("declares what the engine cannot do instead of faking it", () => {
     const { capabilities } = CODEX_DESCRIPTOR;
     expect(capabilities.approvalCheckpoint).toBe(false);
-    expect(capabilities.mcp).toBe("none");
+    expect(capabilities.mcp).toBe("native");
     expect(capabilities.skills).toBe("none");
     expect(capabilities.permissionModes.plan).toBe("none");
     expect(capabilities.permissionModes.auto).toBe("none");
@@ -105,7 +105,7 @@ describe("codex descriptor", () => {
       unmetFeatures(capabilities, CODEX_DESCRIPTOR.extraFeatures, {
         features: ["mcp", "skills", "classifier_review", "approval_park"],
       }),
-    ).toEqual(["mcp", "skills", "classifier_review", "approval_park"]);
+    ).toEqual(["skills", "classifier_review", "approval_park"]);
   });
 });
 
